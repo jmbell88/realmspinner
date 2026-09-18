@@ -221,7 +221,7 @@ def test_poser_xyz_triples_are_one_label_above_short_letters():
     """Rotate X/Y/Z and Offset X/Y/Z are coordinate rows, not three fields --
     one ``field_label`` above, ``X``/``Y``/``Z`` beside each box, the
     ``plotter_canvas._setup_body`` precedent this pass's brief pointed at."""
-    from warlock.studio.panes import poser_controls
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
 
     source = Path(poser_controls.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label("Rotate")' in source

@@ -723,7 +723,7 @@ class FrameMixin:
         if ctx.state.mode != self._last_mode and ctx.state.mode == "poser":
             # Review's rule: arriving refreshes the library and asks for the
             # armature preview, both cheap on a warm cache.
-            from .. import poser_mode
+            from ..modes.poser import mode as poser_mode
 
             poser_mode.enter(ctx)
         self._note_last_workspace(ctx)

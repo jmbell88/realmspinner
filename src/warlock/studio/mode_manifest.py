@@ -112,7 +112,7 @@ DOC_MODES: tuple[ModeManifest, ...] = (
     ModeManifest("sirens", "sirens_mode", "sirens", "Export WAV + stems", "sirens_io"),
     # An empty export label suppresses the command (see the field's own
     # docstring); no opener, for the same reason a pose has no New command.
-    ModeManifest("poser", "poser_mode", "pose", "", None),
+    ModeManifest("poser", "modes.poser.mode", "pose", "", None),
 )
 
 

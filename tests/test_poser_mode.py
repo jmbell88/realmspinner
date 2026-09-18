@@ -24,7 +24,7 @@ from warlock.kernels.geom3d.gltf import Model, Node
 from warlock.kernels.rig import cliplib, templates
 from warlock.pipelines import blender_run
 from warlock.service import poses as svc_poses
-from warlock.studio import poser_mode
+from warlock.studio.modes.poser import mode as poser_mode
 from warlock.studio.viewer.pose import PoseEditor
 
 
@@ -957,7 +957,7 @@ def test_rerig_control_is_gated_by_the_pane_s_own_blender_check():
     false; this pins that the control never grew a second, silent gate."""
     import inspect
 
-    from warlock.studio.panes import poser_library
+    from warlock.studio.modes.poser.ui.panes import library as poser_library
 
     source = inspect.getsource(poser_library.draw)
     assert "_rerig(ctx, state)" in source, "the control must actually be wired in"
@@ -1207,7 +1207,7 @@ def test_skeleton_state_resets_on_open_and_close_but_not_on_template_switch(svc,
     # editing session it says nothing about -- ``_reset_for_template`` is not
     # in the call chain for a mid-session skeleton edit at all, but this pins
     # that adding a field there was a deliberate choice, not an oversight.
-    import warlock.studio.poser_mode as poser_mode_module
+    import warlock.studio.modes.poser.mode as poser_mode_module
 
     fields_reset = poser_mode_module._reset_for_template.__code__.co_names
     assert "skeleton_editing" not in fields_reset
@@ -1577,7 +1577,7 @@ def test_mirror_on_a_clean_editor_just_runs(svc):
 
 @pytest.mark.parametrize(
     ("module", "guard_name"),
-    [("poser_controls", "poser_mode.guard"), ("pose_panel", "guard")],
+    [("modes.poser.ui.panes.controls", "poser_mode.guard"), ("panes.pose_panel", "guard")],
 )
 def test_both_mirror_buttons_go_through_their_pane_s_guard(module, guard_name):
     """Source-scanned rather than clicked: the button lives inside an imgui
@@ -1586,7 +1586,7 @@ def test_both_mirror_buttons_go_through_their_pane_s_guard(module, guard_name):
     import importlib
     import inspect
 
-    source = inspect.getsource(importlib.import_module(f"warlock.studio.panes.{module}"))
+    source = inspect.getsource(importlib.import_module(f"warlock.studio.{module}"))
     assert f'{guard_name}(ctx, "mirror the pose", viewer.mirror)' in source
     assert "viewer.mirror()" not in source
 
@@ -2408,7 +2408,7 @@ def test_imported_pose_names_never_overwrite_working_copy_poses():
 
 
 def test_import_clip_is_disabled_without_blender_with_a_reason():
-    from warlock.studio.panes.poser_clips import _import_clip_reason
+    from warlock.studio.modes.poser.ui.panes.clips import _import_clip_reason
 
     assert (
         _import_clip_reason(False, True, False)
@@ -2430,7 +2430,7 @@ def test_import_clip_is_disabled_with_a_reason_while_a_skeleton_edit_is_open():
     than pretend Blender or the library is the reason. Checked first: even
     with Blender missing and no library at all, this is still the one true
     reason while a skeleton edit is open."""
-    from warlock.studio.panes.poser_clips import _import_clip_reason
+    from warlock.studio.modes.poser.ui.panes.clips import _import_clip_reason
 
     assert (
         _import_clip_reason(True, True, False, True)
@@ -2660,7 +2660,7 @@ def test_the_rigged_assets_picker_click_reaches_open_asset_with_the_row(svc, mon
     row straight to ``open_asset``, unmodified, and does not re-implement the
     dirty-editor guard or the template-switch discard confirm that function
     already carries."""
-    from warlock.studio.panes import poser_library
+    from warlock.studio.modes.poser.ui.panes import library as poser_library
 
     job_id = _rigged_job(svc)
     ctx = FakeCtx(svc)

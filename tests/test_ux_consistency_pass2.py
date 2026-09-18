@@ -89,8 +89,8 @@ def test_alt_drag_orbits_in_the_pose_viewer_as_it_does_in_clay(monkeypatch):
 
 
 def test_the_axis_view_keys_are_one_function_both_viewports_call():
-    from warlock.studio import poser_mode
     from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     assert "clay_mode.axis_view_key(" in inspect.getsource(poser_mode.handle_key)
     assert "axis_view_key(" in inspect.getsource(clay_mode)

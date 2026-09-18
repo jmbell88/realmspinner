@@ -190,7 +190,7 @@ def test_ctrl_z_during_a_live_clay_drag_is_swallowed(svc):
 def test_selecting_another_key_asks_before_discarding_an_edit():
     from test_poser_mode import _clip_ctx, _turned
 
-    from warlock.studio import poser_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     ctx, state = _clip_ctx()
     editor = ctx.poser_viewer.editor
@@ -206,7 +206,7 @@ def test_selecting_another_key_asks_before_discarding_an_edit():
 def test_scrubbing_over_an_unsaved_pose_refuses_in_words():
     from test_poser_mode import _clip_ctx, _turned
 
-    from warlock.studio import poser_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     ctx, state = _clip_ctx()
     editor = ctx.poser_viewer.editor
@@ -221,7 +221,7 @@ def test_edits_made_while_a_clip_save_is_writing_survive_the_landing(monkeypatch
     from test_poser_mode import _clip_ctx
 
     from warlock.service import clips as svc_clips
-    from warlock.studio import poser_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     ctx, state = _clip_ctx()
     pending: dict[str, Any] = {}

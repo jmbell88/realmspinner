@@ -11,10 +11,11 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ...kernels.rig import templates
-from .. import controls, icons, poser_mode, theme, tokens, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
+from ......kernels.rig import templates
+from ..... import controls, icons, theme, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as poser_mode
 
 # The 2026-09-14 audit's poser-03: a skeleton draft holds the armature at
 # rest for the whole of a skeleton-editing session (enter_skeleton_edit resets

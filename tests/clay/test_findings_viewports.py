@@ -35,7 +35,7 @@ def test_both_ends_of_the_conversion_call_it():
     import inspect
 
     from warlock.pipelines import blender_worker
-    from warlock.studio import poser_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     assert "poses.delta_from_node" in inspect.getsource(blender_worker)
     assert "poses.node_from_delta" in inspect.getsource(poser_mode)

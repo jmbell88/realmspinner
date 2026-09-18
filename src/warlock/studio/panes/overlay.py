@@ -207,7 +207,7 @@ def _front_yaw(ctx: Any, job: Any, viewer: Any) -> None:
     """
     import math
 
-    from .. import poser_mode
+    from ..modes.poser import mode as poser_mode
 
     job_id = str(job.get("id") or "")
     front = float((job.get("params") or {}).get("front_yaw") or 0.0)

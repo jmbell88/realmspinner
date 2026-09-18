@@ -17,9 +17,10 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import controls, poser_mode, theme, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
+from ..... import controls, theme, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as poser_mode
 
 
 def draw(ctx: Any) -> None:
@@ -81,7 +82,7 @@ def _error_for(state: Any, field: str) -> str:
 
 
 def _editor(ctx: Any, state: Any, viewer: Any) -> None:
-    from ...kernels.rig import skeleton
+    from ......kernels.rig import skeleton
 
     editor = viewer.editor
     count = len(editor.draft)

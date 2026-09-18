@@ -170,12 +170,19 @@ def _modes_sharing_axis_view_key() -> set[str]:
     from warlock.studio import modes as modes_module
 
     labels = {key: label for key, label, *_rest in modes_module.MODES}
+    # Both shapes: ``studio/<mode>_mode.py`` for a mode not yet folded, and
+    # ``studio/modes/<mode>/mode.py`` for one that has. The flat glob alone
+    # lost Clay in restructure P5 and Poser in P6 without a sound, leaving
+    # Mason as the only mode this test still held the manual to.
+    candidates = {path.stem.removesuffix("_mode"): path for path in STUDIO.glob("*_mode.py")}
+    candidates |= {path.parent.name: path for path in STUDIO.glob("modes/*/mode.py")}
+    assert len(candidates) >= 8, f"found only {sorted(candidates)}; the roots drifted"
     found = set()
-    for path in STUDIO.glob("*_mode.py"):
+    for key, path in candidates.items():
         text = path.read_text(encoding="utf-8")
         if re.search(r"\baxis_view_key\(", text):
-            key = path.stem.removesuffix("_mode")
             found.add(labels[key])
+    assert {"Clay", "Mason", "Poser"} <= found, found
     return found
 
 

@@ -77,7 +77,7 @@ def items(ctx: Any) -> list[StatusItem]:
         # label and no ``dirty``: the row read a constant ``Untitled`` however
         # dirty the pose was, until 2026-09-05. The name and the flag come
         # from the mode, which knows which library record is being edited.
-        from . import poser_mode
+        from .modes.poser import mode as poser_mode
 
         named = poser_mode.document_label(ctx)
         if named is not None:

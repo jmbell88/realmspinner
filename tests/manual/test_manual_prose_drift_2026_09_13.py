@@ -218,7 +218,7 @@ def test_manual_shift_c_sentence_does_not_claim_slice_has_a_paired_tool():
 
 
 def test_manual_poser_save_as_label_matches_button():
-    controls = (STUDIO / "panes" / "poser_controls.py").read_text(encoding="utf-8")
+    controls = (STUDIO / "modes/poser/ui/panes/controls.py").read_text(encoding="utf-8")
     assert '"Save as reusable pose..."' in controls
 
     text = _chapter("08-rigging-and-posing.md")
@@ -230,7 +230,7 @@ def test_manual_poser_save_as_label_matches_button():
 
 
 def test_manual_poser_revert_label_matches_button():
-    clips = (STUDIO / "panes" / "poser_clips.py").read_text(encoding="utf-8")
+    clips = (STUDIO / "modes/poser/ui/panes/clips.py").read_text(encoding="utf-8")
     assert '"Revert to shipped clips"' in clips
 
     text = _flat(_chapter("08-rigging-and-posing.md"))

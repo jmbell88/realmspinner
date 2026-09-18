@@ -221,7 +221,7 @@ def test_the_engine_never_imports_a_sibling_mode():
         "warlock.studio.sirens",
         "warlock.studio.sirens_mode",
         "warlock.studio.muse_mode",
-        "warlock.studio.poser_mode",
+        "warlock.studio.modes.poser.mode",
     )
     for path in _modules():
         for name in _outward(path) | _lazy_imports(path):

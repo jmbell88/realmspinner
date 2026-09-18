@@ -38,7 +38,7 @@ from warlock.kernels.rig import skeleton, templates
 from warlock.service import Conflict
 from warlock.service import jobs as svc_jobs
 from warlock.service import rig as svc_rig
-from warlock.studio import poser_mode
+from warlock.studio.modes.poser import mode as poser_mode
 from warlock.studio.viewer.pose import PoseEditor
 
 # --- poser-01: capture_key must clear dirty/moved like every sibling -------

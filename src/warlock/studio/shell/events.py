@@ -563,7 +563,7 @@ class EventsMixin:
             clay_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "poser":
-            from .. import poser_mode
+            from ..modes.poser import mode as poser_mode
 
             # Unconditional for the workspace-mode reason: handle_key returns
             # False with nothing selected, and letting that fall through would

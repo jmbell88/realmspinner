@@ -186,9 +186,10 @@ class QuitMixin:
         clicking "Keep editing" on the first still left two more questions to
         dismiss, after the user has already said they are not quitting.
         """
-        from .. import mason_mode, packwright_mode, plotter_mode, poser_mode, sirens_mode
+        from .. import mason_mode, packwright_mode, plotter_mode, sirens_mode
         from ..modes.clay import mode as clay_mode
         from ..modes.inker import mode as inker_mode
+        from ..modes.poser import mode as poser_mode
         from ..panes import pose_panel
 
         ctx = self.app_ctx

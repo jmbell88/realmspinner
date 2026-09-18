@@ -43,11 +43,11 @@ from .. import resources
 from ..mason_viewport import MasonViewport
 from ..modes.clay.ui.viewport import ClayViewport
 from ..modes.inker.ui.workspace import InkerWorkspace
+from ..modes.poser.ui.viewport import PoserViewport
 from ..modes.review.ui.workspace import ReviewPanes
 from ..muse_workspace import MuseWorkspace
 from ..packwright_workspace import PackwrightWorkspace
 from ..plotter_workspace import PlotterWorkspace
-from ..poser_viewport import PoserViewport
 from ..sirens_workspace import SirensWorkspace
 from ..troupe_workspace import TroupeWorkspace
 from .events import EventsMixin

@@ -50,9 +50,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .. import poselib
-from ..kernels.rig import cliplib, poses, skeleton, store, templates
-from . import dialogs, journal
+from .... import poselib
+from ....kernels.rig import cliplib, poses, skeleton, store, templates
+from ... import dialogs, journal
 
 log = logging.getLogger(__name__)
 
@@ -413,8 +413,8 @@ def enter(ctx: Any) -> None:
 def _collect(svc: Any, template: str) -> dict[str, Any]:
     """The library rows and the shipped presets, in one task -- both are disk
     reads and the panes need them together."""
-    from ..service import poses as svc_poses
-    from ..service import rig as svc_rig
+    from ....service import poses as svc_poses
+    from ....service import rig as svc_rig
 
     return {
         "template": template,
@@ -461,7 +461,7 @@ def request_preview(ctx: Any) -> None:
     safe to ask on every arrival; a cold build is a Blender subprocess, which
     is exactly why it is a task and the viewport draws a progress row.
     """
-    from ..service import poses as svc_poses
+    from ....service import poses as svc_poses
 
     state = ensure(ctx)
     if not state.template or not getattr(ctx, "rigging_available", False):
@@ -602,8 +602,8 @@ def riggable_assets(ctx: Any) -> list[dict[str, Any]]:
     every row ``list_jobs`` returns and a second, narrower shape would only
     be one more thing for this and ``open_asset`` to agree about by hand.
     """
-    from ..service import jobs as svc_jobs
-    from . import troupe_mode
+    from ....service import jobs as svc_jobs
+    from ... import troupe_mode
 
     state = ensure(ctx)
     now = time.monotonic()
@@ -663,7 +663,7 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
     to hide the wait behind, so it goes through :func:`sync_asset`'s own
     parse-on-a-task/adopt-on-this-frame split instead; see its docstring.
     """
-    from ..service import rig as svc_rig
+    from ....service import rig as svc_rig
 
     state = ensure(ctx)
     job_id = str(job.get("id") or "")
@@ -775,7 +775,7 @@ def retry_asset(ctx: Any) -> None:
 
 def refresh_asset_poses(ctx: Any) -> None:
     """Ask for the bound asset's own saved poses to be re-read."""
-    from ..service import rig as svc_rig
+    from ....service import rig as svc_rig
 
     state = ensure(ctx)
     if not state.job_id or state.job_id in state.asset_poses_loading:
@@ -793,7 +793,7 @@ def save_pose_to_asset(ctx: Any) -> None:
     should be able to stick to *this* asset, exactly like the inspector's own
     Pose tab already offers via ``service.rig.save_pose``.
     """
-    from ..service import rig as svc_rig
+    from ....service import rig as svc_rig
 
     state = ensure(ctx)
     viewer = viewer_of(ctx)
@@ -857,7 +857,7 @@ def set_front(ctx: Any) -> None:
     press while the first is still in flight -- the same shallow,
     already-accepted double-click guard the rest of this module relies on.
     """
-    from ..service import jobs as svc_jobs
+    from ....service import jobs as svc_jobs
 
     state = ensure(ctx)
     viewer = viewer_of(ctx)
@@ -881,7 +881,7 @@ def clear_front(ctx: Any) -> None:
     Reset button is greyed for the same fact, stated as a reason rather than
     silently doing nothing.
     """
-    from ..service import jobs as svc_jobs
+    from ....service import jobs as svc_jobs
 
     state = ensure(ctx)
     if not state.job_id or not state.asset_front_yaw:
@@ -937,7 +937,7 @@ def apply_asset_pose(ctx: Any, pose_id: str) -> None:
 
 def delete_asset_pose(ctx: Any, pose_id: str, name: str) -> None:
     """Delete one of the asset's own saved poses, behind a confirm."""
-    from ..service import rig as svc_rig
+    from ....service import rig as svc_rig
 
     state = ensure(ctx)
     if not state.job_id:
@@ -991,7 +991,7 @@ def rerig(ctx: Any, template: str) -> None:
     over a custom skeleton would otherwise sail through with no warning at
     all.
     """
-    from ..service import rig as svc_rig
+    from ....service import rig as svc_rig
 
     state = ensure(ctx)
     if not state.job_id:
@@ -1095,7 +1095,7 @@ def cancel_skeleton_edit(ctx: Any) -> None:
     ``has_unsaved_edits()``, so :func:`guard` itself would work here too, but
     its wording ("Unsaved pose changes...") is wrong for a skeleton draft.
     """
-    from . import dialogs
+    from ... import dialogs
 
     viewer = viewer_of(ctx)
     if viewer is None or viewer.editor.mode != "skeleton":
@@ -1125,7 +1125,7 @@ def apply_skeleton(ctx: Any) -> None:
     on ``state.skeleton_error`` by :func:`on_task_failed`, so the pane can put
     it under the control it names instead of only the generic red toast.
     """
-    from ..service import rig as svc_rig
+    from ....service import rig as svc_rig
 
     state = ensure(ctx)
     viewer = viewer_of(ctx)
@@ -1193,7 +1193,7 @@ def skeleton_remove_pivot(ctx: Any, name: str) -> None:
 
 def skeleton_remove_subtree(ctx: Any, name: str) -> None:
     """Behind a confirm naming how many bones go with it."""
-    from . import dialogs
+    from ... import dialogs
 
     viewer = viewer_of(ctx)
     if viewer is None or viewer.editor.mode != "skeleton":
@@ -1235,7 +1235,7 @@ def skeleton_attach_limb(ctx: Any, preset_key: str, parent: str, side: str, mirr
 def limb_preset_rows(ctx: Any) -> list[dict[str, Any]]:
     """The shipped limb presets, cached for the life of the session -- a
     read-only, job-independent catalogue, like ``rig_templates``' own."""
-    from ..service import rig as svc_rig
+    from ....service import rig as svc_rig
 
     state = ensure(ctx)
     if state.limb_presets_cache is None:
@@ -1309,7 +1309,7 @@ def _land_rerig(ctx: Any) -> None:
     re-read the rig -- with the poser-01 template reset folded in for a rig
     that landed under a different skeleton than the one being browsed.
     """
-    from ..service import rig as svc_rig
+    from ....service import rig as svc_rig
 
     state = ensure(ctx)
     job_id = state.job_id
@@ -1370,7 +1370,7 @@ def preview_bounds(template_key: str) -> tuple[list[float], list[float]]:
     """
     # Function-level, the module's own rule: nothing under this import may pull
     # in a GL context, and math3d is only wanted by this one function.
-    from ..kernels.geom3d import math3d as m3
+    from ....kernels.geom3d import math3d as m3
 
     template = templates.get_template(template_key)
     fitted = skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
@@ -1735,7 +1735,7 @@ def save(ctx: Any, tab: Any = None) -> None:
     document mode its active tab, and Poser's "tab" is the viewer it already
     reads off the ctx. One signature there beats a special case.
     """
-    from ..service import poses as svc_poses
+    from ....service import poses as svc_poses
 
     state = ensure(ctx)
     viewer = viewer_of(ctx)
@@ -1762,7 +1762,7 @@ def save(ctx: Any, tab: Any = None) -> None:
 
 
 def save_as(ctx: Any, tab: Any = None) -> None:
-    from ..service import poses as svc_poses
+    from ....service import poses as svc_poses
 
     state = ensure(ctx)
     viewer = viewer_of(ctx)
@@ -1780,7 +1780,7 @@ def save_as(ctx: Any, tab: Any = None) -> None:
 
 
 def rename(ctx: Any, pose_id: str) -> None:
-    from ..service import poses as svc_poses
+    from ....service import poses as svc_poses
 
     state = ensure(ctx)
     record = state.find(pose_id)
@@ -1801,7 +1801,7 @@ def rename(ctx: Any, pose_id: str) -> None:
 
 
 def duplicate(ctx: Any, pose_id: str) -> None:
-    from ..service import poses as svc_poses
+    from ....service import poses as svc_poses
 
     _mutate(ctx, DUPLICATE_KEY, svc_poses.duplicate_library_pose, ctx.svc, pose_id)
 
@@ -1809,7 +1809,7 @@ def duplicate(ctx: Any, pose_id: str) -> None:
 def delete(ctx: Any, pose_id: str) -> None:
     """Behind a confirm: the library has no trash, so this one is genuinely
     irreversible -- the paths that are keep their question."""
-    from ..service import poses as svc_poses
+    from ....service import poses as svc_poses
 
     state = ensure(ctx)
     record = state.find(pose_id)
@@ -1868,7 +1868,7 @@ def guard(ctx: Any, verb: str, proceed: Any) -> bool:
     survives on its own viewer, like an open Inker document -- so this runs
     only on quit and on destructive in-mode actions.
     """
-    from . import docmodes
+    from ... import docmodes
 
     viewer = viewer_of(ctx)
     return docmodes.viewer_guard(ctx, viewer, _dirty_draft_noun(viewer), verb, proceed)
@@ -1889,7 +1889,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
     """
     import pygame
 
-    from . import docmodes
+    from ... import docmodes
 
     if event.type != pygame.KEYDOWN:
         return False
@@ -1910,7 +1910,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
     # cannot come to disagree about which number is the front. Until
     # 2026-09-05 this copy tested the bare digit: 1, 3, 7 and 5 snapped the
     # camera here and did nothing in Clay without Ctrl.
-    from .modes.clay import mode as clay_mode
+    from ..clay import mode as clay_mode
 
     name = pygame.key.name(event.key).lower()
     ctrl = bool(event.mod & pygame.KMOD_CTRL)
@@ -2231,7 +2231,7 @@ def clips_pump(ctx: Any) -> None:
 
 
 def _collect_clips(svc: Any, template: str) -> dict[str, Any]:
-    from ..service import clips as svc_clips
+    from ....service import clips as svc_clips
 
     return svc_clips.library(svc, template)
 
@@ -2265,7 +2265,7 @@ def rebuild_frames(ctx: Any) -> None:
     not match its keys, mid-edit) leaves the frames empty and says why, rather
     than raising into a draw.
     """
-    from ..kernels import sheet as sheetlib
+    from ....kernels import sheet as sheetlib
 
     state = ensure(ctx)
     record = state.open_clip()
@@ -2570,7 +2570,7 @@ def _touch(ctx: Any) -> None:
 
 
 def set_segment(ctx: Any, index: int, frames: int) -> None:
-    from ..service import clips as svc_clips
+    from ....service import clips as svc_clips
 
     state = ensure(ctx)
     record = state.open_clip()
@@ -2736,7 +2736,7 @@ def _insert_key(ctx: Any, name: str) -> None:
 
 def new_key(ctx: Any, name: str) -> None:
     """Author a brand-new key pose from the armature and add it to the clip."""
-    from ..service import clips as svc_clips
+    from ....service import clips as svc_clips
 
     state = ensure(ctx)
     editor = _viewer_editor(ctx)
@@ -2774,7 +2774,7 @@ def remove_key(ctx: Any, index: int) -> None:
     blast radius the button does not describe.
     """
     def proceed() -> None:
-        from ..service import clips as svc_clips
+        from ....service import clips as svc_clips
 
         state = ensure(ctx)
         record = state.open_clip()
@@ -2810,7 +2810,7 @@ def save_clips(ctx: Any) -> None:
     ``clips_unsaved`` clears when the save *lands*, never at submit: a refused
     write has to leave the editor holding the edits that were refused.
     """
-    from ..service import clips as svc_clips
+    from ....service import clips as svc_clips
 
     state = ensure(ctx)
     if not state.template or not state.clips:
@@ -2837,7 +2837,7 @@ def revert_clips(ctx: Any) -> None:
     Behind the guard for ``reset_all``'s reason: it discards authored work and
     this mode has no undo.
     """
-    from ..service import clips as svc_clips
+    from ....service import clips as svc_clips
 
     state = ensure(ctx)
     if not state.template:
@@ -2970,7 +2970,7 @@ def import_clip(ctx: Any) -> bool:
     that -- no toast either way, ``dialogs.open_file``'s own contract.
     -> whether the request was taken.
     """
-    from ..service import clip_import as svc_clip_import
+    from ....service import clip_import as svc_clip_import
 
     state = ensure(ctx)
     if state.skeleton_editing:
@@ -3272,7 +3272,7 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
         # rather than trusted.
         import numpy as np
 
-        from ..kernels.geom3d import math3d as m3
+        from ....kernels.geom3d import math3d as m3
 
         editor.enter_joints_mode()
         for name, delta in (data.get("moved") or {}).items():

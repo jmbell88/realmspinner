@@ -209,8 +209,8 @@ def test_the_skeleton_pane_builds_in_both_states(app_ctx, imgui_ctx):
     """P6 (2026-09-13): the entry button, the editor with nothing and
     something selected, and a field-addressed refusal shown under a control
     -- each its own branch of ``panes/poser_skeleton.py``."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_controls
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -238,7 +238,8 @@ def test_the_skeleton_pane_builds_in_both_states(app_ctx, imgui_ctx):
 
 def test_the_poser_panes_build_without_rigging(app_ctx, imgui_ctx):
     """The Blender-missing branch, which is the state a bare install opens in."""
-    from warlock.studio.panes import poser_controls, poser_library
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
+    from warlock.studio.modes.poser.ui.panes import library as poser_library
 
     app_ctx.rigging_available = False
     _frame(imgui_ctx, lambda: poser_library.draw(app_ctx))
@@ -246,7 +247,7 @@ def test_the_poser_panes_build_without_rigging(app_ctx, imgui_ctx):
 
 
 def test_the_controls_pane_builds_while_the_preview_loads(app_ctx, imgui_ctx):
-    from warlock.studio.panes import poser_controls
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
 
     app_ctx.rigging_available = True
     assert app_ctx.poser_viewer is None
@@ -254,8 +255,9 @@ def test_the_controls_pane_builds_while_the_preview_loads(app_ctx, imgui_ctx):
 
 
 def test_the_poser_panes_build_with_a_session_and_a_library(app_ctx, imgui_ctx):
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_controls, poser_library
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
+    from warlock.studio.modes.poser.ui.panes import library as poser_library
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -300,8 +302,8 @@ def test_the_front_section_draws_bound_and_unbound(app_ctx, imgui_ctx):
     """The section only exists in an asset session, and both of its states
     have to build: no front chosen (the readout says so and two of the three
     buttons are greyed with a reason) and a front chosen."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_controls
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -323,7 +325,7 @@ def test_setting_the_front_records_the_goal_not_the_damped_angle(app_ctx, monkey
     store an angle the user never chose and never saw settle -- and at
     ``DAMPING`` 0.05 it can be tens of degrees short. ``clay_state.read_from``
     made this call already; this is the test that it was copied."""
-    from warlock.studio import poser_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -345,7 +347,7 @@ def test_looking_at_the_front_turns_the_camera_and_keeps_the_framing(app_ctx):
     """An angle change that also reframed would throw away the part of the
     model the user had lined up -- ``Camera.look_along``'s own rule, which is
     why this is not a call to it."""
-    from warlock.studio import poser_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -373,7 +375,7 @@ def test_a_landed_front_write_dirties_the_jobs_cache(app_ctx, monkeypatch):
     """
     from types import SimpleNamespace
 
-    from warlock.studio import poser_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     state = poser_mode.ensure(app_ctx)
     state.job_id = ""  # no asset bound here: the toolbar's press, not Poser's.
@@ -391,8 +393,8 @@ def test_a_landed_front_write_dirties_the_jobs_cache(app_ctx, monkeypatch):
 def test_drawing_the_library_pane_pumps_the_refresh_flag(app_ctx, imgui_ctx):
     """The per-frame half of the refresh idiom is wired through this pane's
     draw, so a drawn frame with the flag up must submit the list."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_library
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import library as poser_library
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -435,7 +437,7 @@ def test_update_key_reason_checks_posing_before_the_stale_frame():
     ``state.frame`` may still hold whatever in-between value it had before the
     switch -- checking it first named that stale frame as the reason instead
     of the real one, that posing had not started yet."""
-    from warlock.studio.panes.poser_clips import _update_key_reason
+    from warlock.studio.modes.poser.ui.panes.clips import _update_key_reason
 
     assert _update_key_reason(False, 3) == "The skeleton preview is still loading."
     assert (
@@ -453,7 +455,7 @@ def test_update_key_reason_names_a_build_failure_not_still_loading():
     Blender build failure with a perfectly good clip library on screen used
     to leave both buttons claiming the preview was "still loading"
     indefinitely."""
-    from warlock.studio.panes.poser_clips import _new_key_reason, _update_key_reason
+    from warlock.studio.modes.poser.ui.panes.clips import _new_key_reason, _update_key_reason
 
     assert (
         _update_key_reason(False, 3, error="Could not build the pose preview.")
@@ -489,9 +491,9 @@ def test_a_provisional_clip_shows_its_badge(app_ctx, imgui_ctx):
     """The picker's badge text, pinned as a pure lookup so it is testable with
     no imgui frame (``_update_key_reason``'s own reason for being a function),
     then proven not to break the pane it is actually drawn into."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
-    from warlock.studio.panes.poser_clips import _provisional_note
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
+    from warlock.studio.modes.poser.ui.panes.clips import _provisional_note
 
     assert _provisional_note({"provisional": True}) == "provisional"
     assert _provisional_note({"provisional": False}) == ""
@@ -516,8 +518,8 @@ def test_the_import_report_names_a_duplicate_normalized_source_bone(
     through ``cliptransfer.transfer``'s report but left rendering it to
     whoever owns this pane; closed the same day. A report carrying the field
     must draw a line naming it, the same way ``ignored`` already does."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -553,8 +555,8 @@ def test_the_import_report_is_hidden_while_a_skeleton_edit_is_open(app_ctx, imgu
     left on screen. ``poser_clips._import_report`` only ever draws through
     imgui, so the assertion is on whether ``_import_button`` calls it at all
     rather than on anything the renderer produced."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -585,7 +587,7 @@ def test_the_import_report_is_hidden_while_a_skeleton_edit_is_open(app_ctx, imgu
 
 
 def test_the_clip_pane_builds_without_rigging(app_ctx, imgui_ctx):
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = False
     _frame(imgui_ctx, lambda: poser_clips.draw(app_ctx))
@@ -594,8 +596,8 @@ def test_the_clip_pane_builds_without_rigging(app_ctx, imgui_ctx):
 def test_the_clip_pane_builds_for_a_skeleton_with_no_clips(app_ctx, imgui_ctx):
     """The state every template but the humanoid opens in, and the one a
     collapsed heading would hide."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -605,8 +607,8 @@ def test_the_clip_pane_builds_for_a_skeleton_with_no_clips(app_ctx, imgui_ctx):
 
 
 def test_the_clip_pane_builds_over_a_clip_and_a_session(app_ctx, imgui_ctx):
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -620,8 +622,8 @@ def test_the_clip_pane_builds_over_a_clip_and_a_session(app_ctx, imgui_ctx):
 def test_the_clip_pane_builds_while_scrubbing_and_while_unsaved(app_ctx, imgui_ctx):
     """Three branches that only exist in the middle of a session: the
     in-between banner, the Back-to-key button and the unsaved marker."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -640,8 +642,8 @@ def test_the_clip_pane_builds_while_scrubbing_and_while_unsaved(app_ctx, imgui_c
 def test_the_clip_pane_builds_when_the_clip_will_not_expand(app_ctx, imgui_ctx):
     """Mid-edit inconsistency is ordinary -- the segments briefly do not match
     the keys -- and it must draw a reason rather than raise into a frame."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -655,8 +657,8 @@ def test_the_clip_pane_builds_when_the_clip_will_not_expand(app_ctx, imgui_ctx):
 
 
 def test_drawing_the_clip_pane_pumps_its_own_refresh_flag(app_ctx, imgui_ctx):
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -669,8 +671,8 @@ def test_drawing_the_clip_pane_pumps_its_own_refresh_flag(app_ctx, imgui_ctx):
 def test_an_unsaved_editor_is_never_reloaded_underneath_the_user(app_ctx, imgui_ctx):
     """A background refresh landing on unsaved keys would discard them without
     anyone asking, so the pump refuses while there is work in the editor."""
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -686,9 +688,9 @@ def test_a_failed_skeleton_build_offers_retry(app_ctx, imgui_ctx, gl, monkeypatc
     """A build that has already failed once must not strand the user on a
     dead-end overlay -- the "Try again" button has to exist and it has to
     reuse ``request_preview`` rather than a second copy of its logic."""
-    from warlock.studio import poser_mode
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.viewport import PoserViewport
     from warlock.studio.panes import overlay
-    from warlock.studio.poser_viewport import PoserViewport
 
     app_ctx.rigging_available = True
     state = poser_mode.ensure(app_ctx)
@@ -734,7 +736,7 @@ def test_the_joint_menu_switches_to_skeleton_items_in_skeleton_mode(app_ctx, img
     """P6 (2026-09-13): the right-click menu over a skeleton draft offers Add
     child/Split/Delete rather than the pose menu's rotate/reset items, which
     have nothing to act on while a draft has no pose at all."""
-    from warlock.studio.poser_viewport import PoserViewport
+    from warlock.studio.modes.poser.ui.viewport import PoserViewport
 
     class _App(PoserViewport):
         def __init__(self, gl_ctx, ctx):
@@ -766,7 +768,7 @@ def test_a_selected_joint_can_be_rotated_by_number(app_ctx, imgui_ctx):
     proven by going through the same undo step, not by a matching quaternion,
     since a duplicate write path could match the number and still bypass
     ``rotate_selected``."""
-    from warlock.studio.panes import poser_controls
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -801,7 +803,7 @@ def test_typing_a_joint_rotation_or_root_offset_refreshes_the_bound_meshs_skin_p
     ``GpuScene.refresh_palettes`` after it writes the pose; the typed Rotate
     X/Y/Z and Offset X/Y/Z fields wrote the correct data but skipped it,
     leaving a bound mesh's skin visibly frozen at the old pose."""
-    from warlock.studio.panes import poser_controls
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -819,7 +821,7 @@ def test_typing_a_joint_rotation_or_root_offset_refreshes_the_bound_meshs_skin_p
 
 def test_joints_changed_from_rest_are_marked(app_ctx, imgui_ctx):
     from warlock.kernels.geom3d import math3d as m3
-    from warlock.studio.panes import poser_controls
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -846,7 +848,7 @@ def test_poser_reset_all_tooltip_does_not_claim_no_undo():
     the same false claim removed already, and this copy was left behind."""
     import inspect
 
-    from warlock.studio.panes import poser_controls
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
 
     source = inspect.getsource(poser_controls._joint)
     assert 'tooltip="Put every joint back to rest."' in source
@@ -861,8 +863,8 @@ def test_update_key_shows_pending_when_the_pose_drifted(app_ctx, imgui_ctx):
     pose" -- true only once a key is loaded and the live pose has moved off
     it, and false again while scrubbing an in-between frame."""
     from warlock.kernels.geom3d import math3d as m3
-    from warlock.studio import poser_mode
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -895,7 +897,7 @@ def test_revert_clips_reason_names_still_saving_when_a_save_is_in_flight():
     pattern this repository already uses for a greyed control's reason."""
     from types import SimpleNamespace as NS
 
-    from warlock.studio.panes import poser_clips
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
 
     unsaved = NS(clips_unsaved=True, clips={})
     edited = NS(clips_unsaved=False, clips={"edited": True})

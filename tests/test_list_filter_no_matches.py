@@ -37,7 +37,7 @@ FILTERED = (
     # filtered -- the timeline's track column (W2.5a).
     "modes/inker/ui/panes/timeline.py",
     "panes/pose_panel.py",
-    "panes/poser_library.py",
+    "modes/poser/ui/panes/library.py",
     # The one list in the app that grows without bound: an atlas's sources are
     # whatever has been dropped on it, which is hundreds by the end of a sheet.
     # Packwright's *items* pane is deliberately not here -- it is a result list

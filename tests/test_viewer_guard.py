@@ -13,7 +13,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.studio import docmodes, poser_mode
+from warlock.studio import docmodes
+from warlock.studio.modes.poser import mode as poser_mode
 from warlock.studio.panes import pose_panel
 
 

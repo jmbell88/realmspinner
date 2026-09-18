@@ -295,7 +295,7 @@ def test_major_panes_have_roles_and_no_production_pane_child_calls():
         *(root / "shell").glob("*.py"),
         root / "modes/clay/ui/viewport.py",
         root / "mason_viewport.py",
-        root / "poser_viewport.py",
+        root / "modes/poser/ui/viewport.py",
         root / "modes/review/ui/workspace.py",
         root / "plotter_workspace.py",
         root / "muse_workspace.py",

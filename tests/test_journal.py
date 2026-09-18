@@ -883,7 +883,7 @@ def test_a_pose_slots_journal_bookkeeping_fields_are_declared_somewhere_a_test_c
     storage (which has to keep living on the viewer, whose lifetime the slot
     itself does not share) to be a dataclass.
     """
-    import warlock.studio.poser_mode as poser_mode_module
+    import warlock.studio.modes.poser.mode as poser_mode_module
 
     names = set(getattr(poser_mode_module._PoseSlot, "__annotations__", {}))
     assert {"journal_name", "journal_head", "journal_at"} <= names, sorted(names)

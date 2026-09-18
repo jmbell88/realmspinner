@@ -38,9 +38,11 @@ class PoserViewport:
         """
         from imgui_bundle import imgui
 
-        from . import layout as layout_mod
-        from .panes import poser_clips, poser_controls, poser_library
-        from .shell.frame import _column_boundary
+        from .... import layout as layout_mod
+        from ....shell.frame import _column_boundary
+        from .panes import clips as poser_clips
+        from .panes import controls as poser_controls
+        from .panes import library as poser_library
 
         ctx = self.app_ctx
         left_w = layout_mod.sidebar_width("left")
@@ -84,9 +86,10 @@ class PoserViewport:
     def _poser_viewport(self, ctx: Any) -> None:
         from imgui_bundle import imgui
 
-        from . import icons, poser_mode, widgets
-        from .main import TARGET_FPS
-        from .panes import overlay
+        from .... import icons, widgets
+        from ....main import TARGET_FPS
+        from ....panes import overlay
+        from .. import mode as poser_mode
 
         self._poser_hovered = False
         state = poser_mode.ensure(ctx)
@@ -152,7 +155,7 @@ class PoserViewport:
         """
         from imgui_bundle import imgui
 
-        from . import widgets
+        from .... import widgets
 
         popup = "poser-joint-menu"
         if viewer.menu_request is not None:
@@ -170,7 +173,7 @@ class PoserViewport:
     def _poser_pose_menu(self, ctx: Any, viewer: Any) -> None:
         from imgui_bundle import imgui
 
-        from . import controls, widgets
+        from .... import controls, widgets
 
         selected = viewer.editor.selected
         if selected is None:
@@ -191,7 +194,7 @@ class PoserViewport:
             # (``poser_controls``/``pose_panel``), which this bypassed: "reset
             # every joint" throws away an unsaved pose, and a right-click menu
             # is the easiest of the three doors to hit by accident.
-            from . import poser_mode
+            from .. import mode as poser_mode
 
             poser_mode.guard(ctx, "reset every joint", viewer.reset_all)
 
@@ -204,7 +207,8 @@ class PoserViewport:
         """
         from imgui_bundle import imgui
 
-        from . import controls, poser_mode, widgets
+        from .... import controls, widgets
+        from .. import mode as poser_mode
 
         selected = viewer.editor.selected_bone()
         if selected is None:
@@ -227,7 +231,7 @@ class PoserViewport:
     def _ensure_poser_viewer(self) -> Any:
         """Poser's own Viewer, built on first use for ClayView's reason -- and
         mirrored onto the ctx so poser_mode's guard can reach the editor."""
-        from .viewer_embed import Viewer
+        from ....viewer_embed import Viewer
 
         if self.poser_viewer is None:
             self.poser_viewer = Viewer(self.ctx)

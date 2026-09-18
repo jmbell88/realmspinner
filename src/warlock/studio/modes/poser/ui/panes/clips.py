@@ -30,10 +30,11 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ...kernels.rig import cliplib
-from .. import controls, forms, icons, poser_mode, theme, tokens, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
+from ......kernels.rig import cliplib
+from ..... import controls, forms, icons, theme, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as poser_mode
 
 
 def _provisional_note(record: dict[str, Any] | None) -> str:
@@ -412,7 +413,7 @@ def _insert_existing(ctx: Any, state: Any) -> None:
 
 
 def _ask_new_key(ctx: Any) -> None:
-    from .. import dialogs
+    from ..... import dialogs
 
     ctx.prompts.ask(
         dialogs.Prompt(
@@ -427,7 +428,7 @@ def _timing(ctx: Any, state: Any) -> None:
     record = state.open_clip()
     if record is None:
         return
-    from ...service import clips as svc_clips
+    from ......service import clips as svc_clips
 
     widgets.section("Timing")
     widgets.field_label("Frame time (ms)")

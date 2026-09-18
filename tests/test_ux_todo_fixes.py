@@ -530,7 +530,8 @@ def test_poser_saves_from_the_keyboard_and_the_palette():
     button in one pane and nothing else."""
     import inspect
 
-    from warlock.studio import palette, poser_mode
+    from warlock.studio import palette
+    from warlock.studio.modes.poser import mode as poser_mode
 
     assert "poser" in palette._DOC_MODES
     assert callable(poser_mode.active)

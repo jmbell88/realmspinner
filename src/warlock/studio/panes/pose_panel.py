@@ -207,7 +207,7 @@ def open_in_poser(ctx: Any, job: Any) -> None:
     ``rig.glb`` rather than falling back to the generic, meshless skeleton
     preview, so what was being posed here keeps being posed there.
     """
-    from .. import poser_mode
+    from ..modes.poser import mode as poser_mode
     from ..state import set_mode
 
     def proceed() -> None:

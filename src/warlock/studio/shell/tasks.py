@@ -254,7 +254,7 @@ class TasksMixin:
                     # failed scan that left it set would make the mode inert.
                     review_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("poser-"):
-                    from .. import poser_mode
+                    from ..modes.poser import mode as poser_mode
 
                     # Same rule again: ``loading``/``building`` gate the pane
                     # and the viewport's progress row.
@@ -584,7 +584,7 @@ class TasksMixin:
             review_mode.on_task_done(ctx, done)
             return
         if key.startswith("poser-"):
-            from .. import poser_mode
+            from ..modes.poser import mode as poser_mode
 
             poser_mode.on_task_done(ctx, done)
             return
@@ -734,7 +734,7 @@ class TasksMixin:
                 # ``troupe_mode.sendable_meshes`` -- up to CAST_REFRESH_LIVE
                 # stale on its own -- but a rig landing while the mode is
                 # already open should not need a restart to appear in it.
-                from .. import poser_mode
+                from ..modes.poser import mode as poser_mode
 
                 poser_mode.invalidate_riggable(ctx)
             return

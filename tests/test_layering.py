@@ -507,7 +507,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.shell.app", "warlock.studio.muse_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.packwright_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.plotter_workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.poser_viewport"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.poser.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.review.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.sirens_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.troupe_workspace"),
