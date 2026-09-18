@@ -37,10 +37,10 @@ from pathlib import Path
 import pytest
 from _pure_packages import dotted_root, siblings_of
 
-from warlock.studio import mason
+from warlock.studio.modes.mason import engine as mason
 
 ENGINE = Path(mason.__file__).parent
-PACKAGE = "warlock.studio.mason"
+PACKAGE = "warlock.studio.modes.mason.engine"
 
 #: Everything this package may *ever* reach for. The contract, not the tally.
 #:

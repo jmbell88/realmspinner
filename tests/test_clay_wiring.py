@@ -216,9 +216,9 @@ def test_primitive_icons_covers_every_generator_exactly() -> None:
     generator would silently wear a box forever. This is the coverage check the
     fallback cannot be: one icon per generator, and no icon for a generator
     that no longer exists."""
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from warlock.studio import tool_palette
 
-    assert set(clay_tools.PRIMITIVE_ICONS) == set(bp.GENERATORS)
+    assert set(tool_palette.PRIMITIVE_ICONS) == set(bp.GENERATORS)
 
 
 def test_every_camera_attribute_the_clay_view_reaches_exists():

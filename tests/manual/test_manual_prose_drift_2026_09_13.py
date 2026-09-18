@@ -156,7 +156,7 @@ def test_home_chapter_names_every_tour_in_TOURS():
 
 
 def test_manual_lock_paragraph_matches_pick_not_being_gated_by_locked():
-    view = (STUDIO / "mason_view.py").read_text(encoding="utf-8")
+    view = (STUDIO / "modes/mason/ui/view.py").read_text(encoding="utf-8")
     # The engine still selects a locked node like any other -- the claim this
     # test pins is that the manual no longer says otherwise.
     text = _flat(_chapter("31-mason.md"))
@@ -193,7 +193,7 @@ def test_compat_md_aseprite_user_data_row_matches_partial_retirement():
 
 
 def test_chapter_17_radius_label_matches_the_sculpt_pane():
-    palette = (STUDIO / "panes" / "mason_palette.py").read_text(encoding="utf-8")
+    palette = (STUDIO / "modes/mason/ui/panes/palette.py").read_text(encoding="utf-8")
     assert 'widgets.field_label("radius (cells)")' in palette
 
     text = _flat(_chapter("17-dressing-a-scene.md"))

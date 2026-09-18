@@ -21,9 +21,9 @@ from __future__ import annotations
 from _ui_context import imgui_context
 
 from warlock.studio import probe
-from warlock.studio.mason import document as md
-from warlock.studio.mason import nodes as nd
-from warlock.studio.panes import mason_props
+from warlock.studio.modes.mason.engine import document as md
+from warlock.studio.modes.mason.engine import nodes as nd
+from warlock.studio.modes.mason.ui.panes import props as mason_props
 
 RANGE_LABEL = "##mlightrange"
 

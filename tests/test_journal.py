@@ -837,7 +837,7 @@ def test_every_real_provider_is_registered_by_ensure():
         ("warlock.studio.plotter_state", "PlotterDoc"),
         ("warlock.studio.modes.packwright.state", "PackTab"),
         ("warlock.studio.modes.sirens.state", "SongTab"),
-        ("warlock.studio.mason_state", "MasonTab"),
+        ("warlock.studio.modes.mason.state", "MasonTab"),
     ],
 )
 def test_every_journalled_state_class_declares_all_three_mark_fields(module, cls):

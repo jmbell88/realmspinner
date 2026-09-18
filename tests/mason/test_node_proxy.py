@@ -19,7 +19,7 @@ import numpy as np
 
 from warlock.kernels.geom3d import gltf
 from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.mason.scene import NodePool
+from warlock.studio.modes.mason.engine.scene import NodePool
 
 
 def _translation(x: float) -> np.ndarray:

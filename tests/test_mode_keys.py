@@ -515,7 +515,7 @@ _WORKSPACE_ARMS = {
     "troupe": "modes.troupe.mode",
     "muse": "modes.muse.mode",
     "sirens": "modes.sirens.mode",
-    "mason": "mason_mode",
+    "mason": "modes.mason.mode",
 }
 
 # The keys the shared block binds, each with the modifier that arms it. A key

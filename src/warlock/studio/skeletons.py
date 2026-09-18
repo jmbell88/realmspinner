@@ -526,14 +526,12 @@ def mason(ctx: Any) -> dict[str, Column]:
     renaming it would silently reset every user's column heights.
     """
 
-    from .panes import (
-        mason_bridge,
-        mason_outliner,
-        mason_palette,
-        mason_prefabs,
-        mason_props,
-        mason_tools,
-    )
+    from .modes.mason.ui.panes import bridge as mason_bridge
+    from .modes.mason.ui.panes import outliner as mason_outliner
+    from .modes.mason.ui.panes import palette as mason_palette
+    from .modes.mason.ui.panes import prefabs as mason_prefabs
+    from .modes.mason.ui.panes import props as mason_props
+    from .modes.mason.ui.panes import tools as mason_tools
 
     left = Column(
         "left",

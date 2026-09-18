@@ -18,8 +18,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.studio import dialogs, mason_mode
-from warlock.studio.mason import nodes as nd
+from warlock.studio import dialogs
+from warlock.studio.modes.mason import mode as mason_mode
+from warlock.studio.modes.mason.engine import nodes as nd
 
 
 class _FakeCtx:

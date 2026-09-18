@@ -13,10 +13,10 @@ import pytest
 
 from warlock.kernels.geom3d import math3d as m3
 from warlock.kernels.geom3d.gltf import Material, Primitive
-from warlock.studio.mason import nodes as nd
-from warlock.studio.mason import pick, refs
-from warlock.studio.mason import terrain as T
-from warlock.studio.mason.scene import Placed
+from warlock.studio.modes.mason.engine import nodes as nd
+from warlock.studio.modes.mason.engine import pick, refs
+from warlock.studio.modes.mason.engine import terrain as T
+from warlock.studio.modes.mason.engine.scene import Placed
 
 IDENTITY = m3.identity()
 

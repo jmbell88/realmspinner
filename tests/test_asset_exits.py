@@ -147,7 +147,7 @@ def test_a_mesh_can_be_added_to_a_scene_and_the_door_opens_the_mesh(svc, monkeyp
     its own ``job`` argument would place a reference to a job id with no
     ``model.glb`` behind it -- the exact trap ``_clay``'s and ``_poser``'s
     closures already name."""
-    from warlock.studio import mason_mode
+    from warlock.studio.modes.mason import mode as mason_mode
 
     mesh = _mesh(svc, rigged=True)
     rig_row = _rig_followup(svc, mesh["id"])
@@ -181,7 +181,7 @@ def test_a_mason_authored_row_offers_the_way_back_into_the_scene(svc, monkeypatc
     ``stat``, no service call -- because a reopen has no fallback: a merged
     scene GLB is not a lesser scene, and ``edit_asset_in_mason`` refuses to
     substitute it."""
-    from warlock.studio import mason_mode
+    from warlock.studio.modes.mason import mode as mason_mode
 
     row = _mason_row(svc)
     ctx = FakeCtx(svc)

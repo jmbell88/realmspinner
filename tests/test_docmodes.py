@@ -372,7 +372,7 @@ def _modules_calling_docmodes_close_tab() -> set[str]:
     itself here the same way it enrols in ``_pure_packages``.
 
     Returned as the full dotted path *relative to* ``warlock.studio``
-    (``"mason_mode"``, but ``"modes.clay.mode"`` for Clay since P5 folded it
+    (``"modes.mason.mode"``, but ``"modes.clay.mode"`` for Clay since P5 folded it
     into a mode package) rather than the bare file stem: a bare stem worked
     while every caller was a flat ``studio/<mode>_mode.py``, but Clay's is now
     ``studio/modes/clay/mode.py`` -- stem ``"mode"`` -- which collided with
@@ -433,7 +433,7 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
     # still the flat `studio/<mode>_mode.py` shape.
     expected_at_least = {
         "modes.clay.mode",
-        "mason_mode",
+        "modes.mason.mode",
         "plotter_mode",
         "modes.packwright.mode",
         "modes.sirens.mode",

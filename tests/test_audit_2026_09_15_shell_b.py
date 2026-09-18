@@ -19,7 +19,7 @@ def test_masons_empty_scene_placeholder_has_a_working_action(monkeypatch):
     ``ACTIONS`` had no ``"mason"`` key, so ``action_for`` returned ``None``
     and the placeholder drew with no button at all.
     """
-    from warlock.studio import mason_mode
+    from warlock.studio.modes.mason import mode as mason_mode
     from warlock.studio.panes import overlay
 
     assert "mason" in overlay.ACTIONS
@@ -68,7 +68,8 @@ def test_the_mason_placeholder_entry_matches_what_mason_viewport_draws():
     two cannot silently drift back apart the way "Stage A" did once Mason grew
     a real document.
     """
-    from warlock.studio import icons, mason_viewport
+    from warlock.studio import icons
+    from warlock.studio.modes.mason.ui import viewport as mason_viewport
     from warlock.studio.panes import overlay
 
     assert overlay.PLACEHOLDERS["mason"] == (

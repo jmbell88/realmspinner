@@ -205,7 +205,7 @@ def test_the_scene_ceiling_is_the_one_mason_opens_files_at(svc):
     ``.wscn`` on the way *in* and this refuses one on the way out, and two
     constants would be how a file the app opens happily becomes one the
     service will not store beside the asset it was exported to."""
-    from warlock.studio import mason_io
+    from warlock.studio.modes.mason import fileio as mason_io
 
     assert mason_io.MAX_WSCN_BYTES == svc_files.MAX_SCENE_SOURCE_BYTES
     job_id = _exported(svc, "plotter")

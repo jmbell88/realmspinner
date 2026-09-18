@@ -432,7 +432,7 @@ def commands(ctx: Any) -> list[Command]:
         clay_mode.new_document(ctx)
 
     def new_mason_scene(ctx: Any) -> None:
-        from . import mason_mode
+        from .modes.mason import mode as mason_mode
 
         mason_mode.new_document(ctx)
 

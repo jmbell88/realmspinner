@@ -96,7 +96,9 @@ class ModeManifest:
 DOC_MODES: tuple[ModeManifest, ...] = (
     ModeManifest("inker", "modes.inker.mode", "inker", "Export PNG", "modes.inker.mode"),
     ModeManifest("clay", "modes.clay.mode", "clay", verbs.EXPORT_TO_LIBRARY, "modes.clay.mode"),
-    ModeManifest("mason", "mason_mode", "mason", "Export .glb + manifest", "mason_mode"),
+    ModeManifest(
+        "mason", "modes.mason.mode", "mason", "Export .glb + manifest", "modes.mason.mode"
+    ),
     ModeManifest("plotter", "plotter_mode", "plotter", "Export .tmx", "plotter_mode"),
     ModeManifest(
         "packwright",

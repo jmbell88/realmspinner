@@ -70,7 +70,7 @@ def test_third_party_notices_names_llama_cpp_and_qwen_where_it_claims_to():
 
 
 def test_manual_says_a_prefab_instance_carries_its_own_transform_not_only_position():
-    from warlock.studio.mason import nodes as nd
+    from warlock.studio.modes.mason.engine import nodes as nd
 
     node_fields = {f.name for f in dataclasses.fields(nd.Node)}
     prefab_fields = {f.name for f in dataclasses.fields(nd.PrefabNode)}

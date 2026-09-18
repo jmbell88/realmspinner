@@ -515,7 +515,7 @@ def _mason_reopen(ctx: Any, job: Any) -> Exit | None:
     """
     if _params(job).get("authored") != "mason":
         return None
-    from . import mason_mode
+    from .modes.mason import mode as mason_mode
 
     def door(ctx: Any, job: Any) -> None:
         mason_mode.edit_asset_in_mason(ctx, job)
@@ -542,7 +542,7 @@ def _mason_add(ctx: Any, job: Any) -> Exit | None:
     mesh = _mesh_for(ctx, job)
     if mesh is None:
         return None
-    from . import mason_mode
+    from .modes.mason import mode as mason_mode
 
     label = verbs.add_to("mason", "as a scene item")
     hint = "Place this mesh in the open scene."

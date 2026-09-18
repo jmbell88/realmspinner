@@ -191,7 +191,7 @@ class TasksMixin:
                     # shows a dead Play button with nothing beside it.
                     sirens_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("mason-"):
-                    from .. import mason_mode
+                    from ..modes.mason import mode as mason_mode
 
                     mason_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("muse-"):
@@ -523,7 +523,7 @@ class TasksMixin:
                 self._capture_clay_thumbnail(done.result["job_id"])
             return
         if key.startswith("mason-"):
-            from .. import mason_mode
+            from ..modes.mason import mode as mason_mode
 
             # ``mason_mode.on_task_done`` gives ``mason_assets`` first
             # refusal itself: a ``mason-asset:`` key is a background parse,

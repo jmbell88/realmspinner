@@ -248,7 +248,8 @@ class EventsMixin:
 
     def _mason_event(self, event: Any) -> None:
         """Route the mouse to Mason's viewport, on ``_build_event``'s rule."""
-        from .. import mason_assets, mason_mode
+        from ..modes.mason import assets as mason_assets
+        from ..modes.mason import mode as mason_mode
         from .frame import _takes_pointer
 
         tab = mason_mode.active(self.app_ctx)
@@ -641,7 +642,7 @@ class EventsMixin:
             troupe_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "mason":
-            from .. import mason_mode
+            from ..modes.mason import mode as mason_mode
 
             # Unconditional and returning, for site #8's reason (Mason's own
             # sweep row): every workspace arm above returns whether or not its
@@ -799,7 +800,8 @@ class EventsMixin:
                 ctx.toast("Clay opens .wblk documents and .glb meshes.", "error")
             return
         if ctx.state.mode == "mason":
-            from .. import mason_mode, mason_state
+            from ..modes.mason import mode as mason_mode
+            from ..modes.mason import state as mason_state
 
             if path.suffix.lower() == mason_state.WSCN_SUFFIX:
                 mason_mode.open_path(ctx, path)

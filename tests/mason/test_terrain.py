@@ -2,7 +2,7 @@
 
 Each brush test reaches straight for the module function -- no ``Terrain``
 needed to ask "does this rect land where I expect" -- and the array-ownership
-and mesh-memo tests go through :class:`~warlock.studio.mason.terrain.Terrain`
+and mesh-memo tests go through :class:`~warlock.studio.modes.mason.engine.terrain.Terrain`
 because those are claims about the instance, not the arithmetic.
 """
 
@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from warlock.kernels.geom3d.gltf import Material
-from warlock.studio.mason import terrain as T
+from warlock.studio.modes.mason.engine import terrain as T
 
 
 def _flat(side: int, height: float = 0.0) -> np.ndarray:

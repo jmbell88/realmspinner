@@ -17,11 +17,11 @@ from pathlib import Path
 import numpy as np
 
 from warlock.kernels.geom3d.gltf import Material
-from warlock.studio.mason import document as docmod
-from warlock.studio.mason import edits as ed
-from warlock.studio.mason import nodes as nd
-from warlock.studio.mason import refs
-from warlock.studio.mason import terrain as tr
+from warlock.studio.modes.mason.engine import document as docmod
+from warlock.studio.modes.mason.engine import edits as ed
+from warlock.studio.modes.mason.engine import nodes as nd
+from warlock.studio.modes.mason.engine import refs
+from warlock.studio.modes.mason.engine import terrain as tr
 
 
 class _Recorder:

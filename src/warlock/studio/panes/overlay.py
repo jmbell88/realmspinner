@@ -664,7 +664,7 @@ def _mason_box(ctx: Any) -> None:
     this button pointing at nothing.
     """
     from ...kernels.mesh import primitives as bp
-    from .. import mason_mode
+    from ..modes.mason import mode as mason_mode
 
     mason_mode.place_primitive(ctx, next(iter(bp.GENERATORS)))
 

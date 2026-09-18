@@ -37,6 +37,7 @@ from warlock.studio.modes.clay.ui.panes import props as clay_props
 from warlock.studio.modes.inker.ui.panes import colors as inker_colors
 from warlock.studio.modes.inker.ui.panes import picker as inker_picker
 from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+from warlock.studio.modes.mason.ui.panes import props as mason_props
 from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
 from warlock.studio.modes.packwright.ui.panes import sources as packwright_sources
 from warlock.studio.modes.sirens import mode as sirens_mode
@@ -45,7 +46,7 @@ from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instrumen
 from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
 from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
 from warlock.studio.modes.sirens.ui.panes import transport as sirens_transport
-from warlock.studio.panes import mason_props, plotter_layers, plotter_tileset_editor
+from warlock.studio.panes import plotter_layers, plotter_tileset_editor
 
 
 @dataclass
@@ -570,8 +571,8 @@ def test_light_intensity_typed_digit_by_digit_is_one_undo_step(monkeypatch, fram
     so typing "2000" into intensity digit by digit pushed four undo steps and
     one Ctrl+Z left ``200.0`` rather than the pre-edit value.
     """
-    from warlock.studio.mason import document as md
-    from warlock.studio.mason import nodes as nd
+    from warlock.studio.modes.mason.engine import document as md
+    from warlock.studio.modes.mason.engine import nodes as nd
 
     node = nd.LightNode(uid=nd.new_uid(), name="Lamp", kind="point")
     doc = md.MasonDoc(roots=[node])

@@ -33,8 +33,55 @@ from collections.abc import Sequence
 
 from imgui_bundle import imgui
 
-from . import controls, widgets
+from . import controls, icons, widgets
 from .tokens import sp
+
+# One icon per mesh primitive generator: the items Clay's Tools pane and
+# Mason's palette both hand :func:`icon_grid`. It lived in Clay's pane until
+# restructure P6, and Mason's palette importing it from there was a
+# sibling-mode reach (``tests/test_layering.py``). Not in ``icons.py``, whose
+# every upper-case name is a glyph string and is swept as one.
+#
+# One icon per generator in the registry. Strict at test time, graceful at
+# runtime -- the same pair Clay's ``_sections`` states for ``CATEGORIES``:
+# ``tests/test_clay_wiring.py`` holds this table *bijective* against
+# ``primitives.GENERATORS``, so a sixteenth shape is a red test here rather
+# than a glyph nobody chose, while ``PRIMITIVE_ICONS.get(name, icons.BOX)``
+# at the draw site still gives that shape a button on the day it is written.
+# This comment used to promise only the second half, and read as though
+# forgetting a row here were free; it is not, and the pin is why.
+PRIMITIVE_ICONS = {
+    "box": icons.BOX,
+    "plane": icons.RECTANGLE,
+    "cylinder": icons.CROP,
+    "cone": icons.TRIANGLE_ALERT,
+    "uv_sphere": icons.CIRCLE,
+    "torus": icons.CIRCLE,
+    "grid": icons.GRID,
+    "capsule": icons.EGG,
+    "icosphere": icons.STAR,
+    # The first four structures. The icon set is strained by now -- ``cone`` borrows
+    # triangle-alert, and ``uv_sphere`` and ``torus`` are both a circle -- so
+    # these are the nearest silhouettes rather than the right glyphs: a magnet
+    # is a horseshoe, which is the arch, and a ruler is the tallest thing in
+    # the set. ``lathe`` gets the spline glyph -- a profile revolved about an
+    # axis is quite literally a spline, and it is otherwise unclaimed. The
+    # tooltip carries the name.
+    "pyramid": icons.PENTAGON,
+    "arch": icons.MAGNET,
+    "column": icons.RULER,
+    "lathe": icons.SPLINE,
+    # A sweep is an extrusion of stacked cross-sections, and layers is the
+    # nearest silhouette this set has for that -- the same "strained by now"
+    # trade-off the comment above already makes for the rest of this group.
+    "sweep": icons.LAYERS,
+    # Waypoints along a route is the nearest silhouette to a path with rings
+    # threaded along it, and it is otherwise unclaimed here -- Inker's own
+    # polyline tool uses the same glyph, which is fine: the two panes are
+    # never on screen at once, and this set is strained enough already.
+    "tube": icons.WAYPOINTS,
+}
+
 
 
 def icon_grid(

@@ -14,10 +14,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio import mason_mode, mason_state
-from warlock.studio.mason import document as md
-from warlock.studio.mason import nodes as nd
-from warlock.studio.mason import scene as msc
+from warlock.studio.modes.mason import mode as mason_mode
+from warlock.studio.modes.mason import state as mason_state
+from warlock.studio.modes.mason.engine import document as md
+from warlock.studio.modes.mason.engine import nodes as nd
+from warlock.studio.modes.mason.engine import scene as msc
 
 
 class FakeCtx:
@@ -276,7 +277,7 @@ def test_the_journal_provider_round_trips_a_document() -> None:
     encoded = mason_mode.JOURNAL.encode(tab)
     assert isinstance(encoded, bytes) and encoded
 
-    from warlock.studio.mason import serialize
+    from warlock.studio.modes.mason.engine import serialize
 
     doc = serialize.read_wscn(encoded)
     assert len(doc.roots) == len(tab.doc.roots)

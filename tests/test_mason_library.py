@@ -24,10 +24,11 @@ import pytest
 
 from warlock.kernels.geom3d import gltf
 from warlock.service import files as svc_files
-from warlock.studio import mason_assets, mason_mode
-from warlock.studio.mason import document as md
-from warlock.studio.mason import nodes as nd
-from warlock.studio.mason import refs as mason_refs
+from warlock.studio.modes.mason import assets as mason_assets
+from warlock.studio.modes.mason import mode as mason_mode
+from warlock.studio.modes.mason.engine import document as md
+from warlock.studio.modes.mason.engine import nodes as nd
+from warlock.studio.modes.mason.engine import refs as mason_refs
 
 
 class _Cache:

@@ -28,11 +28,11 @@ import pytest
 
 from warlock.kernels.geom3d import gltf
 from warlock.kernels.geom3d import math3d as m3
-from warlock.studio import mason_view
-from warlock.studio.mason import document as md
-from warlock.studio.mason import nodes as nd
-from warlock.studio.mason import refs as mrefs
-from warlock.studio.mason import scene as msc
+from warlock.studio.modes.mason.engine import document as md
+from warlock.studio.modes.mason.engine import nodes as nd
+from warlock.studio.modes.mason.engine import refs as mrefs
+from warlock.studio.modes.mason.engine import scene as msc
+from warlock.studio.modes.mason.ui import view as mason_view
 
 RECT = (0.0, 0.0, 128.0, 96.0)
 
@@ -96,7 +96,7 @@ def _box_primitive(material: Any = None) -> gltf.Primitive:
 
 
 class _Source:
-    """A stand-in :class:`~warlock.studio.mason.refs.GeometrySource`.
+    """A stand-in :class:`~warlock.studio.modes.mason.engine.refs.GeometrySource`.
 
     Deliberately *not* ``mason_assets.AssetSource``: what these tests are about
     is what the viewport does with whatever a source answers, and driving the
@@ -494,7 +494,7 @@ def test_active_pivot_uses_the_last_clicked_node_not_document_order() -> None:
 def _ground(side: int = 4, size: float = 8.0) -> md.MasonDoc:
     """A flat terrain and the node that places it."""
     from warlock.kernels.geom3d import gltf as _gltf
-    from warlock.studio.mason.terrain import Terrain
+    from warlock.studio.modes.mason.engine.terrain import Terrain
 
     doc = md.MasonDoc()
     doc.set_terrain(

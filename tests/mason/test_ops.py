@@ -14,8 +14,8 @@ import pytest
 
 from warlock.kernels.geom3d import math3d as m3
 from warlock.kernels.geom3d.gltf import Material
-from warlock.studio.mason import ops
-from warlock.studio.mason import terrain as T
+from warlock.studio.modes.mason.engine import ops
+from warlock.studio.modes.mason.engine import terrain as T
 
 
 def _base(translation=(0.0, 0.0, 0.0), rotation=None, scale=(1.0, 1.0, 1.0)) -> ops.TRS:

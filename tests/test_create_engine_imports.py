@@ -214,7 +214,7 @@ def test_the_engine_never_imports_a_sibling_mode():
         "warlock.studio.modes.review.ui.workspace",
         "warlock.studio.modes.clay",
         "warlock.studio.modes.mason",
-        "warlock.studio.mason",
+        "warlock.studio.modes.mason.engine",
         "warlock.studio.inker",
         "warlock.studio.plotter",
         "warlock.studio.modes.packwright.engine",

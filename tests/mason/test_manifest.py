@@ -25,10 +25,10 @@ import pytest
 
 from warlock.kernels.geom3d import gltf
 from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.mason import document as doc
-from warlock.studio.mason import gltfout, manifest, refs, scene
-from warlock.studio.mason import nodes as nd
-from warlock.studio.mason import terrain as tr
+from warlock.studio.modes.mason.engine import document as doc
+from warlock.studio.modes.mason.engine import gltfout, manifest, refs, scene
+from warlock.studio.modes.mason.engine import nodes as nd
+from warlock.studio.modes.mason.engine import terrain as tr
 
 
 def _prim() -> gltf.Primitive:

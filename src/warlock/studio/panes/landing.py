@@ -1257,7 +1257,7 @@ def start_mason(ctx: Any) -> None:
     button says "new scene", so arriving with nothing open and no obvious way
     to begin is a dead end, and a document is minted only when there are
     none."""
-    from .. import mason_mode
+    from ..modes.mason import mode as mason_mode
 
     set_mode(ctx.state, "mason")
     if not mason_mode.ensure(ctx).docs:

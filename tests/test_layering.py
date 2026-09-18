@@ -503,7 +503,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     # was always there, and making it an import is what made it countable.
     ("warlock.studio.shell.app", "warlock.studio.modes.clay.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.inker.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.mason_viewport"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.mason.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.muse.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.modes.packwright.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.plotter_workspace"),
@@ -591,11 +591,12 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
 # P6 -- the remaining modes, one agent per mode. Best-fit rather than named:
 # RESTRUCTURE.md's P6 bullet does not call either edge out by name, but both
 # targets are owned by a mode landing in this wave (Plotter's own tileset
-# editor; Mason's own asset picker), and that landing is the plausible place
-# either dependency gets resolved.
+# editor; the Library mode's drag payload, ``can_drag_mesh``/``draggable_mesh``,
+# which Mason's palette offers the same rows through), and that landing is the
+# plausible place either dependency gets resolved.
 _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.modes.inker.ui.panes.tiles", "warlock.studio.plotter_tilesets"),
-    ("warlock.studio.panes.mason_palette", "warlock.studio.panes.library"),
+    ("warlock.studio.modes.mason.ui.panes.palette", "warlock.studio.panes.library"),
 })
 
 # P10 -- Muse folds into Create's audio stage, explicitly removing "the
@@ -640,17 +641,12 @@ _P11_P12_LIBRARY_ABSORBS: frozenset[tuple[str, str]] = frozenset({
 # one recorded httpx exemption in familiar's own import ban. Each is deleted
 # here rather than struck through, per this file's own second test's rule for
 # a landed phase -- what remains below is what genuinely has no phase.
-_UNRESOLVED: frozenset[tuple[str, str]] = frozenset({
-    # mason -> clay, in the direction Mason's own code says is banned:
-    # studio/modes/clay/ops.py's `_align` docstring states "Mason may not import Clay (its
-    # own import pin says so, and for a real reason)" while arguing the
-    # *reverse* direction is fine -- but tests/mason/test_mason_imports.py
-    # only guards the headless studio/mason/ engine package (`pure_packages`
-    # is scoped to directories, and panes/ is excluded from it everywhere),
-    # so studio/panes/mason_palette.py reaching into Clay's own tool-palette
-    # pane is invisible to every existing pin. Not named by any phase.
-    ("warlock.studio.panes.mason_palette", "warlock.studio.modes.clay.ui.panes.tools"),
-})
+# Empty since P6 (2026-09-18). Its last entry was Mason's palette reaching
+# into Clay's Tools pane for ``PRIMITIVE_ICONS``, in the direction
+# ``modes/clay/ops.py``'s ``_align`` docstring says is banned and no pin could
+# see while the palette sat in ``studio/panes/``. The table was a glyph per
+# mesh primitive -- shared vocabulary, not Clay's -- and is ``icons.py``'s now.
+_UNRESOLVED: frozenset[tuple[str, str]] = frozenset()
 
 EXCEPTIONS: frozenset[tuple[str, str]] = (
     _P2_SHELL_DISPATCH

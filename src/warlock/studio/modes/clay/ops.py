@@ -1066,7 +1066,7 @@ def _align(ctx: Any, doc: Any, axis: float = 0.0, mode: float = 1.0, **_: Any) -
     ``mason_view.py`` already does for the human-driven version of this same
     op; see that module's ``from .mason import ops as mops``.
     """
-    from ...mason import ops as mason_ops
+    from ..mason.engine import ops as mason_ops
 
     del ctx
     boxes = _world_boxes(doc, doc.selection)
@@ -1079,7 +1079,7 @@ def _distribute(ctx: Any, doc: Any, axis: float = 0.0, **_: Any) -> bool:
     extreme objects held fixed. See :func:`_align`'s docstring for why the
     box arithmetic is imported from ``mason.ops`` rather than duplicated.
     """
-    from ...mason import ops as mason_ops
+    from ..mason.engine import ops as mason_ops
 
     del ctx
     boxes = _world_boxes(doc, doc.selection)
@@ -1097,7 +1097,7 @@ def _drop_to_ground(ctx: Any, doc: Any, **_: Any) -> bool:
     drop_to_ground`` also takes a ``Terrain`` for Mason's own version, which
     this row has no use for and does not pass.
     """
-    from ...mason import ops as mason_ops
+    from ..mason.engine import ops as mason_ops
 
     del ctx
     boxes = _world_boxes(doc, doc.selection)

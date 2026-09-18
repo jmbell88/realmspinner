@@ -158,7 +158,7 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
     # both directions, so adding this table before the section existed failed
     # from the section's side, which is why Stage E left it out rather than
     # half-doing it.
-    from . import mason_state
+    from .modes.mason import state as mason_state
 
     table(
         "Mason",

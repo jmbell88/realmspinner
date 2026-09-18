@@ -18,10 +18,10 @@ import pytest
 
 from warlock.kernels.geom3d import gltf
 from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.mason import document as doc
-from warlock.studio.mason import nodes as nd
-from warlock.studio.mason import objout, refs, scene
-from warlock.studio.mason import terrain as tr
+from warlock.studio.modes.mason.engine import document as doc
+from warlock.studio.modes.mason.engine import nodes as nd
+from warlock.studio.modes.mason.engine import objout, refs, scene
+from warlock.studio.modes.mason.engine import terrain as tr
 
 
 def _prim(
@@ -401,7 +401,7 @@ def test_the_obj_uses_the_shared_naming_rule_and_not_the_glbs_actual_names():
     are a self-contained pair referring to nothing outside themselves. This is
     the test that keeps that a stated position rather than a surprise.
     """
-    from warlock.studio.mason import gltfout
+    from warlock.studio.modes.mason.engine import gltfout
 
     d = doc.MasonDoc()
     group = nd.GroupNode(uid=nd.new_uid(), name="Rock")
