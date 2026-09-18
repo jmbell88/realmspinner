@@ -24,8 +24,8 @@ from imgui_bundle import imgui
 
 from ......kernels.pixel.slices import SliceKey, slice_props
 from ..... import theme
+from .....shell import paintview
 from .....tokens import sp
-from ... import state as inker_state
 
 #: The four pure helpers this module used to define. They live in
 #: ``inker_state`` now (no imgui, no document, no side effects) and are named
@@ -114,10 +114,10 @@ def _slice_grab(state: Any, tab: Any, origin, point) -> tuple[str, str]:
         }
         grab = sp(SLICE_HANDLE) * SLICE_GRAB
         for name, (cx, cy) in corners.items():
-            if _near(inker_state.to_screen(tab.view, origin, cx, cy), at, grab):
+            if _near(paintview.to_screen(tab.view, origin, cx, cy), at, grab):
                 return "slice-resize", name
         if key.pivot is not None:
-            pivot = inker_state.to_screen(tab.view, origin, x0 + key.pivot[0], y0 + key.pivot[1])
+            pivot = paintview.to_screen(tab.view, origin, x0 + key.pivot[0], y0 + key.pivot[1])
             if _near(pivot, at, sp(SLICE_PIVOT_RADIUS) * SLICE_GRAB):
                 return "slice-pivot", ""
         if key.center is not None:
@@ -129,7 +129,7 @@ def _slice_grab(state: Any, tab: Any, origin, point) -> tuple[str, str]:
                 "se": (x0 + cx1, y0 + cy1),
             }
             for name, (cx, cy) in inner.items():
-                if _near(inker_state.to_screen(tab.view, origin, cx, cy), at, grab):
+                if _near(paintview.to_screen(tab.view, origin, cx, cy), at, grab):
                     return "slice-center", name
     # The body of *any* slice, last one first: the list is drawn in order, so
     # the last is the one on top and the one the click visibly landed on.
@@ -292,7 +292,7 @@ def _slices(state: Any, tab: Any, draw_list: Any, origin) -> None:
             ca, cb = inker_canvas._box(tab.view, origin, x0 + cx0, y0 + cy0, x0 + cx1, y0 + cy1)
             _dashed_rect(draw_list, ca, cb, inner)
         if key.pivot is not None:
-            px, py = inker_state.to_screen(tab.view, origin, x0 + key.pivot[0], y0 + key.pivot[1])
+            px, py = paintview.to_screen(tab.view, origin, x0 + key.pivot[0], y0 + key.pivot[1])
             radius = sp(SLICE_PIVOT_RADIUS)
             draw_list.add_circle((px, py), radius, hot if selected else outline)
             draw_list.add_line((px - radius, py), (px + radius, py), hot)

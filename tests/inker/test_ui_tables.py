@@ -22,6 +22,7 @@ from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+from warlock.studio.shell import paintview
 
 
 def test_every_symmetry_the_engine_composes_has_a_control():
@@ -99,7 +100,7 @@ def guide(monkeypatch, patch_canvas):
         draw = _Lines()
         # Identity view at a zero origin, so a screen coordinate *is* the image
         # coordinate and the recorded numbers can be compared with ``_mirror``.
-        view = inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0))
+        view = paintview.PaintView(zoom=1.0, pan=(0.0, 0.0))
         inker_canvas._symmetry(state, draw, view, (0.0, 0.0), size)
         return draw
 
@@ -392,7 +393,7 @@ def test_every_transform_handle_has_axes_declared_for_it():
     doc = inker.Document.blank(16, 16)
     doc.select(selection.SelectionMask.from_rect(doc.size, (2, 2, 10, 10)))
     assert doc.lift()
-    tab = SimpleNamespace(doc=doc, view=inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0)))
+    tab = SimpleNamespace(doc=doc, view=paintview.PaintView(zoom=1.0, pan=(0.0, 0.0)))
     drawn = set(inker_canvas._handles(tab, (0.0, 0.0)))
     assert drawn - {"rotate", "pivot"} == set(inker_canvas.HANDLE_AXES)
 
@@ -401,7 +402,7 @@ def test_the_edge_handles_sit_on_the_edge_midpoints():
     doc = inker.Document.blank(16, 16)
     doc.select(selection.SelectionMask.from_rect(doc.size, (2, 2, 10, 10)))
     assert doc.lift()
-    tab = SimpleNamespace(doc=doc, view=inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0)))
+    tab = SimpleNamespace(doc=doc, view=paintview.PaintView(zoom=1.0, pan=(0.0, 0.0)))
     handles = inker_canvas._handles(tab, (0.0, 0.0))
     assert handles["n"] == (6.0, 2.0)
     assert handles["s"] == (6.0, 10.0)

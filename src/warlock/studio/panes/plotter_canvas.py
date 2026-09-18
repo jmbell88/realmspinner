@@ -48,7 +48,6 @@ from .. import (
     tokens,
     widgets,
 )
-from ..modes.inker import state as inker_state
 from ..plotter import project
 from ..plotter import render as plotter_render
 from ..plotter import scene as plotter_scene
@@ -62,6 +61,7 @@ from ..plotter.tilemap import (
     TileLayer,
     objects_in_rect,
 )
+from ..shell import paintview
 from ..tokens import sp
 from . import plotter_layers, plotter_menu, plotter_textures
 
@@ -211,9 +211,9 @@ def draw(ctx: Any) -> None:
     size_px = (doc.pixel_width, doc.pixel_height)
 
     if not view.fitted:
-        inker_state.fit(view, size_px, region)
+        paintview.fit(view, size_px, region)
     if view.pending_zoom is not None:
-        inker_state.centre(view, size_px, region, view.pending_zoom)
+        paintview.centre(view, size_px, region, view.pending_zoom)
         view.pending_zoom = None
     if state.goto_cell is not None:
         # **After the two above**, so a jump made on the frame a map is first
@@ -674,7 +674,7 @@ def _backdrop(draw_list: Any, doc: Any, view: Any, origin: tuple[float, float]) 
     from imgui_bundle import imgui
 
     quad = [
-        inker_state.to_screen(view, origin, *doc.cell_corner(column, row))
+        paintview.to_screen(view, origin, *doc.cell_corner(column, row))
         for column, row in ((0, 0), (doc.width, 0), (doc.width, doc.height), (0, doc.height))
     ]
     colour = theme.rgba(theme.ELEV_1)
@@ -716,8 +716,8 @@ def _visible_range(
     layer's visible cells are a different rectangle, and using the grid's would
     clip a nudged layer along the pane edge it was nudged towards.
     """
-    x0, y0 = inker_state.to_image(view, origin, origin[0], origin[1])
-    x1, y1 = inker_state.to_image(view, origin, origin[0] + region[0], origin[1] + region[1])
+    x0, y0 = paintview.to_image(view, origin, origin[0], origin[1])
+    x1, y1 = paintview.to_image(view, origin, origin[0] + region[0], origin[1] + region[1])
     return doc.cell_bounds(x0 - shift[0], y0 - shift[1], x1 - shift[0], y1 - shift[1])
 
 
@@ -738,7 +738,7 @@ def _layer_shift(view: Any, origin, entry: Any) -> tuple[float, float]:
     ``render.py`` does none of this on purpose: an export is a still and a still
     has no camera, so there is no view origin for it to be a fraction of.
     """
-    vx, vy = inker_state.to_image(view, origin, origin[0], origin[1])
+    vx, vy = paintview.to_image(view, origin, origin[0], origin[1])
     return (
         entry.offset[0] + (1.0 - entry.parallax[0]) * vx,
         entry.offset[1] + (1.0 - entry.parallax[1]) * vy,
@@ -873,7 +873,7 @@ def _blended(ctx: Any, tab: Any, doc: Any, draw_list: Any, origin, view) -> bool
     )
     if texture is None:
         return False
-    p0 = inker_state.to_screen(view, origin, 0.0, 0.0)
+    p0 = paintview.to_screen(view, origin, 0.0, 0.0)
     draw_list.add_image(
         widgets.texture_ref(texture),
         p0,
@@ -938,7 +938,7 @@ def _cell_quad(
         else project.cell_origin(lattice, column, row)
     )
     own_w, own_h = ref.tileset.tile_size(local)
-    p0 = inker_state.to_screen(
+    p0 = paintview.to_screen(
         view, origin, px + shift[0], py + shift[1] + (doc.tile_h - own_h)
     )
     p2 = (p0[0] + own_w * view.zoom, p0[1] + own_h * view.zoom)
@@ -1130,7 +1130,7 @@ def _image_layer(
         for px in plotter_render.repeats(
             int(round(shift[0])), int(width), int(doc.pixel_width), layer.repeat_x
         ):
-            p0 = inker_state.to_screen(view, origin, px, py)
+            p0 = paintview.to_screen(view, origin, px, py)
             draw_list.add_image(
                 widgets.texture_ref(texture),
                 p0,
@@ -1164,7 +1164,7 @@ def _grid_span(doc: Any, view: Any, origin, region) -> tuple[int, int, int, int]
         (origin[0], origin[1] + region[1]),
         (origin[0] + region[0], origin[1] + region[1]),
     ):
-        ix, iy = inker_state.to_image(view, origin, sx, sy)
+        ix, iy = paintview.to_image(view, origin, sx, sy)
         cell = doc.cell_at(ix, iy)
         xs.append(cell[0])
         ys.append(cell[1])
@@ -1193,7 +1193,7 @@ def _grid(draw_list: Any, doc: Any, view: Any, origin, region) -> None:
     x0, y0, x1, y1 = _grid_span(doc, view, origin, region)
 
     def node(column: float, row: float):
-        return inker_state.to_screen(view, origin, *doc.cell_corner(column, row))
+        return paintview.to_screen(view, origin, *doc.cell_corner(column, row))
 
     if doc.projection in project.OFFSET_PROJECTIONS:
         # **Outlines, not lines.** On an offset lattice there are no straight
@@ -1204,7 +1204,7 @@ def _grid(draw_list: Any, doc: Any, view: Any, origin, region) -> None:
         for row in range(y0, y1):
             for column in range(x0, x1):
                 points = [
-                    inker_state.to_screen(view, origin, px, py)
+                    paintview.to_screen(view, origin, px, py)
                     for px, py in doc.cell_outline(column, row)
                 ]
                 draw_list.add_polyline(points, colour, 1.0, imgui.ImDrawFlags_.closed.value)
@@ -1295,11 +1295,11 @@ def _ruler_band(
 
     a0, a1 = span
     if horizontal:
-        p0 = inker_state.to_image(view, origin, a0, cross)
-        p1 = inker_state.to_image(view, origin, a1, cross)
+        p0 = paintview.to_image(view, origin, a0, cross)
+        p1 = paintview.to_image(view, origin, a1, cross)
     else:
-        p0 = inker_state.to_image(view, origin, cross, a0)
-        p1 = inker_state.to_image(view, origin, cross, a1)
+        p0 = paintview.to_image(view, origin, cross, a0)
+        p1 = paintview.to_image(view, origin, cross, a1)
     axis = 0 if abs(p1[0] - p0[0]) >= abs(p1[1] - p0[1]) else 1
     # Map pixels into cells, which is the whole difference from Inker's band.
     per_cell = float(doc.tile_w if axis == 0 else doc.tile_h) or 1.0
@@ -1341,8 +1341,8 @@ _OBJECT_CULL_MARGIN = 64.0
 def _off_pane(view: Any, origin, obj: Any, dx: float, dy: float, bounds) -> bool:
     """Whether one object's screen box misses the pane entirely."""
 
-    x0, y0 = inker_state.to_screen(view, origin, obj.x + dx, obj.y + dy)
-    x1, y1 = inker_state.to_screen(
+    x0, y0 = paintview.to_screen(view, origin, obj.x + dx, obj.y + dy)
+    x1, y1 = paintview.to_screen(
         view, origin, obj.x + dx + float(obj.w or 0), obj.y + dy + float(obj.h or 0)
     )
     left, top = min(x0, x1), min(y0, y1)
@@ -1399,13 +1399,13 @@ def _objects(
             colour = imgui.get_color_u32(
                 theme.rgba(theme.ACCENT if selected else theme.OK, alpha)
             )
-            p0 = inker_state.to_screen(view, origin, obj.x + dx, obj.y + dy)
+            p0 = paintview.to_screen(view, origin, obj.x + dx, obj.y + dy)
             if obj.kind == "point":
                 draw_list.add_circle_filled(p0, sp(4), colour, 12)
                 draw_list.add_circle(p0, sp(7), colour, 12)
             else:
                 outline = [
-                    inker_state.to_screen(view, origin, px + dx, py + dy)
+                    paintview.to_screen(view, origin, px + dx, py + dy)
                     for px, py in _object_outline(obj)
                 ]
                 closed = obj.kind != "polyline"
@@ -1424,7 +1424,7 @@ def _objects(
                     # refuses it off the same resolved answer.
                     for corner in _HANDLES:
                         cx, cy = _handle_corners(obj)[corner]
-                        sx, sy = inker_state.to_screen(view, origin, cx + dx, cy + dy)
+                        sx, sy = paintview.to_screen(view, origin, cx + dx, cy + dy)
                         draw_list.add_rect_filled(
                             (sx - sp(4), sy - sp(4)), (sx + sp(4), sy + sp(4)), colour
                         )
@@ -1436,7 +1436,7 @@ def _objects(
                     grip = _rotate_grip(view, origin, obj, (dx, dy))
                     if grip is not None:
                         top = _rotated(obj, obj.w * 0.5, 0.0)
-                        anchor = inker_state.to_screen(
+                        anchor = paintview.to_screen(
                             view, origin, top[0] + dx, top[1] + dy
                         )
                         draw_list.add_line(anchor, grip, colour, sp(1))
@@ -1449,8 +1449,8 @@ def _objects(
         if state.object_marquee is not None and layer.uid == doc.active_layer:
             mx0, my0, mx1, my1 = state.object_marquee
             band = imgui.get_color_u32(theme.rgba(theme.ACCENT, 0.9))
-            a = inker_state.to_screen(view, origin, min(mx0, mx1) + dx, min(my0, my1) + dy)
-            b = inker_state.to_screen(view, origin, max(mx0, mx1) + dx, max(my0, my1) + dy)
+            a = paintview.to_screen(view, origin, min(mx0, mx1) + dx, min(my0, my1) + dy)
+            b = paintview.to_screen(view, origin, max(mx0, mx1) + dx, max(my0, my1) + dy)
             draw_list.add_rect_filled(a, b, imgui.get_color_u32(theme.rgba(theme.ACCENT, 0.12)))
             draw_list.add_rect(a, b, band, 0.0, 0, sp(1))
 
@@ -1601,7 +1601,7 @@ def _marquee(state: Any, tab: Any, draw_list: Any, origin) -> None:
     x0, y0, x1, y1 = rect
     doc, view = tab.doc, tab.view
     quad = [
-        inker_state.to_screen(view, origin, *doc.cell_corner(column, row))
+        paintview.to_screen(view, origin, *doc.cell_corner(column, row))
         for column, row in ((x0, y0), (x1 + 1, y0), (x1 + 1, y1 + 1), (x0, y1 + 1))
     ]
     draw_list.add_convex_poly_filled(quad, imgui.get_color_u32(theme.rgba(theme.ACCENT, 0.15)))
@@ -1660,7 +1660,7 @@ def _cursor(ctx: Any, state: Any, tab: Any, draw_list: Any, origin, hovered: boo
         # The parallelogram through four lattice nodes, which degenerates to the
         # rectangle this used to draw when the map is orthogonal.
         quad = [
-            inker_state.to_screen(view, origin, *_shifted(doc.cell_corner(column, row), shift))
+            paintview.to_screen(view, origin, *_shifted(doc.cell_corner(column, row), shift))
             for column, row in (
                 (at[0], at[1]),
                 (at[0] + columns, at[1]),
@@ -1680,7 +1680,7 @@ def _cursor(ctx: Any, state: Any, tab: Any, draw_list: Any, origin, hovered: boo
         nothing else on screen says which diamond the pointer is in, so "did I
         click the one I meant" was answerable only after the click."""
         quad = [
-            inker_state.to_screen(view, origin, *_shifted(doc.cell_corner(cx, cy), shift))
+            paintview.to_screen(view, origin, *_shifted(doc.cell_corner(cx, cy), shift))
             for cx, cy in (
                 (at[0], at[1]),
                 (at[0] + 1, at[1]),
@@ -1845,7 +1845,7 @@ def _shape_preview(
     shift = _active_shift(tab, origin)
     draw_list.add_polyline(
         [
-            inker_state.to_screen(view, origin, *_shifted(doc.cell_corner(px, py), shift))
+            paintview.to_screen(view, origin, *_shifted(doc.cell_corner(px, py), shift))
             for px, py in _shape_points(state.shape_mode if mode is None else mode, a, b)
         ],
         imgui.get_color_u32(theme.rgba(theme.ACCENT)),
@@ -1861,7 +1861,7 @@ def _cell_under(state: Any, tab: Any, origin) -> tuple[int, int] | None:
     from imgui_bundle import imgui
 
     mouse = imgui.get_mouse_pos()
-    x, y = inker_state.to_image(tab.view, origin, mouse.x, mouse.y)
+    x, y = paintview.to_image(tab.view, origin, mouse.x, mouse.y)
     # The active layer's own displacement comes off first: what a click is about
     # is the cell the user can see under the pointer, and on an offset layer
     # that is not the cell the grid is drawn at.
@@ -1884,18 +1884,18 @@ def _events(ctx: Any, state: Any, tab: Any, origin, hovered: bool, region) -> No
         from .. import imgui_backend
 
         mouse = imgui.get_mouse_pos()
-        # The rule every 2-D canvas shares (``inker_state.wheel``): the wheel
+        # The rule every 2-D canvas shares (``paintview.wheel``): the wheel
         # zooms on the 5% lattice, Shift+wheel and a tilt wheel scroll
         # sideways. Until 2026-09-05 this pane zoomed multiplicatively on the
         # backend-halved count and never landed on a round percentage.
-        along = inker_state.wheel(
+        along = paintview.wheel(
             view, origin, (mouse.x, mouse.y),
             io.mouse_wheel / imgui_backend.WHEEL_SCALE,
             io.mouse_wheel_h / imgui_backend.WHEEL_SCALE,
             shift=bool(io.key_shift),
         )
         if along:
-            view.pan = (view.pan[0] + inker_state.scroll_step(region[0]) * along, view.pan[1])
+            view.pan = (view.pan[0] + paintview.scroll_step(region[0]) * along, view.pan[1])
 
     # Claimed before any tool sees the mouse, and before panning: the minimap
     # sits *over* the map, so a press inside it that fell through would paint a
@@ -2881,7 +2881,7 @@ def _object_input(ctx: Any, state: Any, tab: Any, origin, hovered: bool) -> None
     entry = _active_entry(tab)
     locked = entry is not None and entry.locked
     dx, dy = (0.0, 0.0) if entry is None else _layer_shift(tab.view, origin, entry)
-    raw = inker_state.to_image(tab.view, origin, mouse.x, mouse.y)
+    raw = paintview.to_image(tab.view, origin, mouse.x, mouse.y)
     point = (raw[0] - dx, raw[1] - dy)
 
     if hovered and imgui.is_mouse_clicked(0):
@@ -3230,8 +3230,8 @@ def _rotate_grip(
         return None
     top = _rotated(obj, obj.w * 0.5, 0.0)
     body = _rotated(obj, obj.w * 0.5, obj.h * 0.5)
-    sx, sy = inker_state.to_screen(view, origin, top[0] + shift[0], top[1] + shift[1])
-    bx, by = inker_state.to_screen(view, origin, body[0] + shift[0], body[1] + shift[1])
+    sx, sy = paintview.to_screen(view, origin, top[0] + shift[0], top[1] + shift[1])
+    bx, by = paintview.to_screen(view, origin, body[0] + shift[0], body[1] + shift[1])
     ux, uy = sx - bx, sy - by
     length = math.hypot(ux, uy)
     if length < 1e-6:
@@ -3333,7 +3333,7 @@ def _vertex_at(
         return None
     for index, point in enumerate(points):
         turned = _rotated_about(point, obj.rotation)
-        sx, sy = inker_state.to_screen(
+        sx, sy = paintview.to_screen(
             view, origin, obj.x + turned[0] + shift[0], obj.y + turned[1] + shift[1]
         )
         if abs(sx - mouse[0]) <= sp(6) and abs(sy - mouse[1]) <= sp(6):
@@ -3363,12 +3363,12 @@ def _segment_at(
     for index in range(count):
         a = points[index]
         b = points[(index + 1) % len(points)]
-        sa = inker_state.to_screen(
+        sa = paintview.to_screen(
             view,
             origin,
             *(v + s for v, s in zip(_offset_point(obj, a), shift, strict=True)),
         )
-        sb = inker_state.to_screen(
+        sb = paintview.to_screen(
             view,
             origin,
             *(v + s for v, s in zip(_offset_point(obj, b), shift, strict=True)),
@@ -3468,7 +3468,7 @@ def _handle_at(
     elif not hasattr(shape, "w"):
         return None
     for name, (px, py) in _handle_corners(obj).items():
-        sx, sy = inker_state.to_screen(view, origin, px + shift[0], py + shift[1])
+        sx, sy = paintview.to_screen(view, origin, px + shift[0], py + shift[1])
         if abs(sx - mouse[0]) <= sp(6) and abs(sy - mouse[1]) <= sp(6):
             return name
     return None
@@ -3547,7 +3547,7 @@ def _object_at(
     x, y = point
     for obj in reversed(layer.objects):
         if obj.kind == "point":
-            sx, sy = inker_state.to_screen(view, origin, obj.x + shift[0], obj.y + shift[1])
+            sx, sy = paintview.to_screen(view, origin, obj.x + shift[0], obj.y + shift[1])
             if abs(sx - mouse[0]) <= sp(7) and abs(sy - mouse[1]) <= sp(7):
                 return obj
             continue

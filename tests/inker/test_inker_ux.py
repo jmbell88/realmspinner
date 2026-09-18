@@ -22,6 +22,7 @@ from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 from warlock.studio.modes.inker.ui.panes import colors as inker_colors
 from warlock.studio.modes.inker.ui.panes import textures as inker_textures
 from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+from warlock.studio.shell import paintview
 
 #: Every pane-drawing module, via ``tests._panes.pane_files``. ``panes/*.py``
 #: alone was the whole set until Create became a mode package and put three
@@ -431,7 +432,7 @@ def test_every_rung_above_one_to_one_is_a_whole_scale() -> None:
     bands. Every rung at or above 1:1 maps one source pixel onto a whole number
     of screen pixels.
     """
-    for rung in inker_state.ZOOM_LADDER:
+    for rung in paintview.ZOOM_LADDER:
         if rung >= 1.0:
             assert rung == int(rung), rung
         else:
@@ -439,7 +440,7 @@ def test_every_rung_above_one_to_one_is_a_whole_scale() -> None:
 
 
 def test_the_ladder_is_sorted_and_inside_the_panes_bounds() -> None:
-    ladder = inker_state.ZOOM_LADDER
+    ladder = paintview.ZOOM_LADDER
     assert list(ladder) == sorted(ladder)
     assert ladder[0] >= inker_state.INKER_MIN_ZOOM
     assert ladder[-1] <= inker_state.INKER_MAX_ZOOM
@@ -449,22 +450,22 @@ def test_a_rung_step_goes_strictly_past_the_current_zoom() -> None:
     """Not nearest-then-step: a view sitting at 135% zooms *out* to 100% and
     *in* to 200%, rather than snapping sideways to 100% on a press labelled
     "in"."""
-    assert inker_state.zoom_rung(1.35, +1) == 2.0
-    assert inker_state.zoom_rung(1.35, -1) == 1.0
-    assert inker_state.zoom_rung(1.0, +1) == 2.0
-    assert inker_state.zoom_rung(1.0, -1) == 0.5
+    assert paintview.zoom_rung(1.35, +1) == 2.0
+    assert paintview.zoom_rung(1.35, -1) == 1.0
+    assert paintview.zoom_rung(1.0, +1) == 2.0
+    assert paintview.zoom_rung(1.0, -1) == 0.5
 
 
 def test_the_ladder_holds_at_both_ends() -> None:
-    ladder = inker_state.ZOOM_LADDER
-    assert inker_state.zoom_rung(ladder[-1], +1) == ladder[-1]
-    assert inker_state.zoom_rung(ladder[0], -1) == ladder[0]
+    ladder = paintview.ZOOM_LADDER
+    assert paintview.zoom_rung(ladder[-1], +1) == ladder[-1]
+    assert paintview.zoom_rung(ladder[0], -1) == ladder[0]
 
 
 def test_the_wheel_still_moves_in_five_percent_notches() -> None:
     """The keyboard took the ladder; the wheel is the *fine* control and keeps
     what it had. Aseprite splits the two the same way round."""
-    assert inker_state.ZOOM_PERCENT_STEP == 5
+    assert paintview.ZOOM_PERCENT_STEP == 5
 
 
 # --- the status bar ----------------------------------------------------------

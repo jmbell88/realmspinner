@@ -35,6 +35,7 @@ from warlock.kernels.pixel import _doc_selection
 from warlock.kernels.pixel.selection import SelectionMask, render_transform_about
 from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.shell import paintview
 
 SIZE = (32, 24)
 #: The pane ``_input`` is driven in. Large enough that these documents sit
@@ -538,7 +539,7 @@ def driven(monkeypatch, patch_canvas):
         doc=doc,
         tiled="off",
         busy=False,
-        view=inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
+        view=paintview.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
     )
 
     def frame(at, *, click=None, down=(), shift=False):

@@ -1361,8 +1361,8 @@ def test_a_lock_on_a_group_stops_painting_inside_it():
 def test_a_lock_on_a_group_stops_a_handle_drag_inside_it(monkeypatch):
     """The handles are not drawn on an inherited lock; without this the hit test
     still fires where one would sit, and the drag starts on an invisible grip."""
-    from warlock.studio.modes.inker import state as inker_state
     from warlock.studio.panes import plotter_canvas
+    from warlock.studio.shell import paintview
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1373,7 +1373,7 @@ def test_a_lock_on_a_group_stops_a_handle_drag_inside_it(monkeypatch):
     _grouped(tab.doc, obj_layer)
     state.select_object(obj.uid)
     origin = (0.0, 0.0)
-    _fake_imgui(monkeypatch, inker_state.to_screen(tab.view, origin, obj.x, obj.y))
+    _fake_imgui(monkeypatch, paintview.to_screen(tab.view, origin, obj.x, obj.y))
 
     plotter_canvas._object_input(ctx, state, tab, origin, True)
 
@@ -1381,8 +1381,8 @@ def test_a_lock_on_a_group_stops_a_handle_drag_inside_it(monkeypatch):
 
 
 def test_a_lock_on_a_group_stops_drawing_a_new_object_inside_it(monkeypatch):
-    from warlock.studio.modes.inker import state as inker_state
     from warlock.studio.panes import plotter_canvas
+    from warlock.studio.shell import paintview
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1390,7 +1390,7 @@ def test_a_lock_on_a_group_stops_drawing_a_new_object_inside_it(monkeypatch):
     obj_layer = tab.doc.add_object_layer("Things")
     _grouped(tab.doc, obj_layer)
     origin = (0.0, 0.0)
-    _fake_imgui(monkeypatch, inker_state.to_screen(tab.view, origin, 40.0, 40.0))
+    _fake_imgui(monkeypatch, paintview.to_screen(tab.view, origin, 40.0, 40.0))
 
     plotter_canvas._object_input(ctx, state, tab, origin, True)
 
@@ -1850,9 +1850,9 @@ def test_the_palette_ladder_is_reciprocal_below_one_and_whole_above():
 
     # Not ``ZOOM_LADDER``, and the divergence is the point: that table bottoms
     # out at 5%, which puts a 16px tile at 0.8 screen pixels -- unhittable.
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
-    assert ladder != inker_state.ZOOM_LADDER
+    assert ladder != paintview.ZOOM_LADDER
     assert 16 * ladder[0] >= 1.0
 
 

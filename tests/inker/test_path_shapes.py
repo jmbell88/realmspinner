@@ -38,6 +38,7 @@ from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 from warlock.studio.modes.inker.ui.panes import gestures as inker_gestures
 from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+from warlock.studio.shell import paintview
 
 SIZE = (32, 32)
 ORIGIN = (0.0, 0.0)
@@ -457,7 +458,7 @@ class _Mouse:
 
 def _tab(**view):
     return inker_state.InkerDoc(
-        doc=inker.Document.blank(*SIZE), views=[inker_state.PaintView(**view)]
+        doc=inker.Document.blank(*SIZE), views=[paintview.PaintView(**view)]
     )
 
 

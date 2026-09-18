@@ -1,15 +1,17 @@
 """Multi-document state for Plotter, without imgui.
 
-The ``inker_state`` split, for the ``inker_state`` reasons: which map is open,
+The Inker mode's ``state.py`` split, for the same reasons: which map is open,
 which is dirty, where the view is and which tool is in hand would all still make
 sense if the app were driven by a script, so none of it needs a window to be
 tested.
 
-**The view type is imported, not reimplemented.** ``inker_state.PaintView`` and
-its five functions -- fit, centre, to_image, to_screen, zoom_about -- are a
+**The view type is imported, not reimplemented.** ``shell.paintview.PaintView``
+and its five functions -- fit, centre, to_image, to_screen, zoom_about -- are a
 zoomable, pannable 2D viewport and nothing about them is about pixels. A second
 copy would be a second set of clamping rules and a second Ctrl+0, drifting the
-first time either is touched.
+first time either is touched. Promoted out of Inker to the shell in
+dev/RESTRUCTURE.md's P5, for exactly the reason this docstring already gave:
+none of it was ever Inker's.
 
 **Tool settings belong to the app; the view belongs to the document.** Switching
 tabs must not change which tool is in your hand, and a tab must remember where
@@ -32,7 +34,7 @@ from typing import Any
 import numpy as np
 
 from . import docmodes
-from .modes.inker.state import PaintView
+from .shell.paintview import PaintView
 
 # What Plotter can open and what each suffix means. ``wmap`` is the project
 # file; the other two are Tiled's, and opening one is an *import* -- the
@@ -87,7 +89,7 @@ def snap_mode(setting: str, ctrl: bool) -> str:
 #: The tileset palette's zoom rungs, in screen pixels per source pixel.
 #:
 #: **Reciprocal integers below 1:1, whole integers above**, which is
-#: ``inker_state.ZOOM_LADDER``'s pixel-art rule and holds here for a sharper
+#: ``shell.paintview.ZOOM_LADDER``'s pixel-art rule and holds here for a sharper
 #: reason: the atlas texture is uploaded NEAREST, so a free fraction samples a
 #: non-uniform subset of source pixels and the palette grid beats against
 #: itself. 1/N samples uniformly and merely gets smaller.
@@ -151,7 +153,7 @@ def palette_zoom_rung(zoom: float, direction: int) -> float:
     two rungs -- a nearest-then-step rule would answer a press labelled "in"
     by zooming out.
     """
-    from .modes.inker.state import zoom_rung
+    from .shell.paintview import zoom_rung
 
     return zoom_rung(zoom, direction, PALETTE_ZOOM_LADDER)
 
@@ -1002,7 +1004,7 @@ def centre_pan(
     One line, written once. The minimap's click-to-recentre and the *Go to
     coordinate* jump are the same question asked from two places, and two copies
     of it is how one of them comes to be half a tile out after somebody changes
-    the other. The view's own :mod:`.inker_state` helpers do not answer it --
+    the other. The view's own :mod:`.shell.paintview` helpers do not answer it --
     ``centre`` centres the *document*, which is the thing a jump is not.
 
     No clamping. Plotter's canvas has never bounded its pan (an infinite map has

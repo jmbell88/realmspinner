@@ -21,6 +21,7 @@ from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+from warlock.studio.shell import paintview
 
 SIZE = (32, 32)
 FG = (255, 0, 0, 255)
@@ -155,7 +156,7 @@ def driven(monkeypatch, patch_canvas):
         doc=inker.Document.blank(*SIZE),
         tiled="off",
         busy=False,
-        view=inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
+        view=paintview.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
     )
 
     def frame(
@@ -273,7 +274,7 @@ def test_the_two_corner_uvs_become_the_four_the_quad_takes(monkeypatch):
         def add_image_quad(self, ref, a, b, c, d, *uv):
             recorded["uv"] = uv
 
-    view = inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0))
+    view = paintview.PaintView(zoom=1.0, pan=(0.0, 0.0))
     # ``texture_ref`` reaches into a live GL renderer, which is the whole
     # reason this pane's drawing is otherwise untested; the reference itself is
     # not what this asserts.
@@ -642,7 +643,7 @@ def test_a_drag_cannot_lose_the_drawing(driven):
 
 
 def test_the_wheel_zooms_and_leaves_the_page_where_it_was(driven):
-    """The rule every 2-D canvas shares since 2026-09-05 (``inker_state.wheel``):
+    """The rule every 2-D canvas shares since 2026-09-05 (``paintview.wheel``):
     the wheel zooms. This pane scrolled on it from 2026-08-31, Aseprite's
     default, while Plotter and Packwright zoomed -- the same gesture with two
     results, and zoom won because two of three did it."""
@@ -658,7 +659,7 @@ def test_shift_and_the_wheel_scrolls_sideways(driven):
     _state, tab, frame = driven
     tab.view.pan = (100.0, 100.0)
     frame((16.0, 16.0), wheel=-imgui_backend.WHEEL_SCALE, shift=True)
-    assert tab.view.pan[0] == pytest.approx(100.0 - inker_state.scroll_step(REGION[0]))
+    assert tab.view.pan[0] == pytest.approx(100.0 - paintview.scroll_step(REGION[0]))
     assert tab.view.pan[1] == pytest.approx(100.0)
     assert tab.view.zoom == pytest.approx(1.0)
 
@@ -669,7 +670,7 @@ def test_a_tilt_wheel_scrolls_sideways_too(driven):
     _state, tab, frame = driven
     tab.view.pan = (100.0, 100.0)
     frame((16.0, 16.0), wheel_h=imgui_backend.WHEEL_SCALE)
-    assert tab.view.pan[0] == pytest.approx(100.0 - inker_state.scroll_step(REGION[0]))
+    assert tab.view.pan[0] == pytest.approx(100.0 - paintview.scroll_step(REGION[0]))
     assert tab.view.pan[1] == pytest.approx(100.0)
 
 
@@ -711,9 +712,9 @@ def test_the_wheel_stops_at_the_inker_bounds(driven):
 def test_the_wheel_holds_the_pixel_under_the_cursor(driven):
     _state, tab, frame = driven
     at = (24.0, 18.0)
-    before = inker_state.to_image(tab.view, (0.0, 0.0), *at)
+    before = paintview.to_image(tab.view, (0.0, 0.0), *at)
     frame(at, wheel=imgui_backend.WHEEL_SCALE)
-    assert inker_state.to_image(tab.view, (0.0, 0.0), *at) == pytest.approx(before)
+    assert paintview.to_image(tab.view, (0.0, 0.0), *at) == pytest.approx(before)
 
 
 def test_holding_c_over_a_rectangle_still_rolls_the_corner_radius(driven):

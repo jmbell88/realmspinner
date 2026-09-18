@@ -23,6 +23,7 @@ from warlock.kernels.pixel import brush
 from warlock.studio import probe, widgets
 from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.modes.inker.ui.panes import context as inker_context
+from warlock.studio.shell import paintview
 
 
 @pytest.fixture
@@ -41,7 +42,7 @@ def _scene(monkeypatch):
         busy=False,
         uid="t",
         range_sel=None,
-        view=inker_state.PaintView(),
+        view=paintview.PaintView(),
     )
     state.docs.append(tab)
     state.active_uid = "t"

@@ -861,22 +861,22 @@ def _has_split(state: Any, tab: Any) -> bool:
 
 
 def _dup_view(tab: Any) -> Any:
-    from . import state as inker_state
+    from ...shell import paintview
 
-    return inker_state.duplicate_view(tab)
+    return paintview.duplicate_view(tab)
 
 
 def _close_dup_view(tab: Any) -> Any:
-    from . import state as inker_state
+    from ...shell import paintview
 
-    return inker_state.close_duplicate_view(tab)
+    return paintview.close_duplicate_view(tab)
 
 
 def _view(verb: str, *args: Any) -> Callable[..., Any]:
     def _run(ctx: Any, tab: Any, **_: Any) -> Any:
-        from . import state as inker_state
+        from ...shell import paintview
 
-        return getattr(inker_state, verb)(tab.view, *args)
+        return getattr(paintview, verb)(tab.view, *args)
 
     return _run
 

@@ -16,15 +16,15 @@ import re
 
 import pytest
 
-from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 from warlock.studio.panes import packwright_preview, plotter_canvas
+from warlock.studio.shell import paintview
 
 # --- the wheel (A1) ---------------------------------------------------------
 
 
-def _view(zoom: float = 1.0) -> inker_state.PaintView:
-    view = inker_state.PaintView()
+def _view(zoom: float = 1.0) -> paintview.PaintView:
+    view = paintview.PaintView()
     view.zoom = zoom
     view.pan = (0.0, 0.0)
     return view
@@ -34,22 +34,22 @@ def test_the_wheel_zooms_on_the_five_percent_lattice_in_every_canvas():
     """Plotter and Packwright zoomed multiplicatively on the backend-halved
     count and never reached 100% from 83%; Inker scrolled. One rule now."""
     view = _view(0.834)
-    inker_state.wheel(view, (0.0, 0.0), (0.0, 0.0), 1.0)
+    paintview.wheel(view, (0.0, 0.0), (0.0, 0.0), 1.0)
     assert view.zoom == pytest.approx(0.90)
-    inker_state.wheel(view, (0.0, 0.0), (0.0, 0.0), 2.0)
+    paintview.wheel(view, (0.0, 0.0), (0.0, 0.0), 2.0)
     assert view.zoom == pytest.approx(1.0)
 
 
 def test_shift_and_the_wheel_scrolls_sideways_instead_of_zooming():
     view = _view()
-    along = inker_state.wheel(view, (0.0, 0.0), (0.0, 0.0), -2.0, shift=True)
+    along = paintview.wheel(view, (0.0, 0.0), (0.0, 0.0), -2.0, shift=True)
     assert along == -2.0
     assert view.zoom == pytest.approx(1.0)
 
 
 def test_a_tilt_wheel_scrolls_sideways_with_the_opposite_sign():
     view = _view()
-    along = inker_state.wheel(view, (0.0, 0.0), (0.0, 0.0), 0.0, 1.5)
+    along = paintview.wheel(view, (0.0, 0.0), (0.0, 0.0), 0.0, 1.5)
     assert along == -1.5
     assert view.zoom == pytest.approx(1.0)
 
@@ -58,7 +58,7 @@ def test_a_tilt_wheel_scrolls_sideways_with_the_opposite_sign():
 def test_every_two_d_canvas_asks_the_shared_wheel_rule(pane):
     """No canvas reads ``io.mouse_wheel`` into its own zoom any more."""
     source = inspect.getsource(pane)
-    assert "inker_state.wheel(" in source
+    assert "paintview.wheel(" in source
     assert not re.search(r"zoom_about\([^)]*mouse_wheel", source)
 
 

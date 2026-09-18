@@ -75,21 +75,23 @@ def test_manual_ch28_zoom_ceiling_matches_inker_state_constant():
 def test_manual_ch28_zoom_ladder_matches_ZOOM_LADDER():
     """The +/- ladder list must enumerate every rung of ZOOM_LADDER.
 
-    The chapter's list currently ends at 1000%; ZOOM_LADDER
-    (inker_state.py:96-99) runs six rungs further, to 6400%.
+    The chapter's list currently ends at 1000%; ZOOM_LADDER (now
+    ``shell.paintview.py``, formerly ``inker_state.py:96-99``) runs six rungs
+    further, to 6400%.
     """
     from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     zooming = _section(_chapter("28-inker.md"), "Zooming")
     missing = [
         inker_state.zoom_key(rung)
-        for rung in inker_state.ZOOM_LADDER
+        for rung in paintview.ZOOM_LADDER
         if not _has_percent(zooming, inker_state.zoom_key(rung))
     ]
     assert not missing, (
         "docs/manual/28-inker.md's +/- ladder list is missing rungs present "
-        f"in inker_state.ZOOM_LADDER: {missing}% "
-        f"(full ladder: {[inker_state.zoom_key(r) for r in inker_state.ZOOM_LADDER]}%)"
+        f"in shell.paintview.ZOOM_LADDER: {missing}% "
+        f"(full ladder: {[inker_state.zoom_key(r) for r in paintview.ZOOM_LADDER]}%)"
     )
 
 

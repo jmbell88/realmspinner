@@ -25,6 +25,7 @@ from warlock.kernels.pixel.document import Document
 from warlock.kernels.pixel.slices import SliceKey
 from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.shell import paintview
 
 ORIGIN = (0.0, 0.0)
 
@@ -65,7 +66,7 @@ def _no_context(monkeypatch, patch_canvas):
 
 def _tab(width: int = 32, height: int = 16, **view) -> object:
     doc = Document.blank(width, height)
-    return inker_state.InkerDoc(doc=doc, views=[inker_state.PaintView(**view)])
+    return inker_state.InkerDoc(doc=doc, views=[paintview.PaintView(**view)])
 
 
 def _state(tab, tool: str = "slice") -> inker_state.InkerState:

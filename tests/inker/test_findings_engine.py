@@ -361,7 +361,7 @@ def test_dropped_by_aseprite_reports_a_non_default_group_opacity():
 
 def test_a_fractional_wheel_notch_does_not_leave_the_zoom_lattice():
     """A 0.3 notch took the view to 101.5% and carried that fraction forever."""
-    from warlock.studio.modes.inker.state import PaintView, zoom_step
+    from warlock.studio.shell.paintview import PaintView, zoom_step
 
     view = PaintView()
     for _ in range(3):

@@ -25,12 +25,12 @@ from imgui_bundle import imgui
 from ......kernels.pixel import textstamp
 from ......kernels.pixel.document import catmull_rom, curve_points, curve_spans
 from ..... import controls, theme, tokens, widgets
+from .....shell import paintview
 from .....tokens import sp
 from ... import mode as inker_mode
-from ... import state as inker_state
 
 #: The four pure helpers this module used to define. They live in
-#: ``inker_state`` now (no imgui, no document, no side effects) and are named
+#: ``state`` now (no imgui, no document, no side effects) and are named
 #: here because every call site in this file and four test files already do.
 from ...state import closes_gesture
 from . import canvas as inker_canvas
@@ -186,17 +186,17 @@ def _gesture_preview(state: Any, tab: Any, draw_list: Any, origin) -> None:
     view = tab.view
     colour = inker_canvas._u32(theme.ACCENT)
     mouse = imgui.get_mouse_pos()
-    point = inker_state.to_image(view, origin, mouse.x, mouse.y)
+    point = paintview.to_image(view, origin, mouse.x, mouse.y)
     cursor = inker_canvas._snapped(state, inker_canvas._local(state, point))
     if state.tool == "curve":
-        curve = [inker_state.to_screen(view, origin, x, y) for x, y in _curve_path(points, cursor)]
+        curve = [paintview.to_screen(view, origin, x, y) for x, y in _curve_path(points, cursor)]
         for a, b in zip(curve, curve[1:], strict=False):
             draw_list.add_line(a, b, colour)
         return
-    screen = [inker_state.to_screen(view, origin, x, y) for x, y in points]
+    screen = [paintview.to_screen(view, origin, x, y) for x, y in points]
     for a, b in zip(screen, screen[1:], strict=False):
         draw_list.add_line(a, b, colour)
-    tip = inker_state.to_screen(view, origin, *cursor)
+    tip = paintview.to_screen(view, origin, *cursor)
     draw_list.add_line(screen[-1], tip, colour)
     if state.tool in CLOSES_ON_FIRST and len(screen) >= 3:
         # The edge a commit would close with, and the target that closes it.

@@ -33,6 +33,10 @@ same rule ``warlock.kernels.rig`` already follows.
 * :mod:`.quit` -- the guard chain a quit runs through (one unsaved-document
   question per mode, never all of them at once), teardown, and the window
   caption's dirty marker.
+* :mod:`.paintview` -- not part of the P4 main.py split above but the same
+  idiom: ``PaintView`` and the zoomable, pannable 2D viewport it drives,
+  promoted out of Inker in P5 once Plotter and Packwright turned out to have
+  been importing it, not reimplementing it, from the day each was written.
 
 ``studio/main.py`` stays the process entry -- ``run()``, the single-instance
 lock, session-marker bookkeeping -- and imports :class:`App` from here to

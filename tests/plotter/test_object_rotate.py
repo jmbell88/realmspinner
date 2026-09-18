@@ -21,6 +21,7 @@ import pytest
 
 from warlock.studio import plotter_state
 from warlock.studio.panes import plotter_canvas as canvas
+from warlock.studio.shell import paintview
 
 from ._drive import Scene
 
@@ -81,7 +82,7 @@ def test_the_grip_stays_the_same_screen_distance_away_at_every_zoom(scene):
 
     scene.tab.view.zoom = 8.0
     grip = _grip(scene, obj)
-    top_screen = canvas.inker_state.to_screen(scene.tab.view, (0.0, 0.0), *top)
+    top_screen = paintview.to_screen(scene.tab.view, (0.0, 0.0), *top)
     assert math.dist(grip, top_screen) == pytest.approx(at_one)
 
 

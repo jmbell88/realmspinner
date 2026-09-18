@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import docmodes, icons, packwright_mode, theme, widgets
-from ..modes.inker import state as inker_state
+from ..shell import paintview
 from ..tokens import sp
 from . import overlay, packwright_textures
 
@@ -69,9 +69,9 @@ def draw(ctx: Any) -> None:
     region = (max(float(avail.x), 1.0), max(float(avail.y), 1.0))
     size_px = (int(tab.atlas.shape[1]), int(tab.atlas.shape[0]))
     if not view.fitted:
-        inker_state.fit(view, size_px, region)
+        paintview.fit(view, size_px, region)
     if view.pending_zoom is not None:
-        inker_state.centre(view, size_px, region, view.pending_zoom)
+        paintview.centre(view, size_px, region, view.pending_zoom)
         view.pending_zoom = None
 
     origin = imgui.get_cursor_screen_pos()
@@ -81,8 +81,8 @@ def draw(ctx: Any) -> None:
     draw_list.push_clip_rect(
         (origin.x, origin.y), (origin.x + region[0], origin.y + region[1]), True
     )
-    lo = inker_state.to_screen(view, (origin.x, origin.y), 0, 0)
-    hi = inker_state.to_screen(view, (origin.x, origin.y), size_px[0], size_px[1])
+    lo = paintview.to_screen(view, (origin.x, origin.y), 0, 0)
+    hi = paintview.to_screen(view, (origin.x, origin.y), size_px[0], size_px[1])
     widgets.checkerboard(draw_list, lo, hi, step=CHECKER)
 
     texture = packwright_textures.atlas_texture(ctx, tab)
@@ -184,8 +184,8 @@ def _outlines(state: Any, tab: Any, draw_list: Any, origin) -> None:
     accent = imgui.get_color_u32(theme.rgba(theme.ACCENT))
     for frame in tab.layout.frames:
         selected = state.selected is not None and by_key.get(frame.key) == state.selected
-        p0 = inker_state.to_screen(view, origin, frame.x, frame.y)
-        p1 = inker_state.to_screen(view, origin, frame.x + frame.w, frame.y + frame.h)
+        p0 = paintview.to_screen(view, origin, frame.x, frame.y)
+        p1 = paintview.to_screen(view, origin, frame.x + frame.w, frame.y + frame.h)
         draw_list.add_rect(
             p0, p1, accent if selected else faint, 0.0, sp(2 if selected else 1)
         )
@@ -206,7 +206,7 @@ def _pivot_mark(draw_list: Any, view: Any, origin, frame: Any, colour: int) -> N
         return
     x = frame.x + float(frame.pivot[0]) - frame.trim[0]
     y = frame.y + float(frame.pivot[1]) - frame.trim[1]
-    at = inker_state.to_screen(view, origin, x, y)
+    at = paintview.to_screen(view, origin, x, y)
     arm = sp(5)
     draw_list.add_line((at[0] - arm, at[1]), (at[0] + arm, at[1]), colour, sp(1))
     draw_list.add_line((at[0], at[1] - arm), (at[0], at[1] + arm), colour, sp(1))
@@ -222,25 +222,25 @@ def _events(state: Any, tab: Any, origin, hovered: bool, region) -> None:
     view = tab.view
     if hovered and (io.mouse_wheel or io.mouse_wheel_h):
         mouse = imgui.get_mouse_pos()
-        # The rule every 2-D canvas shares (``inker_state.wheel``): the wheel
+        # The rule every 2-D canvas shares (``paintview.wheel``): the wheel
         # zooms on the 5% lattice, Shift+wheel and a tilt wheel scroll
         # sideways. Until 2026-09-05 this pane zoomed multiplicatively on the
         # backend-halved count and never landed on a round percentage.
-        along = inker_state.wheel(
+        along = paintview.wheel(
             view, origin, (mouse.x, mouse.y),
             io.mouse_wheel / imgui_backend.WHEEL_SCALE,
             io.mouse_wheel_h / imgui_backend.WHEEL_SCALE,
             shift=bool(io.key_shift),
         )
         if along:
-            view.pan = (view.pan[0] + inker_state.scroll_step(region[0]) * along, view.pan[1])
+            view.pan = (view.pan[0] + paintview.scroll_step(region[0]) * along, view.pan[1])
     if hovered and imgui.is_mouse_dragging(2):
         delta = imgui.get_mouse_drag_delta(2)
         imgui.reset_mouse_drag_delta(2)
         view.pan = (view.pan[0] + delta.x, view.pan[1] + delta.y)
     if hovered and imgui.is_mouse_clicked(0) and tab.layout is not None:
         mouse = imgui.get_mouse_pos()
-        x, y = inker_state.to_image(view, origin, mouse.x, mouse.y)
+        x, y = paintview.to_image(view, origin, mouse.x, mouse.y)
         by_key = packwright_mode.source_index(tab)
         # Reversed, so a sprite drawn over another is reachable -- the rule the
         # map canvas follows for overlapping objects.

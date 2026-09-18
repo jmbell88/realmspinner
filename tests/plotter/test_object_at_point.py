@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.panes import plotter_canvas as canvas
+from warlock.studio.shell import paintview
 
 from ._drive import Scene
 
@@ -32,7 +32,7 @@ def test_object_at_selects_a_point_object_when_zoomed_out(scene):
     # The marker's screen position at this zoom, nudged 5 screen pixels away --
     # comfortably inside the drawn ring's sp(7) radius, but 20 map pixels away
     # (5 / 0.25), well outside the old fixed-8-map-pixel box.
-    marker = canvas.inker_state.to_screen(scene.tab.view, (0.0, 0.0), obj.x, obj.y)
+    marker = paintview.to_screen(scene.tab.view, (0.0, 0.0), obj.x, obj.y)
     near = (marker[0] + 5.0, marker[1])
 
     scene.frame(near, click=True)

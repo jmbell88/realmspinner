@@ -21,9 +21,9 @@ from types import SimpleNamespace
 import pytest
 
 from warlock.studio import plotter_mode
-from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.panes import plotter_canvas as canvas
 from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.shell import paintview
 
 
 class FakeDrawList:
@@ -66,7 +66,7 @@ def bands(monkeypatch):
     doc.add_tile_layer("Tiles")
     tab = SimpleNamespace(
         doc=doc,
-        view=inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
+        view=paintview.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
     )
     return tab, FakeDrawList()
 
@@ -102,7 +102,7 @@ def test_a_label_sits_where_that_cell_is_drawn(bands):
     assert horizontal
     for at, text in horizontal:
         corner = tab.doc.cell_corner(int(text), 0)
-        expected = inker_state.to_screen(tab.view, (0.0, 0.0), *corner)
+        expected = paintview.to_screen(tab.view, (0.0, 0.0), *corner)
         assert at[0] == pytest.approx(expected[0] + 3.0), text
 
 

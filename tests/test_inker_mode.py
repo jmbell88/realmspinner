@@ -16,8 +16,10 @@ import pytest
 from warlock.kernels import pixel as inker
 from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.state import InkerDoc, InkerState, PaintView
+from warlock.studio.modes.inker.state import InkerDoc, InkerState
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.shell import paintview
+from warlock.studio.shell.paintview import PaintView
 
 
 def _tab(name="a.png", path=None, size=(16, 16)):
@@ -159,7 +161,7 @@ def test_switching_tabs_abandons_a_half_finished_drag():
 
 def test_fitting_shows_the_whole_document_centred():
     view = PaintView()
-    inker_state.fit(view, (100, 50), (200.0, 200.0))
+    paintview.fit(view, (100, 50), (200.0, 200.0))
     assert view.zoom == pytest.approx(2.0)
     assert view.pan == pytest.approx((0.0, 50.0))
     assert view.fitted
@@ -167,33 +169,33 @@ def test_fitting_shows_the_whole_document_centred():
 
 def test_a_round_trip_through_the_view_is_the_identity():
     view = PaintView(zoom=2.5, pan=(13.0, -7.0))
-    screen = inker_state.to_screen(view, (10.0, 20.0), 4.0, 6.0)
-    assert inker_state.to_image(view, (10.0, 20.0), *screen) == pytest.approx((4.0, 6.0))
+    screen = paintview.to_screen(view, (10.0, 20.0), 4.0, 6.0)
+    assert paintview.to_image(view, (10.0, 20.0), *screen) == pytest.approx((4.0, 6.0))
 
 
 def test_image_coordinates_stay_fractional_for_the_brush():
     """Rounding here would quantise every stroke to the zoom it was drawn at."""
     view = PaintView(zoom=4.0)
-    x, y = inker_state.to_image(view, (0.0, 0.0), 3.0, 5.0)
+    x, y = paintview.to_image(view, (0.0, 0.0), 3.0, 5.0)
     assert (x, y) == pytest.approx((0.75, 1.25))
 
 
 def test_zooming_keeps_the_pixel_under_the_cursor_under_the_cursor():
     view = PaintView(zoom=1.0, pan=(0.0, 0.0))
     origin, mouse = (0.0, 0.0), (120.0, 80.0)
-    before = inker_state.to_image(view, origin, *mouse)
-    inker_state.zoom_about(view, origin, mouse, 3.0)
-    assert inker_state.to_image(view, origin, *mouse) == pytest.approx(before)
+    before = paintview.to_image(view, origin, *mouse)
+    paintview.zoom_about(view, origin, mouse, 3.0)
+    assert paintview.to_image(view, origin, *mouse) == pytest.approx(before)
     assert view.zoom > 1.0
 
 
 def test_zoom_is_clamped_at_both_ends():
     """The module defaults, which Plotter and Packwright both take."""
     view = PaintView(zoom=1.0)
-    inker_state.zoom_about(view, (0.0, 0.0), (0.0, 0.0), 200.0)
-    assert view.zoom == pytest.approx(inker_state.MAX_ZOOM)
-    inker_state.zoom_about(view, (0.0, 0.0), (0.0, 0.0), -400.0)
-    assert view.zoom == pytest.approx(inker_state.MIN_ZOOM)
+    paintview.zoom_about(view, (0.0, 0.0), (0.0, 0.0), 200.0)
+    assert view.zoom == pytest.approx(paintview.MAX_ZOOM)
+    paintview.zoom_about(view, (0.0, 0.0), (0.0, 0.0), -400.0)
+    assert view.zoom == pytest.approx(paintview.MIN_ZOOM)
 
 
 def _inker_bounds() -> dict[str, float]:
@@ -213,10 +215,10 @@ def test_only_the_ceiling_is_the_inkers_own_now():
     16 px sprite at the old 10x was 160 screen pixels, and 16 px is the size
     this app is for. Aseprite stops at 6400%.
     """
-    assert inker_state.MIN_ZOOM == inker_state.INKER_MIN_ZOOM
-    assert inker_state.INKER_MAX_ZOOM > inker_state.MAX_ZOOM
+    assert paintview.MIN_ZOOM == inker_state.INKER_MIN_ZOOM
+    assert inker_state.INKER_MAX_ZOOM > paintview.MAX_ZOOM
     assert inker_state.INKER_MAX_ZOOM == 64.0
-    assert inker_state.ZOOM_LADDER[-1] == inker_state.INKER_MAX_ZOOM
+    assert paintview.ZOOM_LADDER[-1] == inker_state.INKER_MAX_ZOOM
 
 
 def test_the_wheel_can_actually_reach_the_ceiling():
@@ -224,7 +226,7 @@ def test_the_wheel_can_actually_reach_the_ceiling():
     view = PaintView(zoom=1.0)
     notches = 0
     while view.zoom < inker_state.INKER_MAX_ZOOM and notches < 400:
-        inker_state.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
+        paintview.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
         notches += 1
     assert view.zoom == pytest.approx(inker_state.INKER_MAX_ZOOM)
     assert notches < 200, "the top must be a scroll, not a workout"
@@ -232,7 +234,7 @@ def test_the_wheel_can_actually_reach_the_ceiling():
 
 def test_the_wheel_keeps_its_five_percent_notches_where_they_mean_something():
     view = PaintView(zoom=1.0)
-    inker_state.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
+    paintview.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
     assert view.zoom == pytest.approx(1.05)
 
 
@@ -242,39 +244,39 @@ def test_zoom_is_clamped_to_the_inker_bounds_when_they_are_passed():
     carrying five hundred notches is not a gesture this has to answer."""
     view = PaintView(zoom=1.0)
     for _ in range(400):
-        inker_state.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
+        paintview.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
     assert view.zoom == pytest.approx(inker_state.INKER_MAX_ZOOM)
     for _ in range(400):
-        inker_state.zoom_step(view, (0.0, 0.0), (0.0, 0.0), -1.0, **_inker_bounds())
+        paintview.zoom_step(view, (0.0, 0.0), (0.0, 0.0), -1.0, **_inker_bounds())
     assert view.zoom == pytest.approx(inker_state.INKER_MIN_ZOOM)
 
 
 def test_a_wheel_notch_is_five_percent_and_snapped_to_the_grid():
     view = PaintView(zoom=0.25)
     for expected in (0.30, 0.35, 0.40):
-        inker_state.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
+        paintview.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
         assert view.zoom == pytest.approx(expected)
 
 
 def test_a_notch_joins_the_grid_rather_than_carrying_a_fitted_fraction():
     """A zoom arrived at by fitting is arbitrary; one notch makes it round."""
     view = PaintView(zoom=0.834)
-    inker_state.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
+    paintview.zoom_step(view, (0.0, 0.0), (0.0, 0.0), 1.0, **_inker_bounds())
     assert view.zoom == pytest.approx(0.90)
 
 
 def test_stepping_keeps_the_pixel_under_the_cursor_under_the_cursor():
     view = PaintView(zoom=1.0, pan=(0.0, 0.0))
     origin, mouse = (0.0, 0.0), (120.0, 80.0)
-    before = inker_state.to_image(view, origin, *mouse)
-    inker_state.zoom_step(view, origin, mouse, 3.0, **_inker_bounds())
-    assert inker_state.to_image(view, origin, *mouse) == pytest.approx(before)
+    before = paintview.to_image(view, origin, *mouse)
+    paintview.zoom_step(view, origin, mouse, 3.0, **_inker_bounds())
+    assert paintview.to_image(view, origin, *mouse) == pytest.approx(before)
     assert view.zoom == pytest.approx(1.15)
 
 
 def test_a_step_that_changes_nothing_leaves_the_pan_alone():
     view = PaintView(zoom=inker_state.INKER_MAX_ZOOM, pan=(13.0, -7.0))
-    inker_state.zoom_step(view, (0.0, 0.0), (50.0, 50.0), 4.0, **_inker_bounds())
+    paintview.zoom_step(view, (0.0, 0.0), (50.0, 50.0), 4.0, **_inker_bounds())
     assert view.pan == pytest.approx((13.0, -7.0))
 
 
@@ -287,7 +289,7 @@ def test_fitting_under_a_floor_centres_at_the_floor_and_overflows():
     green. It is the claim that matters, so the page grew instead.
     """
     view = PaintView()
-    inker_state.fit(view, (40000, 40000), (400.0, 400.0), **_inker_bounds())
+    paintview.fit(view, (40000, 40000), (400.0, 400.0), **_inker_bounds())
     assert view.zoom == pytest.approx(inker_state.INKER_MIN_ZOOM)
     # 40 000 at 5% is 2 000 px in a 400 px pane: it overflows, and that is the
     # cost being recorded rather than a bug.
@@ -303,15 +305,15 @@ def test_the_zoom_presets_and_the_ladder_are_two_tables_on_purpose():
     it, or +/- walks into banding unasked.
     """
     assert 0.75 in inker_state.ZOOM_PRESETS
-    assert 0.75 not in inker_state.ZOOM_LADDER
+    assert 0.75 not in paintview.ZOOM_LADDER
     # Both are sorted, and both live inside the pane's own bounds -- a preset
     # the canvas would clamp away is a menu entry that lies.
-    for table in (inker_state.ZOOM_PRESETS, inker_state.ZOOM_LADDER):
+    for table in (inker_state.ZOOM_PRESETS, paintview.ZOOM_LADDER):
         assert list(table) == sorted(table)
         assert table[0] >= inker_state.INKER_MIN_ZOOM
         assert table[-1] <= inker_state.INKER_MAX_ZOOM
     # Every ladder rung is still whole either way up (the pixel-art rule).
-    for rung in inker_state.ZOOM_LADDER:
+    for rung in paintview.ZOOM_LADDER:
         whole = rung if rung >= 1.0 else 1.0 / rung
         assert whole == pytest.approx(round(whole))
 
@@ -326,7 +328,7 @@ def test_a_preset_key_survives_the_half_percent():
 
 def test_centring_sets_an_exact_zoom():
     view = PaintView()
-    inker_state.centre(view, (100, 100), (400.0, 400.0), 1.0)
+    paintview.centre(view, (100, 100), (400.0, 400.0), 1.0)
     assert view.zoom == pytest.approx(1.0)
     assert view.pan == pytest.approx((150.0, 150.0))
 
@@ -339,13 +341,13 @@ def test_a_page_larger_than_the_pane_stops_with_its_edge_at_the_middle():
     every corner of a page too big to see at once must still be draggable into
     the middle of the pane to be worked on."""
     view = PaintView(zoom=1.0)
-    (lo_x, hi_x), _ = inker_state.pan_limits(view, (1000, 1000), (400.0, 400.0))
+    (lo_x, hi_x), _ = paintview.pan_limits(view, (1000, 1000), (400.0, 400.0))
     assert (lo_x, hi_x) == pytest.approx((-800.0, 200.0))
     # At either end the page's near edge is exactly on the pane's centre.
     view.pan = (hi_x, hi_x)
-    assert inker_state.page_box(view, (1000, 1000))[0][0] == pytest.approx(200.0)
+    assert paintview.page_box(view, (1000, 1000))[0][0] == pytest.approx(200.0)
     view.pan = (lo_x, lo_x)
-    assert inker_state.page_box(view, (1000, 1000))[1][0] == pytest.approx(200.0)
+    assert paintview.page_box(view, (1000, 1000))[1][0] == pytest.approx(200.0)
 
 
 def test_a_page_under_half_the_pane_may_go_anywhere_inside_it():
@@ -356,7 +358,7 @@ def test_a_page_under_half_the_pane_may_go_anywhere_inside_it():
     while the page is the shorter one. 100 into 400 is well under it.
     """
     view = PaintView(zoom=1.0)
-    (lo_x, hi_x), _ = inker_state.pan_limits(view, (100, 100), (400.0, 400.0))
+    (lo_x, hi_x), _ = paintview.pan_limits(view, (100, 100), (400.0, 400.0))
     assert (lo_x, hi_x) == pytest.approx((0.0, 300.0))
 
 
@@ -366,7 +368,7 @@ def test_a_page_between_half_the_pane_and_all_of_it_may_still_hang_off_an_edge()
     *smaller* than the pane and is still allowed to hang off it, which is what
     lets you push a nearly-pane-sized drawing aside to see under it."""
     view = PaintView(zoom=1.0)
-    (lo_x, hi_x), _ = inker_state.pan_limits(view, (100, 100), (120.0, 120.0))
+    (lo_x, hi_x), _ = paintview.pan_limits(view, (100, 100), (120.0, 120.0))
     assert (lo_x, hi_x) == pytest.approx((-40.0, 60.0))
 
 
@@ -375,15 +377,15 @@ def test_a_turned_page_is_bounded_on_the_axis_it_now_occupies():
     nothing -- at a quarter turn the horizontal limit is the document's
     *height*."""
     view = PaintView(zoom=1.0, rotation=90)
-    (lo_x, hi_x), (lo_y, hi_y) = inker_state.pan_limits(view, (100, 50), (400.0, 400.0))
+    (lo_x, hi_x), (lo_y, hi_y) = paintview.pan_limits(view, (100, 50), (400.0, 400.0))
     # Turned, the 50 px axis runs across the screen and the 100 px axis down.
     assert hi_x - lo_x == pytest.approx(400.0 - 50.0)
     assert hi_y - lo_y == pytest.approx(400.0 - 100.0)
 
 
 def test_a_flipped_view_bounds_the_mirror_of_the_same_box():
-    plain = inker_state.pan_limits(PaintView(zoom=1.0), (100, 50), (400.0, 400.0))
-    flipped = inker_state.pan_limits(
+    plain = paintview.pan_limits(PaintView(zoom=1.0), (100, 50), (400.0, 400.0))
+    flipped = paintview.pan_limits(
         PaintView(zoom=1.0, flipped=True), (100, 50), (400.0, 400.0)
     )
     # The same width of freedom either way -- a mirror moves the box, it does
@@ -397,7 +399,7 @@ def test_the_interval_never_inverts():
     for zoom in (inker_state.INKER_MIN_ZOOM, 0.5, 1.0, 3.0, inker_state.INKER_MAX_ZOOM):
         for size in ((1, 1), (32, 32), (400, 400), (4000, 4000)):
             view = PaintView(zoom=zoom)
-            for axis in inker_state.pan_limits(view, size, (400.0, 300.0)):
+            for axis in paintview.pan_limits(view, size, (400.0, 300.0)):
                 assert axis[0] <= axis[1], (zoom, size, axis)
 
 
@@ -408,26 +410,26 @@ def test_clamping_a_centred_view_changes_nothing():
     for size, zoom in (((100, 50), None), ((4000, 4000), None), ((100, 50), 1.0)):
         view = PaintView()
         if zoom is None:
-            inker_state.fit(view, size, (400.0, 400.0), **_inker_bounds())
+            paintview.fit(view, size, (400.0, 400.0), **_inker_bounds())
         else:
-            inker_state.centre(view, size, (400.0, 400.0), zoom, **_inker_bounds())
+            paintview.centre(view, size, (400.0, 400.0), zoom, **_inker_bounds())
         before = view.pan
-        inker_state.clamp_pan(view, size, (400.0, 400.0))
+        paintview.clamp_pan(view, size, (400.0, 400.0))
         assert view.pan == pytest.approx(before), size
     # And the floor-overflow case by name, so this cannot be "fixed" by a
     # clamp that quietly pulls the huge page back on screen.
     view = PaintView()
-    inker_state.fit(view, (40000, 40000), (400.0, 400.0), **_inker_bounds())
+    paintview.fit(view, (40000, 40000), (400.0, 400.0), **_inker_bounds())
     before = view.pan
-    inker_state.clamp_pan(view, (40000, 40000), (400.0, 400.0))
+    paintview.clamp_pan(view, (40000, 40000), (400.0, 400.0))
     assert view.pan == pytest.approx(before)
     assert 40000 * view.zoom > 400.0
 
 
 def test_clamping_pulls_a_page_dragged_off_the_pane_back():
     view = PaintView(zoom=1.0, pan=(9e9, -9e9))
-    inker_state.clamp_pan(view, (1000, 1000), (400.0, 400.0))
-    (x0, y0), (_x1, y1) = inker_state.page_box(view, (1000, 1000))
+    paintview.clamp_pan(view, (1000, 1000), (400.0, 400.0))
+    (x0, y0), (_x1, y1) = paintview.page_box(view, (1000, 1000))
     assert x0 == pytest.approx(200.0)
     assert y1 == pytest.approx(200.0)
     assert y0 < 0.0
@@ -438,44 +440,44 @@ def test_a_pane_that_shrinks_pulls_the_pan_in():
     pan, the *pane* changed under it -- a window resize, a sidebar widening,
     the split canvas opening."""
     view = PaintView(zoom=1.0)
-    inker_state.centre(view, (100, 100), (400.0, 400.0), 1.0)
-    inker_state.clamp_pan(view, (100, 100), (400.0, 400.0))
+    paintview.centre(view, (100, 100), (400.0, 400.0), 1.0)
+    paintview.clamp_pan(view, (100, 100), (400.0, 400.0))
     assert view.pan == pytest.approx((150.0, 150.0))
     # 100 px of page in a 120 px pane is over half of it, so the limit is the
     # edge-to-the-middle one: pan stops at pane/2 rather than at pane - span.
-    inker_state.clamp_pan(view, (100, 100), (120.0, 120.0))
+    paintview.clamp_pan(view, (100, 100), (120.0, 120.0))
     assert view.pan == pytest.approx((60.0, 60.0))
 
 
 def test_a_wheel_notch_moves_an_eighth_of_the_pane():
     """Screen pixels, not image pixels: a scroll moves the *view*, so it must
     cover the same distance on screen at 5% as at 800%."""
-    assert inker_state.scroll_step(800.0) == pytest.approx(100.0)
+    assert paintview.scroll_step(800.0) == pytest.approx(100.0)
 
 
 def test_a_very_short_pane_still_scrolls():
-    assert inker_state.scroll_step(80.0) == pytest.approx(inker_state.SCROLL_MIN)
+    assert paintview.scroll_step(80.0) == pytest.approx(paintview.SCROLL_MIN)
 
 
 def test_panning_by_notches_walks_to_the_limit_and_stops():
     view = PaintView(zoom=1.0)
     for _ in range(200):
-        inker_state.pan_by(view, (100, 100), (400.0, 400.0), 0.0, -50.0)
+        paintview.pan_by(view, (100, 100), (400.0, 400.0), 0.0, -50.0)
     assert view.pan[1] == pytest.approx(0.0)
 
 
 def test_the_thumb_is_the_pane_over_the_whole_scrollable_span():
     view = PaintView(zoom=1.0)
-    inker_state.centre(view, (2000, 2000), (400.0, 400.0), 1.0)
-    _offset, length = inker_state.scroll_thumb(view, (2000, 2000), (400.0, 400.0), 0)
+    paintview.centre(view, (2000, 2000), (400.0, 400.0), 1.0)
+    _offset, length = paintview.scroll_thumb(view, (2000, 2000), (400.0, 400.0), 0)
     # Pane 400, travel 2000 (the page's own span) -> 400 / 2400.
     assert length == pytest.approx(400.0 / 2400.0)
 
 
 def test_the_thumb_is_centred_when_the_view_is():
     view = PaintView(zoom=1.0)
-    inker_state.centre(view, (2000, 2000), (400.0, 400.0), 1.0)
-    offset, length = inker_state.scroll_thumb(view, (2000, 2000), (400.0, 400.0), 0)
+    paintview.centre(view, (2000, 2000), (400.0, 400.0), 1.0)
+    offset, length = paintview.scroll_thumb(view, (2000, 2000), (400.0, 400.0), 0)
     assert offset + length / 2.0 == pytest.approx(0.5)
 
 
@@ -485,16 +487,16 @@ def test_the_thumb_reaches_the_ends_of_the_track_exactly_at_the_pan_limits():
     clamp then refuses -- which is what a thumb that springs back looks like."""
     size, region = (2000, 1000), (400.0, 300.0)
     for axis in (0, 1):
-        (lo, hi) = inker_state.pan_limits(PaintView(zoom=1.0), size, region)[axis]
+        (lo, hi) = paintview.pan_limits(PaintView(zoom=1.0), size, region)[axis]
         view = PaintView(zoom=1.0)
         pan = list(view.pan)
         pan[axis] = hi
         view.pan = tuple(pan)
-        offset, _length = inker_state.scroll_thumb(view, size, region, axis)
+        offset, _length = paintview.scroll_thumb(view, size, region, axis)
         assert offset == pytest.approx(0.0)
         pan[axis] = lo
         view.pan = tuple(pan)
-        offset, length = inker_state.scroll_thumb(view, size, region, axis)
+        offset, length = paintview.scroll_thumb(view, size, region, axis)
         assert offset + length == pytest.approx(1.0)
 
 
@@ -504,18 +506,18 @@ def test_the_thumb_is_half_the_track_at_fit_because_the_pan_may_still_move():
     -- and a bar that claimed otherwise would be lying about what a drag can
     do."""
     view = PaintView()
-    inker_state.fit(view, (100, 100), (400.0, 400.0), **_inker_bounds())
-    _offset, length = inker_state.scroll_thumb(view, (100, 100), (400.0, 400.0), 0)
+    paintview.fit(view, (100, 100), (400.0, 400.0), **_inker_bounds())
+    _offset, length = paintview.scroll_thumb(view, (100, 100), (400.0, 400.0), 0)
     assert length == pytest.approx(0.5)
 
 
 def test_dragging_the_free_track_end_to_end_walks_the_whole_pan_range():
     size, region = (2000, 2000), (400.0, 400.0)
     view = PaintView(zoom=1.0)
-    inker_state.centre(view, size, region, 1.0)
-    lo, hi = inker_state.pan_limits(view, size, region)[0]
+    paintview.centre(view, size, region, 1.0)
+    lo, hi = paintview.pan_limits(view, size, region)[0]
     view.pan = (hi, view.pan[1])
-    inker_state.scroll_drag(view, size, region, 0, 250.0, 250.0)
+    paintview.scroll_drag(view, size, region, 0, 250.0, 250.0)
     assert view.pan[0] == pytest.approx(lo)
 
 
@@ -525,7 +527,7 @@ def test_a_short_thumb_stays_grabbable_and_still_maps_the_whole_range():
     on the limit."""
     size, region = (40000, 40000), (400.0, 400.0)
     view = PaintView(zoom=1.0)
-    _offset, length = inker_state.scroll_thumb(
+    _offset, length = paintview.scroll_thumb(
         view, size, region, 0, min_length=24.0 / 400.0
     )
     assert length == pytest.approx(24.0 / 400.0)
@@ -544,11 +546,11 @@ def test_a_turned_view_puts_the_documents_height_on_the_horizontal_bar():
     size, region = (100, 50), (400.0, 400.0)
     upright = PaintView(zoom=1.0)
     turned = PaintView(zoom=1.0, rotation=90)
-    assert inker_state.scroll_thumb(turned, size, region, 0)[1] == pytest.approx(
-        inker_state.scroll_thumb(upright, size, region, 1)[1]
+    assert paintview.scroll_thumb(turned, size, region, 0)[1] == pytest.approx(
+        paintview.scroll_thumb(upright, size, region, 1)[1]
     )
-    assert inker_state.scroll_thumb(turned, size, region, 1)[1] == pytest.approx(
-        inker_state.scroll_thumb(upright, size, region, 0)[1]
+    assert paintview.scroll_thumb(turned, size, region, 1)[1] == pytest.approx(
+        paintview.scroll_thumb(upright, size, region, 0)[1]
     )
 
 
@@ -1265,20 +1267,20 @@ ORIENTATIONS = [(r, f) for r in (0, 90, 180, 270) for f in (False, True)]
 
 
 def _view(rotation=0, flipped=False, zoom=2.0, pan=(7.0, 11.0)):
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
-    return inker_state.PaintView(zoom=zoom, pan=pan, rotation=rotation, flipped=flipped)
+    return paintview.PaintView(zoom=zoom, pan=pan, rotation=rotation, flipped=flipped)
 
 
 @pytest.mark.parametrize(("rotation", "flipped"), ORIENTATIONS)
 def test_a_round_trip_is_the_identity_in_every_orientation(rotation, flipped):
     """The basis is orthonormal, so its transpose is its inverse -- exactly,
     for all eight of them, rather than to within a rounding error."""
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     view = _view(rotation, flipped)
-    screen = inker_state.to_screen(view, (10.0, 20.0), 4.0, 6.0)
-    assert inker_state.to_image(view, (10.0, 20.0), *screen) == pytest.approx((4.0, 6.0))
+    screen = paintview.to_screen(view, (10.0, 20.0), 4.0, 6.0)
+    assert paintview.to_image(view, (10.0, 20.0), *screen) == pytest.approx((4.0, 6.0))
 
 
 @pytest.mark.parametrize(("rotation", "flipped"), ORIENTATIONS)
@@ -1286,11 +1288,11 @@ def test_a_quarter_turn_keeps_an_axis_aligned_rectangle_axis_aligned(rotation, f
     """The whole licence for the pane's overlays staying as they were. If this
     ever fails, the grid, the marquee preview and the transform box are all
     quietly drawing the wrong shape."""
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     view = _view(rotation, flipped)
     corners = [
-        inker_state.to_screen(view, (0.0, 0.0), x, y)
+        paintview.to_screen(view, (0.0, 0.0), x, y)
         for x, y in ((0, 0), (8, 0), (8, 5), (0, 5))
     ]
     xs = sorted({round(p[0], 6) for p in corners})
@@ -1304,22 +1306,22 @@ def test_the_orientation_preserves_distance(rotation, flipped):
     arithmetic: the basis turns, and turning does not stretch."""
     import math
 
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     view = _view(rotation, flipped, zoom=1.0, pan=(0.0, 0.0))
-    a = inker_state.to_screen(view, (0.0, 0.0), 1.0, 2.0)
-    b = inker_state.to_screen(view, (0.0, 0.0), 4.0, 6.0)
+    a = paintview.to_screen(view, (0.0, 0.0), 1.0, 2.0)
+    b = paintview.to_screen(view, (0.0, 0.0), 4.0, 6.0)
     assert math.dist(a, b) == pytest.approx(5.0)
 
 
 def test_a_quarter_turn_swaps_the_extent_the_canvas_needs():
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     upright = _view(0)
     turned = _view(90)
-    (lo, hi) = inker_state.view_extent(upright, (100, 50))
+    (lo, hi) = paintview.view_extent(upright, (100, 50))
     assert (hi[0] - lo[0], hi[1] - lo[1]) == (100.0, 50.0)
-    (lo, hi) = inker_state.view_extent(turned, (100, 50))
+    (lo, hi) = paintview.view_extent(turned, (100, 50))
     assert (hi[0] - lo[0], hi[1] - lo[1]) == (50.0, 100.0)
 
 
@@ -1330,12 +1332,12 @@ def test_fitting_puts_the_whole_canvas_inside_the_pane_however_it_is_turned(
     """The one thing rotation genuinely costs the layout: a turn puts part of
     the canvas at negative view coordinates, so the framing cannot assume the
     corner is at the origin."""
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     view = _view(rotation, flipped)
-    inker_state.fit(view, (100, 50), (200.0, 200.0))
+    paintview.fit(view, (100, 50), (200.0, 200.0))
     corners = [
-        inker_state.to_screen(view, (0.0, 0.0), x, y)
+        paintview.to_screen(view, (0.0, 0.0), x, y)
         for x, y in ((0, 0), (100, 0), (100, 50), (0, 50))
     ]
     lo_x, hi_x = min(p[0] for p in corners), max(p[0] for p in corners)
@@ -1349,34 +1351,34 @@ def test_fitting_puts_the_whole_canvas_inside_the_pane_however_it_is_turned(
 
 
 def test_a_flip_mirrors_left_to_right_and_is_its_own_inverse():
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     view = _view(0, zoom=1.0, pan=(0.0, 0.0))
-    right = inker_state.to_screen(view, (0.0, 0.0), 10.0, 0.0)
-    inker_state.flip_view(view)
-    assert inker_state.to_screen(view, (0.0, 0.0), 10.0, 0.0)[0] == pytest.approx(-right[0])
-    inker_state.flip_view(view)
+    right = paintview.to_screen(view, (0.0, 0.0), 10.0, 0.0)
+    paintview.flip_view(view)
+    assert paintview.to_screen(view, (0.0, 0.0), 10.0, 0.0)[0] == pytest.approx(-right[0])
+    paintview.flip_view(view)
     assert not view.flipped
 
 
 def test_rotating_cycles_through_the_four_and_keeps_the_zoom():
     """Re-centred through ``pending_zoom`` rather than by clearing ``fitted``,
     which would also re-scale and throw away a zoom the user chose."""
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     view = _view(0, zoom=3.0)
     for expected in (90, 180, 270, 0):
-        inker_state.rotate_view(view)
+        paintview.rotate_view(view)
         assert view.rotation == expected
         assert view.pending_zoom == 3.0
         assert view.zoom == 3.0
 
 
 def test_rotating_backwards_is_the_other_direction():
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     view = _view(0)
-    inker_state.rotate_view(view, -1)
+    paintview.rotate_view(view, -1)
     assert view.rotation == 270
 
 
@@ -1384,13 +1386,13 @@ def test_neither_rotation_nor_flip_is_an_edit():
     """No pixels move, so there is nothing to undo and nothing to save -- which
     is the reason both live on the view rather than on the document."""
     from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     doc = inker.Document.blank(8, 8)
     head, rev = doc.history.head, doc.rev
-    view = inker_state.PaintView()
-    inker_state.rotate_view(view)
-    inker_state.flip_view(view)
+    view = paintview.PaintView()
+    paintview.rotate_view(view)
+    paintview.flip_view(view)
     assert (doc.history.head, doc.rev) == (head, rev)
 
 
@@ -1399,11 +1401,11 @@ def test_a_rotation_off_the_quarter_lattice_reads_as_zero_everywhere():
     readers must agree about it: ``basis`` always answered such a value as 0,
     while ``rotate_view`` restated the lookup without the guard and raised a
     ValueError out of ``index()`` -- one bad state, two different verdicts."""
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     view = _view(45)
-    assert inker_state.basis(view) == inker_state.basis(_view(0))
-    inker_state.rotate_view(view)
+    assert paintview.basis(view) == paintview.basis(_view(0))
+    paintview.rotate_view(view)
     assert view.rotation == 90
     assert view.pending_zoom == view.zoom
 
@@ -1411,11 +1413,11 @@ def test_a_rotation_off_the_quarter_lattice_reads_as_zero_everywhere():
 def test_an_over_wound_multiple_of_ninety_still_turns_from_where_it_reads():
     """The other side of the shared spelling: 450 is 90 on screen, and a turn
     from it lands on 180 rather than raising or restarting at zero."""
-    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
     view = _view(450)
-    assert inker_state.basis(view) == inker_state.basis(_view(90))
-    inker_state.rotate_view(view)
+    assert paintview.basis(view) == paintview.basis(_view(90))
+    paintview.rotate_view(view)
     assert view.rotation == 180
 
 

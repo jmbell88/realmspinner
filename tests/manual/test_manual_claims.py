@@ -54,7 +54,7 @@ def _wheel_paragraph(section: str) -> str:
 def test_manual_zooming_section_names_the_wheels_gear_change_above_800_percent():
     """The 2026-09-08 audit, finding inker-03.
 
-    ``inker_state.FINE_ZOOM_MAX`` (800%) is where ``zoom_step`` switches the
+    ``shell.paintview.FINE_ZOOM_MAX`` (800%) is where ``zoom_step`` switches the
     wheel from additive 5% notches to walking ``ZOOM_LADDER`` rungs -- the
     same jump size the `+`/`-` keys use everywhere. The chapter's *wheel*
     paragraph (not the section as a whole -- see ``_wheel_paragraph``) must
@@ -63,13 +63,14 @@ def test_manual_zooming_section_names_the_wheels_gear_change_above_800_percent()
     meaningful step and 5% of 64x is a twentieth of a source pixel").
     """
     from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.shell import paintview
 
-    gear_change_pct = inker_state.zoom_key(inker_state.FINE_ZOOM_MAX)
+    gear_change_pct = inker_state.zoom_key(paintview.FINE_ZOOM_MAX)
     wheel = _wheel_paragraph(_section(_chapter("28-inker.md"), "Zooming"))
 
     assert gear_change_pct in wheel, (
         f"docs/manual/28-inker.md's Zooming section's wheel paragraph never "
-        f"names {gear_change_pct}% (inker_state.FINE_ZOOM_MAX), the zoom "
+        f"names {gear_change_pct}% (shell.paintview.FINE_ZOOM_MAX), the zoom "
         "above which the wheel stops taking 5% notches and starts walking "
         "ZOOM_LADDER rungs instead"
     )

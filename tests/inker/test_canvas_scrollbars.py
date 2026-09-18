@@ -25,6 +25,7 @@ from _ui_context import imgui_context
 from warlock.kernels import pixel as inker
 from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.shell import paintview
 
 SIZE = (2000, 2000)
 REGION = (400.0, 300.0)
@@ -47,11 +48,11 @@ def _scene(size=SIZE, *, rulers=False, tiled="off"):
         doc=inker.Document.blank(*size),
         tiled=tiled,
         busy=False,
-        views=[inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True)],
+        views=[paintview.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True)],
         focus=0,
     )
     tab.view = tab.views[0]
-    inker_state.centre(tab.view, size, REGION, 1.0)
+    paintview.centre(tab.view, size, REGION, 1.0)
     return state, tab
 
 
@@ -180,9 +181,9 @@ def test_a_click_on_the_bare_track_jumps_the_thumb_to_it(ui):
     state, tab = _scene()
     build, _seen = _build(ui, state, tab)
     x0, y0, x1, y1 = _track(state, 0)
-    before, _length = inker_state.scroll_thumb(tab.view, SIZE, REGION, 0)
+    before, _length = paintview.scroll_thumb(tab.view, SIZE, REGION, 0)
     _press(ui, build, (x0 + 12.0, (y0 + y1) / 2.0))
-    after, _length = inker_state.scroll_thumb(tab.view, SIZE, REGION, 0)
+    after, _length = paintview.scroll_thumb(tab.view, SIZE, REGION, 0)
     assert after < before
 
 
@@ -220,9 +221,9 @@ def test_tiling_does_not_change_the_thumb(ui):
     document is three times the size it is."""
     plain, tab_plain = _scene(tiled="off")
     tiled, tab_tiled = _scene(tiled="both")
-    assert inker_state.scroll_thumb(
+    assert paintview.scroll_thumb(
         tab_plain.view, SIZE, REGION, 0
-    ) == pytest.approx(inker_state.scroll_thumb(tab_tiled.view, SIZE, REGION, 0))
+    ) == pytest.approx(paintview.scroll_thumb(tab_tiled.view, SIZE, REGION, 0))
 
 
 def test_each_pane_of_a_split_gets_its_own_bars(ui):
@@ -230,11 +231,11 @@ def test_each_pane_of_a_split_gets_its_own_bars(ui):
     read the view it belongs to, and the two buttons must not share an imgui
     id or a press in either would drive both."""
     state, tab = _scene()
-    tab.views.append(inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True))
-    inker_state.centre(tab.views[1], SIZE, REGION, 1.0)
-    inker_state.pan_by(tab.views[1], SIZE, REGION, -200.0, 0.0)
-    first = inker_state.scroll_thumb(tab.views[0], SIZE, REGION, 0)
-    second = inker_state.scroll_thumb(tab.views[1], SIZE, REGION, 0)
+    tab.views.append(paintview.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True))
+    paintview.centre(tab.views[1], SIZE, REGION, 1.0)
+    paintview.pan_by(tab.views[1], SIZE, REGION, -200.0, 0.0)
+    first = paintview.scroll_thumb(tab.views[0], SIZE, REGION, 0)
+    second = paintview.scroll_thumb(tab.views[1], SIZE, REGION, 0)
     assert first[0] != pytest.approx(second[0])
 
 

@@ -18,9 +18,9 @@ from types import SimpleNamespace
 import imgui_bundle
 import pytest
 
-from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.panes import plotter_canvas as canvas
 from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.shell import paintview
 
 
 class _ClosedValue:
@@ -61,7 +61,7 @@ def test_the_hex_grid_draws_one_closed_outline_per_cell(
     monkeypatch.setattr(imgui_bundle, "imgui", fake_imgui)
 
     doc = MapDoc(4, 4, 16, 16, projection="hexagonal")
-    view = inker_state.PaintView()
+    view = paintview.PaintView()
     draw_list = _FakeDrawList()
 
     canvas._grid(draw_list, doc, view, (0.0, 0.0), (200.0, 200.0))

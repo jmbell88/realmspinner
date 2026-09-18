@@ -35,6 +35,7 @@ from ......kernels.pixel.tiling import (
     tile_offset,
 )
 from ..... import controls, docmodes, fonts, icons, imgui_backend, theme, toolbar, widgets
+from .....shell import paintview
 from .....tokens import sp
 from ... import mode as inker_mode
 from ... import state as inker_state
@@ -96,7 +97,7 @@ def _u32(colour: int, alpha: float = 1.0) -> int:
 # position from ``origin + x * zoom``, which is right at rotation 0 and silently
 # a quarter turn out everywhere else -- a grid drawn across a canvas that is not
 # there, ants beside the mask they describe. Quarter turns are what keeps these
-# three enough (see ``inker_state.ROTATIONS``): an axis-aligned image rectangle
+# three enough (see ``paintview.ROTATIONS``): an axis-aligned image rectangle
 # comes out an axis-aligned *screen* rectangle, so a rect is still a rect and a
 # grid is still two families of straight lines.
 
@@ -104,7 +105,7 @@ def _u32(colour: int, alpha: float = 1.0) -> int:
 def _corners(view: Any, origin, x0: float, y0: float, x1: float, y1: float):
     """An image-space rectangle's four corners on screen, in image order:
     top-left, top-right, bottom-right, bottom-left."""
-    to = inker_state.to_screen
+    to = paintview.to_screen
     return (
         to(view, origin, x0, y0),
         to(view, origin, x1, y0),
@@ -624,8 +625,8 @@ def _one_canvas(
     # The whole body runs with this pane's view scoped as the tab's current
     # one, so every ``tab.view`` inside ``_input``, ``_paint`` and the rest --
     # roughly forty of them -- means *this* pane without any of them being
-    # taught that a second exists. See ``inker_state.viewing``.
-    with inker_state.viewing(tab, index) as view:
+    # taught that a second exists. See ``paintview.viewing``.
+    with paintview.viewing(tab, index) as view:
         # The id carries the index, not the view's identity: imgui keys state --
         # the invisible button's active flag above all -- on this string, and two
         # panes sharing one would make a press in either drive both.
@@ -636,10 +637,10 @@ def _one_canvas(
             avail = imgui.get_content_region_avail()
             region = (max(avail.x, 16.0), max(avail.y, 16.0))
             if view.pending_zoom is not None:
-                inker_state.centre(view, tab.doc.size, region, view.pending_zoom, **_BOUNDS)
+                paintview.centre(view, tab.doc.size, region, view.pending_zoom, **_BOUNDS)
                 view.pending_zoom = None
             elif not view.fitted:
-                inker_state.fit(view, tab.doc.size, region, **_BOUNDS)
+                paintview.fit(view, tab.doc.size, region, **_BOUNDS)
             # **The scrollbars go in before the paint surface**, because imgui
             # gives an overlapping hover to whichever item was submitted first.
             # That one ordering is the whole of the arbitration: with the
@@ -676,7 +677,7 @@ def _one_canvas(
                     if hovered
                     else (origin.x + region[0] / 2.0, origin.y + region[1] / 2.0)
                 )
-                inker_state.zoom_ladder_step(
+                paintview.zoom_ladder_step(
                     view, (origin.x, origin.y), focus, view.pending_zoom_rung, **_BOUNDS
                 )
                 view.pending_zoom_rung = 0
@@ -690,7 +691,7 @@ def _one_canvas(
             # it is the stronger one -- no frame is drawn from an unclamped pan,
             # which also covers the cause no write-site clamp could see: a pane
             # that shrinks under a pan that was legal a frame ago.
-            inker_state.clamp_pan(view, tab.doc.size, region)
+            paintview.clamp_pan(view, tab.doc.size, region)
             _paint(ctx, state, tab, (origin.x, origin.y), hovered=hovered)
             # After everything ``_paint`` draws, because the bands sit on top of
             # the canvas -- and outside it, because ``_paint`` early-outs when
@@ -765,7 +766,7 @@ def _cursor_pixel(state: Any, tab: Any, origin, hovered: bool):
     if not hovered or origin is None:
         return None, None
     mouse = imgui.get_mouse_pos()
-    px, py = inker_state.to_image(tab.view, origin, mouse.x, mouse.y)
+    px, py = paintview.to_image(tab.view, origin, mouse.x, mouse.y)
     # Folded onto the canonical tile: over a neighbour in the 3x3 view the
     # raw number is off the canvas, and a readout saying "300, 40" on a
     # 256-wide document is a coordinate the user cannot use.
@@ -945,7 +946,7 @@ def _input(
     from . import drag as inker_drag
     io = imgui.get_io()
     mouse = imgui.get_mouse_pos()
-    point = inker_state.to_image(tab.view, origin, mouse.x, mouse.y)
+    point = paintview.to_image(tab.view, origin, mouse.x, mouse.y)
 
     if hovered and (io.mouse_wheel or io.mouse_wheel_h):
         # Back to physical notches before stepping: the backend halves every
@@ -966,15 +967,15 @@ def _input(
             state.corner_radius = max(0, int(state.corner_radius) + int(notches))
         else:
             # The wheel zooms and Shift+wheel scrolls sideways -- the rule
-            # every 2-D canvas shares; ``inker_state.wheel`` says why.
-            along = inker_state.wheel(
+            # every 2-D canvas shares; ``paintview.wheel`` says why.
+            along = paintview.wheel(
                 tab.view, origin, (mouse.x, mouse.y), notches, sideways,
                 shift=bool(io.key_shift), **_BOUNDS,
             )
             if along:
-                inker_state.pan_by(
+                paintview.pan_by(
                     tab.view, tab.doc.size, region,
-                    inker_state.scroll_step(region[0]) * along, 0.0,
+                    paintview.scroll_step(region[0]) * along, 0.0,
                 )
 
     _os_cursor(state, tab, hovered=hovered)
@@ -998,7 +999,7 @@ def _input(
         delta = imgui.get_mouse_drag_delta(button)
         imgui.reset_mouse_drag_delta(button)
         state.drag_kind = "pan"
-        inker_state.pan_by(tab.view, tab.doc.size, region, delta.x, delta.y)
+        paintview.pan_by(tab.view, tab.doc.size, region, delta.x, delta.y)
         return
     if state.drag_kind == "pan" and not (imgui.is_mouse_down(2) or imgui.is_mouse_down(0)):
         state.drag_kind = ""
@@ -1138,12 +1139,12 @@ def _handles(tab: Any, origin) -> dict[str, tuple[float, float]]:
         "w": (x, y + height / 2.0),
         "e": (x + width, y + height / 2.0),
     }
-    out = {k: inker_state.to_screen(view, origin, *p) for k, p in corners.items()}
+    out = {k: paintview.to_screen(view, origin, *p) for k, p in corners.items()}
     # The arm points away from the box's top edge *in the image*, carried on to
     # screen -- not straight up, which is only the same thing while the page is
     # upright and puts the handle inside the box at 180 degrees.
-    top = inker_state.to_screen(view, origin, x + width / 2.0, y)
-    above = inker_state.to_screen(view, origin, x + width / 2.0, y - 1.0)
+    top = paintview.to_screen(view, origin, x + width / 2.0, y)
+    above = paintview.to_screen(view, origin, x + width / 2.0, y - 1.0)
     dx, dy = above[0] - top[0], above[1] - top[1]
     length = math.hypot(dx, dy) or 1.0
     out["rotate"] = (top[0] + dx / length * ROTATE_ARM, top[1] + dy / length * ROTATE_ARM)
@@ -1151,7 +1152,7 @@ def _handles(tab: Any, origin) -> dict[str, tuple[float, float]]:
     # centre until the user drags it somewhere else. Last in the dict on
     # purpose: ``min`` keeps the first of a tie, so a pivot parked exactly on a
     # corner still leaves that corner grabbable as a scale handle.
-    out["pivot"] = inker_state.to_screen(view, origin, *_anchor(buf))
+    out["pivot"] = paintview.to_screen(view, origin, *_anchor(buf))
     return out
 
 
@@ -1186,7 +1187,7 @@ def _transform_input(state: Any, tab: Any, origin, point, *, active: bool) -> No
     buf = doc.floating
     mouse = imgui.get_mouse_pos()
     anchor = _anchor(buf)
-    centre = inker_state.to_screen(tab.view, origin, *anchor)
+    centre = paintview.to_screen(tab.view, origin, *anchor)
 
     if active and imgui.is_mouse_clicked(0):
         handles = _handles(tab, origin)
@@ -1287,7 +1288,7 @@ def _transform_box(state: Any, tab: Any, draw_list: Any, origin) -> None:
         buf.offset[1] + buf.size[1],
     )
     draw_list.add_rect(a, b, colour)
-    top = inker_state.to_screen(tab.view, origin, buf.offset[0] + buf.size[0] / 2.0, buf.offset[1])
+    top = paintview.to_screen(tab.view, origin, buf.offset[0] + buf.size[0] / 2.0, buf.offset[1])
     draw_list.add_line(top, handles["rotate"], colour)
     for name, point in handles.items():
         if name == "pivot":
@@ -2305,7 +2306,7 @@ def _layer_edges(tab: Any, draw_list: Any, view: Any, origin) -> None:
         return
     x0, y0, x1, y1 = box
     corners = [
-        inker_state.to_screen(view, origin, x, y)
+        paintview.to_screen(view, origin, x, y)
         for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
     ]
     colour = _u32(theme.ACCENT, 0.8)
@@ -2342,7 +2343,7 @@ def _tile_numbers(state: Any, tab: Any, draw_list: Any, view: Any, origin) -> No
     win = imgui.get_window_pos()
     wsz = imgui.get_window_size()
     seen = [
-        inker_state.to_image(view, origin, sx, sy)
+        paintview.to_image(view, origin, sx, sy)
         for sx in (win.x, win.x + wsz.x)
         for sy in (win.y, win.y + wsz.y)
     ]
@@ -2359,7 +2360,7 @@ def _tile_numbers(state: Any, tab: Any, draw_list: Any, view: Any, origin) -> No
             local = int(refs[row, column]) & gid.GID_MASK
             if not local:
                 continue
-            at = inker_state.to_screen(view, origin, column * tile_w + 2, row * tile_h + 2)
+            at = paintview.to_screen(view, origin, column * tile_w + 2, row * tile_h + 2)
             draw_list.add_text(at, colour, str(local))
 
 
@@ -2411,7 +2412,7 @@ def _grid(
     if left > right or top > bottom:
         return
     seen = [
-        inker_state.to_image(view, origin, sx, sy) for sx in (left, right) for sy in (top, bottom)
+        paintview.to_image(view, origin, sx, sy) for sx in (left, right) for sy in (top, bottom)
     ]
     lo_x = max(0, int(min(p[0] for p in seen) / step) * step)
     hi_x = min(width, int(max(p[0] for p in seen)) + step)
@@ -2422,12 +2423,12 @@ def _grid(
     # swaps, so both endpoints are transformed rather than one coordinate being
     # borrowed from the canvas box.
     for x in range(lo_x, hi_x + 1, step):
-        a = inker_state.to_screen(view, origin, x, 0)
-        b = inker_state.to_screen(view, origin, x, height)
+        a = paintview.to_screen(view, origin, x, 0)
+        b = paintview.to_screen(view, origin, x, height)
         draw_list.add_line(crisp(a), crisp(b), colour)
     for y in range(lo_y, hi_y + 1, step):
-        a = inker_state.to_screen(view, origin, 0, y)
-        b = inker_state.to_screen(view, origin, width, y)
+        a = paintview.to_screen(view, origin, 0, y)
+        b = paintview.to_screen(view, origin, width, y)
         draw_list.add_line(crisp(a), crisp(b), colour)
 
 
@@ -2503,7 +2504,7 @@ def _scrollbar_input(state: Any, tab: Any, origin, region, index: int) -> list[b
         imgui.invisible_button(f"##inker-scroll-{axis}-{index}", (x1 - x0, y1 - y0))
         active = imgui.is_item_active()
         lit[axis] = imgui.is_item_hovered() or active
-        offset, fraction = inker_state.scroll_thumb(
+        offset, fraction = paintview.scroll_thumb(
             view, tab.doc.size, region, axis, min_length=sp(SCROLL_MIN_THUMB) / length_px
         )
         if imgui.is_item_clicked():
@@ -2512,13 +2513,13 @@ def _scrollbar_input(state: Any, tab: Any, origin, region, index: int) -> list[b
             # Only a press on the bare track jumps; a press that landed on the
             # thumb is the start of a drag and must not move anything first.
             if not offset <= at <= offset + fraction:
-                inker_state.scroll_thumb_to(view, tab.doc.size, region, axis, at)
+                paintview.scroll_thumb_to(view, tab.doc.size, region, axis, at)
         elif active:
             delta = imgui.get_mouse_drag_delta(0)
             imgui.reset_mouse_drag_delta(0)
             moved = delta.x if axis == 0 else delta.y
             if moved:
-                inker_state.scroll_drag(
+                paintview.scroll_drag(
                     view,
                     tab.doc.size,
                     region,
@@ -2539,7 +2540,7 @@ def _scrollbars(state: Any, tab: Any, origin, region, lit) -> None:
         if length_px <= 0.0:
             continue
         draw_list.add_rect_filled((x0, y0), (x1, y1), back)
-        offset, fraction = inker_state.scroll_thumb(
+        offset, fraction = paintview.scroll_thumb(
             tab.view,
             tab.doc.size,
             region,
@@ -2645,11 +2646,11 @@ def _ruler_band(
     fixed other coordinate ``cross``."""
     a0, a1 = span
     if horizontal:
-        p0 = inker_state.to_image(view, origin, a0, cross)
-        p1 = inker_state.to_image(view, origin, a1, cross)
+        p0 = paintview.to_image(view, origin, a0, cross)
+        p1 = paintview.to_image(view, origin, a1, cross)
     else:
-        p0 = inker_state.to_image(view, origin, cross, a0)
-        p1 = inker_state.to_image(view, origin, cross, a1)
+        p0 = paintview.to_image(view, origin, cross, a0)
+        p1 = paintview.to_image(view, origin, cross, a1)
     # Which image axis runs along this band: under a quarter turn exactly one
     # coordinate varies, and the flipped view only flips its sign.
     axis = 0 if abs(p1[0] - p0[0]) >= abs(p1[1] - p0[1]) else 1
@@ -2746,27 +2747,27 @@ def _symmetry(state: Any, draw_list: Any, view: Any, origin, size) -> None:
     # _where_the_engine_reflects`` pins after a bug that had them half a pixel
     # apart. Snapping would trade a soft line for a line in the wrong place.
     if "x" in axes:
-        a = inker_state.to_screen(view, origin, ax, 0)
-        b = inker_state.to_screen(view, origin, ax, height)
+        a = paintview.to_screen(view, origin, ax, 0)
+        b = paintview.to_screen(view, origin, ax, height)
         draw_list.add_line(a, b, colour)
     if "y" in axes:
-        a = inker_state.to_screen(view, origin, 0, ay)
-        b = inker_state.to_screen(view, origin, width, ay)
+        a = paintview.to_screen(view, origin, 0, ay)
+        b = paintview.to_screen(view, origin, width, ay)
         draw_list.add_line(a, b, colour)
     # The two 45-degree mirrors, drawn corner to corner through the axis: the
     # line is infinite and the canvas is what clips it, so the endpoints are
     # simply far enough out that the visible segment is right at any pan.
     reach = float(width + height)
     if "diag" in axes:
-        a = inker_state.to_screen(view, origin, ax - reach, ay - reach)
-        b = inker_state.to_screen(view, origin, ax + reach, ay + reach)
+        a = paintview.to_screen(view, origin, ax - reach, ay - reach)
+        b = paintview.to_screen(view, origin, ax + reach, ay + reach)
         draw_list.add_line(a, b, colour)
     if "anti" in axes:
-        a = inker_state.to_screen(view, origin, ax - reach, ay + reach)
-        b = inker_state.to_screen(view, origin, ax + reach, ay - reach)
+        a = paintview.to_screen(view, origin, ax - reach, ay + reach)
+        b = paintview.to_screen(view, origin, ax + reach, ay - reach)
         draw_list.add_line(a, b, colour)
     if "radial" in axes:
-        centre = inker_state.to_screen(view, origin, ax, ay)
+        centre = paintview.to_screen(view, origin, ax, ay)
         radius = sp(SYMMETRY_PIVOT_RADIUS)
         draw_list.add_circle(centre, radius, colour)
         draw_list.add_line((centre[0] - radius, centre[1]), (centre[0] + radius, centre[1]), colour)
@@ -2832,7 +2833,7 @@ def _ants(ctx: Any, tab: Any, draw_list: Any, origin, state: Any = None) -> None
     # Canvas (0, 0) on screen, from the same function every other overlay uses:
     # ``to_screen`` is a uniform scale plus this offset, and a second spelling
     # of it is how the ants end up one pixel off the mask they describe.
-    offset = inker_state.to_screen(view, origin, float(shift[0]), float(shift[1]))
+    offset = paintview.to_screen(view, origin, float(shift[0]), float(shift[1]))
     phase = (time.monotonic() * ants.ANT_SPEED) % (ants.DASH * 2)
     light, dark = _u32(theme.TEXT), _u32(theme.BG)
     # The visible window, for the two culls below (B23): a whole loop whose
@@ -2841,7 +2842,7 @@ def _ants(ctx: Any, tab: Any, draw_list: Any, origin, state: Any = None) -> None
     win = imgui.get_window_pos()
     wsz = imgui.get_window_size()
     clip = (win.x, win.y, win.x + wsz.x, win.y + wsz.y)
-    rows = inker_state.basis(view)
+    rows = paintview.basis(view)
     matrix = np.asarray(rows, dtype=np.float64)
     for verts, cum, box in loops:
         # The loop's canvas box, put on screen through the *same* orientation
@@ -2851,7 +2852,7 @@ def _ants(ctx: Any, tab: Any, draw_list: Any, origin, state: Any = None) -> None
         # which scaled the box's own coordinates, silently culled every loop the
         # moment the page was turned.
         corners = [
-            inker_state.to_screen(view, origin, x + shift[0], y + shift[1])
+            paintview.to_screen(view, origin, x + shift[0], y + shift[1])
             for x in (box[0], box[2])
             for y in (box[1], box[3])
         ]
@@ -2877,7 +2878,7 @@ def _preview(state: Any, tab: Any, draw_list: Any, origin) -> None:
         return
     view = tab.view
     mouse = imgui.get_mouse_pos()
-    anchor = inker_state.to_screen(view, origin, *state.drag_anchor)
+    anchor = paintview.to_screen(view, origin, *state.drag_anchor)
 
     # **The point the release will be handed, not the cursor.** The dispatcher
     # commits through ``_release(..., _snapped(_local(point)))``, so a preview
@@ -2889,8 +2890,8 @@ def _preview(state: Any, tab: Any, draw_list: Any, origin) -> None:
     # drawn from the canonical-tile anchor to a cursor two tiles away, i.e.
     # stretched across the whole 3x3 view. The shape branch had been fixed for
     # exactly this and carried the reasoning; the fix belongs above the split.
-    landing = _snapped(state, _local(state, inker_state.to_image(view, origin, mouse.x, mouse.y)))
-    tip = inker_state.to_screen(view, origin, *landing)
+    landing = _snapped(state, _local(state, paintview.to_image(view, origin, mouse.x, mouse.y)))
+    tip = paintview.to_screen(view, origin, *landing)
     colour = _u32(theme.ACCENT)
     kind, tool = state.drag_kind, state.tool
 
@@ -2908,11 +2909,11 @@ def _preview(state: Any, tab: Any, draw_list: Any, origin) -> None:
         # screen: a preview drawn from the raw cursor while the commit applies a
         # constraint is a picture of a shape the user is not about to get.
         p0, p1 = inker_drag._shape_drag(state, state.drag_anchor, landing)
-        anchor = inker_state.to_screen(view, origin, *p0)
-        tip = inker_state.to_screen(view, origin, *p1)
+        anchor = paintview.to_screen(view, origin, *p0)
+        tip = paintview.to_screen(view, origin, *p1)
 
     if kind == "lasso" and len(state.lasso) > 1:
-        points = [inker_state.to_screen(view, origin, x, y) for x, y in state.lasso]
+        points = [paintview.to_screen(view, origin, x, y) for x, y in state.lasso]
         for a, b in zip(points, points[1:], strict=False):
             draw_list.add_line(a, b, colour)
         draw_list.add_line(points[-1], tip, colour)
@@ -3007,8 +3008,8 @@ def _cell_outline(view: Any, origin: Any, draw_list: Any, point, colour: int) ->
 def _box_outline(view: Any, origin: Any, draw_list: Any, box, colour: int) -> None:
     """A half-open pixel box, outlined on the lattice."""
     x0, y0, x1, y1 = box
-    a = inker_state.to_screen(view, origin, float(x0), float(y0))
-    b = inker_state.to_screen(view, origin, float(x1), float(y1))
+    a = paintview.to_screen(view, origin, float(x0), float(y0))
+    b = paintview.to_screen(view, origin, float(x1), float(y1))
     lo = crisp((min(a[0], b[0]), min(a[1], b[1])))
     hi = crisp((max(a[0], b[0]), max(a[1], b[1])))
     draw_list.add_rect(lo, hi, colour)
@@ -3051,14 +3052,14 @@ def _tile_cursor(state: Any, tab: Any, draw_list: Any, origin) -> None:
     if origin is None:
         return
     mouse = imgui.get_mouse_pos()
-    point = inker_state.to_image(tab.view, origin, mouse.x, mouse.y)
+    point = paintview.to_image(tab.view, origin, mouse.x, mouse.y)
     cell = tile_cell(tab.doc, point)
     if cell is None:
         return
     tileset = tab.doc.tileset_slot(tab.doc.active_tileset_uid()).tileset
     x0, y0 = cell[0] * tileset.tile_w, cell[1] * tileset.tile_h
-    a = inker_state.to_screen(tab.view, origin, float(x0), float(y0))
-    b = inker_state.to_screen(
+    a = paintview.to_screen(tab.view, origin, float(x0), float(y0))
+    b = paintview.to_screen(
         tab.view, origin, float(x0 + tileset.tile_w), float(y0 + tileset.tile_h)
     )
     lo = (min(a[0], b[0]), min(a[1], b[1]))

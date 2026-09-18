@@ -558,9 +558,14 @@ _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP: frozenset[tuple[str, str]] = frozenset({
 
 # P5 -- the pilot four. Two shapes: Familiar's UI half folding into
 # studio/assistant/ (its Clay-preview and Create-doors reach), and Inker's
-# `PaintView` (inker_state.py:858-1476) promoting to shell/paintview.py,
-# named explicitly as "already imported by Plotter and Packwright". Create's
-# own UI fold (landed: modes/create/) and the Clay fold (landed:
+# `PaintView` (formerly inker_state.py:858-1476) promoting to
+# shell/paintview.py, named explicitly as "already imported by Plotter and
+# Packwright" -- landed, which is why the four pairs that used to sit here
+# (``packwright_state``/``panes.packwright_preview``/``panes.plotter_canvas``/
+# ``plotter_state`` -> ``modes.inker.state``) are gone rather than struck
+# through: all four now import ``shell.paintview`` instead, a real shell
+# import rather than a sibling-mode one, so there is nothing left to except.
+# Create's own UI fold (landed: modes/create/) and the Clay fold (landed:
 # modes/clay/{ui,agent}/) are the other two pilot-four bullets; what is left
 # of them below is the shell and Familiar still naming a mode directly.
 _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
@@ -581,11 +586,6 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
     # Create's recipe engine lifting out of panes/settings_*.py means Settings
     # can import the engine module directly instead of a pane object.
     ("warlock.studio.panes.app_settings", "warlock.studio.modes.create.ui.panes.settings_3d"),
-    # PaintView promotion (inker_state.py -> shell/paintview.py)
-    ("warlock.studio.packwright_state", "warlock.studio.modes.inker.state"),
-    ("warlock.studio.panes.packwright_preview", "warlock.studio.modes.inker.state"),
-    ("warlock.studio.panes.plotter_canvas", "warlock.studio.modes.inker.state"),
-    ("warlock.studio.plotter_state", "warlock.studio.modes.inker.state"),
 })
 
 # P6 -- the remaining modes, one agent per mode. Best-fit rather than named:

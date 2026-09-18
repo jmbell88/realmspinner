@@ -1,9 +1,11 @@
 """Multi-document state for Packwright, without imgui.
 
-The ``inker_state`` / ``plotter_state`` split, third instance, and the view type
-is imported for the same reason it is there: a zoomable, pannable 2D viewport is
-not about pixels, and a second copy would be a second set of clamping rules and
-a second Ctrl+0.
+The Inker mode's ``state.py`` / ``plotter_state`` split, third instance, and the
+view type is imported for the same reason it is there: a zoomable, pannable 2D
+viewport is not about pixels, and a second copy would be a second set of
+clamping rules and a second Ctrl+0. It lives at ``shell.paintview`` rather than
+in either mode, since dev/RESTRUCTURE.md's P5 -- Inker was never its owner
+either, only its first caller.
 
 **The atlas is a task result, not a document field.** ``PackDoc`` holds sources
 and settings and derives its layout on demand -- that is what makes a re-export
@@ -27,7 +29,7 @@ from typing import Any
 import numpy as np
 
 from . import docmodes
-from .modes.inker.state import PaintView
+from .shell.paintview import PaintView
 
 WPACK_SUFFIX = ".wpack"
 

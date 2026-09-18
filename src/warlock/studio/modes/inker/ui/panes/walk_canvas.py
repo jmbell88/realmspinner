@@ -27,8 +27,8 @@ from imgui_bundle import imgui
 from ......kernels.pixel import walk
 from ......kernels.pixel.walk import rig as R
 from ..... import icons, theme, toolbar, widgets
+from .....shell import paintview
 from .....tokens import sp
-from ... import state as inker_state
 from ... import walk as inker_walk
 
 #: Radius the joint dots are drawn at, in design pixels.
@@ -107,7 +107,7 @@ def overlay(ctx: Any, state: Any, tab: Any, draw_list: Any, origin) -> None:
 
 
 def _screen(view: Any, origin, point) -> tuple[float, float]:
-    return inker_state.to_screen(view, origin, point[0], point[1])
+    return paintview.to_screen(view, origin, point[0], point[1])
 
 
 def _ground(session: Any, tab: Any, draw_list: Any, view: Any, origin) -> None:

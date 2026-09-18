@@ -19,8 +19,8 @@ from types import SimpleNamespace
 from typing import Any
 
 from warlock.studio import plotter_state
-from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.plotter.tilemap import MapDoc, MapObject, new_uid
+from warlock.studio.shell import paintview
 
 
 class Mouse:
@@ -105,7 +105,7 @@ class TileScene:
             doc=self.doc,
             uid="tab-1",
             busy=False,
-            view=inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
+            view=paintview.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
         )
         self.toasts: list[tuple[str, str]] = []
         self.ctx = SimpleNamespace(
@@ -241,7 +241,7 @@ class Scene:
             doc=self.doc,
             uid="tab-1",
             busy=False,
-            view=inker_state.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
+            view=paintview.PaintView(zoom=1.0, pan=(0.0, 0.0), fitted=True),
         )
         self.ctx = SimpleNamespace(toast=lambda *_a, **_k: None)
         self.mouse = Mouse()
