@@ -18,6 +18,55 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## 0.0.50 — 2026-09-18
+
+Nothing a player can see changed: the source tree was reorganised so that a
+file's directory says which subsystem owns it, the duplicated document-tab
+code collapsed into one, and the test suite followed the source into the same
+shape. 23,512 tests passed before and after each step.
+
+- **The source is organised by subsystem, not by layer.** Until now every mode
+  was smeared across three or more directories (Inker's 91 files lived in
+  `studio/inker/`, eleven `studio/inker_*.py` modules and nineteen
+  `studio/panes/inker_*.py` panes), while code the service layer and the
+  pipelines needed sat inside whichever mode wrote it first — so a non-UI
+  layer imported `studio/`. Now the tree imports only downward: `core/`
+  (`undo`, `safeio/`), `kernels/` (the pure domain code: `mesh/` was Clay's
+  engine, `pixel/` Inker's, plus `grid2d/`, `geom3d/`, `rig/`, `audio/`,
+  `manual/`), then `pipelines/`, then `service/`, `familiar/`, `characters/`
+  and `mcp/`, then the shell under `studio/`, and last one package per mode
+  at `studio/modes/<mode>/` — its logic at the root, drawing in `ui/`,
+  dockable panes in `ui/panes/`, a headless engine in `engine/` where one
+  exists. `tests/test_layering.py` enforces the order by
+  walking every import, with a list of known exceptions that may shrink and
+  never grow.
+- **Document modes are discovered from one manifest table, not from four hand tables.**
+  Crash recovery, the command palette, Home's "open with" table, the status
+  bar and shutdown's save list each kept their own list of modes; a mode
+  missing from one was simply skipped by it (Sirens was never asked to persist
+  at shutdown). All five now derive from
+  `mode_manifest.DOC_MODES`, one row per document mode, and a test fails by
+  name when a mode is absent from any of them.
+- **The god files were split along what they actually do.** `main.py` went
+  from 5,971 lines to 734 (the `App` is assembled from fourteen mixins in
+  `studio/shell/`), `rigging.py` became `kernels/rig/` plus
+  `pipelines/blender_run.py`, and the Clay agent surface became six modules
+  under `studio/modes/clay/agent/`. Pure code motion: no behaviour moved with
+  it.
+- **The six document modes share one tab list.** `docmodes.DocTab` and
+  `DocTabs` now hold the tab fields, dirty tracking and add/close/activate/cycle
+  that each mode had written for itself, crash recovery builds every tabbed
+  mode's provider through one `journal.tab_provider`, and the embedded 3D
+  viewer inherits the camera framing it had been copying.
+- **The tests mirror the source.** 295 test files moved into
+  `tests/modes/<mode>/`, `tests/kernels/`, `tests/studio/`,
+  `tests/pipelines/` and `tests/service/`; suite-wide sweeps stay at the root.
+  Every collected test id matches the pre-move set one for one. Moving a
+  directory turns a path-scoped test green and empty — a sweep over a folder
+  that no longer holds anything passes — and eight of those were found and
+  re-rooted along the way, including the guard that keeps Familiar's prompt
+  cards byte-exact.
+
 ## 0.0.49 — 2026-09-17
 
 Familiar moved to Qwen3-VL-4B and learned to take follow-ups on a ghost
