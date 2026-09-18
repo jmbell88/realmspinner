@@ -544,7 +544,7 @@ def test_the_licence_reaches_the_row_the_download_button_is_on():
     """Metadata nobody can see is not disclosure. The models table is where the
     ~7 GB fetch is agreed to."""
     from warlock.service import downloads
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     row = {"license": "Some Non-Commercial Licence", "commercial": False,
            "license_note": "Ask first."}

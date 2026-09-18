@@ -18,7 +18,8 @@ from warlock.studio import dialogs as dialogs_mod
 from warlock.studio import layout as layout_mod
 from warlock.studio import theme, tokens
 from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
-from warlock.studio.panes import app_settings, landing, library
+from warlock.studio.modes.settings.ui.panes import app_settings
+from warlock.studio.panes import landing, library
 
 PANES = pane_files()
 

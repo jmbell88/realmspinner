@@ -1036,7 +1036,7 @@ def _status(ctx: Any, status: list[Status]) -> None:
                 if row.status_filter:
                     ctx.state.filters.status = row.status_filter
                 if row.settings_category:
-                    from .app_settings import CATEGORY_SLOT
+                    from ..modes.settings.ui.panes.app_settings import CATEGORY_SLOT
 
                     ctx.state.preview[CATEGORY_SLOT] = row.settings_category
                 set_mode(ctx.state, row.target)

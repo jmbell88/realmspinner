@@ -19,7 +19,8 @@ from typing import Any
 
 from warlock.studio import modes
 from warlock.studio.assistant import doors as familiar_doors
-from warlock.studio.panes import app_settings, model_gate
+from warlock.studio.modes.settings.ui.panes import app_settings
+from warlock.studio.panes import model_gate
 from warlock.studio.state import ManualState
 
 

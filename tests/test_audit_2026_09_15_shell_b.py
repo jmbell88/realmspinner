@@ -115,7 +115,7 @@ def test_the_lora_import_form_does_not_claim_to_be_importing_before_add_style_is
     unconditionally, at the top of the function. It must now be gated on
     ``ctx.busy("lora:import")``, the key "Add style" itself submits under.
     """
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     assert _top_level_busy_calls(app_settings._lora_import_form) == [], (
         "widgets.busy(...) is drawn unconditionally in _lora_import_form, "

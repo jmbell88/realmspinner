@@ -64,7 +64,7 @@ def destinations(ctx: Any) -> list[Destination]:
     comes back.
     """
     from .. import palette
-    from ..panes import app_settings
+    from ..modes.settings.ui.panes import app_settings
 
     out: list[Destination] = []
     for command in palette.commands(ctx):
@@ -95,7 +95,7 @@ def navigate(ctx: Any, key: str) -> str:
     command carries) is returned unrun otherwise, never bypassed.
     """
     from .. import palette
-    from ..panes import app_settings
+    from ..modes.settings.ui.panes import app_settings
     from ..state import set_mode
 
     by_key = {d.key: d.label for d in destinations(ctx)}

@@ -1136,7 +1136,7 @@ def test_choosing_an_unreadable_layout_in_settings_explains_why_it_did_not_switc
     ``review_panes._launch_sweep_reason`` -- so this is tested without an
     imgui context.
     """
-    from warlock.studio.panes.app_settings import _layout_pick_reason
+    from warlock.studio.modes.settings.ui.panes.app_settings import _layout_pick_reason
 
     reason = _layout_pick_reason("future", "default", False)
     assert reason != "", "no reason at all: the pick would be silently discarded"
@@ -1155,7 +1155,7 @@ def test_layouts_pane_toasts_rather_than_silently_discards_an_unreadable_pick(mo
     ``ctx.toast`` and never calls ``set_active`` with an unreadable name."""
     from _ui_context import imgui_context
 
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     settings = _Settings({layouts.LAYOUTS_KEY: {"future": {"v": 999, "workspaces": {}}}})
     library = layouts.Library(settings)

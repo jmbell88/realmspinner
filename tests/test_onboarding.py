@@ -265,7 +265,8 @@ def test_homes_new_3d_model_does_not_open_create_through_a_shut_gate(monkeypatch
     Home with no explanation. The rail and the palette both turn the same
     refusal into a trip to Settings; Home's menu must now do the same."""
     from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.panes import app_settings, landing
+    from warlock.studio.modes.settings.ui.panes import app_settings
+    from warlock.studio.panes import landing
 
     ctx = _gated_ctx(model_rows=_MISSING_CREATE_ROWS)
     called = []
@@ -283,7 +284,8 @@ def test_homes_new_2d_image_routes_to_packs_before_models(monkeypatch):
     must agree with the rail about which door a gated Create actually points
     at, or a user sent to Models here buys nothing without the pack too."""
     from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.panes import app_settings, landing
+    from warlock.studio.modes.settings.ui.panes import app_settings
+    from warlock.studio.panes import landing
 
     pack_row = {
         "key": "text2image",

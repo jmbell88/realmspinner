@@ -9,7 +9,8 @@ import pytest
 from warlock import config as config_module
 from warlock import doctor, fetch, models, vram
 from warlock.service import downloads
-from warlock.studio.panes import app_settings, first_run, model_gate
+from warlock.studio.modes.settings.ui.panes import app_settings
+from warlock.studio.panes import first_run, model_gate
 from warlock.studio.state import AppState
 
 

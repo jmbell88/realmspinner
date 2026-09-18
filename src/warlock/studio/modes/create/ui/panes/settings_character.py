@@ -342,8 +342,8 @@ def preflight_fix(ctx: Any, form: dict[str, Any], problem: problems.Problem) -> 
         if controls.button(
             "Open dependency packs##character-blender", role=controls.ButtonRole.GHOST
         ):
-            from .....panes import app_settings
             from .....state import set_mode
+            from ....settings.ui.panes import app_settings
 
             ctx.state.preview[app_settings.CATEGORY_SLOT] = "packs"
             set_mode(ctx.state, "settings")

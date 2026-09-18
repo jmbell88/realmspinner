@@ -71,7 +71,7 @@ def test_the_reason_names_the_pack_and_its_own_size():
 
 
 def test_clicking_through_opens_settings_at_packs():
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     ctx = _ctx(**BASE_INSTALL)
     model_gate.request_for_mode(ctx, "create")
@@ -81,7 +81,7 @@ def test_clicking_through_opens_settings_at_packs():
 
 def test_once_the_pack_is_in_the_door_asks_for_the_weights():
     """The second half, and the routing has to move with it."""
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     ctx = _ctx(
         packs=[_pack("text2image", modes=["create"], present=True)],

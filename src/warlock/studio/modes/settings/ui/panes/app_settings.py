@@ -28,13 +28,13 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import fetch, models, vram
-from ...service import library as svc_library
-from .. import app_ctx, controls, dialogs, forms, icons, theme, tokens, widgets
-from .. import layouts as layouts_mod
-from ..manual import render as manual_render
-from ..modes.create.ui.panes import settings_3d
-from ..tokens import sp
+from ...... import fetch, models, vram
+from ......service import library as svc_library
+from ..... import app_ctx, controls, dialogs, forms, icons, theme, tokens, widgets
+from ..... import layouts as layouts_mod
+from .....manual import render as manual_render
+from .....tokens import sp
+from ....create.ui.panes import settings_3d
 
 #: How wide the settings column is allowed to grow, in design pixels.
 #:
@@ -191,7 +191,7 @@ def search_rows(query: str) -> list[SearchRow]:
 
 
 def draw(ctx: Any) -> None:
-    from .. import layout as layout_mod
+    from ..... import layout as layout_mod
 
     # always_use_window_padding, because a *borderless* child gets zero window
     # padding by default -- so this pane's content sat flush against the host
@@ -416,7 +416,7 @@ def _interface(ctx: Any, form_ui: forms.Form | None = None) -> None:
     # W3.1. Home stays the default (``main.initial_mode`` reads an absent key
     # the same as "home"), so a fresh install's launch is unchanged; this is
     # the opt in to something else.
-    from .. import main as main_mod
+    from ..... import main as main_mod
 
     startup = str(ctx.settings.get(main_mod.STARTUP_MODE_SETTING) or main_mod.STARTUP_HOME)
     if startup not in (main_mod.STARTUP_HOME, main_mod.STARTUP_LAST):
@@ -507,7 +507,7 @@ def _apply_reduce_motion(ctx: Any, reduced: bool) -> None:
     widget. Nothing has to be repainted or rebuilt -- unlike the theme and the
     scale, motion is read per frame and the next one is already the new answer.
     """
-    from .. import motion
+    from ..... import motion
 
     ctx.state.reduce_motion = reduced
     motion.set_reduced(reduced)
@@ -515,7 +515,7 @@ def _apply_reduce_motion(ctx: Any, reduced: bool) -> None:
 
 
 def _apply_theme(ctx: Any, name: str) -> None:
-    from .. import theme as theme_mod
+    from ..... import theme as theme_mod
 
     applied = tokens.set_theme(name)
     theme_mod.apply(imgui)
@@ -563,7 +563,7 @@ def _apply_scale(ctx: Any, value: float) -> None:
     caller raises ``state.fonts_dirty`` on release and the frame loop consumes
     it (K99).
     """
-    from .. import theme as theme_mod
+    from ..... import theme as theme_mod
 
     base = _base(ctx)
     lo, hi = tokens.ui_scale_bounds(base)
@@ -682,7 +682,7 @@ def _agents(ctx: Any) -> None:
     regardless of what this setting says, so there is always an instance
     here to call ``start()``/``stop()`` on.
     """
-    from .. import main as main_mod
+    from ..... import main as main_mod
 
     widgets.section("AI agents")
     allowed = bool(ctx.settings.get(main_mod.AGENT_SERVER_SETTING, False))
@@ -730,7 +730,7 @@ def _agents(ctx: Any) -> None:
         )
     if not allowed:
         return
-    from ...mcp import pipe
+    from ......mcp import pipe
 
     config = getattr(getattr(ctx, "svc", None), "config", None)
     address = pipe.address_for(config.home) if config is not None else ""
@@ -757,7 +757,7 @@ def _config(ctx: Any) -> None:
         return
     config_table(ctx)
     if controls.small_button("Copy as text"):
-        from ...config import effective
+        from ......config import effective
 
         imgui.set_clipboard_text(
             "\n".join(
@@ -782,8 +782,8 @@ def config_table(ctx: Any) -> None:
     building the data source once: the copy a user pastes into an issue and the
     list they read on screen are the same answer.
     """
-    from ...config import effective
-    from .. import theme
+    from ......config import effective
+    from ..... import theme
 
     settings = effective(ctx.runtime.config)
     overridden = [s for s in settings if s.from_env]
@@ -1033,14 +1033,14 @@ def _health_actions(ctx: Any, rows: list[HealthRow]) -> None:
     # would otherwise change its mind.
     widgets.same_line_or_wrap(sp(160))
     if controls.button("Health Checks", role=controls.ButtonRole.GHOST):
-        from ...service import system as svc_system
+        from ......service import system as svc_system
 
         ctx.submit("health", svc_system.current_checks, ctx.svc, force=True)
     # The rows name the failure and its remedy; what they cannot hold is what
     # to do when the remedy does not take.
     widgets.same_line_or_wrap(sp(160))
     manual_render.troubleshooting_button(ctx)
-    from .. import component_gallery
+    from ..... import component_gallery
 
     if component_gallery.enabled():
         widgets.same_line_or_wrap(sp(180))
@@ -1052,7 +1052,7 @@ def _health_actions(ctx: Any, rows: list[HealthRow]) -> None:
 
 
 def _layout(ctx: Any) -> None:
-    from .. import layout as layout_mod
+    from ..... import layout as layout_mod
 
     widgets.section("Layout")
     lay = getattr(ctx, "layout", None)
@@ -1106,11 +1106,11 @@ def _reset_measure() -> None:
 def _model_storage(ctx: Any) -> None:
     """The measured size of the model store, asked for once per session."""
     global _MEASURED
-    from ..state import format_bytes
+    from .....state import format_bytes
 
     if not _MEASURED:
         _MEASURED = True
-        from ...service import downloads as svc_downloads
+        from ......service import downloads as svc_downloads
 
         ctx.submit("model-storage", svc_downloads.disk_usage, ctx.svc)
     found = getattr(ctx, "model_storage", None)
@@ -1135,11 +1135,11 @@ def _evidence_storage(ctx: Any) -> None:
     permanent fixture explaining a feature that has not happened yet.
     """
     global _EVIDENCE_MEASURED
-    from ..state import format_bytes
+    from .....state import format_bytes
 
     if not _EVIDENCE_MEASURED:
         _EVIDENCE_MEASURED = True
-        from ...service import evidence as svc_evidence
+        from ......service import evidence as svc_evidence
 
         ctx.submit("evidence-storage", svc_evidence.usage, ctx.svc.config)
     found = getattr(ctx, "evidence_storage", None)
@@ -1167,8 +1167,8 @@ def _storage(ctx: Any) -> None:
     *confirms* stay in ``library.py`` -- the wording of a destructive question
     is the feature, and it is asserted where it lives.
     """
-    from ..state import format_bytes
-    from . import library
+    from .....panes import library
+    from .....state import format_bytes
 
     # No heading: the lit segment says "Storage". Maintenance below keeps
     # its own, because it is a second group inside this one category.
@@ -1300,7 +1300,7 @@ def _sweep_staging(ctx: Any) -> None:
     if _SWEPT or ctx.tasks.any_busy("download:"):
         return
     _SWEPT = True
-    from ...service import downloads as svc_downloads
+    from ......service import downloads as svc_downloads
 
     ctx.submit("sweep-staging", svc_downloads.sweep_staging, ctx.svc)
 
@@ -1411,9 +1411,9 @@ def _loras(ctx: Any) -> None:
     download registry. Everything a row *is* -- family, trigger, weight -- is
     what the picker and the loader read, so the form asks for exactly those.
     """
-    from ... import generation
-    from ...pipelines import lora_train
-    from ...service import loras as svc_loras
+    from ...... import generation
+    from ......pipelines import lora_train
+    from ......service import loras as svc_loras
 
     imgui.dummy((0, sp(tokens.SP_1)))
     widgets.muted("Your style LoRAs")
@@ -1523,8 +1523,8 @@ def _library_training_preview(svc: Any) -> dict[str, Any]:
     and reaches the user through the ordinary failed-task toast, field ring
     included -- there is no folder-scan path duplicating that door here.
     """
-    from ...pipelines import lora_train
-    from ...service import loras as svc_loras
+    from ......pipelines import lora_train
+    from ......service import loras as svc_loras
 
     result = svc_loras.library_training_set(svc)
     return {
@@ -1559,7 +1559,7 @@ def lora_import_kwargs(form: dict[str, Any]) -> dict[str, Any]:
 
 def training_images(folder: Path) -> list[Path]:
     """Every image the trainer would take from ``folder``, sorted, not recursive."""
-    from ...service import loras as svc_loras
+    from ......service import loras as svc_loras
 
     try:
         return sorted(
@@ -1571,7 +1571,7 @@ def training_images(folder: Path) -> list[Path]:
 
 
 def _lora_import_form(ctx: Any) -> None:
-    from ...service import loras as svc_loras
+    from ......service import loras as svc_loras
 
     form = ctx.state.preview.get("lora_import")
     if not form:
@@ -1633,8 +1633,8 @@ def _lora_import_form(ctx: Any) -> None:
 
 
 def _lora_train_form(ctx: Any) -> None:
-    from ...pipelines import lora_train
-    from ...service import loras as svc_loras
+    from ......pipelines import lora_train
+    from ......service import loras as svc_loras
 
     form = ctx.state.preview.get("lora_train")
     if not form:
@@ -1848,7 +1848,7 @@ def _start_removal(ctx: Any, row_key: str) -> None:
     Extracted from the confirm's lambda so it can be called without a frame,
     and so the closure over ``key`` is written once for both mutations.
     """
-    from ...service import downloads as svc_downloads
+    from ......service import downloads as svc_downloads
 
     key = app_ctx.remove_key(row_key)
 
@@ -2087,7 +2087,7 @@ def _cancel(ctx: Any, key: str) -> None:
     can share it.
     """
     imgui.same_line()
-    from ... import winjob
+    from ...... import winjob
 
     if controls.small_button(f"Cancel##cancel-{key}"):
         stopped = winjob.terminate_tracked("fetch")
@@ -2108,7 +2108,7 @@ def _start(ctx: Any, row_keys: list[str], *, key: str) -> None:
     for a key that is no longer in flight, so a child's last line landing after
     collection cannot resurrect a bar.
     """
-    from ...service import downloads as svc_downloads
+    from ......service import downloads as svc_downloads
 
     def run() -> Any:
         return svc_downloads.download(
@@ -2165,7 +2165,7 @@ def pack_unlocks(row: dict[str, Any]) -> str:
     is deliberately strings so that ``warlock.packs`` imports no ``studio``,
     and this is the one place with both tables in front of it.
     """
-    from .. import modes as modes_mod
+    from ..... import modes as modes_mod
 
     labels = {key: label for key, label, _icon, _purpose in modes_mod.MODES}
     named = [labels.get(key, key.title()) for key in (row.get("modes") or ())]
@@ -2213,7 +2213,7 @@ def pack_cancellable(phase: str) -> bool:
     used to slip through with no warning at all. The worker knows which
     syscall it is about to make; asking it beats guessing from a number.
     """
-    from ...pipelines import pack_worker
+    from ......pipelines import pack_worker
 
     return phase != pack_worker.PHASE_COMMIT
 
@@ -2330,7 +2330,7 @@ def _cancel_pack(ctx: Any) -> None:
     Blender bake or the persistent matting worker with it.
     """
     imgui.same_line()
-    from ... import winjob
+    from ...... import winjob
 
     if controls.small_button("Cancel##cancel-pack"):
         stopped = winjob.terminate_tracked("pack install")
@@ -2345,7 +2345,7 @@ def _start_pack(ctx: Any, key: str) -> None:
     inside the task, so what the user sees is the service's own sentence
     rather than a pane's paraphrase of it.
     """
-    from ...service import packs as svc_packs
+    from ......service import packs as svc_packs
 
     task_key = app_ctx.pack_key(key)
 
@@ -2369,7 +2369,7 @@ def _repair_pack(ctx: Any, key: str) -> None:
     row already says "Installed", so this is the remedy for the case that
     claim turns out to be wrong (M01) rather than a fresh install.
     """
-    from ...service import packs as svc_packs
+    from ......service import packs as svc_packs
 
     task_key = app_ctx.pack_key(key)
 
@@ -2394,7 +2394,7 @@ def _restore_packs(ctx: Any, keys: list[str]) -> None:
     them as separate buttons would only let the second one collide with the
     first's own refusal ("another pack is being installed").
     """
-    from ...service import packs as svc_packs
+    from ......service import packs as svc_packs
 
     task_key = app_ctx.pack_key(",".join(keys))
 
@@ -2439,7 +2439,7 @@ def _staged(ctx: Any, info: dict[str, Any]) -> Path | None:
     digest is computed once per (path, size, mtime, expected digest), and the
     cache is invalidated by the file changing rather than by a timer.
     """
-    from ...service import updates as svc_updates
+    from ......service import updates as svc_updates
 
     name = str(info.get("installer_name") or "")
     digest = str(info.get("sha256") or "").lower()
@@ -2462,7 +2462,7 @@ def _staged(ctx: Any, info: dict[str, Any]) -> Path | None:
 
 def _updates(ctx: Any) -> None:
     # No heading: the lit segment says "Updates". See ``_interface``.
-    from ... import installed_version
+    from ...... import installed_version
 
     check_busy = ctx.tasks.is_busy(app_ctx.UPDATE_CHECK_KEY)
     download_busy = ctx.tasks.is_busy(app_ctx.UPDATE_DOWNLOAD_KEY)
@@ -2554,8 +2554,8 @@ def _cancel_update(ctx: Any) -> None:
     this is safe at every point -- nothing exists but a ``.part``.
     """
     imgui.same_line()
-    from ... import winjob
-    from ...service import updates as svc_updates
+    from ...... import winjob
+    from ......service import updates as svc_updates
 
     if controls.small_button("Cancel##cancel-update"):
         stopped = winjob.terminate_tracked(svc_updates.TRACK_REASON)
@@ -2569,7 +2569,7 @@ def _start_update_check(ctx: Any) -> None:
     right answer for something the user did not ask for and the wrong one for
     a button they have just pressed.
     """
-    from ...service import updates as svc_updates
+    from ......service import updates as svc_updates
 
     if ctx.submit(app_ctx.UPDATE_CHECK_KEY, svc_updates.check, ctx.svc, tag="manual"):
         ctx.toast("Checking for updates...")
@@ -2577,7 +2577,7 @@ def _start_update_check(ctx: Any) -> None:
 
 def _start_update_download(ctx: Any, info: dict[str, Any]) -> None:
     """Submit the download. ``_start_pack``'s shape, one file instead of a plan."""
-    from ...service import updates as svc_updates
+    from ......service import updates as svc_updates
 
     def run() -> Any:
         return svc_updates.download(

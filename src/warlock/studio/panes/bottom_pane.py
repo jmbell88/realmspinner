@@ -185,7 +185,7 @@ def draw(ctx: Any) -> None:
     from .. import layout as layout_mod
     from .. import state as state_mod
     from ..assistant import ui as familiar_ui
-    from . import app_settings
+    from ..modes.settings.ui.panes import app_settings
 
     pad_x = tokens.sp(tokens.SP_2)
     row_h = tokens.sp(height(ctx))

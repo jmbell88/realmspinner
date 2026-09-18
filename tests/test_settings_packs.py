@@ -20,7 +20,7 @@ import pytest
 from warlock import packs
 from warlock.service import packs as svc_packs
 from warlock.studio import main as main_mod
-from warlock.studio.panes import app_settings
+from warlock.studio.modes.settings.ui.panes import app_settings
 
 
 class FakeService:
@@ -322,7 +322,7 @@ def test_lora_and_model_row_buttons_grey_with_a_reason_when_busy():
     """
     import inspect
 
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     def _reasoned(source: str, label: str) -> bool:
         after = source.split(label, 1)[1]

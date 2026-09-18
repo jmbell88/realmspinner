@@ -25,6 +25,9 @@ STUDIO = Path(__file__).resolve().parents[1] / "src/warlock/studio"
 # inventing a prefix that never existed.
 _UNPREFIXED = {
     "create": {"settings_2d.py", "settings_3d.py", "settings_character.py"},
+    "home": {"landing.py"},
+    "library": {"library.py"},
+    "settings": {"app_settings.py"},
 }
 
 

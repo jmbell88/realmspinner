@@ -17,7 +17,7 @@ import inspect
 
 
 def _cancel_source() -> str:
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     return inspect.getsource(app_settings._cancel)
 

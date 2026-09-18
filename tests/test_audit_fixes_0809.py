@@ -153,7 +153,7 @@ def test_the_pane_groups_every_kind_the_registry_offers():
     """The comment on _GROUPS claimed a new registry kind could not silently
     append unlabelled; the loop dropped it entirely instead. Derived now."""
     pytest.importorskip("imgui_bundle")
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     assert app_settings._GROUPS == fetch.GROUPS
     assert app_settings._UNGROUPED

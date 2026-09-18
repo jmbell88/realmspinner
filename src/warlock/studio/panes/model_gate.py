@@ -57,7 +57,7 @@ def request_install(ctx: Any, row_keys: tuple[str, ...]) -> None:
     mode-switch contract (H14), which ``tests/test_mode_writes.py`` scans this
     whole tree for.
     """
-    from . import app_settings
+    from ..modes.settings.ui.panes import app_settings
 
     ctx.model_picks |= set(row_keys)
     ctx.state.preview[app_settings.CATEGORY_SLOT] = "models"
@@ -243,7 +243,7 @@ def request_pack(ctx: Any, _keys: tuple[str, ...] = ()) -> None:
     site-packages at once is the worst concurrency this app could have. So the
     navigation is the whole of it.
     """
-    from . import app_settings
+    from ..modes.settings.ui.panes import app_settings
 
     ctx.state.preview[app_settings.CATEGORY_SLOT] = "packs"
     set_mode(ctx.state, "settings")

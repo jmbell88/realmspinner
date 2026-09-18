@@ -123,9 +123,8 @@ STRAY_MODE_FILES: dict[str, str] = {
     #   Job-artifact vocabulary, the same shape as ``quality.py``.
     # ``panes/settings_{2d,3d,character}.py`` sat here until P5 moved them to
     # ``studio/modes/create/ui/``, where the path itself says Create.
-    # The actual Settings-mode pane -- not studio/settings.py, which is the
-    # persisted-JSON engine (imported by every mode, not Settings-owned).
-    "studio/panes/app_settings.py": "settings",
+    # ``panes/app_settings.py`` sat here as the Settings mode's pane until P6
+    # moved it to ``modes/settings/ui/panes/``, where the path says so.
     # ``agent_clay.py`` (and its five P4 siblings) and ``agent_program.py``
     # sat here until P5 moved them to ``studio/modes/clay/agent/``, where the
     # path itself says Clay.
@@ -587,7 +586,10 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.panes.inspector", "warlock.studio.modes.create.ui.stages"),
     # Create's recipe engine lifting out of panes/settings_*.py means Settings
     # can import the engine module directly instead of a pane object.
-    ("warlock.studio.panes.app_settings", "warlock.studio.modes.create.ui.panes.settings_3d"),
+    (
+        "warlock.studio.modes.settings.ui.panes.app_settings",
+        "warlock.studio.modes.create.ui.panes.settings_3d",
+    ),
 })
 
 # P6 -- the remaining modes, one agent per mode. Best-fit rather than named:

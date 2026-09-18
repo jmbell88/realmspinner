@@ -961,7 +961,7 @@ def _reset_app_settings_session_flags():
     import sys
 
     def reset() -> None:
-        module = sys.modules.get("warlock.studio.panes.app_settings")
+        module = sys.modules.get("warlock.studio.modes.settings.ui.panes.app_settings")
         if module is not None:
             module._reset_measure()
             module._reset_sweep()

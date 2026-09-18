@@ -562,8 +562,8 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     from warlock.studio.modes.inker.ui.panes import menu as inker_menu
     from warlock.studio.modes.inker.ui.panes import picker as inker_picker
     from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+    from warlock.studio.modes.settings.ui.panes import app_settings
     from warlock.studio.panes import (
-        app_settings,
         candidates_panel,
         inspector,
         library,
@@ -1472,7 +1472,7 @@ def _model_rows() -> list[dict]:
 def test_the_settings_pane_builds(app_ctx, imgui_ctx):
     """Three times: bare, populated, and with a download in flight, because the
     pane reads its lists off the Ctx with getattr and all three must build."""
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     app_ctx.base_models = []
     app_ctx.style_loras = []
@@ -1513,7 +1513,7 @@ def test_the_settings_pane_help_button_stays_inside_the_pane(app_ctx, imgui_ctx,
     from imgui_bundle import imgui
 
     from warlock.studio import widgets
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     seen: dict[str, float] = {}
     real = widgets.icon_button
@@ -1543,7 +1543,7 @@ def test_the_settings_rail_help_button_stays_inside_the_rail(app_ctx, imgui_ctx,
     from imgui_bundle import imgui
 
     from warlock.studio import widgets
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     seen: dict[str, float] = {}
     real = widgets.icon_button
@@ -1570,7 +1570,7 @@ def test_the_settings_rail_and_body_get_their_own_window_padding(app_ctx, imgui_
     comments)."""
     from imgui_bundle import imgui
 
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     seen: dict[str, int] = {}
     real = imgui.begin_child
@@ -1599,7 +1599,7 @@ def test_the_health_pane_draws_its_actions_before_the_checks_table(
 
     from warlock.doctor import Check
     from warlock.studio import controls
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     app_ctx.runtime.checks = [Check("trellis-server.exe", True, "found", fatal=False)]
 
@@ -1632,7 +1632,7 @@ def test_the_settings_pane_draws_one_category_at_a_time(app_ctx, imgui_ctx, monk
     control replaced -- so the assertion worth making is not that the switch
     renders but that the *other bodies do not run*.
     """
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     drawn: list[str] = []
     for name in (
@@ -1666,7 +1666,7 @@ def test_the_packs_category_draws_a_pack_this_machine_has_not_got(app_ctx, imgui
     checkout has every extra -- so the branch that draws a *missing* pack, with
     its cost and its Install button, is the one nothing exercises by accident.
     """
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     app_ctx.pack_rows = [
         {
@@ -1692,7 +1692,7 @@ def test_the_settings_column_is_bounded_and_centred(app_ctx, imgui_ctx):
     from imgui_bundle import imgui
 
     from warlock.studio import tokens
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     seen: dict[str, tuple[float, float]] = {}
 
@@ -1725,7 +1725,8 @@ def test_the_bulk_deletes_left_the_library_footer_for_settings(app_ctx, imgui_ct
     """
     import inspect
 
-    from warlock.studio.panes import app_settings, library
+    from warlock.studio.modes.settings.ui.panes import app_settings
+    from warlock.studio.panes import library
 
     footer = inspect.getsource(library._storage)
     assert "ask_prune" not in footer and "ask_clean" not in footer
@@ -4044,7 +4045,8 @@ def test_the_whole_frame_builds_under_every_palette(app_ctx, imgui_ctx, palette)
     *switch into*.
     """
     from warlock.studio import theme, tokens
-    from warlock.studio.panes import app_settings, inspector, landing, library
+    from warlock.studio.modes.settings.ui.panes import app_settings
+    from warlock.studio.panes import inspector, landing, library
 
     imgui, _renderer = imgui_ctx
     _seeded(app_ctx)
@@ -4833,7 +4835,8 @@ def test_the_install_offer_draws_a_pack_button_when_only_a_pack_is_missing(app_c
 def test_requesting_a_pack_offer_opens_settings_at_packs(app_ctx):
     """The click body, without a frame -- the pack twin of
     ``request_install``, which routes to Models rather than Packs."""
-    from warlock.studio.panes import app_settings, model_gate
+    from warlock.studio.modes.settings.ui.panes import app_settings
+    from warlock.studio.panes import model_gate
 
     app_ctx.state.mode = "muse"
     model_gate.request_pack(app_ctx, ("music",))
@@ -4926,7 +4929,7 @@ def test_the_settings_pane_draws_a_fit_badge_and_a_recommendation(app_ctx, imgui
     """The two W4 surfaces, in the pane that owns them. What is asserted is
     that the pane builds with a ``vram`` verdict on one row and none on the
     others -- the absence path is the one that would crash a naive read."""
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     rows = _model_rows()
     rows[0]["vram"] = "no"
@@ -4944,7 +4947,7 @@ def test_starting_a_removal_submits_under_the_remove_prefix(app_ctx):
     """The click body without a frame. The prefix is load-bearing: the pane's
     busy check and the App's task-done handler both switch on it."""
     from warlock.studio import app_ctx as app_ctx_mod
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     app_settings._start_removal(app_ctx, "lora:pixelxl")
     key = app_ctx_mod.remove_key("lora:pixelxl")
@@ -4955,7 +4958,7 @@ def test_starting_a_removal_submits_under_the_remove_prefix(app_ctx):
 def test_a_present_row_with_nothing_to_free_draws_no_trash_button(app_ctx, imgui_ctx):
     """A recipe whose every file is shared has nothing to offer, and a button
     that refused on click would be worse than no button."""
-    from warlock.studio.panes import app_settings
+    from warlock.studio.modes.settings.ui.panes import app_settings
 
     rows = _model_rows()
     rows[0]["removable"] = False

@@ -56,7 +56,7 @@ from warlock.pipelines.llama import LlamaServer
 from warlock.service import familiar as familiar_service
 from warlock.studio import modes
 from warlock.studio.modes.create.engine import assets as create_assets
-from warlock.studio.panes import app_settings
+from warlock.studio.modes.settings.ui.panes import app_settings
 
 pytestmark = [pytest.mark.gpu, pytest.mark.timeout(1800)]
 

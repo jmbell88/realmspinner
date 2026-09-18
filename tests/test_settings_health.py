@@ -16,7 +16,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from warlock.studio import icons, theme
-from warlock.studio.panes import app_settings
+from warlock.studio.modes.settings.ui.panes import app_settings
 from warlock.studio.state import AppState
 
 

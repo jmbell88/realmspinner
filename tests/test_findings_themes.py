@@ -735,7 +735,10 @@ def test_the_tour_card_can_be_driven_from_the_keyboard():
 
 def test_the_engines_do_not_have_stale_top_level_packages():
     """``src/warlock/{sirens,plotter,packwright}`` held nothing but
-    ``__pycache__``; the engines live under ``studio/``."""
+    ``__pycache__``; the engines live under ``studio/modes/<name>/engine/``
+    (restructure P6). The second half used to ask for ``studio/<name>/``,
+    and after P6 it went on passing on a directory holding nothing but
+    ``__pycache__`` -- the shape the first half exists to refuse."""
     from pathlib import Path
 
     import warlock
@@ -743,4 +746,4 @@ def test_the_engines_do_not_have_stale_top_level_packages():
     root = Path(warlock.__file__).parent
     for name in ("sirens", "plotter", "packwright"):
         assert not (root / name).exists()
-        assert (root / "studio" / name).is_dir()
+        assert (root / "studio" / "modes" / name / "engine" / "__init__.py").is_file()

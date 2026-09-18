@@ -10,7 +10,7 @@ from pathlib import Path
 
 APP_SETTINGS = (
     Path(__file__).resolve().parent.parent
-    / "src" / "warlock" / "studio" / "panes" / "app_settings.py"
+    / "src" / "warlock" / "studio" / "modes/settings/ui/panes/app_settings.py"
 )
 
 

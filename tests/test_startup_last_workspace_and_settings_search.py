@@ -17,7 +17,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from warlock.studio import main as main_mod
-from warlock.studio.panes import app_settings
+from warlock.studio.modes.settings.ui.panes import app_settings
 from warlock.studio.shell import events as events_mod
 
 

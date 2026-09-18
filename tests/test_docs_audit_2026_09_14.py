@@ -118,7 +118,7 @@ def test_manual_29_reference_layer_claim_matches_asein_visibility_behaviour():
 def test_agent_settings_help_text_never_implies_agents_reach_familiar():
     targets = [
         "docs/manual/42-app-settings.md",
-        "src/warlock/studio/panes/app_settings.py",
+        "src/warlock/studio/modes/settings/ui/panes/app_settings.py",
         "docs/manual/46-extending.md",
     ]
     # The ambiguous old sentence, verbatim, in all three places docs-03

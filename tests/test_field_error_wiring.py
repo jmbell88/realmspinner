@@ -37,8 +37,8 @@ _PANES = pane_files()
 FIELD_FORMS = (
     ("modes/create/ui/settings_2d.py", "create-2d"),
     ("modes/create/ui/settings_3d.py", "create-3d"),
-    ("panes/app_settings.py", "lora-import"),
-    ("panes/app_settings.py", "lora-train"),
+    ("modes/settings/ui/panes/app_settings.py", "lora-import"),
+    ("modes/settings/ui/panes/app_settings.py", "lora-train"),
     ("panes/remesh_panel.py", "remesh-settings"),
     ("panes/sheet_panel.py", "sheet-settings"),
     ("panes/sprite_panel.py", "sprite-settings"),
@@ -111,7 +111,7 @@ def test_every_submit_that_can_be_refused_by_name_drops_last_times_rings():
         "panes/retarget_panel.py",
         "panes/remesh_panel.py",
         "panes/texture_panel.py",
-        "panes/app_settings.py",
+        "modes/settings/ui/panes/app_settings.py",
         "modes/troupe/mode.py",
     ):
         assert "clear_field_errors()" in _source(rel), rel

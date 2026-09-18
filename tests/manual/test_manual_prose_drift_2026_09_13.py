@@ -65,7 +65,7 @@ def test_manual_status_bar_issues_claim_matches_the_app():
 
 
 def test_app_settings_manual_documents_workspace_layouts_section():
-    panes = (STUDIO / "panes" / "app_settings.py").read_text(encoding="utf-8")
+    panes = (STUDIO / "modes/settings/ui/panes/app_settings.py").read_text(encoding="utf-8")
     assert "def _layouts(" in panes
     for label in ("Duplicate", "Rename...", "Reset", "Delete this layout"):
         assert label in panes
@@ -80,7 +80,7 @@ def test_app_settings_manual_documents_workspace_layouts_section():
 
 
 def test_app_settings_manual_storage_section_names_all_four_buttons():
-    panes = (STUDIO / "panes" / "app_settings.py").read_text(encoding="utf-8")
+    panes = (STUDIO / "modes/settings/ui/panes/app_settings.py").read_text(encoding="utf-8")
     assert 'controls.button("Check library")' in panes
     assert 'controls.button("Back up the index")' in panes
 
