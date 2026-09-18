@@ -18,6 +18,112 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## 0.0.51 — 2026-09-18
+
+Two audit passes over the whole app in one day, 130 findings closed, every one
+with a regression test that fails against the unfixed code. The headline is a
+data-loss bug five modes shared: opening a file that was already open in another
+tab made a second, independent tab on the same path, and whichever tab saved
+last silently discarded the other's edits.
+
+- **Opening a file that is already open focuses its tab instead of forking a
+  second one.** File › Open (and Ctrl+O) in Inker, Mason, Plotter, Packwright
+  and Sirens decoded the file and adopted it as a new tab even when that path
+  was already open; only the drag-and-drop and Recent Files route checked. Clay
+  fixed the identical gap on 2026-09-12 and the other five modes never got the
+  same three lines. Two tabs over one path race on save, and the loser's edits
+  vanished with no warning. Each mode now looks the path up first and activates
+  the tab that is already open, and each has a test that opens a second copy
+  and asserts one tab.
+- **A Mason scene with several large prefabs no longer saves and then refuses
+  to reopen.** Make Prefab never counted a template's nodes against the scene
+  ceiling, but the reader counted scene roots *and* every template against one
+  shared ceiling — so a scene built entirely through the app's own guarded
+  gestures could save clean and then be refused on the next open, before a
+  single node was restored. The writer now charges the same combined total the
+  reader will, and a round-trip test holds the two sides together.
+- **Mason can no longer end the session at its node ceiling.** Every
+  node-adding gesture (place, group, Add ground, Duplicate, Unpack) refuses
+  with a toast at `MAX_PLACED` instead of raising into the frame loop, and key
+  dispatch contains an exception per event. Solo, Show all and bulk adds read
+  an incremental uid index instead of walking the tree per lookup.
+- **Curves gives translucent pixels the same tone shift as opaque ones.** The
+  filter evaluated its curve on premultiplied colour, so a half-transparent
+  (200,200,200) pixel clipped to white where its opaque twin went to 247 —
+  every soft brush edge and feathered selection was wrong under Curves. It now
+  works on straight colour like Brightness/Contrast and Levels beside it.
+- **Global shortcuts no longer fire under the Library's Export and Convert
+  dialogs.** Both are real modals, and neither was on the list the shortcut
+  guard asks, so Ctrl+K opened the palette behind "Replace or keep both?" and a
+  mode key switched away with the question still up — the seventh instance of
+  this shape. The list is now nine.
+- **The first tutorial's install command lists all four extras.** Chapter 01
+  said `--extra studio --extra text2image --extra rig` and "the three extras",
+  so a new user following it had no Muse and nothing to say why. It now names
+  `music` too, and a test derives the expected list from `pyproject.toml`.
+- **Cancelling agent task-mode calls no longer saturates the connection.** A
+  cancelled operation was never marked fetched, so the eviction guard kept it
+  forever; sixteen ordinary cancels left every later task-mode call refused
+  until the agent reconnected. A cancelled call is now released on cancel.
+- **Undo, Redo and the history popover grey while a document is saving**, in
+  every bridge pane, matching what Ctrl+Z and Ctrl+Y already refused. A click
+  could move the history head under an in-flight save when the keyboard could
+  not.
+- **The manual's screenshots and the inspector's manifest decode off the frame
+  thread.** The screenshot cache justified a frame-thread decode as "one small
+  PNG" and was being handed 1600 px captures at 12–21 ms each; the Export tab
+  parsed `manifest.json` inside draw on every change. Both now decode on a
+  worker and upload or adopt on the frame after.
+- **Create refuses a second candidate brief while one is still undecided.**
+  The picker only ever shows the newest undecided group and the library hides
+  every candidate row, so a second submission hid the first group with nothing
+  on screen until the second was decided. Generate now says "Decide the pending
+  candidates first."
+- **Import clip caps a source file at 64 actions.** Nothing bounded how many
+  actions a Mixamo export could carry; Blender sampled and the host converted
+  every one before any ceiling could refuse. The worker now refuses by name
+  before sampling and the host re-checks the count it reports.
+- **A LoRA training run the trainer reports as failed is no longer registered
+  as a usable style.** The job decided success from the adapter file's
+  existence alone, so a save that failed halfway (disk full, a late CUDA error)
+  still minted a "Trained style" from partial bytes. The trainer's own verdict
+  is read first.
+- **Shipped pose presets are validated at the read door.** The preset and
+  deformation-battery loader stored each pose's bones verbatim, against its own
+  docstring; a malformed quaternion in a shipped file reached Blender unchecked.
+- **Muse's export-with-loop-points refuses a region that rounds to zero
+  samples** instead of writing a one-sample loop that clicks on every repeat,
+  and the derive dialog's "How many" has its own field so a refused derive no
+  longer rings the top bar's Takes control.
+- **Sirens' order list refuses past 256 entries** instead of silently dropping
+  the tail, and "Add to the order" greys with a reason at the ceiling.
+- **Familiar** classifies a key-file race as a refusal instead of an unhandled
+  error, checks a reply's calls against the tools its frozen card actually
+  describes (the batch schema listed twenty, the card described thirteen), and
+  says so in the transcript when a build cannot land because another is still
+  landing.
+- **Arch's stored thickness matches the wall it builds**, the way torus and
+  column already did. **Reference and hint staging use per-call temp names**,
+  closing the fixed-name race two other writers had already been fixed for.
+  **Doctor reports a zero-byte gltfpack as broken** rather than OK. **Settings
+  search synonyms match any word order.** **A palette directory named like a
+  palette file is no longer offered.** **The Generate command no longer spawns
+  a stray one-item menu in nine modes.** **A new global sidebar width reaches
+  every saved layout**, not only the active one.
+- **This morning's pass** also landed: Replace after Browse writes to the
+  browsed folder; Shift/Ctrl click extend and subtract Clay's selection and its
+  hint line names 1/2/3/4; clay_analyze and Collapse are bounded; a GLB missing
+  an accessor field is refused by name; Inker trim pivots, particle spin, the
+  Link Cel budget, redo remap and text-object undo folding; Troupe's
+  skipped-clip reporting and HD reduce mode; Muse's Extend slider bounds and
+  cancel during a loop roll; Sirens' deferred Play; Plotter's Closeness
+  placement; Familiar's manifest verification off the loop thread and plan
+  drops surfaced; oversized clay_scene refused; pixel-sheet VRAM pricing;
+  set_aside rollback; the save/revert race; persisted pack import verdicts;
+  refused-reference ranking; an npz archive sum ceiling; and 188 citations of
+  module paths the restructure retired swept out, with a test that keeps them
+  out.
+
 ## 0.0.50 — 2026-09-18
 
 Nothing a player can see changed: the source tree was reorganised so that a
