@@ -87,10 +87,10 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
-from ..kernels.mesh import document as bd
-from ..kernels.mesh import scratch as clay_scratch
-from . import agent_clay, clay_mode
-from .clay_state import ClayState, ClayTab
+from ...kernels.mesh import document as bd
+from ...kernels.mesh import scratch as clay_scratch
+from .. import agent_clay, clay_mode
+from ..clay_state import ClayState, ClayTab
 
 #: Tools a scratch run refuses before ``agent_clay.call`` is ever reached.
 #:

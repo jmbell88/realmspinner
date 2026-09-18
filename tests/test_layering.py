@@ -203,12 +203,10 @@ VIEWPORT_NAMED = frozenset({
     "studio/_view_frame.py", "studio/_view_overlay.py", "studio/_view_pick.py",
     "studio/_viewer_pose.py",
 })
-#: Familiar's UI half -- P5: "Familiar is a pane, not a mode -- keep it out
-#: of modes/", folding these into studio/assistant/. Classified shell (L4)
-#: rather than invented as its own layer for exactly that reason.
-FAMILIAR_UI = frozenset({
-    "studio/familiar_ui.py", "studio/familiar_preview.py", "studio/familiar_doors.py",
-})
+#: Familiar's UI half -- P5 landed: "Familiar is a pane, not a mode -- keep it
+#: out of modes/", so ``studio/assistant/`` is shell (L4) by prefix rather
+#: than invented as its own layer.
+FAMILIAR_UI_PREFIX = "studio/assistant/"
 #: True CLI/entrypoint/dev-tooling -- outside the six-layer table entirely
 #: (nothing in the table's rows names ``cli.py``, ``doctor.py``, ``sweep.py``,
 #: the console entry point, or the bench harness). Excluded from the check in
@@ -276,7 +274,7 @@ def classify(rel: str) -> Layer:
         return Layer(4, "viewport")
     if rel in VIEWPORT_NAMED:
         return Layer(4, "viewport")
-    if rel in SHELL_NAMED or rel in FAMILIAR_UI:
+    if rel in SHELL_NAMED or rel.startswith(FAMILIAR_UI_PREFIX):
         return Layer(4, "shell")
     if rel in STRAY_MODE_FILES:
         return Layer(5, "mode", STRAY_MODE_FILES[rel])
@@ -582,9 +580,9 @@ _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP: frozenset[tuple[str, str]] = frozenset({
 # pilot-four bullets, and cover the remaining pairs below.
 _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
     # Familiar UI -> Clay / Create
-    ("warlock.studio.familiar_preview", "warlock.studio.agent_clay"),
-    ("warlock.studio.familiar_preview", "warlock.studio.clay_mode"),
-    ("warlock.studio.familiar_preview", "warlock.studio.clay_state"),
+    ("warlock.studio.assistant.preview", "warlock.studio.agent_clay"),
+    ("warlock.studio.assistant.preview", "warlock.studio.clay_mode"),
+    ("warlock.studio.assistant.preview", "warlock.studio.clay_state"),
     # Clay agent fold
     ("warlock.studio.agent_host", "warlock.studio.agent_clay"),
     ("warlock.studio.agent_transcript", "warlock.studio.agent_clay"),

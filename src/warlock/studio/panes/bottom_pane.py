@@ -120,7 +120,7 @@ def height(ctx: Any) -> float:
 
     from imgui_bundle import imgui
 
-    from .. import familiar_ui
+    from ..assistant import ui as familiar_ui
 
     viewport = imgui.get_main_viewport()
     ceiling = max_height(viewport.work_size.y, _mode_chrome(ctx))
@@ -181,9 +181,10 @@ def draw(ctx: Any) -> None:
 
     from imgui_bundle import imgui
 
-    from .. import controls, familiar_ui, fonts, theme, tokens
+    from .. import controls, fonts, theme, tokens
     from .. import layout as layout_mod
     from .. import state as state_mod
+    from ..assistant import ui as familiar_ui
     from . import app_settings
 
     pad_x = tokens.sp(tokens.SP_2)

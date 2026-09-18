@@ -552,7 +552,7 @@ class App(
         # docstring for why registration through it, rather than a bare
         # ``TAB_CLOSED.append`` here, is what lets a test prove the app
         # itself wires this rather than the test wiring it.
-        from .. import familiar_ui
+        from ..assistant import ui as familiar_ui
 
         familiar_ui.install(self.app_ctx)
 

@@ -129,7 +129,7 @@ def _relative_targets(path: Path, node: ast.ImportFrom) -> list[Path]:
     """Every filesystem path one relative ``ImportFrom`` node may name.
 
     ``from .. import clay_mode`` inside the old ``studio/familiar/apply.py``
-    (folded into ``studio/familiar_preview.py``, at ``studio`` level, since
+    (folded into ``studio/assistant/preview.py``, at ``studio`` level, since
     the 2026-09-14 T3 move) climbed one directory past ``familiar``
     (``level - 1`` parents beyond the file's own package) to ``studio``, then
     resolved ``clay_mode`` there -- still the worked example for what this

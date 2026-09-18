@@ -131,7 +131,8 @@ def test_reserve_adds_the_splitter_grip_once_expanded(monkeypatch):
 
     from _ui_context import imgui_context
 
-    from warlock.studio import familiar_ui, layout
+    from warlock.studio import layout
+    from warlock.studio.assistant import ui as familiar_ui
 
     ctx = SimpleNamespace(
         state=SimpleNamespace(mode="home", familiar=familiar_ui.FamiliarUIState(expanded=True)),
@@ -156,7 +157,7 @@ def test_pane_height_defaults_to_expanded_h_and_round_trips_a_drag(tmp_path):
     a stray large or tiny stored value cannot hand the pane an unusable size."""
     from types import SimpleNamespace
 
-    from warlock.studio import familiar_ui
+    from warlock.studio.assistant import ui as familiar_ui
     from warlock.studio.settings import Settings
 
     settings = Settings.load(tmp_path)
@@ -218,7 +219,7 @@ def test_the_expanded_pane_renders_bubbles_the_handle_and_autoscrolls(monkeypatc
 
     from warlock import models
     from warlock.familiar import threads as threads_mod
-    from warlock.studio import familiar_ui
+    from warlock.studio.assistant import ui as familiar_ui
     from warlock.studio.settings import Settings
 
     config = _familiar_config(tmp_path)

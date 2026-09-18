@@ -250,7 +250,7 @@ def clay_build(svc: Any, prompt: str, scene: dict[str, Any]) -> list[dict]:
 # which skill it wants should use; ``chat_reply``/``clay_build`` above stay
 # public for the two callers that already know (plain chat with no router
 # involved is still reachable directly, and Clay's own explicit Build button
-# is deliberately router-free -- see ``studio/familiar_ui.py``'s own
+# is deliberately router-free -- see ``studio/assistant/ui.py``'s own
 # docstring for why a button that already knows it means "build" should not
 # pay for a routing round trip only to be told what it already is).
 # ---------------------------------------------------------------------------
@@ -272,13 +272,13 @@ class Answer:
     citations: tuple[retrieval.Citation, ...] = ()
     calls: list[dict] | None = None
     #: T8: what a routed ``navigate``/``create`` decided to *do*, for the
-    #: caller (``studio/familiar_doors.py``, on the frame thread) to act out
+    #: caller (``studio/assistant/doors.py``, on the frame thread) to act out
     #: -- ``{"kind": "navigate", "target": <destination key>}`` or
     #: ``{"kind": "draft", "asset_type": ..., "prompt": ...}``. T7 adds a
     #: third shape, ``{"kind": "character_plan", "prompt", "plan",
     #: "overrides", "summary"}`` -- *not* acted out automatically the way a
     #: navigate/draft is: the caller shows the plan and waits for a press
-    #: (``studio/familiar_ui.py``'s own plan card) before ever calling
+    #: (``studio/assistant/ui.py``'s own plan card) before ever calling
     #: :func:`create_planned_character`. ``None`` for every other skill,
     #: including a navigate/create/character call that fell back to chat
     #: because the model named nothing usable -- that case answers with
@@ -343,7 +343,7 @@ def _ask_navigate(
     never an act itself, since this module never reaches the palette or
     ``state`` (the offline/layering invariant: ``service/`` acts through
     what a caller hands it, the acting half stays at studio level, see
-    ``studio/familiar_doors.py``'s own docstring).
+    ``studio/assistant/doors.py``'s own docstring).
 
     Falls back to :func:`chat_reply` when the model names nothing usable
     (``doors.parse_target`` returned ``None``) -- the same "don't act, just
@@ -410,7 +410,7 @@ def _ask_character(
     ``character_plan.build_character_messages``'s own docstring), then run
     it through :func:`~..service.characters.recipe_from_prompt` as a **dry
     run that mints nothing**. T7's whole point: the plan is free to discard,
-    and only the user's own Create press (``studio/familiar_ui.py``'s
+    and only the user's own Create press (``studio/assistant/ui.py``'s
     ``submit_character``) ever calls :func:`create_planned_character`.
 
     Falls back to :func:`chat_reply` when the model names no species
@@ -496,7 +496,7 @@ def create_planned_character(
     refusal, e.g. "Rigging needs Blender, which is not installed.") --
     unlike :class:`FamiliarRefusal`, this is a plain service call with
     nothing Familiar-specific about the mint itself, so it carries no
-    ``reason`` vocabulary of its own; the caller (``studio/familiar_ui.py``)
+    ``reason`` vocabulary of its own; the caller (``studio/assistant/ui.py``)
     shows it exactly like any other refused submit.
     """
     from . import characters as svc_characters
@@ -539,7 +539,7 @@ def ask(
     read here, because building either list touches studio-level machinery
     (the palette's own commands, ``app_settings.CATEGORIES``,
     ``create_assets``) this module must not import (the offline/layering
-    invariant -- see ``studio/familiar_doors.py``'s own docstring for where
+    invariant -- see ``studio/assistant/doors.py``'s own docstring for where
     that acting half actually lives). Empty (the caller's default, and what
     every pre-T8 call site still passes) means "nothing to route to", so
     both fall back to plain chat exactly like an unbuilt skill does, rather
@@ -549,7 +549,7 @@ def ask(
     *character_options* is handed in for a narrower reason than
     *destinations*/*asset_types* -- what it is built from
     (``service.characters.character_options``) is already service-layer
-    data, not studio machinery, so the caller (``studio/familiar_ui.py``)
+    data, not studio machinery, so the caller (``studio/assistant/ui.py``)
     only exists as the one place already computing it, cached, for Create's
     own form (``modes/create/engine/character.options``); this module still never
     reads a registry to build it fresh.

@@ -2,7 +2,7 @@
 scratch clone, never the real document.
 
 Lives under ``tests/familiar/`` even though the code moved to
-``studio/familiar_preview.py`` (2026-09-14, so ``studio/familiar/`` could be
+``studio/assistant/preview.py`` (2026-09-14, so ``studio/familiar/`` could be
 made genuinely headless) -- see ``test_apply.py``'s own docstring for why.
 
 See that module's own docstring for why the sandbox is a whole private
@@ -18,7 +18,8 @@ import pytest
 
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio import agent_clay, clay_mode, familiar_preview
+from warlock.studio import agent_clay, clay_mode
+from warlock.studio.assistant import preview as familiar_preview
 
 
 def _payload(result: dict):

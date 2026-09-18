@@ -507,7 +507,7 @@ class TasksMixin:
             journal.on_task_done(ctx, done)
             return
         if key.startswith("familiar/"):
-            from .. import familiar_ui
+            from ..assistant import ui as familiar_ui
 
             familiar_ui.on_task_done(ctx, done)
             return

@@ -455,7 +455,7 @@ def draw(ctx: Any, layout: Any = None) -> None:
                     hit = controls.menu_item("Open Familiar##menu/familiar-open", "", False, True)
                     clicked = hit[0] if isinstance(hit, tuple) else hit
                     if clicked:
-                        from . import familiar_ui
+                        from .assistant import ui as familiar_ui
 
                         familiar_ui.ensure(ctx).expanded = True
                 else:

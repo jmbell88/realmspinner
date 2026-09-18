@@ -756,7 +756,8 @@ def test_a_familiar_build_landing_runs_its_clay_batch_off_the_frame_thread(monke
     runs the task on a real worker thread, with the expensive call spied to
     record which thread it ran on.
     """
-    from warlock.studio import familiar_preview, familiar_ui
+    from warlock.studio.assistant import preview as familiar_preview
+    from warlock.studio.assistant import ui as familiar_ui
 
     ctx = _FamiliarCtx()
     threads = _spy(monkeypatch, familiar_preview, "run_scratch")

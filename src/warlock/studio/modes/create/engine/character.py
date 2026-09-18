@@ -2,7 +2,7 @@
 
 Split out of ``modes/create/ui/settings_character.py`` (2026-09-18
 restructure, P5) -- the half of that module with no imgui in it. Familiar
-(``familiar_ui.py``, ``familiar_doors.py``), Troupe (``troupe_mode.py``) and
+(``assistant/ui.py``, ``assistant/doors.py``), Troupe (``troupe_mode.py``) and
 the shell (``state.py``, ``shell/tasks.py``, ``modes/create/ui/workspace.py``)
 all read this vocabulary today by reaching into a *pane*; they import this
 module directly now. What stays in ``modes/create/ui/settings_character.py``

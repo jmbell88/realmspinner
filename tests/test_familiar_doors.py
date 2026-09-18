@@ -1,4 +1,4 @@
-"""T8: ``studio/familiar_doors.py`` -- the acting half of Familiar's
+"""T8: ``studio/assistant/doors.py`` -- the acting half of Familiar's
 navigate and create-draft doors.
 
 Headless, the same shape ``tests/test_palette.py``'s own ``_ctx`` builds:
@@ -7,7 +7,7 @@ to answer without a window, extended with ``form_2d``/``preview`` (Create's
 own form) and a ``submit`` recorder so a test can prove a draft never
 submits.
 
-``warlock.studio.familiar_doors`` does not exist on the pre-T8 tree, so
+``warlock.studio.assistant.doors`` does not exist on the pre-T8 tree, so
 every test below fails with an ``ImportError``/``AttributeError`` before
 its first assertion runs against the unmodified code.
 """
@@ -17,7 +17,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.studio import familiar_doors, modes
+from warlock.studio import modes
+from warlock.studio.assistant import doors as familiar_doors
 from warlock.studio.panes import app_settings, model_gate
 from warlock.studio.state import ManualState
 

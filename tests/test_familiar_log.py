@@ -101,7 +101,7 @@ def test_submit_request_and_outcome_share_one_exchange_id(tmp_path, monkeypatch)
     that can silently break."""
     from test_familiar_ui import _FakeCtx
 
-    from warlock.studio import familiar_ui
+    from warlock.studio.assistant import ui as familiar_ui
     from warlock.studio.tasks import Done
 
     monkeypatch.setenv("WARLOCK_HOME", str(tmp_path))

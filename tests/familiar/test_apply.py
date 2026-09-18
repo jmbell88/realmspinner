@@ -2,11 +2,11 @@
 refusing to when the document has moved out from under it.
 
 Lives under ``tests/familiar/`` even though ``apply`` itself moved to
-``studio/familiar_preview.py`` (2026-09-14, so ``studio/familiar/`` could be
+``studio/assistant/preview.py`` (2026-09-14, so ``studio/familiar/`` could be
 made genuinely headless) -- one Familiar test tree beats splitting it across
 two directories for a module boundary the tests don't otherwise care about.
 
-See ``familiar_preview.py``'s own module docstring for the refusal rule and
+See ``assistant/preview.py``'s own module docstring for the refusal rule and
 why "no tab open" is not one of the cases it covers.
 """
 
@@ -18,7 +18,8 @@ from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
 from warlock.kernels.mesh import scratch as clay_scratch
 from warlock.kernels.mesh import serialize
-from warlock.studio import clay_mode, familiar_preview
+from warlock.studio import clay_mode
+from warlock.studio.assistant import preview as familiar_preview
 
 
 class _FakeCtx:

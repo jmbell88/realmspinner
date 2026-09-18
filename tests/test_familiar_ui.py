@@ -1,4 +1,4 @@
-"""T5's bottom-pane conversation logic: ``studio/familiar_ui.py``.
+"""T5's bottom-pane conversation logic: ``studio/assistant/ui.py``.
 
 Deliberately headless -- ``draw_expanded`` itself needs a live imgui frame
 and is not exercised here (that is what ``/exercise-mode`` and the
@@ -20,7 +20,8 @@ from warlock.familiar import retrieval
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
 from warlock.service import familiar as svc_familiar
-from warlock.studio import clay_mode, docmodes, familiar_ui
+from warlock.studio import clay_mode, docmodes
+from warlock.studio.assistant import ui as familiar_ui
 from warlock.studio.state import ManualState
 from warlock.studio.tasks import Done
 
@@ -835,7 +836,7 @@ def test_open_in_create_drafts_the_character_brief_with_the_plan_fields(monkeypa
         captured["character_fields"] = character_fields
         return "Drafted in Create -- check the brief and press Generate."
 
-    from warlock.studio import familiar_doors
+    from warlock.studio.assistant import doors as familiar_doors
 
     monkeypatch.setattr(familiar_doors, "draft_in_create", fake_draft)
 

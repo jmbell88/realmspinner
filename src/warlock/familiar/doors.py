@@ -3,8 +3,8 @@ Create. Pure prompt/schema/parse logic, the same split ``contract.py``/
 ``router.py`` already draw between "how to ask the model" and "what runs
 once it answers" -- this module only ever builds messages, builds a JSON
 schema, and parses a reply string. It never touches ``ctx``, imgui, the
-palette or ``create_stages`` -- that acting half is ``studio/familiar_doors.py``,
-one level up, for the same reason ``familiar_ui.py``'s own docstring gives
+palette or ``create_stages`` -- that acting half is ``studio/assistant/doors.py``,
+one level up, for the same reason ``assistant/ui.py``'s own docstring gives
 for living outside this package: navigating and drafting both reach studio
 machinery (the palette, Settings, Create's form) this package is pinned
 never to import (``tests/familiar/test_familiar_imports.py``).

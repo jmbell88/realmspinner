@@ -2,7 +2,7 @@
 pane's expanded body. T5 of the Familiar programme.
 
 **Why this lives at studio level, not inside ``studio/familiar/``.** Exactly
-``studio/familiar_preview.py``'s own reason (see that module's docstring):
+``studio/assistant/preview.py``'s own reason (see that module's docstring):
 this reaches ``agent_clay`` (to read the live scene for a Build request) and
 ``clay_view``/``clay_mode`` (to show and apply a ghost preview), all of which
 ``studio/familiar/`` is pinned never to import, even lazily.
@@ -174,11 +174,11 @@ def install(ctx: Any) -> None:
     ``App`` in one process (or a test that calls ``install`` more than once)
     needs.
     """
-    from ..familiar import threads
+    from ...familiar import threads
 
     if getattr(ctx, "familiar_threads", None) is None:
         ctx.familiar_threads = threads.Threads()
-    from . import docmodes
+    from .. import docmodes
 
     if ctx.familiar_threads.drop not in docmodes.TAB_CLOSED:
         docmodes.TAB_CLOSED.append(ctx.familiar_threads.drop)
@@ -202,7 +202,7 @@ def _active_tab_uid(ctx: Any) -> str:
 def thread_key(ctx: Any) -> tuple[str, str]:
     """The ``(mode, tab_uid)`` key this frame's conversation reads/writes --
     see ``threads.Threads.key_for``."""
-    from ..familiar import threads
+    from ...familiar import threads
 
     mode = str(getattr(ctx.state, "mode", ""))
     return threads.Threads.key_for(mode, _active_tab_uid(ctx))
@@ -236,12 +236,12 @@ def _capture_scene(ctx: Any, tab_uid: str) -> dict[str, Any] | None:
     """
     if not tab_uid:
         return None
-    from ..familiar import contract
-    from . import agent_clay
+    from ...familiar import contract
+    from .. import agent_clay
 
     ghost = _pending_ghost(ctx, tab_uid)
     if ghost is not None:
-        from . import familiar_preview
+        from . import preview as familiar_preview
 
         # Read from a clone of the ghost, so a refinement is written against
         # what the user is looking at and the ghost itself is never touched.
@@ -274,8 +274,8 @@ def _character_options(ctx: Any) -> dict[str, Any]:
     gate, but it does touch ``ctx.state.preview``'s own cache slot, which is
     frame-thread state exactly like the Clay scene capture is.
     """
-    from ..kernels.rig import cliplib
-    from .modes.create.engine import character as character_engine
+    from ...kernels.rig import cliplib
+    from ..modes.create.engine import character as character_engine
 
     raw = character_engine.options(ctx)
     families = [
@@ -315,7 +315,7 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     prompt = prompt.strip()
     if not prompt or ctx.busy(CHAT_KEY):
         return False
-    from ..familiar import threads
+    from ...familiar import threads
 
     key = thread_key(ctx)
     ctx.familiar_threads.append(key, threads.Turn("user", prompt))
@@ -330,8 +330,8 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     # which reads ``ctx.state`` (the mode gate, the active document), so the
     # list the router is offered has to describe *this* frame, not whatever
     # it is by the time a worker thread gets around to it.
-    from . import familiar_doors
-    from .modes.create.engine import assets as create_assets
+    from ..modes.create.engine import assets as create_assets
+    from . import doors as familiar_doors
 
     destinations = familiar_doors.destinations(ctx)
     asset_types = create_assets.ASSET_TYPE_OPTIONS
@@ -340,8 +340,8 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     # rather than studio-gated.
     character_options = _character_options(ctx)
 
-    from ..service import familiar as svc_familiar
-    from ..service import familiar_log
+    from ...service import familiar as svc_familiar
+    from ...service import familiar_log
 
     # T5's dev-only log (WARLOCK_FAMILIAR_LOG): minted here, on the frame
     # thread, and carried into ``run()``'s closure so every record the
@@ -406,13 +406,13 @@ def submit_build(ctx: Any, prompt: str) -> bool:
         return False
     scene = _capture_scene(ctx, tab_uid)
 
-    from ..familiar import threads
+    from ...familiar import threads
 
     key = thread_key(ctx)
     ctx.familiar_threads.append(key, threads.Turn("user", prompt))
 
-    from ..service import familiar as svc_familiar
-    from ..service import familiar_log
+    from ...service import familiar as svc_familiar
+    from ...service import familiar_log
 
     exchange_id = familiar_log.new_exchange_id()
     refine = _pending_ghost(ctx, tab_uid)
@@ -473,7 +473,7 @@ def _say(ctx: Any, thread_key: Any, text: str, *, toast: bool = True) -> None:
         return
     threads_obj = getattr(ctx, "familiar_threads", None)
     if thread_key is not None and threads_obj is not None:
-        from ..familiar import threads
+        from ...familiar import threads
 
         threads_obj.append(thread_key, threads.Turn("familiar", text))
     if toast:
@@ -486,11 +486,11 @@ def _log_outcome(done: Any, tag: dict) -> None:
     """Dev-only (WARLOCK_FAMILIAR_LOG): one ``outcome`` record per landed
     task, carrying the same exchange id its ``submit``/``request`` records
     used -- see ``familiar_log.py``'s own docstring."""
-    from ..service import familiar_log
+    from ...service import familiar_log
 
     if not familiar_log.enabled():
         return
-    from ..service.familiar import Answer
+    from ...service.familiar import Answer
 
     result = done.result
     skill = text = calls = action = None
@@ -528,7 +528,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
             ui.reason = None
             ui.message = None
             result = done.result
-            from ..service.familiar import Answer
+            from ...service.familiar import Answer
 
             if isinstance(result, Answer) and result.calls is not None:
                 # The router sent this one to Clay -- land it exactly like
@@ -573,7 +573,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
             thread = tag.get("thread_key")
             threads_obj = getattr(ctx, "familiar_threads", None)
             if thread is not None and threads_obj is not None and text is not None:
-                from ..familiar import threads
+                from ...familiar import threads
 
                 threads_obj.append(thread, threads.Turn("familiar", text, citations))
         else:
@@ -641,7 +641,7 @@ def _run_door(ctx: Any, action: dict[str, Any]) -> str:
     none today, but a future skill's own action kind must not crash the
     frame loop reading a reply that landed) answers plainly rather than
     raising."""
-    from . import familiar_doors
+    from . import doors as familiar_doors
 
     kind = action.get("kind")
     if kind == "navigate":
@@ -704,7 +704,7 @@ def _log_preview(exchange_id: Any, *, diff: Any = None, refusal: str | None = No
     """Dev-only (WARLOCK_FAMILIAR_LOG): one ``preview`` record per landed
     build -- diff counts on a clean preview, the refusal sentence
     otherwise."""
-    from ..service import familiar_log
+    from ...service import familiar_log
 
     if not familiar_log.enabled():
         return
@@ -785,7 +785,8 @@ def _submit_build_preview(
     Both are carried into :data:`LAND_KEY`'s own tag so the second phase can
     use them too.
     """
-    from . import clay_mode, familiar_preview
+    from .. import clay_mode
+    from . import preview as familiar_preview
 
     state = clay_mode.ensure(ctx)
     tab = state.get(tab_uid) if tab_uid else None
@@ -838,8 +839,8 @@ def _land_build_preview(ctx: Any, ui: FamiliarUIState, done: Any) -> None:
     ghost -- or refuses, re-asking :func:`_staleness_refusal` the same
     question the submit side already asked, since the tab or the ghost being
     refined can have moved again while the batch ran."""
-    from ..kernels.mesh import scratch as clay_scratch
-    from . import clay_mode
+    from ...kernels.mesh import scratch as clay_scratch
+    from .. import clay_mode
 
     ui.thinking = ""
     tag = done.tag if isinstance(done.tag, dict) else {}
@@ -897,8 +898,8 @@ def apply_preview(ctx: Any) -> None:
     ui = ensure(ctx)
     if ui.preview_calls is None:
         return
-    from ..service import familiar_log
-    from . import familiar_preview
+    from ...service import familiar_log
+    from . import preview as familiar_preview
 
     result = familiar_preview.apply(ctx, ui.preview_tab_uid, ui.preview_diff, ui.preview_scratch)
     key = thread_key(ctx)
@@ -920,8 +921,8 @@ def discard_preview(ctx: Any) -> None:
     ui = ensure(ctx)
     if ui.preview_calls is None:
         return
-    from ..service import familiar_log
-    from . import familiar_preview
+    from ...service import familiar_log
+    from . import preview as familiar_preview
 
     familiar_preview.discard(ctx, ui.preview_tab_uid)
     if familiar_log.enabled():
@@ -952,7 +953,7 @@ def _character_fields(plan: dict[str, Any]) -> dict[str, Any]:
     checkbox that cannot show it; the plan itself still built the full list
     into *its own* ``overrides``, for the Create button's own path.
     """
-    from .modes.create.engine import character as character_engine
+    from ..modes.create.engine import character as character_engine
 
     fields: dict[str, Any] = {}
     if "family" in plan:
@@ -987,8 +988,8 @@ def submit_character(ctx: Any) -> bool:
     action = ui.plan
     plan = action["plan"]
 
-    from ..service import familiar as svc_familiar
-    from ..service import familiar_log
+    from ...service import familiar as svc_familiar
+    from ...service import familiar_log
 
     exchange_id = familiar_log.new_exchange_id()
 
@@ -1020,7 +1021,7 @@ def open_character_in_create(ctx: Any) -> None:
     if ui.plan is None:
         return
     action = ui.plan
-    from . import familiar_doors
+    from . import doors as familiar_doors
 
     text = familiar_doors.draft_in_create(
         ctx, "character", action["prompt"], character_fields=_character_fields(action["plan"])
@@ -1028,7 +1029,7 @@ def open_character_in_create(ctx: Any) -> None:
     ui.plan = None
     threads_obj = getattr(ctx, "familiar_threads", None)
     if threads_obj is not None:
-        from ..familiar import threads
+        from ...familiar import threads
 
         threads_obj.append(thread_key(ctx), threads.Turn("familiar", text))
 
@@ -1051,7 +1052,7 @@ def follow_citation(ctx: Any, citation: Any) -> None:
     reason :func:`submit_chat`/:func:`submit_build` are functions a button's
     ``if`` just calls rather than inline imgui-handler bodies.
     """
-    from .manual import render as manual_render
+    from ..manual import render as manual_render
 
     manual_render.open_at(ctx, (citation.chapter, citation.anchor))
 
@@ -1066,7 +1067,7 @@ def _draw_plan_card(ctx: Any, ui: FamiliarUIState) -> None:
     """
     from imgui_bundle import imgui
 
-    from . import controls, widgets
+    from .. import controls, widgets
 
     action = ui.plan or {}
     summary = action.get("summary") or {}
@@ -1104,7 +1105,7 @@ def draw_expanded(ctx: Any) -> None:
     """
     from imgui_bundle import imgui
 
-    from . import controls, theme, tokens
+    from .. import controls, theme, tokens
 
     ui = ensure(ctx)
     key = thread_key(ctx)
@@ -1221,7 +1222,7 @@ def draw_expanded(ctx: Any) -> None:
     if (send or (enter_pressed and not busy)) and submit_chat(ctx, ui.input_text):
         ui.input_text = ""
     if busy:
-        from . import widgets
+        from .. import widgets
 
         imgui.same_line()
         # A sentence the user has to read, so widgets.secondary rather than

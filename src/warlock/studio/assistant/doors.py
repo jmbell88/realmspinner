@@ -2,7 +2,7 @@
 how a message becomes a brief sitting in Create.
 
 **Why this lives at studio level, not inside ``studio/familiar/``** --
-exactly ``studio/familiar_ui.py``'s own reason (see that module's
+exactly ``studio/assistant/ui.py``'s own reason (see that module's
 docstring): :func:`destinations`/:func:`navigate` reach ``palette``
 (``ctx.state``-reading command list), ``app_settings`` (the Settings
 category slot) and ``state.set_mode``, and :func:`draft_in_create` reaches
@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..familiar.doors import Destination
+from ...familiar.doors import Destination
 
 #: Palette command keys :func:`destinations` treats as places to send
 #: someone, beyond the derived ``go:<mode>``/``tour:<key>`` rows. Every
@@ -63,8 +63,8 @@ def destinations(ctx: Any) -> list[Destination]:
     request leaves for the worker thread, not reconstructed once the reply
     comes back.
     """
-    from . import palette
-    from .panes import app_settings
+    from .. import palette
+    from ..panes import app_settings
 
     out: list[Destination] = []
     for command in palette.commands(ctx):
@@ -94,9 +94,9 @@ def navigate(ctx: Any, key: str) -> str:
     gated mode's own ``model_gate.mode_reason``, or whatever else the
     command carries) is returned unrun otherwise, never bypassed.
     """
-    from . import palette
-    from .panes import app_settings
-    from .state import set_mode
+    from .. import palette
+    from ..panes import app_settings
+    from ..state import set_mode
 
     by_key = {d.key: d.label for d in destinations(ctx)}
     if key not in by_key:
@@ -139,10 +139,10 @@ def draft_in_create(
     (``sync_from_prompt``) leaves them alone rather than silently
     overwriting what the card just proposed.
     """
-    from .modes.create.engine import assets as create_assets
-    from .modes.create.engine import character as character_engine
-    from .modes.create.ui import stages as create_stages
-    from .panes import model_gate
+    from ..modes.create.engine import assets as create_assets
+    from ..modes.create.engine import character as character_engine
+    from ..modes.create.ui import stages as create_stages
+    from ..panes import model_gate
 
     where, _blocked = model_gate.mode_gate(ctx, "create")
     if where:

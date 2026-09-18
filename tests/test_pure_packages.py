@@ -25,7 +25,7 @@ def test_a_relative_import_of_a_gl_module_is_not_counted_pure(tmp_path: Path):
     This is a from-scratch reproduction rather than a read of the real
     ``studio/familiar/`` package on purpose: this fix is what moves
     ``apply.py``/``scratch_ctx.py`` out of ``familiar`` entirely -- folded
-    into ``studio/familiar_preview.py`` -- so a test that depended on their
+    into ``studio/assistant/preview.py`` -- so a test that depended on their
     being there would stop meaning anything the day the move landed. The
     tmp tree keeps the claim -- "a relative import chain into a window is
     not invisible" -- true independent of that move.
@@ -45,7 +45,7 @@ def test_a_relative_import_of_a_gl_module_is_not_counted_pure(tmp_path: Path):
     # The package under test: reaches ``bridge`` (and so the window) only
     # through ``from .. import bridge`` -- the same shape as the old
     # ``familiar/scratch_ctx.py``'s ``from .. import agent_clay``, before it
-    # was folded into ``studio/familiar_preview.py``.
+    # was folded into ``studio/assistant/preview.py``.
     pkg = studio / "ghost"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("", encoding="utf-8")

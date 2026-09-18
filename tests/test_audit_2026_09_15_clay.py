@@ -20,7 +20,8 @@ from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
 from warlock.service import errors as service_errors
 from warlock.service import familiar as svc_familiar
-from warlock.studio import clay_mode, clay_view, familiar_ui
+from warlock.studio import clay_mode, clay_view
+from warlock.studio.assistant import ui as familiar_ui
 from warlock.studio.tasks import Done
 
 RECT = (0.0, 0.0, 128.0, 96.0)
