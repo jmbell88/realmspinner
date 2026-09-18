@@ -148,77 +148,113 @@ class EventsMixin:
         ctx = self.app_ctx
         io = imgui.get_io()
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                # Through the *preflight* (the UI redesign, wave 3). This went
-                # straight to ``_request_quit``, which walks the per-document
-                # guards and asks nothing about a run in flight -- survivable
-                # only while the header's power icon existed to carry
-                # ``_ask_quit``'s generic summary. The header is gone, so the
-                # window's X is the only interactive way out and it has to be
-                # the one that asks.
-                self._ask_quit()
-                continue
-            if event.type == pygame.VIDEORESIZE:
-                # The *clamped* size is persisted, not the requested one: the
-                # window that comes back is the clamped one, so storing the
-                # raw event meant next launch opened below the resize floor
-                # with no event to correct it.
-                sized = (max(event.w, self._min_size[0]), max(event.h, self._min_size[1]))
-                pygame.display.set_mode(sized, pygame.OPENGL | pygame.DOUBLEBUF | pygame.RESIZABLE)
-                ctx.settings.set("window_size", list(sized))
-                continue
-            if event.type in (pygame.WINDOWDISPLAYCHANGED, pygame.WINDOWMOVED):
-                # UX-22. Both, because neither is sufficient: SDL2 reports the
-                # display change when a window is dragged to another monitor,
-                # but a display whose *own* scale is changed in Windows'
-                # settings raises no such event and the window simply starts
-                # being drawn at the wrong size. WINDOWMOVED catches the first
-                # case again and costs one Win32 call, which is cheaper than
-                # being wrong until the next restart.
-                self._resample_display_scale()
-                continue
-            if event.type == pygame.DROPFILE:
-                self._on_drop(Path(event.file))
-                continue
-            imgui_backend.process_event(event)
-            if event.type in (pygame.KEYDOWN, pygame.KEYUP):
-                # A modal owns the keyboard while it is up (I77): Esc cancels
-                # it and Enter confirms it, and letting the same press through
-                # here would also leave the mode behind the dialog, or submit
-                # the form the dialog is a question about. Releases still pass,
-                # because Inker's space-to-pan is a hold and would otherwise
-                # latch on whenever a dialog opened mid-drag.
-                #
-                # A focused text field takes the *plain* keys only, so letters
-                # still reach it. Modifier chords and the F-keys pass through:
-                # the manual and the settings pane both promise Ctrl+K works
-                # everywhere, and it used to die the moment the 2D prompt box
-                # had focus -- which is exactly where you are when you want it.
-                if not (event.type == pygame.KEYDOWN and self._modal_open()) and (
-                    not io.want_text_input or self._passes_text_field(event)
-                ):
-                    self._shortcut(event)
-                continue
-            # Clay owns its own centre pane, so its viewport takes the mouse
-            # in that mode and the asset viewer never sees it -- the two would
-            # otherwise both orbit on one drag.
-            if ctx.state.mode == "clay":
-                self._build_event(event)
-                continue
-            # Mason owns its own centre pane too, ``clay``'s reason above.
-            if ctx.state.mode == "mason":
-                self._mason_event(event)
-                continue
-            # Poser too, and for a stronger reason: it has its own Viewer
-            # instance, so the shared-viewer path below must never see its
-            # events or one drag would orbit both cameras.
-            if ctx.state.mode == "poser":
-                self._poser_event(event)
-                continue
-            # The viewer sees the mouse when it is over the viewport image, and
-            # a drag already in progress keeps it wherever the cursor goes.
-            if _takes_pointer(self.viewer, self._viewport_hovered):
-                self.viewer.handle_event(event, hovered=self._viewport_hovered)
+            try:
+                if event.type == pygame.QUIT:
+                    # Through the *preflight* (the UI redesign, wave 3). This went
+                    # straight to ``_request_quit``, which walks the per-document
+                    # guards and asks nothing about a run in flight -- survivable
+                    # only while the header's power icon existed to carry
+                    # ``_ask_quit``'s generic summary. The header is gone, so the
+                    # window's X is the only interactive way out and it has to be
+                    # the one that asks.
+                    self._ask_quit()
+                    continue
+                if event.type == pygame.VIDEORESIZE:
+                    # The *clamped* size is persisted, not the requested one: the
+                    # window that comes back is the clamped one, so storing the
+                    # raw event meant next launch opened below the resize floor
+                    # with no event to correct it.
+                    sized = (max(event.w, self._min_size[0]), max(event.h, self._min_size[1]))
+                    pygame.display.set_mode(
+                        sized, pygame.OPENGL | pygame.DOUBLEBUF | pygame.RESIZABLE
+                    )
+                    ctx.settings.set("window_size", list(sized))
+                    continue
+                if event.type in (pygame.WINDOWDISPLAYCHANGED, pygame.WINDOWMOVED):
+                    # UX-22. Both, because neither is sufficient: SDL2 reports the
+                    # display change when a window is dragged to another monitor,
+                    # but a display whose *own* scale is changed in Windows'
+                    # settings raises no such event and the window simply starts
+                    # being drawn at the wrong size. WINDOWMOVED catches the first
+                    # case again and costs one Win32 call, which is cheaper than
+                    # being wrong until the next restart.
+                    self._resample_display_scale()
+                    continue
+                if event.type == pygame.DROPFILE:
+                    self._on_drop(Path(event.file))
+                    continue
+                imgui_backend.process_event(event)
+                if event.type in (pygame.KEYDOWN, pygame.KEYUP):
+                    # A modal owns the keyboard while it is up (I77): Esc cancels
+                    # it and Enter confirms it, and letting the same press through
+                    # here would also leave the mode behind the dialog, or submit
+                    # the form the dialog is a question about. Releases still pass,
+                    # because Inker's space-to-pan is a hold and would otherwise
+                    # latch on whenever a dialog opened mid-drag.
+                    #
+                    # A focused text field takes the *plain* keys only, so letters
+                    # still reach it. Modifier chords and the F-keys pass through:
+                    # the manual and the settings pane both promise Ctrl+K works
+                    # everywhere, and it used to die the moment the 2D prompt box
+                    # had focus -- which is exactly where you are when you want it.
+                    if not (event.type == pygame.KEYDOWN and self._modal_open()) and (
+                        not io.want_text_input or self._passes_text_field(event)
+                    ):
+                        self._shortcut(event)
+                    continue
+                # Clay owns its own centre pane, so its viewport takes the mouse
+                # in that mode and the asset viewer never sees it -- the two would
+                # otherwise both orbit on one drag.
+                if ctx.state.mode == "clay":
+                    self._build_event(event)
+                    continue
+                # Mason owns its own centre pane too, ``clay``'s reason above.
+                if ctx.state.mode == "mason":
+                    self._mason_event(event)
+                    continue
+                # Poser too, and for a stronger reason: it has its own Viewer
+                # instance, so the shared-viewer path below must never see its
+                # events or one drag would orbit both cameras.
+                if ctx.state.mode == "poser":
+                    self._poser_event(event)
+                    continue
+                # The viewer sees the mouse when it is over the viewport image, and
+                # a drag already in progress keeps it wherever the cursor goes.
+                if _takes_pointer(self.viewer, self._viewport_hovered):
+                    self.viewer.handle_event(event, hovered=self._viewport_hovered)
+            except Exception:  # noqa: BLE001 -- one failed gesture must not end the session
+                # shell-04, the 2026-09-18 audit: a mode's ``handle_key`` or a
+                # shortcut arm raising here used to reach ``App.run()``'s
+                # whole-loop ``except`` and end the session over one failed
+                # gesture (mason-01, mason-02). Not ``guard.surface``, despite
+                # that being this module's usual net: ``guard.enter`` reaches
+                # into dear imgui's *current window* and its error-recovery
+                # state, both of which unwind a half-finished ``Begin``/``End``
+                # pane draw -- but ``_events`` runs every frame *before*
+                # ``imgui.new_frame()`` (``App.frame``'s own ordering, see
+                # ``shell/frame.py``), where imgui has no window open and
+                # nothing of its own to unwind. Calling ``guard.enter`` from
+                # here does not merely skip protecting the frame, it crashes
+                # the process outright -- a native access violation reading
+                # dear imgui's current-window pointer with no frame open,
+                # verified against this exact calling point before this fix
+                # was written. Nothing above has opened an imgui ``Begin``
+                # either, so there is nothing for an unwind to repair: a plain
+                # log-and-toast, the same message guard's own ``_announce``
+                # raises, is the whole of what containing this moment needs.
+                log.exception(
+                    "a %s event's dispatch failed; the frame carries on",
+                    pygame.event.event_name(event.type),
+                )
+                ctx.toast_once(
+                    "Something went wrong handling that action. The rest of the app "
+                    "still works.",
+                    "error",
+                    "log",
+                )
+                ctx.state.note_error(
+                    "An input action failed. The details are in warlock.log."
+                )
 
     def _build_event(self, event: Any) -> None:
         """Route the mouse to Clay's viewport, on the same hover rule.

@@ -40,7 +40,7 @@ PACKAGE = "warlock.kernels.mesh"
 #: the kernel they always logically were, alongside ``glbio``.
 OUTWARD_IMPORTS = {
     # The shared bounded zip reader. One rule for four container doors, and a
-    # leaf for ``tilegrid``/``undo``'s reason exactly: the ``file_size`` sum
+    # leaf for ``grid2d``/``undo``'s reason exactly: the ``file_size`` sum
     # each of these carried is written by whoever wrote the archive, and a
     # fourth private copy of a security bound is a copy that stops agreeing.
     # The four guard leaves, and they are one finding rather than four: a bound

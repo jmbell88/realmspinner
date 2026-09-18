@@ -106,13 +106,19 @@ def axis_layout(view_matrix: Any, size: float) -> list[AxisBall]:
 #: What every mode says about picking, before the tool has its say. The element
 #: modes get the selection verbs that only exist there; object mode gets the
 #: two that only exist *outside* an element mode.
+# The 2026-09-18 audit's clay-05: this named "Tab edit"/"Tab object", a
+# binding nothing implements -- ``clay_mode.ELEMENT_KEYS``'s own comment says
+# Tab is deliberately left to imgui's keyboard navigation, which would move
+# focus out of the viewport as well as changing the mode. The 1/2/3/4 keys
+# are what actually switch element mode (``clay_mode.ELEMENT_KEYS``), so the
+# line now names those instead.
 _PICK = {
-    "object": "LMB select . Shift extend . Tab edit",
-    "vertex": "LMB pick . drag marquee . L linked . Ctrl+/- grow/shrink . Tab object",
+    "object": "LMB select . Shift extend . 1/2/3 edit",
+    "vertex": "LMB pick . drag marquee . L linked . Ctrl+/- grow/shrink . 4 object",
     "edge": (
-        "LMB pick . Alt+click loop . Ctrl+Alt+click ring . L linked . Tab object"
+        "LMB pick . Alt+click loop . Ctrl+Alt+click ring . L linked . 4 object"
     ),
-    "face": "LMB pick . Alt+click loop . L linked . Ctrl+/- grow/shrink . Tab object",
+    "face": "LMB pick . Alt+click loop . L linked . Ctrl+/- grow/shrink . 4 object",
 }
 
 #: What the tool in hand adds. Keyed on the tool rather than folded into the
@@ -127,8 +133,9 @@ _TOOL = {
 
 #: The line **while a keyboard drag is live**, which replaces everything above
 #: it: mid-drag the only keys that mean anything are the ones that constrain,
-#: commit or cancel it, and a line still offering "Tab object" would be offering
-#: a key that is not listened to.
+#: commit or cancel it, and a line still offering "4 object" would be offering
+#: a key the drag does not listen to (see ``handle_key``'s drag branch, which
+#: consumes every bare key rather than falling through to the element modes).
 _DRAGGING = (
     "X/Y/Z lock (again: local, again: off) . type a number . "
     "Enter/LMB commit . Esc/RMB cancel . G/R/S switch"
@@ -211,6 +218,13 @@ def keys_named(text: str) -> set[str]:
     convention throughout (``G``, ``L``, ``Tab``) and not a nicety: "drag a
     ring" reads its article as a binding otherwise, and the parity test then
     fails demanding that Clay implement the ``A`` key.
+
+    **A single digit always counts**, capital or not being meaningless for a
+    number: the element modes are bound on ``1``/``2``/``3``/``4``
+    (``clay_mode.ELEMENT_KEYS``), and the 2026-09-18 audit's clay-05 found
+    this function blind to them -- ``"/" `` group and bare-digit tokens both
+    read as English words, so a line naming an unbound digit passed the
+    parity test the same way "Tab edit" did.
     """
 
     words = {
@@ -221,10 +235,14 @@ def keys_named(text: str) -> set[str]:
     named = {"Tab", "Enter", "Esc", "LMB", "MMB", "RMB", "wheel"}
     out = set()
     for word in words:
-        if word in named or "+" in word or (len(word) == 1 and word.isupper()):
+        if word in named or "+" in word or (
+            len(word) == 1 and (word.isupper() or word.isdigit())
+        ):
             out.add(word)
         elif "/" in word and all(
-            len(part) == 1 and part.isupper() for part in word.split("/") if part
+            len(part) == 1 and (part.isupper() or part.isdigit())
+            for part in word.split("/")
+            if part
         ):
             out.update(part for part in word.split("/") if part)
     return out

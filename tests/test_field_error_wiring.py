@@ -452,7 +452,7 @@ def test_changing_the_rig_stage_skeleton_clears_its_field_error_ring():
 
 # --- Muse's recipe column: six bare controls, no forms.Form -------------------
 #
-# ``panes/muse_recipe.py`` draws its six refusable controls (``infer_step``,
+# ``modes/muse/ui/panes/recipe.py`` draws its six refusable controls (``infer_step``,
 # ``guidance_scale``, ``scheduler_type``, ``cfg_type``, ``omega_scale``,
 # ``seed``) the way ``stage_rig._skeleton_picker`` draws its combo -- bare
 # ``widgets.labeled_*`` calls, not a ``forms.Form`` -- so ``FIELD_FORMS`` above,

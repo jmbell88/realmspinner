@@ -40,6 +40,14 @@ class _Ctx:
     def toast(self, message: str, level: str = "info") -> None:
         self.toasts.append((message, level))
 
+    def submit(self, key: str, fn, *args, tag=None, **kwargs) -> bool:
+        # A stand-in for app_ctx.Ctx.submit/TaskRunner, the 2026-09-18 audit
+        # (agents-06): AgentHost.start() now calls ctx.submit to write its
+        # catalogue snapshot off whichever thread calls start(), matching
+        # tests/studio/test_agent_host.py's own _Ctx.
+        threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
+        return True
+
 
 @pytest.fixture
 def host(tmp_path):

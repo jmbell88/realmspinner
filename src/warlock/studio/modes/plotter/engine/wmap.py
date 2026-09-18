@@ -451,7 +451,7 @@ def _has_list_property(props: Any) -> bool:
 
 # --- per-tile metadata --------------------------------------------------------
 #
-# The collision shapes are :mod:`..tilegrid.tileset`'s own records, converted
+# The collision shapes are :mod:`..grid2d.tileset`'s own records, converted
 # here and at the Tiled codec and nowhere else: the shared leaf imports nothing
 # under ``warlock`` and cannot know what a plotter ``Polygon`` is.
 

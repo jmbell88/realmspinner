@@ -245,6 +245,19 @@ because the caller had already timed out. This ceiling is what stops a
 client that keeps timing out, over and over, from accumulating those without
 limit."""
 
+CATALOGUE_SNAPSHOT_TASK_KEY = "agent-catalogue-snapshot"
+"""The ``ctx.submit`` key :meth:`AgentHost.start` writes
+``<home>/mcp.catalogue.json`` under (see :meth:`AgentHost.
+_write_catalogue_snapshot`). A named constant, not an inline string,
+because ``shell/tasks.py``'s ``TasksMixin._on_task_done`` has to recognise
+this exact key too -- it lands nothing worth showing (the write already
+logs its own failure and nothing on screen reads the file), so that method
+claims it silently rather than letting it fall through to the "nowhere to
+deliver its result" log line every other unclaimed key gets. Two modules
+spelling the same string by hand is exactly the drift ``AGENT_SERVER_
+SETTING`` (``main.py``) already exists to prevent for this same pair of
+files, restated here for the same reason."""
+
 
 def _fingerprint(tool: str, args: dict) -> str:
     """A key for what was *asked*, not for who asked or which JSON-RPC id
@@ -412,6 +425,27 @@ class _Op:
             return job.state
 
 
+def _protected(op: _Op) -> bool:
+    """Whether *op* must survive :meth:`_Calls.mint`'s eviction: a task-mode
+    operation that is still working (queued or running), or one that
+    finished but has never been fetched (see ``_Op.fetched``). Factored out
+    of ``mint``'s own eviction loop so :meth:`_Calls.saturated` can ask the
+    identical question without a second, drifting copy of the rule -- the
+    2026-09-18 audit (agents-05) is exactly the kind of drift a second copy
+    invites: ``mint`` protected these operations from its eviction loop, but
+    nothing stopped it from evicting one anyway once *every* remembered
+    operation happened to be protected (see ``mint``'s own docstring for the
+    fallback that did it, and :meth:`_Calls.saturated` for the check that
+    now heads it off before a task-mode call ever reaches ``mint``)."""
+    if not op.task_mode:
+        return False
+    job = op.job
+    state = job.state if job is not None else op.state
+    if state in (QUEUED, RUNNING):
+        return True
+    return not op.fetched
+
+
 class _Calls:
     """One connection's memory of the operations it has already run, keyed
     by :func:`_fingerprint` so a retried intent can be recognised without a
@@ -448,11 +482,23 @@ class _Calls:
         running), or one that finished but has never been fetched (see
         ``_Op.fetched``), must survive eviction pressure, or a client polling
         a slow task could lose the only handle to it while it is still
-        running. If every operation happens to be protected (all fifteen
-        others are working tasks), the oldest is evicted anyway -- the
-        memory bound is the harder constraint than any one operation's
-        survival, and this is the same trade a hard ``MAX_FRAME`` already
-        makes elsewhere in this module.
+        running (see :func:`_protected`).
+
+        The 2026-09-18 audit (agents-05) found that when *every* remembered
+        operation happened to be protected, this method fell through to
+        evicting the oldest one anyway -- a still-``QUEUED`` operation's only
+        handle silently vanished so a *new* task-mode call could have a slot,
+        which is backwards: the memory bound exists to bound an idle client's
+        junk, not to make room by killing a client's own working task.
+        :meth:`AgentHost._call_task` now checks :meth:`saturated` before ever
+        minting a new task-mode operation and refuses instead (a clear error
+        the caller can read, rather than a `status` poll that later, and
+        silently, starts saying `not_found`) -- so this fallback should never
+        actually fire for a task-mode mint anymore. It is kept, unchanged,
+        for the ordinary blocking path (:meth:`AgentHost._call`'s own
+        ``mint``, always ``task_mode=False``): a blocking call has no
+        durable handle worth protecting once its own reply is on the wire,
+        so the hard cap still wins there.
 
         Read without ``AgentHost._job_lock``: the state this consults is a
         snapshot, exactly as tolerant as every other unlocked read in this
@@ -463,13 +509,8 @@ class _Calls:
         if len(self._ops) >= MAX_REMEMBERED_CALLS:
             victim = None
             for oid, op in self._ops.items():
-                if op.task_mode:
-                    job = op.job
-                    state = job.state if job is not None else op.state
-                    if state in (QUEUED, RUNNING):
-                        continue  # still working -- protected
-                    if not op.fetched:
-                        continue  # finished, but never fetched -- protected
+                if _protected(op):
+                    continue
                 victim = oid
                 break
             if victim is None:
@@ -486,6 +527,19 @@ class _Calls:
         )
         self._ops[operation_id] = op
         return op
+
+    def saturated(self) -> bool:
+        """True once this store holds ``MAX_REMEMBERED_CALLS`` operations
+        and every single one is :func:`_protected` -- so a further
+        task-mode mint would have nothing evictable to make room with. See
+        :meth:`mint`'s own docstring for the 2026-09-18 audit (agents-05)
+        this exists to answer: :meth:`AgentHost._call_task` calls this
+        *before* minting a new task-mode operation and refuses the call
+        outright when it is true, rather than letting ``mint`` fall through
+        to evicting a working task to make room for a new one."""
+        return len(self._ops) >= MAX_REMEMBERED_CALLS and all(
+            _protected(op) for op in self._ops.values()
+        )
 
     def pending(self, tool: str, args: dict) -> _Op | None:
         """The newest remembered operation with the same intent whose result
@@ -736,10 +790,21 @@ class AgentHost:
 
     def start(self) -> bool:
         """Open the pipe and spawn the listener. Idempotent: the Settings
-        switch calls this on every frame it is drawn true on a form that
-        re-reads the stored value, not only on the transition, so a second
-        call while one is already listening must be a no-op rather than a
-        second server racing the first for the same pipe name.
+        switch calls this only on the transition (its own ``changed`` guard
+        around ``form_ui.switch``'s result), but a second call while one is
+        already listening must still be a no-op rather than a second server
+        racing the first for the same pipe name -- ``main.setup_context``
+        and a reconnect after ``stop()`` both call it on an instance that
+        may or may not already be running, with nothing between them and
+        this method that tracks which.
+
+        The 2026-09-18 audit (agents-08): this docstring, and two comments
+        in ``tests/studio/test_agent_host.py``, used to claim the Settings
+        switch called this "every frame it is drawn true" -- it does not;
+        ``app_settings._agents`` gates the call on ``changed``, the same as
+        every other Settings control. Idempotency is still load-bearing
+        (``main.setup_context`` and the switch can both reach a running
+        host), just not for that reason.
 
         **Returns whether the server is now listening, and never raises.**
         Opening a pipe is the one step here that can fail for reasons outside
@@ -803,7 +868,29 @@ class AgentHost:
             daemon=True,
         )
         self._thread.start()
-        self._write_catalogue_snapshot()
+        # The 2026-09-18 audit (agents-06): this used to call
+        # _write_catalogue_snapshot() straight from here, on whichever
+        # thread called start() -- always the frame thread, for both of
+        # this method's real callers (app_settings.py's Settings switch and
+        # shell/app.py's own setup_context). Building the catalogue payload
+        # twice (agent_clay's tools plus the character surface's), hashing
+        # it, and staging-then-replacing the file cost ~75ms measured, all
+        # of it spent on a frame that has no business waiting on disk.
+        #
+        # Submitted through ctx.submit -- the app's own TaskRunner, the one
+        # door CLAUDE.md's three-thread model names for anything that
+        # blocks -- rather than this host's own service lane
+        # (self._service): that lane's SERVICE_WORKERS=2 pool and
+        # self._service_jobs registry are sized and accounted for
+        # character-pipeline tool calls specifically (several tests assert
+        # the pool holds exactly SERVICE_WORKERS entries once saturated), so
+        # a housekeeping write racing into the same pool would either steal
+        # a worker a real tool call needed or silently grow what those
+        # tests treat as a closed count. start() always runs on the frame
+        # thread for both real callers, so calling ctx.submit directly here
+        # (not queued through self._queue the way _toast is) is the ordinary
+        # thing every pane already does.
+        self.ctx.submit(CATALOGUE_SNAPSHOT_TASK_KEY, self._write_catalogue_snapshot)
         return True
 
     def stop(self) -> None:
@@ -1739,7 +1826,37 @@ class AgentHost:
         that busy window. Answered immediately below, with no job ever
         queued; an operation is still minted so a caller that polls
         ``tasks/get``/``status`` for the returned ``operation_id`` gets the
-        same answer back rather than ``not_found``."""
+        same answer back rather than ``not_found``.
+
+        ``STATUS_TOOL`` is exempt from the saturation refusal just below,
+        for the same reason it is exempt from ``CALL_TIMEOUT`` and the frame
+        queue entirely: it exists to answer *while something else is stuck*,
+        and a saturated task store (sixteen other operations all still
+        working) is exactly that kind of stuck. Any other tool refuses
+        instead of minting -- see :meth:`_Calls.saturated`."""
+        if name != STATUS_TOOL and calls.saturated():
+            # The 2026-09-18 audit (agents-05): with MAX_REMEMBERED_CALLS
+            # task-mode operations all still working, a further task-mode
+            # call used to reach `calls.mint` anyway, which -- finding
+            # nothing evictable -- evicted the oldest working operation
+            # regardless, so a client polling `status`/`cancel` for it later
+            # got a bare `{"error": {"code": "not_found"}}` with no way to
+            # tell a lost handle from a job that never existed. Refused here
+            # instead, before anything is minted or queued, with a header
+            # the caller can actually read the reason from.
+            return {
+                "error": {
+                    "code": "saturated",
+                    "message": (
+                        f"{MAX_REMEMBERED_CALLS} task-mode operations are already "
+                        "remembered on this connection and every one of them is "
+                        "still working, or finished but never polled. Refusing "
+                        "this call rather than evicting one of them -- poll or "
+                        "cancel an existing operation, or retry once one "
+                        "completes."
+                    ),
+                }
+            }
         op = calls.mint(name, arguments, task_mode=True)
         op.args = arguments
         if name == STATUS_TOOL:

@@ -94,7 +94,13 @@ def test_browse_never_shows_a_destination_paired_with_the_previous_plan(monkeypa
         "plan_export",
         lambda job, dest: svc_export.ExportPlan(files=()),
     )
-    monkeypatch.setattr(library.svc_export, "export_to_folder", lambda *a, **k: {"ok": True})
+    # shell-01, the 2026-09-18 audit: "replace" now writes through
+    # ``export_planned_to_folder`` (routed off ``popup.plan`` like "keep
+    # both" always was) rather than ``export_to_folder``, which read its
+    # destination off ``svc.config.export_dir`` and ignored the browsed one.
+    monkeypatch.setattr(
+        library.svc_export, "export_planned_to_folder", lambda *a, **k: {"ok": True}
+    )
 
     state = SimpleNamespace(_library_export=None)
     ctx = SimpleNamespace(state=state, svc=object())

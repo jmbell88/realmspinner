@@ -178,6 +178,25 @@ def test_gpl_parse_jasc_hex_and_txt_refuse_past_max_rows_too():
         gpl.parse_txt(txt_body)
 
 
+def test_parse_hex_and_parse_txt_accept_exactly_max_palette_rows(monkeypatch):
+    """inker-05, the 2026-09-18 audit: ``parse_hex`` and ``parse_txt`` called
+    ``_refuse_past_max_rows`` *after* ``out.append``, unlike ``parse`` and
+    ``parse_jasc`` beside them, which call it before. The difference is real:
+    checking after means the row that brings the count to exactly
+    ``MAX_PALETTE_ROWS`` -- not past it -- is itself the row that trips the
+    ``>=`` check, so a file with *exactly* the ceiling's worth of colours (not
+    one more) was wrongly refused. ``parse``/``parse_jasc`` do not have this
+    off-by-one because their check runs before the append that would cross it."""
+    monkeypatch.setattr(gpl, "MAX_PALETTE_ROWS", 5)
+    exactly = gpl.MAX_PALETTE_ROWS
+
+    hex_body = "\n".join("000000" for _ in range(exactly))
+    assert len(gpl.parse_hex(hex_body)) == exactly
+
+    txt_body = "\n".join("ff000000" for _ in range(exactly))
+    assert len(gpl.parse_txt(txt_body)) == exactly
+
+
 def test_the_directory_and_the_readers_offer_the_same_four_suffixes():
     """Two-way. A suffix the directory lists with no reader behind it is a file
     the picker offers and the loader then refuses; a reader with no suffix here

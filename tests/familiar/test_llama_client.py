@@ -240,6 +240,42 @@ async def test_a_response_format_is_forwarded_to_the_server(tmp_path):
     assert "response_format" not in json.loads(completion.content)
 
 
+async def test_a_malformed_json_reply_is_not_classified_as_too_large(tmp_path):
+    """The 2026-09-18 audit (familiar-07): a non-JSON 200 body used to raise
+    ``json.JSONDecodeError`` (a ``ValueError`` subclass) straight out of
+    ``_post_capped``, and ``service.familiar._call``'s ``except ValueError``
+    clause -- there for ``contract.output_budget``'s own "prompt leaves no
+    room for a reply" refusal -- classified *every* ``ValueError`` as
+    ``reason="too_large"``, regardless of what actually went wrong. A
+    malformed reply must instead raise ``RuntimeError`` (the type every
+    other ``_post_capped``/``chat`` failure already uses), which
+    ``service.familiar._reason_for`` then falls through to ``"http"`` for --
+    never the too-large bucket a request that was never oversized has no
+    business landing in."""
+    from warlock.service.familiar import _reason_for
+
+    server = _server(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/chat/completions":
+            return httpx.Response(200, content=b"not json at all")
+        return httpx.Response(404, text="not found")
+
+    transport = httpx.MockTransport(handler)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await llama_client.chat(
+            server,
+            [{"role": "user", "content": "hello"}],
+            slot=1,
+            sampling=contract.SAMPLING["chat"],
+            transport=transport,
+        )
+
+    assert not isinstance(excinfo.value, json.JSONDecodeError)
+    assert _reason_for(str(excinfo.value)) != "too_large"
+
+
 async def test_a_router_request_is_not_sized_as_a_skill_reply(tmp_path):
     """The router's card is frozen (``contract.CARDS["router"]``) but its
     reply is a fixed handful of tokens with no trained window to overrun --

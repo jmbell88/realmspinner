@@ -311,6 +311,22 @@ def test_every_refusal_names_the_thing_that_is_missing():
         doc.remove_oneshot(999999)
 
 
+def test_update_channel_does_not_copy_pattern_cells_when_only_a_scalar_changes():
+    """A pan/name/kind edit does not move a single cell -- the patterns keep
+    their own arrays. The 2026-09-18 audit found ``update_channel`` building a
+    full before/after cells map from every pattern anyway (sirens-01), copying
+    each pattern's grid twice -- once into ``cells_before``, once into
+    ``cells_after`` -- for what is a scalar change to the channel list."""
+    doc = _song()
+    doc.set_cell(doc.patterns[0].uid, 0, 0, D.NOTE, 48)
+    channel = doc.channels[0]
+    assert doc.update_channel(channel.uid, pan=0.5)
+    edit = doc.history.top
+    assert edit.cells_before == {}
+    assert edit.cells_after == {}
+    assert edit.cost == 0
+
+
 def test_an_edit_owns_its_data_rather_than_a_view_of_the_pattern():
     """A slice reports its own few hundred bytes to the undo budget while
     keeping the whole pattern alive, so a stack of one-cell edits could pin a

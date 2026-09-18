@@ -253,17 +253,25 @@ def export_planned_to_folder(
 ) -> dict[str, Any]:
     """``export_to_folder``'s body, generalised over *where* each file lands.
 
-    Additive rather than a change to ``export_to_folder``: that function's
-    ``export_dir / arcname`` destination is still exactly right for "Replace",
-    which keeps calling it unchanged. This is the door "Keep both" goes
-    through instead, writing to ``plan``'s (by then suffixed) destinations --
-    ``plan`` is expected to have come from :func:`plan_export` for the same
-    ``ids``/``names_wanted``, so ``collect`` returns the same members in the
-    same order and the zip below lines each source up with the planned
-    destination for its name.
+    Additive rather than a change to ``export_to_folder``, which the doors in
+    ``CHARACTER_EXPORTS`` still call for their own, unbrowsed writes onto
+    ``svc.config.export_dir``. This is the door the library's export popup
+    goes through for *both* "Replace" and "Keep both" -- ``plan`` is expected
+    to have come from :func:`plan_export` for the same ``ids``/
+    ``names_wanted`` (by then suffixed, for "Keep both"), so ``collect``
+    returns the same members in the same order and the loop below lines each
+    source up with the planned destination for its name.
+
+    Deliberately reads nothing from ``svc.config.export_dir``: every
+    destination comes from ``plan`` instead, which is what lets a folder
+    picked through the popup's own Browse... button differ from the
+    configured one. Before this (the 2026-09-18 audit, shell-01), "Replace"
+    called ``export_to_folder`` directly, which knows only
+    ``svc.config.export_dir`` and both wrote to the wrong folder after a
+    browse and refused outright ("no export folder configured") when none
+    was configured even though the popup had a real, user-picked destination
+    in hand.
     """
-    if svc.config.export_dir is None:
-        raise NotFound("no export folder configured (set WARLOCK_EXPORT_DIR)")
     names = export_names(names_wanted)
     members = collect(svc, ids, names)
     if not members:
@@ -288,9 +296,27 @@ def export_planned_to_folder(
     staged_copy_all(pairs)
     return {
         "copied": len(pairs),
-        "dir": str(svc.config.export_dir),
+        "dir": str(_plan_folder(plan)),
         "degraded": degraded_ids(svc, ids),
     }
+
+
+def _plan_folder(plan: ExportPlan) -> Path:
+    """The folder every file in ``plan`` was planned to land under.
+
+    Backed out of a file's own ``dest`` by its ``name`` (``"<job_id>/<file>"``,
+    or the same shape suffixed by :func:`keep_both`) rather than read off
+    ``svc.config``, because the whole point of :func:`export_planned_to_folder`
+    is that the folder actually written can differ from the configured one
+    (the 2026-09-18 audit, shell-01) -- so the ``dir`` this reports has to
+    come from the plan that was written, not from config. Called only after
+    ``export_planned_to_folder`` has confirmed ``plan.files`` is non-empty.
+    """
+    first = plan.files[0]
+    folder = first.dest
+    for _ in range(first.name.count("/") + 1):
+        folder = folder.parent
+    return folder
 
 
 def degraded_ids(svc: WarlockService, ids: list[str]) -> list[str]:

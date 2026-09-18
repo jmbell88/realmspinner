@@ -485,7 +485,13 @@ def delete_sheet(job_dir: Path, sheet_id: str) -> bool:
         sheet_pixel_path(job_dir, sheet_id),
         sheet_pixel_png_path(job_dir, sheet_id),
     ]
-    if not any(p.exists() for p in paths):
+    # .is_file(), not .exists(): the same swap list_sheets got below (the
+    # 2026-09-07/2026-09-08 audits) -- a directory squatting at one of these
+    # names would otherwise read as "found" and then fail ``unlink`` (raises
+    # ``IsADirectoryError`` on POSIX, ``PermissionError`` on Windows) instead
+    # of the clean "nothing to delete" this returns (poser-02, the 2026-09-18
+    # audit).
+    if not any(p.is_file() for p in paths):
         return False
     for path in paths:
         path.unlink(missing_ok=True)
@@ -572,7 +578,11 @@ def list_sprite_drafts(job_dir: Path) -> list[dict[str, Any]]:
             if isinstance(claimed, list) and claimed
             else SPRITE_CANDIDATES
         )
-        if not all(path.with_suffix(f".{c}.png").exists() for c in letters):
+        # .is_file(), not .exists(): a directory at ``<id>.a.png`` would
+        # otherwise read as a ready candidate the way an empty one could at
+        # ``list_sheets`` before the 2026-09-07/2026-09-08 audits fixed it
+        # there (poser-02, the 2026-09-18 audit).
+        if not all(path.with_suffix(f".{c}.png").is_file() for c in letters):
             continue
         drafts.append(record)
     drafts.sort(key=lambda d: d.get("created", 0.0))
@@ -584,7 +594,9 @@ def delete_sprite_draft(job_dir: Path, draft_id: str) -> bool:
     paths = [sprite_draft_path(job_dir, draft_id)] + [
         sprite_draft_png_path(job_dir, draft_id, c) for c in SPRITE_CANDIDATES
     ]
-    if not any(p.exists() for p in paths):
+    # .is_file(), not .exists(): same reason as delete_sheet above
+    # (poser-02, the 2026-09-18 audit).
+    if not any(p.is_file() for p in paths):
         return False
     for path in paths:
         path.unlink(missing_ok=True)

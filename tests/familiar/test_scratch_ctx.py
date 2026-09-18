@@ -115,3 +115,56 @@ def test_a_non_excluded_tool_reaches_the_scratch_document():
     payload = _payload(result)
     assert "uid" in payload
     assert len(scratch_ctx.state.clay.docs[0].doc.objects) == 2
+
+
+@pytest.mark.parametrize(
+    "name", sorted(agent_clay.REFERENCE_TOOLS - {"clay_reference_get"})
+)
+def test_a_familiar_build_batch_cannot_nest_a_preview_excluded_reference_tool(
+    name: str,
+) -> None:
+    """Regression, the 2026-09-18 audit's familiar-04: ``PREVIEW_EXCLUDED``
+    refuses all four reference tools when ``run_scratch`` is handed one
+    directly, but a Familiar build never is -- ``_submit_build_preview``
+    (``studio/assistant/ui.py``) always calls ``run_scratch(scratch_ctx,
+    "clay_batch", {"calls": [...]})``, and at HEAD nothing inside
+    ``run_scratch`` ever looks past that outer ``"clay_batch"`` name at what
+    the batch itself nests. A first attempt fixed this by folding
+    ``clay_reference_add``/``_list``/``_remove`` into
+    ``agent_clay_schema.BATCH_EXCLUDED`` -- reworked out again (see
+    ``REFERENCE_TOOLS``'s own docstring there) because that constant is
+    published in ``clay_batch``'s own description, so widening it changed the
+    live tool catalogue and broke a pinned training-dataset hash
+    (``dev/tests/familiar/test_contract.py``) and silently made these three
+    tools unbatchable for every non-Familiar MCP caller too. The real fix is
+    ``run_scratch`` itself walking a ``clay_batch`` call's own ``calls`` and
+    refusing any nested name in ``PREVIEW_EXCLUDED``
+    (:func:`~.preview._batch_nests_a_preview_excluded_tool`), a preview-only
+    door invisible to the published catalogue.
+
+    Fails against HEAD: with no such walk and the original, narrower
+    ``BATCH_EXCLUDED``, a batch nesting one of these three either ran the
+    handler (``clay_reference_list`` takes no required arguments and would
+    answer ``isError: False``) or refused for a wholly different reason (a
+    missing required argument, never mentioning "excluded"), so the message
+    assertion below distinguishes "refused because excluded" from any other
+    refusal shape.
+    """
+    doc = bd.ClayDoc()
+    doc.add_object(bd.Obj(uid=bd.new_uid(), name="seed", mesh=bp.box()))
+    scratch_ctx = familiar_preview.build(doc)
+    history_len = len(scratch_ctx.state.clay.docs[0].doc.history.history())
+
+    # No arguments given: the nested-name check runs before anything about
+    # the entry's own arguments is inspected, so what this proves is that
+    # the *name* is refused for being preview-excluded, not that this
+    # particular call would have succeeded with real arguments.
+    result = familiar_preview.run_scratch(
+        scratch_ctx, "clay_batch", {"calls": [{"name": name}]}
+    )
+
+    assert result["isError"] is True
+    assert "excluded from Familiar scratch runs" in result["content"][0]["text"]
+    # Refused before agent_clay.call ever ran the batch: the scratch
+    # document and this session's own references are both untouched.
+    assert len(scratch_ctx.state.clay.docs[0].doc.history.history()) == history_len

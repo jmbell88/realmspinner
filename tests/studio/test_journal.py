@@ -829,6 +829,43 @@ def test_every_real_provider_is_registered_by_ensure():
     assert kinds == {"inker", "clay", "plotter", "packwright", "sirens", "pose", "mason"}
 
 
+@pytest.mark.parametrize("kind", ["clay", "mason", "packwright", "plotter"])
+def test_a_busy_tab_is_not_journalled_by_clay_mason_packwright_or_plotter(kind):
+    """shell-07, the 2026-09-18 audit: ``tab_provider``'s busy filter (the
+    ``slots`` closure defined inside :func:`journal.tab_provider`, which every
+    tabbed mode gets for free) had no test naming Clay, Mason, Packwright or
+    Plotter -- only Inker's and Sirens's own busy guards were exercised
+    elsewhere, and an empty result here would not by itself prove the filter
+    still runs for the other four (``repo_status``'s own warning about empty
+    results, restated for a hand-registered table).
+
+    Driven at the real, registered ``Provider.slots`` for each kind (import
+    is what registers it -- :func:`journal.ensure_providers` swallows a
+    failure per module, so this also fails loudly if one of these four stops
+    registering). Duck-typed stub tabs stand in for the mode's own ``Tab``
+    dataclass: ``slots`` reads only ``tab.dirty``/``tab.busy``, both of which
+    every real tab class gets from ``docmodes.DocTab``/``HistoryTab``.
+    """
+    journal.ensure_providers()
+    provider = journal._PROVIDERS[kind]
+
+    dirty_idle = SimpleNamespace(dirty=True, busy=False)
+    dirty_busy = SimpleNamespace(dirty=True, busy=True)
+    clean_idle = SimpleNamespace(dirty=False, busy=False)
+    clean_busy = SimpleNamespace(dirty=False, busy=True)
+    state = SimpleNamespace(docs=[dirty_idle, dirty_busy, clean_idle, clean_busy])
+    ctx = SimpleNamespace(state=SimpleNamespace(**{kind: state}))
+
+    assert provider.slots(ctx) == [dirty_idle], (
+        f"{kind}'s journal provider journalled a busy and/or clean tab"
+    )
+    # And a mode that has never been opened -- ``ctx.state.<kind>`` absent --
+    # must not be treated as "nothing to filter" the wrong way: ``slots``
+    # asks with ``getattr(ctx.state, kind, None)`` specifically so probing
+    # never creates the state.
+    assert provider.slots(SimpleNamespace(state=SimpleNamespace())) == []
+
+
 @pytest.mark.parametrize(
     "module,cls",
     [

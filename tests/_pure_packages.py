@@ -27,7 +27,7 @@ The derivation is deliberately *not* "everything under ``studio/``": the
 viewport, the panes and the manual renderer all import imgui or moderngl, and
 what makes them uninteresting here is exactly what the banned-roots test
 already says about them. It is also deliberately not filtered down to "editor
-engines" -- ``tilegrid`` is a shared leaf that ``plotter``, ``packwright`` and
+engines" -- ``grid2d`` is a shared leaf that ``plotter``, ``packwright`` and
 ``inker`` reach for on purpose, and it lands in this set. That is not a
 mistake: a pin that bans a sibling it legitimately imports writes the import
 down in its own ``OUTWARD_IMPORTS`` and passes it to :func:`siblings_of` as an
@@ -69,7 +69,7 @@ landed before P5 did: ``studio/clay/``, ``studio/inker/`` (incl.
 ``glbio``), ``studio/manual/{loader,parser,targets}`` and
 ``studio/sirens/wavout.py`` all moved out of ``studio/`` entirely, straight
 into ``warlock/kernels/*`` -- not into a mode's future ``engine/``, because
-they are shared domain kernels, not one mode's private engine (``tilegrid``
+they are shared domain kernels, not one mode's private engine (``grid2d``
 was already the shared-leaf case this file's own docstring names above; P3
 just gave that shape a real package to live in and put four more engines
 next to it). ``dev/RESTRUCTURE.md``'s own layer table calls ``warlock/kernels/``
@@ -118,7 +118,7 @@ WINDOW_ROOTS = frozenset({"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL
 
 #: Resolved file -> its own transitive root set, so a package whose modules
 #: fan out through several relative imports (``agent_clay`` reaches ``clay_mode``,
-#: ``clay_view``, ``panes.clay_tools`` and the whole ``clay``/``viewer`` trees)
+#: ``clay_view``, ``modes.clay.ui.panes.tools`` and the whole ``clay``/``viewer`` trees)
 #: is not re-parsed and re-walked once per importer. Keyed on resolved path
 #: rather than cleared between calls: the tree does not change mid-process,
 #: and a stale entry is never worse than the recomputation it replaces.
@@ -182,7 +182,7 @@ def _module_roots(path: Path, _stack: frozenset[Path] = frozenset()) -> set[str]
     absolute import), so neither line contributed anything to this file's
     roots at all. That let ``familiar`` come back "pure" from
     :func:`pure_packages` even though ``agent_clay`` imports ``clay_view``
-    (``moderngl``) and ``panes.clay_tools`` (``imgui_bundle``) at its own
+    (``moderngl``) and ``modes.clay.ui.panes.tools`` (``imgui_bundle``) at its own
     module scope -- a real window, two relative hops away. A relative import
     is resolved to the file it names (:func:`_relative_targets` plus
     :func:`_module_file`) and that file's own roots are folded in

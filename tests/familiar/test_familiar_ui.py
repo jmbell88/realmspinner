@@ -862,3 +862,30 @@ def test_discard_clears_the_plan():
     familiar_ui.discard_character_plan(ctx)
 
     assert ui.plan is None
+
+
+def test_a_failed_character_creation_says_so_in_the_transcript_and_toasts():
+    """The 2026-09-18 audit (familiar-03): the CHARACTER_KEY failure branch
+    of ``on_task_done`` set ``ui.reason``/``ui.message`` but never called
+    ``_say`` -- every other CHAT_KEY/BUILD_KEY failure does, so with the
+    Familiar pane collapsed a failed character creation left no transcript
+    turn and no toast, the one Familiar exit that said nothing at all."""
+    ctx = _FakeCtx(mode="home")
+    thread_key = familiar_ui.thread_key(ctx)
+    error = RuntimeError("Blender is not installed")
+    done = Done(
+        key=familiar_ui.CHARACTER_KEY,
+        error=error,
+        message="Blender is not installed.",
+        tag={"thread_key": thread_key},
+    )
+
+    familiar_ui.on_task_done(ctx, done)
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.message == "Blender is not installed."
+    turns = ctx.familiar_threads.get(thread_key)
+    assert turns, "a failed character creation must leave a transcript turn"
+    assert turns[-1].role == "familiar"
+    assert turns[-1].text == "Blender is not installed."
+    assert ctx.toasts, "a failed character creation must toast, like every other failure"

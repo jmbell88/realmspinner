@@ -1,6 +1,6 @@
 """A destination the user picked is never truncated to write it.
 
-``studio/atomic.py``, and the rule it exists for. There are twenty-two
+``core/safeio/atomic.py``, and the rule it exists for. There are twenty-two
 ``dialogs.save_file`` sites in ``studio/``; every one writes to a path the user
 named, and a path the user named is one they may well have named before --
 "export it again over the last one" is the ordinary case, not the odd one.
@@ -179,7 +179,7 @@ def test_no_save_dialog_writes_its_destination_in_place(path: Path) -> None:
     assert not offences, (
         f"{path.name} writes a user-picked destination in place: "
         + ", ".join(f"line {line}: {what}" for line, what in offences)
-        + " -- use studio.atomic (write_bytes/write_text/save_image/staged)"
+        + " -- use core.safeio.atomic (write_bytes/write_text/save_image/staged)"
     )
 
 

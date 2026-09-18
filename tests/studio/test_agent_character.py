@@ -1275,3 +1275,145 @@ def test_a_hostile_job_name_cannot_escape_the_export_dir(svc: Any, tmp_path: Pat
             assert path.name.split(".", 1)[0].upper() not in {"CON", "NUL", "PRN", "AUX"}
             assert job_id in path.name
             assert path.exists()
+
+
+def test_character_export_reports_the_staged_directory_itself_for_godot_and_frame_exports(
+    svc: Any, tmp_path: Path
+) -> None:
+    """The 2026-09-18 audit (agents-01): ``godot_scene``/``frame_folders``
+    both reach a door (``service.characters.export_godot``/``export_frames``)
+    that returns ``export.staged_tree``'s own result -- the staged *directory*
+    itself (``dest_root / name``), not a file inside it. ``_normalise_export``'s
+    final (non-Mapping) branch used to run that Path through the single-file
+    case anyway: ``dir`` became the directory's *parent* (the whole export
+    root, one level too high) and ``paths`` held the directory itself rather
+    than any file inside it -- contradicting both ``character_export``'s own
+    tool description ("Exports land in a folder named for the asset and its
+    ids") and every other format's ``paths`` (a real file list).
+
+    ``frame_folders`` is exercised end to end through the real handler (a
+    real sheet, no Blender needed -- it nests files under
+    ``<clip>/<compass>/<nnn>.png`` plus a flat ``manifest.json``, so it also
+    proves the fix recurses rather than only listing top-level entries).
+    ``godot_scene`` reaches the very same ``_normalise_export`` branch with a
+    flat pair of files instead; proved directly against a real on-disk
+    directory shaped the way ``export_godot`` leaves one, since a real
+    rigged, animated mesh needs Blender-shaped fixtures this module does not
+    otherwise carry (see ``tests/service/test_character_exports.py``'s own
+    ``_rigged_and_animated`` for what that would take).
+    """
+    svc.config.export_dir = tmp_path
+    job_id, sheet_id, _w, _h = _real_sheet(svc, job_name="Ranger")
+
+    result = ac.call(
+        svc,
+        ac.Session(),
+        "character_export",
+        {"job_id": job_id, "format": "frame_folders", "sheet_id": sheet_id},
+    )
+    assert result["isError"] is False, result
+    payload = result["structuredContent"]
+    staged_dir = Path(payload["dir"])
+    # The staged directory itself -- never its parent, the export root.
+    assert staged_dir.is_dir()
+    assert staged_dir.parent == tmp_path
+    assert payload["paths"], payload
+    for path_str in payload["paths"]:
+        entry = Path(path_str)
+        assert entry.is_file(), (path_str, payload)
+        assert entry != staged_dir
+        assert staged_dir in entry.parents
+
+    godot_dir = tmp_path / "Knight-abc123def456"
+    godot_dir.mkdir()
+    (godot_dir / "Knight-abc123def456.glb").write_bytes(b"fake-glb")
+    (godot_dir / "Knight-abc123def456.tscn").write_text("", encoding="utf-8")
+    godot_payload = ac._normalise_export("godot_scene", godot_dir)
+    assert Path(godot_payload["dir"]) == godot_dir
+    assert sorted(Path(p).name for p in godot_payload["paths"]) == [
+        "Knight-abc123def456.glb",
+        "Knight-abc123def456.tscn",
+    ]
+
+
+def test_character_cancel_survives_a_concurrent_mint_on_the_same_session() -> None:
+    """The 2026-09-18 audit (agents-07): ``Session.minted`` is a plain,
+    unlocked dict shared by every ``character_*`` call on one MCP connection,
+    and every character handler runs on ``AgentHost``'s own
+    ``SERVICE_WORKERS = 2`` pool (``dev/INVARIANTS.md``), so two calls from
+    the same connection can genuinely run concurrently on two different
+    threads against the same ``Session``. ``_rig_queued_this_sheet``'s own
+    bare ``for minted_id, kind in session.minted.items()`` loop -- run by
+    every ``character_cancel`` call -- raised
+    ``RuntimeError: dictionary changed size during iteration`` when a
+    concurrent ``character_create``/``character_rig``/``character_sheet_create``
+    call (running on the other worker thread) inserted a new minted id into
+    the same dict mid-iteration (reproduced in ``agents-character-01.py``).
+
+    Every inserted id here is kind ``"model"`` (never ``"rig"``), so the loop
+    body never reaches ``svc_troupe.follow_up_sheet_job`` and this needs no
+    real ``svc`` -- the race lives entirely in the bare ``for`` statement
+    itself, exactly as the probe isolates it.
+
+    Bounded by reader work (``READER_CALL_BUDGET`` calls), not wall clock --
+    a regression that cannot fail once fixed has no business holding the
+    default lane for a fixed 5s; a 2s safety cap is still here only to bound
+    a run that (bug or no bug) is somehow making no progress at all.
+    ``READER_CALL_BUDGET`` is 40,000, not a round "2,000": against the HEAD
+    (unfixed) throwaway module, a 2,000-call budget never once raised in 15
+    trials (the dict is still small at that point, so each racing pass is too
+    cheap to land inside the writer's insert) while 40,000 reproduced 15/15,
+    finishing in well under 0.1s -- comfortably inside the 2s cap.
+    """
+    import threading
+    import time
+
+    READER_CALL_BUDGET = 40_000
+    SAFETY_CAP_S = 2.0
+
+    session = ac.Session()
+    errors: list[Exception] = []
+    reader_calls = 0
+    stop = threading.Event()
+
+    # Warms _rig_queued_this_sheet's own lazy `from ..service import
+    # troupe`/`errors` imports before the race starts -- otherwise the first
+    # racing call spends the whole window on a cold import of the (heavy)
+    # service package while the writer thread runs unopposed, leaving no
+    # actual overlap window once the import finally finishes (this is what
+    # made the very first attempt at this test look falsely green).
+    ac._rig_queued_this_sheet(None, ac.Session(), "warmup")
+
+    def reader() -> None:
+        nonlocal reader_calls
+        while not stop.is_set() and reader_calls < READER_CALL_BUDGET:
+            try:
+                ac._rig_queued_this_sheet(None, session, "000000000000")
+                reader_calls += 1
+            except RuntimeError as exc:
+                errors.append(exc)
+                stop.set()
+
+    def writer() -> None:
+        n = 0
+        while not stop.is_set():
+            session.minted[f"{n:012x}"] = "model"
+            n += 1
+
+    reader_thread = threading.Thread(target=reader)
+    writer_thread = threading.Thread(target=writer)
+    reader_thread.start()
+    writer_thread.start()
+
+    deadline = time.time() + SAFETY_CAP_S
+    while (
+        time.time() < deadline
+        and not stop.is_set()
+        and reader_calls < READER_CALL_BUDGET
+    ):
+        time.sleep(0.01)
+    stop.set()
+    reader_thread.join(timeout=2)
+    writer_thread.join(timeout=2)
+
+    assert not errors, errors

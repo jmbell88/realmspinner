@@ -159,7 +159,26 @@ async def _post_capped(
                     f"{MAX_RESPONSE_BYTES}-byte ceiling, before it finished "
                     "arriving -- refusing to use it"
                 )
-    return json.loads(bytes(received).decode("utf-8"))
+    text = bytes(received).decode("utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        # The 2026-09-18 audit (familiar-07): this used to let
+        # ``json.JSONDecodeError`` (a ``ValueError`` subclass) escape
+        # unchanged. ``service.familiar._call``'s ``except ValueError``
+        # clause exists for exactly one thing -- ``contract.output_budget``
+        # refusing a prompt that leaves no room for a real reply -- and
+        # classifies *every* ``ValueError`` as that same ``"too_large"``
+        # reason. A malformed 200 body (a non-JSON page from a wedged or
+        # misbehaving server) is a different failure with nothing to do with
+        # the reply budget, so it is re-raised as a ``RuntimeError`` here,
+        # the same exception type every other ``_post_capped`` failure above
+        # already uses, and lets ``_call``'s ``except RuntimeError``/
+        # ``_reason_for`` classify it (falling through to ``"http"``)
+        # instead of the wrong bucket.
+        raise RuntimeError(
+            f"llama-server sent a non-JSON body: {text[:200]!r}"
+        ) from exc
 
 
 async def _tokenize(

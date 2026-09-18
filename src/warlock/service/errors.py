@@ -1,11 +1,14 @@
 """What the service layer raises instead of ``HTTPException``.
 
 One class per distinguishable outcome, not one per status code: the desktop UI
-shows ``exc.message`` in a toast and mostly cares only that it failed, while
-the HTTP shim maps each class to the code the route used to return. Keeping
-the hierarchy this small is what makes that mapping mechanical -- ``_to_http``
-is a dict lookup, so an extraction that changed a status code would be a
-visible edit rather than a silent one.
+shows ``exc.message`` in a toast and mostly cares only that it failed.
+``status`` is a fossil of the HTTP API these classes were first written for --
+the routes and the ``_to_http`` mapping that read this attribute are gone
+(``service/__init__.py`` names the two loopback clients that are the app's
+whole outbound network today), and nothing left in the tree reads ``status``.
+It stays on each class because the numbers still communicate the same rank
+order to a reader (a 404-shaped refusal versus a 409-shaped one), and because
+renumbering it now would be churn with no caller to fix.
 """
 
 from __future__ import annotations

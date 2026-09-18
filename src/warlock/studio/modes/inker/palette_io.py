@@ -118,7 +118,7 @@ def export_palette(ctx: Any) -> None:
 # session's favourite colours, persisted in settings, no bearing on any file.
 #
 # All of these run **inline on the frame thread**, gated on ``tab.busy``, which
-# is exactly what the canvas geometry ops in ``panes/inker_bridge`` do and for
+# is exactly what the canvas geometry ops in ``modes/inker/ui/panes/bridge`` do and for
 # the same reason: they rebind whole layer planes, so one landing mid-save
 # writes an archive whose parts disagree. The cost is the same class as a
 # rotate, and ``indexed.snap`` works over the region's *distinct* colours

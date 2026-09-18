@@ -1,7 +1,7 @@
 """Troupe's controller: characters, sheets, the clock, and the way out.
 
 The layer that knows about jobs and task threads; the engine under
-``studio/troupe/`` knows about neither, and ``kernels/charsheet.py`` knows
+``studio/modes/troupe/engine/`` knows about neither, and ``kernels/charsheet.py`` knows
 about neither *and* about no filesystem. The panes draw, this decides.
 
 **A character is a mesh with a rig and at least one character sheet**, and the
@@ -460,7 +460,7 @@ def sendable_meshes(ctx: Any) -> list[dict[str, Any]]:
     of thousands is a frame-thread cost that grows with how long the user has
     owned the app.
 
-    **And the page cap alone was not enough.** ``panes.troupe_settings`` calls
+    **And the page cap alone was not enough.** ``modes.troupe.ui.panes.settings`` calls
     this on every frame its picker header is open, and the predicate reads
     ``files`` -- which is ``attach_files``' doing and not a column, at one stat
     per listed name per row. That function's own docstring calls itself the
@@ -1213,7 +1213,7 @@ def camera_elevation(form: Mapping[str, Any]) -> float | None:
 #: than on ``TroupeState``: it is neither a selection nor a clock.
 OPTIONS_SLOT = "troupe_options"
 
-#: Where ``panes.troupe_sheets._rerender`` keeps the "Re-render some runs"
+#: Where ``modes.troupe.ui.panes.sheets._rerender`` keeps the "Re-render some runs"
 #: checkbox ticks. Owned here rather than by that pane, because ``select`` is
 #: what has to clear it: the 2026-09-08 audit (finding troupe-02) found the
 #: set never scoped to or cleared for the selected sheet, so ticks made on one
@@ -1260,7 +1260,7 @@ def options(ctx: Any) -> dict[str, Any]:
 def form(ctx: Any) -> dict[str, Any]:
     """The new-character request, kept on the mode's own state.
 
-    Public and here rather than private in ``panes/troupe_settings``, because
+    Public and here rather than private in ``modes/troupe/ui/panes/settings``, because
     it stopped having one caller: Create's Character arm offers "Draw it in
     Troupe" as the escape route from a species this program does not model, and
     that route has to put the brief into *this* form -- the one the pane will
@@ -1416,7 +1416,7 @@ def _layout_for_template(ctx: Any, template: str) -> dict[str, Any]:
 
     Keyed to *template* directly rather than always the character bound to
     Troupe's own pane -- :func:`_default_layout` is that caller, but
-    ``panes.troupe_send`` needs the layout for the mesh it is actually
+    ``modes.troupe.ui.panes.send`` needs the layout for the mesh it is actually
     sending, which the 2026-09-16 audit (finding troupe-01) found is not
     necessarily Troupe's current character at all: ``ask()``/``_send()`` used
     to submit whichever layout ``troupe_mode.form(ctx)`` happened to hold,
@@ -1472,7 +1472,7 @@ def start_character(ctx: Any, form: dict[str, Any]) -> bool:
     if ctx.busy(key):
         return False
     # Last time's rings first: a new submit is judged on its own, and this
-    # request's refusals name controls on ``panes/troupe_settings``'s form.
+    # request's refusals name controls on ``modes/troupe/ui/panes/settings``'s form.
     ctx.state.clear_field_errors()
     return ctx.submit(
         key,

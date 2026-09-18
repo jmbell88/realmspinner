@@ -297,6 +297,36 @@ def test_an_npz_inside_a_wblk_is_read_through_the_bounded_zip():
         npyguard.read_npz(inner.getvalue(), "a mesh")
 
 
+def test_an_npz_whose_members_each_pass_alone_but_sum_past_the_ceiling_is_refused(
+    monkeypatch,
+):
+    """shell-03, the 2026-09-18 audit: ``read_array`` bounds one member at a
+    time against ``MAX_ARRAY_BYTES``; nothing bounded their *sum*, unlike the
+    outer ``.wblk`` zip's own ``claimed`` check in ``read_wblk``. A 252 KB
+    crafted inner ``.npz`` of 40 zero-filled members, each individually under
+    the ceiling, materialised 240 MB at scaled-down ceilings -- 30x the
+    single-array ceiling, and many GB at the real one. Reproduced at a
+    scaled-down ceiling: 40 real ``.npy`` members, each comfortably under the
+    per-member ceiling alone, summing well past a lowered ``MAX_ARCHIVE_BYTES``
+    -- the sum's own ceiling, deliberately not ``MAX_ARRAY_BYTES`` (which this
+    test leaves untouched, at its real 256 MiB, precisely to show each member
+    passes on its own)."""
+    from warlock.core.safeio import npyguard
+
+    monkeypatch.setattr(npyguard, "MAX_ARCHIVE_BYTES", 1000)
+    member = io.BytesIO()
+    np.save(member, np.zeros(200, dtype=np.uint8))
+    member_bytes = member.getvalue()
+    assert len(member_bytes) < npyguard.MAX_ARRAY_BYTES  # passes read_array alone
+
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w") as zf:
+        for i in range(40):
+            zf.writestr(f"m{i}.npy", member_bytes)
+    with pytest.raises(ValueError, match="claims"):
+        npyguard.read_npz(inner.getvalue(), "a mesh")
+
+
 def test_an_npy_declaring_object_dtype_is_refused_by_name():
     """``allow_pickle=False``'s refusal, made from the header instead."""
     from warlock.core.safeio import npyguard
@@ -699,6 +729,51 @@ def test_a_map_cannot_declare_more_chunks_than_this_build_reads(monkeypatch):
             f'<data encoding="csv">{chunks}</data></layer>')
     with pytest.raises(ValueError, match="chunks"):
         tmx.read_tmx(_map(body, attrs='infinite="1"'), **LOADERS)
+
+
+def test_read_tmx_refuses_an_object_layer_past_the_object_ceiling(monkeypatch):
+    """The 2026-09-18 audit, finding plotter-04: ``wmap.py``'s ``_ReadBudget``
+    caps a document's total object count at ``MAX_OBJECTS`` (a manifest a few
+    kilobytes deep can still name one object layer a million objects long, and
+    each one costs a dataclass built per object well before any byte ceiling
+    would notice) but ``tmx.py``'s sibling ``_Budget`` -- which already caps
+    layers and chunks for exactly that reason -- had no equivalent for
+    objects.
+    """
+    monkeypatch.setattr(tmx, "MAX_OBJECTS", 3)
+    body = "<objectgroup id=\"1\" name=\"O\">" + "".join(
+        f'<object id="{i}" x="0" y="0" width="1" height="1"/>' for i in range(6)
+    ) + "</objectgroup>"
+    with pytest.raises(ValueError, match="objects"):
+        tmx.read_tmx(_map(body), **LOADERS)
+
+
+def test_read_tmj_refuses_an_object_layer_past_the_object_ceiling(monkeypatch):
+    """The JSON half of plotter-04, same claim as the ``.tmx`` case above."""
+    monkeypatch.setattr(tmx, "MAX_OBJECTS", 3)
+    payload = {
+        "type": "map",
+        "version": "1.10",
+        "orientation": "orthogonal",
+        "width": 2,
+        "height": 2,
+        "tilewidth": 16,
+        "tileheight": 16,
+        "tilesets": [{"firstgid": 1, "source": "t.tsx"}],
+        "layers": [
+            {
+                "type": "objectgroup",
+                "id": 1,
+                "name": "O",
+                "objects": [
+                    {"id": i, "x": 0, "y": 0, "width": 1, "height": 1}
+                    for i in range(6)
+                ],
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="objects"):
+        tmx.read_tmj(json.dumps(payload).encode(), **LOADERS)
 
 
 def test_a_tmj_chunk_side_goes_through_the_same_cap_as_a_tmx_one():

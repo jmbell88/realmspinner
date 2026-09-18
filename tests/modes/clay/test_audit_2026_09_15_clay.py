@@ -255,11 +255,19 @@ def test_on_task_done_lands_a_queued_character_as_a_thread_turn_and_toast() -> N
     assert ctx.toasts == [text]
 
 
-def test_on_task_done_reports_a_refused_character_with_no_thread_turn_or_toast() -> None:
+def test_on_task_done_reports_a_refused_character_with_a_thread_turn_and_toast() -> None:
     """A failed ``CHARACTER_KEY`` result -- a plain ``service.errors.Invalid``
     with no ``.reason``, the shape a missing Blender or a stale theme raises
-    -- must land on the pane's refusal fields rather than as a chat turn, and
-    must not toast: the card itself is what shows the refusal."""
+    -- lands on the pane's refusal fields (``ui.reason``/``ui.message``,
+    read by ``draw_expanded``'s inline card) the same as it always did, but
+    the pane's own card is only ever drawn while the pane is expanded --
+    with it collapsed, that card was the *only* place the refusal showed,
+    which is what the 2026-09-18 audit (familiar-03) found: no transcript
+    turn, no toast, nothing. This test originally asserted the *absence* of
+    a turn/toast as the intended behaviour; renamed and inverted here to
+    match the fix, which makes ``_say`` fire for this branch exactly as it
+    already does for every other ``on_task_done`` failure (CHAT_KEY,
+    BUILD_KEY, the preview refusals in ``_land_build_preview``)."""
     ctx = _FakeCtx(mode="clay")
     thread = ("clay", ctx.tab.uid)
     error = service_errors.Invalid("Blender isn't installed.")
@@ -273,16 +281,22 @@ def test_on_task_done_reports_a_refused_character_with_no_thread_turn_or_toast()
     familiar_ui.on_task_done(ctx, done)
 
     ui = familiar_ui.ensure(ctx)
+    # The crash guard this test always carried: a plain ``Invalid`` has no
+    # ``.reason`` attribute, and ``_reason_and_message`` must not choke on
+    # that -- ``ui.reason`` reads back ``None`` rather than raising.
     assert ui.reason is None
     assert ui.message == "Blender isn't installed."
-    assert ctx.familiar_threads.get(thread) == ()
-    assert ctx.toasts == []
+    turns = ctx.familiar_threads.get(thread)
+    assert turns and turns[-1].role == "familiar" and turns[-1].text == "Blender isn't installed."
+    assert ctx.toasts == ["Blender isn't installed."]
 
 
 def test_on_task_done_reports_a_refused_character_familiar_refusal_reason() -> None:
     """The other failure shape ``CHARACTER_KEY`` can land: a
     ``svc_familiar.FamiliarRefusal`` (Familiar itself refused, rather than
-    the character door) carries a ``.reason`` the pane surfaces."""
+    the character door) carries a ``.reason`` the pane surfaces -- and, since
+    the 2026-09-18 audit (familiar-03), also reaches the transcript and a
+    toast, the same as every other refusal shape this branch can land."""
     ctx = _FakeCtx(mode="clay")
     thread = ("clay", ctx.tab.uid)
     error = svc_familiar.FamiliarRefusal("weights are missing", reason="missing")
@@ -296,7 +310,10 @@ def test_on_task_done_reports_a_refused_character_familiar_refusal_reason() -> N
     familiar_ui.on_task_done(ctx, done)
 
     ui = familiar_ui.ensure(ctx)
+    # The reason guard this test always carried: a ``FamiliarRefusal`` does
+    # carry ``.reason``, and it must reach ``ui.reason`` unchanged.
     assert ui.reason == "missing"
     assert ui.message == "weights are missing"
-    assert ctx.familiar_threads.get(thread) == ()
-    assert ctx.toasts == []
+    turns = ctx.familiar_threads.get(thread)
+    assert turns and turns[-1].role == "familiar" and turns[-1].text == "weights are missing"
+    assert ctx.toasts == ["weights are missing"]

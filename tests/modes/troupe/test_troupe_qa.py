@@ -271,7 +271,7 @@ def test_a_blank_cell_with_neighbour_relative_metrics_still_names_worst_as_blank
     that *same* blank cell against its real neighbour -- whose ``here.foot``
     and ``here.centroid`` default to ``(0, 0)`` for an empty crop -- can post
     a ratio far past 1.0 and win the ``(severity, ratio)`` comparison. The QA
-    panel (``studio/panes/troupe_preview.py``) prints ``score.worst`` verbatim,
+    panel (``studio/modes/troupe/ui/panes/preview.py``) prints ``score.worst`` verbatim,
     so the artist was told the worst problem was e.g. "foot_jitter 0.81"
     instead of the actual defect: a missing frame. A blank is ranked at
     ``LEVEL_BAD`` by construction, and nothing a sheet can show -- including

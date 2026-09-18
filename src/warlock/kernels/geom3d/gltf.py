@@ -411,7 +411,15 @@ class Model:
 
     @property
     def triangle_count(self) -> int:
-        return sum(len(p.indices) // 3 for prims in self.meshes for p in prims)
+        """Total triangles, computed once. The 2026-09-18 audit, finding
+        create-03: this stayed a plain per-call sum while ``vertex_count``
+        beside it was memoised for B18 -- the same inspector-every-frame
+        cost, paid on every ``stats()`` call this one was left out of."""
+        count = getattr(self, "_triangle_count", None)
+        if count is None:
+            count = sum(len(p.indices) // 3 for prims in self.meshes for p in prims)
+            self._triangle_count = count
+        return count
 
     @property
     def vertex_count(self) -> int:
@@ -755,15 +763,28 @@ class _Reader:
         # lines down). A hand-supplied GLB can declare anything in its JSON
         # chunk (``check_glb`` at the import door is structural-only), so this
         # is reachable from ordinary use, not just a corrupt file.
-        component_type = acc["componentType"]
+        #
+        # The 2026-09-18 audit, finding clay-03: that fix still read
+        # ``componentType``/``type``/``count`` by raw indexing, so an accessor
+        # missing the *key entirely* (rather than holding a value this loader
+        # does not recognise) raised the same bare ``KeyError`` right back --
+        # ``.get()`` and a named refusal for each, same as every sibling here.
+        component_type = acc.get("componentType")
+        if component_type is None:
+            raise ValueError("an accessor in this GLB is missing componentType")
         if component_type not in _COMPONENT:
             raise ValueError(f"unsupported accessor componentType {component_type!r}")
-        accessor_type = acc["type"]
+        accessor_type = acc.get("type")
+        if accessor_type is None:
+            raise ValueError("an accessor in this GLB is missing type")
         if accessor_type not in _NCOMP:
             raise ValueError(f"unsupported accessor type {accessor_type!r}")
         dtype = _COMPONENT[component_type]
         ncomp = _NCOMP[accessor_type]
-        count = int(acc["count"])
+        raw_count = acc.get("count")
+        if raw_count is None:
+            raise ValueError("an accessor in this GLB is missing count")
+        count = int(raw_count)
         # Before the branch and not inside it, so the bound is a property of
         # *reading an accessor* rather than a rule the zeros path below had to
         # remember. The interleaved path pays for it twice over -- ``_check_span``

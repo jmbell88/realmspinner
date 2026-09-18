@@ -235,3 +235,38 @@ def test_recompose_refuses_an_output_past_a_pixel_ceiling(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="pixels this build will allocate"):
         slicing.recompose(dummy, grid, 512, 512)
+
+
+def test_recompose_refuses_a_grid_with_too_many_cells_at_a_small_tile_size(
+    monkeypatch,
+) -> None:
+    """The 2026-09-18 audit, finding plotter-02: ``MAX_RECOMPOSE_PIXELS`` bounds
+    *output pixels* (``grid.shape[0] * tile_h`` by ``grid.shape[1] * tile_w``),
+    not the per-cell Python loop inside :func:`~warlock.kernels.grid2d.slicing.recompose`,
+    whose cost is one iteration per ``rows * cols`` cell regardless of tile
+    size. At ``tile_w = tile_h = 1`` -- legal, per ``roles.MAX_ROLE_CELLS``'s
+    own comment, as the map's own tile size floor -- output pixels equal cell
+    count, so the pixel ceiling alone admits a 8192x8192 grid: 67,108,864
+    cells, measured (``plotter-tiles-01.py``) at ~6.8 microseconds/cell, about
+    7.6 minutes of uncancellable frame-thread work reached from
+    ``studio/modes/plotter/tilesets.py``'s ``import_detected_sheet``.
+
+    A 400x400 grid (160,000 cells) at ``tile_w = tile_h = 1`` sits well under
+    ``MAX_RECOMPOSE_PIXELS`` (target pixels = 160,000, the ceiling is
+    67,108,864) but must still be refused once a *cell*-count ceiling exists.
+    ``np.zeros`` is stubbed to raise, so the refusal is proven from the ceiling
+    alone: against the unfixed code, recompose reaches the stub (allocates
+    its output); against the fix, it never does.
+    """
+    rows = tuple((i, i) for i in range(400))
+    cols = tuple((i, i) for i in range(400))
+    grid = slicing.SheetGrid(rows=rows, cols=cols, threshold=20)
+    dummy = np.zeros((2, 2, 4), dtype=np.uint8)
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("recompose allocated its output before refusing")
+
+    monkeypatch.setattr(slicing.np, "zeros", _boom)
+
+    with pytest.raises(ValueError, match="cells this build will redraw"):
+        slicing.recompose(dummy, grid, 1, 1)

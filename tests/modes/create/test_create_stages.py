@@ -213,6 +213,23 @@ def test_an_unfinished_asset_blocks_the_export_stage_in_the_grids_own_words():
     assert create_stages.available("export", job()) is None
 
 
+def test_an_errored_or_cancelled_asset_blocks_the_export_stage_with_a_reason():
+    """The 2026-09-18 audit, finding create-01: ``available("export", ...)``
+    only dimmed a queued or running job -- an errored or cancelled asset fell
+    through to ``None`` (open), leaving Export enabled with nothing behind it
+    to explain a click that does nothing. The wording is
+    ``service.validation.STATUS_SENTENCES``, the same source
+    ``asset_exits._status_reason`` draws from for the identical complaint."""
+    from warlock.service.validation import not_done_message
+
+    assert create_stages.available("export", job(status="error")) == not_done_message(
+        "This", "error"
+    )
+    assert create_stages.available("export", job(status="cancelled")) == not_done_message(
+        "This", "cancelled"
+    )
+
+
 def test_the_export_stage_needs_something_selected():
     reason = create_stages.available("export", None)
     assert reason is not None and "export" in reason

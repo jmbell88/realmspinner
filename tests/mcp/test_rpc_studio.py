@@ -36,6 +36,14 @@ class _Ctx:
     def toast(self, message: str, level: str = "info") -> None:
         self.toasts.append((message, level))
 
+    def submit(self, key: str, fn, *args, tag=None, **kwargs) -> bool:
+        # A stand-in for app_ctx.Ctx.submit/TaskRunner, the 2026-09-18 audit
+        # (agents-06): AgentHost.start() now calls ctx.submit to write its
+        # catalogue snapshot off whichever thread calls start(), matching
+        # tests/studio/test_agent_host.py's own _Ctx.
+        threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
+        return True
+
 
 def _recv(conn, timeout: float = WAIT) -> bytes:
     assert conn.poll(timeout), f"no reply within {timeout}s"
@@ -269,6 +277,16 @@ def test_start_writes_a_catalogue_snapshot_matching_the_catalogue_op(tmp_path) -
     host, stop_pumping, pumper = _started_host(tmp_path)
     try:
         snapshot_path = tmp_path / "mcp.catalogue.json"
+        # The 2026-09-18 audit (agents-06): AgentHost.start() used to build,
+        # hash, json.dumps and os.replace this file straight inline -- ~75ms
+        # measured, all of it spent on whichever thread called start() (the
+        # frame thread, for both of start()'s real callers). It is now
+        # queued onto the service lane (AgentHost._queue_service_job_nowait)
+        # instead, so it lands a moment after start() returns rather than
+        # before -- waited for here rather than asserted immediately.
+        deadline = time.monotonic() + WAIT
+        while not snapshot_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
         assert snapshot_path.exists()
         on_disk = json.loads(snapshot_path.read_text(encoding="utf-8"))
 

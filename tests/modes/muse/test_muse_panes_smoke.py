@@ -391,7 +391,7 @@ def test_no_control_appears_in_both_the_bar_and_the_column():
         assert f'form["{field}"]' in column, f"the column should own {field}"
         assert f'form["{field}"]' not in bar, f"{field} is in both panes"
 
-    # The third surface. ``panes/muse_results`` draws the derive popup, whose
+    # The third surface. ``modes/muse/ui/panes/results`` draws the derive popup, whose
     # controls are about *one finished take* rather than about the next press
     # -- so it must not touch the brief at all. Without this the popup is a
     # third place to look for a generation setting, which is the failure the
@@ -586,3 +586,95 @@ def test_extend_sliders_are_bounded_by_the_takes_own_duration_when_shorter_than_
 
     assert seen["Add before"] == (0.0, 60.0)
     assert seen["Add after"] == (0.0, 60.0)
+
+
+def test_extend_sliders_never_offer_a_combined_total_the_door_will_refuse(
+    frames, tmp_path, monkeypatch
+):
+    """The 2026-09-18 audit, finding muse-01.
+
+    ``_max_extend_for`` bounded each of ``extend_left``/``extend_right`` by
+    ``min(parent_duration, MAX_EXTEND_DURATION)`` *independently of the
+    other* -- but ``derive_music_job`` refuses on the *combined* total,
+    ``parent_duration + extend_left + extend_right`` against the sampler's
+    frame ceiling (``_extend_frame_ceiling_seconds``, ~239.907s), always
+    naming ``extend_right`` regardless of which slider actually spent the
+    budget (``src/warlock/service/_jobs_music.py:524-541``). A take of 240s
+    or more had both sliders come back bounded at up to 240 each -- every
+    nonzero extend on such a take cleared the popup and was refused at the
+    door.
+
+    Fails against the unfixed code: with a 240s take, ``seen["Add before"]``
+    comes back ``(0.0, 240.0)`` instead of ``(0.0, 0.0)`` -- proven against
+    the pre-fix ``_max_extend_for`` (single-argument, ``min(parent_duration,
+    _max_extend())``) in this session's scratchpad, which returns 240.0 for
+    a 240s take with no regard for the sibling slider at all.
+    """
+    long_take = _take("a")
+    long_take["params"] = {"duration": 240.0, "actual_duration": 240.0}
+    ctx = _ctx(tmp_path, [long_take])
+    muse_mode.open_derive(ctx, "a", "extend")
+
+    seen: dict[str, tuple[float, float]] = {}
+    from warlock.studio import widgets as widgets_module
+
+    real_slider = widgets_module.labeled_slider_float
+
+    def spy_slider(title, value, low, high, **kwargs):
+        seen[title] = (low, high)
+        return real_slider(title, value, low, high, **kwargs)
+
+    monkeypatch.setattr(muse_results.widgets, "labeled_slider_float", spy_slider)
+
+    def build() -> None:
+        muse_results.draw(ctx)
+
+    frames(build)
+
+    # No combined total starting from a 240s take can clear the door's
+    # ~239.907s ceiling, so there is no room left on either slider.
+    assert seen["Add before"] == (0.0, 0.0)
+    assert seen["Add after"] == (0.0, 0.0)
+
+
+def test_extend_sliders_share_the_remaining_budget_on_a_take_with_some_room(
+    frames, tmp_path, monkeypatch
+):
+    """The other half of muse-01: a take short enough to have *some* combined
+    budget left must still offer it, split between the two sliders rather
+    than each claiming the whole remainder for itself.
+
+    A 200s take has ``_extend_frame_ceiling_seconds() - 200 ~= 39.9s`` of
+    total room. ``extend_right`` starts at its default, 30.0 -- so
+    ``extend_left``'s own bound must be reduced by that 30.0, not offer the
+    same ~39.9s a still-empty sibling would leave it.
+    """
+    take = _take("a")
+    take["params"] = {"duration": 200.0, "actual_duration": 200.0}
+    ctx = _ctx(tmp_path, [take])
+    muse_mode.open_derive(ctx, "a", "extend")
+
+    seen: dict[str, tuple[float, float]] = {}
+    from warlock.studio import widgets as widgets_module
+
+    real_slider = widgets_module.labeled_slider_float
+
+    def spy_slider(title, value, low, high, **kwargs):
+        seen[title] = (low, high)
+        return real_slider(title, value, low, high, **kwargs)
+
+    monkeypatch.setattr(muse_results.widgets, "labeled_slider_float", spy_slider)
+
+    def build() -> None:
+        muse_results.draw(ctx)
+
+    frames(build)
+
+    from warlock.service._jobs_music import _extend_frame_ceiling_seconds
+
+    ceiling = _extend_frame_ceiling_seconds()
+    # ``extend_right``'s default (30.0) is spent against extend_left's bound.
+    assert seen["Add before"][1] == pytest.approx(ceiling - 200.0 - 30.0)
+    # ``extend_left`` is untouched (still its own default, 0.0) when
+    # extend_right's own bound is computed.
+    assert seen["Add after"][1] == pytest.approx(ceiling - 200.0 - 0.0)

@@ -792,7 +792,7 @@ class RangeOps:
             return False
         # ``refs_fn`` is what a caller passes when its permutation has a refs
         # answer: the flips and the quarter turns turn every cell's flag bits by
-        # ``tilegrid.gid``'s eight-symmetry algebra, and a tile-aligned wrapping
+        # ``grid2d.gid``'s eight-symmetry algebra, and a tile-aligned wrapping
         # shift is a roll of the grid. Without one -- ``fill_range`` and
         # ``filter_range``, which *paint* rather than permute -- a tilemap cel is
         # still refused by name, before anything is written, because writing

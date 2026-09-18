@@ -168,6 +168,10 @@ def test_an_already_installed_pack_is_still_probed_for_real(
     spec = json.loads(seen.read_text(encoding="utf-8"))
     assert spec["probe_only"] is True
     assert spec["wheels"] == []  # nothing pending means nothing to download
+    # Carried on this path too (pipelines-06): it is the one that runs
+    # exactly when a pack is already at its pinned version by metadata alone,
+    # which is the M01 shape a stale, half-unpacked install actually has.
+    assert spec["pack_probes"] == {"rig": ["bpy"]}
 
 
 def test_installing_an_already_satisfied_pack_is_still_recorded_as_selected(
@@ -242,6 +246,9 @@ def test_repair_reinstalls_the_pinned_wheels_even_though_nothing_is_pending(
     spec = json.loads(seen.read_text(encoding="utf-8"))
     assert spec["force_reinstall"] is True
     assert [w["filename"] for w in spec["wheels"]] == ["bpy-5.2.0-cp313-cp313-win_amd64.whl"]
+    # pipelines-06: repair is the door M01's own remedy runs through, so its
+    # spec has to carry the same pack -> probe-names map install's does.
+    assert spec["pack_probes"] == {"rig": ["bpy"]}
 
 
 # --- surviving an upgrade (M02) -----------------------------------------------
@@ -348,6 +355,10 @@ def test_the_spec_carries_what_the_child_needs_and_the_result_comes_back(
     ]
     assert spec["wheels"][0]["url"].startswith("https://")
     assert spec["probe"] == ["bpy"]  # the pack's own imports, for the child to verify
+    # The map back from that merged list to which pack owns each name
+    # (pipelines-06): ``pack_worker._record_pack_verdicts`` needs it to write
+    # one pack's verdict file without blaming it for another pack's failure.
+    assert spec["pack_probes"] == {"rig": ["bpy"]}
     assert spec["pack_dir"].endswith("packs")
     # The two directories, and they are not the same one: wheels are
     # downloaded into the user's home, and the three that cannot be

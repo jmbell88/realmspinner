@@ -215,8 +215,8 @@ def _piano_elsewhere(ctx: Any, state: SirensState, name: str) -> bool:
     A rejected key is silent here and stays silent: most of them are ordinary
     typing noise nobody expected to do anything, and a toast per keypress --
     a newcomer running the piano row along the volume column would earn one
-    per letter -- is intolerable. The hint line under the grid
-    (:mod:`.sirens_hints`) is the general answer.
+    per letter -- is intolerable. The hint line above the grid
+    (:mod:`.hints`) is the general answer.
 
     **A piano key pressed outside the note column is not noise.** It is
     somebody trying to play a note in the wrong place, which is precisely the

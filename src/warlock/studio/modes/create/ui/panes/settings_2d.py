@@ -1249,7 +1249,17 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: problem_types.Proble
                 "ref-upload", dialogs.open_file, "Choose a reference image", dialogs.IMAGE_FILTER
             )
         return
-    if "full-CFG" in message or "guidance 0" in message:
+    # The 2026-09-18 audit, finding create-04: this used to match on
+    # ``message`` alone, with a ``"guidance 0" in message`` alternative that
+    # matches no reachable ``Problem`` -- the one refusal that ever said
+    # "guidance 0" (``generation.validate_request``'s CompatibilityIssue, née
+    # the create-05 finding) reaches the pane through ``refuse``'s
+    # ``note_field_error``, never through this function's ``problem``
+    # argument. The live ``Problem`` this repairs is
+    # ``recipe.py``'s own -- field ``base_model``, message naming
+    # "full-CFG" -- so the field is now part of the match rather than
+    # trusting prose alone to say which control the repair changes.
+    if field == "base_model" and "full-CFG" in message:
         if controls.button(
             "Switch to Automatic##preflight-quality", role=controls.ButtonRole.GHOST
         ):

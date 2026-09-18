@@ -730,7 +730,7 @@ def _preview(
 # ``MapDoc.replace_tileset`` -- what the Inker polish trip and *Reload the
 # image...* already come back through -- is the undoable door a tileset's own
 # content changes by. So every gesture below is one pure edit from
-# ``tilegrid.wang`` followed by one ``replace_tileset``, and there is no second
+# ``grid2d.wang`` followed by one ``replace_tileset``, and there is no second
 # path for a future reader to find and wonder about.
 #
 # One click is one undo step, which is this editor's existing granularity

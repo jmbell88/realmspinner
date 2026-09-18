@@ -833,7 +833,7 @@ class InkerDoc(docmodes.HistoryTab):
     active_view: int | None = None
     # ``doc.history.trimmed`` as of the last time the user was told about it.
     # The history drops its oldest steps when they get too big to hold (see
-    # ``studio.undo.UNDO_HARD_BYTES``), and a rotate on a large document can
+    # ``core.undo.UNDO_HARD_BYTES``), and a rotate on a large document can
     # take most of the stack with it in one press -- so the undo the user
     # reaches for a minute later is simply not there any more, with nothing
     # having said so. Compared with ``!=`` rather than ``>``: ``clear`` puts
@@ -1145,7 +1145,7 @@ class InkerState(docmodes.DocTabs[InkerDoc]):
     #: RGB every frame made the Hue slider dead on greys and made Saturation
     #: drift on darks. Dropped the moment the colour changes from anywhere else,
     #: because the recognition test is the bytes it wrote. See
-    #: ``panes/inker_picker._wheel``.
+    #: ``modes/inker/ui/panes/picker._wheel``.
     picker_space: tuple[tuple[str, str, str], tuple[int, int, int], tuple[int, int, int]] | None = (
         None
     )

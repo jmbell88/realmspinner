@@ -242,6 +242,24 @@ def clay_build(svc: Any, prompt: str, scene: dict[str, Any]) -> list[dict]:
             f"Familiar's reply could not be read as Clay tool calls ({error}).",
             reason="parse",
         )
+    # The 2026-09-18 audit (familiar-05): contract.allowed_calls exists
+    # precisely to answer "what did this frozen card actually train the
+    # model to name" (parsed from the card's own clay_batch schema, not the
+    # live agent_clay registry) but was never actually called here, so a
+    # reply naming a tool outside the card's own vocabulary -- a decoding
+    # fluke, or a weights pin whose card has drifted from what this build
+    # ships -- ran through to the preview/apply path unchecked. Refused in
+    # the same "parse" bucket an unreadable reply already uses: a call this
+    # door does not trust is no more actionable than one it could not read.
+    allowed = contract.allowed_calls("clay")
+    for call in calls:
+        name = call.get("name") if isinstance(call, dict) else None
+        if name not in allowed:
+            raise FamiliarRefusal(
+                f"Familiar's reply named a tool ({name!r}) outside Clay's "
+                "trained vocabulary.",
+                reason="parse",
+            )
     return calls
 
 
@@ -441,7 +459,7 @@ def _ask_character(
             "json_schema": {"schema": character_plan.character_schema(character_options)},
         },
     )
-    plan = character_plan.parse_plan(reply, character_options)
+    plan, dropped = character_plan.parse_plan(reply, character_options)
     if plan is None:
         return Answer(skill="character", text=chat_reply(svc, prompt, history))
 
@@ -462,7 +480,17 @@ def _ask_character(
         "directions": plan.get("directions"),
         "cells": built["cells"],
         "estimate_minutes": built["estimate_minutes"],
-        "ignored": built["ignored"],
+        # The 2026-09-18 audit (familiar-02): docs/manual/20-overview.md
+        # promises that a word the plan itself could not act on is "named
+        # under the plan rather than silently dropped" -- but until this
+        # merge only recipe_from_prompt's own ``ignored`` rode along here.
+        # An unknown movement, an unoffered theme or an out-of-ladder
+        # direction/size that character_plan.parse_plan drops on its own
+        # (never reaching recipe_from_prompt at all) is what
+        # character_plan.parse_plan's own ``dropped`` return now carries,
+        # merged in here so the plan card shows every word the plan could
+        # not act on, not only the ones the recipe rejects.
+        "ignored": [*dropped, *built["ignored"]],
     }
     return Answer(
         skill="character",

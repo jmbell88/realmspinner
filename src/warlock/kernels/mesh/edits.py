@@ -1,7 +1,7 @@
 """Clay's undo steps: what changed, and how to put it back.
 
 The engine underneath these -- ``Edit``, ``CompoundEdit``, ``UndoStack``, the
-serial counter and the byte budget -- is ``studio/undo.py``, shared with the
+serial counter and the byte budget -- is ``core/undo.py``, shared with the
 raster editor and with no opinion about what an edit edits. What is here is the
 half that *is* about objects: a mesh swap, a transform, an object arriving or
 leaving, a property change, a palette entry. It is the second consumer of that

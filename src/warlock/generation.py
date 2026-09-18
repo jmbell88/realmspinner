@@ -879,20 +879,22 @@ def validate_request(
             # Refuse rather than drop. The conditioning is the whole point of
             # attaching it, and a tier that quietly ran without it would be the
             # same defect as a Fast tier that quietly drew the same picture as
-            # Quality. The field named is the one the user can act on: under
-            # automatic routing that is the Fast/Quality control, because the
-            # model combo is only drawn under Advanced.
-            field_name = "base_model" if request.model_mode == "advanced" else "quality"
+            # Quality.
+            #
+            # The 2026-09-18 audit, finding create-05: this used to name
+            # ``quality`` under automatic routing -- a field no control on
+            # this pane has written since the Fast/Quality tier folded into
+            # the Model combo (the same retirement create-03/5.5.2 already
+            # fixed the repair button for). ``_model`` (settings_2d.py) draws
+            # that combo, and the field error beside it
+            # (``widgets.field_error(ctx.state, "base_model")``), under both
+            # routing modes -- not only Advanced -- so ``base_model`` is the
+            # control the user can actually act on either way.
             issues.append(
                 CompatibilityIssue(
-                    field_name,
+                    "base_model",
                     f"{resolved.recipe.label} runs at guidance 0 and cannot run a "
-                    "ControlNet. "
-                    + (
-                        "Choose a full-CFG model."
-                        if field_name == "base_model"
-                        else "Switch the recipe to Quality, or clear the structure control."
-                    ),
+                    "ControlNet. Choose a full-CFG model.",
                 )
             )
         if request.init_image and not _takes_img2img(resolved):

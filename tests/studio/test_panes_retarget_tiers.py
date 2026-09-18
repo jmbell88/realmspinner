@@ -179,6 +179,43 @@ def test_a_config_that_raises_is_no_binary_rather_than_a_frame_that_dies(monkeyp
     assert retarget_panel._gltfpack_available(ctx) is False
 
 
+# --- the stale-remesh warning --------------------------------------------------
+
+
+def test_a_retarget_warns_before_it_discards_a_remesh_report(monkeypatch):
+    """The 2026-09-18 audit, finding service-01: ``optimize_job`` silently
+    rebuilds model.glb from source.glb, which overwrites whatever a prior
+    remesh baked onto it, and ``_warn_stale`` used to check only "rig.glb in
+    files" -- so a mesh with a remesh report (``params["remesh"]``) but no rig
+    got no warning at all before the button discarded it.
+    """
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        retarget_panel.widgets, "text_colored", lambda *a, **k: calls.append(a)
+    )
+    job = {
+        "id": "job-1",
+        "files": ["source.glb", "model.glb"],
+        "params": {"remesh": {"faces": 8000, "method": "quadriflow"}},
+    }
+
+    retarget_panel._warn_stale(SimpleNamespace(), job)
+
+    assert any("remesh" in call[1].lower() for call in calls)
+
+
+def test_no_remesh_report_means_no_remesh_warning(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        retarget_panel.widgets, "text_colored", lambda *a, **k: calls.append(a)
+    )
+    job = {"id": "job-1", "files": ["source.glb", "model.glb"], "params": {}}
+
+    retarget_panel._warn_stale(SimpleNamespace(), job)
+
+    assert calls == []
+
+
 def test_gltfpack_available_is_false_when_the_path_is_a_directory(monkeypatch):
     """The 2026-09-05 audit, finding create-06: ``doctor._gltfpack_check`` was
     fixed (citing L01) to use ``is_file()`` because a directory left where the

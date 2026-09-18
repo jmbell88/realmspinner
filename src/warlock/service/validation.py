@@ -538,11 +538,11 @@ def check_pack(
     dies on the missing import, because ``mode_gate`` only greys a mode on an
     otherwise-empty library.
 
-    ``svc`` is accepted but not read: presence is ``packs.installed``, which
-    probes the running interpreter directly (``importlib.util.find_spec``) and
-    has no notion of a config to consult. Taken anyway, for ``check_weights``'
-    own shape -- every check at this door takes ``svc`` first, and a caller
-    should not have to remember which ones use it.
+    ``svc`` is read for its ``config`` now (it was not always): presence is
+    ``packs.installed``, which probes the running interpreter directly
+    (``importlib.util.find_spec``) and needs no config at all, but the second
+    check below reads a verdict file keyed on ``svc.config.home`` -- see
+    ``packs.smoke_cached``.
 
     The sentence names Settings, not ``uv``. This message is what a submit's
     refusal carries to the desktop toast, and its reader is whoever is running
@@ -551,16 +551,47 @@ def check_pack(
     is ``RuntimeError``'s to print, in the worker this door exists to make
     unreachable, for the one reader who *is* at a terminal -- a source
     checkout that queued the job without syncing the pack's extra.
+
+    ``find_spec`` alone is not the whole answer, though -- see
+    ``packs.smoke_cached``'s comment. The 2026-09-18 audit, finding
+    pipelines-06: this door used to stop at ``packs.installed``, which is
+    exactly the M01 gap ``pack_worker.smoke_import`` closed for install and
+    repair but nowhere else, so a pack whose metadata matched but whose
+    import actually raised (a stub, a half-unpacked wheel, one built for the
+    wrong ABI) was admitted here and only ever died in the worker. A second
+    refusal below consults that same real-import proof -- **read, never
+    computed here**: a full pack's ``smoke_import`` is nine disposable
+    children importing torch, diffusers and friends in turn, and measured
+    against this checkout it does not finish inside two minutes. That is
+    "never import a pack's module from the frame thread or from ``check_pack``
+    synchronously if it is heavy" exactly -- a job-submit door has to answer
+    in the time a click can wait, not the time an install can. So this only
+    ever reads a verdict file ``pack_worker._probe`` already wrote, staged
+    and ``os.replace``d, the last time ``service.packs.install``/``repair``
+    ran this pack through the real probe -- persisted rather than
+    process-local, because the whole point is to survive the restart between
+    "Repair failed" and the next job submit. No verdict on disk (a pack
+    installed by ``uv sync``, or never installed through this app's own pack
+    machinery at all) reads as ``None`` and admits, exactly ``find_spec``'s
+    own answer today.
     """
     pack = _pack_for_kind(kind)
-    if pack is None or packs.installed(pack):
+    if pack is None:
         return
-    raise Invalid(
-        f'This needs the "{pack.label}" pack, which is not installed. '
-        "Install it in Settings -> Packs.",
-        field=field,
-        packs=(pack.key,),
-    )
+    if not packs.installed(pack):
+        raise Invalid(
+            f'This needs the "{pack.label}" pack, which is not installed. '
+            "Install it in Settings -> Packs.",
+            field=field,
+            packs=(pack.key,),
+        )
+    if packs.smoke_cached(svc.config, pack.key) is False:
+        raise Invalid(
+            f'This needs the "{pack.label}" pack, which is installed but '
+            "cannot be imported. Repair it in Settings -> Packs.",
+            field=field,
+            packs=(pack.key,),
+        )
 
 
 def check_base_model_weights(

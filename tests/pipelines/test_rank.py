@@ -116,3 +116,29 @@ def test_a_report_written_before_the_filter_existed_is_unmeasured_not_floored():
     """No ``components_major`` key at all -- an August report read back off disk."""
     old = {"ok": True, "occupancy": reference.DEFAULT_OCCUPANCY, "components": 17}
     assert rank.composition_score(old) == 1.0
+
+
+def test_a_refused_reference_never_outranks_an_accepted_one_once_anchor_and_preference_are_blended_in():  # noqa: E501
+    """2026-09-18 audit (pipelines-02).
+
+    A refused candidate's zero composition used to enter the same blend as
+    everyone else's, so a near-perfect anchor/preference term could pull it
+    back above an accepted-but-weak candidate (0.55 vs 0.31 -- the reproduction
+    in the audit's probe), contradicting ``composition_score``'s own "a
+    candidate that is going to be refused at promotion belongs last."
+    """
+    refused_report = {"ok": False, "reasons": ("too small",), "codes": ("occupancy",)}
+    refused = rank.score(refused_report, anchor_cosine=1.0, preference=25.0)
+
+    accepted_report = {
+        "ok": True,
+        "reasons": (),
+        "occupancy": 0.06,
+        "components_major": 1,
+        "touches": ("left",),
+        "warnings": ("The subject touches the edge of the frame.",),
+    }
+    accepted = rank.score(accepted_report, anchor_cosine=-1.0, preference=None)
+
+    assert refused["score"] <= accepted["score"]
+    assert refused["score"] == 0.0

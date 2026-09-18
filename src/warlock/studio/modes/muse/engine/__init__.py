@@ -7,7 +7,7 @@ because what it computes is a picture and a pair of sample offsets, and neither
 of those is a question about jobs.
 
 **No document, unlike every other headless package here.** ``sirens/`` owns a
-``.wsng`` and reaches for ``studio.undo`` and the two container guards; there is
+``.wsng`` and reaches for ``core.undo`` and the two container guards; there is
 nothing here to undo, so the outward-import set is *empty*. A take is a file a
 worker wrote, and the store owns it.
 

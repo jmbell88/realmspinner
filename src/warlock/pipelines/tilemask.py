@@ -32,7 +32,7 @@ membership field twice, once as one 384px field and once by blitting atlas
 columns, and pins the two byte-for-byte.
 
 **The eight bit constants and the 47-case collapse are restated here, not
-imported.** ``studio.tilegrid.blob`` owns them for the editor;
+imported.** ``kernels.grid2d.blob`` owns them for the editor;
 ``tests/kernels/grid2d/test_tilegrid_imports.py`` pins that package as a leaf, and no
 module under ``pipelines/`` imports ``studio`` -- a pipeline runs inside worker
 and Blender processes where ``studio`` is not importable at all. So this is the
@@ -103,7 +103,7 @@ FEATHER_RATIO = 0.03
 #: asking for an 8px terrain set wants to be told the answer is a smudge.
 MIN_TILE = 16
 
-#: The eight neighbour bits, clockwise from north. ``studio.tilegrid.blob``'s,
+#: The eight neighbour bits, clockwise from north. ``kernels.grid2d.blob``'s,
 #: restated: the values are positional, the atlas order derives from them, and
 #: they are not free to renumber. ``tests/test_tilemask.py`` pins them against
 #: the other copy.

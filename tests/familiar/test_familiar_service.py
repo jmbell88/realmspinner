@@ -262,6 +262,36 @@ def test_an_unparseable_reply_is_a_parse_refusal(monkeypatch):
     assert excinfo.value.reason == "parse"
 
 
+def test_clay_build_refuses_a_call_naming_a_tool_outside_the_frozen_cards_allowed_calls(
+    monkeypatch,
+):
+    """The 2026-09-18 audit (familiar-05): ``contract.allowed_calls`` is
+    parsed from the frozen card's own ``clay_batch`` schema (what the model
+    was actually trained to see) but was never called at runtime, so
+    ``clay_build`` returned a reply naming a tool outside that vocabulary
+    unchecked. ``clay_undo`` is real (an MCP tool) but is not one of the
+    names in ``cards/clay-1.txt``'s own ``clay_batch`` enum, so it stands in
+    for a decoding fluke or a card/weights-pin mismatch here."""
+
+    async def fake_chat(*args, **kwargs):
+        return (
+            '```json\n{"calls": [{"name": "clay_undo", "arguments": {}}]}\n```'
+        )
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+    fine_tuned = dataclasses.replace(
+        models.FAMILIAR_MODELS["familiar_gguf"], card_shas=(contract.card_sha("clay"),)
+    )
+    monkeypatch.setitem(models.FAMILIAR_MODELS, "familiar_gguf", fine_tuned)
+    assert "clay_undo" not in contract.allowed_calls("clay")
+
+    with pytest.raises(FamiliarRefusal) as excinfo:
+        svc_familiar.clay_build(_FakeSvc(), "undo my last change", {"objects": []})
+
+    assert excinfo.value.reason == "parse"
+    assert "clay_undo" in excinfo.value.message
+
+
 # ---------------------------------------------------------------------------
 # T6: ``ask`` -- the router, and the Manual answer path. ``svc_familiar.ask``
 # and ``svc_familiar._manual_index`` do not exist on the pre-T6 tree, so
@@ -692,6 +722,57 @@ def test_a_character_route_with_no_usable_plan_falls_back_to_chat(monkeypatch):
     assert answer.skill == "character"
     assert answer.action is None
     assert answer.text == "Warlock builds goblins and knights -- which would you like?"
+
+
+def test_a_movement_or_theme_the_plan_itself_dropped_is_surfaced_in_the_character_plan_summary_not_only_ones_recipe_from_prompt_rejects(  # noqa: E501
+    monkeypatch,
+):
+    """The 2026-09-18 audit (familiar-02):
+    ``docs/manual/20-overview.md`` promises a word the plan could not act on
+    "is named under the plan rather than silently dropped" -- but
+    ``character_plan.parse_plan`` drops an unknown movement or an unoffered
+    theme with no trace of its own, and ``_ask_character`` only ever
+    forwarded ``recipe_from_prompt``'s own ``ignored`` list. Here the model
+    names one movement ``recipe_from_prompt`` would happily accept (``walk``)
+    and one ``parse_plan`` itself drops before the recipe ever sees it
+    (``fly``, not in ``character_options["movements"]`` at all) -- the plan
+    summary's own ``ignored`` list must still name ``fly``."""
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "character"}'
+        return '{"family": "goblin", "movements": ["walk", "fly"]}'
+
+    def fake_recipe_from_prompt(svc, prompt, *, overrides=None):
+        # recipe_from_prompt never even sees "fly" -- parse_plan already
+        # dropped it -- so its own ``ignored`` is empty here on purpose:
+        # this proves the summary's "fly" entry can only have come from
+        # parse_plan's own dropped list, not a pass-through of this one.
+        assert overrides == {"family": "goblin", "animations": {"walk": None}}
+        return {
+            "recipe": {"family": "goblin"},
+            "resolution": {},
+            "ignored": [],
+            "cells": 24,
+            "estimate_minutes": 3.5,
+        }
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+    monkeypatch.setattr(svc_characters, "recipe_from_prompt", fake_recipe_from_prompt)
+
+    answer = svc_familiar.ask(
+        _FakeSvc(),
+        "make me a goblin that can walk and fly",
+        mode="home",
+        history=(),
+        character_options=_character_options(),
+    )
+
+    ignored = answer.action["summary"]["ignored"]
+    assert any(item.get("text") == "fly" for item in ignored), (
+        f"a word the plan itself dropped ('fly') never reached the summary: {ignored!r}"
+    )
 
 
 def test_creating_a_planned_character_re_runs_the_recipe_before_minting(monkeypatch):

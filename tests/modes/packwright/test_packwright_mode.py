@@ -1022,7 +1022,7 @@ def test_a_second_tileset_landing_does_not_silently_replace_one_already_parked_u
     unconditionally, even while an earlier import's popup was still open and
     unconfirmed -- silently swapping the sheet under it and dropping
     ``tileset_import_open`` back to False, so the pane's own "open once a new
-    import lands" check (``panes/packwright_sources.py``) reopened the popup
+    import lands" check (``modes/packwright/ui/panes/sources.py``) reopened the popup
     over completely different pixels next frame, with no toast and no visible
     sign anything had changed."""
     ctx = FakeCtx()

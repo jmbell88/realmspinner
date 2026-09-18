@@ -92,7 +92,14 @@ def read_track(path: Any) -> dict[str, Any]:
     # mismatch that comment names: a full-scale sample came back 1 LSB quiet
     # (the 2026-09-11 audit, finding muse-04).
     pcm = np.clip(np.round(data * 32768.0), -32768, 32767).astype(np.int16)
-    env = waveform.peaks(pcm)
+    # ``divisor=32768.0``, matching the quantiser two lines up (muse-04, the
+    # 2026-09-18 audit): ``waveform.peaks``'s own default divides by the dtype's
+    # *positive* peak (32767), which is ``wavout.to_int16``'s inverse, not this
+    # function's -- this quantises by the *negative* peak instead, for the
+    # reason the comment above gives. Leaving the default in reproduced the
+    # exact 1-LSB mismatch the 2026-09-11 audit's muse-04 already fixed once in
+    # this file, just moved from the decode into the envelope drawn beside it.
+    env = waveform.peaks(pcm, divisor=32768.0)
     if pcm.shape[1] == 1:
         pcm = pcm[:, 0]
     return {

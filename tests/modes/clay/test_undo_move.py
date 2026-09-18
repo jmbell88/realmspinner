@@ -3,7 +3,7 @@
 Clay needs ``Edit``/``CompoundEdit``/``UndoStack`` with its own edit
 types, so the engine cannot live inside the raster editor. What these tests pin
 is that the extraction was a *move*: the names inker imports are the very
-objects ``studio.undo`` defines, not copies that could drift apart -- two
+objects ``core.undo`` defines, not copies that could drift apart -- two
 serial counters in particular would hand out the same numbers twice, and
 ``head`` compares serials to decide whether a document is unsaved.
 """

@@ -2036,9 +2036,13 @@ def _run_export(
         plan = popup.plan if decision == "replace" else svc_export.keep_both(popup.plan)
         if as_zip:
             return svc_export.bulk_export(ctx.svc, ids, names, plan.files[0].dest)
-        if decision == "keep_both":
-            return svc_export.export_planned_to_folder(ctx.svc, ids, names, plan)
-        return svc_export.export_to_folder(ctx.svc, ids, names)
+        # Both decisions write through the plan the popup actually showed on
+        # screen. "Replace" used to call ``export_to_folder``, which knows
+        # nothing of ``plan`` and reads its destination straight off
+        # ``svc.config.export_dir`` -- so a Browse... pick that pointed
+        # somewhere else was silently discarded and the write landed at the
+        # configured folder instead (the 2026-09-18 audit, shell-01).
+        return svc_export.export_planned_to_folder(ctx.svc, ids, names, plan)
     finally:
         ctx.state._library_export = None
 

@@ -356,7 +356,18 @@ def _tasks_get_bytes(msg_id: Any, task_id: str, status: str, body: bytes | None)
     the honest approximation for a codebase where "a tool failing is not a
     JSON-RPC error" is a load-bearing rule (see this module's own opening
     docstring) -- there is no JSON-RPC error object to hand back for what a
-    tool-level exception was never treated as."""
+    tool-level exception was never treated as.
+
+    The 2026-09-18 audit (agents-02): this used to splice *body* with no
+    shape check at all -- unlike `splice_tool_result`, which checks its own
+    body unconditionally after the identical bug was found in it twice
+    (2026-09-14/agents-03, 2026-09-16/agents-02). A malformed body (Studio's
+    RPC v1 `status` reply, truncated or otherwise not a JSON object) went
+    straight onto the wire as `"result":<body>` or `"error":<body>`,
+    becoming literally invalid JSON. Checked here the same way, before the
+    body is spliced in."""
+    if body is not None and (not body.startswith(b"{") or not body.endswith(b"}")):
+        raise ValueError("task body must be a JSON object")
     task_json = json.dumps({"taskId": task_id, "status": status}, separators=(",", ":")).encode(
         "utf-8"
     )
@@ -646,6 +657,27 @@ def _dispatch_one(
         return reply if has_id else None
 
     if method == "server/discover":
+        if state.era == "legacy":
+            # The 2026-09-18 audit (agents-04): this branch only guarded its
+            # own write with `if state.era is None` (the same shape the
+            # 2026-09-15 audit, agents-03, found `initialize` missing for
+            # the mirror case) -- so a connection already locked to legacy
+            # by a prior `initialize` got a modern-shaped `discover_result`
+            # back from a stray `server/discover`, instead of the same
+            # -32600 refusal `initialize`'s own legacy branch already gives
+            # a stray `initialize` on that same locked connection (just
+            # above). `BridgeEra`'s own docstring says the era is "locked
+            # for the connection's life" once decided; refuse rather than
+            # answer.
+            return (
+                _error_bytes(
+                    msg_id,
+                    -32600,
+                    "invalid request: this connection is already locked to the legacy era",
+                )
+                if has_id
+                else None
+            )
         if state.era is None:
             state.era = "modern"
         if state.era == "modern" and _client_declares_tasks(params):
@@ -758,7 +790,20 @@ def _dispatch_one(
         if found is None:
             return _error_bytes(msg_id, -32602, "unknown task", data={"taskId": task_id})
         status, body = found
-        return _tasks_get_bytes(msg_id, task_id, status, body)
+        try:
+            # The 2026-09-18 audit (agents-02): folded the same way
+            # `_dispatch_tools_call`'s own try/except folds
+            # `splice_tool_result`'s ValueError -- a malformed body becomes
+            # an isError-shaped fallback body instead of propagating past
+            # this call and reaching the caller as an exception (or, before
+            # `_tasks_get_bytes`'s own guard above existed, going onto the
+            # wire as invalid JSON).
+            return _tasks_get_bytes(msg_id, task_id, status, body)
+        except ValueError as exc:
+            fallback = json.dumps(
+                fail(f"malformed task body: {exc}"), separators=(",", ":")
+            ).encode("utf-8")
+            return _tasks_get_bytes(msg_id, task_id, status, fallback)
     if method == "tasks/cancel":
         task_id = params.get("taskId")
         if not isinstance(task_id, str) or not task_id:

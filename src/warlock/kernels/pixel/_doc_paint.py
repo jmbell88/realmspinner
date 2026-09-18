@@ -821,7 +821,7 @@ class PaintOps:
         """Every distinct plane's pixels, copied and paired with its layer uid.
 
         The frame-thread half of a conversion's compute/apply split (the
-        2026-09-11 audit, finding inker-07): ``panes/inker_bridge.apply_convert``
+        2026-09-11 audit, finding inker-07): ``modes/inker/ui/panes/bridge.apply_convert``
         calls this before it ever reaches ``ctx.submit``, so the dithering that
         follows runs against copies nothing else can write to, and the
         submitted callable never has to read ``self`` at all -- the whole point

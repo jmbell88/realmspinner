@@ -1543,6 +1543,23 @@ def test_call_never_raises_on_a_wrong_typed_argument() -> None:
     assert result["isError"] is True
 
 
+@pytest.mark.parametrize("arguments", [5, True, "not-a-dict-either", ["also", "not"]])
+def test_call_never_raises_on_a_non_dict_arguments(arguments: object) -> None:
+    """Regression, the 2026-09-18 audit's agents-09: ``call``'s own docstring
+    claims "Never raises", but ``args = arguments or {}`` let a truthy
+    non-dict (a bare JSON number or ``true`` -- what a malformed MCP client's
+    ``params.arguments`` could be) straight through unchanged, and the
+    unknown-argument-name loop just below (``for k in args if k not in
+    allowed``) raised a bare ``TypeError`` on it before this function's own
+    try/except was ever reached. Fails against the unfixed ``call``, which
+    let that ``TypeError`` escape uncaught for ``5`` and ``True`` (empty
+    string/list/dict are falsy and were already coerced to ``{}`` by the old
+    code, so this covers exactly the truthy-non-dict gap, not every non-dict
+    value)."""
+    result = agent_clay.call(_Ctx(), agent_clay.Session(), "clay_scene", arguments)
+    assert result["isError"] is True
+
+
 # --- end to end: clay_export mints a real, finished asset ---------------------
 
 
@@ -1660,6 +1677,50 @@ def test_clay_scene_bounds_ignore_a_hidden_object() -> None:
     tab.doc.set_props(uid, visible=False)
     result = agent_clay.call(ctx, session, "clay_scene", {})
     assert _payload(result)["bounds"] is None
+
+
+def test_clay_scene_is_refused_rather_than_oversized_past_max_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression, the 2026-09-18 audit's agents-03: unlike ``clay_render``,
+    whose own base64 payload is checked against ``protocol.MAX_FRAME`` before
+    it leaves, ``clay_scene``'s reply grows with the document's own object
+    count and had no ceiling at all -- a document of about 22,000 primitives
+    encodes to roughly 9.1 MB, past ``MAX_FRAME`` (8 MiB), with nothing that
+    would refuse or page it (reproduced without building 22,000 real objects
+    by monkeypatching ``MAX_FRAME`` absurdly small instead, the same trick
+    ``test_clay_render_compare_is_refused_when_the_sheet_would_not_fit_one_frame``
+    already uses). Fails against the unfixed ``_h_scene``, which never checks
+    ``MAX_FRAME`` at all and would answer ``isError: False`` here.
+    """
+    from warlock.mcp import rpc
+
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    monkeypatch.setattr(rpc, "MAX_FRAME", 10)
+
+    result = agent_clay.call(ctx, session, "clay_scene", {})
+    assert result["isError"] is True
+
+
+def test_clay_diagnose_whole_document_is_refused_rather_than_oversized_past_max_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression, the 2026-09-18 audit's agents-03: the same missing check
+    as ``clay_scene``'s, in whole-document ``clay_diagnose`` (no ``uid``),
+    whose reply also grows with the document's own object count. Fails
+    against the unfixed ``_h_diagnose``, which never checks ``MAX_FRAME`` at
+    all and would answer ``isError: False`` here."""
+    from warlock.mcp import rpc
+
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    monkeypatch.setattr(rpc, "MAX_FRAME", 10)
+
+    result = agent_clay.call(ctx, session, "clay_diagnose", {})
+    assert result["isError"] is True
 
 
 # ==============================================================================
@@ -2198,7 +2259,7 @@ def test_clay_batch_that_starts_with_an_add_mints_the_sessions_first_document() 
 # an agent that would rather the partial work never existed. Because the
 # whole run already folds into one undo step, reversing it is one
 # ``history.undo(doc, redoable=False)`` -- see that method's own docstring
-# (``src/warlock/studio/undo.py``) for the cancelled-lift incident that
+# (``src/warlock/core/undo.py``) for the cancelled-lift incident that
 # argument exists for.
 
 

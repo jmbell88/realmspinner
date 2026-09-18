@@ -353,3 +353,31 @@ def test_an_asset_with_no_atlas_beside_it_says_so(tmp_path):
             packwright_io.edit_asset_in_packwright(ctx, {"id": "j1"})
     finally:
         svc_files.packwright_source_path = original
+
+
+def test_reopening_a_library_asset_titles_the_tab_after_the_job_not_a_fixed_string(tmp_path):
+    """packwright-03 (2026-09-18 audit): a reopened atlas was always titled
+    "Atlas" outright, no matter what the library row was named -- unlike
+    Mason's ``edit_asset_in_mason``, which titles the reopened tab after
+    ``job["name"]``. Two different atlases reopened from the Library both
+    read "Atlas" in every tab and title bar that shows one."""
+    from warlock.studio.modes.packwright.engine.document import PackDoc
+
+    class _Svc:
+        pass
+
+    doc = PackDoc()
+    doc.mark_saved()
+    path = tmp_path / "source.wpack"
+    path.write_bytes(wpack.snapshot_bytes(wpack.snapshot(doc)))
+
+    ctx = FakeCtx(svc=_Svc())
+    from warlock.service import files as svc_files
+
+    original = svc_files.packwright_source_path
+    try:
+        svc_files.packwright_source_path = lambda svc, job_id: path
+        packwright_io.edit_asset_in_packwright(ctx, {"id": "j1", "name": "Barrel Set"})
+    finally:
+        svc_files.packwright_source_path = original
+    assert ctx.result["title"] == "Barrel Set"

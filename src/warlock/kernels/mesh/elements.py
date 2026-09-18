@@ -268,6 +268,24 @@ def restrict(mesh: Mesh, sel: ElementSel) -> ElementSel:
     was *not* wired into) -- a state that ``tests/modes/clay/test_elements.py``'s
     own self-adjusting gate kept honest rather than one this file could drift
     away from unnoticed.
+
+    **This only range-checks, deliberately, and that is narrower than it
+    sounds.** It drops an index a rebuilt mesh no longer *has*, but an index
+    that is still in range after the rebuild survives verbatim, however
+    little it still means -- a generator edit that changes segment counts
+    replaces every position and every face from scratch, so index 3 naming
+    "the third face" before the edit and index 3 after it are, in general,
+    two different faces that merely share a number. The 2026-09-18 audit's
+    clay-06 named this gap: a selection can end up pointing at geometry the
+    user never selected, silently, with no crash to surface it. Closing it
+    for real needs the *old* mesh's own counts to compare against, and this
+    function is never given them -- only ``ClayDoc.set_generator_params``,
+    its one caller, holds both the pre-edit mesh and the rebuilt one at once,
+    so a caller wanting the stronger guarantee (drop the whole selection on
+    *any* count change, not just an out-of-range index) would compare there
+    and pass :func:`empty` through instead of calling this. Left
+    range-checking only here, rather than widened past what this function's
+    two arguments can actually know.
     """
     n_verts, n_faces = len(mesh.positions), len(mesh.starts) - 1
     edges = sel.edges

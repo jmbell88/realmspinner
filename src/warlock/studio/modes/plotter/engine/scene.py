@@ -1,6 +1,6 @@
 """What a layer actually looks like once its ancestors have had their say.
 
-**One resolver, both renderers.** ``panes/plotter_canvas`` draws one quad per
+**One resolver, both renderers.** ``modes/plotter/ui/panes/canvas`` draws one quad per
 visible cell and ``render.py`` composites the whole map for an export; they
 already agreed about orientation and placement because both take those from
 :mod:`.gid` and :mod:`.project`, and this is the third answer neither is

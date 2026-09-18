@@ -267,6 +267,91 @@ def test_probe_runs_the_smoke_import_only_on_what_verify_located(tmp_path, monke
     assert calls == [["json"]]
 
 
+# --- persisted verdicts (pipelines-06, the 2026-09-18 audit) -----------------
+#
+# ``verify``/``smoke_import`` are never faked with a real broken module here
+# (that is what the ``broken_pkg`` tests above already prove) -- these are
+# about ``_probe`` writing the file, so ``verify``/``smoke_import`` are
+# stubbed to report a clean or broken name without spawning anything, and
+# never touch torch or any other real pack module.
+
+
+def test_probe_writes_one_verify_json_per_pack_naming_only_its_own_break(
+    tmp_path, monkeypatch
+):
+    """The merged ``probe`` list is one disposable child per module, shared
+    across every chosen pack -- but the verdict must not be. One broken
+    module in a two-pack request may only mark the pack that owns it."""
+    monkeypatch.setattr(pack_worker, "verify", lambda spec: [])
+    monkeypatch.setattr(pack_worker, "smoke_import", lambda names: ["fake_broken"])
+
+    pack_worker._probe(
+        {
+            "probe": ["fake_clean", "fake_broken"],
+            "pack_dir": str(tmp_path),
+            "pack_probes": {"good_pack": ["fake_clean"], "bad_pack": ["fake_broken"]},
+        }
+    )
+
+    good = json.loads((tmp_path / "good_pack.verify.json").read_text(encoding="utf-8"))
+    bad = json.loads((tmp_path / "bad_pack.verify.json").read_text(encoding="utf-8"))
+    assert good == {"ok": True, "broken": []}
+    assert bad == {"ok": False, "broken": ["fake_broken"]}
+
+
+def test_a_probe_only_run_that_fails_still_leaves_ok_false_on_disk(tmp_path, monkeypatch):
+    """M01's own shape, at the door this closes: a repair (or the "already
+    installed" fast path, which runs the identical probe) that finds the
+    pack still broken must raise *and* leave a verdict a later, unrelated
+    process can read without re-running anything -- ``find_spec`` may well
+    resolve by then (the wheel unpacked; the import still raises), which is
+    exactly the gap a bare ``find_spec`` check cannot see."""
+    monkeypatch.setattr(pack_worker, "verify", lambda spec: [])
+    monkeypatch.setattr(pack_worker, "smoke_import", lambda names: list(names))
+
+    with pytest.raises(ValueError, match="cannot be imported"):
+        pack_worker.run(
+            {
+                "probe_only": True,
+                "probe": ["fake_broken"],
+                "pack_dir": str(tmp_path),
+                "pack_probes": {"bad_pack": ["fake_broken"]},
+            }
+        )
+
+    verdict = json.loads((tmp_path / "bad_pack.verify.json").read_text(encoding="utf-8"))
+    assert verdict == {"ok": False, "broken": ["fake_broken"]}
+
+
+def test_a_clean_probe_only_run_records_ok_true(tmp_path, monkeypatch):
+    monkeypatch.setattr(pack_worker, "verify", lambda spec: [])
+    monkeypatch.setattr(pack_worker, "smoke_import", lambda names: [])
+
+    out = pack_worker.run(
+        {
+            "probe_only": True,
+            "probe": ["fake_clean"],
+            "pack_dir": str(tmp_path),
+            "pack_probes": {"good_pack": ["fake_clean"]},
+        }
+    )
+    assert out["ok"] is True
+    verdict = json.loads((tmp_path / "good_pack.verify.json").read_text(encoding="utf-8"))
+    assert verdict == {"ok": True, "broken": []}
+
+
+def test_probe_without_pack_dir_or_pack_probes_writes_nothing(tmp_path, monkeypatch):
+    """Every call site before this fix, and a bare ``_probe`` call in a test
+    above: no ``pack_dir``/``pack_probes`` key at all must stay a pure
+    no-op, never an error -- this is additive bookkeeping, not a new
+    requirement on ``_probe``'s contract."""
+    monkeypatch.setattr(pack_worker, "verify", lambda spec: [])
+    monkeypatch.setattr(pack_worker, "smoke_import", lambda names: [])
+    problems = pack_worker._probe({"probe": ["fake_clean"]})
+    assert problems == []
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_the_already_installed_path_is_probed_before_being_trusted(tmp_path):
     """M01: the "nothing pending" branch must ask the same real question a
     fresh install does, not skip it because there was nothing to download."""

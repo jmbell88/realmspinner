@@ -616,6 +616,51 @@ def test_collapsing_one_edge_does_not_walk_the_whole_meshs_vertex_count(
     assert calls < 50, f"collapsing one edge called _find() {calls} times on 50,008 vertices"
 
 
+def _grid_mesh(rows: int, cols: int, quad_size: float) -> bm.Mesh:
+    """A flat floor tiled from `rows` x `cols` separate quad faces -- the
+    same helper `tests/modes/clay/test_analyze.py::_grid_mesh` uses, kept
+    local here rather than imported across test modules."""
+    positions = [
+        (c * quad_size, 0.0, r * quad_size) for r in range(rows + 1) for c in range(cols + 1)
+    ]
+    stride = cols + 1
+    faces = []
+    for r in range(rows):
+        for c in range(cols):
+            a = r * stride + c
+            faces.append([a, a + 1, a + 1 + stride, a + stride])
+    return bm.from_faces(positions, faces)
+
+
+def test_collapse_refuses_past_its_own_size_ceiling() -> None:
+    """The 2026-09-18 audit's clay-04: unlike `bridge_edges`
+    (`MAX_BRIDGED_RING`), `fill_hole`/dissolve (`ops_dissolve.
+    MAX_DISSOLVED_RING`) and every other topology walk in this package,
+    `collapse` had no ceiling at all -- select-all Collapse on a 600x600-quad
+    grid (721,200 edges, 360,000 faces) measured 1.24s on the frame thread,
+    unbounded and growing with mesh size. A 400x400 grid (320,800 edges) is
+    already past `MAX_COLLAPSED_PAIRS` (250,000), so this raises before the
+    Python-level union-find walk ever starts, rather than running it to
+    completion the way the unfixed code did (0.55s, no exception, measured
+    against the pre-fix source in this fix's own scratch comparison).
+    """
+    m = _grid_mesh(400, 400, 0.1)
+    sel = el.ElementSel(edges=adj.adjacency(m).edge_verts)
+    with pytest.raises(el.OpError, match="Collapse"):
+        ops.collapse(m, sel)
+
+
+def test_collapse_stays_reachable_comfortably_under_the_ceiling() -> None:
+    """The ceiling must not have crept down onto ordinary use -- an edit a
+    real blockout session would make (a fifth of `MAX_COLLAPSED_PAIRS`)
+    still collapses rather than refusing."""
+    m = _grid_mesh(100, 100, 0.1)  # 20,200 edges, well under the ceiling
+    sel = el.ElementSel(edges=adj.adjacency(m).edge_verts)
+    assert len(sel.edges) < ops.MAX_COLLAPSED_PAIRS
+    out, _ = ops.collapse(m, sel)
+    bm.validate(out)
+
+
 # --- fill_hole --------------------------------------------------------------
 
 

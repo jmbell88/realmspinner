@@ -20,10 +20,6 @@ from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as plotter_mode
 
-#: The undo-history popover's name, which imgui also takes as its id. Opened and
-#: begun in this pane, which is what an imgui popup requires.
-HISTORY_POPUP = "plotter-undo-history"
-
 #: What this pane refuses to shrink past, in design pixels: the path line, the
 #: unsaved marker, the undo pair and the step count.
 #:
@@ -163,18 +159,6 @@ def _history(ctx: Any, tab: Any) -> None:
         undo=lambda: plotter_mode.undo(ctx, tab),
         redo=lambda: plotter_mode.redo(ctx, tab),
         step=lambda index: plotter_mode.step_history(ctx, tab, index),
-        opened="(the map as opened)",
-    )
-
-
-def _history_popup(ctx: Any, tab: Any) -> None:
-    """The Undo History popover, by the name the smoke test opens it under.
-    The drawing is ``widgets.history_popup``, shared with every bridge."""
-    widgets.history_popup(
-        HISTORY_POPUP,
-        tab,
-        lambda index: plotter_mode.step_history(ctx, tab, index),
-        key="plotter",
         opened="(the map as opened)",
     )
 

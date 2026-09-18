@@ -96,6 +96,37 @@ sentence, not a list, and the test below is what catches one of them going
 stale.
 """
 
+REFERENCE_TOOLS = frozenset(
+    {
+        "clay_reference_add",
+        "clay_reference_get",
+        "clay_reference_list",
+        "clay_reference_remove",
+    }
+)
+"""The four reference tools, named once, so nothing else in this fold has to
+relist them by hand -- ``studio/assistant/preview.py``'s own
+``PREVIEW_EXCLUDED`` reads this set (through ``dispatch.py``'s re-export)
+rather than writing the four names out a second time.
+
+**Deliberately not folded into ``BATCH_EXCLUDED`` below.** The 2026-09-18
+audit's familiar-04 first tried exactly that -- ``BATCH_EXCLUDED`` had
+always named only ``clay_reference_get``, so ``clay_reference_add``/
+``_list``/``_remove`` were batchable, and folding this whole set in closed
+that hole -- but ``BATCH_EXCLUDED`` is *published*: ``clay_batch``'s own
+description sentence interpolates ``set(_HANDLERS) - BATCH_EXCLUDED``
+(``studio/modes/clay/agent/dispatch.py``'s ``batch_names``), so widening it
+changed the live tool catalogue's text and, with it, the catalogue hash a
+training dataset had pinned (``dev/tests/familiar/test_contract.py``'s
+``test_derive_clay_card_reproduces_the_dataset_manifest_tools_sha``) --
+and silently made three tools unbatchable for every external MCP agent, a
+public-surface change familiar-04 never asked for. The fix moved to
+``studio/assistant/preview.py``'s ``run_scratch`` instead: it now walks a
+``clay_batch`` call's own ``calls`` before running it and refuses any nested
+name in ``PREVIEW_EXCLUDED``, the same set a *direct* call already checks --
+closing the preview-only hole without touching what an ordinary MCP client
+may batch."""
+
 BATCH_EXCLUDED = frozenset(
     {
         "clay_batch",  # nesting buys nothing and bounds nothing
@@ -119,7 +150,8 @@ BATCH_EXCLUDED = frozenset(
 )
 """Tools ``clay_batch`` refuses to run -- see ``agent_clay_tools_batch._h_batch``'s
 docstring for the derivation, and the comments above for why each one is
-excluded."""
+excluded. See ``REFERENCE_TOOLS``'s own docstring for why the other three
+reference tools stay off this particular list."""
 
 PROGRAM_DEADLINE_S = 4.0
 """The wall-clock budget one ``clay_program`` call gets, measured from the

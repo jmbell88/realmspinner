@@ -356,10 +356,20 @@ def available(stage: str, job: Any, ctx: Any = None) -> str | None:
     if stage == "export":
         if job is None:
             return "Nothing is selected to export."
-        if job.get("status") in ("queued", "running"):
+        status = job.get("status")
+        if status in ("queued", "running"):
             # The downloads grid's own words for the same fact, so the segment
             # and the buttons behind it do not offer two accounts of it.
             return "not finished yet"
+        if status in ("error", "cancelled"):
+            # The 2026-09-18 audit, finding create-01: this arm only dimmed
+            # queued/running, so an errored or cancelled asset left the
+            # Export segment enabled with nothing behind it to explain why
+            # the click did nothing. ``STATUS_SENTENCES``' own wording, via
+            # ``not_done_message`` -- the same pair ``asset_exits._status_reason``
+            # draws from for the identical "no reason shown" complaint -- so
+            # the tooltip here and the refusal it predicts stay one sentence.
+            return not_done_message("This", str(status))
         return None
     return None
 

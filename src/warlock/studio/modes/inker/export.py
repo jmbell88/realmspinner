@@ -912,7 +912,7 @@ def pump_undo_trim(ctx: Any) -> None:
     does before switching away, and the missing undo is discovered somewhere
     else entirely.
 
-    The engine counts rather than calls back -- ``studio.undo`` imports nothing
+    The engine counts rather than calls back -- ``core.undo`` imports nothing
     and two headless packages depend on that -- so the comparison lives here,
     against a per-tab mark.
     """

@@ -44,6 +44,7 @@ from .validate import (
     Session,
     _json,
     _label_top,
+    _over_frame_budget,
     _params_shape_refusal,
     _quat_from_euler_xyz,
     _repaint,
@@ -94,17 +95,25 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
         for i, m in enumerate(doc.materials)
     ]
 
-    return _json(
-        {
-            "objects": objects,
-            "selection": sorted(doc.selection),
-            "element_mode": doc.element_mode,
-            "dirty": doc.dirty,
-            "object_count": len(doc.objects),
-            "bounds": bounds,
-            "materials": materials,
-        }
-    )
+    payload = {
+        "objects": objects,
+        "selection": sorted(doc.selection),
+        "element_mode": doc.element_mode,
+        "dirty": doc.dirty,
+        "object_count": len(doc.objects),
+        "bounds": bounds,
+        "materials": materials,
+    }
+    # The 2026-09-18 audit's agents-03: unlike clay_render, whose own payload
+    # is checked against protocol.MAX_FRAME before it leaves, clay_scene's
+    # reply grows with the document's own object count and had no ceiling at
+    # all -- a document of ~22,000 primitives encodes past MAX_FRAME and used
+    # to reach send_bytes and fail there, rather than being refused with an
+    # explanation. See _over_frame_budget's own docstring.
+    over_budget = _over_frame_budget(payload)
+    if over_budget is not None:
+        return over_budget
+    return _json(payload)
 
 
 def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:

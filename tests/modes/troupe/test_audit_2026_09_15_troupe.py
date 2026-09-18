@@ -263,18 +263,49 @@ def test_imp_gargoyle_angel_and_harpy_never_offer_their_declared_kin():
         assert not (set(creature.kin) & set(offer))
 
 
-# --- service-07: Troupe HD mode must drop reduce_mode too -------------------
+# --- service-07: Troupe HD mode must drop colors/palette/dither/outline -----
 
 
-def test_hd_mode_drops_reduce_mode_the_way_it_drops_colors_palette_dither_outline(svc):
-    """The 2026-09-15 audit, finding service-07: ``_q_troupe``'s own HD
-    branch (``if not pixel_art:``) never reads ``reduce_mode`` -- the atlas
-    is already reduced and never quantised on that path -- but
-    ``troupe._check_options`` used to leave it on the row anyway, unlike its
-    ``colors``/``palette``/``dither``/``outline`` siblings that HD mode has
-    no use for either.
+def test_hd_mode_drops_colors_palette_dither_outline_but_not_reduce_mode(svc):
+    """The 2026-09-15 audit, finding service-07, was itself corrected by the
+    2026-09-18 audit, finding troupe-01: this test used to assert
+    ``reduce_mode`` was stripped too, on the belief that ``_q_troupe``'s HD
+    branch never reads it. It does -- ``_render_charsheet`` (``_q_troupe.py``)
+    calls ``pixelize.reduce_frames(..., mode=reduce_mode)`` to take the 512px
+    render down to the logical size *before* the ``if not pixel_art`` branch
+    in ``_quantise`` is ever reached, so stripping ``reduce_mode`` from HD
+    rows silently forced every HD sheet through the "box" default regardless
+    of what the user picked. ``colors``/``palette``/``dither``/``outline``
+    really are unread on the HD path (no quantise, no palette, no outline
+    pass), so those four still drop.
     """
     options = svc_troupe._check_options(svc, {"pixel_art": False})
     assert options["pixel_art"] is False
-    for key in ("colors", "palette", "dither", "outline", "reduce_mode"):
+    for key in ("colors", "palette", "dither", "outline"):
         assert key not in options, f"{key!r} should not survive HD mode: {options!r}"
+    assert "reduce_mode" in options, (
+        "reduce_mode must survive HD mode: _render_charsheet reduces the "
+        f"512px render with it before the pixel-art branch runs: {options!r}"
+    )
+
+
+def test_hd_mode_keeps_the_users_reduce_mode_because_render_charsheet_reduces_with_it_before_the_pixel_art_branch_runs(  # noqa: E501
+    svc,
+):
+    """The 2026-09-18 audit, finding troupe-01: ``_check_options`` used to
+    strip ``reduce_mode`` from every HD (``pixel_art=False``) row on the
+    belief that ``_q_troupe``'s ``if not pixel_art`` branch never reads it.
+    It doesn't need to -- ``_render_charsheet`` already reduced the 512px
+    Blender render to the logical size with ``params["reduce_mode"]`` (or the
+    "box" default) *before* that branch runs, on every Troupe sheet, HD or
+    not. Stripping the field meant an HD request that asked for "point" (or
+    any non-default mode) silently got "box" instead, with no error and
+    nothing in the row to say so.
+    """
+    options = svc_troupe._check_options(
+        svc, {"pixel_art": False, "reduce_mode": "point"}
+    )
+    assert options["reduce_mode"] == "point", (
+        f"the user's reduce_mode should survive HD mode, not be silently "
+        f"replaced with the 'box' default: {options!r}"
+    )

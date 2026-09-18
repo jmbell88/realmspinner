@@ -307,6 +307,42 @@ def test_setting_a_broken_database_aside_keeps_every_part_of_it(tmp_path):
         store.close()
 
 
+def test_set_aside_rolls_back_if_the_wal_file_cannot_be_renamed(tmp_path, monkeypatch):
+    """The 2026-09-18 audit, finding service-03: a ``-wal``/``-shm`` rename
+    failing after the main file had already moved used to just log a warning
+    and keep going, leaving a fresh store's first read racing a stale journal
+    still sitting beside it -- the exact hazard ``set_aside`` exists to
+    prevent. All-or-nothing, with rollback: a failure partway through must
+    put every already-moved part back rather than leave a half set-aside
+    store behind."""
+    from warlock import db
+
+    path = tmp_path / "jobs.sqlite"
+    path.write_bytes(b"not a database")
+    path.with_name("jobs.sqlite-wal").write_bytes(b"stale wal")
+    path.with_name("jobs.sqlite-shm").write_bytes(b"stale shm")
+
+    real_replace = db.os.replace
+
+    def fake_replace(source, target):
+        if str(source).endswith("-wal"):
+            raise OSError("simulated failure renaming the WAL file")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(db.os, "replace", fake_replace)
+
+    moved = db.set_aside(path)
+
+    assert moved is None
+    # Rolled back completely: the main file this call had already moved is
+    # back where it started, byte for byte, and no corrupt-* siblings are
+    # left behind to be mistaken for a completed set-aside.
+    assert path.exists() and path.read_bytes() == b"not a database"
+    assert path.with_name("jobs.sqlite-wal").read_bytes() == b"stale wal"
+    assert path.with_name("jobs.sqlite-shm").read_bytes() == b"stale shm"
+    assert not list(tmp_path.glob("jobs.corrupt-*"))
+
+
 def test_a_broken_database_shows_up_in_the_doctor(tmp_path):
     """The row that lets a database which has *started* to go be found while
     the app is still up, when a backup is still possible."""

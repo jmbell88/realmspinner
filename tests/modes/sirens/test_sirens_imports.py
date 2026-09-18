@@ -15,7 +15,7 @@ answers it.
 whose output is audio, so it is the only one with a reason to want a sound
 device -- and the whole point of keeping it out is that a machine with no audio
 hardware can still open, edit, render and export a song. That machine is CI, and
-it is why this suite can test the synthesiser at all. ``studio/sirens_audio.py``
+it is why this suite can test the synthesiser at all. ``studio/modes/sirens/audio.py``
 is the one module in the repo that touches ``pygame.mixer``, and it is not here.
 
 **``scipy`` is the other one.** ``scipy.signal`` has a decimator and this package
@@ -42,7 +42,7 @@ PACKAGE = "warlock.studio.modes.sirens.engine"
 #: ``audio`` is this package's own kernel (``kernels/audio/wavout.py``,
 #: extracted from ``studio/sirens/wavout.py`` in P3), not a peer engine --
 #: Sirens is the only caller it has. Excepted from the sibling ban below the
-#: same way ``tests/modes/inker/test_inker_imports.py`` excepts ``tilegrid``.
+#: same way ``tests/modes/inker/test_inker_imports.py`` excepts ``grid2d``.
 SHARED_LEAVES = frozenset({"audio"})
 
 OUTWARD_IMPORTS = {

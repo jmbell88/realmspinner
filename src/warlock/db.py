@@ -464,9 +464,20 @@ def set_aside(path: Path) -> Path | None:
     needs: recreating over a file that is still there would fail the same way
     on the next launch, and reporting a recovery that did not happen is worse
     than reporting the original fault.
+
+    All-or-nothing, with rollback. The 2026-09-18 audit, finding service-03:
+    this used to keep going when the ``-wal`` or ``-shm`` rename failed after
+    the main file had already moved -- logging a warning and continuing past
+    it rather than returning ``None`` -- which is the exact hazard this
+    function exists to prevent: a fresh store's first read or write then races
+    a stale journal sitting beside it, still claiming to belong to it. A part
+    that fails to move now rolls every already-moved part of this call back
+    before returning ``None``, so the caller sees a clean failure and the
+    store on disk is exactly as it was before this call ran.
     """
     stamp = time.strftime("%Y%m%d-%H%M%S")
     moved: Path | None = None
+    renamed: list[tuple[Path, Path]] = []  # (target, source), in move order
     for part in STORE_PARTS:
         source = path.with_name(path.name + part)
         if not source.exists():
@@ -476,9 +487,11 @@ def set_aside(path: Path) -> Path | None:
             os.replace(source, target)
         except OSError:
             log.warning("could not set aside %s", source, exc_info=True)
-            if part == "":
-                return None
-            continue
+            for done_target, done_source in reversed(renamed):
+                with contextlib.suppress(OSError):
+                    os.replace(done_target, done_source)
+            return None
+        renamed.append((target, source))
         if part == "":
             moved = target
     return moved

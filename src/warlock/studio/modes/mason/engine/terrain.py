@@ -71,7 +71,7 @@ class Terrain:
     mesh in the cache describing a ground that no longer exists under it; and
     an undo step's recorded ``before`` sub-array is a slice taken *before* the
     brush ran, which a write into the live array would then edit retroactively
-    out from under the history stack (the exact trap ``studio/undo.py``'s
+    out from under the history stack (the exact trap ``core/undo.py``'s
     module docstring names for a shared buffer generally). A brush that wants
     to change the ground hands back ``(rect, new_sub_array)`` and something
     else -- not this module -- rebinds the full array around that patch.
@@ -119,7 +119,7 @@ class Terrain:
         # Coerce to f4 *and* own the buffer in one copy, unconditionally --
         # not just "when it looks like a view". A view reports only its own
         # small ``nbytes`` while pinning the whole base array alive (the trap
-        # ``studio/undo.py`` names), and an array that already happens to be
+        # ``core/undo.py`` names), and an array that already happens to be
         # f4 and contiguous is not proof it is not itself a slice of something
         # bigger the caller still holds a reference to.
         self.heights = np.array(arr, dtype=np.float32, copy=True)

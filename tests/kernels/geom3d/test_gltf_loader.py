@@ -146,6 +146,28 @@ def test_a_plain_mesh_loads_with_its_indices_and_normals(tmp_path):
     assert prim.indices.dtype == np.uint32
 
 
+def test_triangle_count_is_memoized_like_vertex_count(tmp_path):
+    """The 2026-09-18 audit, finding create-03: ``triangle_count`` summed
+    every primitive's indices on every call, while ``vertex_count`` right
+    beside it was memoized for B18 on the same reasoning -- the primitives
+    are immutable after load, and the inspector asks for this every frame.
+    Mutating ``model.meshes`` after the first read and re-reading proves the
+    cache, not just the recomputed sum: an unmemoized property would notice
+    the mutation and return a different count."""
+    path = tmp_path / "box.glb"
+    trimesh.creation.box(extents=(1.0, 2.0, 3.0)).export(path)
+    model = gltf.load(path)
+
+    first = model.triangle_count
+    assert first > 0
+
+    (_, prims) = model.mesh_instances()[0]
+    model.meshes[0] = list(prims) + list(prims)  # would double the sum if unmemoized
+
+    assert model.triangle_count == first
+    assert getattr(model, "_triangle_count", None) == first
+
+
 def test_a_root_transform_is_not_discarded(tmp_path):
     """The whole reason this loader exists rather than trimesh's: normalize_glb
     puts the grounding transform on a node, and trimesh drops it."""
@@ -552,6 +574,42 @@ def test_an_accessor_with_an_unrecognised_type_is_refused_with_a_value_error_not
     )
     with pytest.raises(ValueError, match="accessor type"):
         gltf.load(data)
+
+
+def test_an_accessor_missing_count_or_componenttype_raises_the_named_valueerror():
+    """The 2026-09-18 audit, finding clay-03: ``_decode_accessor`` read
+    ``componentType``/``type``/``count`` by raw dict indexing, so an accessor
+    with an *unrecognised* value in one of those fields raised the named
+    ``ValueError`` above (create-09), but one *missing the key entirely* fell
+    straight through to a bare ``KeyError`` -- the same class of leak,
+    unfixed for the field-absent case. A hand-supplied GLB can omit any
+    field; ``check_glb`` at the import door is structural-only."""
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    buffer_views = [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}]
+
+    missing_count = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "type": "VEC3"}],
+        buffer_views,
+        binary,
+    )
+    with pytest.raises(ValueError, match="count"):
+        gltf.load(missing_count)
+
+    missing_component_type = _minimal(
+        [{"bufferView": 0, "count": 3, "type": "VEC3"}],
+        buffer_views,
+        binary,
+    )
+    with pytest.raises(ValueError, match="componentType"):
+        gltf.load(missing_component_type)
+
+    missing_type = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3}],
+        buffer_views,
+        binary,
+    )
+    with pytest.raises(ValueError, match="type"):
+        gltf.load(missing_type)
 
 
 def test_a_required_extension_this_loader_does_not_implement_is_refused():

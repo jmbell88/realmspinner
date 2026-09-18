@@ -122,7 +122,7 @@ def editor_packages() -> tuple[str, ...]:
     """The "headless editor packages" CLAUDE.md's Architecture bullet names.
 
     ``pure_packages()`` is broader than that bullet on purpose: it also finds
-    ``tilegrid``'s successor ``grid2d`` and the rest of the shared kernels
+    ``grid2d``'s successor ``grid2d`` and the rest of the shared kernels
     (``geom3d``, ``audio``, ``manual`` -- none of them a workspace of its own),
     ``tour`` (pure data, explicitly *not* a mode per its own CLAUDE.md
     bullet), and, since P5, ``create`` (headless by the "no window" test, but

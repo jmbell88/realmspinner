@@ -374,25 +374,50 @@ def _save(ctx: Any, state: Any, viewer: Any) -> None:
     _save_library(ctx, viewer)
 
 
+def _save_asset_reason(busy: bool) -> str:
+    """Why "Save pose to this asset" is disabled right now, or "" if it is not.
+
+    The 2026-09-18 audit, finding poser-03: this button (and its two
+    neighbours in :func:`_save_library`, below) greyed out while a previous
+    save was still in flight with no ``reason`` at all -- unlike this pane's
+    own "Set this view as the front" (``_front``, above), which already
+    says "Still saving the previous front change." for the identical state.
+    Pulled into a named, testable function the same way
+    ``poser_clips._revert_clips_reason`` was for the identical class of bug
+    (poser-06, 2026-09-08).
+    """
+    return "Still saving." if busy else ""
+
+
 def _save_asset(ctx: Any, state: Any) -> None:
     busy = ctx.busy(f"{poser_mode.ASSET_SAVE_KEY_PREFIX}{state.job_id}")
     if widgets.disabled_button(
         "Save pose to this asset",
         not busy,
         (-1, 0),
+        reason=_save_asset_reason(busy),
         tooltip="Write this pose into the asset's own poses, the way the "
         "inspector's Pose tab would.",
     ):
         poser_mode.save_pose_to_asset(ctx)
 
 
+def _save_library_reason(busy: bool) -> str:
+    """Why "Save" / "Save as reusable pose..." are disabled right now, or "" if
+    not. See :func:`_save_asset_reason` -- same finding, same fix, the other
+    busy key."""
+    return "Still saving." if busy else ""
+
+
 def _save_library(ctx: Any, viewer: Any) -> None:
     busy = ctx.busy(poser_mode.SAVE_KEY)
     editing = viewer.editor.current is not None
+    reason = _save_library_reason(busy)
     if editing and widgets.disabled_button(
         "Save",
         not busy,
         (-1, 0),
+        reason=reason,
         tooltip="Overwrite the pose named above, in the shared library.",
     ):
         poser_mode.save(ctx)
@@ -400,6 +425,7 @@ def _save_library(ctx: Any, viewer: Any) -> None:
         "Save as reusable pose...",
         not busy,
         (-1, 0),
+        reason=reason,
         tooltip="Add a new pose to the library every asset on this skeleton can use.",
     ):
         poser_mode.save_as(ctx)

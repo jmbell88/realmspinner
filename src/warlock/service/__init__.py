@@ -4,9 +4,13 @@ Everything here used to live inside ``app.py``'s route bodies. It is plain
 synchronous Python that raises :mod:`~warlock.service.errors` exceptions
 instead of ``HTTPException``, so the desktop UI can call it from a worker
 thread. The HTTP routes that shape was originally kept for are gone -- the app
-serves no HTTP and opens no listening socket, and the one socket it opens is
-the client for the local trellis subprocess -- so the exceptions are the whole
-contract now rather than an intermediate form on the way back to status codes.
+serves no HTTP and opens no listening socket. It opens two, both loopback
+clients of a resident child this process itself spawned: ``pipelines/trellis.py``
+talks to the local ``trellis-server.exe`` subprocess, and
+``familiar/llama_client.py`` talks to Familiar's resident ``llama-server.exe``
+(the 2026-09-18 audit, finding docs-04 -- the second arrived with Familiar and
+this sentence never grew to name it). So the exceptions are the whole contract
+now rather than an intermediate form on the way back to status codes.
 
 **And then a second caller arrived, which is why that sentence is narrower than
 it was.** :mod:`warlock.mcp` lets an external agent drive Clay over a local

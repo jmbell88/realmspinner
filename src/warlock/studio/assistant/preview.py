@@ -7,7 +7,7 @@ and turning it into a real one on the frame thread.
 ``cards/`` there, none of which may import imgui, moderngl, pygame or the
 service layer (see ``tests/familiar/test_familiar_imports.py``). This module
 imports ``agent_clay``, which reaches ``clay_view`` (``moderngl``) and
-``panes.clay_tools`` (``imgui_bundle``) -- exactly the kind of window import
+``modes.clay.ui.panes.tools`` (``imgui_bundle``) -- exactly the kind of window import
 that package must never carry, even two relative hops away
 (``tests/_pure_packages.py::_module_roots`` now resolves relative imports
 precisely so a chain like that cannot hide). ``studio/modes/clay/agent/dispatch.py`` and the other
@@ -101,21 +101,40 @@ from ..modes.clay.state import ClayState, ClayTab
 #: business building -- rendering the agent's own hypothetical document
 #: would be a second, throwaway ``ClayView`` per preview, for a picture
 #: nothing asks to see. The four reference tools
-#: (``clay_reference_add``/``_get``/``_list``/``_remove``) are session-scoped
-#: bookkeeping about pictures to match against, not edits to the document at
-#: all -- there is nothing in them for :func:`~.clay.scratch.diff` to see,
-#: and a name added to one session's private reference list is not a change
-#: a Familiar preview should offer to "apply".
-PREVIEW_EXCLUDED = frozenset(
-    {
-        "clay_export",
-        "clay_render",
-        "clay_reference_add",
-        "clay_reference_get",
-        "clay_reference_list",
-        "clay_reference_remove",
-    }
-)
+#: (``agent_clay.REFERENCE_TOOLS``) are session-scoped bookkeeping about
+#: pictures to match against, not edits to the document at all -- there is
+#: nothing in them for :func:`~.clay.scratch.diff` to see, and a name added
+#: to one session's private reference list is not a change a Familiar
+#: preview should offer to "apply".
+#:
+#: The reference tools are read off ``agent_clay.REFERENCE_TOOLS`` (defined
+#: in ``agent_clay_schema``, re-exported by ``studio/modes/clay/agent/dispatch.py``
+#: the same way that module already re-exports ``_tab``/``_quat_from_euler_xyz``
+#: for an outside caller) rather than relisted here. Read through ``agent_clay``
+#: rather than a fresh import of ``agent_clay_schema`` because this module may
+#: only reach ``studio.modes.clay.agent.dispatch`` -- ``tests/test_layering.py``'s
+#: ``_P5_PILOT_FOUR`` names that one edge and "may shrink but never grow", so
+#: a second, sibling module under ``modes.clay.agent`` is not this fix's to add.
+#:
+#: **This set alone is not enough** -- the 2026-09-18 audit's familiar-04:
+#: a Familiar build never hands :func:`run_scratch` one of these names
+#: directly, it always runs its whole proposal as one ``clay_batch``
+#: (``studio/assistant/ui.py``'s ``_submit_build_preview``, the only path a
+#: build ever takes), and a first attempt at this fix folded
+#: ``REFERENCE_TOOLS`` into ``agent_clay_schema.BATCH_EXCLUDED`` to catch that
+#: -- which also changed ``clay_batch``'s own published description (that
+#: constant is what ``batch_names`` in ``studio/modes/clay/agent/dispatch.py``
+#: is built from) and, with it, the live tool catalogue's hash, breaking
+#: ``dev/tests/familiar/test_contract.py``'s pinned dataset ``tools_sha`` --
+#: and silently made three tools unbatchable for every *external* MCP agent,
+#: a public-surface change familiar-04 never asked for. See
+#: ``REFERENCE_TOOLS``'s own docstring in ``agent_clay_schema`` for why
+#: ``BATCH_EXCLUDED`` reverted to its original, narrower membership. The real
+#: fix is :func:`run_scratch` itself walking a ``clay_batch`` call's own
+#: ``calls`` and refusing any nested name in this set -- a preview-only door,
+#: invisible to the published catalogue and to every non-Familiar caller of
+#: ``clay_batch``.
+PREVIEW_EXCLUDED = frozenset({"clay_export", "clay_render"}) | agent_clay.REFERENCE_TOOLS
 
 
 def apply(ctx: Any, tab_uid: str, diff: Any, scratch: Any) -> dict:
@@ -254,14 +273,41 @@ def build(doc: bd.ClayDoc) -> ScratchCtx:
     return ScratchCtx(state=SimpleNamespace(clay=state), tab_uid=tab.uid)
 
 
+def _batch_nests_a_preview_excluded_tool(args: dict) -> str | None:
+    """The first name inside a ``clay_batch`` call's own ``calls`` that is in
+    :data:`PREVIEW_EXCLUDED`, or ``None`` if none is.
+
+    Walked the same shape ``agent_clay_tools_batch._h_batch`` itself walks
+    (``calls`` a list, each entry an object with a ``name``), but only to
+    ask this one question -- a malformed shape (``calls`` not a list, an
+    entry not an object, a ``name`` that is not a string) is left for
+    ``_h_batch``'s own validation to refuse when the call actually runs;
+    this only has to catch the well-formed case a real Familiar build could
+    ever send, before it runs at all.
+    """
+    calls = args.get("calls")
+    if not isinstance(calls, list):
+        return None
+    for entry in calls:
+        if isinstance(entry, dict) and entry.get("name") in PREVIEW_EXCLUDED:
+            return entry.get("name")
+    return None
+
+
 def run_scratch(ctx: ScratchCtx, name: str, args: dict) -> dict:
     """Run one agent tool call against a scratch clone, never the real
     document.
 
     ``name`` is refused, before ``agent_clay.call`` is ever reached, when it
-    is in :data:`PREVIEW_EXCLUDED`. The session's ``tab_uid`` is pinned to
-    the scratch ctx's own tab *before* the call, which is what keeps a
-    ``create=True`` tool (``clay_add_primitive``, ``clay_add_figure``,
+    is in :data:`PREVIEW_EXCLUDED`. A ``clay_batch`` call gets a second,
+    narrower check first: :func:`_batch_nests_a_preview_excluded_tool` walks
+    its own ``calls`` and refuses the same way if any nested entry names an
+    excluded tool -- see :data:`PREVIEW_EXCLUDED`'s own docstring for why a
+    Familiar build (always one ``clay_batch``, never a bare call to one of
+    these names) needed this second door and why it lives here rather than
+    in ``agent_clay_schema.BATCH_EXCLUDED``. The session's ``tab_uid`` is
+    pinned to the scratch ctx's own tab *before* the call, which is what
+    keeps a ``create=True`` tool (``clay_add_primitive``, ``clay_add_figure``,
     ``clay_add_mesh``) from ever reaching ``clay_mode.new_document`` --
     ``agent_clay._tab`` only takes that branch when ``session.tab_uid`` is
     falsy, and here it never is.
@@ -270,5 +316,12 @@ def run_scratch(ctx: ScratchCtx, name: str, args: dict) -> dict:
         return agent_clay.fail(
             f"{name} cannot be previewed -- it is excluded from Familiar scratch runs.",
         )
+    if name == "clay_batch" and isinstance(args, dict):
+        nested = _batch_nests_a_preview_excluded_tool(args)
+        if nested is not None:
+            return agent_clay.fail(
+                f"{nested} cannot be previewed -- it is excluded from Familiar "
+                "scratch runs, even nested inside a clay_batch.",
+            )
     session = agent_clay.Session(tab_uid=ctx.tab_uid)
     return agent_clay.call(ctx, session, name, args)

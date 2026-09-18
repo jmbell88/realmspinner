@@ -229,7 +229,7 @@ def test_the_engine_never_imports_the_queue_or_the_pipelines():
 
 #: ``geom3d`` is a shared kernel leaf Mason legitimately imports (see
 #: :data:`CEILING`/:data:`OUTWARD_IMPORTS`), not a peer engine -- the same
-#: ``tilegrid`` exception ``tests/modes/inker/test_inker_imports.py`` already
+#: ``grid2d`` exception ``tests/modes/inker/test_inker_imports.py`` already
 #: records for the same reason. Recorded here rather than left for the
 #: parametrize to catch and fail on, which is exactly what
 #: :func:`_pure_packages.siblings_of`'s ``allowed`` parameter is for.

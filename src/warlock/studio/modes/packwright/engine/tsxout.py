@@ -5,7 +5,7 @@ tileset -- uniform cells, a constant gutter, a constant border -- so it can be
 handed to Plotter, or to Tiled, with no conversion at all. A MaxRects pack is
 not one and is refused rather than approximated.
 
-**This module writes no XML.** It builds a ``tilegrid.tileset.Tileset`` and calls
+**This module writes no XML.** It builds a ``grid2d.tileset.Tileset`` and calls
 ``plotter.tsx.tsx_bytes``, so there is exactly one ``.tsx`` writer in the repo
 and a Packwright tileset and a Plotter one cannot become two dialects of the
 format. That import is the reason grid geometry is spelled as margin-and-spacing
@@ -26,7 +26,7 @@ def grid_tileset(layout: Layout, atlas: np.ndarray, *, name: str) -> Tileset:
 
     ``margin`` and ``spacing`` are both the pack's ``padding``, which is what
     :func:`~.layout.grid_layout` builds the geometry to satisfy;
-    :class:`~..tilegrid.tileset.Tileset` validates the slicing on construction,
+    :class:`~..grid2d.tileset.Tileset` validates the slicing on construction,
     so a layout that had drifted from that promise fails here rather than in
     Tiled.
     """

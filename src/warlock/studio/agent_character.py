@@ -1253,6 +1253,21 @@ def _normalise_export(fmt: str, result: Any) -> dict[str, Any]:
         paths = [str(v) for k, v in result.items() if k != "dir"]
         return {"format": fmt, "dir": str(result["dir"]), "paths": paths}
     path = Path(result)
+    if path.is_dir():
+        # The 2026-09-18 audit (agents-01): ``godot_scene``/``frame_folders``
+        # hand back the staged directory itself (``export.staged_tree``
+        # returns ``dest_root / name``, not a file under it). This branch
+        # used to run ``Path(result)`` through the single-file case anyway,
+        # reporting the export *root* (this directory's parent) as "dir" and
+        # the staged directory itself as the sole entry in "paths" -- one
+        # level too high, and not a file at all, contradicting both this
+        # tool's own description ("Exports land in a folder named for the
+        # asset and its ids") and every other format's "paths" (a real file
+        # list). "dir" is the staged directory; "paths" is every file
+        # ``write`` put inside it, however deep (frame_folders nests
+        # ``<clip>/<compass>/<nnn>.png`` under a flat ``manifest.json``).
+        paths = sorted(str(p) for p in path.rglob("*") if p.is_file())
+        return {"format": fmt, "dir": str(path), "paths": paths}
     return {"format": fmt, "dir": str(path.parent), "paths": [str(path)]}
 
 
@@ -1293,7 +1308,17 @@ def _rig_queued_this_sheet(svc: Any, session: Session, job_id: str) -> bool:
     from ..service import troupe as svc_troupe
     from ..service.errors import ServiceError
 
-    for minted_id, kind in session.minted.items():
+    # The 2026-09-18 audit (agents-07): ``session.minted`` is an unlocked
+    # dict, and a character_cancel call on one SERVICE_WORKERS thread used to
+    # iterate it live while a concurrent character_create/character_rig/
+    # character_sheet_create call on the other thread inserted a new minted
+    # id -- CPython raises "dictionary changed size during iteration"
+    # (reproduced in agents-character-01.py). ``dict(...)`` snapshots the
+    # keys and values before iterating, which is safe against a concurrent
+    # insert (a job minted after the snapshot just is not seen by this call,
+    # the same way it would not be seen had the snapshot happened a moment
+    # earlier).
+    for minted_id, kind in dict(session.minted).items():
         if kind != "rig":
             continue
         try:

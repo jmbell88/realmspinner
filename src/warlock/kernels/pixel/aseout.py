@@ -891,7 +891,7 @@ def _tilemap_cel_chunk(
     writer that left them zero would have every flipped tile read back as a
     plain one -- and one that wrote a different layout than it packed would
     turn a mirrored tile into a tile id of two billion. Ours are
-    :mod:`..tilegrid.gid`'s own four, which are also Aseprite's defaults, so
+    :mod:`..grid2d.gid`'s own four, which are also Aseprite's defaults, so
     the remap is the identity in both directions and the file is one real
     Aseprite reads unchanged.
     """
@@ -963,7 +963,7 @@ def _strip_bytes(
     from the wrong pixels. For an inker-native strip this is the identity.
 
     ``count < 1`` is refused by name before ``np.concatenate`` is reached: a
-    real :class:`~..tilegrid.tileset.Tileset` cannot actually hold zero tiles
+    real :class:`~..grid2d.tileset.Tileset` cannot actually hold zero tiles
     (its own ``__post_init__`` requires at least one column and one row, and
     ``tiles.blank_strip``/``.strip`` both start a tileset at its required blank
     tile 0), so this is defensive rather than reachable through the studio --
@@ -1612,7 +1612,7 @@ def aseprite_bytes(doc) -> bytes:
 def write_aseprite(doc, path) -> None:
     """The same file, on disk. Blocking; callers encode on a task thread.
 
-    Through ``studio.atomic``, which is the app's one staging idiom: a save
+    Through ``core.safeio.atomic``, which is the app's one staging idiom: a save
     that dies partway must leave the previous file intact rather than a
     truncated sprite where the user's work was, **and** must not leave its
     staging file behind -- which the hand-rolled ``.tmp`` here did on every

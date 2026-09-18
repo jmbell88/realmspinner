@@ -33,11 +33,16 @@ CLIP_DIR = TEMPLATE_DIR / "clips"
 
 # A shipped clip library is up to ~44 KB today, but unlike a template it is
 # also something a user edits and re-saves through service.clips.save, whose
-# own write-door caps (MAX_LIBRARY_KEYS=256 poses, MAX_KEYS=64 keys/clip) allow
-# a file substantially larger once every pose carries a full skeleton's worth
-# of bones at JSON's verbosity. 4 MiB leaves real headroom above that
+# own write-door caps (MAX_LIBRARY_KEYS=1024 poses, MAX_KEYS=64 keys/clip)
+# allow a file substantially larger once every pose carries a full skeleton's
+# worth of bones at JSON's verbosity. 4 MiB leaves real headroom above that
 # legitimate maximum while still refusing anything that is not a hand-authored
 # or program-written clip library.
+#
+# The 2026-09-18 audit, finding docs-06: this comment still cited
+# MAX_LIBRARY_KEYS=256, the value the 2026-09-12 measurement raised to 1024
+# (see the ``Raised from 256 to 1024`` comment on MAX_KEYS, below) -- updated
+# to match, docstring only, no cap here actually moved.
 MAX_CLIP_LIBRARY_BYTES = 4 << 20
 
 _clips: dict[str, dict[str, Any]] | None = None

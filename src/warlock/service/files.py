@@ -649,7 +649,16 @@ def save_edited_image(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
         # copyfile, so a direct write_bytes onto a served name is a torn
         # read waiting to happen.
         _staged_write(dest, data)
-    _remeasure(svc, job_id, dest, hand_edited=True, stage=job["stage"])
+        # Inside the lock, like matte.prepare's own merge_params -- the
+        # 2026-09-18 audit, finding service-04: this used to run after the
+        # lock released, so a racing save/revert pair could have their two
+        # _remeasure calls land in the opposite order from their two writes.
+        # A revert that renamed the pristine backup onto dest and released
+        # first could still lose the race to record hand_edited=False if this
+        # save's _remeasure(hand_edited=True) ran after it -- leaving the row
+        # claiming a hand edit over pixels that are, in fact, the untouched
+        # original, with the backup already consumed and no way back.
+        _remeasure(svc, job_id, dest, hand_edited=True, stage=job["stage"])
     return {"ok": True}
 
 
@@ -673,7 +682,13 @@ def revert_reference(svc: Any, job_id: str) -> dict[str, Any]:
         # staleness the comparison exists to catch, in the only direction
         # where the content changes and the clock goes backwards.
         os.utime(dest)
-    _remeasure(svc, job_id, dest, hand_edited=False, stage=job["stage"])
+        # Inside the lock -- see save_edited_image's comment. Moved together
+        # with that one, the 2026-09-18 audit, finding service-04: run after
+        # the lock released, this revert's own hand_edited=False could still
+        # lose to a racing save's hand_edited=True landing second, leaving
+        # the row claiming a hand edit over the pristine pixels this call
+        # just restored.
+        _remeasure(svc, job_id, dest, hand_edited=False, stage=job["stage"])
     return {"ok": True}
 
 

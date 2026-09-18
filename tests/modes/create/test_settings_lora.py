@@ -87,3 +87,48 @@ def test_train_style_is_disabled_while_a_different_lora_operation_is_running():
     assert 'ctx.busy("lora:train")' not in enabled_expr, (
         f"'Train style' still gates on its own exact task key: {enabled_expr!r}"
     )
+
+
+def test_lora_remove_and_import_do_not_toast_completion_before_the_task_runs():
+    """shell-05 (2026-09-18 audit).
+
+    ``_loras``' Remove button and ``_lora_import_form``'s Add style button
+    used to toast "Removed {label}." / "Style added." the instant
+    ``ctx.submit`` accepted the task -- proof only that the job reached the
+    queue, not that ``svc_loras.remove_lora``/``import_lora`` ever ran. A
+    refusal (a built-in key, an already-deleted manifest, a form the loader
+    rejects) or a plain disk error then toasted a success the task never
+    earned. Both submit sites now toast something progressive instead, and
+    the real outcome is reported once ``shell/tasks.py``'s
+    ``TasksMixin._on_task_done`` lands the task under the exact key each
+    site submits (``"lora:remove:"``/``"lora:import"``) -- both were
+    previously unclaimed there, so a landed removal or import fell through
+    to the silent "nothing claimed it" path with no toast at all.
+    """
+    from warlock.studio.modes.settings.ui.panes import app_settings
+    from warlock.studio.shell import tasks as shell_tasks
+
+    remove_source = inspect.getsource(app_settings._loras)
+    import_source = inspect.getsource(app_settings._lora_import_form)
+    landing_source = inspect.getsource(shell_tasks.TasksMixin._on_task_done)
+
+    # The submit sites must not claim the outcome before it happened.
+    assert 'ctx.toast(f"Removed {row.label}.")' not in remove_source, (
+        "the Remove button still toasts completion wording at submit"
+    )
+    assert 'ctx.toast("Style added.")' not in import_source, (
+        "the Add style button still toasts completion wording at submit"
+    )
+
+    # The landing handler is the one place that now claims the outcome, and
+    # it is keyed on the exact submit key each site uses.
+    assert '"lora:remove:"' in landing_source, (
+        "_on_task_done never claims the \"lora:remove:\" key the Remove "
+        "button's own ctx.submit uses"
+    )
+    assert '"lora:import"' in landing_source, (
+        "_on_task_done never claims the \"lora:import\" key the Add style "
+        "button's own ctx.submit uses"
+    )
+    assert "Removed" in landing_source
+    assert "added" in landing_source

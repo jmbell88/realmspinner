@@ -7,7 +7,7 @@ the shape a user can draw in a small panel and the shape a preset file can
 hold in three lines. Per-segment easings are deliberately not a feature:
 they double the editing surface for a distinction nobody reads at 128px.
 
-The easing vocabulary is ``pipelines/sheet.EASINGS`` plus ``hold``, with the
+The easing vocabulary is ``kernels/sheet.EASINGS`` plus ``hold``, with the
 same arithmetic -- ``smoothstep`` for ``ease``, the two quadratics for in and
 out -- so a clip's spacing and an effect's spacing mean the same word. It is
 restated here rather than imported because this package imports nothing from

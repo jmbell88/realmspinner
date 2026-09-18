@@ -573,7 +573,7 @@ def pick(data: np.ndarray, x: int, y: int) -> int | None:
 # item), the two
 # engines may not import each other, and two copies of a group-theory table is
 # precisely the thing that drifts without anyone noticing. So it moved to
-# ``tilegrid.gid`` -- the shared leaf both packages already reach for -- with the
+# ``grid2d.gid`` -- the shared leaf both packages already reach for -- with the
 # derivation written out there, and these three are the Plotter's names for it.
 # The pixel-for-pixel pins against ``render.orient`` stay where they are: they
 # test the rules through this door, which is what makes the delegation safe.

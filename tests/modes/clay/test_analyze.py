@@ -281,3 +281,58 @@ def test_analyze_refuses_before_triangulating_past_max_analyze_triangles(monkeyp
 
     with pytest.raises(OpError):
         analyze.analyze([obj])
+
+
+def _scattered_triangles(n_tris: int, extent: float, tri_size: float, seed: int) -> np.ndarray:
+    """`n_tris` ordinary-sized triangles (`tri_size` across, comparable to a
+    real prop's face size) scattered over an `extent`-sized bounding region
+    -- an authored blockout mesh's own triangle scale, not a pathological
+    one."""
+    rng = np.random.default_rng(seed)
+    center = np.zeros(3)
+    base = center + rng.uniform(-extent / 2, extent / 2, size=(n_tris, 3))
+    return np.stack(
+        [
+            base,
+            base + rng.uniform(-tri_size, tri_size, size=(n_tris, 3)),
+            base + rng.uniform(-tri_size, tri_size, size=(n_tris, 3)),
+        ],
+        axis=1,
+    )
+
+
+def test_analyze_does_not_stall_on_many_small_triangles_sharing_one_grid_cell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-18 audit's clay-01: `_MAX_GRID_REGISTRATIONS` bounds how
+    many cells one triangle can *register into*, but the candidate-PAIR count
+    `_grid_candidates`'s second loop produces was only checked by the caller
+    after that loop had already run to completion -- so two ordinary meshes,
+    well within `near`'s documented [0, 10] range, collapse into a handful of
+    shared grid cells and the loop pays for every pair in them (measured on
+    5,000 triangles a side: 3,532,191 candidate pairs in 0.59s, seven times
+    past the real `MAX_TRIANGLE_PAIRS`, with the check that exists for
+    exactly this never having looked until the loop was already done).
+
+    Asserted deterministically rather than by wall clock -- the default lane
+    runs under `-n 8`, where a timing assertion flakes on a loaded machine --
+    by monkeypatching `MAX_TRIANGLE_PAIRS` down to a value this input
+    comfortably exceeds (the unfixed code, restored from `git show
+    HEAD:.../analyze.py` as a throwaway module in this fix's own scratchpad,
+    still returns every one of the pairs below rather than folding back to
+    `None`, at 500x faster than the 5,000-triangle scale needed to make that
+    same gap visible on a clock)."""
+    monkeypatch.setattr(analyze, "MAX_TRIANGLE_PAIRS", 1000)
+    tri_a = _scattered_triangles(500, extent=2.0, tri_size=0.05, seed=1)
+    tri_b = _scattered_triangles(500, extent=2.0, tri_size=0.05, seed=2)
+    near = 1.0  # within clay_analyze's own documented/validated [0, 10] range
+    cell = max(near, analyze._GRID_MIN_CELL)
+
+    result = analyze._grid_candidates(tri_a, tri_b, cell)
+
+    # Unlike the unfixed code, this must never hand back a candidate count
+    # past MAX_TRIANGLE_PAIRS -- it either folds back to the same `None`
+    # _MAX_GRID_REGISTRATIONS already uses, or stays at or under the cap.
+    if result is not None:
+        ia, _ib = result
+        assert len(ia) <= analyze.MAX_TRIANGLE_PAIRS

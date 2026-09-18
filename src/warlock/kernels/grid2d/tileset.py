@@ -89,7 +89,7 @@ def colour_text(value: Any, what: str) -> str | None:
 # right one here because most tiles in an atlas carry nothing at all and a dense
 # table would be one empty record per tile per tileset.
 #
-# The collision shapes are **tilegrid's own frozen records**, small and dumb, and
+# The collision shapes are **grid2d's own frozen records**, small and dumb, and
 # not ``plotter._map_model``'s. This package imports nothing under ``warlock``
 # and a shared leaf that reached into one of the engines it serves would turn
 # "shared vocabulary" into a dependency cycle; the plotter converts to and from

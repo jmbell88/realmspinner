@@ -68,6 +68,66 @@ def test_a_pack_composes_its_own_install_hint():
     assert packs.find("rig").install_hint == "uv sync --extra rig"
 
 
+# --- the persisted real-import verdict (pipelines-06, the 2026-09-18 audit) --
+#
+# The verdict itself is never computed here -- that is ``pack_worker``'s job,
+# child-process work this module deliberately does not import (see the
+# module docstring). This is only the read side: a stat and a small JSON
+# parse, no install, no download, no import of anything the file names.
+
+
+def test_smoke_cached_is_none_with_no_verdict_file(tmp_path):
+    """A fresh ``home``, or a pack installed by ``uv sync`` rather than
+    through this app's own pack machinery, has never had anything write this
+    file -- "unknown" must read as "admit", exactly ``find_spec``'s own
+    answer, not as "broken"."""
+    from warlock.config import Config
+
+    config = Config(home=tmp_path)
+    assert packs.smoke_cached(config, "text2image") is None
+
+
+def test_smoke_cached_reads_back_exactly_what_was_written(tmp_path):
+    from warlock.config import Config
+
+    config = Config(home=tmp_path)
+    verify_dir = packs.verify_dir(config)
+    verify_dir.mkdir(parents=True)
+    (verify_dir / "text2image.verify.json").write_text(
+        '{"ok": false, "broken": ["torch"]}', encoding="utf-8"
+    )
+    assert packs.smoke_cached(config, "text2image") is False
+    (verify_dir / "rig.verify.json").write_text('{"ok": true, "broken": []}', encoding="utf-8")
+    assert packs.smoke_cached(config, "rig") is True
+
+
+def test_smoke_cached_treats_a_malformed_file_as_unknown(tmp_path):
+    """A half-written or foreign file must not read as either verdict --
+    ``pack_worker._write_verdict``'s stage-and-``os.replace`` already keeps
+    this file from ever being torn, but a reader that trusted a malformed
+    body would be the one place this fix reintroduces the M01 shape it
+    closes: something that looks present but is not actually what it claims."""
+    from warlock.config import Config
+
+    config = Config(home=tmp_path)
+    verify_dir = packs.verify_dir(config)
+    verify_dir.mkdir(parents=True)
+    (verify_dir / "text2image.verify.json").write_text("not json", encoding="utf-8")
+    assert packs.smoke_cached(config, "text2image") is None
+    (verify_dir / "rig.verify.json").write_text('{"ok": "yes"}', encoding="utf-8")
+    assert packs.smoke_cached(config, "rig") is None
+
+
+def test_verify_dir_is_the_same_place_the_wheel_cache_and_selection_live(tmp_path):
+    """Not a new location: ``service.packs.cache_dir``'s own answer, so a
+    verdict a repair just wrote and the selection record it also touches
+    survive (or are wiped by an uninstall) together."""
+    from warlock.config import Config
+
+    config = Config(home=tmp_path)
+    assert packs.verify_dir(config) == tmp_path / "packs"
+
+
 def test_the_modes_a_pack_names_are_real_modes():
     """``Pack.modes`` is strings because ``studio`` may not be imported from
     ``warlock.packs``. Strings drift, so they are pinned here instead."""

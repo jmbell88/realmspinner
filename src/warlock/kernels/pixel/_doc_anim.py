@@ -580,9 +580,18 @@ class AnimOps:
             return False
         self.commit_floating()
         self._set_cel(track.uid, frame.uid, source)
-        # ``pinned=False``: the shared object is alive in the frame it came
-        # from whatever the history does with this step.
-        self.history.push(CelSetEdit(track.uid, frame.uid, before, source, pinned=False))
+        # ``source`` is alive in the frame it came from whatever the history
+        # does with this step, so it is never pinned; but ``before`` -- the
+        # cel this slot gave up -- may now be held by nothing but this edit,
+        # and a flat ``pinned=False`` charged it 0 bytes either way. The
+        # 2026-09-18 audit (inker-02) found that let an orphaned cel escape
+        # the undo byte budget entirely; ``link_range``'s ``_cel_edits``
+        # already gets this right per slot, so ask the same question here.
+        self.history.push(
+            CelSetEdit(
+                track.uid, frame.uid, before, source, pinned=bool(self._released([before]))
+            )
+        )
         return True
 
     def unlink_cel(

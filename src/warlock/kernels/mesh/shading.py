@@ -2,8 +2,8 @@
 
 Extracted out of ``clay_ops._shade_auto`` (the 2026-09-06 audit, the organic-
 shapes decision): the manual "Shade Auto..." op and the two insertion doors
-that now apply this automatically -- ``panes/clay_tools.add_primitive`` for a
-shape off the grid and ``panes/clay_tools.add_assembly`` for a figure's parts
+that now apply this automatically -- ``modes/clay/ui/panes/tools.add_primitive`` for a
+shape off the grid and ``modes/clay/ui/panes/tools.add_assembly`` for a figure's parts
 -- need the identical rule, and a rule copied into three call sites is a rule
 that drifts the first time one of them is edited without the other two.
 ``clay_ops._shade_auto`` now delegates here; see its own (much shorter)

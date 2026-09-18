@@ -324,7 +324,8 @@ def fit_status_rows(
     """*rows* trimmed to fit *available* width, dropping the lowest-priority
     key in :data:`STATUS_DROP_ORDER` first, one key at a time, until what is
     left fits (or the order is exhausted). Any row whose key is not in that
-    tuple -- ``health`` and ``workspace`` today -- is never removed here.
+    tuple -- ``health``, ``workspace`` and ``agent`` today -- is never
+    removed here.
     """
 
     kept = list(rows)

@@ -278,6 +278,24 @@ DERIVE_FIELDS: dict[str, tuple[str, float, float | None, str]] = {
 }
 
 
+def _extend_reason(parent_duration: float) -> str:
+    """Why "Extend" is greyed on the "Make more" menu. -> "" once it is reachable.
+
+    **muse-01 (2026-09-18 audit).** ``derive_music_job`` refuses on the
+    *combined* total -- ``parent_duration + extend_left + extend_right``
+    against the sampler's own frame ceiling (``_extend_frame_ceiling_seconds``,
+    ~239.907s) -- not on either slider alone. A take already at or past that
+    ceiling has zero seconds of budget left for *any* nonzero extension, so
+    the menu used to offer a task every press of which came back refused,
+    always against ``extend_right`` regardless of which slider actually used
+    the room up. Read off the same duration :func:`_max_extend_for` bounds its
+    sliders with, so the menu and the popup it opens cannot disagree.
+    """
+    if parent_duration >= _extend_ceiling():
+        return "this take is already at the extend ceiling -- there is no room left to add"
+    return ""
+
+
 def _derive_menu(ctx: Any, job_id: str, ready: bool) -> None:
     """The "Make more" button and the task menu it opens."""
     if widgets.ghost_button(
@@ -290,10 +308,12 @@ def _derive_menu(ctx: Any, job_id: str, ready: bool) -> None:
         imgui.open_popup(f"muse-more/{job_id}")
     if imgui.begin_popup(f"muse-more/{job_id}"):
         widgets.popup_chrome(_imgui=imgui)
+        parent_duration = _parent_duration(ctx, job_id)
         for task, label, note in DERIVE_ITEMS:
-            clicked, _ = controls.menu_item(label, "", False)
+            item_reason = _extend_reason(parent_duration) if task == "extend" else ""
+            clicked, _ = controls.menu_item(label, "", False, not item_reason)
             if imgui.is_item_hovered():
-                imgui.set_tooltip(note)
+                imgui.set_tooltip(item_reason or note)
             if clicked:
                 muse_mode.open_derive(ctx, job_id, task)
                 imgui.close_current_popup()
@@ -414,6 +434,7 @@ def _derive_field(
         return
 
     title, low, high, help_text = DERIVE_FIELDS[name]
+    value = float(derive[name])
     if high is None:
         # ``extend_left``/``extend_right`` are bounded by *both* the sampler's
         # own 240s pad and the take's own length (muse-04, 2026-09-14 audit:
@@ -421,7 +442,21 @@ def _derive_field(
         # extends, regardless of the sampler ceiling) -- a repaint or loop is
         # bounded by the take's length alone instead (muse-01).
         if name in ("extend_left", "extend_right"):
-            high = _max_extend_for(parent_duration)
+            sibling = "extend_right" if name == "extend_left" else "extend_left"
+            high = _max_extend_for(parent_duration, float(derive.get(sibling, 0.0)))
+            # **muse-01 (2026-09-18 audit).** The two bounds above are each
+            # slider's own ceiling, not the *pair's* -- ``derive_music_job``
+            # refuses on ``parent_duration + extend_left + extend_right``
+            # against the sampler's frame ceiling, so a take of four minutes
+            # or more let both sliders offer numbers that were individually
+            # reachable but always refused together, and the door's refusal
+            # always named ``extend_right`` (the second bound it checks)
+            # regardless of which slider actually spent the budget. Clamping
+            # the value here too, not just the bound: a slider whose ceiling
+            # just shrank because the sibling grew must not go on offering
+            # the door a total it has already ruled out until the user
+            # happens to touch it.
+            value = min(value, high)
         elif task == "loop":
             high = parent_duration / 2.0
         else:
@@ -437,7 +472,7 @@ def _derive_field(
             " the take."
         )
     _, derive[name] = widgets.labeled_slider_float(
-        title, float(derive[name]), low, high, help_text=help_text
+        title, value, low, high, help_text=help_text
     )
     widgets.field_error(ctx.state, name)
 
@@ -469,8 +504,25 @@ def _max_extend() -> float:
     return MAX_EXTEND_DURATION
 
 
-def _max_extend_for(parent_duration: float) -> float:
-    """Each Extend slider's real ceiling, given the take it extends.
+def _extend_ceiling() -> float:
+    """The sampler's *true* frame ceiling, imported lazily as its siblings
+    above are.
+
+    ``_jobs_music._extend_frame_ceiling_seconds`` -- not the round
+    ``MAX_EXTEND_DURATION`` -- because that function exists precisely so the
+    door's refusal and any other reader of the same figure cannot drift the
+    ~0.09s the round number and the sampler's ``int()``-truncated frame count
+    disagree by (that gap is the 2026-09-11 audit's muse-02). Read here so
+    the combined-total bound below states the same number the door checks.
+    """
+    from ......service._jobs_music import _extend_frame_ceiling_seconds
+
+    return _extend_frame_ceiling_seconds()
+
+
+def _max_extend_for(parent_duration: float, other: float = 0.0) -> float:
+    """Each Extend slider's real ceiling, given the take it extends and the
+    sibling slider's current value.
 
     **muse-04 (2026-09-14 audit).** ``_max_extend()`` alone is the sampler's
     240 s pad ceiling, but ``_jobs_music.derive_music_job`` refuses a single
@@ -485,8 +537,20 @@ def _max_extend_for(parent_duration: float) -> float:
     already fixed for repaint/loop. Pulled out as its own function, per that
     finding's own note about ``derive_music_job``'s bound and this pane's
     slider drifting apart, and so it is testable with no popup drawn.
+
+    **muse-01 (2026-09-18 audit).** That fix bounded each slider by
+    ``parent_duration`` alone, independently of the other -- but the door's
+    real refusal is on the *combined* total, ``parent_duration + extend_left
+    + extend_right`` against :func:`_extend_ceiling`. A take of four minutes
+    or more has ``min(parent_duration, MAX_EXTEND_DURATION)`` come back
+    large on both sliders while the combined budget left is zero or
+    negative, so *every* nonzero extend was offered and refused. ``other`` is
+    the sibling slider's own current value, so the bound returned here is
+    what is actually left once it is spent -- not what would be left if it
+    were still zero.
     """
-    return min(float(parent_duration), _max_extend())
+    remaining = _extend_ceiling() - float(parent_duration) - float(other)
+    return max(0.0, min(float(parent_duration), remaining))
 
 
 __all__ = [

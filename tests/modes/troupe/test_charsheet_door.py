@@ -41,7 +41,7 @@ def test_a_layout_that_cannot_be_planned_is_refused_with_field_layout(svc, monke
     fail an hour later in the worker -- but the ``except ValueError`` branch
     that catches an unrenderable plan (a frame count ``expand_clips`` cannot
     fill, or an atlas over the texture limit) called ``invalid_from`` with no
-    ``field=``, even though ``panes/troupe_settings.py`` calls
+    ``field=``, even though ``modes/troupe/ui/panes/settings.py`` calls
     ``form_ui.note("layout")`` specifically to draw this refusal on the layout
     table (see the comment at ``troupe_settings.py:148``).
 

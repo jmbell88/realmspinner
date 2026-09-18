@@ -11,7 +11,7 @@ package, and it is written the same way on purpose.
 
 The tile vocabulary itself -- the gid word, the sliced atlas, the blob
 collapse -- moved out to :mod:`warlock.kernels.grid2d` on 2026-08-18: the
-second shared leaf after ``studio/undo.py``, reached for by every module here
+second shared leaf after ``core/undo.py``, reached for by every module here
 that used to import ``.gid``, ``.tileset`` or ``.blob`` as a sibling.
 """
 
@@ -37,7 +37,7 @@ PACKAGE = "warlock.studio.modes.plotter.engine"
 #: module that places, flips or slices a tile reaches for one or both.
 OUTWARD_IMPORTS = {
     # The shared bounded zip reader. One rule for four container doors, and a
-    # leaf for ``tilegrid``/``undo``'s reason exactly: the ``file_size`` sum
+    # leaf for ``grid2d``/``undo``'s reason exactly: the ``file_size`` sum
     # each of these carried is written by whoever wrote the archive, and a
     # fourth private copy of a security bound is a copy that stops agreeing.
     # The four guard leaves, and they are one finding rather than four: a bound

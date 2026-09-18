@@ -76,6 +76,25 @@ def test_citations_stay_inside_the_token_budget(index: retrieval.Index) -> None:
         assert total <= budget + len(citations[0].text.split())
 
 
+def test_a_regrouped_citation_never_exceeds_a_few_times_the_max_chunk_tokens(
+    index: retrieval.Index,
+) -> None:
+    """The 2026-09-18 audit (familiar-06): ``search`` regroups a section's
+    split chunks back into one citation, but the per-citation size check
+    only ever ran for citations after the first (``if citations and ...``)
+    -- the first citation, which ``search`` always returns regardless of
+    size, was never checked. The real Inker tools chapter (28-inker#tools)
+    splits into ten chunks that regrouped into one 2209-token citation this
+    way (the 2026-09-18 probe, familiar-package-01.py) -- over 7x
+    ``_MAX_CHUNK_TOKENS`` (300)."""
+    citations = index.search("Inker tools", limit=6, budget_tokens=2500)
+    assert citations
+    cap = 4 * retrieval._MAX_CHUNK_TOKENS
+    for c in citations:
+        tokens = retrieval._whitespace_token_count(c.text)
+        assert tokens <= cap, f"citation {c.title_path!r} is {tokens} tokens, over the {cap} cap"
+
+
 def test_a_query_with_no_matching_terms_returns_no_citations(
     index: retrieval.Index,
 ) -> None:

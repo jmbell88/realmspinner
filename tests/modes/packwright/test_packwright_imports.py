@@ -30,7 +30,7 @@ PACKAGE = "warlock.studio.modes.packwright.engine"
 
 OUTWARD_IMPORTS = {
     # The shared bounded zip reader. One rule for four container doors, and a
-    # leaf for ``tilegrid``/``undo``'s reason exactly: the ``file_size`` sum
+    # leaf for ``grid2d``/``undo``'s reason exactly: the ``file_size`` sum
     # each of these carried is written by whoever wrote the archive, and a
     # fourth private copy of a security bound is a copy that stops agreeing.
     # (2026-09-17: P3 of dev/RESTRUCTURE.md folded it into ``core/safeio/``,

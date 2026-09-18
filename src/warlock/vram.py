@@ -306,16 +306,25 @@ def estimate_parts(
         return (pass_gib if exclusive else pass_gib + TRELLIS_GIB), image
     if kind == "pixel_sheet":
         # An img2img restyle: the same resident pipe as a text job, plus a
-        # ControlNet, and never trellis -- the mesh was reconstructed long
-        # before. Under coexist a warm trellis is still holding its memory,
-        # exactly as the reference stage below accounts for.
+        # ControlNet *when the worker actually opens one*, and never trellis --
+        # the mesh was reconstructed long before. Under coexist a warm trellis
+        # is still holding its memory, exactly as the reference stage below
+        # accounts for.
         #
         # Priced from the registry like every other checkpoint-loading kind:
         # `queue._pixel_sheet` reads params["base_model"], so charging a flat
         # SDXL_GIB was correct only for as long as the one caller kept writing
         # "sdxl_cfg" into it.
+        #
+        # The 2026-09-18 audit, finding service-02: this used to charge
+        # CONTROLNET_GIB unconditionally, though `_q_sprite._pixel_sheet` only
+        # attaches one when `structure_lock` is on and the base supports it
+        # (`structure and spec.controlnet`). Gated on `params["control"]` now,
+        # the same key `sheets.create_pixel_sheet` writes and every sibling
+        # kind (`retexture`, `sprite_synthesis`, `tile_sheet`'s grid mode)
+        # already gates on here.
         image = _image_model_cost(params)
-        pixel = image + CONTROLNET_GIB
+        pixel = image + (CONTROLNET_GIB if params.get("control") else 0.0)
         return (pixel if exclusive else pixel + TRELLIS_GIB), image
     if kind == "sprite_synthesis":
         # Two txt2img passes, one after the other through the same resident

@@ -2,7 +2,7 @@
 intensity, and range."
 
 The 2026-09-12 audit's docs-06 found ``LightNode.range`` reaches glTF export
-(``mason/gltfout.py``'s ``_light``) but ``panes/mason_props.py``'s
+(``mason/gltfout.py``'s ``_light``) but ``modes/mason/ui/panes/props.py``'s
 ``_light_block`` drew no control for it at all -- a reader following the
 chapter word for word would not find the field it names. Guarded to point and
 spot, the two kinds ``KHR_lights_punctual`` gives a range at all

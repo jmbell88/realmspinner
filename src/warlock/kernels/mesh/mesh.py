@@ -34,7 +34,7 @@ each array it is given and clears its writeable flag, which propagates to
 every view taken of it -- ``face(mesh, i)`` hands back a slice that cannot be
 written through. The copy also matters to *undo*: a view of a shared vertex
 buffer reports its own tiny ``nbytes`` while keeping the whole base array
-alive, and ``nbytes`` is exactly what ``studio.undo``'s eviction budget is
+alive, and ``nbytes`` is exactly what ``core.undo``'s eviction budget is
 driven by. An edit that owns its arrays is an edit whose size is the truth.
 
 Immutability is load-bearing for a third reason, outside this module

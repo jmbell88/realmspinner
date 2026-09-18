@@ -69,6 +69,21 @@ MAX_SIZE_CV = 0.15
 # extrapolates to ~275 GB at the real 8192x8192 ceiling.
 MAX_RECOMPOSE_PIXELS = 8192 * 8192
 
+# The ceiling on recompose's per-cell *loop*, independent of
+# ``MAX_RECOMPOSE_PIXELS`` above. The pixel ceiling bounds
+# ``(grid.rows * tile_h) x (grid.cols * tile_w)``, but the loop below costs one
+# Python iteration per ``rows * cols`` grid cell regardless of ``tile_w``/
+# ``tile_h`` -- and a map's own tile size is legally as small as 1px (see
+# ``roles.MAX_ROLE_CELLS``'s comment), at which point output pixels equal cell
+# count and the pixel ceiling alone admits an 8192x8192 grid. The 2026-09-18
+# audit (plotter-02) measured that loop at ~6.8 microseconds/cell
+# (``plotter-tiles-01.py``), which extrapolates to ~7.6 minutes of
+# uncancellable frame-thread work at the pixel ceiling's own admitted cell
+# count -- reached from ``studio/modes/plotter/tilesets.py``'s
+# ``import_detected_sheet``. Same magnitude as ``roles.MAX_ROLE_CELLS`` for
+# the same reason: far past any grid a real ruled sheet reports.
+MAX_RECOMPOSE_CELLS = 256 * 256
+
 
 @dataclass(frozen=True)
 class SheetGrid:
@@ -246,6 +261,14 @@ def recompose(
     if not grid.rows or not grid.cols:
         raise ValueError("that grid holds no cells")
     rows, cols = grid.shape
+    # See MAX_RECOMPOSE_CELLS: bounds the loop below, not the output -- a
+    # small tile_w/tile_h lets a huge cell count hide under the pixel ceiling.
+    # Checked before the allocation, like the pixel ceiling below it.
+    if rows * cols > MAX_RECOMPOSE_CELLS:
+        raise ValueError(
+            f"that grid holds {rows * cols} cells, past the "
+            f"{MAX_RECOMPOSE_CELLS} cells this build will redraw"
+        )
     target_w, target_h = cols * tile_w, rows * tile_h
     # See MAX_RECOMPOSE_PIXELS: checked before the allocation, not after.
     if target_w * target_h > MAX_RECOMPOSE_PIXELS:

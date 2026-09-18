@@ -765,8 +765,13 @@ def _onion_controls(state: Any) -> None:
     # Its own row, not ``same_line``d onto the three above: that row already
     # carries two int boxes and a slider, and a ``same_line`` past the panel
     # edge does not wrap, it hides the control.
+    # "Current layer only", sentence case: the 2026-09-18 audit (docs-05)
+    # found it lowercase while "Ahead" and "Fade" beside it are sentence case
+    # and the manual bold-quotes it capitalised -- a bold quote opening a
+    # sentence in lowercase reads as a typo, so the outlier moved, not the
+    # other two controls or the manual.
     changed, only = controls.checkbox(
-        "current layer only",
+        "Current layer only",
         state.onion_current_layer,
         tooltip=(
             "Ghost only the active layer's drawing on the neighbouring frames, "

@@ -1,6 +1,6 @@
 """The reversible steps over a song, one class per kind of change.
 
-Every one of them obeys the two rules ``studio/undo.py`` states for all its
+Every one of them obeys the two rules ``core/undo.py`` states for all its
 users, and neither is restated at each class below.
 
 **A step addresses its subject by uid.** A pattern, an instrument, a channel and
@@ -219,7 +219,7 @@ class ChannelsEdit(Edit):
     honest way to reverse a delete is to have kept what it deleted -- so this
     holds every pattern's grid, twice, and reports all of it to the undo budget.
     A song of two hundred patterns is a few megabytes here, which is what the
-    byte budget in ``studio/undo.py`` exists to arbitrate.
+    byte budget in ``core/undo.py`` exists to arbitrate.
     """
 
     before: tuple[Any, ...]

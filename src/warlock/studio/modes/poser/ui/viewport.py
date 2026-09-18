@@ -201,7 +201,7 @@ class PoserViewport:
     def _poser_skeleton_menu(self, ctx: Any, viewer: Any) -> None:
         """The skeleton draft's own right-click menu (P6, 2026-09-13).
 
-        A short cut to the same doors ``panes/poser_skeleton.py`` draws as
+        A short cut to the same doors ``modes/poser/ui/panes/skeleton.py`` draws as
         buttons -- through :mod:`poser_mode`'s own ``skeleton_*`` controllers,
         never the editor directly, the same rule the pose menu above follows.
         """

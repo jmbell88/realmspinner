@@ -624,7 +624,14 @@ def on_task_done(ctx: Any, done: Any) -> None:
             # theme) has no ``.reason`` -- ``_reason_and_message`` already
             # answers ``None`` for that, the same shape a non-Familiar
             # refusal is shown in everywhere else.
+            #
+            # The 2026-09-18 audit (familiar-03): this branch set
+            # ``ui.message`` but never called ``_say``, unlike every other
+            # CHAT_KEY/BUILD_KEY failure branch -- with the pane collapsed a
+            # failed character creation left no transcript turn and no toast
+            # at all, the one Familiar exit that said nothing.
             ui.reason, ui.message = _reason_and_message(done)
+            _say(ctx, tag.get("thread_key"), ui.message)
             return
         ui.reason = None
         ui.message = None

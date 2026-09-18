@@ -118,16 +118,27 @@ narrow phase below is what this really guards -- a document at this ceiling
 already gives the grid-binned triangle search real work to do."""
 
 MAX_TRIANGLE_PAIRS = 500_000
-"""Past this many candidate triangle pairs for one object pair (after the
-grid-binning narrow phase, not before it), the exact vertex/edge distance
-search -- and the SAT intersection test alongside it -- is skipped in favour
-of a nearest-neighbour query over the two objects' raw vertices -- cheaper,
-and honestly reported as ``exact=False``. ``intersects`` is reported as
-``None`` (unknown) on this path rather than ``False``: the 2026-09-14 audit's
-clay-01 found two heavily-overlapping 20,000-face spheres reading as
-``intersects=False`` here, indistinguishable from an honest "checked and
-clear" -- ``exact=False`` was documented as covering ``distance`` only, so a
-caller had no way to tell "not checked" from "checked and found nothing."""
+"""Past this many candidate triangle pairs for one object pair, the exact
+vertex/edge distance search -- and the SAT intersection test alongside it --
+is skipped in favour of a nearest-neighbour query over the two objects' raw
+vertices -- cheaper, and honestly reported as ``exact=False``. ``intersects``
+is reported as ``None`` (unknown) on this path rather than ``False``: the
+2026-09-14 audit's clay-01 found two heavily-overlapping 20,000-face spheres
+reading as ``intersects=False`` here, indistinguishable from an honest
+"checked and clear" -- ``exact=False`` was documented as covering ``distance``
+only, so a caller had no way to tell "not checked" from "checked and found
+nothing."
+
+Checked in two places, not one: :func:`_grid_candidates` counts candidate
+pairs *during* its own scan and bails out past this many (returning ``None``,
+the same signal :data:`_MAX_GRID_REGISTRATIONS` already uses), and
+:func:`_pair_analysis` checks the returned count again as a backstop. The
+2026-09-18 audit's clay-01 found only the second check existed -- past this
+many *registrations* is cheap (few triangles, each touching one cell), but
+the bucket walk that turns registrations into pairs pays for every pair a
+heavily-occupied cell produces regardless, so two ordinary 5,000-triangle
+meshes at the tool's own ``near=1.0`` ran the whole candidate-generating loop
+to completion (3.5M pairs, 0.59s) before the count was ever looked at."""
 
 MAX_OVERLAP_BOOLEANS = 16
 """The most ``manifold3d`` intersections one :func:`analyze` call may run.
@@ -547,6 +558,22 @@ def _grid_candidates(
                             seen.add(k)
                             out_small.append(k)
                             out_large.append(m)
+        # The 2026-09-18 audit's clay-01: _MAX_GRID_REGISTRATIONS bounds how
+        # many cells a triangle can register *into*, not how many candidate
+        # PAIRS one heavily-occupied cell hands back once another triangle
+        # looks it up here -- triangles much smaller than *cell* collapse
+        # into a handful of shared buckets (registrations stay low, one per
+        # triangle), and this inner walk then pays for every pair in that
+        # bucket regardless. Two ordinary 5,000-triangle meshes at the
+        # tool's own near=1.0 produced 3.5M candidate pairs in 0.59s before
+        # this check existed -- MAX_TRIANGLE_PAIRS was only checked in
+        # _pair_analysis, by which point this loop had already run to
+        # completion and paid the cost the ceiling exists to avoid. Counted
+        # mid-scan instead, once per outer (large-side) triangle, and
+        # answered the same way _MAX_GRID_REGISTRATIONS already is: `None`,
+        # so the caller falls back to the vertex-sampled approximation.
+        if len(out_small) > MAX_TRIANGLE_PAIRS:
+            return None
 
     small_idx = np.asarray(out_small, dtype="i8")
     large_idx = np.asarray(out_large, dtype="i8")

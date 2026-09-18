@@ -23,7 +23,7 @@ remain are refusals of a different kind.** A canvas resize translates the
 picture by whole cells and pads or crops, which is a pure pad/crop of ``refs``
 with every flag bit left alone -- ``_tile_regrid``. A flip and a quarter turn
 have to turn ``refs`` by the eight-symmetry algebra the tileset flags already
-carry, and that algebra now lives in ``tilegrid.gid`` where the Plotter's brush
+carry, and that algebra now lives in ``grid2d.gid`` where the Plotter's brush
 transforms share it -- ``_tile_flip`` and ``_tile_rotate``. Each refuses by
 name where it genuinely cannot model the op rather than where it merely has not
 been taught: a canvas that is not a whole number of tiles on the axis being
@@ -1085,7 +1085,7 @@ class TileOps:
         """The per-cel refs permutation a whole-canvas flip needs, or ``None``.
 
         The refs plane is mirrored *and* every cell's flag bits are turned with
-        it, by ``tilegrid.gid``'s eight-symmetry algebra -- mirroring the
+        it, by ``grid2d.gid``'s eight-symmetry algebra -- mirroring the
         arrangement without re-flagging the tiles would give a mirrored layout
         of unmirrored tiles, which is the classic version of this bug.
 
@@ -1154,7 +1154,7 @@ class TileOps:
         pad/crop of ``refs`` and leaves every cell's flag bits alone. The flips
         and the quarter turns are modelled too now, by
         :meth:`_tile_flip`/:meth:`_tile_rotate` -- their permutation *does* have
-        to turn the flag bits, and ``tilegrid.gid`` is where that algebra lives.
+        to turn the flag bits, and ``grid2d.gid`` is where that algebra lives.
         The scale and the descale are still refused by
         :meth:`_refuse_tilemaps`, and always will be for a different reason:
         they **resample**, and a tileset has no way to follow a resample. There

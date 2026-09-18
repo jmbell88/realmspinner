@@ -39,7 +39,7 @@ PNG_FILTER = ["PNG image (*.png)", "*.png"]
 GIF_FILTER = ["Animated GIF (*.gif)", "*.gif"]
 # ``plotter_io.TMX_FILTER``'s own shape, for the one other place a Tiled
 # document is opened or written: a tileset a document holds *is* a
-# ``tilegrid.Tileset`` (Chunk 3.1), so exporting or importing one reaches for
+# ``grid2d.Tileset`` (Chunk 3.1), so exporting or importing one reaches for
 # ``plotter.tsx`` directly rather than converting through anything.
 TSX_FILTER = ["Tiled tileset (*.tsx)", "*.tsx"]
 
@@ -1969,7 +1969,7 @@ PALETTE_SUFFIXES = (".gpl", ".pal", ".hex", ".txt")
 
 # --- tileset export/import (Wave 3, Chunk 3.6) --------------------------------
 #
-# An Inker tileset IS a ``tilegrid.Tileset`` -- ``doc.tilesets`` holds a
+# An Inker tileset IS a ``grid2d.Tileset`` -- ``doc.tilesets`` holds a
 # ``TilesetSlot`` over one, Chunk 3.1's whole point -- so there is no
 # conversion on either side of this door: exporting is the same ``.tsx``/
 # ``.png`` pair Packwright's grid packer already writes through
@@ -2102,7 +2102,7 @@ def import_tileset(ctx: Any, tab: InkerDoc | None = None) -> None:
     """A Tiled ``.tsx`` plus its image, added to the document's tileset list.
 
     Grid geometry and terrain sets travel intact -- ``plotter.tsx.read_tsx``
-    builds the same ``tilegrid.Tileset`` a ``.tsx`` reaches Plotter's map
+    builds the same ``grid2d.Tileset`` a ``.tsx`` reaches Plotter's map
     through, and the shared type is what carries ``terrains``/``phases``. The
     picker and the decode both run on the task thread, ``ask_add_tileset``'s
     own reason: a native picker is modal to the OS, and the image behind a

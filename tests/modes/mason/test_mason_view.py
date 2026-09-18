@@ -378,7 +378,7 @@ def test_dragging_a_node_with_the_move_gizmo_snaps_translation_to_the_grid_when_
 
 def test_dragging_a_node_with_drop_to_ground_enabled_keeps_it_on_the_terrain_surface() -> None:
     """The 2026-09-12 audit's docs-02: ``state.snap_ground`` is written by its
-    own toggle in ``panes/mason_tools.py`` and read nowhere else, so Chapter
+    own toggle in ``modes/mason/ui/panes/tools.py`` and read nowhere else, so Chapter
     17's "Drop to ground ... it lands on the ground rather than floating above
     or sinking into it" did nothing during the one gesture -- dragging -- the
     chapter tells the reader to use it for. The audit's own probe dragged a

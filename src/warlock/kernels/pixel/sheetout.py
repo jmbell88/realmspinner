@@ -1027,15 +1027,26 @@ def _trim_shift_slices(
     left alone, the same restraint ``_slices_offset`` already takes on a crop.
 
     ``trims`` is keyed by cell index, the same order ``cell_slices`` is in.
-    A cell with nothing measured for it (an empty trim, or no entry at all)
-    passes its meta through untouched -- there is no offset to know, because
-    nothing of it was pasted.
+    A cell with no meta at all passes through untouched -- there was never
+    anything to move. A cell whose trim rect is ``None`` is different: that
+    frame trimmed to nothing (wholly transparent), so ``build`` pasted no
+    pixels into it and the cell is the blank square ``Image.new`` left --
+    its pivot and slices are dropped rather than passed through, because a
+    point authored in the untrimmed canvas cannot go on naming somewhere in
+    a cell that has no pixels under it any more. The 2026-09-18 audit
+    (inker-01) found this branch keeping that meta verbatim: a whole-document
+    pivot survived on a blank tail frame, in the *untrimmed* canvas's
+    coordinates, pointing off a cell every other frame shrank around its own
+    trim box.
     """
     out: list[dict[str, Any] | None] = []
     for index, meta in enumerate(cell_slices):
         rect = trims.get(index)
-        if meta is None or rect is None:
+        if meta is None:
             out.append(meta)
+            continue
+        if rect is None:
+            out.append({"pivot": None, "slices": []})
             continue
         ox, oy, ow, oh = rect["x"], rect["y"], rect["w"], rect["h"]
         pivot = meta.get("pivot")

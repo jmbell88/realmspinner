@@ -147,23 +147,23 @@ def check_tileset_features(root: ET.Element) -> None:
     # A Wang set that is *not* this editor's blob preset used to be refused
     # here. It is now read as data (:func:`read_wang_model`) and painted by
     # constraint matching, so the recognise-or-refuse asymmetry is over -- see
-    # ``tilegrid/wang.py``. The preset is still recognised first and still keeps
+    # ``grid2d/wang.py``. The preset is still recognised first and still keeps
     # its positional terrain rows and its byte-identical export.
     if root.find("terraintypes") is not None:
         raise TiledUnsupported("terrain types")
     # Object alignment, render size, fill mode, background colour and the tile
     # offset are all modelled now -- see the presentation block on
-    # :class:`~..tilegrid.tileset.Tileset`. What remains refused is a tileset
+    # :class:`~..grid2d.tileset.Tileset`. What remains refused is a tileset
     # with no single atlas at all.
     # A tileset with no top-level ``<image>`` is an image collection, and it is
-    # modelled now (:class:`~..tilegrid.tileset.Collection`) rather than refused.
+    # modelled now (:class:`~..grid2d.tileset.Collection`) rather than refused.
     # What the reader still needs is *pixels*, which only the host can fetch --
     # so the collection path goes through ``collection_sources`` and the loader,
     # and this check has nothing left to refuse.
     for tile in root.findall("tile"):
         where = f"tile {tile.get('id', '?')}"
         # Class, probability, animation, collision and custom properties are
-        # all modelled now (:class:`~..tilegrid.tileset.TileMeta`); what remains
+        # all modelled now (:class:`~..grid2d.tileset.TileMeta`); what remains
         # refused here is what this editor genuinely cannot hold.
         if tile.get("terrain") is not None:
             # Tiled's own pre-Wang terrain types, which Tiled itself is
@@ -593,16 +593,16 @@ def _terrains_of(root: ET.Element, phases: int = 1) -> tuple[TerrainSpec, ...]:
 
 # --- per-tile metadata --------------------------------------------------------
 #
-# The plotter's own object shapes and tilegrid's collision records are converted
+# The plotter's own object shapes and grid2d's collision records are converted
 # into each other **here**, at the codec, and nowhere else: the shared leaf
 # imports nothing under ``warlock``, so it cannot know what a ``Polygon`` is,
 # and the plotter should not grow a second vocabulary for the same rectangle.
 
 
 def _collision_from(group: ET.Element) -> tuple[Any, ...]:
-    """A ``<objectgroup>`` inside a ``<tile>`` as tilegrid collision records.
+    """A ``<objectgroup>`` inside a ``<tile>`` as grid2d collision records.
 
-    Only the three shapes the tilegrid records can hold. Anything else in the
+    Only the three shapes the grid2d records can hold. Anything else in the
     group -- a text object, a tile object -- is skipped rather than refused: it
     is not collision, and a file that carries one is not a file this editor
     cannot open. Two things Tiled's collision editor *can* author are dropped
@@ -889,6 +889,16 @@ def read_tile_meta_json(entry: dict[str, Any]) -> dict[int, TileMeta]:
         for obj in group.get("objects") or ():
             x = float(obj.get("x", 0) or 0)
             y = float(obj.get("y", 0) or 0)
+            # The 2026-09-18 audit (plotter-03) found this reader dropping a
+            # shape's rotation and point/polyline members with no log line,
+            # unlike the XML reader's ``_collision_from`` -- and
+            # ``docs/COMPAT.md`` promises both drops are logged regardless of
+            # which spelling the file arrived in.
+            if float(obj.get("rotation", 0) or 0):
+                log.warning(
+                    "collision shape %s: rotation is not modeled and was dropped",
+                    obj.get("id", "?"),
+                )
             if obj.get("polygon"):
                 shapes.append(
                     TilePolygon(
@@ -909,7 +919,13 @@ def read_tile_meta_json(entry: dict[str, Any]) -> dict[int, TileMeta]:
                         h=float(obj.get("height", 0) or 0),
                     )
                 )
-            elif not obj.get("point") and not obj.get("polyline"):
+            elif obj.get("point") or obj.get("polyline"):
+                log.warning(
+                    "collision shape %s: point and polyline outlines are not "
+                    "modeled and were dropped",
+                    obj.get("id", "?"),
+                )
+            else:
                 shapes.append(
                     TileRect(
                         x=x,

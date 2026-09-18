@@ -1,7 +1,7 @@
 """The one owner of the agreement between the two copies of Troupe's table.
 
 ``kernels.charsheet`` decides where a cell is in a rendered character sheet;
-``studio.troupe.spec`` decides what that cell means to the studio, and the
+``studio.modes.troupe.engine.spec`` decides what that cell means to the studio, and the
 Inker handoff built on it. They cannot share code -- ``studio/troupe`` imports
 nothing outward (``test_troupe_imports.py`` pins the empty set), and
 ``pipelines`` modules run inside worker and Blender processes where ``studio``

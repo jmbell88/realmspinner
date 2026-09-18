@@ -45,6 +45,47 @@ def test_a_tileset_class_round_trips_through_its_own_writer():
     assert tsx.read_tsx(data, _pixels()).class_name == "BiomeAtlas"
 
 
+def test_read_tile_meta_json_logs_dropped_rotation_and_polyline_collision_members(
+    caplog,
+):
+    """The 2026-09-18 audit, finding plotter-03: ``read_tile_meta_json`` drops a
+    collision shape's rotation and point/polyline members the same way the XML
+    reader (``_collision_from``) does, but without the ``log.warning`` calls
+    ``docs/COMPAT.md:219`` promises for both. Both readers must log both drops.
+    """
+    entry = {
+        "tiles": [
+            {
+                "id": 0,
+                "objectgroup": {
+                    "objects": [
+                        # A rotated rectangle: the shape survives (rotation is
+                        # not modeled by TileRect), but the drop is logged.
+                        {"id": 1, "x": 0, "y": 0, "width": 4, "height": 4, "rotation": 45},
+                        # A polyline: has no grid2d shape, so it is dropped
+                        # outright -- and that drop is logged too.
+                        {
+                            "id": 2,
+                            "x": 0,
+                            "y": 0,
+                            "polyline": [{"x": 0, "y": 0}, {"x": 4, "y": 4}],
+                        },
+                    ]
+                },
+            }
+        ]
+    }
+    with caplog.at_level("WARNING", logger="warlock.studio.modes.plotter.engine.tsx"):
+        out = tsx.read_tile_meta_json(entry)
+    assert len(out[0].collision) == 1  # the rotated rect, rotation dropped
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("rotation is not modeled and was dropped" in m for m in messages)
+    assert any(
+        "point and polyline outlines are not modeled and were dropped" in m
+        for m in messages
+    )
+
+
 def test_tileset_transformations_round_trip_through_the_writer():
     source = _tileset(transformations=(True, False, True, True))
     data = tsx.tsx_bytes(source, image_name="terrain.png")

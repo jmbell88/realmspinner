@@ -750,22 +750,29 @@ class SongDoc:
         return True
 
     def update_channel(self, uid: int, **values: Any) -> bool:
-        """Rename, repan or re-kind one channel. The patterns do not move."""
+        """Rename, repan or re-kind one channel. The patterns do not move.
+
+        Empty cell maps, not a copy of every pattern's grid: the 2026-09-18
+        audit (sirens-01) found this building a full ``cells_before``/
+        ``cells_after`` map for a scalar-only change -- 37 ms at the channel
+        ceiling, copying each pattern's cells twice for a field that never
+        touches them. ``_apply_channels`` already treats a missing key as
+        "this pattern's cells are unchanged".
+        """
         channel = self._require(uid, self.channel, MISSING_CHANNEL)
         after = replace(channel, **values)
         if after == channel:
             return False
         channels = tuple(after if one.uid == uid else one for one in self.channels)
-        cells = {one.uid: one.cells for one in self.patterns}
         self.history.push(
             E.ChannelsEdit(
                 before=tuple(self.channels),
                 after=channels,
-                cells_before=cells,
-                cells_after=cells,
+                cells_before={},
+                cells_after={},
             )
         )
-        self._apply_channels(channels, cells)
+        self._apply_channels(channels, {})
         return True
 
     def _push_channels(

@@ -2372,6 +2372,58 @@ def test_an_imported_clip_joins_the_working_copy_unsaved_and_selected():
     )
 
 
+def test_an_import_whose_every_action_was_skipped_says_why_rather_than_zero_clips_silently():
+    """The 2026-09-18 audit, finding poser-01: a source file whose every
+    action Blender's own frame-count limit refused to sample
+    (``op_clip_sample``, ``blender_worker.py``) "imported" zero clips with the
+    toast reading bare "Imported 0 clip(s) from <file> -- Save clips to keep
+    them" and nothing on screen saying why -- indistinguishable from an empty
+    file or one already fully imported. ``service.clip_import.analyse`` now
+    forwards the skip reasons as ``result["skipped"]``; this is
+    ``on_task_done``'s landing of that answer, which must both keep the
+    reasons (for ``poser_clips._import_report`` to draw) and say so in the
+    toast rather than the ordinary "Imported N clip(s)" phrasing."""
+    ctx, state = _clip_ctx()
+    result = {
+        "template": "humanoid",
+        "clips": [],
+        "skipped": ["BigJump: 1200 frames exceeds the 900-frame limit"],
+        "source_name": "mocap_run.fbx",
+    }
+
+    poser_mode.on_task_done(
+        ctx, SimpleNamespace(key=poser_mode.CLIP_IMPORT_KEY, result=result)
+    )
+
+    assert state.clip_import_skipped == [
+        "BigJump: 1200 frames exceeds the 900-frame limit"
+    ]
+    assert any(
+        "mocap_run.fbx" in msg and "BigJump" in msg and "skipped" in msg.lower()
+        for msg, _kind in ctx.toasts
+    ), ctx.toasts
+    # Not the ordinary phrasing -- that used to be exactly what a cancelled
+    # or genuinely empty import also produced, with no way to tell them apart.
+    assert not any("Imported 0 clip(s)" in msg for msg, _kind in ctx.toasts)
+
+
+def test_a_clean_import_clears_a_stale_skipped_list_from_an_earlier_import():
+    """``state.clip_import_skipped`` must not outlive the import that produced
+    it -- a later, fully-successful import landing must not leave
+    ``poser_clips._import_report`` still showing a skip line from three
+    imports ago."""
+    ctx, state = _clip_ctx()
+    state.clip_import_skipped = ["stale: from a previous import"]
+    result = _import_result(name="run")
+    result["source_name"] = "mixamo_run.fbx"
+
+    poser_mode.on_task_done(
+        ctx, SimpleNamespace(key=poser_mode.CLIP_IMPORT_KEY, result=result)
+    )
+
+    assert state.clip_import_skipped == []
+
+
 def test_an_imported_clip_name_clash_is_renamed_not_overwritten():
     ctx, state = _clip_ctx()
     original_keys = list(state.open_clip()["keys"])

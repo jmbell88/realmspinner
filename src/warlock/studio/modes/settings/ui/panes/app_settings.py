@@ -1432,13 +1432,26 @@ def _loras(ctx: Any) -> None:
             imgui.same_line()
             widgets.muted(f'  trigger "{row.trigger_text}"')
         imgui.same_line()
+        # shell-05 (2026-09-18 audit): this used to toast "Removed {label}."
+        # right here, the instant ctx.submit accepted the task -- which only
+        # proves the job reached the queue, not that svc_loras.remove_lora
+        # ever ran. A refusal (a built-in key, a manifest already gone) or a
+        # disk error toasted a success the removal never earned. Progressive
+        # here; the real outcome is reported once shell/tasks.py's
+        # _on_task_done lands this task's own "lora:remove:" key (a failure
+        # is already caught by _collect_tasks's generic `if not done.ok`
+        # toast). The ``and`` short-circuits exactly like the nested ``if``
+        # it replaces: ctx.submit only runs once the button is actually
+        # pressed.
         if controls.small_button(
             f"Remove##lora-{row.key}",
             enabled=not busy,
             reason=_LORA_BUSY_REASON,
+        ) and ctx.submit(
+            f"lora:remove:{row.key}", svc_loras.remove_lora, ctx.svc, row.key,
+            tag=row.label,
         ):
-            ctx.submit(f"lora:remove:{row.key}", svc_loras.remove_lora, ctx.svc, row.key)
-            ctx.toast(f"Removed {row.label}.")
+            ctx.toast(f"Removing {row.label}...")
 
     imgui.dummy((0, sp(tokens.SP_1)))
     # The 2026-09-14 audit, shell-09: these two used to call
@@ -1621,12 +1634,17 @@ def _lora_import_form(ctx: Any) -> None:
         # as a nested ``if`` rather than the ``and`` chain this was, because a
         # statement has to run between the press and the submit.
         ctx.state.clear_field_errors()
+        # shell-05 (2026-09-18 audit): same incident as the Remove button
+        # above -- "Style added." used to fire the instant this submit was
+        # accepted, before svc_loras.import_lora had copied a byte or
+        # written a manifest. Progressive here; the real outcome lands
+        # through shell/tasks.py's _on_task_done, keyed on "lora:import".
         if ctx.submit(
             "lora:import", svc_loras.import_lora, ctx.svc, form["source"],
             **lora_import_kwargs(form),
         ):
             ctx.state.preview.pop("lora_import", None)
-            ctx.toast("Style added.")
+            ctx.toast("Adding style...")
     imgui.same_line()
     if controls.small_button("Cancel##lora-import"):
         ctx.state.preview.pop("lora_import", None)

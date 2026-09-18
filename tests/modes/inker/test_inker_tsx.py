@@ -1,6 +1,6 @@
 """Tileset export/import + the Plotter handoff -- Wave 3, Chunk 3.6.
 
-An Inker tileset IS a ``tilegrid.Tileset`` (Chunk 3.1's ``doc.tilesets``), so
+An Inker tileset IS a ``grid2d.Tileset`` (Chunk 3.1's ``doc.tilesets``), so
 this suite is mostly proving the *absence* of conversion: the ``.tsx`` this
 writes reads back through the one Tiled reader in the repo bit-exact, the
 pair it writes is internally consistent, and the object the map ends up

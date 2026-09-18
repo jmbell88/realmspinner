@@ -190,16 +190,28 @@ def _gltfpack_available(ctx: Any) -> bool:
 def _warn_stale(ctx: Any, job: Any) -> None:
     """Name the user work a retarget will invalidate, before it happens.
 
-    The service reports these rather than deleting them -- a rig and its poses
-    are minutes of work and must not be destroyed over a triangle count -- but
-    reporting after the fact is only half of it.
+    The service reports the rig/poses/sheets rather than deleting them -- a
+    rig and its poses are minutes of work and must not be destroyed over a
+    triangle count -- but reporting after the fact is only half of it.
+
+    The remesh half is not reported at all: ``optimize_job`` rebuilds
+    model.glb from source.glb, which silently overwrites whatever a prior
+    remesh baked onto it, and drops the stale ``params["remesh"]`` report as
+    part of that same rewrite (the 2026-09-18 audit, finding service-01). A
+    submit here loses that quad budget and rebake with no confirmation
+    otherwise, so it gets its own line before the button.
     """
     files = set(job.get("files") or [])
-    if "rig.glb" not in files:
-        return
-    widgets.text_colored(
-        theme.WARN, "The rig, its poses and its sheets will describe the old mesh."
-    )
+    if "rig.glb" in files:
+        widgets.text_colored(
+            theme.WARN, "The rig, its poses and its sheets will describe the old mesh."
+        )
+    if (job.get("params") or {}).get("remesh"):
+        widgets.text_colored(
+            theme.WARN,
+            "The game-ready remesh will be discarded and rebuilt from the raw "
+            "reconstruction.",
+        )
 
 
 def dependent_job_reason(jobs: list[dict[str, Any]], job_id: str) -> str | None:

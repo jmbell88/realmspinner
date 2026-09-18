@@ -208,7 +208,7 @@ def _skeleton_rig():
 def test_the_skeleton_pane_builds_in_both_states(app_ctx, imgui_ctx):
     """P6 (2026-09-13): the entry button, the editor with nothing and
     something selected, and a field-addressed refusal shown under a control
-    -- each its own branch of ``panes/poser_skeleton.py``."""
+    -- each its own branch of ``modes/poser/ui/panes/skeleton.py``."""
     from warlock.studio.modes.poser import mode as poser_mode
     from warlock.studio.modes.poser.ui.panes import controls as poser_controls
 
@@ -545,6 +545,33 @@ def test_the_import_report_names_a_duplicate_normalized_source_bone(
     joined = " ".join(lines)
     assert "mixamorig_hips" in joined
     assert "collided" in joined
+
+
+def test_the_import_report_names_a_skipped_action(app_ctx, imgui_ctx, monkeypatch):
+    """The 2026-09-18 audit, finding poser-01: an action Blender's own
+    frame-count limit refused to sample (``op_clip_sample``) never reaches
+    ``cliptransfer.transfer`` at all, so it has no ``report`` dict to draw
+    inside the loop below -- ``state.clip_import_skipped`` is a sibling list
+    this pane must draw on its own, the way ``duplicate_source_names`` above
+    proved a threaded field is worthless until something renders it."""
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import clips as poser_clips
+
+    app_ctx.rigging_available = True
+    app_ctx.poser_viewer = _PoserViewer()
+    state = poser_mode.ensure(app_ctx)
+    poser_mode.adopt_clips(app_ctx, _library())
+    state.clip_import_reports = []
+    state.clip_import_skipped = ["BigJump: 1200 frames exceeds the 900-frame limit"]
+    lines: list[str] = []
+    monkeypatch.setattr(poser_clips.widgets, "muted", lines.append)
+    monkeypatch.setattr(poser_clips.controls, "collapsing_header", lambda *a, **k: True)
+
+    _frame(imgui_ctx, lambda: poser_clips._import_report(app_ctx, state))
+
+    joined = " ".join(lines)
+    assert "BigJump" in joined
+    assert "Skipped" in joined
 
 
 def test_the_import_report_is_hidden_while_a_skeleton_edit_is_open(app_ctx, imgui_ctx, monkeypatch):
@@ -915,3 +942,19 @@ def test_revert_clips_reason_names_still_saving_when_a_save_is_in_flight():
     # Something to revert and nothing running: the button is live, no reason
     # needed.
     assert poser_clips._revert_clips_reason(unsaved, busy=False) == ""
+
+
+def test_poser_save_button_reasons_name_still_saving_when_busy():
+    """The 2026-09-18 audit, finding poser-03: "Save pose to this asset",
+    "Save" and "Save as reusable pose..." (``controls.py``'s ``_save_asset``/
+    ``_save_library``) greyed out while a previous save was still in flight
+    with no ``reason`` passed to ``widgets.disabled_button`` at all, unlike
+    every other busy-gated control in this pane -- the same class of bug
+    ``_revert_clips_reason`` (poser-06, 2026-09-08, tested just above) was
+    already fixed for on the clips pane."""
+    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
+
+    assert poser_controls._save_asset_reason(busy=True) == "Still saving."
+    assert poser_controls._save_asset_reason(busy=False) == ""
+    assert poser_controls._save_library_reason(busy=True) == "Still saving."
+    assert poser_controls._save_library_reason(busy=False) == ""

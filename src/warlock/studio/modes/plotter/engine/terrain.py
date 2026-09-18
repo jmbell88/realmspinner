@@ -344,7 +344,7 @@ def wang_field(data: np.ndarray, ref: TilesetRef, wangset: Any) -> Any:
 
     ``None`` for off the map, for an empty cell, and for a tile this set says
     nothing about -- all three mean "nothing here has an opinion", which is what
-    :func:`~..tilegrid.wang.constraints_from` needs them to mean.
+    :func:`~..grid2d.wang.constraints_from` needs them to mean.
 
     ``ref.firstgid``, ``ref.last_gid``, ``wangset.tiles`` and the gid mask are
     read once into locals rather than through ``ref.holds`` per neighbour read:

@@ -196,7 +196,7 @@ class MuseState:
 
     #: How near the model stays to a song composed from Sirens -- the reference
     #: door's ``ref_audio_strength``, drawn as *Closeness* beside the Compose
-    #: button in ``panes/sirens_bridge.py`` (W1, 2026-09-05). It used to be the
+    #: button in ``modes/sirens/ui/panes/bridge.py`` (W1, 2026-09-05). It used to be the
     #: literal ``0.5`` written into the params by the door, with the manual
     #: sending the reader to *Make more -> Something like this* to find it --
     #: a control that governs a different job entirely. Defaulted *from*

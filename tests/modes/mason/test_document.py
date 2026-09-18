@@ -649,3 +649,91 @@ def test_the_sweep_covers_all_ten_edit_types():
     names = _edit_type_names()
     assert len(names) == 10
     assert set(names) == set(_SCENARIOS)
+
+
+# --- mason-03 / mason-04 (2026-09-18 audit): lookup and bulk-add cost --------
+#
+# Both regressions below are instrumented rather than timed: a wall-clock
+# assertion is exactly the kind of thing "the suite is flaky under parallel
+# load" (2026-09-17 finding) turns red for reasons that have nothing to do
+# with the claim. Every full-tree walk in this package goes through
+# ``nodes.walk`` (``nd.walk``, as ``document.py`` imports it), so counting how
+# many nodes it yields during one call is a deterministic proxy for "how many
+# times was the whole tree walked" -- O(1) walks stays flat as the document
+# grows; a walk per lookup grows with it.
+
+
+def _count_walk_yields(monkeypatch) -> dict[str, int]:
+    counted = {"n": 0}
+    orig_walk = nd.walk
+
+    def counting_walk(roots):
+        for item in orig_walk(roots):
+            counted["n"] += 1
+            yield item
+
+    monkeypatch.setattr(doc.nd, "walk", counting_walk)
+    return counted
+
+
+def test_isolate_and_show_all_do_not_scale_quadratically_with_document_size(monkeypatch):
+    """The 2026-09-18 audit's mason-03: ``MasonDoc.node()``/``locate()`` used
+    to re-walk the *whole* tree for every single uid lookup, so ``isolate``
+    and ``show_all`` -- which look up every node in the document through
+    ``set_visibility`` -- cost O(N^2) on the frame thread: measured 0.3s at
+    1k nodes, 1.2s at 2k, 4.6s at 4k, 19s at 8k against a 100,000 ceiling.
+
+    This must fail against a ``node()``/``locate()`` that still walks per
+    lookup: 300 flat root nodes means ``isolate`` -- one ``all_nodes()`` walk
+    plus one ``node()`` lookup per node in ``set_visibility`` -- would drive
+    ~300 additional full-tree walks, each yielding up to 300 nodes: tens of
+    thousands of yields, not the low hundreds a single walk costs.
+    """
+    d = doc.MasonDoc()
+    for _ in range(300):
+        d.add_node(nd.GroupNode(uid=nd.new_uid()))
+    keep = [n.uid for n in d.roots[:3]]
+
+    counted = _count_walk_yields(monkeypatch)
+    d.isolate(keep)
+    # One walk over 300 nodes (``all_nodes()`` inside ``isolate``) is the
+    # honest cost; a walk per node lookup would be closer to 300 * 300 / 2.
+    assert counted["n"] <= 300 * 2
+
+    counted = _count_walk_yields(monkeypatch)
+    d.show_all()
+    assert counted["n"] <= 300 * 2
+
+
+def test_duplicate_selected_and_array_cost_is_independent_of_existing_document_size(
+    monkeypatch,
+):
+    """The 2026-09-18 audit's mason-04: ``_check_max_placed`` recounted
+    ``all_nodes()`` -- a full tree walk -- on every ``add_node``, and
+    ``add_nodes`` re-resolved the parent (``children_of`` -> ``node()``,
+    itself a full-tree walk) once per node added, so K additions into an
+    N-node document cost O(K*N): 500 duplicates took 2.4s in a 16k-node
+    scene.
+
+    ``parent`` is added *last*, after 3,000 other root nodes, so a per-lookup
+    walk has to scan past all 3,000 of them every time it resolves
+    ``parent_uid`` -- the worst case the audit's own measurement hit. This
+    must fail against the unfixed code: 20 additions each re-walking ~3,000
+    nodes to find the parent is on the order of 60,000 yields, not the low
+    hundreds a per-added-node cost bounds to.
+    """
+    d = doc.MasonDoc()
+    for _ in range(3000):
+        d.add_node(nd.GroupNode(uid=nd.new_uid()))
+    parent = nd.GroupNode(uid=nd.new_uid())
+    d.add_node(parent)
+
+    counted = _count_walk_yields(monkeypatch)
+    new_nodes = [nd.GroupNode(uid=nd.new_uid()) for _ in range(20)]
+    d.add_nodes(new_nodes, parent_uid=parent.uid)
+    # Bounded by the 20 nodes actually added (each one's own single-node
+    # subtree walked once by ``_check_max_placed`` and once by
+    # ``_attach_node``'s indexing) -- never by the 3,001 nodes already in the
+    # document.
+    assert counted["n"] <= 20 * 4
+    assert len(d.children_of(parent.uid)) == 20

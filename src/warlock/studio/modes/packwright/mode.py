@@ -720,7 +720,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 # ``tileset_import`` unconditionally and reset
                 # ``tileset_import_open`` to False -- which the pane's own
                 # "open once a new import lands" check (above, in
-                # ``panes/packwright_sources.py``) then read as a fresh
+                # ``modes/packwright/ui/panes/sources.py``) then read as a fresh
                 # import and reopened the popup over, silently, completely
                 # different pixels: no toast, no confirm, no visible sign
                 # anything had changed underneath a user mid-typing a tile

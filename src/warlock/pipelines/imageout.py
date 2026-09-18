@@ -14,7 +14,7 @@ operation (lifting a subject off a background) and stay PNG; converting an
 already-PNG file to PNG would be a copy wearing a converter's name, which
 ``service.files.MEDIA``'s own "Source image" row already hands over.
 
-**Not ``studio/atomic.py:save_image``.** That helper resolves a Pillow format
+**Not ``core/safeio/atomic.py:save_image``.** That helper resolves a Pillow format
 from a path's *real* suffix, which is exactly wrong here: every derivation in
 ``service/derive`` stages through a dotfile named ``.{name}.tmp`` (see
 ``derive._staged``), so the path this module is actually handed is

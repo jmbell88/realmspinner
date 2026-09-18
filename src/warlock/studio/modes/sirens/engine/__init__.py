@@ -7,7 +7,7 @@ package than for the other four: the thing it produces is *audio*, and the one
 piece of the app that needs a sound card is playback. Keeping the device out of
 the engine is what lets a machine with no audio hardware at all -- CI, a
 headless build box, a laptop with the driver uninstalled -- still open a song,
-edit it, render it and export a WAV. ``studio/sirens_audio.py`` is the only
+edit it, render it and export a WAV. ``studio/modes/sirens/audio.py`` is the only
 module in the repo that touches ``pygame.mixer``, and it is not in here.
 
 The modules, in dependency order:

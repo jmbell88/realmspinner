@@ -128,6 +128,41 @@ def test_analyse_writes_nothing(svc, monkeypatch, tmp_path):
     assert not (imports_dir.is_dir() and list(imports_dir.iterdir()))
 
 
+def test_analyse_surfaces_actions_blender_skipped_for_exceeding_the_frame_limit(
+    svc, monkeypatch, tmp_path
+):
+    """The 2026-09-18 audit, finding poser-01: ``op_clip_sample`` (the Blender
+    worker) already reports which actions it refused to sample -- its own
+    ``max_frames`` guard, actions over 900 frames -- as ``payload["skipped"]``
+    (``blender_worker.py``'s ``op_clip_sample``), but neither
+    ``cliptransfer.transfer`` nor this door ever forwarded it: a source file
+    whose every action was too long "imported" zero clips with nothing in the
+    result saying why, though the clips pane already renders
+    ``left_at_rest``/``ignored`` from the very same report shape."""
+    _ok_blender(monkeypatch)
+    payload = _canned_payload()
+    payload["skipped"] = ["BigJump: 1200 frames exceeds the 900-frame limit"]
+    _fake_run_worker(monkeypatch, payload)
+    source = _write_source(tmp_path)
+
+    result = clip_import.analyse(svc, TEMPLATE, str(source))
+
+    assert result["skipped"] == ["BigJump: 1200 frames exceeds the 900-frame limit"]
+
+
+def test_analyse_surfaces_no_skipped_actions_as_an_empty_list(svc, monkeypatch, tmp_path):
+    """Absent, not merely empty, would leave a caller writing
+    ``result["skipped"]`` unable to tell "nothing was skipped" from "this
+    build predates the fix" -- present and ``[]`` either way."""
+    _ok_blender(monkeypatch)
+    _fake_run_worker(monkeypatch, _canned_payload())
+    source = _write_source(tmp_path)
+
+    result = clip_import.analyse(svc, TEMPLATE, str(source))
+
+    assert result["skipped"] == []
+
+
 def test_a_file_that_is_not_an_animation_format_is_refused_on_source(svc, tmp_path):
     source = tmp_path / "reference.png"
     source.write_bytes(b"not an animation")

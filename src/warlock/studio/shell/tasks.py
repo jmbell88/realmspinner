@@ -293,6 +293,16 @@ class TasksMixin:
 
         ctx = self.app_ctx
         key = done.key
+        from ..agent_host import CATALOGUE_SNAPSHOT_TASK_KEY
+
+        if key == CATALOGUE_SNAPSHOT_TASK_KEY:
+            # agents-06 (2026-09-18 audit): AgentHost.start() now writes its
+            # catalogue snapshot through ctx.submit instead of inline, so it
+            # lands here like any other task -- but nothing on screen reads
+            # the file and the write already logs its own OSError, so there
+            # is nothing to do with a landed one except not let it fall
+            # through to the "nowhere to deliver its result" log line below.
+            return
         if key == "preview" and isinstance(done.result, dict):
             ctx.state.preview.update(done.result)
             return
@@ -378,6 +388,29 @@ class TasksMixin:
                     f"({format_bytes(int(out['store_bytes']))}).",
                     "success",
                 )
+            return
+        if key.startswith("lora:remove:"):
+            # shell-05 (2026-09-18 audit): app_settings.py's Remove button
+            # used to toast "Removed {label}." at submit, before the task
+            # had run at all -- moved here, the one place that knows the
+            # removal actually finished. ``tag`` carries the label the
+            # button closed over at press time (svc_loras.remove_lora's own
+            # result has no label, only the key). A failure is already
+            # toasted by this file's own `if not done.ok` branch above, so
+            # there is nothing to claim on that side.
+            label = done.tag if isinstance(done.tag, str) else ""
+            ctx.toast(f"Removed {label}." if label else "Style removed.")
+            return
+        if key == "lora:import":
+            # Same incident, the Add style button's half: "Style added."
+            # used to fire at submit too. The finished manifest (``asdict``
+            # of a LoraManifest, per svc_loras.import_lora) carries the
+            # label the form was actually submitted with, which may differ
+            # from the one closed over at press time if the text field
+            # changed between frames -- so this reads it from the result
+            # rather than a tag.
+            label = done.result.get("label") if isinstance(done.result, dict) else ""
+            ctx.toast(f"{label} added." if label else "Style added.")
             return
         if key == "sweep-staging":
             # Silent when there was nothing to reclaim, which is every launch

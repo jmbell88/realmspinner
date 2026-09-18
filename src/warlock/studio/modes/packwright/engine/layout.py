@@ -5,7 +5,7 @@ row-major in key order. It is the mode that produces a *tileset* -- a regular
 atlas an engine can slice by arithmetic -- which is why the grid's geometry is
 spelled as Tiled's own margin and spacing: the outer border and the gutter are
 both ``padding``, so :mod:`.tsxout` can hand the numbers straight to
-``tilegrid.tileset.Tileset`` rather than approximating them.
+``grid2d.tileset.Tileset`` rather than approximating them.
 
 **A grid pack never trims, whatever ``trim`` says.** Trimming moves each
 sprite's content to its own bounding box, and in a grid it was then blitted at

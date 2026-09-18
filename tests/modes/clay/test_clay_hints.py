@@ -129,7 +129,7 @@ def test_the_element_modes_advertise_the_verbs_only_they_have():
 
 def test_object_mode_offers_neither_the_element_verbs_nor_edit_mode_twice():
     line = clay_hints.hint("object", "select")
-    assert "Tab edit" in line
+    assert "1/2/3 edit" in line
     assert "loop" not in line and "linked" not in line
 
 
@@ -170,7 +170,7 @@ def test_an_unknown_mode_falls_back_rather_than_raising():
 
 def test_keys_named_finds_the_chords_and_the_bare_letters():
     found = clay_hints.keys_named(clay_hints.hint("edge", "move"))
-    assert {"L", "G", "Tab", "LMB", "MMB", "Alt+click", "Ctrl+Alt+click"} <= found
+    assert {"L", "G", "4", "LMB", "MMB", "Alt+click", "Ctrl+Alt+click"} <= found
 
 
 def test_keys_named_does_not_read_english_as_a_binding():
@@ -196,3 +196,45 @@ def test_every_key_the_line_names_is_a_key_the_mode_listens_to():
             }
     known = set(clay_mode.TOOL_KEYS) | {"g", "s", "r", "l"}
     assert letters <= known, sorted(letters - known)
+
+
+def test_the_hint_line_names_no_multi_character_binding_nothing_implements():
+    """clay-05 (2026-09-18 audit): the line said "Tab edit"/"Tab object", and
+    ``mode.py``'s own comment on ``ELEMENT_KEYS`` says Tab is deliberately
+    unbound -- imgui's keyboard navigation owns it, and binding it too would
+    move focus out of the viewport as well as changing the mode. The parity
+    test above never caught it because it only ever looked at single letters;
+    this widens the same check to every named token -- "Tab", "Enter", digit
+    groups, all of it -- against the keys Clay actually listens to.
+
+    Fails against the unfixed code: ``keys_named`` found "Tab" in the object
+    and every element mode's line, and "Tab" is not a key ``mode.handle_key``
+    binds anything to.
+    """
+    from warlock.studio.modes.clay import mode as clay_mode
+
+    # The two named tokens Clay's own key handler answers to outside a drag
+    # (the mouse buttons and the wheel are always true; a bare press never
+    # commits or cancels, so "Enter"/"Esc" only belong on the dragging line).
+    known_named = {"LMB", "MMB", "RMB", "wheel"}
+    known_named_dragging = known_named | {"Enter", "Esc"}
+    known_digits = set(clay_mode.ELEMENT_KEYS)
+
+    for mode in clay_ops.ALL_MODES:
+        for tool, _label, _key in clay_state.TOOLS:
+            found = clay_hints.keys_named(clay_hints.hint(mode, tool))
+            multi = {key for key in found if len(key) > 1 and "+" not in key}
+            digits = {key for key in found if key.isdigit()}
+            assert multi <= known_named, (mode, tool, sorted(multi - known_named))
+            assert digits <= known_digits, (mode, tool, sorted(digits - known_digits))
+            for kind in ("move", "rotate", "scale"):
+                found = clay_hints.keys_named(
+                    clay_hints.hint(mode, tool, dragging=True, drag_kind=kind)
+                )
+                multi = {key for key in found if len(key) > 1 and "+" not in key}
+                assert multi <= known_named_dragging, (
+                    mode,
+                    tool,
+                    kind,
+                    sorted(multi - known_named_dragging),
+                )

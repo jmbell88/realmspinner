@@ -629,6 +629,27 @@ def test_linking_a_slot_points_it_at_another_frames_cel():
     assert tuple(doc.stack[0].pixels[0, 0]) == RED
 
 
+def test_link_cel_charges_the_orphaned_cel_it_replaces_against_the_undo_budget():
+    """A slot's independent cel, once ``link_cel`` points that slot elsewhere,
+    is held only by the undo history -- nothing in the grid names it any
+    more. The 2026-09-18 audit (inker-02) found ``link_cel`` always pushed
+    ``CelSetEdit(pinned=False)``, charging that orphaned cel 0 bytes against
+    ``UNDO_BYTES`` however large it was, while ``link_range``'s per-slot
+    ``_cel_edits`` already asks ``_released`` the right question."""
+    doc = _doc()
+    _paint(doc, RED)
+    doc.add_frame(copy=True)
+    doc.set_current_frame(1)
+    _paint(doc, BLUE)
+    orphan = doc.anim.cel(doc.anim.tracks[0].uid, doc.anim.frames[1].uid)
+    before_bytes = doc.history.bytes
+
+    assert doc.link_cel(0)
+
+    assert doc.anim.cel(doc.anim.tracks[0].uid, doc.anim.frames[1].uid) is not orphan
+    assert doc.history.bytes >= before_bytes + orphan.pixels.nbytes
+
+
 def test_unlinking_mints_its_copy_once_so_the_uid_survives_undo_and_redo():
     """The ``flatten_layers`` rule, one level up. A redo that copied again
     would hand back a layer with a new identity and strand every patch recorded

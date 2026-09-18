@@ -5,8 +5,8 @@ the curved primitives -- insert smooth-shaded; structural shapes keep hard
 edges. The mechanism is not new: it is ``clay_ops._shade_auto``'s existing
 angle rule (a face is smooth only when *every* one of its edges is under the
 threshold), extracted here as :func:`clay.shading.auto_smooth` so the two
-insertion doors -- ``panes/clay_tools.add_primitive`` for a shape off the grid
-and ``panes/clay_tools.add_assembly`` for a figure's parts -- and the manual
+insertion doors -- ``modes/clay/ui/panes/tools.add_primitive`` for a shape off the grid
+and ``modes/clay/ui/panes/tools.add_assembly`` for a figure's parts -- and the manual
 "Shade Auto..." op all read one rule rather than three copies of it.
 
 Consequence, stated by the rule itself and pinned here rather than assumed:

@@ -35,8 +35,8 @@ from ... import mode as sirens_mode
 #: it -- was drawn at zero height on every launch nobody had dragged a splitter
 #: on (the 0.0.39 ``dev/screenshots/dark-sirens.png``, before that release's own
 #: fix refreshed it: a 15 px sliver of "Song file" and
-#: nothing more). The Closeness slider, the wrapped export summary and the
-#: Compose-in-Muse button below the Export button are past this floor and
+#: nothing more). The wrapped export summary, the Compose-in-Muse button and
+#: the Closeness slider under it, all below the Export button, are past this floor and
 #: scroll rather than being counted in it, the way ``layout.pane`` lets any
 #: pane's tail do.
 BRIDGE_FLOOR = 190.0
@@ -137,7 +137,6 @@ def _export(ctx: Any, tab: Any) -> None:
         tooltip="Ctrl+Shift+E",
     ):
         sirens_mode.export_files(ctx, tab)
-    _closeness(ctx)
     counts = [f"{len(doc.channels)} stem(s)"]
     if doc.oneshots:
         counts.append(f"{len(doc.oneshots)} effect(s)")
@@ -166,6 +165,9 @@ def _export(ctx: Any, tab: Any) -> None:
         from ....muse import mode as muse_mode
 
         muse_mode.compose_from_sirens(ctx, tab)
+    # Under the button it governs: until the 2026-09-18 audit (finding
+    # sirens-03) it was drawn under Export audio, which it has no effect on.
+    _closeness(ctx)
 
 
 def _history(ctx: Any, tab: Any) -> None:

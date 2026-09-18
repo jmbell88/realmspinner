@@ -319,6 +319,55 @@ def test_editing_a_tile_objects_gid_field_folds_into_one_undo_step():
     )
 
 
+def test_typing_a_text_objects_label_pushes_one_undo_step_not_one_per_keystroke():
+    """The 2026-09-18 audit, plotter-01: the text branch of ``_shape_fields``
+    called ``controls.fold_undo`` exactly once, after the last Style
+    checkbox, and ``fold_undo`` folds the gesture on the item imgui most
+    recently drew -- a call placed after field six cannot fold anything
+    fields one through five did. Text, Font, Size and Colour each wrote
+    straight through the branch's one combined ``doc.set_object`` with
+    nothing folding the keystrokes in between, so typing a sentence into any
+    of them pushed one undo step per character.
+
+    ``test_the_popup_doors_fold_between_the_field_and_the_write
+    [text-object-fields]`` (``tests/test_undo_gesture_doors.py``) did not
+    catch this: it only checks that *some* ``fold_undo`` call sits between
+    the first field drawn and the final write, which the one misplaced call
+    already satisfied. Each check below is bounded to the gap between one
+    field and the next, the same shape
+    ``test_the_object_properties_form_folds_a_position_drag_into_one_step``
+    above uses, so a neighbour's fold cannot satisfy a check that proves
+    nothing about the field actually named.
+    """
+    import inspect
+
+    source = inspect.getsource(plotter_layers._shape_fields)
+
+    after_text = source.split('"##text-value"', 1)[1]
+    before_family = after_text.split('"##text-family"', 1)[0]
+    assert "controls.fold_undo(" in before_family, (
+        "Text field is not folded before the Font field is drawn"
+    )
+
+    after_family = source.split('"##text-family"', 1)[1]
+    before_size = after_family.split('"##text-size"', 1)[0]
+    assert "controls.fold_undo(" in before_size, (
+        "Font field is not folded before the Size field is drawn"
+    )
+
+    after_size = source.split('"##text-size"', 1)[1]
+    before_color = after_size.split('"##text-color"', 1)[0]
+    assert "controls.fold_undo(" in before_color, (
+        "Size field is not folded before the Colour field is drawn"
+    )
+
+    after_color = source.split('"##text-color"', 1)[1]
+    before_write = after_color.split("doc.set_object(", 1)[0]
+    assert "controls.fold_undo(" in before_write, (
+        "Colour field writes before it is folded"
+    )
+
+
 @pytest.mark.parametrize("kind", ["class", "list"])
 def test_a_container_property_summarises_rather_than_showing_nothing(kind):
     """A class arriving from Tiled used to look like an empty string until the

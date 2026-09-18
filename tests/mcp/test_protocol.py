@@ -337,6 +337,44 @@ def test_tasks_get_working_has_no_result_field() -> None:
     assert reply["result"] == {"taskId": "op-1", "status": "working"}
 
 
+def test_tasks_get_with_a_malformed_body_becomes_an_error_not_broken_json() -> None:
+    """The 2026-09-18 audit (agents-02): `_tasks_get_bytes` spliced
+    `get_task`'s `body` with no shape check at all -- unlike
+    `splice_tool_result`, whose identical bug (a malformed body going onto
+    the wire unchecked) was already fixed twice for `tools/call`
+    (2026-09-14/agents-03, 2026-09-16/agents-02). A malformed body (what
+    Studio's RPC v1 `status` reply looks like truncated or otherwise not a
+    JSON object) used to become `"result":not-a-json-object` -- literally
+    invalid JSON on the wire, which this test's own `_dispatch` helper
+    cannot even `json.loads`."""
+    state = p.BridgeEra()
+    _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/discover",
+            "params": _modern_meta_with_tasks(),
+        },
+        state,
+    )
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tasks/get",
+            "params": {"taskId": "op-1", **_modern_meta_with_tasks()},
+        },
+        state,
+        get_task=lambda task_id: ("completed", b"not-a-json-object"),
+    )
+    assert "error" not in reply
+    result = reply["result"]
+    assert result["taskId"] == "op-1"
+    assert result["status"] == "completed"
+    assert result["result"]["isError"] is True
+    assert "malformed task body" in result["result"]["content"][0]["text"]
+
+
 def test_tasks_cancel_ok() -> None:
     state = p.BridgeEra()
     discover_params = {
@@ -546,6 +584,33 @@ def test_a_second_legacy_initialize_does_not_renegotiate_the_locked_version() ->
     )
     assert reply["error"]["code"] == -32600
     assert state.legacy_version == "2025-06-18"
+    assert state.era == "legacy"
+
+
+def test_server_discover_on_an_already_legacy_locked_connection_is_refused() -> None:
+    """The 2026-09-18 audit (agents-04): `server/discover` only guarded its
+    own era write with `if state.era is None`, the mirror image of the bug
+    the 2026-09-15 audit (agents-03) found in `initialize` -- so a connection
+    already locked to legacy by a prior `initialize` got back a
+    modern-shaped `discover_result` (`resultType`, `capabilities.resources`,
+    a possible `extensions` key) from a stray `server/discover`, instead of
+    the same -32600 refusal a stray `initialize` on that connection already
+    gets (`test_a_second_legacy_initialize_does_not_renegotiate_the_locked_version`,
+    just above). `BridgeEra`'s own docstring says the era is "locked for the
+    connection's life" once decided."""
+    state = p.BridgeEra()
+    _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": p.LEGACY[0]},
+        },
+        state,
+    )
+    assert state.era == "legacy"
+    reply = _dispatch({"jsonrpc": "2.0", "id": 2, "method": "server/discover"}, state)
+    assert reply["error"]["code"] == -32600
     assert state.era == "legacy"
 
 

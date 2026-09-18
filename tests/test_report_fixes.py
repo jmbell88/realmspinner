@@ -361,7 +361,7 @@ def test_saving_a_png_in_place_is_staged_and_replaced(tmp_path, monkeypatch):
     ``.png``, and that branch was a bare ``write_bytes``. Every other document
     writer in the app stages to a temp and replaces.
 
-    The helper has since moved out of ``inker_mode`` and into ``studio.atomic``
+    The helper has since moved out of ``inker_mode`` and into ``core.safeio.atomic``
     -- see ``tests/test_atomic_writes.py`` for why it had to stop being one
     module's private idiom -- but the property is this one and stays here."""
     from warlock.core.safeio import atomic

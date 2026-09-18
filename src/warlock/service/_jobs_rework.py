@@ -144,8 +144,14 @@ def optimize_job(
     changes: dict[str, Any] = {"profile": profile, "optimize": result}
     if custom_triangles is not None:
         changes["custom_triangles"] = custom_triangles
-    # The old audit/report describe a mesh that no longer exists.
-    drop = ["mesh_audit", "mesh_report"]
+    # The old audit/report describe a mesh that no longer exists. "remesh" is
+    # in the same boat: a retarget rebuilds model.glb from source.glb, which
+    # overwrites whatever a prior remesh baked onto it, but until the
+    # 2026-09-18 audit (finding service-01) this drop list left the old
+    # report in params -- so remesh_panel's "Last remesh: 8,000 faces" line
+    # (params["remesh"], set by _q_mesh's worker path) went on describing
+    # quads that were no longer on disk.
+    drop = ["mesh_audit", "mesh_report", "remesh"]
     if transform is None:
         drop += ["transform", "scale_factor"]
     else:

@@ -609,6 +609,18 @@ _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
 # P10 -- Muse folds into Create's audio stage, explicitly removing "the
 # muse <-> sirens cross-import" (RESTRUCTURE.md's own words) once
 # kernels/audio/ (P3) holds what the two shared.
+#
+# This set is only the *module-scope* leg of that cross-import -- the one
+# this file's walk can see. The reverse leg is real too: Sirens' "Compose in
+# Muse..." button and its Closeness slider (bridge.py:166,211-212) import
+# ``muse.mode`` and ``muse.ui.panes.results`` back, function-scoped, the same
+# lazy-reach pattern the module docstring already names for
+# familiar/contract.py and poser_mode.py -- and so, by this file's own
+# module-scope-only rule, invisible to :func:`_all_edges` and absent from
+# both this set and :data:`EXCEPTIONS`. Naming it here is what the 2026-09-18
+# audit's finding sirens-04 asked for ("list both directions"): a reader of
+# this comment sees P10 has two legs to fold, not the one the tuples below
+# can prove.
 _P10_MUSE_FOLDS_INTO_CREATE: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.audio"),
     ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.fileio"),
@@ -616,6 +628,10 @@ _P10_MUSE_FOLDS_INTO_CREATE: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.state"),
     ("warlock.studio.modes.muse.ui.panes.player", "warlock.studio.modes.sirens.audio"),
     ("warlock.studio.modes.muse.ui.panes.results", "warlock.studio.modes.sirens.audio"),
+    # The reverse leg (sirens.ui.panes.bridge -> muse.mode /
+    # muse.ui.panes.results) is NOT added here: it is function-scoped, so it
+    # is not a member of _EDGE_PAIRS, and test_exceptions_has_no_stale_entries
+    # would fail it as stale the moment it landed. See the comment above.
 })
 
 # P11 -- Review folds into a Library view; P12 -- Home folds into Library's

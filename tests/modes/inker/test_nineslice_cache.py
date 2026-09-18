@@ -3,7 +3,7 @@
 ``Document.flatten`` copies the whole composite every call -- deliberately, its
 callers may write to what they get back -- and the nine-slice panel asked for
 one twice per frame: once in ``inker_ops._can_nineslice_fit`` to decide whether
-the Auto-fit button is grey, and once in ``panes.inker_tools._nineslice_preview``
+the Auto-fit button is grey, and once in ``modes.inker.ui.panes.tools._nineslice_preview``
 to build the swatches. On a 1024 canvas that is two multi-megabyte copies and a
 full run scan every frame the sidebar is drawn with a slice selected, for two
 answers that only move when the document does. The preview then stretched three

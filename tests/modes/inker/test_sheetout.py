@@ -469,6 +469,30 @@ def test_trim_re_clips_a_slice_that_extended_past_the_trim_box():
     assert extra["slices"][0][0]["bounds"] == {"x": 0, "y": 0, "w": 3, "h": 3}
 
 
+def test_trim_drops_pivot_and_slices_on_a_frame_that_trims_to_nothing():
+    """A frame that trims to nothing is the blank square ``build`` left it --
+    no pixels for a whole-document pivot or a slice to describe any more.
+    The 2026-09-18 audit (inker-01) found ``_trim_shift_slices`` passing that
+    meta through untouched instead: a pivot at (4.0, 4.5) and a slice at
+    (3, 4, 2, 1), both authored against the *untrimmed* 8x8 canvas, kept
+    naming those points on a blank tail frame after every surviving cell had
+    shrunk to the shared 2x2 trim box -- a sidecar pointing off the cell."""
+    frames = [_box(8, 8, (0, 0, 2, 2)), np.zeros((8, 8, 4), dtype=np.uint8)]
+    slices = [
+        {"pivot": None, "slices": []},
+        {
+            "pivot": (4.0, 4.5),
+            "slices": [{"name": "hit", "x": 3, "y": 4, "w": 2, "h": 1}],
+        },
+    ]
+    _image, plan, extra = sheetout.compose(frames, [10, 10], (), None, slices, trim=True)
+    _image.close()
+    assert (plan.cell_w, plan.cell_h) == (2, 2)
+    assert extra["trims"][1] is None
+    assert 1 not in extra["pivots"]
+    assert 1 not in extra["slices"]
+
+
 # --- the animation block -----------------------------------------------------
 
 

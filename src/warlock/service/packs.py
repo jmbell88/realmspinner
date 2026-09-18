@@ -316,6 +316,11 @@ def install(
         raise Invalid(said)
     pending = packs_mod.to_install(plan, have)
     probe = sorted({name for pack in chosen for name in pack.probe})
+    # The map back from that flat, deduplicated list to which pack each name
+    # belongs -- ``pack_worker._record_pack_verdicts``' own comment says why
+    # it wants both shapes: one child per module either way, but a verdict
+    # keyed by pack rather than by the merged list (pipelines-06).
+    pack_probes = {pack.key: list(pack.probe) for pack in chosen}
     if not pending and not collect_only:
         # Everything the pack carries is already at the pack's own version --
         # by distribution metadata alone. That is not proof it is usable
@@ -329,6 +334,7 @@ def install(
                 "bundled_dir": str(bundled_dir()),
                 "wheels": [],
                 "probe": probe,
+                "pack_probes": pack_probes,
                 "probe_only": True,
             },
             on_progress=on_progress or (lambda _p, _l, _ph: None),
@@ -354,6 +360,7 @@ def install(
         "bundled_dir": str(bundled_dir()),
         "wheels": _wheel_payload(pending),
         "probe": probe,
+        "pack_probes": pack_probes,
         "collect_only": collect_only,
     }
     result = _run_worker(
@@ -401,6 +408,10 @@ def repair(
         "bundled_dir": str(bundled_dir()),
         "wheels": _wheel_payload(plan),
         "probe": sorted({name for pack in chosen for name in pack.probe}),
+        # See ``install``'s own comment: the map back from that merged probe
+        # list to which pack each name belongs, so a repair's verdict file
+        # names the pack that is actually broken (pipelines-06).
+        "pack_probes": {pack.key: list(pack.probe) for pack in chosen},
         "collect_only": False,
         "force_reinstall": True,
     }

@@ -167,15 +167,22 @@ def test_avoid_text_typed_under_quality_is_cleared_by_switching_to_fast():
 # --- Fast and structure control are incompatible ------------------------------
 
 
-def test_fast_plus_structure_control_is_refused():
+def test_automatic_routing_controlnet_refusal_names_a_control_that_still_exists():
+    """The 2026-09-18 audit, finding create-05: under automatic routing this
+    refusal used to name ``quality`` and say "Switch the recipe to Quality"
+    -- a control that has not existed since the Fast/Quality tier folded
+    into the Model combo (the same retirement create-03/5.5.2 already fixed
+    the repair button for). ``base_model`` is the field ``_model``
+    (settings_2d.py) actually draws and shows a field error beside, under
+    both routing modes, so that is what the refusal must name."""
     request = _request(quality="fast", structure_control="canny")
     resolved = generation.resolve_recipe(request, None)
     issues = generation.validate_request(request, resolved)
-    assert [i.field for i in issues] == ["quality"]
+    assert [i.field for i in issues] == ["base_model"]
     message = issues[0].message
     assert "ControlNet" in message
-    # A sentence the user can act on, naming a control automatic routing draws.
-    assert "Quality" in message
+    assert "Quality" not in message
+    assert "full-CFG" in message
 
 
 def test_the_refusal_names_the_model_when_the_user_picked_it():

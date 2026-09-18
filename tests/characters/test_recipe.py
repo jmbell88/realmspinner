@@ -164,7 +164,7 @@ def test_a_recipe_carries_no_archetype_of_its_own():
 #
 # ``recipe`` restates the ladders because ``characters`` may not import
 # ``service``. This file is the sole owner of the agreement between the copies,
-# the arrangement ``kernels.charsheet`` and ``studio.troupe.spec`` already
+# the arrangement ``kernels.charsheet`` and ``studio.modes.troupe.engine.spec`` already
 # have: a change to one is a change to both plus these four assertions.
 
 

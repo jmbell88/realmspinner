@@ -44,6 +44,21 @@ from . import zipguard
 #: header, and read at call time so lowering it works.
 MAX_ARRAY_BYTES = 1 << 28
 
+#: The ceiling on one ``.npz``'s *sum* of declared member sizes (shell-03, the
+#: 2026-09-18 audit) -- ``read_array`` bounds one member at a time and cannot
+#: see that several members, each honestly under :data:`MAX_ARRAY_BYTES`,
+#: still sum to far more than any real document. Deliberately not
+#: ``MAX_ARRAY_BYTES`` itself: a multi-array mesh with several large fields is
+#: legitimate and this would silently cap it at a single array's ceiling, a
+#: policy tightening the finding never asked for. ``1 << 30`` instead, chosen
+#: to match ``kernels/mesh/serialize.py``'s ``MAX_DECOMPRESSED_BYTES`` -- the
+#: ceiling the outer ``.wblk`` archive this inner one always sits inside
+#: already enforces, so this can be no more permissive than the door already
+#: guarding it. Not imported from there: ``core/`` sits below ``kernels/`` in
+#: the layering (``tests/test_layering.py``), so the value is restated rather
+#: than reached for across that boundary.
+MAX_ARCHIVE_BYTES = 1 << 30
+
 #: ``read_array_header_1_0`` and ``..._2_0`` are numpy's own public API; there
 #: is no public reader for 3.0, and nothing in this repo writes a structured
 #: dtype, so a 3.0 file is refused by name rather than read through a private
@@ -114,6 +129,24 @@ def read_npz(raw: bytes, what: str) -> dict[str, np.ndarray]:
         raise ValueError(f"{what} is not a numpy archive") from exc
     out: dict[str, np.ndarray] = {}
     with archive:
+        # Before any member is read: read_array bounds one member at a time
+        # against MAX_ARRAY_BYTES, and nothing bounded their *sum* -- a 252 KB
+        # crafted archive of 40 zero-filled members, each individually under
+        # the ceiling, materialised 240 MB at scaled-down test ceilings, 30x
+        # the single-array ceiling (the 2026-09-18 audit, finding shell-03).
+        # This is the same precheck kernels/mesh/serialize.py's read_wblk
+        # already does on its own zip's infolist(), one archive layer up --
+        # this closes the identical hole in the nested zip that np.load opens
+        # beneath BoundedZip's reach, where the outer sum buys nothing.
+        # MAX_ARCHIVE_BYTES, not MAX_ARRAY_BYTES: see its own docstring -- a
+        # legitimate multi-array document should not be capped at one array's
+        # ceiling just because this check needed a number.
+        claimed = sum(int(info.file_size) for info in archive.infolist())
+        if claimed > MAX_ARCHIVE_BYTES:
+            raise ValueError(
+                f"{what} claims {claimed} bytes across its members, past"
+                f" the {MAX_ARCHIVE_BYTES} this build will read from one archive"
+            )
         for name in archive.namelist():
             if not name.endswith(".npy"):
                 # numpy writes nothing else into one, so a stray member is

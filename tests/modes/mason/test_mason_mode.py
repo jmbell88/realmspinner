@@ -550,6 +550,211 @@ def test_ungroup_does_nothing_to_a_selection_with_no_group_in_it() -> None:
 # --- Esc means the nearer of its two jobs ------------------------------------
 
 
+# --- MAX_PLACED: every attach door refuses rather than crashing --------------
+
+
+def test_place_primitive_refuses_with_a_toast_rather_than_crashing_past_max_placed(
+    monkeypatch,
+) -> None:
+    """The 2026-09-18 audit's mason-01: ``place_ref`` (reached here through
+    ``place_primitive``) called ``doc.add_node`` with no ``MAX_PLACED``
+    pre-check, so the ``ValueError`` ``MasonDoc._check_max_placed`` raises at
+    the ceiling escaped uncaught -- past ``App.run()``'s own catch-all
+    (shell-04) -- ending the session with every open document's unsaved
+    work. Against the unfixed function this call raises instead of toasting.
+    """
+    ctx = _armed_ctx()
+    doc = mason_mode.ensure(ctx).active.doc
+    monkeypatch.setattr(msc, "MAX_PLACED", 0)
+    steps = len(doc.history)
+
+    uid = mason_mode.place_primitive(ctx, "box")
+
+    assert uid is None
+    assert len(doc.all_nodes()) == 0
+    assert len(doc.history) == steps
+    assert any(kind == "error" for _msg, kind in ctx.toasts)
+
+
+def test_place_light_refuses_with_a_toast_rather_than_crashing_past_max_placed(
+    monkeypatch,
+) -> None:
+    ctx = _armed_ctx()
+    doc = mason_mode.ensure(ctx).active.doc
+    monkeypatch.setattr(msc, "MAX_PLACED", 0)
+
+    uid = mason_mode.place_light(ctx, "point")
+
+    assert uid is None
+    assert len(doc.all_nodes()) == 0
+    assert any(kind == "error" for _msg, kind in ctx.toasts)
+
+
+def test_place_camera_refuses_with_a_toast_rather_than_crashing_past_max_placed(
+    monkeypatch,
+) -> None:
+    ctx = _armed_ctx()
+    doc = mason_mode.ensure(ctx).active.doc
+    monkeypatch.setattr(msc, "MAX_PLACED", 0)
+
+    uid = mason_mode.place_camera(ctx)
+
+    assert uid is None
+    assert len(doc.all_nodes()) == 0
+    assert any(kind == "error" for _msg, kind in ctx.toasts)
+
+
+def test_place_prefab_refuses_with_a_toast_rather_than_crashing_past_max_placed(
+    monkeypatch,
+) -> None:
+    ctx = _armed_ctx()
+    doc = mason_mode.ensure(ctx).active.doc
+    node = doc.add_node(nd.MeshNode(uid=nd.new_uid(), name="Barrel"))
+    doc.select([node.uid])
+    mason_mode.define_prefab_from_selection(ctx)
+    before = len(doc.all_nodes())
+    monkeypatch.setattr(msc, "MAX_PLACED", before)
+
+    uid = mason_mode.place_prefab(ctx, "Barrel")
+
+    assert uid is None
+    assert len(doc.all_nodes()) == before
+    assert any(kind == "error" for _msg, kind in ctx.toasts)
+
+
+def test_group_selected_refuses_with_a_toast_rather_than_crashing_past_max_placed(
+    monkeypatch,
+) -> None:
+    """``group_selected`` still adds one new (empty) ``GroupNode`` even
+    though the selection it wraps is not itself re-added -- a scene already
+    sitting at the ceiling must refuse that one node too."""
+    ctx = _armed_ctx()
+    doc = mason_mode.ensure(ctx).active.doc
+    node = doc.add_node(nd.MeshNode(uid=nd.new_uid(), name="a"))
+    doc.select([node.uid])
+    monkeypatch.setattr(msc, "MAX_PLACED", len(doc.all_nodes()))
+    steps = len(doc.history)
+
+    mason_mode.group_selected(ctx)
+
+    assert len(doc.history) == steps
+    assert not any(isinstance(n, nd.GroupNode) for n in doc.all_nodes())
+    assert any(kind == "error" for _msg, kind in ctx.toasts)
+
+
+def test_add_terrain_refuses_with_a_toast_rather_than_crashing_past_max_placed(
+    monkeypatch,
+) -> None:
+    ctx = _armed_ctx()
+    doc = mason_mode.ensure(ctx).active.doc
+    monkeypatch.setattr(msc, "MAX_PLACED", 0)
+
+    uid = mason_mode.add_terrain(ctx)
+
+    assert uid is None
+    assert doc.terrain is None
+    assert any(kind == "error" for _msg, kind in ctx.toasts)
+
+
+def test_duplicate_selected_refuses_with_a_toast_rather_than_crashing_past_max_placed(
+    monkeypatch,
+) -> None:
+    """The 2026-09-18 audit's mason-01: ``duplicate_selected`` called
+    ``doc.add_node`` in a loop with no ``MAX_PLACED`` pre-check, so a
+    duplication that crossed the ceiling raised uncaught -- and left
+    whatever copies had already been attached before the exception with the
+    undo mark still open, uncollapsed. Reproduced directly against the real
+    (unmodified) engine layer in this fix's scratch script
+    (``prefix_repro.py``): calling ``doc.add_node`` in the same loop, with no
+    guard, raises ``ValueError`` uncaught. Against the unfixed
+    ``duplicate_selected`` this call raises instead of toasting and leaving
+    the document untouched.
+    """
+    ctx = _armed_ctx()
+    doc = mason_mode.ensure(ctx).active.doc
+    node = doc.add_node(nd.MeshNode(uid=nd.new_uid(), name="a"))
+    doc.select([node.uid])
+    monkeypatch.setattr(msc, "MAX_PLACED", len(doc.all_nodes()))
+    steps = len(doc.history)
+
+    mason_mode.duplicate_selected(ctx)
+
+    # Refused before ``mark()`` was even taken: no half-attached copy, no
+    # uncollapsed undo step left behind.
+    assert len(doc.all_nodes()) == 1
+    assert len(doc.history) == steps
+    assert doc.selection == {node.uid}
+    assert any(kind == "error" for _msg, kind in ctx.toasts)
+
+
+def test_unpack_selected_refuses_with_a_toast_rather_than_crashing_past_max_placed(
+    monkeypatch,
+) -> None:
+    """The 2026-09-18 audit's mason-02: ``unpack_selected`` caught
+    ``(KeyError, TypeError)`` but not the ``ValueError`` ``unpack_instance``'s
+    own ``MAX_PLACED`` refusal raises (added by the 2026-09-15 audit's
+    mason-01 for this exact attach point), so it escaped the same way
+    mason-01's call sites did. Against the unfixed function this call raises
+    instead of skipping the instance and toasting how many were skipped.
+
+    The template must be *bigger* than the instance it replaces --
+    ``unpack_instance`` refuses on net growth, and a one-node template
+    unpacking a one-node instance is always net-zero (see
+    ``test_unpack_instance_replacing_an_instance_with_a_same_sized_copy_never_refuses``
+    in ``test_audit_2026_09_15_mason.py``), so a template with children is
+    what makes the ceiling reachable at all.
+    """
+    ctx = _armed_ctx()
+    doc = mason_mode.ensure(ctx).active.doc
+    template = nd.GroupNode(uid=nd.new_uid(), name="big")
+    template.children.append(nd.GroupNode(uid=nd.new_uid()))
+    template.children.append(nd.GroupNode(uid=nd.new_uid()))
+    doc.define_prefab("Big", template)
+    instance = doc.add_node(nd.PrefabNode(uid=nd.new_uid(), name="Big", template="Big"))
+    doc.select([instance.uid])
+    monkeypatch.setattr(msc, "MAX_PLACED", len(doc.all_nodes()))  # unpack would grow it by 2
+    steps = len(doc.history)
+
+    mason_mode.unpack_selected(ctx)
+
+    # Refused: the instance is untouched, nothing attached, nothing undoable.
+    assert doc.node(instance.uid) is not None
+    assert isinstance(doc.node(instance.uid), nd.PrefabNode)
+    assert len(doc.history) == steps
+    assert any(kind == "error" for _msg, kind in ctx.toasts)
+
+
+def test_unpack_selected_unpacks_what_it_can_and_reports_only_what_it_skipped(
+    monkeypatch,
+) -> None:
+    """A mixed selection -- one instance that fits under the ceiling, one
+    that would cross it -- unpacks the first and only refuses the second,
+    rather than the whole gesture failing (or crashing) over one instance."""
+    ctx = _armed_ctx()
+    doc = mason_mode.ensure(ctx).active.doc
+    small = doc.add_node(nd.MeshNode(uid=nd.new_uid(), name="Post"))
+    doc.select([small.uid])
+    mason_mode.define_prefab_from_selection(ctx)
+    small_instance = next(iter(doc.selection))
+
+    big_template = nd.GroupNode(uid=nd.new_uid(), name="big")
+    big_template.children.append(nd.GroupNode(uid=nd.new_uid()))
+    big_template.children.append(nd.GroupNode(uid=nd.new_uid()))
+    doc.define_prefab("Big", big_template)
+    big_instance = doc.add_node(nd.PrefabNode(uid=nd.new_uid(), name="Big", template="Big"))
+
+    doc.select([small_instance, big_instance.uid])
+    # One node of headroom: enough for the 1-for-1 small unpack, not enough
+    # for the big template's net growth of +2.
+    monkeypatch.setattr(msc, "MAX_PLACED", len(doc.all_nodes()) + 1)
+
+    mason_mode.unpack_selected(ctx)
+
+    assert doc.node(small_instance) is None  # unpacked
+    assert isinstance(doc.node(big_instance.uid), nd.PrefabNode)  # skipped, still there
+    assert any(kind == "error" for _msg, kind in ctx.toasts)
+
+
 def test_escape_disarms_a_placement_before_it_clears_the_selection() -> None:
     """One key, two jobs, in the order the user means them: Esc after arming a
     light is "not that after all", and must not also throw away the selection

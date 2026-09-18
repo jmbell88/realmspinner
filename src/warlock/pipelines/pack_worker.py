@@ -39,9 +39,11 @@ pin, licence and ship for a job the runtime can already do.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -365,6 +367,60 @@ def smoke_import(names: list[str]) -> list[str]:
     return broken
 
 
+def _write_verdict(pack_dir: str, key: str, *, ok: bool, broken: list[str]) -> None:
+    """Stage-and-replace one pack's real-import verdict onto disk.
+
+    ``<pack_dir>/<key>.verify.json``, beside the wheel cache and
+    ``selected.json`` -- ``pack_dir`` is already ``service.packs.cache_dir``'s
+    answer, passed in on every spec this worker receives. Staged through a
+    dotfile and ``os.replace``, the ``optimize.run``/``trellis._atomic_write``
+    rule, because ``service.validation.check_pack`` (the 2026-09-18 audit,
+    finding pipelines-06) reads this file from a process that may be running
+    concurrently with an install or a repair writing it.
+    """
+    out_dir = Path(pack_dir)
+    path = out_dir / f"{key}.verify.json"
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps({"ok": ok, "broken": broken}), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        # Best-effort, like ``service.packs._record_selected``: a verdict this
+        # process cannot write is not a reason to fail an install or repair
+        # that otherwise succeeded. ``check_pack`` reads an absent file as
+        # "unknown" and falls back to ``find_spec``, which is exactly today's
+        # behaviour -- so a failure here costs nothing beyond the M01 gap it
+        # would otherwise have closed.
+        pass
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+
+
+def _record_pack_verdicts(spec: dict[str, Any], missing: set[str], broken: set[str]) -> None:
+    """Write every pack named in ``spec["pack_probes"]`` its own verdict file.
+
+    ``spec["probe"]`` (what :func:`verify`/:func:`smoke_import` actually run
+    against) is the *union* of every chosen pack's modules, because one
+    disposable child per module is already the granularity ``smoke_import``
+    pays for and re-running it per pack would only repeat the same spawns.
+    ``pack_probes`` is the map back from that flat list to which pack each
+    name belongs to, so one broken module in a two-pack install marks only
+    the pack that actually owns it. Absent (every caller before this fix, and
+    a bare ``_probe`` call in a test) is a silent no-op: this is additive
+    bookkeeping, never a condition of ``_probe``'s own return value.
+    """
+    pack_dir = spec.get("pack_dir")
+    pack_probes = spec.get("pack_probes")
+    if not pack_dir or not pack_probes:
+        return
+    bad = missing | broken
+    for key, names in pack_probes.items():
+        pack_bad = sorted(set(str(n) for n in names) & bad)
+        _write_verdict(str(pack_dir), str(key), ok=not pack_bad, broken=pack_bad)
+
+
 def _probe(spec: dict[str, Any]) -> list[str]:
     """Every probe module still unusable, by both questions worth asking.
 
@@ -373,10 +429,21 @@ def _probe(spec: dict[str, Any]) -> list[str]:
     ``verify`` alone cannot see. Modules ``verify`` already flagged missing are
     not re-imported: they would only fail the same way, in a subprocess spawn
     this function does not need to pay for.
+
+    Also the one place a real-import verdict is ever computed, so it is also
+    the one place one is ever recorded (the 2026-09-18 audit, finding
+    pipelines-06): every caller of this function -- the "already installed"
+    fast path and a fresh install/repair alike -- already pays for this
+    question in full, pass or fail, before it can report success. Recording
+    the answer here costs nothing new and is the only way
+    ``service.validation.check_pack`` can ever consult a real verdict without
+    running the probe itself, which this checkout measured at over two
+    minutes for one pack -- far too slow for a job-submission door.
     """
     missing = verify(spec)
     locatable = [str(name) for name in (spec.get("probe") or []) if str(name) not in missing]
     broken = smoke_import(locatable) if locatable else []
+    _record_pack_verdicts(spec, set(missing), set(broken))
     return sorted(set(missing) | set(broken))
 
 

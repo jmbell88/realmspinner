@@ -10,7 +10,7 @@ from warlock.kernels.pixel.flourish import curves
 
 
 def test_the_easing_vocabulary_is_the_clip_easings_plus_hold():
-    """Same words, same arithmetic as ``pipelines/sheet``: a clip's spacing and
+    """Same words, same arithmetic as ``kernels/sheet``: a clip's spacing and
     an effect's spacing must mean the same thing, and the package may not
     import ``pipelines`` to get them."""
     assert set(curves.EASINGS) == set(sheet.EASINGS) | {"hold"}

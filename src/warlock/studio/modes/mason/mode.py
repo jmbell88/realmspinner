@@ -159,6 +159,41 @@ def open_path(ctx: Any, path: Path) -> None:
 # --- placing ------------------------------------------------------------------
 
 
+def _over_max_placed(doc: Any, adding: int) -> int | None:
+    """The document's node count after attaching ``adding`` more nodes, or
+    ``None`` when that stays within :data:`scene.MAX_PLACED`.
+
+    The 2026-09-18 audit's mason-01: every node-adding controller in this
+    module (:func:`place_ref`, :func:`place_light`, :func:`place_camera`,
+    :func:`place_prefab`, :func:`group_selected`, :func:`add_terrain`,
+    :func:`duplicate_selected`) called ``doc.add_node``/``add_nodes`` with no
+    pre-check of its own, so the ``ValueError``
+    ``MasonDoc._check_max_placed`` raises at the ceiling escaped uncaught --
+    nothing between a Mason key handler and ``App.run()``'s whole-loop
+    ``except`` catches it (shell-04), so the session ended with every open
+    document's unsaved work. ``ui/panes/tools.py``'s own ``_over_max_placed``
+    already guards the Array buttons this exact way (count first, toast,
+    build nothing); this is the same shape, generalised to a plain "how many
+    nodes is this attach about to add" count, since each door here adds a
+    different shape of thing (one leaf, one empty group, a batch of whole
+    subtrees).
+    """
+    from .engine import scene as msc
+
+    total = len(doc.all_nodes()) + adding
+    return total if total > msc.MAX_PLACED else None
+
+
+def _toast_over_max_placed(ctx: Any, over: int) -> None:
+    from .engine import scene as msc
+
+    ctx.toast(
+        f"That would bring this scene to {over} nodes, past the "
+        f"{msc.MAX_PLACED} limit -- refusing rather than building it.",
+        "error",
+    )
+
+
 def place_ref(ctx: Any, ref: Any, *, name: str = "") -> int | None:
     """Place a resolved reference (a primitive or a library asset) as a new
     :class:`~.mason.nodes.MeshNode`, selected."""
@@ -168,6 +203,10 @@ def place_ref(ctx: Any, ref: Any, *, name: str = "") -> int | None:
     from .engine import nodes as nd
 
     node = nd.MeshNode(uid=nd.new_uid(), name=name or "Mesh", ref=ref)
+    over = _over_max_placed(tab.doc, len(list(nd.walk([node]))))
+    if over is not None:
+        _toast_over_max_placed(ctx, over)
+        return None
     tab.doc.add_node(node)
     tab.doc.select([node.uid])
     return node.uid
@@ -187,6 +226,10 @@ def place_light(ctx: Any, kind: str) -> int | None:
     from .engine import nodes as nd
 
     node = nd.LightNode(uid=nd.new_uid(), name=kind.title(), kind=kind)
+    over = _over_max_placed(tab.doc, len(list(nd.walk([node]))))
+    if over is not None:
+        _toast_over_max_placed(ctx, over)
+        return None
     tab.doc.add_node(node)
     tab.doc.select([node.uid])
     return node.uid
@@ -199,6 +242,10 @@ def place_camera(ctx: Any) -> int | None:
     from .engine import nodes as nd
 
     node = nd.CameraNode(uid=nd.new_uid(), name="Camera")
+    over = _over_max_placed(tab.doc, len(list(nd.walk([node]))))
+    if over is not None:
+        _toast_over_max_placed(ctx, over)
+        return None
     tab.doc.add_node(node)
     tab.doc.select([node.uid])
     return node.uid
@@ -219,6 +266,10 @@ def place_prefab(ctx: Any, name: str) -> int | None:
     from .engine import nodes as nd
 
     node = nd.PrefabNode(uid=nd.new_uid(), name=name, template=name)
+    over = _over_max_placed(tab.doc, len(list(nd.walk([node]))))
+    if over is not None:
+        _toast_over_max_placed(ctx, over)
+        return None
     tab.doc.add_node(node)
     tab.doc.select([node.uid])
     return node.uid
@@ -367,6 +418,15 @@ def group_selected(ctx: Any) -> None:
         return
     from .engine import nodes as nd
 
+    # The 2026-09-18 audit's mason-01: this used to call ``doc.add_node``
+    # with no ceiling pre-check, so a scene already sitting at MAX_PLACED
+    # raised ``add_node``'s ``ValueError`` uncaught -- see
+    # :func:`_over_max_placed`. The new group is one leaf node (children are
+    # moved into it below, not added), so the count is 1.
+    over = _over_max_placed(doc, 1)
+    if over is not None:
+        _toast_over_max_placed(ctx, over)
+        return
     mark = doc.mark()
     group = nd.GroupNode(uid=nd.new_uid(), name="Group")
     # The first selected node's own parent, so the group lands beside what it
@@ -487,7 +547,7 @@ def prompt_define_prefab_from_selection(ctx: Any) -> None:
     17 describes as "right-click it. Choose Make prefab and give it a name."
 
     The other half of the 2026-09-12 audit's docs-03: both context-menu call
-    sites (``panes/mason_menu.py``, ``panes/mason_outliner.py``) used to call
+    sites (``modes/mason/ui/panes/menu.py``, ``modes/mason/ui/panes/outliner.py``) used to call
     :func:`define_prefab_from_selection` with no name at all, so there was
     nowhere in the whole gesture the chapter's naming step could happen --
     the template was silently named after the node it was made from. This
@@ -535,6 +595,7 @@ def unpack_selected(ctx: Any) -> None:
         return
     mark = doc.mark()
     fresh: list[int] = []
+    refused = 0
     for uid in uids:
         try:
             fresh.append(doc.unpack_instance(uid).uid)
@@ -544,9 +605,27 @@ def unpack_selected(ctx: Any) -> None:
             # offer the button over a mixed selection without having to resolve
             # every instance itself first.
             continue
+        except ValueError:
+            # The 2026-09-18 audit's mason-02: ``unpack_instance`` gained its
+            # own MAX_PLACED refusal in the 2026-09-15 audit's mason-01 for
+            # exactly this attach point, but this call site only caught
+            # ``(KeyError, TypeError)`` -- the ``ValueError`` escaped
+            # uncaught, past App.run()'s whole-loop catch-all (shell-04),
+            # ending the session with every open document's unsaved work.
+            # Skipped like a dangling instance, but counted, so a mixed
+            # selection can still unpack whatever it can and the toast below
+            # says how many of the rest it could not.
+            refused += 1
+            continue
     doc.collapse_since(mark)
     if fresh:
         doc.select(fresh)
+    if refused:
+        ctx.toast(
+            f"Skipped {refused} instance(s): unpacking would have passed "
+            "the scene's node limit.",
+            "error",
+        )
 
 
 def remove_prefab(ctx: Any, name: str) -> bool:
@@ -583,9 +662,18 @@ def add_terrain(ctx: Any, side: int = 0, size: float = 0.0) -> int | None:
     from .engine import nodes as nd
     from .engine.terrain import Terrain
 
+    doc = tab.doc
+    # The 2026-09-18 audit's mason-01: this used to call ``doc.add_node``
+    # with no ceiling pre-check, so a scene already sitting at MAX_PLACED
+    # raised ``add_node``'s ``ValueError`` uncaught -- see
+    # :func:`_over_max_placed`. Checked before the (not cheap) height-field
+    # array is even built, since the placement would be refused anyway.
+    over = _over_max_placed(doc, 1)
+    if over is not None:
+        _toast_over_max_placed(ctx, over)
+        return None
     side = int(side or mason_state.DEFAULT_TERRAIN_SIDE)
     size = float(size or mason_state.DEFAULT_TERRAIN_SIZE)
-    doc = tab.doc
     terrain = Terrain(
         heights=np.zeros((side + 1, side + 1), dtype=np.float32),
         size_x=size,
@@ -646,6 +734,19 @@ def duplicate_selected(ctx: Any) -> None:
         parents[uid] = doc.parent_uid_of(uid)
         copies.append((parents[uid], nd.copy_subtree(node, fresh_uids=True)))
     if not copies:
+        return
+    # The 2026-09-18 audit's mason-01: this used to call ``doc.add_node`` in
+    # a loop with no ceiling pre-check, so a duplication that crossed
+    # MAX_PLACED mid-loop raised ``add_node``'s ``ValueError`` uncaught --
+    # ending the session -- *and* left whatever copies had already been
+    # added attached with the undo mark still open, uncollapsed, since the
+    # exception unwound before ``collapse_since`` ever ran. Counted and
+    # refused here, before ``mark()`` is even taken, so neither half-attached
+    # state is reachable.
+    adding = sum(len(list(nd.walk([copy]))) for _parent_uid, copy in copies)
+    over = _over_max_placed(doc, adding)
+    if over is not None:
+        _toast_over_max_placed(ctx, over)
         return
     mark = doc.mark()
     new_uids: list[int] = []

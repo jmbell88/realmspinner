@@ -250,10 +250,10 @@ def parse_hex(text: str) -> list[RGBA]:
         if match is None:
             raise ValueError(f"not a hex colour: {line!r}")
         value = match.group(1)
+        _refuse_past_max_rows(len(out))
         out.append(
             (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16), 255)
         )
-        _refuse_past_max_rows(len(out))
     if not out:
         raise ValueError("no colours in this palette file")
     return out
@@ -288,6 +288,7 @@ def parse_txt(text: str) -> list[RGBA]:
         wide = _ARGB_RE.match(line)
         if wide is not None:
             value = wide.group(1)
+            _refuse_past_max_rows(len(out))
             out.append(
                 (
                     int(value[2:4], 16),
@@ -296,16 +297,15 @@ def parse_txt(text: str) -> list[RGBA]:
                     int(value[0:2], 16),
                 )
             )
-            _refuse_past_max_rows(len(out))
             continue
         narrow = _HEX_RE.match(line)
         if narrow is None:
             raise ValueError(f"not a hex colour: {line!r}")
         value = narrow.group(1)
+        _refuse_past_max_rows(len(out))
         out.append(
             (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16), 255)
         )
-        _refuse_past_max_rows(len(out))
     if not out:
         raise ValueError("no colours in this palette file")
     return out

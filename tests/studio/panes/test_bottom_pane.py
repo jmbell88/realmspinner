@@ -153,6 +153,49 @@ def test_reserve_adds_the_splitter_grip_once_expanded(monkeypatch):
             imgui.render()
 
 
+def test_bottom_pane_height_honours_ui_scale_when_capping_the_grown_pane(monkeypatch):
+    """shell-02, the 2026-09-18 audit: ``height()`` fed the *physical*
+    ``viewport.work_size.y`` straight into the design-pixel
+    :func:`bottom_pane.max_height`, then ``draw()`` scaled the already-too-big
+    result by ``tokens.sp()`` a second time. At any ``tokens.SCALE`` other
+    than 1.0 the familiar-03 quarter-window/``MIN_CENTER_HEIGHT`` ceiling no
+    longer holds -- at 2x, Muse's own minimum window (1100x700 design, so
+    2200x1400 physical) let the expanded pane claim most of the window
+    instead of the 56 dp ``max_height(700, muse_chrome)`` actually allows.
+    """
+    from types import SimpleNamespace
+
+    from _ui_context import imgui_context
+
+    from warlock.studio import tokens
+    from warlock.studio.assistant import ui as familiar_ui
+    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from warlock.studio.modes.muse.ui.panes import player as muse_player
+
+    ctx = SimpleNamespace(
+        state=SimpleNamespace(mode="muse", familiar=familiar_ui.FamiliarUIState(expanded=True)),
+        settings=SimpleNamespace(get=lambda key, default: default),
+    )
+
+    scale = 2.0
+    monkeypatch.setattr(tokens, "SCALE", scale)
+    design_h = 700.0  # main.MIN_SIZE's own height, in design px.
+    mode_chrome = muse_brief.BAR_H + muse_player.STRIP_H
+    expected_ceiling = bottom_pane.max_height(design_h, mode_chrome)
+
+    with imgui_context(monkeypatch) as imgui:
+        io = imgui.get_io()
+        # The viewport's work_size is physical px -- what a 2x-scaled window
+        # of design size 1100x700 actually reports.
+        io.display_size = (1100.0 * scale, design_h * scale)
+        imgui.new_frame()
+        try:
+            assert bottom_pane.height(ctx) <= expected_ceiling + 1e-6
+        finally:
+            imgui.end_frame()
+            imgui.render()
+
+
 def test_pane_height_defaults_to_expanded_h_and_round_trips_a_drag(tmp_path):
     """No prior drag reads back :data:`familiar_ui.EXPANDED_H`; a drag is
     persisted through ``ctx.settings`` and clamped on both write and read, so

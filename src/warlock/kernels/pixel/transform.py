@@ -689,7 +689,7 @@ def upscale(pixels: np.ndarray, factor: int) -> np.ndarray:
 #
 # What is here is a *point* mapper per operation plus one :func:`map_rect` that
 # carries a rectangle through any of them, which is the same argument
-# ``panes/inker_canvas._corners`` makes about drawing: mapping the two corners
+# ``modes/inker/ui/panes/canvas._corners`` makes about drawing: mapping the two corners
 # and re-ordering them is right for all eight orientations, where mapping x and
 # y independently is right only at rotation 0.
 #

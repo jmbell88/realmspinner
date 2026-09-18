@@ -1,8 +1,8 @@
 """The tile model: a mutable holder for a frozen atlas, and a cel derived from it.
 
 Two decisions carry the module. **A tileset is edited by frozen-replace, never
-in place** -- ``tilegrid.Tileset`` is frozen and its ``pixels`` are read-only
-(see :mod:`..tilegrid.tileset`), because the pane's texture cache holds the
+in place** -- ``grid2d.Tileset`` is frozen and its ``pixels`` are read-only
+(see :mod:`..grid2d.tileset`), because the pane's texture cache holds the
 strip array it last uploaded and compares identity with ``is``
 (``inker_textures.tileset_texture``); an in-place edit would hand back the same
 array and redraw nothing. :class:`TilesetSlot` is the thing that *can* change identity across
@@ -11,7 +11,7 @@ the ``tileset`` a whole new frozen object each time :func:`grow`,
 :func:`shrink` or :func:`with_tiles` runs.
 
 **A tilemap cel's picture is derived, not drawn.** :attr:`TilemapCel.refs` --
-a ``(grid_h, grid_w)`` plane of :mod:`..tilegrid.gid`-encoded cell references
+a ``(grid_h, grid_w)`` plane of :mod:`..grid2d.gid`-encoded cell references
 -- and the tileset it is bound to are authoritative; :attr:`TilemapCel.pixels`
 is the canvas-sized RGBA :func:`materialize` of the two, kept in sync at edit
 time by callers above this module. Because ``pixels`` stays honest RGBA, every
@@ -57,7 +57,7 @@ __all__ = [
 
 @dataclass
 class TilesetSlot:
-    """A mutable name over an immutable :class:`~..tilegrid.tileset.Tileset`.
+    """A mutable name over an immutable :class:`~..grid2d.tileset.Tileset`.
 
     The frozen tileset is replaced whole on every edit -- see the module
     docstring -- so the identity undo and every track binding actually

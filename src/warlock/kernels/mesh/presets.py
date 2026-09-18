@@ -745,7 +745,7 @@ def build(key: str) -> tuple[Part, ...]:
     A ``Part`` carries a generator name and a params dict, not a built
     ``Mesh`` -- so this function is not where a part's shading is decided,
     the same way it is not where a part's geometry is built. That happens once,
-    downstream, in ``panes/clay_tools.add_assembly``, which calls
+    downstream, in ``modes/clay/ui/panes/tools.add_assembly``, which calls
     :func:`GENERATORS`'s builder for each part exactly as it always did and
     now also runs the result through ``clay.shading.auto_smooth`` before the
     object is placed -- the same rule and the same unconditional application

@@ -4,7 +4,7 @@ The GL-side preview/apply mechanics (a scratch clone, the sandboxed ``ctx``
 an agent tool call runs against, and transplanting an accepted preview onto
 the real document) live in :mod:`~warlock.studio.assistant.preview` instead --
 that module reaches ``agent_clay``, which imports ``clay_view`` (``moderngl``)
-and ``panes.clay_tools`` (``imgui_bundle``), and this package must never
+and ``modes.clay.ui.panes.tools`` (``imgui_bundle``), and this package must never
 carry that import, even by way of a relative-import chain two hops long (see
 ``tests/_pure_packages.py::_module_roots`` and
 ``tests/familiar/test_familiar_imports.py``).

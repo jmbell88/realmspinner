@@ -68,6 +68,7 @@ from .validate import (
     Session,
     _json,
     _op_params_type_refusal,
+    _over_frame_budget,
     _protocol,
     _resolve_uid,
     _resolve_uids,
@@ -933,6 +934,13 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
             ]
     if selected is not None:
         payload["selected"] = selected
+    # The 2026-09-18 audit's agents-03: a whole-document call (no uid) reports
+    # findings for every visible object, so its reply grows with the
+    # document's own size the same way clay_scene's does, and had the same
+    # missing check. See validate._over_frame_budget's own docstring.
+    over_budget = _over_frame_budget(payload)
+    if over_budget is not None:
+        return over_budget
     return _json(payload)
 
 

@@ -3,8 +3,12 @@
 Flat on purpose. A recipe is written by a command bar, edited by a settings
 column, stored in a job's ``params``, read back by a rerun and diffed against a
 previous one -- and every one of those is easier over sixteen scalar keys than
-over a tree. Nesting appears exactly once, in ``appearance``, because the
-channel set belongs to the species and cannot be a fixed list of columns.
+over a tree. Nesting appears twice: in ``appearance``, because the channel set
+belongs to the species and cannot be a fixed list of columns, and in
+``animations`` (the 2026-09-18 audit, finding troupe-03, corrected this
+docstring's old "exactly once" -- ``movement -> frames`` is a
+:class:`~collections.abc.Mapping` for the same reason, a fixed list of
+movement columns cannot speak for every family's clip library either).
 
 **It refuses; it never clamps.** Every rejection is a
 :class:`~warlock.characters.errors.CharacterError` naming the ``field`` it came
@@ -18,7 +22,7 @@ The vocabulary this module checks against -- the size ladder, the colour ladder,
 the outline and reduce modes -- is **restated here rather than imported**,
 because ``characters`` may not import ``service`` and the pixel ladders live
 behind it. ``tests/characters/test_recipe.py`` owns the agreement between the
-two copies, in the ``kernels.charsheet`` / ``studio.troupe.spec`` arrangement:
+two copies, in the ``kernels.charsheet`` / ``studio.modes.troupe.engine.spec`` arrangement:
 a change to one is a change to both plus that test.
 """
 

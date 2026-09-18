@@ -1257,26 +1257,41 @@ def _shape_fields(doc: Any, layer: Any, obj: MapObject) -> None:
 
     _row_named("Text", "What the label reads.")
     text = widgets.input_text("##text-value", shape.text, max_length=2048, hint="text")
+    # One gesture, one step (the 2026-09-18 audit, plotter-01): the single
+    # ``fold_undo`` call used to sit after the last checkbox below, which only
+    # folds *that* checkbox's own gesture -- ``fold_undo`` reads imgui's last
+    # drawn item, so a call placed after field six cannot fold anything field
+    # one through five did. Text, Font, Size and Colour typed one undo step
+    # per keystroke as a result, the same defect their siblings on this same
+    # panel were already fixed for (plotter-03 above, and the object gid
+    # field's own plotter-01 in the 2026-09-14 audit) -- fixed the same way
+    # ``_object_fields`` above does: fold immediately after each field.
+    controls.fold_undo(doc.history)
     _row_named("Font", "The family name. Tiled resolves it; Plotter stores it.")
     family = widgets.input_text(
         "##text-family", shape.family, max_length=128, hint="font family"
     )
+    controls.fold_undo(doc.history)
     _row_named("Size", "The font's pixel size.")
     changed_size, pixel_size = controls.input_int("##text-size", shape.pixel_size, 1)
+    controls.fold_undo(doc.history)
     _row_named("Colour", "The colour the text is drawn in.")
     color = widgets.input_text("##text-color", shape.color, max_length=9, hint="#RRGGBB")
+    controls.fold_undo(doc.history)
     _row_named("Align", "Horizontal, then vertical, within the object's box.")
     halign = widgets.combo(
         "##text-halign",
         shape.halign,
         [(value, value.title()) for value in ("left", "center", "right", "justify")],
     )
+    controls.fold_undo(doc.history)
     _row_named("", "")
     valign = widgets.combo(
         "##text-valign",
         shape.valign,
         [(value, value.title()) for value in ("top", "center", "bottom")],
     )
+    controls.fold_undo(doc.history)
     _row_named("Style", "Bold, italic, underline, strikeout, wrapping, kerning.")
     flags: dict[str, bool] = {}
     for index, (key, label) in enumerate(TEXT_FLAGS):
@@ -1285,6 +1300,7 @@ def _shape_fields(doc: Any, layer: Any, obj: MapObject) -> None:
         changed_flag, value_flag = controls.checkbox(
             f"{label}##text-{key}", bool(getattr(shape, key))
         )
+        controls.fold_undo(doc.history)
         flags[key] = value_flag if changed_flag else getattr(shape, key)
 
     values = {
@@ -1296,11 +1312,6 @@ def _shape_fields(doc: Any, layer: Any, obj: MapObject) -> None:
         "valign": valign,
         **flags,
     }
-    # One gesture, one step (the 2026-09-15 audit, plotter-01): Text, Font,
-    # Size and Colour write per keystroke with no fold, the same defect their
-    # siblings on this same panel were already fixed for (plotter-03 above,
-    # and the object gid field's own plotter-01 in the 2026-09-14 audit).
-    controls.fold_undo(doc.history)
     if any(getattr(shape, key) != value for key, value in values.items()):
         doc.set_object(layer.uid, obj.uid, shape=replace(shape, **values))
 

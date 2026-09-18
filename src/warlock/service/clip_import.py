@@ -99,9 +99,15 @@ def analyse(
 
     Every action the source file carries comes back converted -- what
     :func:`~warlock.cliptransfer.transfer` returns, unchanged, one entry per
-    action. The caller (a preview panel, :func:`import_into_library`) decides
-    what to do with the result; this door's whole job is to be safe to call
-    on every keystroke of "pick a file" with no side effect to undo.
+    action -- under ``"clips"``. ``"skipped"`` is the Blender worker's own
+    report of the actions it never sampled at all (today, only for exceeding
+    ``op_clip_sample``'s frame-count limit), one human-readable line per
+    action; empty, never absent, when nothing was skipped (the 2026-09-18
+    audit, finding poser-01 -- a source file whose every action was too long
+    used to "import" zero clips with this saying nothing about why). The
+    caller (a preview panel, :func:`import_into_library`) decides what to do
+    with the result; this door's whole job is to be safe to call on every
+    keystroke of "pick a file" with no side effect to undo.
     """
     key = _clips._template_or_invalid(template)
     source = _check_source(path)
@@ -133,6 +139,16 @@ def analyse(
             )
         except cliptransfer.ClipTransferError as exc:
             raise invalid_from(exc, "That animation cannot be imported") from exc
+        # The 2026-09-18 audit, finding poser-01: an action Blender itself
+        # skipped (``op_clip_sample``'s own ``max_frames`` guard, sampling
+        # nothing over 900 frames) never reaches ``cliptransfer.transfer`` at
+        # all -- it is filtered out of ``payload["actions"]`` before this
+        # module ever calls it, so a source file whose every action is too
+        # long converts zero clips with no error. Carried straight off
+        # ``payload`` (the one place both the sampled and the skipped actions
+        # are still both in scope) rather than threaded through ``transfer``,
+        # whose return shape a dozen other callers unpack positionally.
+        skipped = list(payload.get("skipped") or ())
     finally:
         # Belt and braces over ``run_worker``'s own cleanup: it unlinks the
         # result file itself on every path that reads it, but this is a
@@ -143,7 +159,7 @@ def analyse(
         with contextlib.suppress(OSError):
             result_path.unlink(missing_ok=True)
 
-    return {"template": key, "clips": converted}
+    return {"template": key, "clips": converted, "skipped": skipped}
 
 
 def _dedupe_pose_name(name: str, taken: set[str]) -> str:

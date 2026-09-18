@@ -109,7 +109,7 @@ def manual_dir() -> Path:
     packaged = Path(str(resources.files("warlock"))) / "manual"
     if packaged.is_dir():
         return packaged
-    # Dev checkout: src/warlock/studio/manual/loader.py -> repo root is
+    # Dev checkout: src/warlock/kernels/manual/loader.py -> repo root is
     # parents[4], and the canonical files are docs/manual there.
     return Path(__file__).resolve().parents[4] / "docs" / "manual"
 

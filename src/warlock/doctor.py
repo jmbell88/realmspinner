@@ -566,7 +566,14 @@ def _birefnet_check(config: Config) -> Check:
     # bg_removal default on this exact file, so a drifted spelling here would
     # report the weights missing while the app quietly kept asking for them.
     path = config.trellis_models_dir / guidance.BIREFNET_WEIGHTS
-    ok = path.exists()
+    # .is_file(), not .exists(): the same swap L01 made for _exe_check and
+    # _gltfpack_check (pipelines-05, the 2026-09-18 audit) -- a directory at
+    # this name would otherwise read as installed instead of missing.
+    ok = path.is_file()
+    # Same distinction _exe_check draws: something on disk at this name that
+    # is not a file is a damaged unpack, not the ordinary "not downloaded
+    # yet" state, so it gets its own detail and is not `pending_install`.
+    directory = not ok and path.exists()
     # M04's zero-byte downgrade, reused rather than re-derived (pipelines-05,
     # 2026-09-08 audit): this row was hand-rolled as a bare ``Path.exists()``
     # and was the one model-weight row M04 never reached, so it could disagree
@@ -598,6 +605,12 @@ def _birefnet_check(config: Config) -> Check:
         )
     elif ok:
         detail = str(path)
+    elif directory:
+        detail = (
+            f"{path} exists but is not a file -- a damaged unpack, not a "
+            "missing download; remove it and reinstall the TRELLIS GGUF "
+            "weights in Settings -> Models"
+        )
     else:
         detail = (
             f"missing at {path} -- background matting falls back to a threshold "
@@ -617,7 +630,7 @@ def _birefnet_check(config: Config) -> Check:
         ok,
         detail,
         fatal=False,
-        pending_install=not ok,
+        pending_install=not ok and not directory,
     )
 
 

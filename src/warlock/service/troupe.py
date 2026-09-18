@@ -258,18 +258,24 @@ def _check_options(svc: WarlockService, entries: dict[str, Any]) -> dict[str, An
     -- the delegation rule this module's docstring states, applied to itself.
 
     **D5 HD mode.** ``pixel_art`` (default True) is Troupe's own switch, not
-    ``check_pixel_options``': a request that turns it off wants an unreduced,
-    unpalletted render, so colour count, an authored palette, dithering and an
+    ``check_pixel_options``': a request that turns it off wants an unpalletted,
+    unquantised render, so colour count, an authored palette, dithering and an
     outline pass are all questions this render never asks. Checked on the raw
     entries *before* ``check_pixel_options`` fills in its own defaults --
     catching the value the caller actually sent rather than the default
     ``check_pixel_options`` would otherwise substitute for it -- and refused on
     the option's own field, the same rule ``check_pixel_options`` already
-    applies to ``outline``/``reduce_mode`` on a path that has neither. The row
-    then carries ``"pixel_art": False`` and drops ``colors``/``palette``/
-    ``dither``/``outline``/``reduce_mode`` outright, so ``_q_troupe`` never
-    sees a value it would apply. ``True`` writes no key at all, so a form
-    that never touches the switch mints the byte-identical row it always has.
+    applies to ``outline`` on a path that has none. The row then carries
+    ``"pixel_art": False`` and drops ``colors``/``palette``/``dither``/
+    ``outline`` outright, so ``_q_troupe`` never sees a value it would apply.
+    ``reduce_mode`` is **kept**: the 2026-09-18 audit, finding troupe-01,
+    found it stripped here on the mistaken belief that ``_q_troupe``'s
+    ``if not pixel_art`` branch never reads it -- but ``_render_charsheet``
+    reduces the 512px Blender render to the logical size with it *before*
+    that branch runs, on every sheet, HD or not, so dropping it forced every
+    HD sheet through the "box" default regardless of what the user picked.
+    ``True`` writes no key at all, so a form that never touches the switch
+    mints the byte-identical row it always has.
 
     **Only a real bool, or absence, answers.** ``bool("false")`` is ``True``
     in Python, so ``entries.get("pixel_art")`` used to turn HD mode *on* by
@@ -319,13 +325,20 @@ def _check_options(svc: WarlockService, entries: dict[str, Any]) -> dict[str, An
         size_range=TROUPE_CUSTOM_SIZE_RANGE,
     )
     if not pixel_art:
-        # The 2026-09-15 audit, finding service-07: ``reduce_mode`` was left
-        # off this list, so an HD request still carried it onto the row --
-        # and ``_q_troupe``'s own HD branch (``if not pixel_art:``) never
-        # reads it, the atlas going straight through unquantised. Dead the
-        # same way ``pixelopts``' own ``allow_reduce_mode=False`` comment
+        # The 2026-09-15 audit, finding service-07: these four are unread on
+        # the HD path -- no quantise, no palette, no outline pass -- and are
+        # dropped so ``_q_troupe`` never sees a value it would apply. Dead
+        # the same way ``pixelopts``' own ``allow_reduce_mode=False`` comment
         # already names for ``_charsheet``'s path that has neither.
-        for key in ("colors", "palette", "dither", "outline", "reduce_mode"):
+        #
+        # ``reduce_mode`` does NOT join them. The 2026-09-18 audit, finding
+        # troupe-01, found it dropped here too on the belief that
+        # ``_q_troupe``'s HD branch (``if not pixel_art:``) never reads it --
+        # but ``_render_charsheet`` reduces the 512px render to the logical
+        # size with ``params["reduce_mode"]`` *before* that branch runs, on
+        # every sheet including HD, so every HD sheet was silently
+        # "box"-reduced regardless of what the user picked.
+        for key in ("colors", "palette", "dither", "outline"):
             options.pop(key, None)
         options["pixel_art"] = False
     return options
@@ -348,7 +361,7 @@ def _timed_layout(
     ``test_every_refusal_a_pane_can_provoke_names_something_that_pane_draws``
     to see it -- a field chosen here and merely handed up would be invisible
     to that scan, which is exactly the gap this vocabulary's ``fps`` field
-    means to surface: ``panes/troupe_settings.py`` draws no ``fps`` control
+    means to surface: ``modes/troupe/ui/panes/settings.py`` draws no ``fps`` control
     yet, and the wiring test is how that stays visible instead of silently
     passing.
     """
@@ -450,7 +463,7 @@ def check_troupe(svc: WarlockService, block: Any) -> dict[str, Any]:
         # **field="layout", the 2026-09-11 audit's finding troupe-01.** This
         # branch is the one a real request reaches -- an atlas over the texture
         # limit, or a movement whose frame count the resolved layout and the
-        # expanded clip disagree about -- and ``panes/troupe_settings.py``
+        # expanded clip disagree about -- and ``modes/troupe/ui/panes/settings.py``
         # calls ``form_ui.note("layout")`` on exactly this address to ring the
         # layout table. Left unfielded, the refusal reached a form wired to
         # catch it and rang nothing.
@@ -1070,7 +1083,7 @@ def _charsheet_spec(
         if message.endswith("is not a clip of this skeleton"):
             # field="template": the same address ``_charsheet_spec``'s sibling
             # ``except KeyError`` branch below already uses for the identical
-            # fact reached a different way -- ``panes/troupe_send.py`` draws a
+            # fact reached a different way -- ``modes/troupe/ui/panes/send.py`` draws a
             # Skeleton control, not a layout table.
             raise Invalid(message, field="template") from exc
         raise Invalid(message, field="layout") from exc

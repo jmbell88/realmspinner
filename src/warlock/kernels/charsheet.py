@@ -5,7 +5,7 @@ same bargain ``sheet.py`` makes, and for the same reason: the browser preview,
 the Blender renderer and the sidecar must never disagree about what cell 137
 depicts, and the way to guarantee that is for one testable function to decide.
 
-**The frame table is held twice.** ``studio.troupe.spec`` holds it as the
+**The frame table is held twice.** ``studio.modes.troupe.engine.spec`` holds it as the
 studio's answer and this module holds it as the kernel's -- a
 ``pipelines``/worker-process module (``spritesynth.py``) and a Blender
 process (``blender_worker.py``) both need it with no ``studio`` importable at
@@ -20,7 +20,7 @@ test, or a Troupe sheet and the editor that opens it come to mean different
 things by ``walk_left``.
 
 Cell order is grouped by ``(animation, direction)`` and dense -- the argument is
-written out in ``studio.troupe.spec``.
+written out in ``studio.modes.troupe.engine.spec``.
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ RENDER_SIZE = 512
 #: **Task G, 2026-09-12: the custom sprite size's actual range.** ``SIZES`` is
 #: the ladder of presets a form offers and stays the ladder the tests pin
 #: (``tests/modes/troupe/test_troupe_geometry_agreement.py`` ties
-#: ``studio.troupe.spec`` to it); these two are the wider question ``plan``
+#: ``studio.modes.troupe.engine.spec`` to it); these two are the wider question ``plan``
 #: itself answers, matching ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE`` -- see
 #: that constant's comment for why 8 and 256 are the floor and ceiling.
 MIN_FRAME_SIZE = 8

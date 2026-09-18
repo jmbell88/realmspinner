@@ -2,7 +2,7 @@
 
 ``tests/modes/sirens/test_sirens_imports.py``'s pin, sixth instance -- and the
 interesting difference is that the outward set here is **empty**. Sirens reaches
-for ``studio.undo`` and the two container guards because it owns a document;
+for ``core.undo`` and the two container guards because it owns a document;
 Muse owns none, so a take is a job row and this package computes a picture and
 a pair of sample offsets and answers nothing else.
 

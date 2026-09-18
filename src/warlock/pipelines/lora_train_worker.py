@@ -25,6 +25,7 @@ import contextlib
 import json
 import random
 import sys
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -203,7 +204,18 @@ def main() -> int:
     except ImportError as exc:
         print(f"the text2image extra is not installed: {exc}", file=sys.stderr)
         return 3
-    result = train(spec)
+    try:
+        result = train(spec)
+    except Exception as exc:  # noqa: BLE001 -- fetch_worker.main's rule
+        # The 2026-09-18 audit (pipelines-01): every sibling worker
+        # (fetch_worker, pack_worker) wraps its real work in ``except
+        # Exception`` and stages ``{"ok": False, ...}``, but this one called
+        # ``train(spec)`` bare -- so a CUDA OOM (an ordinary catchable
+        # exception, not a crash) surfaced as a raw traceback tail and no
+        # result file at all, instead of the "never write a result but always
+        # look for one" contract ``blender_run.run_worker`` depends on.
+        traceback.print_exc(file=sys.stderr)
+        result = {"ok": False, "error": str(exc), "detail": f"{type(exc).__name__}: {exc}"}
     tmp = result_path.with_name(result_path.name + ".tmp")
     try:
         tmp.write_text(json.dumps(result), encoding="utf-8")

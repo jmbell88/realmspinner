@@ -101,7 +101,7 @@ def delete_selected(doc: Any) -> list[str]:
     everything an op pushes, but only for callers that go through it -- see
     the 2026-09-07 audit's clay-02 in ``studio/modes/clay/mode.py``). ``mark``/
     ``collapse_since`` is the primitive built for exactly this composed-op
-    shape (its own docstring in ``studio/undo.py`` names "delete these eight
+    shape (its own docstring in ``core/undo.py`` names "delete these eight
     rows"), and it already folds nothing into nothing: a single touched
     object still pushes the one plain step ``set_mesh`` always pushed, so the
     existing single-object undo tests are unaffected.

@@ -36,13 +36,22 @@ def draw(ctx: Any) -> None:
         return
 
     editable = not tab.busy
-    if widgets.disabled_button(f"{icons.PLUS} Add an image...", editable, (-1, 0)):
+    # reason=: the 2026-09-18 audit's packwright-02 -- these two greyed out
+    # while a save was in flight with no ``reason``, so the tooltip that
+    # explains every other greyed control in this app said nothing here.
+    if widgets.disabled_button(
+        f"{icons.PLUS} Add an image...",
+        editable,
+        (-1, 0),
+        reason=widgets.DOCUMENT_SAVING_WHY,
+    ):
         packwright_mode.ask_add_sources(ctx)
 
     if widgets.disabled_button(
         f"{icons.GRID} Add a tile set...",
         editable,
         (-1, 0),
+        reason=widgets.DOCUMENT_SAVING_WHY,
         tooltip="Loads an already-made tile sheet, slices it on a grid you "
         "set, drops the empty cells, and packs what is left -- so a sparse "
         "sheet comes back as a smaller one.",
@@ -335,7 +344,15 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
         # imgui closes a popup on a click outside, and the sheet is a megabyte
         # or two: dropping it here is what keeps a cancelled import from
         # pinning the pixels for the rest of the session.
-        clear_tileset_import(ctx, state)
+        #
+        # Guarded on something actually being parked -- the 2026-09-18
+        # audit's packwright-01: this ran unconditionally, so every frame the
+        # popup was closed (which is most of them, for most of a session)
+        # called ``clear_tileset_import`` -> ``release_prefix``, a scan of
+        # the whole app-wide ``ctx.state.preview`` dict, to forget a texture
+        # that was never parked in the first place.
+        if state.tileset_import is not None or state.tileset_import_open:
+            clear_tileset_import(ctx, state)
         return
     widgets.popup_chrome(_imgui=imgui)
     if state.tileset_import is None:

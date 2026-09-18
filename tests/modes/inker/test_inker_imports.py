@@ -102,7 +102,7 @@ OUTWARD_IMPORTS = {
     # beside it as the kernel's reference.
     ("index_plane.py", "warlock.native"),
     # The shared bounded zip reader. One rule for four container doors, and a
-    # leaf for ``tilegrid``/``undo``'s reason exactly: the ``file_size`` sum
+    # leaf for ``grid2d``/``undo``'s reason exactly: the ``file_size`` sum
     # each of these carried is written by whoever wrote the archive, and a
     # fourth private copy of a security bound is a copy that stops agreeing.
     # The four guard leaves, and they are one finding rather than four: a bound
@@ -159,7 +159,7 @@ LAZY_ONLY = {"PIL"}
 #: The other pure packages. Each is a peer, not a dependency: an edge between
 #: two of them is how "four independent engines" quietly becomes one.
 #: ``packwright -> plotter`` is the single declared exception in the tree --
-#: shrunk by the ``tilegrid`` promotion to just ``tsx`` and ``pngio``, since the
+#: shrunk by the ``grid2d`` promotion to just ``tsx`` and ``pngio``, since the
 #: gid word, the sliced atlas and the blob collapse moved to the shared leaf
 #: both packages now reach for instead -- and it runs the other way, so nothing
 #: here may point at any of them. ``warlock.kernels.grid2d`` is not one of

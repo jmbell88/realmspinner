@@ -61,7 +61,7 @@ from .. import mode as clay_mode
 # reason is spent and is not what keeps this here. What keeps it is the
 # direction of the dependency: this module (and every ``agent_clay_tools*.py``
 # that imports it) is reachable from panes and their tests --
-# ``panes.clay_tools`` among them -- none of which want the protocol leaf
+# ``modes.clay.ui.panes.tools`` among them -- none of which want the protocol leaf
 # loaded to ask this module a question about Clay, and ``mcp/`` is a leaf that
 # must never learn about ``studio`` in return (``tests/mcp/test_mcp_imports.py``
 # pins that). One accessor, below, is the whole of the coupling.
@@ -146,6 +146,34 @@ def text(s: str) -> dict:
 
 def image_png(data: bytes) -> dict:
     return _protocol().image_png(data)
+
+
+def _over_frame_budget(payload: Any) -> dict | None:
+    """Refuse *payload* before ``_json`` encodes a reply ``send_bytes`` can
+    never carry, rather than let it reach the wire and fail there past the
+    point a refusal could explain itself -- the same shape
+    ``agent_clay_tools_ops._h_render``'s own ``_over_frame_budget`` already
+    checks for a render's base64 payload, against ``protocol.MAX_FRAME``.
+
+    Only two callers need this: ``_h_scene`` and whole-document
+    ``_h_diagnose``, whose reply size scales with the *document's* own size
+    (every object, every call) rather than with one call's own arguments --
+    every other JSON-replying tool already bounds its own reply through a
+    per-call ceiling (``clay_elements``' paging, ``clay_add_mesh``'s vertex
+    and face caps, ``clay_analyze``'s 64-object limit). The 2026-09-18 audit's
+    agents-03 found neither checked at all: a document of about 22,000
+    primitives encodes to roughly 9.1 MB, past ``protocol.MAX_FRAME`` (8 MiB),
+    with nothing in either handler that would refuse or page it.
+    """
+    import json
+
+    encoded_len = len(json.dumps(payload))
+    if encoded_len > _protocol().MAX_FRAME:
+        return fail(
+            "This reply is too large to send back in one frame; narrow the "
+            "request (fewer objects, or a single uid) and try again."
+        )
+    return None
 
 
 def _json(payload: Any) -> dict:

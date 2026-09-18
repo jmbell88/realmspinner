@@ -126,7 +126,7 @@ def lead(bullet: str) -> str:
 def changelog_path() -> Path:
     """The packaged copy if there is one, the repo root otherwise.
 
-    Mirrors :func:`.studio.manual.loader.manual_dir` exactly, and for the same
+    Mirrors :func:`.kernels.manual.loader.manual_dir` exactly, and for the same
     reason: the canonical file is at the repo root where GitHub renders it, and
     hatchling force-includes it into the wheel beside the manual.
     """

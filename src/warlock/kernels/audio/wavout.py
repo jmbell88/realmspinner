@@ -123,7 +123,7 @@ def write(path, samples: np.ndarray, rate: int, *, loop: tuple[int, int] | None 
     """Straight to a file. **Not staged** -- the caller stages it.
 
     Deliberately not doing the temp-and-replace here: the mode above writes
-    every artefact through ``studio/atomic.py``, and a second staging rule
+    every artefact through ``core/safeio/atomic.py``, and a second staging rule
     inside the encoder would be a second answer to where a partial file can
     appear.
     """

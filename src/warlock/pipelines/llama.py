@@ -92,6 +92,13 @@ class LlamaServer:
         # ``contract.card_sha`` instead of the registry's own (empty) tuple.
         self._expected_card_shas = expected_card_shas or (lambda: ())
         self._proc: subprocess.Popen[bytes] | None = None
+        # dest -> (fingerprint at last hash, its Verification); see
+        # _verify_manifest_cached. The 2026-09-18 audit (familiar-01): without
+        # this, every restart re-hashed ~4.9 GB even when nothing had changed
+        # since the last verification.
+        self._manifest_cache: dict[
+            Path, tuple[tuple[tuple[str, int, int], ...] | None, fetch.Verification]
+        ] = {}
         self._lock_asyncio = None  # set lazily; see _lock property
         self._stop_lock = threading.Lock()
         # Guards the check-then-spawn section of ``ensure_started`` (the
@@ -373,11 +380,66 @@ class LlamaServer:
                 "to start rather than run an unvalidated prompt."
             )
 
+    @staticmethod
+    def _manifest_fingerprint(dest: Path) -> tuple[tuple[str, int, int], ...] | None:
+        """A cheap stand-in for "has anything under this directory changed
+        since we last hashed it" -- ``(relative path, size, mtime_ns)`` for
+        *every* regular file under ``dest``, sorted for a stable comparison.
+
+        First keyed on ``manifest.json``'s own mtime/size alone; a 2026-09-18
+        follow-up to the familiar-01 audit found that over-trusted a weights
+        or runtime file corrupted, overwritten by hand, or left half-written
+        by a partial copy after the first verification, since none of those
+        touch ``manifest.json`` -- the opposite of this method's own claim
+        that a stale fingerprint can only ever under-trust, never
+        over-trust. Statting every file is still one stat each, cheap next
+        to re-hashing the weights themselves.
+        """
+        try:
+            entries = []
+            for path in dest.rglob("*"):
+                if not path.is_file():
+                    continue
+                st = path.stat()
+                entries.append((str(path.relative_to(dest)), st.st_size, st.st_mtime_ns))
+        except OSError:
+            return None
+        entries.sort()
+        return tuple(entries)
+
+    def _verify_manifest_cached(self, dest: Path) -> fetch.Verification:
+        """``fetch.verify_manifest`` re-hashes the whole directory -- for
+        Familiar's ~4.9 GB runtime+weights pair that is the several-hundred-
+        millisecond-to-second stall the 2026-09-18 audit (familiar-01)
+        measured (263 ms for a 315 MB directory alone), and ``ensure_started``
+        calls it on *every* restart because ``before_gpu_job`` stops Familiar
+        ahead of every GPU job. Skip the re-hash when the directory's
+        fingerprint (every regular file's size and mtime) hasn't moved
+        since the last check."""
+        fingerprint = self._manifest_fingerprint(dest)
+        cached = self._manifest_cache.get(dest)
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
+        verification = fetch.verify_manifest(dest)
+        self._manifest_cache[dest] = (fingerprint, verification)
+        return verification
+
     def _check_manifest(self) -> None:
         """Refuse to start when either downloaded directory fails its own
-        digest verification -- corrupt bytes must not reach a running server."""
+        digest verification -- corrupt bytes must not reach a running server.
+
+        Runs off the ``warlock-loop`` thread: the 2026-09-18 audit
+        (familiar-01) found ``ensure_started`` calling this synchronously,
+        against ``fetch.verify_manifest``'s own "on demand only, and never at
+        startup" contract -- ``before_gpu_job`` stops Familiar before every
+        GPU job, so a chat message after generating an asset stalled job
+        dispatch, progress and cancel while this SHA-256-hashed ~4.9 GB.
+        ``ensure_started`` now awaits this via ``asyncio.to_thread``; the
+        fingerprint cache in :meth:`_verify_manifest_cached` keeps a repeat
+        start from paying the hash cost again when nothing changed.
+        """
         for dest in (self._resolve_exe().parent, self._resolve_weights().parent):
-            verification = fetch.verify_manifest(dest)
+            verification = self._verify_manifest_cached(dest)
             if verification.status == fetch.VERIFY_BAD:
                 raise RuntimeError(
                     f"{dest} failed manifest verification ({verification.detail}); "
@@ -416,7 +478,9 @@ class LlamaServer:
                 )
             self._check_backoff()
             self._check_card_sha(expected_card_sha)
-            self._check_manifest()
+            # Off the loop thread -- see _check_manifest's own docstring
+            # (the 2026-09-18 audit, familiar-01).
+            await asyncio.to_thread(self._check_manifest)
             exe = self._resolve_exe()
             if not exe.is_file():
                 raise RuntimeError(f"llama-server not found at {exe}")

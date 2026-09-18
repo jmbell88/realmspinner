@@ -43,6 +43,56 @@ def ui(monkeypatch):
         yield imgui
 
 
+def test_tileset_popup_closed_does_not_scan_the_shared_preview_cache_every_frame(
+    ui, monkeypatch
+):
+    """packwright-01 (2026-09-18 audit): with the tile-set popup closed and
+    nothing parked, ``_tileset_popup`` ran ``clear_tileset_import`` outright
+    on every frame -- which calls ``docmodes.release_prefix``, a scan of the
+    whole app-wide ``ctx.state.preview`` dict, to forget a texture that was
+    never parked in the first place."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        packwright_sources.docmodes,
+        "release_prefix",
+        lambda ctx, prefix: calls.append(prefix),
+    )
+    state = SimpleNamespace(
+        tileset_import=None,
+        tileset_import_uid="",
+        tileset_import_open=False,
+        tileset_preview_key=None,
+    )
+    ctx = SimpleNamespace(state=SimpleNamespace(preview={}))
+    ui.new_frame()
+    ui.begin("host")
+    try:
+        for _ in range(3):
+            packwright_sources._tileset_popup(ctx, state)
+    finally:
+        ui.end()
+        ui.end_frame()
+    assert calls == [], "closed popup with nothing parked scanned the preview cache"
+
+
+def test_add_buttons_grey_with_a_reason_while_saving():
+    """packwright-02 (2026-09-18 audit): "Add an image..." and "Add a tile
+    set..." greyed out while a tab was saving with no ``reason=`` passed to
+    ``widgets.disabled_button``, so the tooltip that explains every other
+    greyed control in this app said nothing here."""
+    source = inspect.getsource(packwright_sources.draw)
+    # ``index("):")`` rather than ``index(")")``: each call also carries a
+    # ``(-1, 0)`` size tuple, whose own closing paren is not followed by a
+    # colon, so it does not end the search early the way a bare ``)`` would.
+    add_image = source.split("Add an image...", 1)[1]
+    call_end = add_image.index("):")
+    assert "reason=widgets.DOCUMENT_SAVING_WHY" in add_image[:call_end]
+
+    add_tileset = source.split("Add a tile set...", 1)[1]
+    call_end = add_tileset.index("):")
+    assert "reason=widgets.DOCUMENT_SAVING_WHY" in add_tileset[:call_end]
+
+
 class _Spy:
     """The window draw list, recording every call and forwarding all of them.
 

@@ -93,8 +93,8 @@ smooth-shaded.** The decision belongs at *insertion*, not here -- a generator
 is called every time a parameter field is edited, and a generator that decided
 its own shading would be deciding it again on every keystroke, silently
 overwriting a Shade Flat the user had just clicked. So the two doors an object
-is placed through, ``panes/clay_tools.add_primitive`` and
-``panes/clay_tools.add_assembly``, apply ``clay.shading.auto_smooth`` to what a
+is placed through, ``modes/clay/ui/panes/tools.add_primitive`` and
+``modes/clay/ui/panes/tools.add_assembly``, apply ``clay.shading.auto_smooth`` to what a
 generator hands back, and this module keeps handing back the same flat mesh it
 always did -- a box "at rest" is one description regardless of where it ends
 up, and what a viewport shows of it is a fact about the door it walked through,

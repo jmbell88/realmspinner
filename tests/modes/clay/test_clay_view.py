@@ -342,6 +342,44 @@ def test_a_press_on_a_box_selects_it(view) -> None:
     assert doc.selection == {doc.objects[0].uid}
 
 
+def test_shift_click_extends_and_ctrl_click_subtracts_the_object_selection(
+    view, headless_mods
+) -> None:
+    """clay-02 (2026-09-18 audit): ``_press``'s object-mode branch read
+    ``shift``/``ctrl`` off the modifier state and then called
+    ``doc.select([hit])`` regardless, so every click replaced the whole
+    selection and a multi-object op needed the Outliner. The manual
+    (docs/manual/30-clay.md:223) has always promised Shift adds, Ctrl
+    removes -- ``test_shift_adds_and_ctrl_subtracts`` proved the same promise
+    for face mode; this is its object-mode twin.
+    """
+    import pygame
+
+    doc = _doc(count=2)
+    view.frame_selection(doc)
+    view.draw(doc, RECT, 0.0)
+    first, second = doc.objects[0].uid, doc.objects[1].uid
+
+    row = int(RECT[3] * 0.5)
+    pos_first = next(
+        (x, row) for x in range(int(RECT[2])) if view.pick(doc, (x, row)) == first
+    )
+    pos_second = next(
+        (x, row) for x in range(int(RECT[2])) if view.pick(doc, (x, row)) == second
+    )
+    assert pos_first != pos_second
+
+    doc.select([first])
+
+    _hold(headless_mods, pygame.KMOD_SHIFT)
+    _press(view, doc, pos_second)
+    assert doc.selection == {first, second}
+
+    _hold(headless_mods, pygame.KMOD_CTRL)
+    _press(view, doc, pos_second)
+    assert doc.selection == {first}
+
+
 def test_a_hidden_object_cannot_be_picked(view) -> None:
     doc = _doc(count=1)
     view.frame_selection(doc)

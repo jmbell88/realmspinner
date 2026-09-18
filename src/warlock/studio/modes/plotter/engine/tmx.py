@@ -154,6 +154,15 @@ _CSV_CELL = re.compile(r"[^\s,]+")
 #: infinite map painted solid at Tiled's own 16-cell chunk size.
 MAX_LAYERS = 1000
 MAX_CHUNKS = 65_536
+# The 2026-09-18 audit (plotter-04) found this module's sibling reader,
+# ``wmap.py``'s ``_ReadBudget``, capping a document's total object count for
+# the same reason ``MAX_LAYERS``/``MAX_CHUNKS`` above exist -- a manifest a
+# few kilobytes deep can still name one object layer a million objects long,
+# and each one costs a ``MapObject`` dataclass built per object well before
+# any byte ceiling notices -- but this reader had no equivalent. Same number
+# as ``wmap.MAX_OBJECTS``: neither is a fact about *this* format, both are
+# "not one anybody drew by hand".
+MAX_OBJECTS = 100_000
 
 
 class _Budget:
@@ -170,6 +179,7 @@ class _Budget:
     def __init__(self) -> None:
         self.layers = 0
         self.chunks = 0
+        self.objects = 0
 
     def layer(self) -> None:
         self.layers += 1
@@ -183,6 +193,13 @@ class _Budget:
         if self.chunks > MAX_CHUNKS:
             raise ValueError(
                 f"this map declares more than the {MAX_CHUNKS} chunks this build reads"
+            )
+
+    def object_count(self, count: int) -> None:
+        self.objects += count
+        if self.objects > MAX_OBJECTS:
+            raise ValueError(
+                f"this map holds more than the {MAX_OBJECTS} objects this build reads"
             )
 
 # Tiled's hexagonal 120-degree rotation flag. See the note in :mod:`.gid` for
@@ -933,6 +950,13 @@ def _read_tmx_layers(
                 )
             layers.append(TileLayer(**common, data=cells))
         elif node.tag == "objectgroup":
+            raw_objects = node.findall("object")
+            # Charged before any of them is built, ``wmap._ReadBudget``'s own
+            # rule: the elements are already sitting parsed in the ElementTree,
+            # but building each one mints a uid and constructs its shape, and a
+            # hundred thousand of those is real work a refusal should preempt
+            # rather than perform.
+            budget.object_count(len(raw_objects))
             layers.append(
                 ObjectLayer(
                     **common,
@@ -942,7 +966,7 @@ def _read_tmx_layers(
                     # verbatim, so an unparseable one taken on trust here would
                     # be carried straight into the next export.
                     color=colour_text(node.get("color"), "an object layer colour"),
-                    objects=[_read_tmx_object(obj) for obj in node.findall("object")],
+                    objects=[_read_tmx_object(obj) for obj in raw_objects],
                 )
             )
         elif node.tag == "imagelayer":
@@ -1292,6 +1316,10 @@ def _read_tmj_layer_list(
                 cells = _gid_array(list(raw or []), width, height)
             layers.append(TileLayer(**common, data=cells))
         elif kind == "objectgroup":
+            raw_objects = entry.get("objects", [])
+            # See the XML reader's matching comment: charged before any of
+            # them is built, ``wmap._ReadBudget``'s own rule.
+            budget.object_count(len(raw_objects))
             layers.append(
                 ObjectLayer(
                     **common,
@@ -1299,7 +1327,7 @@ def _read_tmj_layer_list(
                     # The XML reader's rule, in the other spelling. This file's
                     # standing rule is that the two paths do not drift.
                     color=colour_text(entry.get("color"), "an object layer colour"),
-                    objects=[_json_object(o) for o in entry.get("objects", [])],
+                    objects=[_json_object(o) for o in raw_objects],
                 )
             )
         elif kind == "imagelayer":

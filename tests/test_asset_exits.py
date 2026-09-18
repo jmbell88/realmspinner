@@ -260,6 +260,21 @@ def test_an_unrigged_mesh_offers_clay_mason_and_troupe_and_dims_poser(svc):
     assert "Rig" in poser.reason
 
 
+def test_a_done_mesh_with_no_model_dims_poser_with_the_model_reason_not_the_rig_one(svc):
+    """The 2026-09-18 audit, finding create-02: ``_poser`` skips the
+    ``model.glb`` check its sibling ``_clay`` makes (line 287 above), so a
+    done row with no model at all fell straight to "Rig this mesh first" --
+    an instruction the user cannot follow, since there is nothing here to
+    rig yet. The mesh reason (``_clay``'s own wording) is what belongs
+    here."""
+    job = _job(svc, "image", stage="model", status="done", params={})
+    job["files"] = ["input.png"]  # no model.glb
+    ctx = FakeCtx(svc)
+    poser = next(e for e in asset_exits.exits_for(ctx, job) if e.mode == "poser")
+    assert poser.reason == "This mesh has no model yet."
+    assert "Rig" not in poser.reason
+
+
 def test_a_rigged_mesh_dims_nothing(svc):
     ctx = FakeCtx(svc)
     exits = asset_exits.exits_for(ctx, _rows(svc)["rigged_mesh"])

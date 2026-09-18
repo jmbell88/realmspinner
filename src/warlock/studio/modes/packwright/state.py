@@ -148,7 +148,7 @@ class PackwrightState(docmodes.DocTabs[PackTab]):
     # The popup's counts, and the inputs they were computed from. Cached
     # because the dedup pass behind them is measured in hundreds of
     # milliseconds on a full sheet and the popup redraws every frame; see
-    # ``panes.packwright_sources._tileset_popup``. Cleared wherever
+    # ``modes.packwright.ui.panes.sources._tileset_popup``. Cleared wherever
     # ``tileset_import`` is, so a stale preview cannot outlive its sheet.
     tileset_preview_key: tuple[Any, ...] | None = None
     tileset_preview: tuple[int, int, int, int, int] = (0, 0, 0, 0, 0)

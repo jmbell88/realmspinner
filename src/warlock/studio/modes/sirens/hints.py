@@ -13,7 +13,8 @@ lets ``tests/modes/sirens/test_sirens_hints.py`` ask the question a screenshot c
 every key this line names exist. A hint naming a binding nothing implements is
 worse than no hint, because it is read as a promise.
 
-``panes/sirens_patterns.py`` draws it, under the grid rather than over it.
+``studio/modes/sirens/ui/panes/patterns.py`` draws it in the toolbar strip above
+the grid, because the grid sizes its rows from the room left under it.
 """
 
 from __future__ import annotations

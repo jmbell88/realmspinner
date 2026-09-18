@@ -485,7 +485,7 @@ class PlotterState(docmodes.DocTabs[PlotterDoc]):
     #: moment it points past the end, which is what an undo or a Clear leaves.
     tileset_shape: int | None = None
     #: The open gesture on that shape: ``""``, ``"move"``, ``"vertex"`` or one
-    #: of :data:`~warlock.studio.tilegrid.picking.BOX_HANDLES`.
+    #: of :data:`~warlock.kernels.grid2d.picking.BOX_HANDLES`.
     tileset_drag: str = ""
     #: Which polygon corner a ``"vertex"`` drag is moving.
     tileset_drag_vertex: int | None = None

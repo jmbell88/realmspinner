@@ -1,6 +1,6 @@
-"""``studio/tilegrid/`` imports nothing under ``warlock``, by construction.
+"""``kernels/grid2d/`` imports nothing under ``warlock``, by construction.
 
-The second shared leaf after ``studio/undo.py``: plotter, packwright and inker
+The second shared leaf after ``core/undo.py``: plotter, packwright and inker
 all import it, none owns it. A leaf that reached back into any of them would
 turn "shared vocabulary" into a dependency cycle waiting for an import order to
 expose it, so this is a property pin in the ``tests/modes/clay/test_undo_move.py``
@@ -15,9 +15,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.kernels import grid2d as tilegrid
+from warlock.kernels import grid2d
 
-ENGINE = Path(tilegrid.__file__).parent
+ENGINE = Path(grid2d.__file__).parent
 PACKAGE = "warlock.kernels.grid2d"
 
 
@@ -55,7 +55,7 @@ def test_the_leaf_imports_nothing_under_warlock() -> None:
 
 
 def test_the_leaf_lives_at_its_new_home() -> None:
-    assert tilegrid.__name__ == "warlock.kernels.grid2d"
+    assert grid2d.__name__ == "warlock.kernels.grid2d"
 
 
 def test_the_public_names_are_present() -> None:
@@ -80,4 +80,4 @@ def test_the_public_names_are_present() -> None:
         "slicing",
         "wang",
     ):
-        assert hasattr(tilegrid, name), name
+        assert hasattr(grid2d, name), name

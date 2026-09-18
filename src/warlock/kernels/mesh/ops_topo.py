@@ -653,6 +653,21 @@ def weld(mesh: Mesh, sel: ElementSel, *, eps: float = 1e-4) -> tuple[Mesh, Eleme
     return out, empty()
 
 
+#: The largest number of edge/face-loop pairs one `collapse` call will walk
+#: with its Python-level union-find, past which the two Python loops below
+#: stall the frame thread `clay_ops.run_mesh_op` calls this from -- the same
+#: frame-thread constraint `MAX_BRIDGED_RING`, `ops_dissolve.
+#: MAX_DISSOLVED_RING` and `ops_bevel.MAX_BEVELED_CORNERS` all refuse for.
+#: The 2026-09-18 audit's clay-04 found `collapse` had no ceiling at all,
+#: unlike every sibling topology walk in this package: select-all Collapse
+#: on a 600x600-quad grid (721,200 edges, 360,000 faces) measured 1.24s on
+#: the frame thread, and a 900x900 grid 2.89s. Measured at smaller scales --
+#: 180,600 pairs (300x300) took 0.30s, 320,800 pairs (400x400) took 0.54s --
+#: so this ceiling sits well below the point where a single Collapse press
+#: stops being well under a second.
+MAX_COLLAPSED_PAIRS = 250_000
+
+
 def _find(parent: np.ndarray, x: int) -> int:
     """Union-find root lookup, path-compressing as it goes.
 
@@ -692,6 +707,15 @@ def collapse(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
         loop = mesh.loops[starts[f] : starts[f + 1]].astype("i8")
         groups.append(np.stack([loop, np.roll(loop, -1)], axis=1))
     pairs = np.concatenate(groups)
+    # 2026-09-18 audit, clay-04: refuse before either Python loop below runs,
+    # from a count `pairs` already gives for free -- see MAX_COLLAPSED_PAIRS
+    # for the measurements this ceiling is set under.
+    if len(pairs) > MAX_COLLAPSED_PAIRS:
+        raise OpError(
+            f"Collapsing this selection means walking {len(pairs):,} edge/"
+            f"face pairs, past the {MAX_COLLAPSED_PAIRS:,} Collapse can walk "
+            "without stalling. Collapse a smaller selection."
+        )
     for a_v, b_v in pairs.tolist():
         ra, rb = _find(parent, int(a_v)), _find(parent, int(b_v))
         if ra != rb:

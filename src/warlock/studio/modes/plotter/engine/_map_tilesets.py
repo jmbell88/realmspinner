@@ -175,7 +175,7 @@ class TilesetOps:
         time somebody opened a class field and closed it again.
 
         The tileset is rebuilt rather than written through, which is
-        :class:`~..tilegrid.tileset.Tileset`'s standing rule: it is frozen
+        :class:`~..grid2d.tileset.Tileset`'s standing rule: it is frozen
         because the UI keys its texture upload on identity.
         """
         if index < 0 or index >= len(self.tilesets):

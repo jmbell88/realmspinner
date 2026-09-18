@@ -33,7 +33,7 @@ from .....core.undo import CompoundEdit, Edit
 
 # Re-exported on purpose. This module is where the rest of the package takes its
 # edit types from, and a sibling that needed ``CompoundEdit`` would otherwise
-# have to name ``studio.undo`` itself -- a second outward import in a pinned
+# have to name ``core.undo`` itself -- a second outward import in a pinned
 # package, for a dependency the package already has through this line.
 __all__ = ["CompoundEdit", "Edit"]
 

@@ -55,24 +55,30 @@ def test_build_character_messages_lists_species_movements_directions_and_size():
 def test_a_plan_naming_a_species_not_offered_is_none():
     options = _options()
     reply = json.dumps({"family": "dragon"})
-    assert character_plan.parse_plan(reply, options) is None
+    plan, dropped = character_plan.parse_plan(reply, options)
+    assert plan is None
+    assert dropped == []
 
 
 def test_a_plan_naming_none_is_none():
     options = _options()
     reply = json.dumps({"family": "none"})
-    assert character_plan.parse_plan(reply, options) is None
+    plan, dropped = character_plan.parse_plan(reply, options)
+    assert plan is None
+    assert dropped == []
 
 
 def test_malformed_json_is_none():
     options = _options()
-    assert character_plan.parse_plan("not json at all", options) is None
+    plan, dropped = character_plan.parse_plan("not json at all", options)
+    assert plan is None
+    assert dropped == []
 
 
 def test_unknown_movements_are_dropped_not_fatal():
     options = _options()
     reply = json.dumps({"family": "goblin", "movements": ["walk", "fly", "idle"]})
-    plan = character_plan.parse_plan(reply, options)
+    plan, dropped = character_plan.parse_plan(reply, options)
     assert plan is not None
     assert plan["movements"] == ["walk", "idle"]
 
@@ -80,7 +86,7 @@ def test_unknown_movements_are_dropped_not_fatal():
 def test_a_theme_the_named_species_does_not_offer_is_dropped():
     options = _options()
     reply = json.dumps({"family": "goblin", "theme": "gilded"})
-    plan = character_plan.parse_plan(reply, options)
+    plan, dropped = character_plan.parse_plan(reply, options)
     assert plan is not None
     assert "theme" not in plan
 
@@ -88,7 +94,7 @@ def test_a_theme_the_named_species_does_not_offer_is_dropped():
 def test_an_out_of_range_size_is_dropped():
     options = _options()
     reply = json.dumps({"family": "goblin", "size": 4096})
-    plan = character_plan.parse_plan(reply, options)
+    plan, dropped = character_plan.parse_plan(reply, options)
     assert plan is not None
     assert "size" not in plan
 
@@ -96,7 +102,7 @@ def test_an_out_of_range_size_is_dropped():
 def test_a_direction_count_off_the_ladder_is_dropped():
     options = _options()
     reply = json.dumps({"family": "goblin", "directions": 7})
-    plan = character_plan.parse_plan(reply, options)
+    plan, dropped = character_plan.parse_plan(reply, options)
     assert plan is not None
     assert "directions" not in plan
 
@@ -106,22 +112,64 @@ def test_a_plan_never_invents_a_field_the_reply_did_not_carry():
     a theme, movements, directions, size or name from nowhere."""
     options = _options()
     reply = json.dumps({"family": "goblin"})
-    plan = character_plan.parse_plan(reply, options)
+    plan, dropped = character_plan.parse_plan(reply, options)
     assert plan == {"family": "goblin"}
+    assert dropped == []
 
 
 def test_a_fenced_reply_is_tolerated():
     options = _options()
     reply = "```json\n" + json.dumps({"family": "knight", "name": "Sir Roland"}) + "\n```"
-    plan = character_plan.parse_plan(reply, options)
+    plan, dropped = character_plan.parse_plan(reply, options)
     assert plan == {"family": "knight", "name": "Sir Roland"}
+    assert dropped == []
 
 
 def test_a_blank_name_is_dropped():
     options = _options()
     reply = json.dumps({"family": "goblin", "name": "   "})
-    plan = character_plan.parse_plan(reply, options)
+    plan, dropped = character_plan.parse_plan(reply, options)
     assert "name" not in plan
+    # A blank string is not really a name the model *named* -- unlike a real
+    # rejected value, it stays a silent drop rather than growing a spurious
+    # "(not used: )" line on the plan card.
+    assert dropped == []
+
+
+# --- familiar-02: dropped fields are named, not silently discarded --------
+
+
+def test_an_unknown_movement_is_named_in_the_dropped_list():
+    options = _options()
+    reply = json.dumps({"family": "goblin", "movements": ["walk", "fly"]})
+    plan, dropped = character_plan.parse_plan(reply, options)
+    assert plan is not None
+    fly_drop = {"kind": "movement", "text": "fly", "reason": "not a movement this build offers"}
+    assert fly_drop in dropped
+
+
+def test_an_unoffered_theme_is_named_in_the_dropped_list():
+    options = _options()
+    reply = json.dumps({"family": "goblin", "theme": "gilded"})
+    plan, dropped = character_plan.parse_plan(reply, options)
+    assert plan is not None
+    assert any(d["kind"] == "theme" and d["text"] == "gilded" for d in dropped)
+
+
+def test_an_out_of_ladder_direction_count_is_named_in_the_dropped_list():
+    options = _options()
+    reply = json.dumps({"family": "goblin", "directions": 7})
+    plan, dropped = character_plan.parse_plan(reply, options)
+    assert plan is not None
+    assert any(d["kind"] == "directions" and d["text"] == "7" for d in dropped)
+
+
+def test_an_out_of_range_size_is_named_in_the_dropped_list():
+    options = _options()
+    reply = json.dumps({"family": "goblin", "size": 4096})
+    plan, dropped = character_plan.parse_plan(reply, options)
+    assert plan is not None
+    assert any(d["kind"] == "size" and d["text"] == "4096" for d in dropped)
 
 
 # --- plan_overrides --------------------------------------------------------

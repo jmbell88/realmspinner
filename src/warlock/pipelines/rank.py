@@ -151,6 +151,15 @@ def score(
     a candidate measured under fewer models scores what it always did.
     """
     composition = composition_score(report)
+    # The 2026-09-18 audit (pipelines-02): a refused report's zero composition
+    # used to enter the same blend as everyone else's, so a near-perfect
+    # anchor/preference term could pull it back up past an accepted-but-weak
+    # candidate (0.55 vs 0.31) -- contradicting composition_score's own "a
+    # candidate that is going to be refused at promotion belongs last." The
+    # check mirrors composition_score's own ``ok is False`` branch exactly, so
+    # a placeholder ``measured=False`` report (always ``ok=True``, see
+    # ``reference.unmeasured``) is unaffected and still blends normally.
+    refused = isinstance(report, dict) and report.get("ok") is False
     if anchor_cosine is None:
         base = composition
         out: dict[str, Any] = {
@@ -173,4 +182,8 @@ def score(
             PREFERENCE_WEIGHT * preference_component(preference)
         )
         out["score"] = max(0.0, min(1.0, blended))
+    if refused:
+        # Anchor and preference are still recorded above, for the record --
+        # they just never move a refused candidate off the floor.
+        out["score"] = 0.0
     return out

@@ -106,6 +106,24 @@ def _loaded(ctx, seconds: float = 10.0, job: str = "a"):
     return state.player
 
 
+def _settle(ctx, one) -> None:
+    """Land the loop-cache blend, the way a marker grip's release or the
+    crossfade slider's release does in the real UI -- both call
+    ``precompute_loop`` right after ``set_region``/setting ``xfade_ms``, well
+    before a user's next Play. Every test below that sets a region and then
+    plays or seeks calls this in between, for the reason ``_play_from`` no
+    longer blends inline on a stale cache (muse-02, the 2026-09-18 audit):
+    calling ``set_region`` alone, as these tests used to and then playing
+    straight through it, is not a sequence the real controls produce, and a
+    stale-cache Play now defers rather than sounding anything immediately.
+    """
+    muse_mode.precompute_loop(ctx)
+    if not ctx.submitted or not ctx.submitted[-1].startswith(muse_io.CACHE_PREFIX):
+        return  # nothing to settle: no region, or the cache was already current
+    done = type("_Done", (), {"key": ctx.submitted[-1], "result": ctx.result})()
+    muse_mode.on_task_done(ctx, done)
+
+
 # --- the playhead ------------------------------------------------------------
 
 
@@ -177,8 +195,9 @@ def test_playing_a_region_repeats_it_and_stops_at_its_end(ctx, device):
     """A seam is judged by hearing it come round again, so the region audition
     repeats -- and ``sirens_audio.position`` already wraps modulo the buffer
     when loops is non-zero, so the playhead falls out with no arithmetic."""
-    _loaded(ctx, seconds=10.0)
+    one = _loaded(ctx, seconds=10.0)
     muse_mode.set_region(ctx, 2.0, 6.0)
+    _settle(ctx, one)
     muse_mode.play_region(ctx)
     call = device.calls[-1]
     assert call["loops"] == -1
@@ -199,8 +218,9 @@ def test_seeking_inside_the_region_loops_the_whole_region_not_just_the_tail(ctx,
     buffer length there is ``loop_end - seek`` rather than
     ``loop_end - loop_start``.
     """
-    _loaded(ctx, seconds=10.0)
+    one = _loaded(ctx, seconds=10.0)
     muse_mode.set_region(ctx, 2.0, 8.0)
+    _settle(ctx, one)
     muse_mode.play_region(ctx)  # start the loop, as "Play the loop" does
     muse_mode.seek(ctx, 5.0)
     call = device.calls[-1]
@@ -241,10 +261,12 @@ def test_shrinking_the_region_while_sounding_is_picked_up_on_the_next_seek(ctx, 
     always "seek point to loop end" (1s here) rather than the full, narrowed
     region (2s).
     """
-    _loaded(ctx, seconds=10.0)
+    one = _loaded(ctx, seconds=10.0)
     muse_mode.set_region(ctx, 2.0, 8.0)
+    _settle(ctx, one)
     muse_mode.play_region(ctx)
     muse_mode.set_region(ctx, 3.0, 5.0)  # narrowed while sounding
+    _settle(ctx, one)
     device.busy, device.tag_value = True, "a"
     muse_mode.seek(ctx, 4.0)
     assert device.calls[-1]["frames"] == pytest.approx(2 * RATE, rel=0.01)
@@ -259,8 +281,9 @@ def test_the_position_wraps_within_the_region_after_a_seek_inside_it(ctx, device
     arithmetic. Fails against the unfixed code, which returns 8.5 here
     (``play_offset`` 5.0 plus the raw clock 3.5, with no wrap at all).
     """
-    _loaded(ctx, seconds=10.0)
+    one = _loaded(ctx, seconds=10.0)
     muse_mode.set_region(ctx, 2.0, 8.0)
+    _settle(ctx, one)
     device.busy, device.tag_value = True, "a"
     muse_mode.seek(ctx, 5.0)
     device.pos = 3.5
@@ -301,6 +324,8 @@ def test_stop_then_play_resumes_the_same_take_without_losing_its_state(
     one = _loaded(ctx, seconds=10.0, job="a")
     muse_mode.set_region(ctx, 2.0, 8.0)
     one.xfade_ms = 200.0
+    _settle(ctx, one)
+    ctx.submitted.clear()  # the settle's own precompute must not count below
     device.busy, device.tag_value, device.pos = True, "a", 1.0
     one.play_offset = 3.0
     muse_mode.stop(ctx)
@@ -339,9 +364,12 @@ def test_pressing_play_with_no_audio_device_tells_the_user_rather_than_doing_not
     assert ctx.toasts[-1] == ("no device", "warn")
     assert one.play_offset == pytest.approx(0.0), "a refused play must not move the playhead"
 
-    # The looping, in-region path: "Play the loop".
+    # The looping, in-region path: "Play the loop". Settled first (a device
+    # refusal is a mixer-side question, not a cache one, so this must not be
+    # mistaken for muse-02's deferred-play toast instead).
     ctx.toasts.clear()
     muse_mode.set_region(ctx, 2.0, 6.0)
+    _settle(ctx, one)
     muse_mode.play_region(ctx)
     assert ctx.toasts, "a refused loop play must say so rather than doing nothing"
     assert ctx.toasts[-1] == ("no device", "warn")
@@ -360,6 +388,17 @@ def test_playing_the_loop_hands_the_mixer_the_export_buffer_not_a_raw_slice(
     audition. Fails against the unfixed code, whose buffer here is the plain
     slice and does not match ``muse.loops.crossfade``'s output at all once the
     fade is non-zero.
+
+    ``precompute_loop`` is called and its result routed through
+    ``on_task_done`` before ``play_region`` here (muse-02, the 2026-09-18
+    audit): a region set and a crossfade changed by hand, exactly as this test
+    does, leave the cache stale, and a stale cache now makes ``play_region``
+    defer rather than block the frame thread to blend it -- see
+    ``test_play_pressed_immediately_after_a_region_change_does_not_block_the_
+    frame_thread`` and ``test_a_deferred_play_starts_once_the_precompute_lands``
+    below for that half. Landing the cache first here is what the real
+    controls usually do too: the marker grip and the crossfade slider both
+    call ``precompute_loop`` on release, well before a user's next Play.
     """
     from warlock.studio.modes.muse.engine import loops as loops_mod
 
@@ -373,6 +412,8 @@ def test_playing_the_loop_hands_the_mixer_the_export_buffer_not_a_raw_slice(
         one.pcm, int(2.0 * rate), int(8.0 * rate), int(200.0 * rate / 1000.0)
     )
 
+    _settle(ctx, one)
+
     muse_mode.play_region(ctx)  # phase 0: starts at the region's own start
     assert np.array_equal(device.calls[-1]["pcm"], expected)
 
@@ -383,6 +424,129 @@ def test_playing_the_loop_hands_the_mixer_the_export_buffer_not_a_raw_slice(
         raw = handle.readframes(handle.getnframes())
     exported = np.frombuffer(raw, dtype=np.int16).reshape(-1, 2)
     assert np.array_equal(exported, expected), "the export must write the same buffer"
+
+
+def test_play_pressed_immediately_after_a_region_change_does_not_block_the_frame_thread(
+    ctx, device, monkeypatch
+):
+    """muse-02 (2026-09-18 audit).
+
+    ``_play_from`` used to call ``muse_io.loop_body`` unconditionally on a
+    marked region -- and on a cache miss (exactly the state right after a
+    region or crossfade changes, before ``precompute_loop``'s task lands)
+    that function blends the whole region on whatever thread called it. Called
+    from ``_play_from``, that thread is the frame thread: about 100 ms on a
+    240 s take, the very stall muse-03 (2026-09-05 audit) fixed for every
+    *other* caller of the blend, just left open for the one caller that runs
+    on a Play press right after a marker moves.
+
+    Asserted two ways: ``muse_io.loop_body`` -- the blocking blend -- must
+    never be called while the cache is stale, and the mixer must not have
+    been handed anything yet. Fails against the unfixed code, whose
+    ``loop_body`` patch below is invoked and raises.
+    """
+
+    def _blend_must_not_run_here(*_a, **_kw):
+        raise AssertionError("loop_body must not blend on the frame thread")
+
+    _loaded(ctx, seconds=10.0)
+    monkeypatch.setattr(muse_io, "loop_body", _blend_must_not_run_here)
+    muse_mode.set_region(ctx, 2.0, 8.0)  # cache is stale: no precompute ran
+
+    muse_mode.play_region(ctx)
+
+    assert device.calls == [], "must not have started sounding an unblended region"
+    assert any(
+        key.startswith(muse_io.CACHE_PREFIX) for key in ctx.submitted
+    ), "must kick off the precompute rather than leaving the stall permanent"
+    assert ctx.toasts, "a deferred loop play must say so rather than doing nothing"
+
+
+def test_a_deferred_play_starts_once_the_precompute_lands(ctx, device):
+    """muse-02 (2026-09-18 audit), the second half of the same finding: a
+    first pass refused outright ("try again in a moment"), which made a user
+    press Play twice for something they asked for once. Deferred instead --
+    the take actually starts sounding once ``on_task_done`` installs the
+    cache this Play was waiting for, with no second press. Fails against a
+    refuse-only fix, whose ``device.calls`` stays empty after the landing
+    below.
+    """
+    one = _loaded(ctx, seconds=10.0)
+    ctx.state.mode = "muse"  # on_task_done only starts sounding while Muse is up
+    muse_mode.set_region(ctx, 2.0, 8.0)  # cache is stale: no precompute ran
+
+    muse_mode.play_region(ctx)
+    assert device.calls == [], "must not sound anything before the blend lands"
+    assert one.pending_play is not None
+
+    done = type("_Done", (), {"key": ctx.submitted[-1], "result": ctx.result})()
+    muse_mode.on_task_done(ctx, done)
+
+    assert device.calls, "the deferred play must start once the cache lands"
+    call = device.calls[-1]
+    assert call["loops"] == -1
+    assert call["frames"] == pytest.approx(6 * RATE, rel=0.01)  # the (2, 8) region
+    assert one.pending_play is None, "a landed request must not linger for a second play"
+
+
+def test_a_region_change_before_the_precompute_lands_drops_the_pending_play(ctx, device):
+    """muse-02 (2026-09-18 audit): the region the user was waiting to hear is
+    not the region that has landed by the time it does. Dropped silently --
+    no toast, no sound -- rather than starting a loop for a region the
+    marker has since moved off of.
+    """
+    one = _loaded(ctx, seconds=10.0)
+    muse_mode.set_region(ctx, 2.0, 8.0)
+    muse_mode.play_region(ctx)  # pending_play waits on the (2, 8) key
+    stale_done = type("_Done", (), {"key": ctx.submitted[-1], "result": ctx.result})()
+
+    muse_mode.set_region(ctx, 3.0, 5.0)  # the marker moves before the blend lands
+    ctx.toasts.clear()
+
+    muse_mode.on_task_done(ctx, stale_done)
+
+    assert device.calls == [], "a landing for an abandoned region must not start anything"
+    assert one.pending_play is None, "the stale request must not linger for a later landing"
+    assert ctx.toasts == [], "dropped silently -- the region already moved on with no help needed"
+
+
+def test_switching_away_from_muse_before_the_precompute_lands_drops_the_pending_play(
+    ctx, device
+):
+    """muse-02 (2026-09-18 audit): a Play request made in Muse must not start
+    a take sounding out from under a user who has since moved to another
+    mode -- ``on_task_done`` runs on every frame's tasks, whichever mode is
+    drawn.
+    """
+    one = _loaded(ctx, seconds=10.0)
+    ctx.state.mode = "muse"
+    muse_mode.set_region(ctx, 2.0, 8.0)
+    muse_mode.play_region(ctx)
+    done = type("_Done", (), {"key": ctx.submitted[-1], "result": ctx.result})()
+
+    ctx.state.mode = "library"  # the user switched away before it landed
+
+    muse_mode.on_task_done(ctx, done)
+
+    assert device.calls == [], "must not start sounding while another mode is up"
+    assert one.pending_play is None, "the request must not linger for a later landing"
+
+
+def test_stop_withdraws_a_deferred_play(ctx, device):
+    """muse-02 (2026-09-18 audit): Stop is the user taking a Play request
+    back. A press that never got as far as sounding anything must not start
+    once the blend it was waiting on lands anyway.
+    """
+    one = _loaded(ctx, seconds=10.0)
+    muse_mode.set_region(ctx, 2.0, 8.0)
+    muse_mode.play_region(ctx)
+    done = type("_Done", (), {"key": ctx.submitted[-1], "result": ctx.result})()
+
+    muse_mode.stop(ctx)
+    assert one.pending_play is None
+
+    muse_mode.on_task_done(ctx, done)
+    assert device.calls == [], "a withdrawn request must not start sounding on landing"
 
 
 # --- the region --------------------------------------------------------------
@@ -790,6 +954,27 @@ def test_the_stems_already_split_reason_is_a_pure_testable_function():
     )
 
 
+def test_the_extend_menu_item_reason_is_a_pure_testable_function():
+    """The 2026-09-18 audit, finding muse-01, the menu half.
+
+    ``derive_music_job`` refuses on the *combined* total,
+    ``parent_duration + extend_left + extend_right`` against the sampler's
+    frame ceiling -- so a take already at or past that ceiling has zero
+    seconds of room for any nonzero extension at all. ``_extend_reason``
+    is the pure function ``_derive_menu`` asks before greying "Extend" on
+    the "Make more" menu, in the same shape this file's other
+    ``*_reason`` tests already hold every other disabled control to.
+    """
+    from warlock.studio.modes.muse.ui.panes import results as muse_results
+
+    assert muse_results._extend_reason(0.0) == ""
+    assert muse_results._extend_reason(60.0) == ""
+    at_ceiling = muse_results._extend_reason(muse_results._extend_ceiling())
+    assert at_ceiling != "" and "extend ceiling" in at_ceiling
+    past_ceiling = muse_results._extend_reason(600.0)
+    assert past_ceiling != "" and "extend ceiling" in past_ceiling
+
+
 # --- the untouched marker's anchor (muse-02) ----------------------------------
 
 
@@ -911,6 +1096,118 @@ def test_the_drawn_playhead_does_not_move_until_a_seek_drag_releases(ctx, monkey
         imgui.destroy_context(gl_ctx)
         if previous is not None:
             imgui.set_current_context(previous)
+
+
+# --- the player's six keys (muse-05, the 2026-09-18 audit) -------------------
+#
+# ``handle_key``'s own docstring names six bindings for a loaded take --
+# Left/Right (and Shift for the ten-times step), Home, ``[``/``]`` and ``L`` --
+# and none of them had a test anywhere in this file before this section: an
+# evidence gap, not a bug found, so nothing here is expected to fail against
+# the unfixed code. What follows is the coverage the finding asked for.
+
+
+def test_right_arrow_nudges_the_playhead_forward(ctx, device):
+    import pygame
+
+    from .test_muse_mode import _key
+
+    one = _loaded(ctx, seconds=10.0)
+    assert muse_mode.handle_key(ctx, _key(pygame.K_RIGHT)) is True
+    assert one.play_offset == pytest.approx(muse_mode.NUDGE_SECONDS)
+
+
+def test_left_arrow_nudges_the_playhead_backward_and_clamps_at_zero(ctx, device):
+    import pygame
+
+    from .test_muse_mode import _key
+
+    one = _loaded(ctx, seconds=10.0)
+    one.play_offset = 0.5
+    assert muse_mode.handle_key(ctx, _key(pygame.K_LEFT)) is True
+    assert one.play_offset == pytest.approx(0.0)
+
+
+def test_shift_makes_the_nudge_ten_times_as_far(ctx, device):
+    import pygame
+
+    from .test_muse_mode import _key
+
+    one = _loaded(ctx, seconds=30.0)
+    assert muse_mode.handle_key(ctx, _key(pygame.K_RIGHT, pygame.KMOD_SHIFT)) is True
+    assert one.play_offset == pytest.approx(
+        muse_mode.NUDGE_SECONDS * muse_mode.NUDGE_MULTIPLIER
+    )
+
+
+def test_home_returns_the_playhead_to_the_start(ctx, device):
+    import pygame
+
+    from .test_muse_mode import _key
+
+    one = _loaded(ctx, seconds=10.0)
+    one.play_offset = 5.0
+    assert muse_mode.handle_key(ctx, _key(pygame.K_HOME)) is True
+    assert one.play_offset == pytest.approx(0.0)
+
+
+def test_left_bracket_sets_the_region_start_at_the_playhead_and_precomputes(ctx, device):
+    import pygame
+
+    from .test_muse_mode import _key
+
+    one = _loaded(ctx, seconds=10.0)
+    one.play_offset = 3.0
+    assert muse_mode.handle_key(ctx, _key(pygame.K_LEFTBRACKET)) is True
+    # No end set yet, so ``[`` is ordered against the take's own duration --
+    # the same default ``set_region`` gives every other caller with no
+    # existing end.
+    assert (one.loop_start, one.loop_end) == (3.0, 10.0)
+    assert any(key.startswith(muse_io.CACHE_PREFIX) for key in ctx.submitted), (
+        "settling a marker at the keyboard must precompute, exactly as a grip's "
+        "release does"
+    )
+
+
+def test_right_bracket_sets_the_region_end_at_the_playhead_and_precomputes(ctx, device):
+    import pygame
+
+    from .test_muse_mode import _key
+
+    one = _loaded(ctx, seconds=10.0)
+    one.play_offset = 7.0
+    assert muse_mode.handle_key(ctx, _key(pygame.K_RIGHTBRACKET)) is True
+    assert (one.loop_start, one.loop_end) == (0.0, 7.0)
+    assert any(key.startswith(muse_io.CACHE_PREFIX) for key in ctx.submitted)
+
+
+def test_l_runs_the_finder(ctx, device):
+    import pygame
+
+    from .test_muse_mode import _key
+
+    one = _loaded(ctx, seconds=3.0)
+    assert muse_mode.handle_key(ctx, _key(pygame.K_l)) is True
+    assert ctx.submitted[-1] == f"{muse_io.FIND_PREFIX}a"
+    assert one.finding is True
+
+
+def test_the_players_six_keys_are_a_no_op_with_no_player(ctx):
+    """``handle_key``'s own floor: about a decoded take, and before the first
+    audition there is none."""
+    import pygame
+
+    from .test_muse_mode import _key
+
+    for key in (
+        pygame.K_LEFT,
+        pygame.K_RIGHT,
+        pygame.K_HOME,
+        pygame.K_LEFTBRACKET,
+        pygame.K_RIGHTBRACKET,
+        pygame.K_l,
+    ):
+        assert muse_mode.handle_key(ctx, _key(key)) is False
 
 
 # --- the file round trip (the 2026-09-11 audit, finding muse-04) -------------

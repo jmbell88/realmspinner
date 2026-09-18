@@ -120,10 +120,19 @@ def height(ctx: Any) -> float:
 
     from imgui_bundle import imgui
 
+    from .. import tokens
     from ..assistant import ui as familiar_ui
 
     viewport = imgui.get_main_viewport()
-    ceiling = max_height(viewport.work_size.y, _mode_chrome(ctx))
+    # ``max_height`` is design-pixel arithmetic (MIN_CENTER_HEIGHT, MENU_BAR_H
+    # and the mode-chrome constants are all design px), but ``work_size`` is
+    # physical -- shell-02, the 2026-09-18 audit. Passing it straight through
+    # inflated the ceiling by ``tokens.SCALE``, and ``draw()`` below multiplies
+    # this function's return by ``tokens.sp()`` a second time, so at any scale
+    # other than 1.0 the familiar-03 quarter-window/``MIN_CENTER_HEIGHT`` cap
+    # no longer held -- at 2x, Muse's own minimum window handed the expanded
+    # pane most of the window instead of the 56 dp ceiling it names.
+    ceiling = max_height(viewport.work_size.y / tokens.SCALE, _mode_chrome(ctx))
     return min(familiar_ui.pane_height(ctx), ceiling)
 
 

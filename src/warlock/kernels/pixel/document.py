@@ -221,7 +221,7 @@ class Document(
     #: bind the same slot -- and ``Track.tileset_uid`` is what names one of
     #: these. Typed via ``tiles.TilesetSlot`` at runtime; kept as ``list[Any]``
     #: here, and looked up by hand in ``_ensure_cel_for``, so this module does
-    #: not have to import ``tiles`` (which reaches for the shared ``tilegrid``
+    #: not have to import ``tiles`` (which reaches for the shared ``grid2d``
     #: leaf) just to spell the field's type. See :mod:`.tiles`.
     tilesets: list[Any] = field(default_factory=list)
     #: Manual / Auto / Stack -- how a pixel edit on a tilemap cel is routed
@@ -341,7 +341,7 @@ class Document(
     )
     #: Frames that have gone, for whoever is holding a *texture* keyed on one.
     #: Plain ints and a drain, so the document goes on knowing nothing about GL:
-    #: see ``panes/inker_textures.release_dropped``.
+    #: see ``modes/inker/ui/panes/textures.release_dropped``.
     _dropped_frames: list[int] = field(default_factory=list, repr=False, init=False)
     #: Per-*layer* change counters, keyed by layer uid, beside the per-frame
     #: ones above and for a different consumer: a cel thumbnail is a picture of

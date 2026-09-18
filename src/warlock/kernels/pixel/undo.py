@@ -18,7 +18,7 @@ after a reorder still lands on the layer the edit was made to.
 
 The engine itself -- ``Edit``, ``CompoundEdit``, ``UndoStack``, the serial
 counter and the byte budget -- has no opinion about pixels and now lives in
-``studio/undo.py``, so Clay can have the same history with its own edit
+``core/undo.py``, so Clay can have the same history with its own edit
 types without depending on the raster editor. It is re-exported here unchanged:
 every module in this package imports those names from this one, and renaming
 those imports as part of a move would have made "did the move change
@@ -119,7 +119,7 @@ def _plane_bytes(layer: Any) -> int:
 # ``__eq__`` tuple-compares those fields and returns the raw ndarray
 # comparison rather than a bool, so ``==``, ``!=`` or ``in`` on two edits
 # raises "the truth value of an array with more than one element is
-# ambiguous" instead of comparing them -- the base ``Edit`` in ``studio/undo.py``
+# ambiguous" instead of comparing them -- the base ``Edit`` in ``core/undo.py``
 # avoids this by not being a dataclass at all, but every concrete type here is
 # one. Nothing in this build compares edit instances structurally today (the
 # history panel keys off ``type(edit)`` and ``uid``, never equality), so

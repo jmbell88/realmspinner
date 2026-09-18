@@ -374,7 +374,7 @@ class AseCel:
     data: bytes = b""
     link: int = 0
     #: A tilemap cel's ``(height, width)`` grid of already-remapped
-    #: :mod:`..tilegrid.gid` values -- ``width``/``height`` above hold the
+    #: :mod:`..grid2d.gid` values -- ``width``/``height`` above hold the
     #: grid's own shape *in tiles* for this one kind, not pixels, since a
     #: tilemap cel is never routed through :func:`_decode`. ``None`` for
     #: every other cel kind.
@@ -963,7 +963,7 @@ def _remap_tile_refs(
     """A tilemap cel's raw uint32 grid, their declared bit layout onto ours.
 
     Numerically the identity on every file Aseprite writes today -- its own
-    default masks are :data:`~..tilegrid.gid.GID_MASK`/``FLIP_H``/``FLIP_V``/
+    default masks are :data:`~..grid2d.gid.GID_MASK`/``FLIP_H``/``FLIP_V``/
     ``FLIP_D`` bit for bit -- but written as mask arithmetic on the masks
     *this chunk itself declared* rather than a straight cast, because the
     masks are a field in the file and not a constant this reader assumes: a

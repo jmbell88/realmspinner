@@ -142,3 +142,34 @@ def test_component_count_sees_separate_shells_and_lone_faces(tmp_path):
     trimesh.util.concatenate([sphere, box, lone]).export(path)
 
     assert meshreport.build(path)["components"] == 3
+
+
+def test_a_textured_uv_mapped_mesh_reports_its_uvs_and_base_colour_texture(tmp_path):
+    """2026-09-18 audit (pipelines-04): ``_materials()``'s positive branch had
+    no fixture at all -- every mesh above is untextured, so a report saying
+    "has UVs" or "has a base-color texture" was never actually exercised, only
+    the ``not has_uvs`` / ``not textures[...]`` reasons on a bare box. This
+    round-trips a UV-mapped PBR material through a real GLB export and read.
+    """
+    import numpy as np
+    from PIL import Image
+
+    box = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    uv = np.random.default_rng(0).random((len(box.vertices), 2))
+    image = Image.new("RGB", (4, 4), (200, 100, 50))
+    material = trimesh.visual.material.PBRMaterial(
+        baseColorTexture=image,
+        metallicRoughnessTexture=image,
+        normalTexture=image,
+    )
+    box.visual = trimesh.visual.TextureVisuals(uv=uv, material=material)
+
+    report = meshreport.build(_write(tmp_path, box))
+
+    assert report["has_uvs"] is True
+    assert report["textures"] == {
+        "base_color": True,
+        "metallic_roughness": True,
+        "normal": True,
+    }
+    assert not any("UV" in r or "texture" in r for r in report["reasons"])

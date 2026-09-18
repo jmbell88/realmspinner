@@ -849,7 +849,7 @@ class IndexedOps:
     # -- mode conversions ---------------------------------------------------
 
     # The three ``resolve_*`` functions below and ``_apply_resolved_pixels``
-    # exist for one caller: ``panes/inker_bridge.apply_convert``, which used to
+    # exist for one caller: ``modes/inker/ui/panes/bridge.apply_convert``, which used to
     # hand ``Document.commit_convert``/``cancel_convert``/``convert_to_indexed``
     # straight to a task thread -- mutating ``color_mode``, ``layer.pixels``,
     # ``layer.indices`` and undo history off the frame thread while

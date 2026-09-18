@@ -125,6 +125,36 @@ class MasonDoc:
         # in shape (a pre-session snapshot plus a growing union rect) for the
         # reason given at :meth:`begin_sculpt`.
         self._sculpt: dict[str, Any] | None = None
+        # ``uid -> (node, parent_uid, index-within-parent)``, and the tree's
+        # total node count -- both private working state, not part of the
+        # attribute contract above. The 2026-09-18 audit's mason-03 found
+        # :meth:`locate` (this cache's predecessor) re-walking the *whole*
+        # tree for every single uid lookup, so :meth:`isolate`/:meth:`show_all`
+        # -- which look up every node in the document -- cost O(N^2): 19s at
+        # 8k nodes. Built once here by a full walk, then kept in step by every
+        # mutator below (:meth:`_attach_node`, :meth:`_detach_node`,
+        # :meth:`_relocate`) rather than rebuilt on the next lookup, so a
+        # lookup is O(1) and an attach/detach/relocate only touches the
+        # siblings actually shifted, never the rest of the tree.
+        self._index: dict[int, tuple[Node, int | None, int]] = {}
+        self._node_count = 0
+        self._rebuild_index()
+
+    def _rebuild_index(self) -> None:
+        """Rebuild :attr:`_index` and :attr:`_node_count` from scratch by
+        walking the tree once. Only called from :meth:`__init__` -- every
+        structural mutator afterward (:meth:`_attach_node`,
+        :meth:`_detach_node`, :meth:`_relocate`) keeps both current
+        incrementally instead of triggering a rebuild, which is the whole
+        point: see the 2026-09-18 audit's mason-03, named on :attr:`_index`.
+        """
+        index: dict[int, tuple[Node, int | None, int]] = {}
+        count = 0
+        for entry, parent_uid, idx, _depth in self.walk():
+            index[entry.uid] = (entry, parent_uid, idx)
+            count += 1
+        self._index = index
+        self._node_count = count
 
     # -- lookup --------------------------------------------------------------
 
@@ -146,15 +176,20 @@ class MasonDoc:
         return [entry for entry, _parent, _index, _depth in self.walk()]
 
     def node(self, uid: int) -> Node | None:
-        found = self.locate(uid)
+        found = self._index.get(int(uid))
         return None if found is None else found[0]
 
     def locate(self, uid: int) -> tuple[Node, int | None, int] | None:
-        """``(node, parent_uid, index)``, or ``None``. Every other lookup's engine."""
-        for entry, parent_uid, index, _depth in self.walk():
-            if entry.uid == uid:
-                return entry, parent_uid, index
-        return None
+        """``(node, parent_uid, index)``, or ``None``. Every other lookup's engine.
+
+        An O(1) dict read against :attr:`_index`, not a tree walk -- the
+        2026-09-18 audit's mason-03 found this walking the whole tree on
+        every call, which made an outliner op touching every node (Solo,
+        Show all) cost O(N^2). The cache is built once
+        (:meth:`_rebuild_index`) and kept current by every structural
+        mutator, so this never re-walks.
+        """
+        return self._index.get(int(uid))
 
     def parent_uid_of(self, uid: int) -> int | None:
         found = self.locate(uid)
@@ -206,10 +241,14 @@ class MasonDoc:
         and ``define_prefab`` puts no ceiling on how big that template may be
         -- still attaching unchecked. One shared check, called before every
         attach point, so a future one cannot reopen the same hole a fourth
-        way. Counted with a plain structural walk (``all_nodes``), the same
-        conservative, prefab-blind count :meth:`add_nodes` already used.
+        way. Counted against :attr:`_node_count`, the incrementally
+        maintained total -- the 2026-09-18 audit's mason-04 found this
+        re-walking the whole tree (``len(self.all_nodes())``) on *every*
+        ``add_node``, so K placements into an N-node document cost O(K*N);
+        the live count kept in step by :meth:`_attach_node`/:meth:`_detach_node`
+        makes this O(1).
         """
-        current = len(self.all_nodes())
+        current = self._node_count
         if current + adding > sc.MAX_PLACED:
             raise ValueError(
                 f"adding {adding} node(s) would bring this document to "
@@ -703,9 +742,49 @@ class MasonDoc:
 
     # -- the hooks the edits call back into ------------------------------------
 
+    def _reindex_from(self, siblings: list[Node], start: int, delta: int) -> None:
+        """Shift the cached sibling index of every node in ``siblings`` at or
+        after ``start`` by ``delta``.
+
+        The incremental half of the 2026-09-18 audit's mason-03/mason-04: an
+        attach, detach or relocate only ever changes one position in one
+        parent's list, so only the siblings *after* that position need their
+        cached slot corrected -- bounded by that one parent's fan-out, never
+        by the size of the rest of the tree.
+        """
+        for later in siblings[max(0, start) :]:
+            entry = self._index.get(later.uid)
+            if entry is not None:
+                self._index[later.uid] = (entry[0], entry[1], entry[2] + delta)
+
+    def _index_subtree(self, node: Node, parent_uid: int | None, index: int) -> None:
+        """Add ``node`` and everything under it to :attr:`_index`, and count
+        it into :attr:`_node_count` -- the other half of what
+        :meth:`_check_max_placed` used to pay for with a full ``all_nodes()``
+        walk. ``index`` is ``node``'s own position among its new siblings;
+        every descendant keeps the sibling position :func:`nodes.walk`
+        reports for it, which is already correct since a freshly-attached
+        subtree's own internal order is untouched by attaching it.
+        """
+        for entry, parent, pos, _depth in nd.walk([node]):
+            p_uid = parent_uid if parent is None else parent.uid
+            i = index if parent is None else pos
+            self._index[entry.uid] = (entry, p_uid, i)
+            self._node_count += 1
+
+    def _deindex_subtree(self, node: Node) -> None:
+        """The inverse of :meth:`_index_subtree`: drop ``node`` and its whole
+        subtree from :attr:`_index` and out of :attr:`_node_count`."""
+        for entry, _parent, _index, _depth in nd.walk([node]):
+            if self._index.pop(entry.uid, None) is not None:
+                self._node_count -= 1
+
     def _attach_node(self, node: Node, parent_uid: int | None, index: int) -> None:
         siblings = self.children_of(parent_uid)
-        siblings.insert(max(0, min(int(index), len(siblings))), node)
+        at = max(0, min(int(index), len(siblings)))
+        siblings.insert(at, node)
+        self._reindex_from(siblings, at + 1, +1)
+        self._index_subtree(node, parent_uid, at)
 
     def _detach_node(self, uid: int) -> Node:
         """Remove one node from wherever it currently sits, and drop it from
@@ -726,7 +805,10 @@ class MasonDoc:
         if found is None:
             raise KeyError(f"no node {uid}")
         node, parent_uid, index = found
-        del self.children_of(parent_uid)[index]
+        siblings = self.children_of(parent_uid)
+        del siblings[index]
+        self._reindex_from(siblings, index, -1)
+        self._deindex_subtree(node)
         self.selection.discard(uid)
         return node
 
@@ -736,9 +818,19 @@ class MasonDoc:
         if found is None:
             raise KeyError(f"no node {uid}")
         node, from_parent, from_index = found
-        del self.children_of(from_parent)[from_index]
-        siblings = self.children_of(parent_uid)
-        siblings.insert(max(0, min(int(index), len(siblings))), node)
+        from_siblings = self.children_of(from_parent)
+        del from_siblings[from_index]
+        self._reindex_from(from_siblings, from_index, -1)
+        to_siblings = self.children_of(parent_uid)
+        at = max(0, min(int(index), len(to_siblings)))
+        to_siblings.insert(at, node)
+        self._reindex_from(to_siblings, at + 1, +1)
+        # Only ``node``'s own cache entry changes -- its parent and its own
+        # sibling slot. Every descendant's cache entry already names *node*
+        # as its parent, and ``node`` itself has not changed identity, only
+        # where it sits above its own children, so nothing under it needs
+        # touching.
+        self._index[uid] = (node, parent_uid, at)
 
     def _apply_transform(
         self, uid: int, trs: tuple[np.ndarray, np.ndarray, np.ndarray]
@@ -776,7 +868,7 @@ class MasonDoc:
         that no longer exists under it; and this very edit's own recorded
         ``before`` -- a slice taken *before* this call -- would be edited
         retroactively out from under the history stack, the exact trap
-        ``studio/undo.py``'s module docstring names for a shared buffer.
+        ``core/undo.py``'s module docstring names for a shared buffer.
         """
         terrain = self.terrain
         if terrain is None:

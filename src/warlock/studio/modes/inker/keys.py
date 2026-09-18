@@ -375,11 +375,16 @@ def _ctrl_key(
     if docmodes.blocked_while_writing(tab, name, _MUTATING_CTRL):
         return True
 
-    if name == "z" and shift:
-        # Ctrl+Shift+Z is redo's second spelling, which the registry does not
-        # carry: an op has one key, and Ctrl+Y is the one the menu prints.
-        doc.redo()
-    elif event.key == pygame.K_TAB:
+    # Ctrl+Shift+Z used to have a raw branch here on the claim that "the
+    # registry does not carry" redo's second spelling. It does --
+    # ``ops._ALIAS_COMMAND_BINDINGS`` -- so the branch was dead in the
+    # unremapped case (the registry answers first, in ``handle_key``) and
+    # live only once a user remapped redo away from Ctrl+Shift+Z: the
+    # shortcut editor replaces every binding filed under ``command:redo``,
+    # including the built-in alias, but this branch fired regardless,
+    # leaving Ctrl+Shift+Z an unremappable, unadvertised chord (the
+    # 2026-09-18 audit, finding inker-04).
+    if event.key == pygame.K_TAB:
         state.cycle(-1 if shift else 1)
     # Ctrl+Shift+E, Ctrl+Shift+D and Ctrl+Shift+J used to have branches here.
     # All three are ops (``export_png``, ``reselect``, ``move_to_layer``), and

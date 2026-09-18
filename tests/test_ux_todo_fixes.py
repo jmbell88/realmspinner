@@ -133,7 +133,7 @@ RETIRED_PLANS = (
     # one root ``TODO.md``. ``LPC_ALT.md`` was the Troupe programme and was
     # ~85% a record of shipped work -- its invariants already live in
     # ``dev/INVARIANTS.md`` and its ULPC measurements are passing oracles in
-    # ``studio/troupe/ulpc.py``, so only phases 0e and 6-8 travelled; its eight
+    # ``studio/modes/troupe/engine/ulpc.py``, so only phases 0e and 6-8 travelled; its eight
     # citations under ``src`` were rewritten to name the programme.
     # ``EXE_PLAN.md`` was unstarted in full and moved across whole.
     # ``MY_TODO.md`` was the human-only queue and simply changed name -- it is
@@ -352,7 +352,7 @@ def test_no_toast_forwards_a_bare_exception():
     2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
     ``studio/`` on purpose -- ``ctx.toast`` only exists on the App context a
     pane holds, and no engine P3 moved out of ``studio/`` (Clay, Inker,
-    tilegrid, ...) ever held one.
+    grid2d, ...) ever held one.
     """
     files = sorted(STUDIO.rglob("*.py"))
     assert len(files) > 200, f"only {len(files)} files under {STUDIO} -- did the sweep root break?"

@@ -189,8 +189,24 @@ class DragOps:
         if doc.element_mode != "object":
             return self._press_element(doc, local, shift=shift, ctrl=ctrl)
 
+        # The 2026-09-18 audit's clay-02: this used to call ``doc.select``
+        # with just the new hit, so Shift and Ctrl were read into ``shift``/
+        # ``ctrl`` above and then never consulted -- every click replaced the
+        # whole selection and a multi-object op needed the Outliner. Combined
+        # with ``doc.selection`` the same way ``_press_element`` combines with
+        # an element selection, and the manual (30-clay.md:223) has always
+        # promised Shift adds, Ctrl removes.
         hit = self.pick(doc, local)
-        doc.select([hit] if hit is not None else [])
+        how = "add" if shift else ("subtract" if ctrl else "replace")
+        if how == "replace":
+            doc.select([hit] if hit is not None else [])
+        elif hit is not None:
+            current = set(doc.selection)
+            if how == "add":
+                current.add(hit)
+            else:
+                current.discard(hit)
+            doc.select(current)
         self._grab = "orbit"
         return True
 

@@ -44,6 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .config import Config
 from .fetch import DISK_HEADROOM_GIB, volume_refusal
 
 _GIB = float(1024**3)
@@ -245,6 +246,63 @@ def installed(pack: Pack) -> bool:
     that could not run it.
     """
     return not missing(pack)
+
+
+# --- whether a resolvable pack actually imports ------------------------------
+#
+# ``installed`` above only *locates* a pack's modules (``find_spec``), which a
+# stub package, a half-unpacked wheel or one built for the wrong ABI all pass
+# without complaint -- ``pack_worker.smoke_import`` runs the import for real,
+# in a disposable child, and ``service.packs.install``/``repair`` already pay
+# that cost once per install (M01). The 2026-09-18 audit, finding
+# pipelines-06: the job-submission door (``service.validation.check_pack``)
+# never consulted that proof at all, so a pack whose metadata matched but
+# whose import raised -- the exact shape M01 was about -- was admitted at
+# every submit and only ever died in the worker.
+#
+# ``check_pack`` may never be the one to run that probe: a full pack's
+# ``smoke_import`` is nine disposable children importing torch, diffusers and
+# friends one after another, and measured against this checkout it does not
+# finish inside two minutes -- "never...synchronously if it is heavy" is not
+# a style preference here, it is the difference between a submit refusing in
+# the time a click can wait and one that hangs the door for minutes. So the
+# verdict this reads is never computed here or in ``check_pack`` -- it is
+# written by ``pack_worker._probe`` (a disposable *child* process, the one
+# place this question is ever actually asked), staged and ``os.replace``d
+# onto ``<pack_dir>/<key>.verify.json`` beside the wheel cache and
+# ``selected.json``, every time ``service.packs.install``/``repair`` run a
+# pack through it -- which is unconditional on every path that can report
+# success, so a *failed* repair leaves ``ok: false`` on disk even though
+# ``find_spec`` now resolves (the file the wheels unpacked into is real; only
+# the import inside it is not) -- exactly the M01 gap this closes. A pack
+# this process has never installed or repaired simply has no file yet, which
+# :func:`smoke_cached` reads as "unknown" and ``check_pack`` treats as
+# "admit" -- today's ``find_spec``-only behaviour, unchanged.
+def verify_dir(config: Config) -> Path:
+    """Where a pack's real-import verdict is recorded: the same WARLOCK_HOME
+    area the wheel cache and the selection record already live in
+    (``service.packs.cache_dir``'s own answer, restated here rather than
+    imported -- this module takes a bare :class:`Config`, never a
+    ``WarlockService``, the same choice :mod:`fetch` already made)."""
+    return config.home / "packs"
+
+
+def smoke_cached(config: Config, key: str) -> bool | None:
+    """The last real-import verdict ``pack_worker`` recorded for pack *key*,
+    read straight off disk (a stat and a small read, never an import) -- or
+    ``None`` if nothing has ever recorded one, which this process must treat
+    as "unknown", not "broken": a pack installed by ``uv sync`` rather than
+    through this app's pack machinery, or on a checkout from before this
+    field existed, has no file and is not thereby suspect.
+    """
+    try:
+        raw = json.loads(
+            (verify_dir(config) / f"{key}.verify.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return None
+    ok = raw.get("ok") if isinstance(raw, dict) else None
+    return ok if isinstance(ok, bool) else None
 
 
 def chosen_packs(keys: Iterable[str]) -> list[Pack]:

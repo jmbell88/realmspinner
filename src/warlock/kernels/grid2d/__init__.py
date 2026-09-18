@@ -1,6 +1,6 @@
 """The shared tile vocabulary: the gid word, the sliced atlas, the blob collapse.
 
-The second shared leaf after ``studio/undo.py``: plotter, packwright and inker
+The second shared leaf after ``core/undo.py``: plotter, packwright and inker
 all import it, none owns it, and it imports nothing under ``warlock``.
 """
 from __future__ import annotations

@@ -3542,7 +3542,7 @@ def test_two_rows_with_the_same_icon_and_tooltip_keep_separate_hover_state(imgui
 
 
 def test_two_ghost_buttons_with_the_same_label_keep_separate_hover_state(imgui_ctx):
-    """Muse's results grid (``panes/muse_results.py``'s per-card ``_actions``)
+    """Muse's results grid (``modes/muse/ui/panes/results.py``'s per-card ``_actions``)
     draws one ``ghost_button("Make more", ...)`` per take card with no job-id
     suffix on the label -- the 2026-09-16 audit's shell-widgets finding for
     the role buttons. ``primary_button``/``ghost_button``/``destructive_button``
@@ -5837,7 +5837,19 @@ def test_the_object_toolbox_draws_a_capsule_button(app_ctx, imgui_ctx):
 
 def test_the_undo_history_popover_lists_the_stack_and_jumps(app_ctx, imgui_ctx):
     """The step count was on screen and was not a control; the stack behind it
-    had no panel at all."""
+    had no panel at all.
+
+    Drives the count button ``plotter_bridge._history`` draws (through
+    ``widgets.history_block``) rather than opening the popup by hand -- the
+    2026-09-18 audit, plotter-05: this test used to call a private
+    ``plotter_bridge._history_popup`` copy that ``bridge.draw`` never called,
+    since the real popup is drawn by ``widgets.history_block`` itself once the
+    button is clicked. That dead copy is now deleted; faking the button click
+    is the same same-frame open-then-draw idiom the deleted copy used to
+    fake by hand.
+    """
+    import re
+
     import numpy as np
 
     from warlock.kernels.grid2d import gid as gidlib
@@ -5854,14 +5866,31 @@ def test_the_undo_history_popover_lists_the_stack_and_jumps(app_ctx, imgui_ctx):
         )
     depth = len(tab.doc.history)
 
-    def frame() -> None:
-        imgui.open_popup(plotter_bridge.HISTORY_POPUP)
-        plotter_bridge._history_popup(app_ctx, tab)
+    # Click the real "N step(s)" button. ``history_block`` opens the popup
+    # and draws it in the same call, so faking just the button is enough.
+    original_button = controls.button
 
-    labels = _drawn_labels(imgui, frame, "##plotter-history")
+    def clicked_history_button(label, *args, **kwargs):
+        original_button(label, *args, **kwargs)
+        return "##plotter-history" in label
+
+    def frame() -> None:
+        plotter_bridge._history(app_ctx, tab)
+
+    controls.button = clicked_history_button
+    try:
+        labels = _drawn_labels(imgui, frame, "##plotter-history")
+    finally:
+        controls.button = original_button
+
     assert _index_of(labels, "(the map as opened)") >= 0, labels
-    # One row per step, and the head marked.
-    assert sum(1 for label in labels if "##plotter-undo" in label) == depth + 1, labels
+    # One row per step, and the head marked. Anchored on ``-0`` or a trailing
+    # digit, not a bare ``in`` check: the real Undo button drawn alongside the
+    # popup now (the 2026-09-18 audit, plotter-05, drives the actual button
+    # rather than the popup alone) is itself named "...##plotter-undo" and
+    # would otherwise double-count as a history row.
+    row_pattern = re.compile(r"##plotter-undo(-0|\d+)$")
+    assert sum(1 for label in labels if row_pattern.search(label)) == depth + 1, labels
     assert any(label.startswith("tile patch  <") for label in labels), labels
 
     # And a row is a jump. ``controls.selectable`` is what a row *is*, so
@@ -5874,10 +5903,12 @@ def test_the_undo_history_popover_lists_the_stack_and_jumps(app_ctx, imgui_ctx):
         original(label, selected, *args, **kwargs)
         return (target in label, selected)
 
+    controls.button = clicked_history_button
     controls.selectable = fake_selectable
     try:
         _frame(imgui_ctx, frame)
     finally:
+        controls.button = original_button
         controls.selectable = original
 
     assert len(tab.doc.history) == 1, "the click did not move the head"

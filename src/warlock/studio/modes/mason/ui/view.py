@@ -1299,7 +1299,7 @@ class MasonView(FrameOps):
         promise names was wired to nothing during the one gesture the chapter
         tells the reader to use it for. This is the same ``mops.drop_to_ground``
         the one-shot "Drop selection to ground" button already calls
-        (``panes/mason_tools.py``), applied per node, per frame, against the
+        (``modes/mason/ui/panes/tools.py``), applied per node, per frame, against the
         position the drag has *just* written -- so the box it measures is
         the box the drag actually produced, not the one before it moved.
         A node with no resolvable geometry (a light, a camera, an unexpanded

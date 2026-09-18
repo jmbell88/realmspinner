@@ -12,6 +12,7 @@ never a fault.
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 
 import pytest
@@ -113,6 +114,124 @@ async def test_a_weights_file_whose_manifest_does_not_verify_refuses_to_start(
     with pytest.raises(RuntimeError, match="manifest verification"):
         await srv.ensure_started()
     assert spawned == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_started_runs_manifest_verification_off_the_loop_thread(
+    tmp_path, monkeypatch
+):
+    """The 2026-09-18 audit (familiar-01): ``_check_manifest`` SHA-256-hashes
+    the runtime and weights directories (about 4.9 GB) synchronously inside
+    ``ensure_started``, on the ``warlock-loop`` thread -- ``before_gpu_job``
+    stops Familiar ahead of every GPU job, so a chat message right after
+    generating an asset stalled job dispatch, progress and cancel for as
+    long as the hash took (263 ms for a 315 MB directory alone, the
+    2026-09-18 probe familiar-engine-02.py). Proved by recording which
+    thread ``fetch.verify_manifest`` actually runs on."""
+    srv = _srv(tmp_path)
+    srv._resolve_exe().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_exe().write_bytes(b"")
+    srv._resolve_weights().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_weights().write_bytes(b"")
+
+    calling_thread_ids: list[int] = []
+
+    def _fake_verify(dest):
+        calling_thread_ids.append(threading.get_ident())
+        return fetch.Verification(dest=dest, status=fetch.VERIFY_BAD, bad=("x",))
+
+    monkeypatch.setattr(llama_mod.fetch, "verify_manifest", _fake_verify)
+
+    loop_thread_id = threading.get_ident()
+    with pytest.raises(RuntimeError, match="manifest verification"):
+        await srv.ensure_started()
+
+    assert calling_thread_ids, "verify_manifest was never called"
+    assert loop_thread_id not in calling_thread_ids, (
+        "manifest verification ran on the calling/loop thread instead of "
+        "being offloaded with asyncio.to_thread"
+    )
+
+
+def test_ensure_started_does_not_rehash_an_unchanged_manifest(tmp_path, monkeypatch):
+    """Part of the familiar-01 fix: offloading the hash to a thread makes it
+    non-blocking but does not make it free, and ``ensure_started`` runs on
+    every restart because ``before_gpu_job`` stops Familiar before every GPU
+    job. The fingerprint cache in ``_verify_manifest_cached`` must skip the
+    re-hash entirely when the manifest file's mtime/size have not moved
+    since the last check."""
+    srv = _srv(tmp_path)
+    srv._resolve_exe().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_exe().write_bytes(b"")
+    srv._resolve_weights().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_weights().write_bytes(b"")
+
+    call_count = 0
+
+    def _fake_verify(dest):
+        nonlocal call_count
+        call_count += 1
+        return fetch.Verification(dest=dest, status=fetch.VERIFY_UNKNOWN)
+
+    monkeypatch.setattr(llama_mod.fetch, "verify_manifest", _fake_verify)
+
+    # _check_manifest walks two directories (exe parent, weights parent),
+    # so a cold call verifies both once each...
+    srv._check_manifest()
+    assert call_count == 2
+    # ...and a repeat with nothing on disk touched must not re-hash either.
+    srv._check_manifest()
+    assert call_count == 2
+
+
+def test_a_repeated_check_rehashes_when_a_payload_file_changes_without_touching_the_manifest(
+    tmp_path, monkeypatch
+):
+    """The fingerprint cache first keyed only on ``manifest.json``'s own
+    mtime/size -- a weights or runtime file corrupted, overwritten by hand,
+    or left half-written by a partial copy after the first verification
+    never touches ``manifest.json``, so that fingerprint stayed unchanged
+    and the stale ``VERIFY_OK``/``VERIFY_UNKNOWN`` verdict was trusted for
+    the rest of the process. That over-trusts a directory that has
+    genuinely changed, contradicting ``_manifest_fingerprint``'s own "can
+    only ever under-trust" claim. The fingerprint must cover every regular
+    file under the directory, not just the manifest, so a changed payload
+    file forces a re-verify even though the manifest itself never moved."""
+    srv = _srv(tmp_path)
+    srv._resolve_exe().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_exe().write_bytes(b"")
+    weights_dir = srv._resolve_weights().parent
+    weights_dir.mkdir(parents=True, exist_ok=True)
+    srv._resolve_weights().write_bytes(b"good weight bytes")
+    # A real install's manifest.json, present but never touched by the
+    # corruption below -- exactly the case a manifest-only fingerprint
+    # cannot see.
+    fetch.manifest_path(weights_dir).write_text("{}", encoding="utf-8")
+
+    call_count = 0
+
+    def _fake_verify(dest):
+        nonlocal call_count
+        call_count += 1
+        return fetch.Verification(dest=dest, status=fetch.VERIFY_UNKNOWN)
+
+    monkeypatch.setattr(llama_mod.fetch, "verify_manifest", _fake_verify)
+
+    srv._check_manifest()
+    assert call_count == 2
+
+    # Corrupt the weights payload only -- new bytes, a fresh mtime -- and
+    # leave manifest.json exactly as it was.
+    weights = srv._resolve_weights()
+    before = weights.stat()
+    weights.write_bytes(b"corrupted -- different size and a bumped mtime")
+    os.utime(weights, ns=(before.st_mtime_ns + 5_000_000_000, before.st_mtime_ns + 5_000_000_000))
+
+    srv._check_manifest()
+    assert call_count == 4, (
+        "a changed payload file must force a re-verify even though "
+        "manifest.json itself never changed"
+    )
 
 
 @pytest.mark.asyncio

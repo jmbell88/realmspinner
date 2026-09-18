@@ -248,7 +248,7 @@ class PoseEditor:
     # The stack lives here rather than in the pane because both entry points
     # into pose editing -- Poser's authoring session and the inspector's asset
     # pose mode -- want the same history over the same object, and a pane that
-    # owned it would own it twice. ``studio/undo`` is the shared engine Clay
+    # owned it would own it twice. ``core/undo`` is the shared engine Clay
     # already borrows; nothing in it is about pixels.
     #
     # A *snapshot* is the unit, not a diff. See ``PoseSnapshotEdit``.

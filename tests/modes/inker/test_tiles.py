@@ -1,6 +1,6 @@
 """The headless tile model: strips, refs and materialization.
 
-Wave 3 chunk 3.2a. ``tiles.py`` is deliberately thin over ``tilegrid`` -- the
+Wave 3 chunk 3.2a. ``tiles.py`` is deliberately thin over ``grid2d`` -- the
 shared leaf owns the gid word and the sliced-atlas type, and this module only
 adds what a *cel* needs on top of it: a mutable holder for the frozen
 ``Tileset`` (:class:`TilesetSlot`), a ``Layer`` subclass whose picture is

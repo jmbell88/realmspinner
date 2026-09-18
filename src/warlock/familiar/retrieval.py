@@ -33,6 +33,17 @@ _MAX_CHUNK_TOKENS = 300
 _K1 = 1.2
 _B = 0.75
 
+# search() regroups a section's split chunks (see _split_long_section) back
+# into one citation so a reader sees one source, not several near-duplicates
+# -- but a section with many split chunks (28-inker#tools has ten) rejoins
+# them all with no cap of its own. The 2026-09-18 audit (familiar-06) found
+# this made the "Inker tools" query's first (always-admitted) citation 2209
+# tokens, over 7x _MAX_CHUNK_TOKENS, because the per-citation size check in
+# search() only ever ran for citations after the first. A regrouped citation
+# is now built chunk by chunk up to this cap instead of joining the whole
+# group unconditionally.
+_MAX_CITATION_TOKENS = 3 * _MAX_CHUNK_TOKENS
+
 # An identifier is kept whole (a query for "clay_batch" must find the chunk
 # naming it exactly) *and* split into its parts (a query for "batch" should
 # still find it) -- so both a wholesale grep-like use and a keyword-style use
@@ -305,11 +316,27 @@ class Index:
                 break
             # Join the group's chunks in document order (source order == the
             # order they were produced in _chapter_chunks) so a joined
-            # citation reads the way the chapter does, not by score.
+            # citation reads the way the chapter does, not by score -- but
+            # stop joining once _MAX_CITATION_TOKENS is reached rather than
+            # gluing the whole group back together regardless of size (the
+            # 2026-09-18 audit, familiar-06): this is the size check the old
+            # code only ran for citations after the first, so it must run
+            # here, before the "is this citation even a fit" budget check
+            # below, and not be skipped for the first citation the way that
+            # one deliberately still is.
             idxs = sorted(groups[key])
             chunk = self.chunks[idxs[0]]
-            text = "\n\n".join(self.chunks[i].text for i in idxs)
-            chunk_tokens = _whitespace_token_count(text)
+            pieces: list[str] = []
+            regrouped_tokens = 0
+            for i in idxs:
+                piece = self.chunks[i].text
+                piece_tokens = _whitespace_token_count(piece)
+                if pieces and regrouped_tokens + piece_tokens > _MAX_CITATION_TOKENS:
+                    break
+                pieces.append(piece)
+                regrouped_tokens += piece_tokens
+            text = "\n\n".join(pieces)
+            chunk_tokens = regrouped_tokens
             if citations and used_tokens + chunk_tokens > budget_tokens:
                 break
             citations.append(

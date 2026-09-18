@@ -12,7 +12,7 @@ permanent, which is what this module exists to move.
 Pure, and deliberately: no imgui, no ``ctx``. It owns *what the numbers mean* --
 the presets, the caps, and what Create does with the answer -- so the popup that
 collects them is a body that draws fields, and the tests do not need a window.
-The pane half lives in :mod:`.panes.plotter_canvas`, registered per pane for
+The pane half lives in :mod:`.modes.plotter.ui.panes.canvas`, registered per pane for
 the reason ``inker_canvas.new_canvas_popup`` documents: a popup belongs to the
 window that begins it.
 """
@@ -66,7 +66,7 @@ MAX_TILE_PX = 512
 
 #: What to do about a tileset once the map exists. The map is unpaintable until
 #: it has one, so the dialog offers the two doors rather than leaving the user
-#: to find them -- these are the keys, and ``panes.plotter_canvas`` routes them.
+#: to find them -- these are the keys, and ``modes.plotter.ui.panes.canvas`` routes them.
 NEXT_EMPTY = "empty"
 NEXT_FILE = "file"
 

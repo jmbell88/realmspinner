@@ -93,7 +93,7 @@ typing here, and it is why the same letters do different jobs in different colum
 the first column and the hex digit twelve in the third, and `b` is a note in the first column and
 the jump effect in the fourth. Move between columns with the left and right arrow keys.
 
-**The line under the grid says what the keyboard does in the column the caret is in**, and changes
+**The line above the grid says what the keyboard does in the column the caret is in**, and changes
 as you move across. It names that column's keyboard — the piano rows, the hex digits, the effect
 letters — followed by the keys that mean the same thing everywhere, and it grows the block chords
 once a selection exists. It is there so that the paragraph above is answered on screen rather than

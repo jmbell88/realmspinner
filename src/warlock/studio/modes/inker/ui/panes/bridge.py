@@ -1101,7 +1101,7 @@ def _sheet_import_popup(ctx: Any, state: Any) -> None:
 # trying. The document owns the session, so nothing here holds pixels, and
 # committing is the ordinary one-undo ``convert_to_palette``.
 #
-# Opened and drawn from ``panes/inker_colors`` rather than from ``_canvas_ops``
+# Opened and drawn from ``modes/inker/ui/panes/colors`` rather than from ``_canvas_ops``
 # below, even though it is written here beside its twin: an imgui popup is
 # matched by an id computed off the current id stack, and the colours pane and
 # this one are different child windows -- ``open_popup`` here and

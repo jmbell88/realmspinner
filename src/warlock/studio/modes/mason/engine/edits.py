@@ -1,7 +1,7 @@
 """Mason's undo steps: what changed in a scene, and how to put it back.
 
 The engine underneath these -- ``Edit``, ``CompoundEdit``, ``UndoStack``, the
-serial counter and the byte budget -- is ``studio/undo.py``, already shared by
+serial counter and the byte budget -- is ``core/undo.py``, already shared by
 the raster editor and by Clay. This is the third consumer, with a
 ``NodeAddEdit`` where Clay has an ``ObjectAddEdit`` and a ``TerrainEdit``
 where the raster editor has a ``PatchEdit``. Two rules travel down from the
@@ -24,7 +24,7 @@ destination, never a lookup key.
 
 **An edit owns its data.** ``cost`` is what eviction is driven by, and a numpy
 view reports its own small ``nbytes`` while pinning the whole base array
-alive -- ``studio/undo.py``'s own docstring names this trap and
+alive -- ``core/undo.py``'s own docstring names this trap and
 ``mason/terrain.py``'s docstring names it again for exactly the array
 :class:`TerrainEdit` carries. Every array field below is copied in
 ``__post_init__``, the same place Clay's ``TransformEdit`` copies its own

@@ -5,8 +5,8 @@ Modelled directly on ``tests/studio/test_panes_mtime_guard.py``'s palette pair f
 until the 2026-09-11 audit (finding troupe-04) neither of these two caches
 applied the rule that file already had to learn.
 
-``troupe_mode.options`` backs three surfaces (itself, ``panes.troupe_send``
-and ``panes.troupe_settings``, which all call it directly) and
+``troupe_mode.options`` backs three surfaces (itself, ``modes.troupe.ui.panes.send``
+and ``modes.troupe.ui.panes.settings``, which all call it directly) and
 ``panes.character_engine.options`` backs Create's Character arm and its own
 New Character form. Before the fix both cached ``ctx.state.preview`` forever
 on ``OPTIONS_SLOT`` with no key at all, so a palette file dropped in while the
@@ -66,7 +66,7 @@ def test_a_palette_dropped_in_mid_session_appears_in_the_troupe_and_character_fo
     svc, monkeypatch, palette_dir
 ):
     """The regression, for ``troupe_mode.options`` -- read by ``troupe_mode``
-    itself, ``panes.troupe_send`` and ``panes.troupe_settings`` alike."""
+    itself, ``modes.troupe.ui.panes.send`` and ``modes.troupe.ui.panes.settings`` alike."""
     ctx = FakeCtx(svc)
     (palette_dir / "nes.hex").write_text("000000\nffffff\n", encoding="utf-8")
     _frozen(monkeypatch, palette_dir)

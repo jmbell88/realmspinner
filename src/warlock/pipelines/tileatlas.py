@@ -127,7 +127,7 @@ MATERIAL_COLUMNS = 8
 #: than an alias of it: an alias could not drift, but it also could not be
 #: pinned, and ``tests/pipelines/test_tileatlas.py`` imports all three and asserts them
 #: equal. Three copies with a test over them is the repo's pattern (``tilemask``
-#: against ``studio.tilegrid.blob``, ``service.tilesheets.TILE_SIZES`` against
+#: against ``kernels.grid2d.blob``, ``service.tilesheets.TILE_SIZES`` against
 #: ``tilesheet.TILE_SIZES``); a chain of aliases is one edit away from being a
 #: chain of aliases to the wrong number.
 MAX_SEED = 2**31 - 1

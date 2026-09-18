@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.pixel.flourish import prims as flourish_prims
 from warlock.kernels.pixel.flourish.prims import color, hashed, particles, ramp, sprite, stamp, val
 from warlock.kernels.pixel.flourish.recipe import Layer, Phase
 from warlock.kernels.pixel.flourish.render import FrameCtx
@@ -102,7 +103,12 @@ def _old_render_textured(
         if a <= 0.0 or width <= 0.0:
             continue
         tint = np.append(ramp(c0, c1, np.asarray(st["u"][i])), 1.0).astype(np.float32)
-        angle = float(phases[i]) + spin * float(st["u"][i]) * float(ctx.phase_seconds)
+        # Matches particles._render_textured's own formula (the 2026-09-18
+        # audit's inker-03 fix): spin * the particle's real age, not
+        # spin * u * phase_seconds. This fixture only proves the windowing
+        # optimisation is bit-identical to a full-frame stamp+compose, so it
+        # must track whatever angle production actually computes.
+        angle = float(phases[i]) + spin * float(st["age"][i])
         plane = _old_stamp_full_frame(
             ctx, texture, float(st["x"][i]), float(st["y"][i]), width, angle, tint, a
         )
@@ -146,6 +152,69 @@ def test_textured_particles_match_full_frame_reference(seed, count, raster):
     windowed = particles._render_textured(layer, ctx, st, texture)
     reference = _old_render_textured(layer, ctx, st, texture)
     assert np.array_equal(windowed, reference)
+
+
+def test_textured_particle_spin_rate_tracks_the_particles_own_age_not_the_phase_length(monkeypatch):
+    """``spin`` is documented as degrees per second of the particle's own
+    life. A single burst particle with a 0.5s lifetime, read at its own
+    half-life (0.25s real age) inside a 3s phase, must turn ``spin * 0.25``
+    degrees -- not ``spin * (age/life) * phase_seconds`` = ``spin * 1.5``,
+    six times too fast, which is what the 2026-09-18 audit's inker-03 found
+    ``_render_textured`` computing (it multiplied by the *phase's* length
+    instead of carrying the particle's own elapsed seconds out of ``_state``).
+    """
+    fps = 20
+    ctx = FrameCtx(
+        seed=1,
+        width=64,
+        height=64,
+        scale=2.0,
+        frame=5,
+        phase=Phase("main", 60, True),  # 60 frames / 20 fps = 3s phase
+        phase_index=0,
+        phase_frame=5,  # 5 / 20 fps = 0.25s into the phase
+        fps=fps,
+        assets={"spark": _texture()},
+    )
+    spin = 90.0
+    layer = Layer(
+        uid=3,
+        kind="particles",
+        params={
+            "count": 1,
+            "emission": "burst",  # born at 0, so age == ctx.phase_time exactly
+            "texture": "spark",
+            "spin": spin,
+            "lifetime": 0.5,
+            "lifetime_jitter": 0.0,
+            "spawn_radius": 0.0,
+        },
+    )
+    st = particles._state(layer, ctx)
+    assert st is not None
+    age = ctx.phase_time  # burst births at 0
+    assert age == pytest.approx(0.25)
+    assert st["u"][0] == pytest.approx(0.5)  # age / life, life == 0.5 exactly
+
+    seed = ctx.lseed(17)
+    base_phase = float(hashed(seed, 1)[0]) * 360.0
+
+    captured: list[float] = []
+
+    def fake_stamp(ctx, texture, cx, cy, width, degrees, tint, alpha):
+        captured.append(degrees)
+        return None
+
+    monkeypatch.setattr(flourish_prims, "stamp", fake_stamp)
+    particles._render_textured(layer, ctx, st, ctx.assets["spark"])
+
+    assert len(captured) == 1
+    spin_contribution = captured[0] - base_phase
+    assert spin_contribution == pytest.approx(spin * age)
+    # The bug: spin * u * phase_seconds == 90 * 0.5 * 3.0 == 135, six times
+    # the correct 22.5 -- exactly the "0.5s particle in a 3s phase spins 6x
+    # faster" the audit measured.
+    assert spin_contribution != pytest.approx(spin * st["u"][0] * ctx.phase_seconds)
 
 
 def test_sprite_render_matches_full_frame_reference():

@@ -9,6 +9,7 @@ an image that no longer exists.
 from __future__ import annotations
 
 import io
+import threading
 
 import pytest
 from PIL import Image
@@ -152,6 +153,95 @@ def test_a_revert_re_measures_and_drops_the_hand_edited_flag(svc):
     params = svc.store.get(job_id)["params"]
     assert "hand_edited" not in params
     assert "reference_report" in params
+
+
+def test_a_revert_racing_a_save_does_not_leave_hand_edited_true_on_an_unedited_file(
+    svc, monkeypatch
+):
+    """The 2026-09-18 audit, finding service-04 (reproduced by
+    ``service-assets-01.py``): both functions took ``convert_lock`` around
+    their *write* but called ``_remeasure`` -- which decides ``hand_edited``
+    and ``reference_report`` -- after releasing it. A save and a revert could
+    then interleave so the save's own write lands first (and the lock is
+    released), a concurrent revert runs to completion -- write, remeasure
+    (``hand_edited=False``), release -- and only then does the save's
+    withheld ``_remeasure(hand_edited=True)`` run, reading the *reverted*
+    (pristine) pixels off disk but stamping the row ``hand_edited: True``.
+    The backup is gone by then (revert consumed it), so there is no way back
+    from a row that lies about the file it names.
+
+    Forced with real threads and one hook on ``_remeasure``, the same shape
+    ``test_deleting_a_sheet_racing_a_pixel_sheet_request...`` uses elsewhere
+    in this suite: the save's remeasure call is held until the revert's own
+    has finished, so if ``_remeasure`` still runs outside the lock, the two
+    calls land in the wrong order regardless of which write happened first.
+    Once ``_remeasure`` runs inside the lock, the hook cannot separate the
+    two calls' order from their writes' order at all -- save's remeasure
+    call now holds the lock while it waits, revert cannot even begin until
+    that wait gives up, and the wait's own timeout is generous enough that
+    revert still finishes, and finishes *last*, when it does.
+    """
+    job_id = _reference(svc)
+    original = (svc.job_dir(job_id) / "input.png").read_bytes()
+    # One save first, to establish the backup the race below reverts to.
+    svc_files.save_edited_image(svc, job_id, _png(colour=(0, 255, 0, 255)))
+
+    real_remeasure = svc_files._remeasure
+    revert_done = threading.Event()
+
+    def wrapped_remeasure(svc_, job_id_, src, *, hand_edited, stage="reference"):
+        if hand_edited:
+            # save_edited_image's call: held back until the concurrent
+            # revert has recorded its own (correct) state -- or, once
+            # _remeasure runs inside the lock, until that wait gives up,
+            # because revert cannot even start until this call returns.
+            revert_done.wait(2)
+        real_remeasure(svc_, job_id_, src, hand_edited=hand_edited, stage=stage)
+        if not hand_edited:
+            revert_done.set()
+
+    monkeypatch.setattr(svc_files, "_remeasure", wrapped_remeasure)
+
+    errors: list[BaseException] = []
+
+    def do_save():
+        try:
+            svc_files.save_edited_image(svc, job_id, _png(colour=(40, 50, 60, 255)))
+        except BaseException as exc:  # noqa: BLE001 - surfaced via `errors`
+            errors.append(exc)
+
+    def do_revert():
+        try:
+            svc_files.revert_reference(svc, job_id)
+        except BaseException as exc:  # noqa: BLE001 - surfaced via `errors`
+            errors.append(exc)
+
+    t_save = threading.Thread(target=do_save)
+    t_save.start()
+    # Give the save time to land its write (and, pre-fix, release the lock)
+    # before the revert starts.
+    import time
+
+    time.sleep(0.1)
+    t_revert = threading.Thread(target=do_revert)
+    t_revert.start()
+    t_save.join(5)
+    t_revert.join(5)
+
+    assert not errors, f"unexpected exception(s): {errors!r}"
+
+    params = svc.store.get(job_id)["params"]
+    on_disk = (svc.job_dir(job_id) / "input.png").read_bytes()
+    has_backup = (svc.job_dir(job_id) / svc_files.ORIGINAL).exists()
+
+    if on_disk == original and not has_backup:
+        # The revert's write is the one on disk and its backup is spent --
+        # there is no way back from here, so the row must not claim a hand
+        # edit over pixels that are, in fact, the untouched original.
+        assert params.get("hand_edited") is not True, (
+            "row claims hand_edited=True over the reverted (pristine) pixels, "
+            "with the backup already consumed"
+        )
 
 
 def test_promotion_after_an_edit_carries_the_edited_pixels(svc):

@@ -7,7 +7,7 @@ another size, or a supplied base mesh that never went through the reference
 chain at all.
 
 **The structural verdict lives here and the QA scores do not**, and the wording
-keeps them apart on purpose. ``studio/troupe/qa.py`` ranks the drawing -- it is
+keeps them apart on purpose. ``studio/modes/troupe/engine/qa.py`` ranks the drawing -- it is
 the heatmap over the sprite, it flags the worst cells, and nothing anywhere
 refuses a sheet on its account. ``pipelines/sheetcheck.py`` says a cell is
 clipped at the frame edge, empty, or was never rendered: facts about the file.

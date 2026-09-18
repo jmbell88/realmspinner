@@ -112,6 +112,12 @@ def _state(layer: Any, ctx: Any) -> dict[str, np.ndarray] | None:
         "size": np.maximum(size, 0.05).astype(np.float32),
         "alpha": alpha.astype(np.float32),
         "u": u.astype(np.float32),
+        # The particle's own elapsed seconds, not `u * phase_seconds`: the
+        # 2026-09-18 audit (inker-03) found `_render_textured` multiplying
+        # spin (degrees/second) by u and the *phase's* length instead of the
+        # particle's real age, spinning a short-lived particle in a long
+        # phase up to 6x too fast.
+        "age": age.astype(np.float32),
         "vx": ivx.astype(np.float32),
         "vy": ivy.astype(np.float32),
     }
@@ -198,7 +204,7 @@ def _render_textured(
         if a <= 0.0 or width <= 0.0:
             continue
         tint = np.append(ramp(c0, c1, np.asarray(st["u"][i])), 1.0).astype(np.float32)
-        angle = float(phases[i]) + spin * float(st["u"][i]) * float(ctx.phase_seconds)
+        angle = float(phases[i]) + spin * float(st["age"][i])
         result = stamp(ctx, texture, float(st["x"][i]), float(st["y"][i]), width, angle, tint, a)
         if result is None:
             continue

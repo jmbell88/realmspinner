@@ -1122,6 +1122,25 @@ def test_optimize_reports_nothing_stale_for_an_unrigged_job(svc, assets):
     assert svc_jobs.optimize_job(svc, job_id, profile="raw")["stale"] == []
 
 
+def test_a_retarget_clears_the_remesh_report_it_just_discarded(svc, assets):
+    """optimize_job rebuilds model.glb from source.glb, which overwrites
+    whatever a prior remesh baked onto it -- but until the 2026-09-18 audit
+    (finding service-01) it never dropped params["remesh"], so
+    remesh_panel's "Last remesh: ..." line went on describing quads that no
+    longer exist on disk once a retarget ran."""
+    trimesh = pytest.importorskip("trimesh")
+
+    job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
+    svc.store.set_status(job_id, "done")
+    job_dir = assets / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    trimesh.creation.icosphere(subdivisions=1).export(job_dir / "source.glb")
+    svc.store.merge_params(job_id, {"remesh": {"faces": 8000, "method": "quadriflow"}})
+
+    svc_jobs.optimize_job(svc, job_id, profile="raw")
+    assert "remesh" not in _params(svc, job_id)
+
+
 def test_optimize_requires_a_source(svc):
     job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
     svc.store.set_status(job_id, "done")

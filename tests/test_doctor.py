@@ -201,6 +201,25 @@ def test_birefnet_check_is_not_fatal_when_missing(tmp_path):
     assert checks["trellis: birefnet.gguf (background removal)"].fatal is False
 
 
+def test_birefnet_check_reports_a_directory_distinctly_from_a_missing_file(tmp_path):
+    """pipelines-05, the 2026-09-18 audit: ``_birefnet_check`` gated on
+    ``path.exists()``, so a directory left at ``birefnet.gguf``'s name --
+    a broken unpack, the same shape L01 fixed for ``_exe_check`` and
+    ``_gltfpack_check`` -- read as installed rather than as the damaged,
+    non-file state it is."""
+    from warlock.guidance import BIREFNET_WEIGHTS
+
+    models_dir = tmp_path / "models"
+    models_dir.mkdir(parents=True)
+    (models_dir / BIREFNET_WEIGHTS).mkdir()
+    checks = {c.name: c for c in run_checks(_config(tmp_path, trellis_models_dir=models_dir))}
+    row = checks["trellis: birefnet.gguf (background removal)"]
+    assert row.ok is False
+    assert "not a file" in row.detail
+    assert "missing at" not in row.detail
+    assert row.pending_install is False, "a damaged unpack is not the ordinary not-downloaded state"
+
+
 def test_port_check_reports_a_free_port_as_ok(tmp_path):
     checks = {c.name: c for c in run_checks(_config(tmp_path))}
     assert checks["trellis port"].ok is True

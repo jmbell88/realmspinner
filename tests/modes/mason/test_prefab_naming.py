@@ -1,8 +1,8 @@
 """Chapter 17's "right-click it. Choose Make prefab and give it a name."
 
 The 2026-09-12 audit's docs-03 found two things wrong with the Make-prefab
-gesture: neither context-menu call site (``panes/mason_menu.py``,
-``panes/mason_outliner.py``) ever passed a name, so
+gesture: neither context-menu call site (``modes/mason/ui/panes/menu.py``,
+``modes/mason/ui/panes/outliner.py``) ever passed a name, so
 ``mason_mode.define_prefab_from_selection`` silently defaulted to the
 selected node's own name with no step the reader could see as "naming" it;
 and a name that collided with a template the selection already places -- the

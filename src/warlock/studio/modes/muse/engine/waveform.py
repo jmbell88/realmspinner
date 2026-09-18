@@ -1,6 +1,6 @@
 """A take's envelope, and the one place time and pixels are converted.
 
-**Why a waveform at all**, given ``panes/muse_results``' own docstring says "a
+**Why a waveform at all**, given ``modes/muse/ui/panes/results``' own docstring says "a
 picture of a waveform tells a listener nothing that pressing play does not tell
 them better". That argument is correct and it survives -- *for a card*. A card
 is a thing you press.
@@ -33,7 +33,7 @@ import numpy as np
 COLUMNS = 4096
 
 
-def peaks(pcm: np.ndarray, columns: int = COLUMNS) -> np.ndarray:
+def peaks(pcm: np.ndarray, columns: int = COLUMNS, *, divisor: float | None = None) -> np.ndarray:
     """The min and max of each block of ``pcm``. -> ``(2, columns)`` float32.
 
     ``pcm`` is ``(n,)`` or ``(n, channels)`` in any numeric dtype; a stereo take
@@ -44,6 +44,19 @@ def peaks(pcm: np.ndarray, columns: int = COLUMNS) -> np.ndarray:
     peak. Normalising per take would make a quiet piece draw as loud as a loud
     one, so the picture would stop being comparable between two takes -- which
     is exactly what a tray of candidates is for.
+
+    ``divisor`` is the caller's own quantiser, for an integer ``pcm`` -- the
+    default, ``None``, falls back to the dtype's positive peak
+    (``np.iinfo(dtype).max``, 32767 for ``int16``), which matches
+    ``wavout.to_int16``'s inverse. **That default is wrong for
+    ``fileio.read_track``'s ``pcm``** (muse-04, the 2026-09-18 audit):
+    ``read_track`` quantises by 32768 -- ``soundfile``'s own convention, not
+    ``to_int16``'s -- and calling this with no ``divisor`` there re-divided by
+    32767, a mismatched pair reproducing the exact 1-LSB error the 2026-09-11
+    audit's muse-04 already named and fixed once, just moved from the decode
+    into the envelope drawn beside it. A caller whose ``pcm`` was quantised by
+    something other than the dtype's positive peak passes that number here
+    instead of letting the mismatch stand.
     """
     data = np.asarray(pcm)
     if data.ndim == 2:
@@ -54,8 +67,11 @@ def peaks(pcm: np.ndarray, columns: int = COLUMNS) -> np.ndarray:
     if np.issubdtype(data.dtype, np.integer):
         info = np.iinfo(data.dtype)
         # Divided by the positive peak, matching ``wavout.to_int16``'s inverse
-        # for the reason that function's own comment gives: the pair is exact.
-        data = data.astype(np.float32) / float(max(info.max, 1))
+        # for the reason that function's own comment gives: the pair is exact
+        # -- for a ``pcm`` that function itself quantised. ``divisor`` lets a
+        # caller with its own quantiser (see the docstring) name it instead.
+        scale = float(max(info.max, 1)) if divisor is None else float(divisor)
+        data = data.astype(np.float32) / scale
     else:
         data = data.astype(np.float32)
 

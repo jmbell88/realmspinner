@@ -1,6 +1,6 @@
 """The frame-loop notice for a history that dropped steps to stay in memory.
 
-``studio.undo`` bounds the stack by bytes and, past ``UNDO_HARD_BYTES``, stops
+``core.undo`` bounds the stack by bytes and, past ``UNDO_HARD_BYTES``, stops
 honouring the depth floor entirely -- so one rotate on a large document can
 take most of the history with it. That is the right trade (the alternative is
 an out-of-memory kill holding an unsaved painting) but it is invisible: the

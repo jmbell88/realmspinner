@@ -354,7 +354,10 @@ bone corresponds to), whether the result loops and how large the seam residual w
 and keys it reduced to, and which root-motion mode was used — **in place** (drift removed, the bob
 kept) unless you asked for something else. Every import is resampled to at most 32 frames regardless
 of the source's own length. The saved clip remembers which file and which mapping table produced
-it, so a later look at the library can still say where a clip came from.
+it, so a later look at the library can still say where a clip came from. An action longer than 900
+frames is not sampled at all — Blender skips it rather than failing the whole import — so it has
+no entry of its own; it is named above them as **Skipped**, with the reason, and a file whose every
+action is skipped says so in the toast rather than reading "Imported 0 clip(s)".
 
 **Licensing.** Warlock downloads nothing for this — you supply the file. The animation data itself
 is governed by wherever you got it: Mixamo's motion library is Adobe's, under Adobe's own terms, and

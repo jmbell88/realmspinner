@@ -528,6 +528,150 @@ async def test_a_port_held_by_a_stranger_is_never_killed(tmp_path, monkeypatch):
     assert killed == [] and spawned == []
 
 
+# --- _reclaim_port's four ownership branches, unit tested directly ----------
+#
+# The 2026-09-18 audit (pipelines-03): the tests above only exercise this
+# method through ensure_started's spawn-timeout path, and only two of its
+# four ownership branches that way (the "provably a stranger's exe" refusal
+# above, and one flavour of the "our own dead orphan" success path in
+# ``test_an_orphan_of_our_own_exe_is_reclaimed``). The other two refusals --
+# no listener found at all, and a claim naming a *live* owner that is not us
+# -- plus the terminate-then-still-held timeout tail, had no test at all.
+# Every winjob call is faked; nothing here spawns or kills a real process, or
+# touches a port a running Warlock might own.
+
+
+@pytest.mark.asyncio
+async def test_reclaim_port_refuses_when_no_listener_is_found(tmp_path, monkeypatch):
+    """``winjob.listener_pid`` can't even say who holds the port -- point at
+    Task Manager rather than pretend there is nothing to kill."""
+    exe = tmp_path / "trellis-server.exe"
+    exe.write_bytes(b"")
+    srv = TrellisServer(exe, tmp_path / "models", 17971, log_path=tmp_path / "trellis.log")
+
+    killed: list[int] = []
+    monkeypatch.setattr(trellis_mod.winjob, "listener_pid", lambda _port: None)
+    monkeypatch.setattr(trellis_mod.winjob, "terminate", lambda pid: killed.append(pid) or True)
+
+    with pytest.raises(RuntimeError, match="probably by an orphaned"):
+        await srv._reclaim_port()
+    assert killed == []
+
+
+@pytest.mark.asyncio
+async def test_reclaim_port_refuses_a_listener_this_home_never_claimed(tmp_path, monkeypatch):
+    """The listener is provably this Warlock's exe, but no ``.owner`` claim
+    file exists at all -- this home never spawned it, so it cannot be *our*
+    crash orphan, and the safe reading is a stranger's Warlock using a
+    different ``WARLOCK_HOME`` (RUN-01's second proof)."""
+    exe = tmp_path / "trellis-server.exe"
+    exe.write_bytes(b"")
+    srv = TrellisServer(exe, tmp_path / "models", 17971, log_path=tmp_path / "trellis.log")
+    # Deliberately no trellis-17971.owner file written.
+
+    killed: list[int] = []
+    monkeypatch.setattr(trellis_mod.winjob, "listener_pid", lambda _port: 4321)
+    monkeypatch.setattr(trellis_mod.winjob, "image_path", lambda _pid: str(exe.resolve()))
+    monkeypatch.setattr(trellis_mod.winjob, "terminate", lambda pid: killed.append(pid) or True)
+
+    with pytest.raises(RuntimeError, match="no record of this home claiming it"):
+        await srv._reclaim_port()
+    assert killed == []
+
+
+@pytest.mark.asyncio
+async def test_reclaim_port_refuses_a_listener_owned_by_a_still_running_warlock(
+    tmp_path, monkeypatch
+):
+    """The claim names a live owner pid that is not us -- somebody else's
+    Warlock still running against this port, not an orphan a crash left
+    behind."""
+    exe = tmp_path / "trellis-server.exe"
+    exe.write_bytes(b"")
+    srv = TrellisServer(exe, tmp_path / "models", 17971, log_path=tmp_path / "trellis.log")
+    (tmp_path / "trellis-17971.owner").write_text(
+        '{"owner_pid": 424242, "server_pid": 4321}', encoding="utf-8"
+    )
+
+    killed: list[int] = []
+    monkeypatch.setattr(trellis_mod.winjob, "listener_pid", lambda _port: 4321)
+    monkeypatch.setattr(
+        trellis_mod.winjob,
+        "image_path",
+        # 4321 (the listener) resolves to our exe; 424242 (the claimed owner)
+        # resolves to *something* -- alive is all _pid_alive asks of it.
+        lambda pid: str(exe.resolve()) if pid == 4321 else r"C:\Windows\System32\dummy.exe",
+    )
+    monkeypatch.setattr(trellis_mod.winjob, "terminate", lambda pid: killed.append(pid) or True)
+
+    with pytest.raises(RuntimeError, match="still running"):
+        await srv._reclaim_port()
+    assert killed == []
+
+
+@pytest.mark.asyncio
+async def test_reclaim_port_gives_up_when_the_port_stays_held_after_terminating(
+    tmp_path, monkeypatch
+):
+    """``terminate()`` reports success but the socket never frees -- the
+    timeout tail widens the backoff instead of spinning forever."""
+    exe = tmp_path / "trellis-server.exe"
+    exe.write_bytes(b"")
+    srv = TrellisServer(exe, tmp_path / "models", 17971, log_path=tmp_path / "trellis.log")
+    (tmp_path / "trellis-17971.owner").write_text(
+        '{"owner_pid": 999999001, "server_pid": 4321}', encoding="utf-8"
+    )
+
+    monkeypatch.setattr(trellis_mod.winjob, "listener_pid", lambda _port: 4321)
+    monkeypatch.setattr(
+        # 999999001 (the claimed owner) resolves to nothing: dead, the orphan
+        # case _reclaim_port is willing to kill.
+        trellis_mod.winjob,
+        "image_path",
+        lambda pid: str(exe.resolve()) if pid == 4321 else None,
+    )
+    monkeypatch.setattr(trellis_mod.winjob, "terminate", lambda pid: True)
+    monkeypatch.setattr(trellis_mod, "_port_in_use", lambda _port: True)  # never frees
+    monkeypatch.setattr(trellis_mod, "RECLAIM_TIMEOUT", 0.0)
+
+    assert srv._start_failures == 0
+    with pytest.raises(RuntimeError, match="still held after terminating"):
+        await srv._reclaim_port()
+    assert srv._start_failures == 1
+
+
+# --- respawn backoff ----------------------------------------------------------
+
+
+def test_check_backoff_refuses_inside_the_window(tmp_path):
+    """The 2026-08-03 trellis.log: five startup banners in one minute, each
+    dying on bind, because nothing between successive ``ensure_started``
+    calls ever paused."""
+    srv = TrellisServer(tmp_path / "x.exe", tmp_path, 17971)
+    srv._check_backoff()  # no failures recorded yet -- does not raise
+    srv._note_start_failure()
+    with pytest.raises(RuntimeError, match="refusing to respawn"):
+        srv._check_backoff()
+
+
+def test_note_start_failure_widens_the_window_exponentially_and_caps_it(tmp_path):
+    srv = TrellisServer(tmp_path / "x.exe", tmp_path, 17971)
+    delays = []
+    for _ in range(4):
+        before = time.monotonic()
+        srv._note_start_failure()
+        delays.append(srv._backoff_until - before)
+    assert delays[0] == pytest.approx(trellis_mod.BACKOFF_BASE, abs=0.5)
+    assert delays[1] == pytest.approx(trellis_mod.BACKOFF_BASE * 2, abs=0.5)
+    assert delays[2] == pytest.approx(trellis_mod.BACKOFF_BASE * 4, abs=0.5)
+    assert delays[3] == pytest.approx(trellis_mod.BACKOFF_BASE * 8, abs=0.5)
+
+    for _ in range(20):
+        srv._note_start_failure()
+    remaining = srv._backoff_until - time.monotonic()
+    assert remaining <= trellis_mod.BACKOFF_MAX + 0.5
+
+
 @pytest.mark.asyncio
 async def test_a_failed_startup_stops_off_the_event_loop(tmp_path, monkeypatch):
     """stop() blocks for up to ~25 s, and the not-healthy-in-time path used to

@@ -26,7 +26,7 @@ change that moved on without it:
   own denominator down by one; the vendored tree carries six
   (``pipelines/acestep/ATTRIBUTION.md``, ``tests/pipelines/test_music_format.py``).
 * docs-06 -- the same file's fps-refusal paragraph justified
-  ``field="fps"`` with "``panes/troupe_settings.py`` draws no fps control
+  ``field="fps"`` with "``modes/troupe/ui/panes/settings.py`` draws no fps control
   yet"; ``_frame_rate`` has drawn one (a ``form_ui.combo("fps", ...)``)
   since fa2fee2a.
 

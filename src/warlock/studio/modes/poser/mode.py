@@ -196,6 +196,17 @@ class PoserState:
     #: Not a document fact either: it describes the *import*, not the working
     #: copy, and is not cleared by anything but the next import landing.
     clip_import_reports: list[dict[str, Any]] = field(default_factory=list)
+    #: The most recent import's own ``skipped`` list (``service.clip_import.
+    #: analyse``'s pass-through of ``op_clip_sample``'s ``payload["skipped"]``)
+    #: -- actions Blender refused to sample at all (today, only for exceeding
+    #: its frame-count limit), one human-readable line per action. Beside
+    #: ``clip_import_reports`` rather than folded into it: a skipped action
+    #: was never converted, so it has no ``report`` dict to sit inside. The
+    #: 2026-09-18 audit, finding poser-01: a source file whose every action
+    #: was too long used to "import" zero clips with nothing on screen saying
+    #: why; set on every import landing (``on_task_done``'s ``CLIP_IMPORT_KEY``
+    #: branch), including a clean one, so this never shows a stale skip list.
+    clip_import_skipped: list[str] = field(default_factory=list)
 
     # -- the asset session ----------------------------------------------------
     #
@@ -310,7 +321,7 @@ class PoserState:
     #: ``ctx.state.field_errors`` ring: that mechanism addresses a control by
     #: name across the whole app, and the skeleton pane's controls (Add child,
     #: Split, the rename box) are not wired into it -- this is read directly by
-    #: ``panes/poser_skeleton.py`` beside the control the field names.
+    #: ``modes/poser/ui/panes/skeleton.py`` beside the control the field names.
     skeleton_error: dict[str, str] | None = None
     #: The shipped limb presets (``service.rig.limb_presets``), read once and
     #: cached -- job-independent and read-only, like ``rig_templates``' own
@@ -2026,10 +2037,28 @@ def on_task_done(ctx: Any, done: Any) -> None:
         adopt_imported_clips(ctx, result)
         count = len(result.get("clips") or ())
         file_name = str(result.get("source_name") or "the file")
-        ctx.toast(
-            f"Imported {count} clip(s) from {file_name} — Save clips to keep them",
-            "success",
-        )
+        # The 2026-09-18 audit, finding poser-01: set on every landing, clean
+        # or not, so a later clean import does not leave a stale skip list
+        # behind for ``poser_clips._import_report`` to keep showing.
+        skipped = list(result.get("skipped") or ())
+        state.clip_import_skipped = skipped
+        if count == 0 and skipped:
+            # Every action was over ``op_clip_sample``'s frame limit --
+            # "Imported 0 clip(s)" used to say nothing about why. Name the
+            # first reason here; "Import report" (``poser_clips._import_report``)
+            # lists every one of them once opened.
+            first = skipped[0]
+            more = f" and {len(skipped) - 1} more" if len(skipped) > 1 else ""
+            ctx.toast(
+                f"Nothing imported from {file_name} -- every action was skipped: "
+                f"{first}{more}",
+                "warn",
+            )
+        else:
+            ctx.toast(
+                f"Imported {count} clip(s) from {file_name} — Save clips to keep them",
+                "success",
+            )
         return
     if key.startswith(ASSET_POSES_KEY_PREFIX):
         job_id = key[len(ASSET_POSES_KEY_PREFIX):]

@@ -314,6 +314,15 @@ def _poser(ctx: Any, job: Any) -> Exit | None:
 
     if mesh.get("status") != "done":
         reason = _status_reason(mesh)
+    elif "model.glb" not in _files(mesh):
+        # The 2026-09-18 audit, finding create-02: this branch was missing --
+        # ``_clay`` right above makes it ("This mesh has no model yet.") but
+        # this door fell straight to "Rig this mesh first", which is wrong
+        # for a done row that has no model at all (a reference or tile row,
+        # or a mesh job whose mesh stage never wrote ``model.glb``): there is
+        # nothing here to rig yet, and the rig reason names an action the
+        # user cannot take.
+        reason = "This mesh has no model yet."
     else:
         reason = "Rig this mesh first -- Poser edits poses on a rig."
     return Exit("poser", verbs.open_in("poser"), hint, "", reason, door)

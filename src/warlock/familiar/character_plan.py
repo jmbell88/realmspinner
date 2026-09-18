@@ -122,7 +122,9 @@ def _strip_fence(text: str) -> str:
     return stripped.strip()
 
 
-def parse_plan(text: str, options: dict[str, Any]) -> dict[str, Any] | None:
+def parse_plan(
+    text: str, options: dict[str, Any]
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     """*text* narrowed to a plan ``dict``, or ``None`` when it names no
     species *options* actually offers -- an explicit ``"none"``, malformed
     JSON, the wrong shape, or a family outside *options*. Never raises, the
@@ -130,61 +132,111 @@ def parse_plan(text: str, options: dict[str, Any]) -> dict[str, Any] | None:
     keep: a caller gets a clean "don't act" signal, never an exception to
     catch.
 
-    Every other field is **dropped, not fatal**, when it cannot be trusted:
-    an unknown movement, a theme the named species does not offer, a
-    direction count or size outside *options*' own ladder/range, a blank or
-    over-long name -- each one is silently left out of the returned plan
-    rather than failing it whole, because the model naming eleven real
-    movements and one it invented should not cost the other ten (see the
-    module docstring for why the *real* refusal for a value this cannot
-    itself validate -- a theme the species truly does not paint -- still
-    belongs to ``recipe_from_prompt``, not here).
+    Returns ``(plan, dropped)`` -- the same ``(value, detail)`` shape
+    :func:`~.contract.parse_calls` already uses. Every field but ``family``
+    is **dropped, not fatal**, when it cannot be trusted: an unknown
+    movement, a theme the named species does not offer, a direction count or
+    size outside *options*' own ladder/range -- each one is left out of the
+    returned plan rather than failing it whole, because the model naming
+    eleven real movements and one it invented should not cost the other ten
+    (see the module docstring for why the *real* refusal for a value this
+    cannot itself validate -- a theme the species truly does not paint --
+    still belongs to ``recipe_from_prompt``, not here). *dropped* names each
+    one, in the same ``{"kind", "text", "reason"}`` shape
+    ``service.characters.recipe_from_prompt``'s own ``ignored`` list already
+    uses, so a caller can merge the two into one list the plan card shows
+    without knowing which half of the pipeline dropped which word.
+
+    The 2026-09-18 audit (familiar-02): the docs/manual/20-overview.md
+    promise that "a word the prompt used that the plan could not act on ...
+    is named under the plan rather than silently dropped" was only ever kept
+    for what ``recipe_from_prompt`` itself rejects -- an unknown movement, an
+    unoffered theme, an out-of-ladder direction/size or name this function
+    drops on its own were thrown away with no trace before this. A blank
+    name is the one exception: an empty string is not really a name the
+    model *named*, so it stays a silent drop.
     """
     family_keys = {f["key"] for f in options["families"]}
+    dropped: list[dict[str, Any]] = []
     try:
         parsed = json.loads(_strip_fence(text))
     except (json.JSONDecodeError, ValueError):
-        return None
+        return None, dropped
     if not isinstance(parsed, dict):
-        return None
+        return None, dropped
 
     family = parsed.get("family")
     if not isinstance(family, str) or family not in family_keys:
-        return None
+        return None, dropped
     plan: dict[str, Any] = {"family": family}
 
     themes_by_family = {f["key"]: set(f["themes"]) for f in options["families"]}
     theme = parsed.get("theme")
-    if isinstance(theme, str) and theme in themes_by_family.get(family, ()):
-        plan["theme"] = theme
+    if isinstance(theme, str) and theme:
+        if theme in themes_by_family.get(family, ()):
+            plan["theme"] = theme
+        else:
+            dropped.append(
+                {
+                    "kind": "theme",
+                    "text": theme,
+                    "reason": "not a look this species offers",
+                }
+            )
 
     movements_field = parsed.get("movements")
     if isinstance(movements_field, list):
         known = set(options["movements"])
-        kept = [m for m in movements_field if isinstance(m, str) and m in known]
+        str_movements = [m for m in movements_field if isinstance(m, str)]
+        kept = [m for m in str_movements if m in known]
+        dropped.extend(
+            {"kind": "movement", "text": m, "reason": "not a movement this build offers"}
+            for m in str_movements
+            if m not in known
+        )
         if kept:
             plan["movements"] = kept
 
     directions = parsed.get("directions")
     # ``bool`` is an ``int`` subclass in Python -- excluded explicitly so a
     # stray ``true``/``false`` in the reply never reads as ``1``/``0``.
-    if (
-        isinstance(directions, int)
-        and not isinstance(directions, bool)
-        and directions in options["directions"]
-    ):
-        plan["directions"] = directions
+    if isinstance(directions, int) and not isinstance(directions, bool):
+        if directions in options["directions"]:
+            plan["directions"] = directions
+        else:
+            dropped.append(
+                {
+                    "kind": "directions",
+                    "text": str(directions),
+                    "reason": "not one of the direction counts this build offers",
+                }
+            )
 
     size = parsed.get("size")
     lo, hi = options["size_range"]
-    if isinstance(size, int) and not isinstance(size, bool) and lo <= size <= hi:
-        plan["size"] = size
+    if isinstance(size, int) and not isinstance(size, bool):
+        if lo <= size <= hi:
+            plan["size"] = size
+        else:
+            dropped.append(
+                {
+                    "kind": "size",
+                    "text": str(size),
+                    "reason": f"outside the {lo}-{hi} size range this build offers",
+                }
+            )
 
     name = parsed.get("name")
-    if isinstance(name, str) and name.strip() and len(name.strip()) <= 64:
-        plan["name"] = name.strip()
+    if isinstance(name, str) and name.strip():
+        stripped = name.strip()
+        if len(stripped) <= 64:
+            plan["name"] = stripped
+        else:
+            dropped.append(
+                {"kind": "name", "text": stripped[:64], "reason": "over 64 characters"}
+            )
 
-    return plan
+    return plan, dropped
 
 
 def plan_overrides(plan: dict[str, Any]) -> dict[str, Any]:

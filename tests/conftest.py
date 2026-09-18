@@ -992,7 +992,7 @@ def installed_recipes(monkeypatch):
 
 # --- the canvas pane is four modules -----------------------------------------
 #
-# ``panes/inker_canvas`` and the ``inker_drag``, ``inker_slices`` and
+# ``modes/inker/ui/panes/canvas`` and the ``inker_drag``, ``inker_slices`` and
 # ``inker_gestures`` pieces T7 split off it on 2026-09-04. It is *one* surface,
 # so a test faking imgui's mouse is faking it for the whole press/drag/release
 # path rather than for whichever file the arm it exercises happens to live in.

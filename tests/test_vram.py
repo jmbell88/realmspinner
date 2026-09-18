@@ -100,14 +100,27 @@ def test_resolution_scales_the_reconstruction():
 
 def test_a_pixel_sheet_restyle_costs_sdxl_plus_a_controlnet():
     """It is an img2img generation, not a Blender render: the same resident
-    pipe a text job wants, plus a ControlNet, and never trellis -- the mesh was
-    reconstructed long before."""
-    exclusive = vram.estimate("pixel_sheet", "model", {}, exclusive=True)
-    coexist = vram.estimate("pixel_sheet", "model", {}, exclusive=False)
+    pipe a text job wants, plus a ControlNet when the request opens one, and
+    never trellis -- the mesh was reconstructed long before."""
+    params = {"control": "canny"}
+    exclusive = vram.estimate("pixel_sheet", "model", params, exclusive=True)
+    coexist = vram.estimate("pixel_sheet", "model", params, exclusive=False)
     assert exclusive == pytest.approx(vram.SDXL_GIB + vram.CONTROLNET_GIB)
     # Under coexist a warm trellis is still holding its memory, exactly as the
     # reference stage accounts for.
     assert coexist == pytest.approx(exclusive + vram.TRELLIS_GIB)
+
+
+def test_a_pixel_sheet_restyle_with_structure_lock_off_is_not_charged_a_controlnet():
+    """The 2026-09-18 audit, finding service-02: this estimate charged
+    ``CONTROLNET_GIB`` unconditionally, though ``_q_sprite._pixel_sheet`` only
+    attaches one when ``structure_lock`` is on and the base supports it.
+    ``sheets.create_pixel_sheet`` now writes ``params["control"]`` only in
+    that case, the same key every sibling kind (``retexture``,
+    ``sprite_synthesis``, the grid ``tile_sheet``) already gates on -- so a
+    request with no ``control`` key must not pay for the module."""
+    exclusive = vram.estimate("pixel_sheet", "model", {}, exclusive=True)
+    assert exclusive == pytest.approx(vram.SDXL_GIB)
 
 
 def test_a_tile_sheet_costs_one_txt2img_pass_and_its_grid_guide():

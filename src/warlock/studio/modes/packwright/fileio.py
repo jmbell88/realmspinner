@@ -362,6 +362,12 @@ def edit_asset_in_packwright(ctx: Any, job: Any) -> None:
     from ....service.errors import Invalid, invalid_from
 
     job_id = job["id"] if isinstance(job, dict) else str(job)
+    # 2026-09-18 audit, packwright-03: every reopened atlas read "Atlas" in
+    # its tab and title bar outright, no matter what the library row was
+    # named -- unlike Mason's ``edit_asset_in_mason``, which titles the
+    # reopened tab after ``job["name"]``. "Atlas" survives as the fallback
+    # for a job carrying no name, which is the shape this always had.
+    name = (job.get("name") if isinstance(job, dict) else "") or "Atlas"
     ensure(ctx)
 
     def run() -> dict[str, Any]:
@@ -375,6 +381,6 @@ def edit_asset_in_packwright(ctx: Any, job: Any) -> None:
             doc = wpack.read_wpack(_within_ceiling(path).read_bytes())
         except ValueError as exc:
             raise invalid_from(exc, "This atlas could not be opened", field="file") from exc
-        return {"doc": doc, "path": "", "title": "Atlas"}
+        return {"doc": doc, "path": "", "title": name}
 
     ctx.submit(f"{OPEN_PREFIX}{job_id}", run)

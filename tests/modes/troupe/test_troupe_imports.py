@@ -31,6 +31,16 @@ STATE_MODULE = ENGINE.parent / "state.py"
 
 OUTWARD_IMPORTS: set[tuple[str, str]] = set()
 
+# The 2026-09-18 audit, finding troupe-02: ``test_troupe_state_stays_headless``
+# banned three root families (a window, ``service``, the queue) but never
+# pinned the *set* the way ``OUTWARD_IMPORTS`` closes it for the engine
+# modules above -- so a warlock import that tripped none of those three bans
+# (``warlock.config``, say) would sail through undetected. Empty today,
+# deliberately, the same claim ``OUTWARD_IMPORTS`` makes for the engine: the
+# docstring's "these touch nothing but ``ctx.state.troupe``" is a promise
+# this pin now keeps rather than merely states.
+STATE_OUTWARD_IMPORTS: set[str] = set()
+
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 LAZY_ONLY = {"PIL", "numpy"}
 
@@ -139,3 +149,14 @@ def test_troupe_state_stays_headless():
         assert "warlock.service" not in name, f"{STATE_MODULE.name} imports {name}"
         assert not name.startswith("warlock.queue"), f"{STATE_MODULE.name} imports {name}"
         assert not name.startswith("warlock._q"), f"{STATE_MODULE.name} imports {name}"
+
+
+def test_the_only_outward_imports_on_state_module_are_the_ones_written_down():
+    """troupe-02 (2026-09-18 audit): the three bans above (a window,
+    ``service``, the queue) do not add up to a closed set -- an import like
+    ``warlock.config`` trips none of them and would sail through undetected,
+    the same hole ``OUTWARD_IMPORTS`` closes for the engine modules. Pinned
+    exactly, the ``test_the_only_outward_imports_are_the_ones_written_down``
+    shape applied to ``state.py``."""
+    found = {name for name in _outward(STATE_MODULE) if name.split(".")[0] == "warlock"}
+    assert found == STATE_OUTWARD_IMPORTS

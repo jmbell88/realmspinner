@@ -171,13 +171,26 @@ def _import_report(ctx: Any, state: Any) -> None:
     Drawn from ``state.clip_import_reports`` -- ``cliptransfer.transfer``'s
     own ``report`` dicts, kept verbatim -- rather than anything re-derived, so
     what an author reads here is exactly what the sample actually decided.
+
+    ``state.clip_import_skipped`` is drawn first and separately: an action
+    Blender refused to sample at all (today, only for exceeding
+    ``op_clip_sample``'s frame limit) was never converted, so it has no
+    ``report`` dict to sit inside the loop below. The 2026-09-18 audit,
+    finding poser-01: a source file whose every action was skipped used to
+    open this header (once there was anything to open it for -- before this
+    fix, nothing, since ``reports`` was empty too) to nothing at all.
     """
     del ctx
     reports = state.clip_import_reports
-    if not reports:
+    skipped = list(getattr(state, "clip_import_skipped", None) or ())
+    if not reports and not skipped:
         return
     if not controls.collapsing_header("Import report##poser-clip-import-report"):
         return
+    for line in skipped:
+        widgets.muted(f"Skipped: {line}")
+    if skipped:
+        imgui.dummy((0, sp(tokens.SP_1)))
     for report in reports:
         loop = report.get("loop") or {}
         ignored = list(report.get("ignored") or ())

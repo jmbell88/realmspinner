@@ -538,6 +538,15 @@ def create_pixel_sheet(
             "seed": random_seed() if seed is None else int(seed),
             "base_model": base_key,
         }
+        if structure_lock and base.controlnet:
+            # The 2026-09-18 audit, finding service-02: ``_q_sprite._pixel_sheet``
+            # only opens a ControlNet when both this holds (``structure and
+            # spec.controlnet``, ``_q_sprite.py``) -- the same pair
+            # ``_retexture``'s door checks before writing "control". Written here
+            # rather than left implicit, so ``check_vram`` below can read
+            # ``params["control"]`` exactly as it does for every sibling kind
+            # instead of assuming a ControlNet the worker might skip.
+            params["control"] = "canny"
         # At the door, exactly as create_job does, and before the row exists: an
         # img2img restyle wants SDXL plus a ControlNet, which is the shape of
         # request a smaller card has to refuse. The presence half lives in

@@ -2001,6 +2001,49 @@ def test_list_sheets_skips_a_sidecar_whose_png_name_is_a_directory(tmp_path):
     assert store.list_sheets(tmp_path) == []
 
 
+def test_list_sprite_drafts_does_not_offer_a_directory_standing_in_for_a_candidate_png(
+    tmp_path,
+):
+    """poser-02, the 2026-09-18 audit: ``list_sprite_drafts`` gated a candidate
+    PNG on ``.exists()``, the same troupe-06 gap ``list_sheets`` was fixed for
+    above -- a directory at ``<id>.a.png`` read as a ready candidate."""
+    draft_id = store.new_id()
+    store.sprite_dir(tmp_path).mkdir(parents=True, exist_ok=True)
+    store.sprite_draft_path(tmp_path, draft_id).write_text(
+        json.dumps({"id": draft_id, "created": 1.0, "candidates": ["a"]}),
+        encoding="utf-8",
+    )
+    # A directory where candidate "a"'s PNG belongs -- exists() is True for
+    # this, is_file() is not.
+    store.sprite_draft_png_path(tmp_path, draft_id, "a").mkdir()
+    assert store.list_sprite_drafts(tmp_path) == []
+
+
+def test_delete_sheet_does_not_choke_on_a_directory_standing_in_for_a_png(tmp_path):
+    """poser-02, the 2026-09-18 audit: ``delete_sheet`` gated "is there
+    anything here" on ``.exists()`` too, so a directory alone at one of its
+    four paths would pass that gate and then reach ``Path.unlink()``, which
+    raises on a directory (``IsADirectoryError`` on POSIX, ``PermissionError``
+    on Windows) -- ``missing_ok`` only swallows ``FileNotFoundError``. With
+    nothing but a directory present, this must report "nothing to delete"
+    rather than raise."""
+    sheet_id = store.new_id()
+    store.sheet_dir(tmp_path).mkdir(parents=True, exist_ok=True)
+    store.sheet_png_path(tmp_path, sheet_id).mkdir()
+    assert store.delete_sheet(tmp_path, sheet_id) is False
+
+
+def test_delete_sprite_draft_does_not_choke_on_a_directory_standing_in_for_a_png(
+    tmp_path,
+):
+    """The same fix as ``delete_sheet`` above, on the sprite draft trio
+    (poser-02, the 2026-09-18 audit)."""
+    draft_id = store.new_id()
+    store.sprite_dir(tmp_path).mkdir(parents=True, exist_ok=True)
+    store.sprite_draft_png_path(tmp_path, draft_id, "a").mkdir()
+    assert store.delete_sprite_draft(tmp_path, draft_id) is False
+
+
 def test_root_offset_world_scales_by_the_rig_height():
     bounds = {"min": [-1.0, -1.0, 0.0], "max": [1.0, 1.0, 2.0]}
     assert blender_spec.root_offset_world([0.1, 0.0, -0.25], bounds) == pytest.approx(

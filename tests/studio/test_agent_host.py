@@ -15,8 +15,12 @@ is about that seam holding, with no real GL and no real app:
   rather than nothing at all.
 * :meth:`AgentHost.stop` wakes every pending waiter itself, rather than
   leaving it to time out against ``CALL_TIMEOUT`` (30 s) -- and both ``stop``
-  and ``start`` are idempotent, which the Settings toggle relies on by calling
-  them every frame the checkbox is drawn, not only on the transition.
+  and ``start`` are idempotent, which matters because ``main.setup_context``
+  and the Settings toggle's own ``changed`` transition can both reach an
+  instance that may already be running or already stopped (the 2026-09-18
+  audit, agents-08: this used to say the toggle called ``start()`` every
+  frame it drew true, which it does not -- ``app_settings._agents`` gates
+  the call on ``changed`` like any other control).
 * A real round trip over a real pipe: ``pipe.connect`` against a started
   host, a ``hello``/``catalogue``/``call`` sequence answered while a
   background thread drives ``pump()`` the way ``main.py:App.frame`` would --
@@ -129,6 +133,15 @@ class _Ctx:
     new document (a no-op for a pathless one, but the attribute access to get
     there still has to succeed); ``state.clay`` is Clay's own state, built
     lazily the first time anything asks for it.
+
+    ``submit`` is a stand-in for ``app_ctx.Ctx.submit``/``TaskRunner`` -- the
+    2026-09-18 audit (agents-06) made ``AgentHost.start`` call it to move the
+    catalogue snapshot write off whichever thread calls ``start()``, so this
+    fake has to actually run *fn* on a different thread rather than inline,
+    or a test asserting that boundary would pass against unfixed code too.
+    Fire-and-forget, matching ``TaskRunner.submit``'s own contract (nothing
+    here dedups by key or tracks a busy set, since nothing in this file needs
+    that).
     """
 
     def __init__(self) -> None:
@@ -138,6 +151,10 @@ class _Ctx:
 
     def toast(self, message: str, level: str = "info") -> None:
         self.toasts.append((message, level))
+
+    def submit(self, key: str, fn, *args, tag=None, **kwargs) -> bool:
+        threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
+        return True
 
 
 def _bare_host() -> agent_host.AgentHost:
@@ -268,8 +285,54 @@ def test_start_is_idempotent_while_already_running(tmp_path) -> None:
     host.start()
     try:
         first_thread = host._thread
-        host.start()  # the Settings toggle calls this every frame it is drawn true
+        # Idempotency still matters even though the toggle itself only calls
+        # start() on its own "changed" transition (agents-08): this instance
+        # can just as easily reach an already-running start() from
+        # main.setup_context racing a stored setting that was already true.
+        host.start()
         assert host._thread is first_thread
+    finally:
+        host.stop()
+
+
+def test_starting_the_agent_server_never_writes_the_catalogue_snapshot_on_the_frame_thread(
+    tmp_path, monkeypatch
+) -> None:
+    """agents-06 (2026-09-18 audit): ``start()`` used to call
+    ``_write_catalogue_snapshot`` (build the full catalogue payload twice
+    over, hash it, ``json.dumps`` it, stage it and ``os.replace`` it --
+    ~75ms measured, ``agents-host-02.py``) straight from whichever thread
+    called ``start()``. Both of that method's real callers run on the frame
+    thread (``app_settings._agents``'s Settings switch and
+    ``shell/app.py``'s ``setup_context``), so flipping "Allow AI agents to
+    drive the Studio" on stalled that frame for the write. It is now queued
+    onto the service lane (``_queue_service_job_nowait``, the same lane
+    every character-pipeline door already runs disk/subprocess/sqlite work
+    on) -- proven here by comparing the thread the write actually ran on
+    against the thread that called ``start()``, which is this test's own
+    thread, standing in for the frame thread exactly as every other test in
+    this file does."""
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    calling_thread = threading.get_ident()
+    seen_thread: dict[str, int] = {}
+    wrote = threading.Event()
+    original = agent_host.AgentHost._write_catalogue_snapshot
+
+    def spy(self: agent_host.AgentHost) -> None:
+        seen_thread["id"] = threading.get_ident()
+        try:
+            original(self)
+        finally:
+            wrote.set()
+
+    monkeypatch.setattr(agent_host.AgentHost, "_write_catalogue_snapshot", spy)
+    try:
+        assert host.start() is True
+        assert wrote.wait(WAIT), "the catalogue snapshot was never written"
+        assert seen_thread["id"] != calling_thread, (
+            "the snapshot write ran on the same thread that called start() -- "
+            "exactly the frame-thread stall agents-06 found"
+        )
     finally:
         host.stop()
 
@@ -1740,6 +1803,69 @@ def test_a_working_task_survives_max_remembered_calls_eviction_pressure() -> Non
 
     assert calls.get(protected_id) is not None
     assert len(calls.recent(agent_host.MAX_REMEMBERED_CALLS + 8)) == agent_host.MAX_REMEMBERED_CALLS
+
+
+def test_a_working_task_survives_eviction_even_when_every_remembered_operation_is_itself_a_protected_task() -> (  # noqa: E501
+    None
+):
+    """agents-05 (2026-09-18 audit): the test just above proves a working
+    task-mode operation outlives eviction pressure from *ordinary* (blocking)
+    mints, which this store has always been willing to evict regardless of
+    state -- but that mix always left `_Calls.mint`'s eviction loop an
+    evictable ordinary operation to take instead. With every one of
+    `MAX_REMEMBERED_CALLS` remembered operations itself a still-working
+    task-mode call, `mint`'s own fallback (`victim = next(iter(self._ops))`,
+    reached when the loop finds nothing evictable) evicted the *oldest
+    working* one anyway -- so a client polling `status`/`cancel` for it next
+    got a bare `not_found` with no way to tell a lost handle from a job that
+    never existed. `AgentHost._call_task` now checks `_Calls.saturated`
+    before minting a new task-mode operation and refuses the call outright
+    instead (`_call_task`'s own `{"error": {"code": "saturated", ...}}`), so
+    the 17th call here must come back refused, not minted, and the oldest
+    still-`QUEUED` operation must still answer for itself afterwards."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    oldest_id = None
+    for i in range(agent_host.MAX_REMEMBERED_CALLS):
+        # Never pumped (host._queue is drained by nothing here): every one
+        # of these stays QUEUED -- working, and therefore protected -- for
+        # the whole test, exactly as the lone operation above does.
+        header = host._call_task(session, calls, "clay_scene", {"tag": i})
+        if oldest_id is None:
+            oldest_id = header["operation_id"]
+
+    assert len(calls._ops) == agent_host.MAX_REMEMBERED_CALLS
+    assert calls.saturated() is True
+
+    refusal = host._call_task(session, calls, "clay_scene", {"tag": "one-too-many"})
+
+    assert "operation_id" not in refusal, "a saturated store must refuse, not mint, a 17th task"
+    assert refusal.get("error", {}).get("code") == "saturated"
+    assert isinstance(refusal["error"].get("message"), str) and refusal["error"]["message"]
+    assert calls.get(oldest_id) is not None, "the oldest still-working operation must survive"
+    assert len(calls._ops) == agent_host.MAX_REMEMBERED_CALLS
+
+
+def test_a_task_mode_warlock_status_call_is_exempt_from_the_saturation_refusal() -> None:
+    """agents-05's own fix must not block `warlock_status` itself: it exists
+    precisely to answer while something else is busy or stuck (the 2026-09-14
+    audit, agents-04, is the incident that made it reach `_call_task` at
+    all), and a saturated task store is exactly that kind of stuck. Refusing
+    it too would trade one silent failure mode for another."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    for i in range(agent_host.MAX_REMEMBERED_CALLS):
+        host._call_task(session, calls, "clay_scene", {"tag": i})
+    assert calls.saturated() is True
+
+    header = host._call_task(session, calls, agent_host.STATUS_TOOL, {})
+
+    assert "error" not in header
+    assert "operation_id" in header
 
 
 def test_a_completed_tasks_result_is_retained_until_first_fetch_then_evictable(

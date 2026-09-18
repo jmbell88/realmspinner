@@ -296,7 +296,7 @@ def _sheet_or_tileset(
 
     The three image doors share this so that "a file the user picked" gets the
     same answer wherever it was picked from. A ruled sheet is *parked* rather
-    than sliced -- :mod:`.tilegrid.slicing`'s own rule is that detection is a
+    than sliced -- :mod:`.grid2d.slicing`'s own rule is that detection is a
     suggestion, so the popup asks and this returns nothing that has been
     decided. No grid found is today's behaviour byte-for-byte: the blind slice
     at the map's tile size, which is also the right fallback for a sheet that

@@ -141,7 +141,7 @@ class Instrument:
     ``uid`` is what a pattern cell stores, never the list position: inserting an
     instrument at the top of the list must not retune the song, which is exactly
     what an index would do. The rest of this package addresses everything the
-    same way, for the reason ``studio/undo.py`` states once for all of them.
+    same way, for the reason ``core/undo.py`` states once for all of them.
 
     It is the one uid in this engine that is **per document and bounded** --
     ``0 <= uid < document.MAX_INSTRUMENTS``, minted by

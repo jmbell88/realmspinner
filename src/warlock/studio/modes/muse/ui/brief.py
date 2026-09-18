@@ -3,7 +3,7 @@
 ``create_brief``'s shape, and deliberately so -- the two are the same claim
 about the same kind of screen: *what a press needs, on one row, never scrolled.*
 The bar is **what to make** (the style tags, the lyrics, how long, how many, and
-the button) and the column beside it (``panes/muse_recipe``) is **how**. A
+the button) and the column beside it (``modes/muse/ui/panes/recipe``) is **how**. A
 control belongs to exactly one of them, which is the one-owner rule Create's
 two panes already keep.
 

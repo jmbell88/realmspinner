@@ -204,6 +204,32 @@ def test_a_malformed_sheet_id_never_reaches_the_filesystem(svc):
             svc_sheets.create_pixel_sheet(svc, job_id, bad)
 
 
+def test_pixel_sheet_estimate_omits_controlnet_gib_when_structure_lock_is_off(svc):
+    """The 2026-09-18 audit, finding service-02: ``vram.estimate_parts``
+    charged ``CONTROLNET_GIB`` for every ``pixel_sheet`` job, though the
+    worker (``_q_sprite._pixel_sheet``) only opens a ControlNet when
+    ``structure_lock`` is on *and* the base supports it -- the same pair
+    ``retexture``'s door already gates its own ``params["control"]`` on. The
+    door here must write ``control`` the same way, and ``vram.estimate`` must
+    read it, so a restyle that never opens a ControlNet is not charged for
+    one at admission.
+    """
+    from warlock import vram
+
+    job_id, sheet_id = _sheet_on_disk(svc)
+    locked = svc_sheets.create_pixel_sheet(svc, job_id, sheet_id, structure_lock=True)
+    unlocked = svc_sheets.create_pixel_sheet(svc, job_id, sheet_id, structure_lock=False)
+
+    locked_params = svc.store.get(locked["id"])["params"]
+    unlocked_params = svc.store.get(unlocked["id"])["params"]
+    assert locked_params.get("control") == "canny"
+    assert "control" not in unlocked_params
+
+    locked_cost = vram.estimate("pixel_sheet", "model", locked_params, exclusive=True)
+    unlocked_cost = vram.estimate("pixel_sheet", "model", unlocked_params, exclusive=True)
+    assert locked_cost - unlocked_cost == pytest.approx(vram.CONTROLNET_GIB)
+
+
 def test_a_restyle_whose_pixel_lora_is_missing_is_refused(svc, monkeypatch):
     """The door checked that the LoRA *fits* the base, never that it is here.
 

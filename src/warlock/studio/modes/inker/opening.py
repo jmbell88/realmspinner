@@ -148,7 +148,7 @@ def _suggest_grid(atlas: Any) -> tuple[tuple[int, int], tuple[int, int], tuple[i
     """``(cell, offset, padding)`` for a sheet with visible separator lines.
 
     Task thread. The Inker has the same blind-grid problem the Plotter's
-    add-tileset door has, and the same detector answers it -- ``tilegrid`` is a
+    add-tileset door has, and the same detector answers it -- ``grid2d`` is a
     shared leaf and is deliberately importable from here. What differs is what
     is *done* with the answer: the Plotter recomposes irregular cells onto a
     uniform atlas, and this door cannot, because the popup's model is one cell

@@ -327,9 +327,29 @@ def on_task_done(ctx: Any, done: Any) -> None:
             and key[len(muse_io.CACHE_PREFIX) :] == one.job
         ):
             cache_key, buffer = result
+            # **muse-02 (2026-09-18 audit).** Consumed here whether or not the
+            # cache below actually installs: a ``pending_play`` waiting on a
+            # region that changed since it was recorded is exactly as dead as
+            # one waiting on a task for an abandoned take, and both want to
+            # drop silently rather than linger for some later, unrelated
+            # landing to misfire on.
+            pending = getattr(one, "pending_play", None)
+            one.pending_play = None
             if muse_io.loop_cache_key(one) == cache_key:
                 one.loop_cache = buffer
                 one.loop_cache_key = cache_key
+                if (
+                    pending is not None
+                    and pending[0] == one.job
+                    and pending[2] == cache_key
+                    and ctx.state.mode == "muse"
+                ):
+                    # The cache this Play was waiting for just landed, still
+                    # naming this take and this exact region: start it now,
+                    # from the position it was asked for. ``_play_from`` finds
+                    # ``loop_cache_key`` already current, so this is the O(1)
+                    # cache-hit path, not the blend -- never a second wait.
+                    _play_from(ctx, one, pending[1])
         return
     if key.startswith(muse_io.FIND_PREFIX):
         one = player(ctx)
@@ -452,12 +472,22 @@ def stop(ctx: Any) -> None:
     nothing left to land on: clearing ``audition_job`` is what ``on_task_done``
     checks to refuse it, rather than starting playback back up the moment the
     read finishes.
+
+    **Withdraws a deferred Play too (muse-02, 2026-09-18 audit).** A Play
+    pressed on a stale loop cache leaves ``one.pending_play`` set, waiting for
+    ``on_task_done`` to start it once the blend lands -- Stop is the user
+    taking that request back, so it must not go on to sound after all, on a
+    press that never claimed to be "playing" in the first place
+    (``is_playing`` below is about the *mixer*, not about an outstanding
+    request).
     """
     state = active(ctx)
     if state is not None:
         one = state.player
-        if one is not None and is_playing(ctx, one.job):
-            one.play_offset = position(ctx)
+        if one is not None:
+            if is_playing(ctx, one.job):
+                one.play_offset = position(ctx)
+            one.pending_play = None
         state.playing_job = ""
         state.audition_job = ""
     sirens_audio.stop()
@@ -624,12 +654,51 @@ def _play_from(ctx: Any, one: Any, seconds: float) -> None:
     ordinary Stop-then-Play case), seeking while "playing", and "Play the
     loop" all route through *this* function -- so on a device-less machine
     every one of those pressed a genuinely dead button with nothing said.
+
+    **A stale cache defers rather than refuses (muse-02, 2026-09-18 audit).**
+    ``muse_io.loop_body`` used to be called unconditionally here -- and on a
+    cache miss it blends the whole region from scratch, an O(n) pass this
+    module's own ``precompute_loop`` docstring measures at ~100 ms on a 240 s
+    take. Right on the frame thread: a marker drag's release or the crossfade
+    slider's release both call ``precompute_loop`` and then return, so "Play
+    right after moving a marker" is exactly the window where that task has
+    not landed yet -- the stall muse-03 (2026-09-05 audit) fixed for the
+    export path, just left open for the first Play after one. A first pass at
+    this finding refused outright ("try again in a moment"), which made a
+    user press twice for something they asked for once; ``one.pending_play``
+    is what lets the *second* press be ``on_task_done``'s, not the user's --
+    see its own comment below for the shape and what invalidates it.
     """
     import numpy as np
 
     rate = one.rate
     has_region = one.loop_start is not None and one.loop_end is not None
     if has_region and one.loop_start <= seconds < one.loop_end:
+        cache_key = muse_io.loop_cache_key(one)
+        if cache_key is not None and one.loop_cache_key != cache_key:
+            # **muse-02** (2026-09-18 audit). Not a ``Player`` dataclass field
+            # (``state.py``): deliberately the one piece of this call's own
+            # request that outlives it, read back only by ``on_task_done``'s
+            # ``CACHE_PREFIX`` branch and by :func:`stop`, and nowhere else --
+            # ephemeral intent, not state a pane ever draws. ``(job, seconds,
+            # cache_key)`` is the take, the position and the exact region this
+            # was waiting for, so a landing result plays only when all three
+            # still match: a different take (a fresh ``Player`` replaces this
+            # one entirely, so it never carries this attribute at all), a
+            # region changed since (``cache_key`` no longer equal to the
+            # cache ``on_task_done`` just installed), or Stop pressed
+            # (:func:`stop` clears it) each drop the request silently rather
+            # than starting a loop nobody is waiting for any more.
+            already_waiting = getattr(one, "pending_play", None)
+            one.pending_play = (one.job, seconds, cache_key)
+            precompute_loop(ctx)
+            if already_waiting is None or already_waiting[2] != cache_key:
+                # Progressive, not repeated: a second Play (or a seek) while
+                # still waiting on the same region must not toast again --
+                # ``precompute_loop`` is already idempotent for the same
+                # reason.
+                ctx.toast("Preparing the loop...")
+            return
         body = muse_io.loop_body(one)
         length = one.loop_end - one.loop_start
         if body is None or len(body) == 0 or length <= 0:

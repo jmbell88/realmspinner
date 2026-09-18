@@ -33,6 +33,26 @@ def test_an_integer_take_is_scaled_by_its_dtypes_range_not_by_its_own_peak():
     assert loud[1].max() == pytest.approx(1.0, abs=0.001)
 
 
+def test_a_divisor_lets_a_caller_match_its_own_quantiser():
+    """muse-04 (2026-09-18 audit).
+
+    ``fileio.read_track`` quantises its ``pcm`` by 32768.0 -- ``soundfile``'s
+    own convention for undoing its decode, not ``wavout.to_int16``'s 32767.0
+    -- and used to call this with no way to say so, so the envelope re-divided
+    by the *wrong* peak. A full-scale negative sample, quantised at -32768,
+    comes back exactly -1.0 divided by the matching 32768.0 and past -1.0 when
+    divided by the mismatched default 32767.0 instead -- reproducing, in the
+    envelope, precisely the 1-LSB mismatch the 2026-09-11 audit's muse-04
+    already fixed once in the decode itself. Fails against the unfixed code,
+    which has no ``divisor`` parameter at all (``TypeError``).
+    """
+    pcm = np.full(4, -32768, dtype="<i2")
+    matched = waveform.peaks(pcm, columns=1, divisor=32768.0)
+    mismatched = waveform.peaks(pcm, columns=1)
+    assert matched[0, 0] == pytest.approx(-1.0)
+    assert mismatched[0, 0] != pytest.approx(-1.0)
+
+
 def test_stereo_is_downmixed_because_the_envelope_is_of_the_piece():
     pcm = np.stack([np.full(100, 1.0), np.full(100, -1.0)], axis=1).astype(np.float32)
     env = waveform.peaks(pcm, columns=4)

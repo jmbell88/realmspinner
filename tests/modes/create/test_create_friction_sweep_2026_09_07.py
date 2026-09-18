@@ -274,6 +274,38 @@ def test_the_structure_repair_changes_the_control_its_own_note_names(monkeypatch
     assert form["model_override"] == ""
 
 
+def test_preflight_fix_does_not_match_the_dead_guidance_0_text_on_an_unrelated_field(
+    monkeypatch,
+):
+    """The 2026-09-18 audit, finding create-04: the "guidance 0" alternative
+    in ``_preflight_fix``'s message match matches no reachable ``Problem`` --
+    the only refusal that ever said "guidance 0"
+    (``generation.validate_request``'s CompatibilityIssue) reaches the pane
+    through ``refuse``'s field-error path, never through this function. A
+    synthetic ``Problem`` naming a field that is not ``base_model`` but
+    still saying "guidance 0" -- what the dead branch matched on before this
+    fix added the field check -- must not trigger the ControlNet repair."""
+    monkeypatch.setattr(settings_2d.controls, "button", lambda *a, **k: True)
+    monkeypatch.setattr(create_recipe, "clear_for_tier", lambda ctx, form: [])
+
+    form = {
+        "asset_type": "image",
+        "generation_type": "image",
+        "model_mode": "advanced",
+        "base_model": "sdxl",
+        "model_override": "sdxl",
+        "control": "canny",
+        "quality": "fast",
+    }
+    ctx = SimpleNamespace(state=AppState())
+    problem = problems.Problem("This model runs at guidance 0 and cannot run one.", "quality")
+
+    settings_2d._preflight_fix(ctx, form, problem)
+
+    assert form["model_mode"] == "advanced", "the dead guidance-0 text must not fire the repair"
+    assert form["model_override"] == "sdxl"
+
+
 # --- 5.5.3: the Model and Style LoRA combos are labelled --------------------
 
 

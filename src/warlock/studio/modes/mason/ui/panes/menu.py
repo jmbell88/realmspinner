@@ -62,7 +62,7 @@ def _rows(ctx: Any, tab: Any) -> None:
     # Where the *first* prefab is made, and it has to be somewhere that exists
     # before one does: the Prefabs pane is a conditional slot that only appears
     # once the document has a template, so it cannot be the place a template is
-    # authored. See ``panes/mason_prefabs``'s own docstring.
+    # authored. See ``modes/mason/ui/panes/prefabs``'s own docstring.
     if controls.menu_item(
         f"{icons.COPY} Make prefab", "", False, len(doc.selection) == 1
     )[0]:

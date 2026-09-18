@@ -383,6 +383,21 @@ class MusicOps:
                 await asyncio.to_thread(
                     _stage_rolled_wav, output, -float(params.get("roll", 0.0))
                 )
+                # **muse-03 (2026-09-18 audit).** The roll above is itself an
+                # awaited thread hop, so a Cancel pressed while it runs lands
+                # after the check above (which only covers the window before
+                # the roll starts) and used to reach the commit below with
+                # nothing in between -- publishing a rolled take the user had
+                # already asked to stop, the same shape muse-01 (2026-09-15
+                # audit) fixed for the vocoder-decode window. Checked again,
+                # here, for the same reason that one exists: raising leaves
+                # the token uncommitted, and the dispatch loop's own
+                # ``finally`` (``queue.py``) already discards an uncommitted
+                # cancelled job's artifacts.
+                if self._cancel.event.is_set():
+                    from .pipelines.music_client import MusicCancelled
+
+                    raise MusicCancelled
             # The moment the WAV is on disk and nothing else can undo it. A
             # cancel that arrives after this point would leave a finished
             # artifact under a cancelled row, which the library has no way to

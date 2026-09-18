@@ -33,7 +33,7 @@ from typing import Any
 import numpy as np
 
 # Shared rather than copied. This was a byte-identical second spelling of
-# ``tilegrid.tileset``'s helper, differing only in the noun in its error
+# ``grid2d.tileset``'s helper, differing only in the noun in its error
 # message, which is now a parameter. The edge is already pinned in both
 # directions -- ``tsxout`` imports the same module for the .tsx writer -- so
 # this adds no dependency the package did not already have.
@@ -274,7 +274,7 @@ def sprite_from_image(pixels: Any, *, key: str, name: str = "") -> Sprite:
 
 #: The eight square symmetries, as ``(transpose, mirror x, mirror y)`` in the
 #: order ``inker/tiles.py::oriented`` composes them -- transpose then mirror,
-#: which is also ``plotter/render.py``'s order and ``tilegrid.gid``'s flag
+#: which is also ``plotter/render.py``'s order and ``grid2d.gid``'s flag
 #: vocabulary (``FLIP_D``, ``FLIP_H``, ``FLIP_V``).
 #:
 #: **Written out here rather than imported**, because packwright may not import
