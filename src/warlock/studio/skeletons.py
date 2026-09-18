@@ -55,15 +55,13 @@ def inker(ctx: Any) -> dict[str, Column]:
     at a full sidebar width all three come back.
     """
 
-    from .panes import (
-        inker_colors,
-        inker_generate,
-        inker_picker,
-        inker_preview,
-        inker_tiles,
-        inker_tools,
-        inker_walk,
-    )
+    from .modes.inker.ui.panes import colors as inker_colors
+    from .modes.inker.ui.panes import generate as inker_generate
+    from .modes.inker.ui.panes import picker as inker_picker
+    from .modes.inker.ui.panes import preview as inker_preview
+    from .modes.inker.ui.panes import tiles as inker_tiles
+    from .modes.inker.ui.panes import tools as inker_tools
+    from .modes.inker.ui.panes import walk as inker_walk
 
     def animated(context: Any) -> bool:
         """Whether the Preview slot has anything to show.

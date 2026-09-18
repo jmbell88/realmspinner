@@ -27,10 +27,9 @@ import pytest
 
 
 def _pane_sources() -> dict[str, str]:
-    from warlock.studio import panes
+    from _panes import pane_files
 
-    root = Path(panes.__file__).parent
-    return {path.name: path.read_text(encoding="utf-8") for path in root.glob("*.py")}
+    return {name: path.read_text(encoding="utf-8") for name, path in pane_files().items()}
 
 
 def test_no_pane_answers_an_empty_viewport_with_a_muted_sentence():
@@ -544,7 +543,7 @@ def test_flourish_generic_param_widget_labels_above_its_field():
     ``controls.*``, so ``_INKER_LABELLED_RAW`` never sees the call at all --
     pinned by name instead.
     """
-    from warlock.studio.panes import inker_flourish
+    from warlock.studio.modes.inker.ui.panes import flourish as inker_flourish
 
     param_source = inspect.getsource(inker_flourish._param_control)
     assert 'widgets.field_label(name, tip or None)' in param_source

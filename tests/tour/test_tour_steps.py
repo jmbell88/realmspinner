@@ -225,7 +225,7 @@ def test_the_marker_regex_actually_matches_the_call_sites():
     found = _marked_in_source()
     assert found, "anchors.mark call sites are no longer being found"
     sample = ast.parse(
-        (SRC / "panes" / "inker_tools.py").read_text(encoding="utf-8")
+        (SRC / "modes" / "inker" / "ui" / "panes" / "tools.py").read_text(encoding="utf-8")
     )
     assert any(isinstance(node, ast.Call) for node in ast.walk(sample))
     assert "inker/tools" in found

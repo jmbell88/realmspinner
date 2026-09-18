@@ -14,8 +14,8 @@ from types import SimpleNamespace
 from typing import Any
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_mode
-from warlock.studio.inker_state import InkerDoc, InkerState
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker.state import InkerDoc, InkerState
 
 BLACK = (0, 0, 0, 255)
 RED = (200, 20, 20, 255)
@@ -198,7 +198,7 @@ def test_the_slot_reaches_the_document_before_any_branch_of_a_press():
     import inspect
     import textwrap
 
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     body = ast.parse(textwrap.dedent(inspect.getsource(inker_canvas._press))).body[0].body
     statements = [node for node in body if not isinstance(node, ast.Expr)]

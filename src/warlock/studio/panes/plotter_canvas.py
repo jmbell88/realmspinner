@@ -41,7 +41,6 @@ from .. import (
     controls,
     docmodes,
     icons,
-    inker_state,
     plotter_mode,
     plotter_setup,
     plotter_state,
@@ -49,6 +48,7 @@ from .. import (
     tokens,
     widgets,
 )
+from ..modes.inker import state as inker_state
 from ..plotter import project
 from ..plotter import render as plotter_render
 from ..plotter import scene as plotter_scene
@@ -1244,7 +1244,7 @@ def _rulers(tab: Any, draw_list: Any, origin, region, *, hovered: bool) -> None:
     from imgui_bundle import imgui
 
     from .. import fonts
-    from . import inker_canvas
+    from ..modes.inker.ui.panes import canvas as inker_canvas
 
     view = tab.view
     doc = tab.doc
@@ -1291,7 +1291,7 @@ def _ruler_band(
     so interpolating between two samples is exact, and a rotated or flipped view
     lands on the right axis with the right sign for free.
     """
-    from . import inker_canvas
+    from ..modes.inker.ui.panes import canvas as inker_canvas
 
     a0, a1 = span
     if horizontal:

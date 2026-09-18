@@ -1,9 +1,9 @@
-"""``panes/inker_walk_canvas.py``'s decidable half: the mouse-ownership gate,
+"""``modes/inker/ui/panes/walk_canvas.py``'s decidable half: the mouse-ownership gate,
 the zoom-to-image-space radius, and the two read-only pass-throughs.
 
 The 2026-09-11 audit, finding inker-10: this module's name appeared only in
 ``tests/manual/test_coverage.py``'s chapter sweep -- never imported or driven
-by a functional test -- while its sibling setup panel, ``panes/inker_walk.py``,
+by a functional test -- while its sibling setup panel, ``modes/inker/ui/panes/walk.py``,
 is driven live by ``tests/inker/test_walk_session.py``. Nothing here found a
 defect; this file is coverage for logic that was already correct, in
 ``test_walk_session.py``'s own shape (a real ``inker_walk`` session, no GL) but
@@ -20,8 +20,9 @@ import pytest
 
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel.walk import rig as R
-from warlock.studio import inker_state, inker_walk
-from warlock.studio.panes import inker_walk_canvas as pane
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker import walk as inker_walk
+from warlock.studio.modes.inker.ui.panes import walk_canvas as pane
 
 SIZE = (32, 32)
 

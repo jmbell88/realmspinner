@@ -21,7 +21,8 @@ from __future__ import annotations
 import pytest
 
 from warlock.kernels.pixel.document import Document
-from warlock.studio import inker_ops, inker_state
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker import state as inker_state
 
 
 def _tab(**view) -> inker_state.InkerDoc:

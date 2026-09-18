@@ -21,8 +21,11 @@ import pytest
 
 from warlock.kernels.pixel.document import Document
 from warlock.kernels.pixel.textstamp import MAX_SIZE, MIN_SIZE, text_stamp
-from warlock.studio import fonts, inker_mode, inker_state
-from warlock.studio.panes import inker_canvas, inker_gestures
+from warlock.studio import fonts
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.modes.inker.ui.panes import gestures as inker_gestures
 
 FONT = str(fonts.FONT_DIR / "Inter-Regular.ttf")
 RED = (255, 0, 0, 255)

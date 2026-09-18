@@ -57,7 +57,8 @@ def test_specs_builds_the_command_list_once_per_call(monkeypatch):
     rebuilt the list up to four times. ``specs`` now builds it once and hands
     it down to both.
     """
-    from warlock.studio import inker_state, menus, palette
+    from warlock.studio import menus, palette
+    from warlock.studio.modes.inker import state as inker_state
 
     ctx = _ctx("inker")
     ctx.state.inker = inker_state.InkerState()
@@ -221,7 +222,8 @@ def test_the_status_group_never_runs_past_the_menu_bar_edge(monkeypatch):
     """
     from _ui_context import imgui_context
 
-    from warlock.studio import inker_state, menus
+    from warlock.studio import menus
+    from warlock.studio.modes.inker import state as inker_state
 
     ctx = _ctx("inker")
     ctx.state.inker = inker_state.InkerState()

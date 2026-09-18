@@ -272,7 +272,7 @@ def test_the_six_lists_that_lacked_an_empty_state_have_one():
 
     root = Path(inspect.getfile(widgets)).resolve().parent
     for relative in (
-        # ``panes/inker_layers.py`` was on this list and is deliberately not
+        # ``modes/inker/ui/panes/layers.py`` was on this list and is deliberately not
         # any more: its empty state was "no drawing open", which the canvas
         # beside it already says as a full ``nothing_open`` with the presets,
         # Open and the recent list on it. Two empty states for one fact, one

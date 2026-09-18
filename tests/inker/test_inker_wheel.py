@@ -15,7 +15,8 @@ import inspect
 import pytest
 
 from warlock.studio import tokens
-from warlock.studio.panes import inker_picker, inker_textures
+from warlock.studio.modes.inker.ui.panes import picker as inker_picker
+from warlock.studio.modes.inker.ui.panes import textures as inker_textures
 
 
 class _Doc:

@@ -33,8 +33,8 @@ import pytest
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import _doc_selection
 from warlock.kernels.pixel.selection import SelectionMask, render_transform_about
-from warlock.studio import inker_state
-from warlock.studio.panes import inker_canvas
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
 SIZE = (32, 24)
 #: The pane ``_input`` is driven in. Large enough that these documents sit

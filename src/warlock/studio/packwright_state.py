@@ -27,7 +27,7 @@ from typing import Any
 import numpy as np
 
 from . import docmodes
-from .inker_state import PaintView
+from .modes.inker.state import PaintView
 
 WPACK_SUFFIX = ".wpack"
 

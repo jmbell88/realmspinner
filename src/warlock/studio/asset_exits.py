@@ -230,8 +230,8 @@ def _mesh_for(ctx: Any, job: Any) -> Any:
 def _inker(ctx: Any, job: Any) -> Exit | None:
     if job.get("stage") not in _REFERENCE_STAGES:
         return None
-    from . import inker_mode
     from .modes.create.ui import stages as create_stages
+    from .modes.inker import mode as inker_mode
     from .panes import inspector
 
     hint = "Paint over the reference; saving updates this asset."

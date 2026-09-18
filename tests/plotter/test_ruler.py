@@ -20,7 +20,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import inker_state, plotter_mode
+from warlock.studio import plotter_mode
+from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.panes import plotter_canvas as canvas
 from warlock.studio.plotter.tilemap import MapDoc
 

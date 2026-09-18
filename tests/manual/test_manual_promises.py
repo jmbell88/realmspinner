@@ -54,7 +54,7 @@ def test_manual_ch28_zoom_ceiling_matches_inker_state_constant():
     chapter's Zooming section was never revisited and still says the zoom
     "stops ... at 1000%" (six times below the real 6400% ceiling).
     """
-    from warlock.studio import inker_state
+    from warlock.studio.modes.inker import state as inker_state
 
     ceiling_pct = inker_state.zoom_key(inker_state.INKER_MAX_ZOOM)
     floor_pct = inker_state.zoom_key(inker_state.INKER_MIN_ZOOM)
@@ -78,7 +78,7 @@ def test_manual_ch28_zoom_ladder_matches_ZOOM_LADDER():
     The chapter's list currently ends at 1000%; ZOOM_LADDER
     (inker_state.py:96-99) runs six rungs further, to 6400%.
     """
-    from warlock.studio import inker_state
+    from warlock.studio.modes.inker import state as inker_state
 
     zooming = _section(_chapter("28-inker.md"), "Zooming")
     missing = [
@@ -98,7 +98,7 @@ def test_manual_ch28_status_bar_picker_matches_ZOOM_PRESETS():
     ZOOM_PRESETS. The chapter's list currently ends at 800%; ZOOM_PRESETS
     (inker_state.py:105) runs to 6400%.
     """
-    from warlock.studio import inker_state
+    from warlock.studio.modes.inker import state as inker_state
 
     status_bar = _section(_chapter("28-inker.md"), "The status bar")
     missing = [
@@ -501,7 +501,7 @@ def test_chapter05_tool_group_prose_matches_actual_key_bindings():
     again cycles within the group -- so B is the brush, B again is the spray".
     No such gesture exists: every tool has its own letter, and spray answers to
     ``A`` and ``Shift+B``."""
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     chords: dict[str, list[str]] = {}
     for binding in inker_ops._TOOL_BINDINGS:

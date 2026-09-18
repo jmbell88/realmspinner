@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import sheetout
-from warlock.studio import inker_ops
-from warlock.studio.inker_state import InkerDoc
-from warlock.studio.panes import inker_generate
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker.state import InkerDoc
+from warlock.studio.modes.inker.ui.panes import generate as inker_generate
 
 
 def test_every_button_names_an_op_that_actually_exists():

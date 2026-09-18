@@ -54,7 +54,7 @@ def _reference(svc):
 
 def test_the_viewport_toolbar_owns_the_inker_button_at_the_reference_stage(svc):
     """Where the reference is the thing on screen."""
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     ctx = FakeCtx(svc, "create", "reference")
     job = _reference(svc)

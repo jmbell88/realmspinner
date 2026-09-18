@@ -201,12 +201,13 @@ def _main_source() -> str:
     the two workspaces that called them by name (Troupe's and Packwright's)
     into ``studio/troupe_workspace.py`` and ``studio/packwright_workspace.py``
     -- along with Inker's own hand-built timeline splitter, in
-    ``studio/inker_workspace.py``. ``main.py`` itself has drawn no split since
+    ``studio/modes/inker/ui/workspace.py``. ``main.py`` itself has drawn no split since
     that move; it stays in this list so a future one landing back on the
     shell's entry module is not silently invisible to this scan.
     """
-    from warlock.studio import inker_workspace, packwright_workspace, review_panes, troupe_workspace
     from warlock.studio import main as main_mod
+    from warlock.studio import packwright_workspace, review_panes, troupe_workspace
+    from warlock.studio.modes.inker.ui import workspace as inker_workspace
     from warlock.studio.shell import frame
 
     sources = [

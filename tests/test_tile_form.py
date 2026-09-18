@@ -162,7 +162,7 @@ def test_a_tile_can_be_opened_in_the_inker(svc):
     service refuses is worse than no button.
     """
     from warlock.service import files as svc_files
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     job = {"id": "a" * 12, "stage": "tile", "status": "done", "files": ["input.png"]}
     assert inker_mode.can_edit_job(None, job)
@@ -173,7 +173,7 @@ def test_a_model_job_is_still_not_editable():
     """A model's input.png is the picture it was reconstructed *from*: editing
     it changes nothing about the mesh on disk while invalidating the recipe
     that describes it."""
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     job = {"id": "a" * 12, "stage": "model", "status": "done", "files": ["input.png"]}
     assert not inker_mode.can_edit_job(None, job)

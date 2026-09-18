@@ -17,8 +17,10 @@ import numpy as np
 import pytest
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_ops, inker_sheet, inker_state
 from warlock.studio import state as state_mod
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker import sheet as inker_sheet
+from warlock.studio.modes.inker import state as inker_state
 
 SIZE = (32, 32)
 
@@ -301,7 +303,7 @@ def test_the_sprite_menu_offers_the_two_sizes_separately():
 
 
 def test_the_view_toggles_flip_the_persisted_preference(monkeypatch):
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     ctx, state, tab = _session()
     written = []
@@ -380,7 +382,7 @@ def test_a_new_document_from_the_selection_crops_to_it(monkeypatch):
     # ``inker_mode`` serves the name through ``__getattr__``, and a ``setattr``
     # on a name that module does not define would shadow rather than replace
     # what the caller reaches.
-    from warlock.studio import inker_open
+    from warlock.studio.modes.inker import opening as inker_open
 
     ctx, state, tab = _session()
     opened: list = []
@@ -393,7 +395,7 @@ def test_a_new_document_from_the_selection_crops_to_it(monkeypatch):
 
 
 def test_making_a_document_of_nothing_says_so_rather_than_making_one():
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     ctx, state, tab = _session()
     assert inker_mode.new_from_selection(ctx, tab) is False
@@ -439,7 +441,8 @@ def test_a_refused_paste_does_not_switch_the_tool():
     from types import SimpleNamespace
 
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_ops, inker_state
+    from warlock.studio.modes.inker import ops as inker_ops
+    from warlock.studio.modes.inker import state as inker_state
 
     state = inker_state.InkerState()
     state.set_tool("brush")

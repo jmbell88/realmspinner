@@ -557,14 +557,14 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     from warlock.studio.modes.clay.ui.panes import props as clay_props
     from warlock.studio.modes.clay.ui.panes import tools as clay_tools
     from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
+    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from warlock.studio.modes.inker.ui.panes import generate as inker_generate
+    from warlock.studio.modes.inker.ui.panes import menu as inker_menu
+    from warlock.studio.modes.inker.ui.panes import picker as inker_picker
+    from warlock.studio.modes.inker.ui.panes import tools as inker_tools
     from warlock.studio.panes import (
         app_settings,
         candidates_panel,
-        inker_colors,
-        inker_generate,
-        inker_menu,
-        inker_picker,
-        inker_tools,
         inspector,
         library,
         pose_panel,
@@ -1851,14 +1851,13 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
     a PNG, so this seeds a real image -- opening one is a decode."""
     from imgui_bundle import imgui
 
-    from warlock.studio import inker_mode, inker_state
-    from warlock.studio.panes import (
-        inker_bridge,
-        inker_canvas,
-        inker_colors,
-        inker_tiles,
-        inker_tools,
-    )
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from warlock.studio.modes.inker.ui.panes import tiles as inker_tiles
+    from warlock.studio.modes.inker.ui.panes import tools as inker_tools
     from warlock.studio.tokens import sp
 
     job_id = _reference_job(app_ctx)
@@ -2125,8 +2124,9 @@ def test_the_context_bar_draws_every_tools_own_options(app_ctx, imgui_ctx):
     the difference matter -- the exercise pass presses tool *groups* and leaves
     the bar showing the brush's widgets, so nothing rendered them."""
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_mode, inker_state
-    from warlock.studio.panes import inker_context
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.modes.inker.ui.panes import context as inker_context
 
     app_ctx.state.mode = "inker"
     state = inker_mode.ensure(app_ctx)
@@ -2148,8 +2148,8 @@ def test_the_timeline_draws_group_headers_open_and_folded(app_ctx, imgui_ctx):
     cannot say."""
 
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_mode
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     app_ctx.state.mode = "inker"
     state = inker_mode.ensure(app_ctx)
@@ -2193,13 +2193,11 @@ def test_the_animated_inker_builds_and_gives_its_frame_textures_back(app_ctx, im
     from imgui_bundle import imgui
 
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_mode
-    from warlock.studio.panes import (
-        inker_canvas,
-        inker_colors,
-        inker_timeline,
-        inker_tools,
-    )
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from warlock.studio.modes.inker.ui.panes import tools as inker_tools
     from warlock.studio.tokens import sp
 
     job_id = _reference_job(app_ctx)
@@ -2292,7 +2290,7 @@ def test_the_animated_inker_builds_and_gives_its_frame_textures_back(app_ctx, im
 def test_a_finished_mesh_is_not_offered_paint(app_ctx, imgui_ctx):
     """Paint edits the *generated reference*, and a mesh job's input.png is
     whatever it was reconstructed from."""
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
@@ -3743,7 +3741,7 @@ def _overflow_labels(app_ctx, imgui_ctx) -> list[str]:
 def test_the_library_offers_a_finished_reference_to_the_inker(app_ctx, imgui_ctx):
     """The 2D half of Open in Clay. Inker could already open a job's reference
     and reuse an open tab for it; nothing in the library said so."""
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     job_id = _seeded(app_ctx)
     app_ctx.svc.store.set_stage(job_id, "reference")
@@ -5013,7 +5011,7 @@ def _transform_items():
 
 
 def _transport_items():
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     items = [
         toolbar.Item(key, label, tooltip=tip, pinned=True)
@@ -5049,7 +5047,9 @@ def _bulk_items():
 
 def _rows():
     """``(label, items, dispatcher)`` for every row wave 4.2 rewrote."""
-    from warlock.studio.panes import inker_canvas, inker_timeline, library
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from warlock.studio.panes import library
 
     return [
         ("inker-transform", _transform_items(), inker_canvas._transform_action),
@@ -5139,7 +5139,7 @@ def test_every_symmetry_button_actually_moves_the_setting():
     each key, which is the stronger check anyway.
     """
     from warlock.kernels.pixel import brush
-    from warlock.studio.panes import inker_context
+    from warlock.studio.modes.inker.ui.panes import context as inker_context
 
     # ``_symmetry_hit`` persists, and ``inker_mode.persist`` reads the whole
     # session off the context -- so the context here carries no Inker state at
@@ -5496,8 +5496,8 @@ def test_the_resize_popup_shows_a_detected_pixel_grid(app_ctx):
     import numpy as np
 
     from warlock.kernels.pixel.document import Document as _Doc
-    from warlock.studio import inker_mode
-    from warlock.studio.panes import inker_bridge
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
 
     rng = np.random.default_rng(5)
     palette = np.array(
@@ -5535,8 +5535,8 @@ def test_the_seam_readout_and_wrap_button_appear_only_in_tiled_mode(app_ctx):
     import numpy as np
 
     from warlock.kernels.pixel.document import Document as _Doc
-    from warlock.studio import inker_mode
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     state = inker_mode.ensure(app_ctx)
     tab = inker_mode._adopt(app_ctx, state, _Doc.blank(32, 32), path=None, title="tile")
@@ -5583,8 +5583,9 @@ def test_the_canvas_seam_indicator_decides_on_dominance_not_the_retired_ratio(ap
     harder join than the seam is.
     """
     from warlock.kernels.pixel.document import Document as _Doc
-    from warlock.studio import inker_mode, theme
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio import theme
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     state = inker_mode.ensure(app_ctx)
     tab = inker_mode._adopt(app_ctx, state, _Doc.blank(32, 32), path=None, title="tile")
@@ -5617,7 +5618,7 @@ def test_flourish_submit_refuses_a_recipe_over_the_bake_cost_ceiling():
 
     from warlock.kernels.pixel import flourish
     from warlock.kernels.pixel.flourish import recipe as R
-    from warlock.studio import inker_flourish
+    from warlock.studio.modes.inker import flourish as inker_flourish
 
     maxed = flourish.clamp(
         R.Recipe(
@@ -6034,8 +6035,9 @@ def test_the_palette_folder_browser_actually_loads_a_palette(app_ctx, imgui_ctx,
     read from imgui rather than computed, for the reason its own docstring
     gives.
     """
-    from warlock.studio import inker_mode, probe
-    from warlock.studio.panes import inker_colors
+    from warlock.studio import probe
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
 
     folder = Path(app_ctx.svc.config.palette_dir)
     folder.mkdir(parents=True, exist_ok=True)
@@ -6073,8 +6075,9 @@ def test_the_palette_folder_browser_says_so_when_the_folder_is_empty(
 ):
     """The ordinary state of a fresh install: a muted line naming the formats,
     and no control at all -- never a button that submits an empty load."""
-    from warlock.studio import inker_mode, probe
-    from warlock.studio.panes import inker_colors
+    from warlock.studio import probe
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
 
     folder = Path(app_ctx.svc.config.palette_dir)
     folder.mkdir(parents=True, exist_ok=True)

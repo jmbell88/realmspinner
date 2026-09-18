@@ -18,9 +18,12 @@ import pytest
 from warlock.kernels import pixel as inker
 from warlock.kernels.grid2d import gid
 from warlock.kernels.pixel.tiles import TilemapCel, materialize, strip
-from warlock.studio import inker_mode, inker_state
 from warlock.studio import state as state_mod
-from warlock.studio.panes import inker_canvas, inker_tiles, inker_tools
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.modes.inker.ui.panes import tiles as inker_tiles
+from warlock.studio.modes.inker.ui.panes import tools as inker_tools
 
 SIZE = (32, 32)
 RED = (255, 0, 0, 255)
@@ -376,7 +379,7 @@ def test_the_acquiring_verbs_live_where_they_are_always_drawn() -> None:
     """The tile panel appears only once the document has a tileset, so the two
     doors that *make* the first one are menu rows instead -- the one surface
     that is drawn whether or not the document has tiles yet."""
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     names = {op.name for op in inker_ops.OPS}
     assert {"convert_to_tilemap", "import_tileset"} <= names

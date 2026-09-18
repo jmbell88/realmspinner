@@ -17,8 +17,8 @@ from __future__ import annotations
 from typing import Any
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_mode
-from warlock.studio.inker_state import InkerDoc, InkerState
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker.state import InkerDoc, InkerState
 
 
 class _Ctx:

@@ -15,15 +15,14 @@ from pathlib import Path
 import pytest
 from _panes import pane_files
 
-from warlock.studio import inker_mode, inker_state, layout, theme, tokens
-from warlock.studio.panes import (
-    inker_canvas,
-    inker_colors,
-    inker_textures,
-    inker_tools,
-)
+from warlock.studio import layout, theme, tokens
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+from warlock.studio.modes.inker.ui.panes import textures as inker_textures
+from warlock.studio.modes.inker.ui.panes import tools as inker_tools
 
-STUDIO = Path(inker_tools.__file__).resolve().parent.parent
 #: Every pane-drawing module, via ``tests._panes.pane_files``. ``panes/*.py``
 #: alone was the whole set until Create became a mode package and put three
 #: settings columns under ``modes/create/ui/`` (a bare ``modes/*/ui/*.py``
@@ -318,7 +317,7 @@ def test_no_inker_pane_spells_a_tool_name_out_of_its_key(name: str) -> None:
     Reset button under a tool the box called "Ellipse select" read "Reset select
     ellipse", and the preset list named tools nothing else in the app did.
     """
-    source = (STUDIO / "panes" / name).read_text(encoding="utf-8")
+    source = pane_files()[name].read_text(encoding="utf-8")
     assert 'replace("_", " ")' not in source, name
     assert "replace('_', ' ')" not in source, name
 
@@ -364,7 +363,7 @@ def test_a_live_transform_says_so_in_the_accent_colour() -> None:
     because the numeric handles read and write the floating buffer the canvas
     is already holding. What has to stay true is that a transform in flight is
     *announced*, and in the accent colour."""
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     source = Path(inker_canvas.__file__).read_text(encoding="utf-8")
     assert 'widgets.text_colored(theme.ACCENT, "Transform")' in source
@@ -563,7 +562,7 @@ def test_the_canvas_settings_are_reachable() -> None:
     2026-08-31, out of a toolbox popover opened by a flip-horizontal glyph and
     named after neither of them.
     """
-    from warlock.studio.panes import inker_context
+    from warlock.studio.modes.inker.ui.panes import context as inker_context
 
     bar = Path(inker_context.__file__).read_text(encoding="utf-8")
     assert "imgui.open_popup(SYMMETRY_POPUP)" in bar
@@ -628,7 +627,9 @@ def test_both_floors_are_named_where_the_panes_are() -> None:
     per pane that can be squeezed, in both columns.
     """
     from warlock.studio import skeletons
-    from warlock.studio.panes import inker_generate, inker_picker, inker_tiles
+    from warlock.studio.modes.inker.ui.panes import generate as inker_generate
+    from warlock.studio.modes.inker.ui.panes import picker as inker_picker
+    from warlock.studio.modes.inker.ui.panes import tiles as inker_tiles
 
     assert inker_colors.PANEL_FLOOR > 0
     assert inker_tiles.PANEL_FLOOR > 0
@@ -780,8 +781,8 @@ def test_a_zoom_rung_cannot_outlive_an_undrawn_canvas() -> None:
     assert canvas.count("pending_zoom_rung = 0") >= 2
     # ``_inker_workspace`` -- the invisible-centre-pane branch's own drop --
     # moved out of ``studio/main.py`` in the P4 restructure, into
-    # ``studio/inker_workspace.py``.
-    from warlock.studio import inker_workspace
+    # ``studio/modes/inker/ui/workspace.py``.
+    from warlock.studio.modes.inker.ui import workspace as inker_workspace
 
     workspace = Path(inker_workspace.__file__)
     assert "pending_zoom_rung = 0" in workspace.read_text(encoding="utf-8")
@@ -917,7 +918,7 @@ def test_the_picker_floor_is_the_height_its_own_content_needs() -> None:
     ended at 902 -- clipped away, unclickable, the last such control in Inker.
     The floor has to be what the pane actually needs, or it is decoration.
     """
-    from warlock.studio.panes import inker_picker
+    from warlock.studio.modes.inker.ui.panes import picker as inker_picker
 
     assert inker_picker.PICKER_FLOOR >= 400.0
 
@@ -931,7 +932,8 @@ def test_the_colour_pane_gives_way_to_the_pickers_floor() -> None:
     arithmetic that says it does.
     """
     from warlock.studio import layout
-    from warlock.studio.panes import inker_colors, inker_picker
+    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from warlock.studio.modes.inker.ui.panes import picker as inker_picker
 
     avail = 833.0
     share = layout.SHARE_DEFAULTS.get("inker-colors", 0.55)

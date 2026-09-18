@@ -307,7 +307,7 @@ def test_a_paste_onto_an_alpha_locked_layer_keeps_its_alpha():
 
 
 def test_pump_export_clears_the_lock_on_any_failure():
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     source = inspect.getsource(inker_mode.pump_export)
     assert "except Exception" in source

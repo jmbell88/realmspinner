@@ -13,7 +13,7 @@ import pytest
 
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import brush, transform
-from warlock.studio import inker_state
+from warlock.studio.modes.inker import state as inker_state
 
 # --- the stamp --------------------------------------------------------------
 

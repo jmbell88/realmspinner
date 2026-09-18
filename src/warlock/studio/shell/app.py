@@ -40,9 +40,9 @@ from typing import Any
 
 from .. import fps as fps_mod
 from .. import resources
-from ..inker_workspace import InkerWorkspace
 from ..mason_viewport import MasonViewport
 from ..modes.clay.ui.viewport import ClayViewport
+from ..modes.inker.ui.workspace import InkerWorkspace
 from ..muse_workspace import MuseWorkspace
 from ..packwright_workspace import PackwrightWorkspace
 from ..plotter_workspace import PlotterWorkspace

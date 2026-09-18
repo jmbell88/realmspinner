@@ -62,7 +62,7 @@ def test_manual_zooming_section_names_the_wheels_gear_change_above_800_percent()
     way the code comment on ``FINE_ZOOM_MAX`` already does ("5% of 1x is a
     meaningful step and 5% of 64x is a twentieth of a source pixel").
     """
-    from warlock.studio import inker_state
+    from warlock.studio.modes.inker import state as inker_state
 
     gear_change_pct = inker_state.zoom_key(inker_state.FINE_ZOOM_MAX)
     wheel = _wheel_paragraph(_section(_chapter("28-inker.md"), "Zooming"))

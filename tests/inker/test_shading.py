@@ -27,8 +27,9 @@ import pytest
 
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import brush, indexed
-from warlock.studio import inker_state
-from warlock.studio.panes import inker_canvas, inker_tools
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.modes.inker.ui.panes import tools as inker_tools
 
 SIZE = (24, 24)
 

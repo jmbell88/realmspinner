@@ -24,7 +24,8 @@ import pytest
 from _ui_context import imgui_context
 
 from warlock.kernels.pixel.animation import Note
-from warlock.studio import inker_state, probe
+from warlock.studio import probe
+from warlock.studio.modes.inker import state as inker_state
 
 
 @pytest.fixture
@@ -106,7 +107,7 @@ def _click(imgui, build, control):
 
 
 def _cell_menu(imgui, ctx, tab, ti=0, fi=0, has_cel=True, linked=True):
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     def build():
         if not imgui.is_popup_open("celmenu"):
@@ -117,7 +118,7 @@ def _cell_menu(imgui, ctx, tab, ti=0, fi=0, has_cel=True, linked=True):
 
 
 def _row_menu(imgui, ctx, tab, index=0):
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     def build():
         if not imgui.is_popup_open("layer-menu"):
@@ -128,7 +129,7 @@ def _row_menu(imgui, ctx, tab, index=0):
 
 
 def _tag_menu(imgui, ctx, tab, index=0):
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     def build():
         if not imgui.is_popup_open("tagmenu"):
@@ -156,7 +157,7 @@ def _named(controls, label):
 
 def test_pressing_a_cel_swatch_colours_that_slot(ui):
     """The whole point of the file: the click reaches the grid."""
-    from warlock.studio.panes.inker_timeline import NOTE_COLOURS
+    from warlock.studio.modes.inker.ui.panes.timeline import NOTE_COLOURS
 
     doc = _doc()
     ctx, tab = _ctx(), _tab(doc)

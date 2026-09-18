@@ -20,8 +20,9 @@ from _ui_context import imgui_context
 
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import brush
-from warlock.studio import inker_state, probe, widgets
-from warlock.studio.panes import inker_context
+from warlock.studio import probe, widgets
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import context as inker_context
 
 
 @pytest.fixture

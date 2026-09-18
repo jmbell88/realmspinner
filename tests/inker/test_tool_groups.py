@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio import inker_state
+from warlock.studio.modes.inker import state as inker_state
 
 
 def test_every_tool_is_in_exactly_one_group():

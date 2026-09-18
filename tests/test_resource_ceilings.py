@@ -30,7 +30,7 @@ def test_the_resize_popup_caps_growth_and_leaves_shrinking_free():
     """The popup stored ``(max(1, w), max(1, h))`` -- a floor and no ceiling --
     and fed it to ``doc.scale``, which has none either. ``100000`` is 40 GB a
     layer, on the frame thread, holding an unsaved document."""
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     assert inker_mode.clamp_resize((512, 512), 100_000, 100_000) == (
         inker_mode.NEW_MAX,
@@ -45,14 +45,14 @@ def test_the_resize_popup_caps_growth_and_leaves_shrinking_free():
 def test_an_oversized_document_stays_resizable():
     """A canvas imported at 12,000 px must not snap to 8192 the moment its
     owner opens the popup to crop it."""
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     assert inker_mode.clamp_resize((12_000, 12_000), 12_000, 12_000) == (12_000, 12_000)
     assert inker_mode.clamp_resize((12_000, 12_000), 200_000, 4)[0] == 12_000
 
 
 def test_a_typed_nonsense_size_keeps_what_the_document_has():
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     assert inker_mode.clamp_resize((64, 32), None, "x") == (64, 32)
 
@@ -157,7 +157,7 @@ class _AnimDoc:
 def test_inker_frame_textures_have_a_vram_budget(monkeypatch):
     """The CPU flatten cache is bounded (``document.FRAME_CACHE_BYTES``) and
     the GL side was not, while the frame count is capped at nothing at all."""
-    from warlock.studio.panes import inker_textures
+    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
 
     monkeypatch.setattr(inker_textures, "FRAME_TEXTURE_BYTES", 4 * 64 * 64 * 4)
     ctx = _Ctx()
@@ -179,7 +179,7 @@ def test_inker_frame_textures_have_a_vram_budget(monkeypatch):
 def test_the_frame_texture_count_is_bounded_for_a_tiny_document(monkeypatch):
     """A 64-square document is 16 KB a frame, so the byte budget alone would
     let thousands of entries into the list the sweep walks."""
-    from warlock.studio.panes import inker_textures
+    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
 
     monkeypatch.setattr(inker_textures, "FRAME_TEXTURE_CAP", 5)
     ctx = _Ctx()
@@ -471,12 +471,20 @@ def test_every_per_tab_preview_key_is_swept_when_the_tab_closes():
     import re
     from pathlib import Path
 
-    from warlock.studio.panes import inker_textures
+    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
 
-    root = Path(inker_textures.__file__).parent.parent
-    files = [root / "inker_mode.py", root / "inker_ops.py", root / "inker_state.py"]
-    files += sorted((root / "panes").glob("inker_*.py"))
-    assert len(files) >= 6, "the vacuous-pass guard: a moved module must fail here"
+    # P5 folded Inker into ``modes/inker/`` and dropped the ``inker_`` prefix
+    # from every file it moved, so a glob keyed on that prefix (or a fixed
+    # ``inker_mode.py``/``inker_ops.py``/``inker_state.py`` list) would now
+    # silently sweep nothing. Walk the whole package instead -- everything
+    # under ``modes/inker/`` is Inker's, by construction.
+    root = Path(inker_textures.__file__).resolve().parents[2]
+    files = sorted(
+        p
+        for p in root.rglob("*.py")
+        if p.name != "__init__.py" and "__pycache__" not in p.parts
+    )
+    assert len(files) >= 25, "the vacuous-pass guard: a moved module must fail here"
 
     head = re.compile(r"^[a-z][a-z0-9_]*:$")
     allowed = set(inker_textures._PER_TAB_KEYS) | {"inker_tex:"}
@@ -508,12 +516,17 @@ def test_the_per_tab_key_list_holds_no_prefix_nothing_writes():
     used to mean something."""
     from pathlib import Path
 
-    from warlock.studio.panes import inker_textures
+    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
 
-    root = Path(inker_textures.__file__).parent.parent
-    text = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in [root / "inker_mode.py", *sorted((root / "panes").glob("inker_*.py"))]
+    # Same walk as the sibling test above, for the same reason: a prefix- or
+    # filename-keyed list drops every file P5 renamed out of it silently.
+    root = Path(inker_textures.__file__).resolve().parents[2]
+    files = sorted(
+        p
+        for p in root.rglob("*.py")
+        if p.name != "__init__.py" and "__pycache__" not in p.parts
     )
+    assert len(files) >= 25, "the vacuous-pass guard: a moved module must fail here"
+    text = "\n".join(path.read_text(encoding="utf-8") for path in files)
     for prefix in inker_textures._PER_TAB_KEYS:
         assert text.count(f'"{prefix}') >= 2, f"nothing writes {prefix}"

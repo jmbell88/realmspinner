@@ -228,7 +228,7 @@ def offers_inker(ctx: Any, job: Any) -> bool:
     false: a second spelling of "is it 2D" is exactly how one action grew two
     buttons in the first place.
     """
-    from .. import inker_mode
+    from ..modes.inker import mode as inker_mode
 
     if not inker_mode.can_edit_job(ctx, job):
         return False
@@ -1143,7 +1143,7 @@ def _pixel_handoffs(
     The three preferences are read on the frame thread and handed over, so the
     preview above, the export and the open all describe one file.
     """
-    from .. import inker_mode
+    from ..modes.inker import mode as inker_mode
 
     if controls.button(verbs.open_in("inker")):
         inker_mode.open_pixel_artifact(

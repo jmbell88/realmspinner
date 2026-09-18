@@ -101,7 +101,7 @@ def test_no_pane_hardcodes_a_pixel_size(path):
 
 
 def test_the_swatch_grid_scales_with_the_display():
-    from warlock.studio.panes import inker_colors
+    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
 
     source = inspect.getsource(inker_colors._swatches)
     assert "sp(SWATCH)" in source

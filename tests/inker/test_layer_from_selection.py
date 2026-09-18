@@ -300,7 +300,7 @@ def test_the_drag_offset_is_measured_against_the_press():
     the transform handles already follow."""
     from types import SimpleNamespace
 
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     state = SimpleNamespace(
         drag_kind="mask-move", drag_anchor=(4.0, 4.0), last_point=(6.4, 1.6)
@@ -319,7 +319,7 @@ def test_the_chords_are_the_photoshop_way_round():
     is that it matches the hand that already knows it."""
     from types import SimpleNamespace
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     calls: list[bool] = []
     doc = SimpleNamespace(
@@ -331,7 +331,7 @@ def test_the_chords_are_the_photoshop_way_round():
     )
     ctx = SimpleNamespace(state=SimpleNamespace(inker=state))
 
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     # Both halves are ops. The shifted one used to be a branch in ``_ctrl_key``
     # as well, which had been unreachable since ``move_to_layer`` gained its
@@ -351,7 +351,7 @@ def test_the_chords_are_refused_while_the_tab_is_busy():
     other mutating chord does."""
     from types import SimpleNamespace
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     calls: list[bool] = []
     doc = SimpleNamespace(layer_from_selection=lambda *, cut: calls.append(cut))

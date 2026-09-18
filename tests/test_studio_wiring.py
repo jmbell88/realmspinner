@@ -26,7 +26,6 @@ from warlock.studio import (
     dialogs,
     filetypes,
     fonts,
-    inker_mode,
     main,
     packwright_io,
     packwright_mode,
@@ -43,6 +42,7 @@ from warlock.studio import (
 )
 from warlock.studio import state as state_mod
 from warlock.studio.modes.clay import mode as clay_mode
+from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.state import AppState, Filters
 
 

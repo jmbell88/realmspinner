@@ -120,7 +120,8 @@ def test_an_inker_row_that_is_a_document_state_reports_its_tick():
     row that is a *setting* rather than an action drew no tick and the user had
     no way to see which way it was set."""
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_state, menus
+    from warlock.studio import menus
+    from warlock.studio.modes.inker import state as inker_state
 
     app_ctx = _ctx()
     app_ctx.state.mode = "inker"

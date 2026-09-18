@@ -17,8 +17,8 @@ was really being used for.
 from __future__ import annotations
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_state
-from warlock.studio.panes import inker_timeline
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
 
 def _tab(uid: str = "t1"):
@@ -155,7 +155,7 @@ def test_the_timeline_strip_is_drawn_unconditionally():
     there is a document at all.
 
     ``_inker_workspace`` moved out of ``studio/main.py`` in the P4 restructure
-    (``dev/RESTRUCTURE.md``), into its own ``studio/inker_workspace.py`` --
+    (``dev/RESTRUCTURE.md``), into its own ``studio/modes/inker/ui/workspace.py`` --
     one module per mode's inline workspace method -- so this walks that file
     now rather than the shell's.
     """
@@ -163,7 +163,7 @@ def test_the_timeline_strip_is_drawn_unconditionally():
     import inspect
     from pathlib import Path
 
-    from warlock.studio import inker_workspace as inker_workspace_mod
+    from warlock.studio.modes.inker.ui import workspace as inker_workspace_mod
 
     source = Path(inspect.getfile(inker_workspace_mod)).read_text(encoding="utf-8")
     tree = ast.parse(source)

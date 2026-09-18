@@ -23,8 +23,8 @@ import pytest
 
 from warlock.kernels.pixel.document import Document
 from warlock.kernels.pixel.slices import SliceKey
-from warlock.studio import inker_state
-from warlock.studio.panes import inker_canvas
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
 ORIGIN = (0.0, 0.0)
 
@@ -373,7 +373,7 @@ def test_a_slice_drag_is_refused_while_a_transform_is_open(monkeypatch):
 
 
 def test_the_shortcut_letter_is_the_one_the_toolbox_shows():
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     letters = {tool: key for key, tool in inker_mode.TOOL_KEYS.items()}
     assert letters["slice"] == "c"

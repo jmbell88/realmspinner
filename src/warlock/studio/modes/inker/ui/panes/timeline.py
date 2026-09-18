@@ -1,0 +1,2364 @@
+"""The timeline: frames across, **layers** down. There is no layers panel.
+
+Aseprite has none, and this is why: rows are layers, columns are frames, cells
+are cels, and visibility, locking, ordering and cel editing all happen in that
+one grid. Warlock used to split the job across ``inker-layers`` (right column,
+always drawn) and this strip (bottom, animated documents only), with layer rows
+drawn in *both* -- two panels, one subject, and 300 px of column for the half
+that could not show a cel.
+
+So the panel is deleted and its rows merged in here. A **still document is a
+one-frame sprite**: ``doc.anim is None`` stays the stored state, and the grid
+renders a single column against the layer stack, which is the same picture with
+one frame in it.
+
+**The strip is always on screen**, at a floor of :data:`STRIP_H` design px.
+It was once hideable, with ``Tab`` toggling it and an ``autoshowTimeline``
+rule raising it on the second layer -- Aseprite's arrangement, ported. Both
+went on 2026-08-23, by user decision, and the argument for going is what the
+port cost: this strip holds the *layer list*, so "hidden" is a state in which
+a document has no visible layers, no eye or lock toggles and no way to reach
+either except a key with nothing on screen naming it. Every defect this pane
+has had was an instance of that -- the animation gate that hid it outright for
+seven months, and the playback wedge where a clip ran on with its Stop button
+off screen. A panel that cannot be hidden cannot be lost, and the strip's
+height is a drag (the ``inker-timeline`` share) for the case it was really
+being hidden for.
+
+**Rows run bottom-up**: the background is the bottom row, which is Aseprite's
+order, Photoshop's order, and -- the reason it changed -- the order this grid's
+own frame columns already implied. The engine's list is painter's order and the
+panel is now the same way up as it.
+
+Two things about this pane are load-bearing rather than incidental.
+
+It is where playback is **ticked**, because there is no per-mode update hook in
+this app and a pane's ``draw`` is the only thing that runs every frame. That is
+the ``motion.py`` idiom applied to something with more at stake, so the tick is
+a single call into ``inker_mode`` and every rule about *what* a tick does lives
+there, next to the pure ``animation.advance`` it delegates the arithmetic to.
+
+And every control here is gated on ``tab.busy`` rather than on ``tab.saving``.
+A save is encoding the layer stack off-thread; playback is walking the playhead
+through frames. Both make restructuring the grid unsafe, and asking one question
+is what stops the third reason being added in one place and forgotten in nine.
+
+Cell thumbnails **are** here, behind the *Thumbs* switch, and they are the
+reason that switch exists: a per-cel texture on a grid that can be fifty wide
+is the ``StripRender`` problem again, so they are drawn on a budget --
+``inker_textures.cel_thumb`` under a 512-entry LRU, at the same quarter-second
+throttle the layer thumbs use -- and they are off by default. (This paragraph
+said they were "deliberately not here" for four months after they shipped.)
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
+from typing import Any
+
+from imgui_bundle import imgui
+
+from ......kernels.pixel import animation
+from ..... import anchors, controls, icons, theme, tokens, toolbar, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as inker_mode
+from . import flourish as inker_flourish_pane
+from . import sheet as inker_sheet_pane
+
+#: The strip's height in design pixels, reserved out of the centre column.
+STRIP_H = 150.0
+
+CELL = 20.0
+#: What a cell grows to when thumbnails are on. Big enough for the drawing in
+#: it to be recognisable and small enough that a fifty-frame clip still fits
+#: across the strip at a normal window width.
+THUMB_CELL = 36.0
+GUTTER = 2.0
+TRACK_LABEL_W = 96.0
+
+#: How far a track's label shifts per level of group nesting. v1 of the L3
+#: timeline half is indent only -- no header row, no fold arrow, unlike the
+#: layers panel's ``_group_row`` -- so this is the entire feature: a plain
+#: offset on the label of a track that ``doc.group_of`` says is inside one.
+#: Deliberately smaller than ``inker_layers.INDENT``: the label column here is
+#: a fixed ``TRACK_LABEL_W`` a name is already truncated to fit, where the
+#: layers panel's column grows with the window.
+GROUP_INDENT = 8.0
+
+
+#: The swatches the timeline's Properties block offers, and the whole of the
+#: colour input. **A fixed row rather than a picker**, which is a deliberate
+#: narrowing of Aseprite's own arbitrary colour: a timeline colour is read at
+#: a glance across a grid of twenty-pixel cells, so what it has to be is
+#: *distinguishable*, and seven that are cannot be produced by a user dragging
+#: in a value wheel. Any colour a file already carries is still drawn as
+#: stored -- this table constrains what the menu can *set*, never what the
+#: model can hold, which is why ``Note.colour`` is a plain RGBA and not an
+#: index into this tuple.
+NOTE_COLOURS: tuple[tuple[str, tuple[int, int, int, int]], ...] = (
+    ("red", (208, 68, 68, 255)),
+    ("orange", (214, 132, 52, 255)),
+    ("yellow", (212, 190, 62, 255)),
+    ("green", (86, 168, 92, 255)),
+    ("blue", (72, 126, 208, 255)),
+    ("purple", (146, 96, 190, 255)),
+    ("grey", (140, 140, 148, 255)),
+)
+
+#: How wide the swatch bar drawn down a row's or a cel's edge is, in design px.
+NOTE_BAR_W = 3.0
+
+
+def _u32(value: int, alpha: float = 1.0) -> int:
+    """A packed draw-list colour, **exactly the theme's own**.
+
+    ``color_convert_float4_to_u32`` packs what it is given;
+    ``imgui.get_color_u32`` would multiply by ``style.Alpha`` as well. The
+    difference is not academic here: the grid draws its row tinting and range
+    overlay inside ``begin_disabled`` blocks, and those bands are how the user
+    reads which cels are selected -- they have to stay legible while the panel
+    is waiting on a save.
+
+    ``inker_canvas._u32`` is the same name for the other choice, deliberately.
+    See it for why the canvas wants the opposite.
+    """
+    return imgui.color_convert_float4_to_u32(theme.rgba(value, alpha))
+
+
+def note_u32(colour: Sequence[int]) -> int:
+    """A note's stored RGBA as a packed draw-list colour.
+
+    Not through :func:`_u32`, which takes a *theme* token and looks it up: a
+    note's colour is the user's own number and has no token, so it is packed
+    straight. ``color_convert_float4_to_u32`` for that function's reason --
+    ``get_color_u32`` would multiply by ``style.Alpha``, and these swatches are
+    drawn inside ``begin_disabled`` blocks where the user still has to be able
+    to read them.
+    """
+    red, green, blue, alpha = colour
+    return imgui.color_convert_float4_to_u32(
+        (red / 255.0, green / 255.0, blue / 255.0, alpha / 255.0)
+    )
+
+
+def _row_stripe(origin: Any, cell: float, geom: dict[str, Any] | None) -> None:
+    """The zebra band for one layer row, painted before the row is submitted.
+
+    ``widgets.list_row`` states the mechanism this relies on: an item submits
+    its own draw commands, so a rect added to the window's draw list *before*
+    the row's first item lands underneath every one of them, with no channel
+    split. That matters here -- ``widgets._BlockScope`` owns the app's only
+    split and a second one on the same list corrupts both -- and it also means
+    the band is not an item: it takes no id, never becomes ``LastItemData``,
+    and so cannot steal the click ``_track_row`` reads off the layer's name,
+    the drag ``_reorder`` begins, or ``_row_menu``'s context popup. This is
+    the whole reason ``list_row`` needs ``set_next_item_allow_overlap`` and
+    this does not: its surface is a real ``invisible_button`` and this is
+    geometry.
+
+    The right edge is ``_track_overlay``'s ``x1`` spelled the same way, so the
+    accent outline of a selected row sits flush on the band rather than inset.
+    The left edge is the row's own cursor, which is *left of* ``x0`` in the
+    label column -- so on a selected row the band shows outside the outline.
+    That is intended (the band is the row, the outline is the selection) and
+    it is one more reason the alpha is kept low.
+
+    Square corners, not ``RADIUS_S``: consecutive bands butt together and the
+    outline over them is square, so rounding would break the column into
+    beads.
+    """
+    if geom is None:
+        return
+    frames = geom["frames"]
+    if frames < 1:
+        # ``_range_overlay``/``_track_overlay``'s guard, for their reason.
+        return
+    pitch = geom["cell"] + geom["gutter"]
+    # The item spacing is part of the row: without it the bands float as bars
+    # with gaps between them and read as stripes *on* rows rather than as
+    # banded rows.
+    height = max(imgui.get_frame_height(), cell) + imgui.get_style().item_spacing.y
+    imgui.get_window_draw_list().add_rect_filled(
+        (origin.x, origin.y),
+        (geom["x0"] + pitch * (frames - 1) + geom["cell"], origin.y + height),
+        # ``_u32`` and not ``get_color_u32``, for that function's documented
+        # reason: row rhythm is structure rather than state, and it must not
+        # fade out with the row while a save has the panel disabled.
+        _u32(theme.ELEV_1, tokens.ROW_STRIPE_ALPHA),
+        0.0,
+    )
+
+
+def _note_bar(colour: Sequence[int] | None) -> None:
+    """Paint the item just laid out with the note's colour down its left edge.
+
+    Over the item rather than instead of it, ``_cel_thumb``'s rule: the eye,
+    the name, the three cel-state glyphs and the whole right-click surface are
+    untouched, so a coloured row is the row it always was with a stripe on it.
+    A stripe and not a fill, because a filled twenty-pixel cell in an arbitrary
+    user colour is a cell whose ``*``/``=`` glyph may be unreadable -- and the
+    glyph is what says whether there is a drawing there at all.
+    """
+    if colour is None:
+        return
+    low, high = imgui.get_item_rect_min(), imgui.get_item_rect_max()
+    imgui.get_window_draw_list().add_rect_filled(
+        (low.x, low.y), (low.x + sp(NOTE_BAR_W), high.y), note_u32(colour)
+    )
+
+
+def _ask_note(ctx: Any, title: str, note: Any, apply: Any) -> None:
+    """The text half of Properties, through the app's own prompt.
+
+    ``_ask_rename``'s idiom exactly, and for its reason: a one-line question is
+    what ``dialogs.Prompt`` is, and a second text field living inside a context
+    menu would be a buffer the pane has to own across the frames the popup is
+    open. The colour half stays on the menu because it is a press, not typing.
+    """
+    from ..... import dialogs
+
+    ctx.prompts.ask(
+        dialogs.Prompt(
+            title=title,
+            label="User data",
+            value=note.text,
+            # Capped for ``_ask_rename``'s reason -- this string is written
+            # into an ``.aseprite`` chunk and an ``animation.json`` key, and
+            # neither wants a paragraph pasted into it.
+            on_accept=lambda text: apply(replace(note, text=text[:120])),
+        )
+    )
+
+
+def _note_items(ctx: Any, key: str, title: str, note: Any, apply: Any) -> None:
+    """The Properties block: the text entry, then the swatch row.
+
+    One helper for all three menus -- the row's, the cel's and the tag's --
+    because they are three views of one model (``Track.note``,
+    ``Animation.cel_notes``, ``Tag.note``) and three copies of this block is
+    three places for the swatch table to drift.
+
+    ``apply`` takes a whole note and hands it to whichever document door owns
+    that element, which is the same shape those doors take: a note is set as
+    one value, so "change the colour, keep the text" is expressed here, once,
+    rather than as a keyword-and-sentinel signature on three methods.
+    """
+    widgets.divider()
+    if controls.selectable(f"Properties...##{key}", False)[0]:
+        _ask_note(ctx, title, note, apply)
+    size = sp(CELL) * 0.7
+    for name, colour in NOTE_COLOURS:
+        red, green, blue, alpha = colour
+        imgui.push_style_color(
+            imgui.Col_.button.value,
+            (red / 255.0, green / 255.0, blue / 255.0, alpha / 255.0),
+        )
+        if controls.button(f"##notecolour-{key}-{name}", (size, size)):
+            apply(replace(note, colour=colour))
+        imgui.pop_style_color()
+        imgui.same_line()
+    # The way back out, and it has to be a control of its own: every swatch
+    # above *sets* a colour, so without this the only edit a coloured element
+    # could not make is the one that undoes the first press.
+    if controls.button(f"{icons.X}##notecolour-{key}-none", (size, size)):
+        apply(replace(note, colour=None))
+
+
+def track_depth(doc: Any, track_uid: int) -> list[int]:
+    """The chain of group uids above one track, innermost first -- ``[]`` at
+    root, exactly ``groups.ancestry``'s answer.
+
+    A thin, testable wrapper: ``_track_row`` only wants the length, to decide
+    how far to indent, but a pure function over ``(doc, uid)`` is what a test
+    can call without a window -- the same reason ``cell_index`` beside it is
+    pure.
+    """
+    if not doc.groups:
+        return []
+    from ......kernels.pixel import groups as gp
+
+    return gp.ancestry(doc.group_of, track_uid)
+
+
+@dataclass(frozen=True)
+class RowEntry:
+    """One row of the grid: a layer, or the header of a group above it."""
+
+    kind: str
+    depth: int
+    #: The stack index a ``"track"`` row draws; ``-1`` on a header.
+    index: int = -1
+    #: The group uid a ``"group"`` row draws; ``-1`` on a track.
+    uid: int = -1
+
+
+def row_plan(
+    doc: Any,
+    indices: Sequence[int] | None = None,
+    collapsed: Any = frozenset(),
+) -> list[RowEntry]:
+    """Which rows the grid draws, in order: headers folded in, folds honoured.
+
+    Pure, for :func:`cell_index`'s reason -- a row that should not have been
+    drawn is a mistake about a *list*, and asserting it against a list is the
+    only way to know it holds. The pane walks the answer and draws it.
+
+    A header goes immediately before the first member of its group *in walk
+    order*, which is what makes the flat stack read as a tree without the
+    stack becoming one: a group's leaves are contiguous by invariant
+    (``groups`` module), so "first member" is unambiguous.
+
+    ``collapsed`` is ``TabDoc.collapsed_groups`` -- view state, per tab. A
+    collapsed group keeps its own header and loses everything under it,
+    nested headers included; there is no half-open state.
+
+    ``indices`` is the filtered row list where the name filter has one. A
+    group whose every layer was filtered away loses its header too: a folder
+    with nothing in it is a claim about a list that is not there.
+    """
+
+    order = doc.member_uids()
+    rows = list(range(len(doc.stack))) if indices is None else [int(i) for i in indices]
+    collapsed = set(collapsed or ())
+    plan: list[RowEntry] = []
+    open_chain: list[int] = []
+    for index in rows:
+        uid = order[index] if 0 <= index < len(order) else None
+        chain = list(reversed(track_depth(doc, uid))) if uid is not None else []
+        shared = 0
+        while (
+            shared < len(open_chain)
+            and shared < len(chain)
+            and open_chain[shared] == chain[shared]
+        ):
+            shared += 1
+        open_chain = chain
+        for depth in range(shared, len(chain)):
+            if any(guid in collapsed for guid in chain[:depth]):
+                continue
+            plan.append(RowEntry("group", depth, uid=chain[depth]))
+        if not any(guid in collapsed for guid in chain):
+            plan.append(RowEntry("track", len(chain), index=index))
+    return plan
+
+
+def striped_rows(plan: Sequence[RowEntry]) -> frozenset[int]:
+    """Which positions in a row plan take the alternating tint.
+
+    Pure, for :func:`row_plan`'s own reason: banding that goes wrong is a
+    mistake about a *list*, and a list is the only thing a headless test can
+    assert it against. Kept separate from ``row_plan`` rather than folded in as
+    a field on ``RowEntry`` because the plan answers *which rows there are* and
+    this answers *which of them are tinted* -- the first is the document, the
+    second is presentation, and splitting them is what lets a test call this on
+    a hand-built plan with no ``Document`` at all.
+
+    **A header neither takes the tint nor advances the count.** ``_group_row``
+    draws no cels, so its band would be a different width and the rhythm would
+    visibly stutter; and it already carries a chevron, a folder glyph and its
+    own eye, so a wash under it reads as "this header is selected". The
+    load-bearing half is the counting: a header that consumed a parity slot
+    puts two tinted layers either side of one untinted header, which is
+    precisely the doubled band the alternation exists to prevent.
+
+    The rank is a position in the *drawn* plan and never ``entry.index``. A
+    name filter or a collapsed group makes the drawn rows a sparse subset of
+    the stack -- ``[0, 3, 7]`` -- and striping on the stack index bands those
+    three rows in a pattern with no relation to what is on screen.
+
+    Odd ranks are the tinted ones, so the topmost row stays clean: it abuts
+    ``_frame_headers`` and a band there merges into the header row.
+    """
+
+    striped: set[int] = set()
+    rank = 0
+    for position, entry in enumerate(plan):
+        if entry.kind != "track":
+            continue
+        if rank % 2:
+            striped.add(position)
+        rank += 1
+    return frozenset(striped)
+
+
+def toggle_fold(tab: Any, group_uid: int) -> None:
+    """Open or shut one group on this tab. View state; nothing is pushed."""
+
+    if group_uid in tab.collapsed_groups:
+        tab.collapsed_groups.discard(group_uid)
+    else:
+        tab.collapsed_groups.add(group_uid)
+
+
+def forget_folds(tab: Any, doc: Any) -> None:
+    """Drop folds naming groups the document no longer has.
+
+    An undo that dissolves a group, or a menu that does, would otherwise leave
+    a uid folded shut with no header on screen to reopen it -- and the uid
+    comes back on a redo still folded, which is a document that opens
+    differently for no reason the user can see.
+    """
+
+    stale = tab.collapsed_groups - set(doc.groups)
+    if stale:
+        tab.collapsed_groups -= stale
+
+
+#: The ``geom`` keys :func:`cell_index` takes, and the reason :func:`hit_cell`
+#: exists rather than a ``**geom`` splat.
+#:
+#: ``geom`` is the grid's per-draw scratch and it holds more than geometry --
+#: ``columns`` and ``order`` are cached lists the rows read. Splatting the whole
+#: dict into a keyword-only signature made every *addition* to that scratch a
+#: ``TypeError`` at the call, and on 2026-08-23 one was: `17b8210` cached those
+#: two lists to stop the row loop rebuilding them, and the next press-and-drag
+#: in the timeline took the frame loop down with
+#: ``cell_index() got an unexpected keyword argument 'columns'``. It shipped,
+#: because nothing headless drags and the pane's own tests call ``cell_index``
+#: directly with the five it wants.
+#:
+#: So the mapping is named once, and ``test_timeline_merge`` asserts it against
+#: the real signature -- a key added to either side now fails a test rather
+#: than a gesture.
+CELL_GEOM_KEYS = ("x0", "tops", "cell", "gutter", "frames")
+
+
+def hit_cell(geom: dict[str, Any], point: tuple[float, float]) -> tuple[int, int] | None:
+    """:func:`cell_index` over the grid's scratch dict. The only caller's door."""
+
+    return cell_index(point, **{key: geom[key] for key in CELL_GEOM_KEYS})
+
+
+def cell_index(
+    point: tuple[float, float],
+    *,
+    x0: float,
+    tops: dict[int, float],
+    cell: float,
+    gutter: float,
+    frames: int,
+) -> tuple[int, int] | None:
+    """``(track index, frame index)`` under a screen point, or None.
+
+    Pure, and it is pure because the drag *has* to be geometric: a pressed
+    imgui button suppresses hover on every neighbour, so ``is_item_hovered``
+    stops answering the moment a marquee starts and the range would freeze at
+    the cell it began on. Everything positional therefore comes in as
+    arguments -- ``tops`` is the screen y of each track's row, captured while
+    the row was drawn, which is also what maps the point through the grid's own
+    scrolling child without this function knowing the child exists.
+
+    Between two columns, below a row, or off either end is None rather than the
+    nearest cell: a drag that snapped to the closest thing would select cells
+    the cursor never touched.
+    """
+    if cell <= 0.0 or frames < 1:
+        return None
+    pitch = cell + gutter
+    offset = point[0] - x0
+    if offset < 0.0:
+        return None
+    frame = int(offset // pitch)
+    if frame >= frames or offset - frame * pitch > cell:
+        return None
+    for track, top in tops.items():
+        if top <= point[1] <= top + cell:
+            return (track, frame)
+    return None
+
+
+def draw(ctx: Any) -> None:
+    # One window, two names: the layers panel and the timeline are the same
+    # surface here (``_track_row`` draws both), so a step about either points
+    # at the same rectangle rather than inventing a second one.
+    anchors.mark_window("inker/timeline")
+    anchors.mark_window("inker/layers")
+    state = ctx.state.inker
+    tab = None if state is None else state.active
+    if tab is None:
+        return
+    _tick(tab)
+    if tab.doc.anim is not None:
+        _transport(ctx, tab)
+        widgets.divider()
+        # Between the transport and the grid, and only on a sheet document:
+        # the strip is about the cells the grid shows, and an ordinary
+        # animation has no scope for it to offer.
+        inker_sheet_pane.draw_strip(ctx, tab)
+        # And, only on an effect group: the recipe's inspector. Same reason,
+        # one door over -- an ordinary animation has no recipe to show.
+        inker_flourish_pane.draw_inspector(ctx, tab)
+    _grid(ctx, tab)
+
+
+def _tick(tab: Any) -> None:
+    """Advance playback by the time since the last drawn frame.
+
+    ``delta_time`` and not a wall clock: it is already the number imgui uses to
+    animate everything else on screen, so a stalled frame stalls the clip by the
+    same amount it stalls every other animation rather than by a different one.
+    """
+    if tab.playing:
+        inker_mode.tick_playback(tab, imgui.get_io().delta_time * 1000.0)
+
+
+#: The transport's five buttons, as ASCII rather than glyphs.
+#:
+#: ``icons.py`` is a *transcription* of lucide-static 0.525.0's codepoint
+#: assignments, and its docstring forbids guessing one -- so a name the vendored
+#: subset does not carry cannot simply be invented here. It has ``play`` and
+#: ``square``; it has no skip-back, no skip-forward and no chevron-left, which
+#: is four of the five. Two ASCII characters in a button that is already the
+#: width of a glyph is the honest fallback, and it is what a video editor's
+#: transport has always looked like anyway.
+_STEPS = (
+    ("first", "|<", "First frame"),
+    ("prev", "<", "Previous frame"),
+)
+_STEPS_AFTER = (
+    ("next", ">", "Next frame"),
+    ("last", ">|", "Last frame"),
+)
+
+
+#: The frame-duration box, in design pixels.
+#:
+#: Wide because ``input_int`` with a step draws its own -/+ buttons *inside* the
+#: item width: at 1.5 those two take about 110 px, so the 90 this used to be
+#: left roughly a character and a half for the number. The row it is on can
+#: afford it -- ``toolbar`` wraps a trailing block that no longer fits onto its
+#: own line rather than clipping it -- which is the trade: a taller row on a
+#: narrow strip, and a legible figure at every width.
+MS_W = 128.0
+
+
+def _transport(ctx: Any, tab: Any) -> None:
+    """One row, laid out by :mod:`~warlock.studio.toolbar`, then the switches.
+
+    This was the worst ``same_line`` chain in the app -- seventeen items across
+    one row, so at 150 % the export buttons were simply not on screen. Splitting
+    it in two bought a year and then failed the same way: at 1280x800, scale
+    1.0, the *second* row overflowed as well -- three of its five exports fell
+    into the ``...`` menu, "Skip empty" was clipped mid-word, and the onion row
+    below it was cut off by the pane's bottom edge.
+
+    So the exports left the timeline entirely (2026-09-05). The five doors are
+    :data:`~warlock.studio.modes.inker.export.DOORS`, drawn by Inker's bridge under
+    *Export* and offered in the File menu, with the sheet knobs that only ever
+    fed them. What is left here is one row about the frame you are on
+    (transport, the frame operations, the counter and that frame's duration)
+    and the two switches that change what this strip draws.
+
+    The transport is pinned, so it collapses to glyphs and stops -- a play
+    button that moves into an overflow menu when the window is dragged is not a
+    transport. **Delete frame** is pinned for the other half of the same rule.
+    The non-buttons -- the counter, the duration box, the toggles, the scale
+    combo, the (?) -- go in each row's ``trailing``, which is measured before
+    the tiers are chosen and so cannot be the thing that gets clipped.
+    """
+    doc = tab.doc
+    anim = doc.anim
+    state = ctx.state.inker
+    index = tab.play_index if tab.playing else anim.current
+
+    items = [
+        toolbar.Item(key, label, tooltip=tip, enabled=not tab.busy, pinned=True)
+        for key, label, tip in _STEPS
+    ]
+    label, glyph, tip = widgets.transport_label(tab.playing)
+    items.append(
+        toolbar.Item("play", label, glyph, tooltip=tip, enabled=not tab.saving, pinned=True)
+    )
+    items += [
+        toolbar.Item(key, label, tooltip=tip, enabled=not tab.busy, pinned=True)
+        for key, label, tip in _STEPS_AFTER
+    ]
+    items += [
+        toolbar.Item(
+            "add", "Frame", icons.PLUS, tooltip="Add an empty frame",
+            enabled=not tab.busy, priority=1,
+        ),
+        toolbar.Item(
+            "copy", "Copy", icons.COPY, tooltip="Add a copy of this frame",
+            enabled=not tab.busy, priority=1,
+        ),
+        toolbar.Item(
+            "link", "Link",
+            tooltip="Add a frame whose cels are links to this one's",
+            enabled=not tab.busy, priority=1,
+        ),
+        toolbar.Item(
+            "remove", "Delete frame", icons.TRASH,
+            enabled=not tab.busy and len(anim.frames) > 1,
+            reason="A clip needs at least one frame.",
+            role=toolbar.ButtonRole.DESTRUCTIVE, pinned=True, priority=1,
+        ),
+    ]
+    toolbar.toolbar(
+        "inker-transport",
+        items,
+        lambda key: _frame_action(ctx, tab, key),
+        trailing=_frame_trailing(ctx, tab, index),
+    )
+
+    _view_toggles(ctx, state)
+    _onion_controls(state)
+
+
+#: What the export row used to be. Kept as a comment rather than as code: the
+#: five doors it drew are :data:`inker_export.DOORS` now, presented by the
+#: bridge and by the File menu (2026-09-05). The row overflowed at 1280x800 --
+#: three exports in a ``...`` menu, "Skip empty" clipped mid-word, and the
+#: onion row under it cut off by the pane's bottom edge -- so what leaves the
+#: app was the part of the timeline you could not see.
+_EXPORTS_MOVED_TO = "warlock.studio.modes.inker.export"
+
+
+def _view_toggles(ctx: Any, state: Any) -> None:
+    """Onion and Thumbs: the two switches that stayed.
+
+    Neither reaches a file. Onion draws the neighbouring frames' ghosts on the
+    canvas and Thumbs draws each cel's picture in its own timeline cell, so
+    both are about what is *on screen while you work* -- which is what this
+    strip is for. Everything else that shared their row (magnification,
+    arrange, wrap, merge, skip empty, trim, padding, extrude, the filename
+    template) is read only by ``inker_export._submit_export`` and moved with
+    the doors.
+    """
+    changed, value = widgets.toggle("Onion", state.onion, tag="inker-onion")
+    if changed:
+        state.onion = value
+    imgui.same_line()
+    changed, value = widgets.toggle("Thumbs", state.timeline_thumbs, tag="inker-thumbs")
+    if changed:
+        state.timeline_thumbs = value
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(
+            "Draws each cel's picture in its timeline cell, and grows the "
+            "cells to fit. Linked cels share one thumbnail, so a link is "
+            "visible as the same drawing in several columns."
+        )
+    manual_render.help_button(ctx, "inker-timeline")
+
+
+def _frame_action(ctx: Any, tab: Any, key: str) -> None:
+    doc = tab.doc
+    anim = doc.anim
+    if key == "first":
+        doc.set_current_frame(0)
+    elif key == "prev":
+        inker_mode.step_frame(ctx, -1, tab)
+    elif key == "play":
+        inker_mode.toggle_play(ctx, tab)
+    elif key == "next":
+        inker_mode.step_frame(ctx, 1, tab)
+    elif key == "last":
+        doc.set_current_frame(len(anim.frames) - 1)
+    elif key == "add":
+        doc.add_frame()
+    elif key == "copy":
+        doc.add_frame(copy=True)
+    elif key == "link":
+        doc.add_frame(link=True)
+    elif key == "remove":
+        doc.remove_frame()
+
+
+def _frame_trailing(ctx: Any, tab: Any, index: int) -> tuple[float, Any]:
+    """Where you are in the clip, and how long this frame lasts."""
+    anim = tab.doc.anim
+    # The position only. The clip's total used to be here too and it was the
+    # widest thing on the app's tightest row, sitting next to a box that shows
+    # this frame's duration -- two numbers in milliseconds a hand's breadth
+    # apart, one of which is not about the frame you are on.
+    counter = f"{index + 1}/{len(anim.frames)}"
+    gap = imgui.get_style().item_spacing.x
+    width = (
+        imgui.calc_text_size(counter).x
+        + sp(MS_W)
+        + imgui.calc_text_size("ms").x
+        + gap * 2
+    )
+
+    def draw_it() -> None:
+        imgui.text(counter)
+        imgui.same_line()
+        # The frame the counter is naming, which during playback is the one
+        # going past rather than the one the playhead will come back to.
+        # Read-only while it moves: an edit box whose value changes ten times a
+        # second is not something a user can type into, and ``tick_playback``
+        # deliberately does not move ``anim.current``, so a write here would
+        # land on a frame that is not the one on screen.
+        imgui.set_next_item_width(sp(MS_W))
+        imgui.begin_disabled(tab.busy)
+        # ``commit=True``: this writes history. Without it every keystroke was
+        # its own undo step, so typing "120" took three Ctrl+Z to reverse and
+        # the first one landed on "12".
+        #
+        # **Left beside the box, not above it.** This is ``_transport``'s own
+        # trailing measurement -- "the worst same_line chain in the app" its
+        # docstring calls the row it sits on -- and ``draw_it`` is sized in
+        # ``_frame_trailing`` to the counter's and the box's width alone. A
+        # field label is another whole text line the pinned single-height
+        # transport row has no room to grow into (the 2026-09-08 label-above
+        # pass's exception for a fixed-height row).
+        changed, value = controls.input_int(
+            "ms", anim.frames[index].duration_ms, 10, 50, commit=True
+        )
+        if changed:
+            tab.doc.set_frame_duration(index, value)
+        imgui.end_disabled()
+
+    return (width, draw_it)
+
+
+#: How many neighbours either side onion skinning will draw. A ceiling rather
+#: than an open int because each one is a full-canvas texture and a draw: the
+#: number is a working preference, not a budget the user should be able to spend
+#: the frame time on by typing.
+MAX_ONION = 5
+
+
+def _onion_controls(state: Any) -> None:
+    """Depth and fade for onion skinning, shown only while it is on.
+
+    The fields have been read by the canvas since onion skinning landed and
+    fixed at 1/1/0.35 because nothing wrote them -- which is the wrong default
+    for a two-frame cycle and for a twelve-frame walk in opposite directions.
+    They are app-level settings, like the toggle beside them and every other
+    tool setting, because how far back a user wants to see is a property of how
+    they work rather than of the drawing.
+
+    Its own row, rather than continuing one. It used to ``same_line`` after the
+    duration box because the transport row was already full and a ``same_line``
+    past the panel edge does not wrap, it hides the control; now the row above
+    ends in a right-aligned (?), so continuing it would put these three past
+    the edge for certain.
+    """
+    if not state.onion:
+        return
+    imgui.begin_group()
+    widgets.field_label("Back")
+    imgui.set_next_item_width(sp(70))
+    changed, value = controls.input_int("##back", state.onion_before, 1, 1)
+    imgui.end_group()
+    if changed:
+        state.onion_before = max(0, min(int(value), MAX_ONION))
+    imgui.same_line()
+    imgui.begin_group()
+    widgets.field_label("Ahead")
+    imgui.set_next_item_width(sp(70))
+    changed, value = controls.input_int("##ahead", state.onion_after, 1, 1)
+    imgui.end_group()
+    if changed:
+        state.onion_after = max(0, min(int(value), MAX_ONION))
+    imgui.same_line()
+    imgui.begin_group()
+    widgets.field_label("Fade")
+    imgui.set_next_item_width(sp(90))
+    changed, alpha = controls.slider_float("##fade", state.onion_alpha, 0.05, 1.0, "%.2f")
+    imgui.end_group()
+    if changed:
+        state.onion_alpha = min(1.0, max(0.05, float(alpha)))
+    # Its own row, not ``same_line``d onto the three above: that row already
+    # carries two int boxes and a slider, and a ``same_line`` past the panel
+    # edge does not wrap, it hides the control.
+    changed, only = controls.checkbox(
+        "current layer only",
+        state.onion_current_layer,
+        tooltip=(
+            "Ghost only the active layer's drawing on the neighbouring frames, "
+            "rather than the whole frame."
+        ),
+    )
+    if changed:
+        state.onion_current_layer = bool(only)
+    _onion_more(state)
+    _constant_rate(state)
+
+
+def _constant_rate(state: Any) -> None:
+    """Play at one rate rather than at the stored durations (6.7).
+
+    On the onion row because it is the other *preview* setting: neither
+    changes a frame, and both answer "what does this look like" rather than
+    "make it so". Zero is off, and the label says so rather than the control
+    disappearing -- a spin box that vanished at zero would be one the user
+    could not find again.
+    """
+    tab = state.active
+    if tab is None:
+        return
+    imgui.same_line()
+    imgui.begin_group()
+    widgets.field_label("FPS")
+    imgui.set_next_item_width(sp(90))
+    changed, value = controls.input_int("##fps", int(tab.constant_rate), 1, 1)
+    imgui.end_group()
+    if changed:
+        tab.constant_rate = max(0, min(int(value), 120))
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(
+            "Play every frame at this rate instead of its own duration. 0 uses "
+            "the durations the document stores. It changes no frame."
+        )
+
+
+ONION_POPUP = "inker-onion-more"
+
+
+def _onion_more(state: Any) -> None:
+    """The four settings of 6.7, behind one button.
+
+    Behind a popover rather than on the row for the reason the Dynamics popup
+    exists: these are the settings of a *sitting* -- what colour the ghosts
+    are, how fast they fade, whether they sit over the drawing, whether the
+    cycle wraps at the tag -- reached when a way of working changes and then
+    left, while back/ahead/fade are the three a hand moves while animating.
+    """
+    imgui.same_line()
+    if widgets.icon_button(f"{icons.SLIDERS}##onionmore", "More onion settings"):
+        imgui.open_popup(ONION_POPUP)
+    with controls.menu_popup(ONION_POPUP) as opened:
+        if not opened:
+            return
+        for attr, label, hint in (
+            (
+                "onion_tint_back",
+                "Before",
+                "Which colour the earlier frames are ghosted in.",
+            ),
+            (
+                "onion_tint_forward",
+                "After",
+                "And the later ones. Two tints rather than two constants "
+                "because red and green over a red-and-green sprite is two "
+                "ghosts nobody can tell from the art.",
+            ),
+        ):
+            packed = int(getattr(state, attr))
+            colour = (
+                (packed >> 16) & 0xFF,
+                (packed >> 8) & 0xFF,
+                packed & 0xFF,
+                255,
+            )
+            changed, value = controls.color_edit4(
+                f"{label}##{attr}",
+                imgui.ImVec4(*(channel / 255.0 for channel in colour)),
+                imgui.ColorEditFlags_.no_alpha.value,
+            )
+            if changed:
+                setattr(
+                    state,
+                    attr,
+                    (round(value.x * 255) << 16)
+                    | (round(value.y * 255) << 8)
+                    | round(value.z * 255),
+                )
+            widgets.help_marker(hint)
+        changed, falloff = widgets.labeled_slider_float(
+            "Falloff",
+            float(state.onion_falloff),
+            0.0,
+            3.0,
+            help_text=(
+                "How fast a ghost fades with distance. 1 is the even falloff "
+                "this always had; higher drops the far ones away faster, which "
+                "is what a twelve-frame onion needs to stay readable, and 0 "
+                "makes every ghost the same strength for tracing a cycle."
+            ),
+        )
+        if changed:
+            state.onion_falloff = max(0.0, float(falloff))
+        changed, front = controls.checkbox(
+            "In front of the drawing", state.onion_in_front
+        )
+        if changed:
+            state.onion_in_front = bool(front)
+        widgets.help_marker(
+            "Under is right for drawing the next pose; over is right for "
+            "checking one you have just drawn against the last."
+        )
+        changed, wrap = controls.checkbox("Wrap inside the tag", state.onion_wrap_tag)
+        if changed:
+            state.onion_wrap_tag = bool(wrap)
+        widgets.help_marker(
+            "What an animator inside a walk cycle means by the frame before "
+            "this one is the tag's last frame, not the previous clip's."
+        )
+
+
+def frame_uids(doc) -> list:
+    """The frame column ids, or ``[None]`` for a still document.
+
+    One list, so every row-drawing function below is written once: a still
+    document is a one-frame sprite and ``None`` is that one frame. It is not a
+    model change -- ``doc.anim is None`` remains the stored state -- it is the
+    grid refusing to have two shapes.
+    """
+    anim = doc.anim
+    return list(anim.frames) if anim is not None else [None]
+
+
+def _grid(ctx: Any, tab: Any) -> None:
+    doc = tab.doc
+    state = ctx.state.inker
+    cell = sp(THUMB_CELL if state.timeline_thumbs else CELL)
+    gutter = sp(GUTTER)
+    if not imgui.begin_child("inker-timeline-grid", (0, 0), 0):
+        imgui.end_child()
+        return
+
+    # The layers panel's filter, moved rather than dropped: it is one of six
+    # call sites in the app and the list it filtered is this one now.
+    needle = widgets.list_filter(ctx, "inker-layers", len(doc.stack))
+    header_x0 = _frame_headers(ctx, tab, cell, gutter)
+    # Where every cell ended up, filled in as the rows draw. The marquee is
+    # measured against this rather than against hover, and the numbers have to
+    # be *screen* coordinates so the scrolling child maps for free.
+    # Both lists are built **once per draw** and carried in ``geom``, which is
+    # already the per-draw scratch the rows are handed. They used to be rebuilt
+    # inside the row loop: ``frame_uids`` once per *track* and ``member_uids``
+    # once per *row*, so a twenty-track fifty-frame clip allocated seventy lists
+    # a frame to answer two questions whose answers cannot change while the grid
+    # is drawing.
+    columns = frame_uids(doc)
+    geom: dict[str, Any] = {
+        # The header's measurement, not a placeholder: see ``_frame_headers``.
+        "x0": header_x0,
+        "tops": {},
+        "cell": cell,
+        "gutter": gutter,
+        "frames": len(columns),
+        "columns": columns,
+        "order": doc.member_uids(),
+    }
+    # **Bottom-up**: index 0 is the background and it draws last, at the foot.
+    # This is the one thing about the grid that reversed when the panel merged
+    # in -- the panel drew top-down because Photoshop's does, and the grid has
+    # always read the same way down the page as the stack does.
+    # Before the plan: a fold naming a group an undo has just dissolved would
+    # otherwise hide rows no header on screen could bring back.
+    forget_folds(tab, doc)
+    matched = [
+        index
+        for index in range(len(doc.stack))
+        if not needle or needle in (doc.stack[index].name or "").lower()
+    ]
+    # Computed once over the whole plan rather than counted inside the loop,
+    # which is what keeps the parity rule (and its header case) assertable
+    # against a list -- see ``striped_rows``.
+    plan = row_plan(doc, matched, tab.collapsed_groups)
+    stripes = striped_rows(plan)
+    for position, entry in enumerate(plan):
+        if entry.kind == "group":
+            _group_row(ctx, tab, doc, entry)
+            continue
+        _track_row(
+            ctx, tab, entry.index, cell, gutter, geom, stripe=position in stripes
+        )
+    # The *filter's* count, not the drawn one: a collapsed folder hides rows
+    # that matched perfectly well, and "no layers match" would be a lie about
+    # the filter rather than a statement about the fold.
+    widgets.no_matches(needle, len(matched))
+    _range_gesture(ctx, tab, geom)
+    _range_overlay(ctx, tab, geom)
+    if doc.anim is not None:
+        _tag_row(ctx, tab, cell, gutter)
+
+    imgui.end_child()
+
+
+def _range_gesture(ctx: Any, tab: Any, geom: dict[str, Any]) -> None:
+    """Extend the range while the mouse is held, and clear it on Escape.
+
+    Run once after the rows rather than per cell, because the whole point of
+    measuring geometrically is that the cell under the cursor is not the cell
+    that owns the press.
+    """
+    state = ctx.state.inker
+    if (tab.range_sel is not None or tab.track_sel) and imgui.is_key_pressed(
+        imgui.Key.escape
+    ):
+        clear_track_selection(tab)
+        state.timeline_anchor = None
+        return
+    if state.timeline_anchor is None or not imgui.is_mouse_down(0):
+        return
+    hit = hit_cell(geom, tuple(imgui.get_mouse_pos()))
+    if hit is None:
+        return
+    anchor_t, anchor_f = state.timeline_anchor
+    track, frame = hit
+    tab.range_sel = (
+        min(anchor_t, track),
+        max(anchor_t, track),
+        min(anchor_f, frame),
+        max(anchor_f, frame),
+    )
+
+
+def _range_overlay(ctx: Any, tab: Any, geom: dict[str, Any]) -> None:
+    """One accent outline round the whole range, not a tint per cell.
+
+    A per-cell fill would fight the three cel states the cells already use
+    colour for -- empty, drawn, linked -- and the selection is one thing rather
+    than n things.
+    """
+    if tab.track_sel:
+        _track_overlay(tab, geom)
+        return
+    rect = tab.range_sel
+    if rect is None:
+        return
+    t0, t1, f0, f1 = rect
+    tops: dict[int, float] = geom["tops"]
+    cell, gutter, frames = geom["cell"], geom["gutter"], geom["frames"]
+    # Clamped *here*, at use: the stored rect is allowed to name frames a
+    # delete has since taken away, and trimming it on every edit would shrink
+    # the user's selection under them.
+    rows = [top for track, top in tops.items() if t0 <= track <= t1]
+    if not rows or frames < 1:
+        return
+    lo = max(0, min(int(f0), frames - 1))
+    hi = max(0, min(int(f1), frames - 1))
+    if hi < lo:
+        return
+    pitch = cell + gutter
+    x = geom["x0"] + pitch * lo
+    imgui.get_window_draw_list().add_rect(
+        (x - 1.0, min(rows) - 1.0),
+        (x + pitch * (hi - lo) + cell + 1.0, max(rows) + cell + 1.0),
+        _u32(theme.ACCENT),
+        # rounding is the 4th positional and thickness the *5th*.
+        0.0,
+        sp(2),
+    )
+
+
+def _track_overlay(tab: Any, geom: dict[str, Any]) -> None:
+    """One outline per selected row, across the whole strip.
+
+    A discontiguous selection has no rectangle, so the single outline the
+    marquee draws cannot state it -- and drawing the bounding box of rows 1 and
+    6 would claim four rows nothing is going to happen to, which is worse than
+    drawing nothing. One box per row is the only honest shape.
+
+    Full width rather than per cell, because what is selected here is *layers*:
+    the verbs this feeds are the row's own -- hide, lock, duplicate, delete --
+    and none of them is about a frame.
+    """
+    tops: dict[int, float] = geom["tops"]
+    cell, gutter, frames = geom["cell"], geom["gutter"], geom["frames"]
+    if frames < 1 or "x0" not in geom:
+        return
+    rows = sorted(top for track, top in tops.items() if track in tab.track_sel)
+    if not rows:
+        return
+    pitch = cell + gutter
+    x0 = geom["x0"]
+    x1 = x0 + pitch * (frames - 1) + cell
+    draw = imgui.get_window_draw_list()
+    for top in rows:
+        draw.add_rect(
+            (x0 - 1.0, top - 1.0),
+            (x1 + 1.0, top + cell + 1.0),
+            _u32(theme.ACCENT),
+            # rounding is the 4th positional and thickness the *5th*.
+            0.0,
+            sp(2),
+        )
+
+
+def _frame_headers(ctx: Any, tab: Any, cell: float, gutter: float) -> float:
+    """The frame numbers, and the three toggle-alls in front of them.
+
+    The eye, the padlock and the continuous flag in the header cell set *every*
+    row at once, which is Aseprite's header and the answer to the same round
+    trips ``_drag_toggle`` addresses from the other direction.
+
+    **Returns the x every row's first cell will land at**, which is this
+    function's second job and the reason it has a return value at all.
+    ``geom["x0"]`` used to be seeded ``0.0`` and filled in by ``_cell``, so it
+    was the window origin for the whole of the first track row of *every*
+    draw -- not merely the first frame -- and ``_range_overlay`` and
+    ``_track_overlay`` both read it. An overlay resolving before a cell had
+    recorded the real value drew its accent box hard against the left edge of
+    the window. The header lays its own cells out with the same
+    ``same_line(sp(TRACK_LABEL_W))`` the rows use, so it already knows the
+    answer a row is about to arrive at; measuring it here is what makes the
+    number available *before* the first row draws. ``_cell`` goes on
+    overwriting it with the measured cell rect -- the same value, and
+    measurement stays the authority.
+    """
+    doc = tab.doc
+    anim = doc.anim
+    _toggle_all(ctx, tab)
+    imgui.same_line(sp(TRACK_LABEL_W))
+    # Read after the ``same_line`` and before anything is submitted: this is
+    # the cursor the first cell of every row starts from. Deliberately not
+    # ``origin.x + sp(TRACK_LABEL_W)`` -- ``same_line`` offsets from the
+    # window position less the scroll, where the cursor at row entry carries
+    # ``WindowPadding.x`` on top of it, so the arithmetic version overshoots
+    # by one padding and every overlay drawn against it sits inset.
+    x0 = imgui.get_cursor_screen_pos().x
+    if anim is None:
+        # One column, no number: the header of a still document says which
+        # frame you are on, and there is only one.
+        imgui.dummy((cell, cell))
+        return x0
+    playing = tab.play_index if tab.playing else anim.current
+    for index, frame in enumerate(anim.frames):
+        if index:
+            imgui.same_line(0.0, gutter)
+        imgui.push_id(f"fh{frame.uid}")
+        current = index == playing
+        if current:
+            imgui.push_style_color(imgui.Col_.button.value, theme.rgba(theme.ACCENT, 0.9))
+        # Every tenth frame numbered: a fifty-frame clip with a number in every
+        # 20px cell is a wall of digits, and a tick every ten is how a ruler
+        # solves the same problem.
+        label = str(index + 1) if index % 10 == 0 or current else "."
+        if controls.button(label, (cell, cell)) and not tab.busy:
+            tab.doc.set_current_frame(index)
+        if current:
+            imgui.pop_style_color()
+        _frame_menu(tab, index)
+        imgui.pop_id()
+    return x0
+
+
+def _toggle_all(ctx: Any, tab: Any) -> None:
+    """Eye and padlock over the whole stack, from the header row.
+
+    "All visible" is decided by *any* row being hidden, not by all of them
+    being shown: with three of ten hidden, the button a user reaches for means
+    "show everything", and a strict-all rule would make it hide the seven.
+    """
+    doc = tab.doc
+    hidden = any(not layer.visible for layer in doc.stack)
+    locked = all(layer.locked for layer in doc.stack) if len(doc.stack) else False
+    # The gate every mutating surface takes (``busy`` is ``saving or
+    # playing``), and it was the one the layers panel did not have: ``ora.py``
+    # walks ``doc.stack`` twice on the task thread -- once for ``stack.xml``
+    # and again for the PNG members -- so a visibility flip landing between the
+    # two passes writes an archive whose parts disagree with each other.
+    imgui.begin_disabled(tab.busy)
+    if widgets.icon_button(
+        f"{icons.EYE if not hidden else icons.EYE_OFF}##alleyes",
+        "Show every layer" if hidden else "Hide every layer",
+        borderless=True,
+    ):
+        doc.set_all_layer_props(visible=hidden)
+    imgui.same_line()
+    if widgets.icon_button(
+        f"{icons.LOCK if locked else icons.LOCK_OPEN}##alllocks",
+        "Unlock every layer" if locked else "Lock every layer",
+        borderless=True,
+    ):
+        doc.set_all_layer_props(locked=not locked)
+    imgui.end_disabled()
+
+
+def _frame_menu(tab: Any, index: int) -> None:
+    doc = tab.doc
+    if not imgui.begin_popup_context_item(f"framemenu{index}"):
+        return
+    widgets.popup_chrome(_imgui=imgui)
+    imgui.begin_disabled(tab.busy)
+    if controls.menu_item_simple("Insert before"):
+        doc.add_frame(index)
+    if controls.menu_item_simple("Duplicate (copied)"):
+        doc.set_current_frame(index)
+        doc.add_frame(index + 1, copy=True)
+    if controls.menu_item_simple("Duplicate (linked)"):
+        doc.set_current_frame(index)
+        doc.add_frame(index + 1, link=True)
+    widgets.divider()
+    # Disabled at the ends rather than clicked-and-ignored: an enabled item that
+    # does nothing reads as a bug in the move, not as "there is nowhere to go".
+    last = len(doc.anim.frames) - 1
+    imgui.begin_disabled(index <= 0)
+    if controls.menu_item_simple("Move left"):
+        doc.move_frame(index, index - 1)
+    imgui.end_disabled()
+    imgui.begin_disabled(index >= last)
+    if controls.menu_item_simple("Move right"):
+        doc.move_frame(index, index + 1)
+    imgui.end_disabled()
+    widgets.divider()
+    if controls.menu_item_simple("Delete"):
+        doc.remove_frame(index)
+    widgets.divider()
+    # A one-frame span, renamed and stretched from the tag's own menu below.
+    # The alternative -- a modal asking for a name and a range up front -- is
+    # three answers for something the user is about to look at and adjust
+    # anyway, and there is no frame-range selection for it to read.
+    if controls.menu_item_simple("New tag here"):
+        doc.add_tag(f"tag {len(doc.anim.tags) + 1}", index)
+    imgui.end_disabled()
+    imgui.end_popup()
+
+
+def track_range(tab: Any, doc: Any) -> tuple[int, int] | None:
+    """The timeline range's *track* span, or None. One reader; it was two panes.
+
+    The range is the timeline's selection, and a row inside it draws
+    highlighted and has its controls act on the whole span. It lived in the
+    layers panel because that panel was the other view of this axis; there is
+    one view now. Clamped at use like every other reader of
+    ``range_sel`` -- it is stored unclamped on purpose.
+    """
+    rect = getattr(tab, "range_sel", None)
+    if rect is None or doc.anim is None:
+        return None
+    low, high = sorted((int(rect[0]), int(rect[1])))
+    low, high = max(0, low), min(high, len(doc.anim.tracks) - 1)
+    return None if low > high else (low, high)
+
+
+def track_rows(tab: Any, doc: Any) -> list[int]:
+    """Every selected layer row, in stack order. ``[]`` when none is.
+
+    The one place the precedence between the two ways a layer gets selected is
+    resolved, so no verb has to know there are two. An explicit
+    ``track_sel`` -- Ctrl+click, possibly discontiguous -- wins outright; with
+    it empty the answer is the track span of the cell marquee, which is what
+    the timeline has always meant by "selected rows".
+
+    Clamped here, at use, like every other reader of a stored selection.
+    """
+    explicit = getattr(tab, "track_sel", None)
+    if explicit and doc.anim is not None:
+        limit = len(doc.anim.tracks)
+        return sorted({int(i) for i in explicit if 0 <= int(i) < limit})
+    span = track_range(tab, doc)
+    return [] if span is None else list(range(span[0], span[1] + 1))
+
+
+def toggle_track(tab: Any, doc: Any, index: int) -> bool:
+    """Ctrl+click a layer name: add it to the selection, or take it out.
+
+    **Seeded from whatever is selected now**, so Ctrl+clicking a third row
+    after dragging a two-row marquee widens that selection instead of throwing
+    it away and starting from one. That is the behaviour of every list in
+    every file manager, and getting it wrong is the thing that makes a
+    multi-select feel broken rather than merely different.
+
+    The cell marquee is cleared, because the two cannot both be true: a
+    discontiguous set of tracks is not a rectangle, and leaving the rectangle's
+    outline drawn would have the timeline claiming a selection the verbs are
+    not acting on.
+    """
+    if doc.anim is None or not (0 <= index < len(doc.anim.tracks)):
+        return False
+    rows = set(track_rows(tab, doc))
+    if index in rows:
+        rows.discard(index)
+    else:
+        rows.add(index)
+    tab.track_sel = rows
+    tab.range_sel = None
+    return True
+
+
+def clear_track_selection(tab: Any) -> None:
+    """Drop both halves. What Escape and a fresh marquee press both want."""
+    tab.track_sel = set()
+    tab.range_sel = None
+
+
+def extend_range(tab: Any, doc: Any, index: int) -> bool:
+    """Shift-click: stretch the timeline range from the active row to this one.
+
+    The anchor is the row that *was* active, read before the click moves it --
+    which is the same thing the timeline's own drag anchors on, so the two
+    axes of one selection behave the same way. The frame span is left alone
+    when there already is one: the user is widening the track side of an
+    existing range, not starting a new one.
+    """
+    if doc.anim is None or not imgui.get_io().key_shift:
+        return False
+    anchor = doc.stack.active_index
+    rect = getattr(tab, "range_sel", None)
+    frames = (rect[2], rect[3]) if rect is not None else (0, len(doc.anim.frames) - 1)
+    tab.range_sel = (min(anchor, index), max(anchor, index), *frames)
+    return True
+
+
+def _track_row(
+    ctx: Any,
+    tab: Any,
+    track_index: int,
+    cell: float,
+    gutter: float,
+    geom: dict[str, Any] | None = None,
+    *,
+    stripe: bool = False,
+) -> None:
+    """One layer: its eye, its name, its lock, and its cels across.
+
+    The layers panel's row and the timeline's row, which were two renderings of
+    the same layer in two panes, are this. What the panel had and the strip did
+    not -- the eye, the lock glyph, the drag reorder, the context menu, the
+    tooltip that carries blend and opacity -- came with it; what the strip had
+    and the panel could not show is everything to the right of the name.
+    """
+    doc = tab.doc
+    layer = doc.stack[track_index]
+    active_track = track_index == doc.stack.active_index
+
+    # Before the ``push_id`` and well before the ``indent`` below, which moves
+    # the cursor: the band is measured from where the row *starts*.
+    if stripe:
+        _row_stripe(imgui.get_cursor_screen_pos(), cell, geom)
+
+    imgui.push_id(f"tr{layer.uid}")
+    # Indent only (L3 v1): no header row and no fold, so a grouped track's row
+    # is exactly like an ungrouped one except that its label is shifted right
+    # by its nesting depth. ``same_line(sp(TRACK_LABEL_W))`` below is an
+    # *absolute* offset from the window's own left edge, not from wherever the
+    # indent left the cursor, so it puts the first cell at the same x either
+    # way -- the indent cannot move a cell, only the text before it.
+    depth = _depth(doc, track_index, None if geom is None else geom["order"])
+    if depth:
+        imgui.indent(sp(GROUP_INDENT) * depth)
+    # The eye, not a checkbox: it is what every layers panel draws there, and
+    # the off state is a different glyph rather than an empty box -- an empty
+    # box beside a thumbnail reads as "unselected", which visibility is not.
+    # ``_toggle_all``'s gate, per row. The eye is disabled rather than merely
+    # ignored so the row *says* it is not accepting edits, and the guards
+    # inside ``_drag_toggle``/``_reorder`` are belt to this braces: a
+    # drag-and-drop source is not something ``begin_disabled`` reliably stops.
+    imgui.begin_disabled(tab.busy)
+    if widgets.icon_button(
+        f"{icons.EYE if layer.visible else icons.EYE_OFF}##visible",
+        "Hide this layer" if layer.visible else "Show this layer",
+        borderless=True,
+    ):
+        _set_visible(ctx, tab, track_index, not layer.visible)
+    imgui.end_disabled()
+    _drag_toggle(ctx, tab, track_index)
+    imgui.same_line()
+    label = layer.name[:12]
+    if layer.locked or layer.alpha_lock:
+        label += f" {icons.LOCK}"
+    if active_track:
+        widgets.text_colored(theme.ACCENT, label)
+    elif not layer.visible:
+        widgets.muted(label)
+    else:
+        imgui.text(label)
+    # The row's own swatch. Read off the *track*, which is where a note lives
+    # -- ``doc.stack[track_index]`` above is the materialised cel and carries
+    # none -- and drawn only on an animated document, because a still one has
+    # no track for the colour to have been set on.
+    if doc.anim is not None and track_index < len(doc.anim.tracks):
+        _note_bar(doc.anim.tracks[track_index].note.colour)
+    # The name is the row's own hit target. Clicking it selects the layer --
+    # which before this could only be done by clicking a *cel*, so a still
+    # document's one column was the only way to change rows -- and Shift-click
+    # stretches the timeline range to here, which is what ``extend_range`` was
+    # written for and never wired to.
+    # Ctrl+click is tried first and Shift+click second, which is the order
+    # every list in every file manager resolves them in: Ctrl adds one row to
+    # what is already picked, Shift replaces the span. Neither moves the active
+    # layer -- a multi-select is about what the verbs act on, and moving the
+    # row the tools paint on as a side effect of picking a set is the surprise
+    # this ordering exists to avoid.
+    if imgui.is_item_clicked(0) and not tab.busy:
+        if imgui.get_io().key_ctrl:
+            toggle_track(tab, doc, track_index)
+        elif not extend_range(tab, doc, track_index):
+            # A plain click is a fresh single selection, so an explicit
+            # Ctrl+click set stops applying -- ``_press``'s rule on the grid.
+            tab.track_sel = set()
+            doc.set_active_layer(track_index)
+    if imgui.is_item_hovered():
+        detail = f"{layer.blend}  {layer.opacity * 100:.0f}%"
+        if not layer.visible:
+            detail += "  hidden"
+        if layer.alpha_lock:
+            detail += "  alpha locked"
+        if layer.locked:
+            detail += "  locked"
+        note = None if doc.anim is None else doc.anim.tracks[track_index].note
+        if note is not None and note.text:
+            # On its own line: the row above is a list of flags read at a
+            # glance, and a sentence of the user's own prose appended to it
+            # would be indistinguishable from another flag.
+            detail += f"\n{note.text}"
+        imgui.set_tooltip(detail)
+    _reorder(ctx, tab, doc, track_index)
+    _row_menu(ctx, tab, doc, track_index)
+    if depth:
+        imgui.unindent(sp(GROUP_INDENT) * depth)
+    imgui.same_line(sp(TRACK_LABEL_W))
+
+    columns = frame_uids(doc) if geom is None else geom["columns"]
+    for frame_index, frame in enumerate(columns):
+        if frame_index:
+            imgui.same_line(0.0, gutter)
+        imgui.push_id(frame_index if frame is None else frame.uid)
+        _cell(ctx, tab, track_index, frame, track_index, frame_index, cell, geom)
+        imgui.pop_id()
+    imgui.pop_id()
+
+
+def _group_row(ctx: Any, tab: Any, doc: Any, entry: RowEntry) -> None:
+    """A group's header: the fold, its eye, its name, and its verbs.
+
+    The row the panel never had. ``TabDoc.collapsed_groups`` was declared for
+    as long as groups have existed and read by nothing, so a folder could be
+    made and never shut -- and ``set_group_props`` and ``ungroup`` were engine
+    doors with no caller at all. All three arrive here, because a header row is
+    where a user looks for them.
+
+    No cells to the right of it. A group is pass-through (see the ``groups``
+    module): there is no group *cel* to draw, and a row of empty boxes would
+    suggest one could be painted.
+    """
+    node = doc.groups.get(entry.uid)
+    if node is None:  # pragma: no cover - a fold outlived its group
+        return
+    collapsed = entry.uid in tab.collapsed_groups
+    imgui.push_id(f"gp{entry.uid}")
+    if entry.depth:
+        imgui.indent(sp(GROUP_INDENT) * entry.depth)
+    # The fold is *not* gated on ``tab.busy``: it changes no pixels, pushes no
+    # step and touches nothing a save is walking -- it is where the user looks,
+    # and a save that greyed it out would be the panel refusing to scroll.
+    if widgets.icon_button(
+        f"{icons.CHEVRON_RIGHT if collapsed else icons.CHEVRON_DOWN}##fold",
+        "Expand this group" if collapsed else "Collapse this group",
+        borderless=True,
+    ):
+        toggle_fold(tab, entry.uid)
+    imgui.same_line()
+    imgui.begin_disabled(tab.busy)
+    if widgets.icon_button(
+        f"{icons.EYE if node.visible else icons.EYE_OFF}##gvisible",
+        "Hide this group" if node.visible else "Show this group",
+        borderless=True,
+    ):
+        doc.set_group_props(entry.uid, visible=not node.visible)
+    imgui.end_disabled()
+    imgui.same_line()
+    label = f"{icons.FOLDER_OPEN} {node.name[:11]}"
+    if node.locked:
+        label += f" {icons.LOCK}"
+    if node.visible:
+        imgui.text(label)
+    else:
+        widgets.muted(label)
+    # The header is a drop target, which is how a layer gets *into* a folder:
+    # ``_reorder``'s payload is a stack index, and ``move_into_group`` folds the
+    # membership change and the stack move that keeps the group contiguous into
+    # one step. Registered against the name for the reason the row's own source
+    # is: it is the thing the cursor is over.
+    if imgui.begin_drag_drop_target():
+        payload = imgui.accept_drag_drop_payload_py_id("inker-layer")
+        if payload is not None and not tab.busy:
+            source = _row_of_uid(doc, int(payload.data_id))
+            if source is not None:
+                doc.move_into_group(source, entry.uid)
+        imgui.end_drag_drop_target()
+    if imgui.is_item_hovered():
+        detail = f"group  {node.opacity * 100:.0f}%"
+        if not node.visible:
+            detail += "  hidden"
+        if node.locked:
+            detail += "  locked"
+        imgui.set_tooltip(detail)
+    _group_menu(ctx, tab, doc, entry.uid)
+    if entry.depth:
+        imgui.unindent(sp(GROUP_INDENT) * entry.depth)
+    imgui.pop_id()
+
+
+def _group_menu(ctx: Any, tab: Any, doc: Any, group_uid: int) -> None:
+    """The header's verbs -- ``_row_menu``'s shape, one level up."""
+    from ......kernels import pixel as inker
+    from ......kernels.pixel import groups as gp
+
+    if not imgui.begin_popup_context_item("group-menu"):
+        return
+    widgets.popup_chrome(_imgui=imgui)
+    node = doc.groups.get(group_uid)
+    if node is None:  # pragma: no cover - dissolved between draw and click
+        imgui.end_popup()
+        return
+    imgui.begin_disabled(tab.busy)
+    if controls.selectable("Rename", False)[0]:
+        _ask_group_rename(ctx, doc, group_uid)
+    widgets.field_label("Opacity")
+    changed, opacity = controls.slider_float(
+        # ``##``-prefixed onto the unchanged ``Opacity##group`` id -- the
+        # label moved above to match its neighbour ``Blend``, which already
+        # goes through ``labeled_combo``.
+        "##Opacity##group", float(node.opacity), 0.0, 1.0, "%.2f"
+    )
+    controls.fold_undo(doc.history)
+    if changed:
+        doc.set_group_props(group_uid, opacity=float(opacity))
+    # Blend and Isolate sit together because they are one idea: a mode needs a
+    # result to act on, and only an isolated folder has one. Picking a mode
+    # therefore *turns isolation on* rather than being refused without it,
+    # which is ``groups.isolated``'s rule surfaced rather than restated -- the
+    # tick below goes on by itself and the user sees why.
+    blend = widgets.labeled_combo(
+        "Blend",
+        node.blend,
+        [(mode, mode) for mode in inker.BLEND_MODES],
+        sp(140),
+        help_text=(
+            "How this folder's own result combines with what is under it. "
+            "Choosing anything but Normal composites the folder in isolation."
+        ),
+    )
+    if blend != node.blend:
+        doc.set_group_props(group_uid, blend=blend)
+    # Left enabled while a mode is set, and deliberately: it reads as ticked
+    # and cannot be unticked, which is the honest picture of a mode implying
+    # it. Clicking sets the flag the mode was already forcing, so the tick
+    # stays and nothing about the drawing changes.
+    if controls.selectable("Isolate", bool(gp.isolated(node)))[0]:
+        doc.set_group_props(group_uid, isolate=not node.isolate)
+    if controls.selectable("Locked", bool(node.locked))[0]:
+        doc.set_group_props(group_uid, locked=not node.locked)
+    widgets.divider()
+    if controls.selectable("Ungroup", False)[0]:
+        # The fold goes with the group: keeping it would fold the uid shut
+        # again the moment a redo brought the group back.
+        doc.ungroup(group_uid)
+        tab.collapsed_groups.discard(group_uid)
+    imgui.end_disabled()
+    imgui.end_popup()
+
+
+def _ask_group_rename(ctx: Any, doc: Any, group_uid: int) -> None:
+    from ..... import dialogs
+
+    node = doc.groups.get(group_uid)
+    if node is None:  # pragma: no cover - dissolved between draw and click
+        return
+    ctx.prompts.ask(
+        dialogs.Prompt(
+            title="Rename group",
+            label="Name",
+            value=node.name,
+            on_accept=lambda text: doc.set_group_props(group_uid, name=text[:60]),
+        )
+    )
+
+
+def _depth(doc: Any, index: int, order: list[int] | None = None) -> int:
+    """How deep in the group tree this row sits.
+
+    *order* is ``member_uids()``, hoisted by :func:`_grid` because it is the
+    same list for every row of one draw and building it walks the whole stack.
+    ``None`` asks for it here, which is what the callers outside the grid want.
+    """
+    order = doc.member_uids() if order is None else order
+    uid = order[index] if 0 <= index < len(order) else None
+    if uid is None:
+        return 0
+    return len(track_depth(doc, uid))
+
+
+def _set_visible(ctx: Any, tab: Any, index: int, visible: bool) -> None:
+    """Show or hide one row, or a whole selected block of them.
+
+    A row inside a multi-track range toggles the whole range, as one step: the
+    user selected a block and clicked its eye, and hiding one row of it would
+    be an answer to a question nobody asked.
+    """
+    doc = tab.doc
+    rows = row_targets(tab, doc, index)
+    if len(rows) > 1:
+        doc.set_tracks_props(rows, visible=visible)
+    else:
+        doc.set_layer_props(index, visible=visible)
+
+
+def _drag_toggle(ctx: Any, tab: Any, index: int) -> None:
+    """Press one eye and drag down the column to set every row you pass.
+
+    Aseprite's gesture, and the reason it is worth having: hiding eight of ten
+    layers is otherwise eight round trips to the same 16 px target. The state
+    applied is the one the *first* row took, so the drag paints a value rather
+    than flipping each row it crosses.
+    """
+    state = ctx.state.inker
+    if tab.busy:
+        _end_eye_drag(state)
+        return
+    if imgui.is_item_activated():
+        state.eye_drag = not tab.doc.stack[index].visible
+        state.eye_drag_was = {}
+        return
+    if state.eye_drag is None:
+        return
+    if not imgui.is_mouse_down(0):
+        # **One step for the whole gesture.** The rows were written live so the
+        # column follows the cursor; the undo entry is asked for here, once, on
+        # release -- ``_toggle_all``'s rule from the other direction. Eight rows
+        # crossed used to cost eight Ctrl+Z to put back.
+        _end_eye_drag(state, tab)
+        return
+    if imgui.is_item_hovered() and tab.doc.stack[index].visible != state.eye_drag:
+        # Written straight onto the row rather than through ``set_layer_props``:
+        # the step for all of them is pushed on release, and an edit per row
+        # here is exactly what that exists to avoid.
+        state.eye_drag_was.setdefault(index, {"visible": tab.doc.stack[index].visible})
+        tab.doc.stack[index].visible = state.eye_drag
+        if tab.doc.anim is not None:
+            tab.doc.anim.tracks[index].visible = state.eye_drag
+        tab.doc.invalidate_all()
+
+
+def _end_eye_drag(state: Any, tab: Any = None) -> None:
+    """Close the gesture, recording its one step where there is one to record.
+
+    ``tab`` is ``None`` on the abandon path (the document went busy mid-drag),
+    where the rows have already been written and there is nothing safe to push
+    -- the gate exists precisely because the stack must not be restructured
+    now. The pre-image is dropped either way, so the next drag starts clean.
+    """
+    was, state.eye_drag_was = state.eye_drag_was, {}
+    painted, state.eye_drag = state.eye_drag, None
+    if tab is not None and was and painted is not None:
+        tab.doc.set_layers_props(sorted(was), was=was, visible=painted)
+
+
+def _row_of_uid(doc: Any, uid: int) -> int | None:
+    """Where the layer with ``uid`` sits in the stack right now, or None.
+
+    Undo is addressed by uid and never by index (the package's rule); a drag
+    that spans frames has to follow it, because the stack can be restructured
+    between the pick-up and the drop.
+    """
+
+    for position, layer in enumerate(doc.stack):
+        if layer.uid == uid:
+            return position
+    return None
+
+
+def _reorder(ctx: Any, tab: Any, doc: Any, index: int) -> None:
+    """Drag a layer's name onto another row to move it there.
+
+    imgui's drag-and-drop payload carries the dragged layer's **uid**, not its
+    index. A drag spans frames, and an index is a *position*: an undo, a
+    duplicate or another reorder landing while the button is held leaves the
+    number naming whichever layer has since moved into that slot, and the
+    bounds check that used to guard it cannot tell the two apart. The uid is
+    resolved back to a position at the drop, so the layer that moves is the
+    one that was picked up or nothing moves at all.
+
+    Refused outright while the tab is busy rather than drawn disabled: a
+    reorder is the exact write ``ora.py``'s two passes over ``doc.stack``
+    cannot survive, and ``begin_disabled`` does not stop a drag-drop source
+    from registering.
+    """
+    if tab.busy:
+        return
+    # ``source_allow_null_id`` is not optional here, and its absence was a live
+    # crash rather than a missing nicety. The item this drags *from* is the
+    # layer's name, and a name is ``imgui.text`` -- an item imgui adds with id
+    # **0**. ``BeginDragDropSource`` asserts outright on a null id unless told
+    # to derive one from the item's rectangle, and it gets that far whenever
+    # the row is hovered *or* anything in the same window holds the active id
+    # -- which is to say, on the frame any timeline cell or frame header is
+    # held down. So pressing a cell asserted inside the *next* row's reorder,
+    # the exception unwound past ``layout.pane``'s ``end_child``, and what
+    # surfaced was a "Missing PopID()" naming neither the row nor the reason.
+    # Drag-reorder had therefore never worked: the one gesture it exists for
+    # took the same path.
+    flags = (
+        imgui.DragDropFlags_.source_no_hold_to_open_others.value
+        | imgui.DragDropFlags_.source_allow_null_id.value
+    )
+    if imgui.begin_drag_drop_source(flags):
+        imgui.set_drag_drop_payload_py_id("inker-layer", doc.stack[index].uid)
+        imgui.text(doc.stack[index].name)
+        imgui.end_drag_drop_source()
+    if imgui.begin_drag_drop_target():
+        payload = imgui.accept_drag_drop_payload_py_id("inker-layer")
+        if payload is not None:
+            source = _row_of_uid(doc, int(payload.data_id))
+            if source is not None and source != index:
+                doc.move_layer(source, index)
+        imgui.end_drag_drop_target()
+
+
+def row_targets(tab: Any, doc: Any, index: int) -> list[int]:
+    """Which rows a verb clicked on ``index`` acts on.
+
+    The whole selected block when the click landed inside a multi-row range,
+    and that row alone otherwise -- which is exactly ``_set_visible``'s rule,
+    named once now that four more verbs need it. A range is a *selection*, and
+    a menu that ignored it while the highlight said otherwise is worse than no
+    range at all.
+    """
+    rows = track_rows(tab, doc)
+    if index in rows and len(rows) > 1:
+        return rows
+    return [index]
+
+
+def merge_range_or_say(ctx: Any, doc: Any, low: int, high: int) -> bool:
+    """``doc.merge_range`` from the row menu, with a toast where it refuses.
+
+    The 2026-09-13 audit, finding inker-06: a per-cel Z lift between the pair
+    makes ``merge_range`` refuse by *raising* ``ValueError``
+    (``_doc_layers.py``'s ``_refuse_merge_across_z``) rather than returning
+    ``False``, and this menu had no ``try`` around the call -- the pane guard
+    unwinds and logs, so the click silently did nothing and never said why.
+    ``inker_ops.run`` is the house choke point for this shape (see its own
+    catch, finding inker-01), but the row menu calls the document directly, so
+    the catch is repeated here, pulled into its own function so it is
+    reachable without a live imgui popup.
+    """
+    try:
+        return doc.merge_range(low, high)
+    except ValueError as exc:
+        ctx.state.inker.say(str(exc))
+        return False
+
+
+def _row_menu(ctx: Any, tab: Any, doc: Any, index: int) -> None:
+    """The row's own verbs -- over the range where there is one."""
+    if not imgui.begin_popup_context_item("layer-menu"):
+        return
+    widgets.popup_chrome(_imgui=imgui)
+    rows = row_targets(tab, doc, index)
+    # "Delete layer" against one row and "Delete 3 layers" against a block: the
+    # label is how the user finds out the verb is about the selection before
+    # pressing it, which a menu that silently widened its scope would not say.
+    span = "" if len(rows) < 2 else f" {len(rows)} layers"
+    # ``_frame_menu``'s shape: the menu opens so the user can see what is on
+    # it, and every verb on it is disabled while the document is busy.
+    imgui.begin_disabled(tab.busy)
+    if controls.selectable("Rename", False)[0]:
+        _ask_rename(ctx, doc, index)
+    # "Layer properties", not "Properties": this opens the blend/opacity/lock
+    # dialog, and the row's *own* Properties -- its user data and its timeline
+    # colour -- is the block at the bottom of this menu. Two items called
+    # Properties in one menu is a menu that answers neither question.
+    if controls.selectable("Layer properties...", False)[0]:
+        doc.set_active_layer(index)
+        ctx.state.inker.pending_dialog = "inker-layer-properties"
+    widgets.divider()
+    if controls.selectable("Move up", False)[0]:
+        doc.move_layer(index, index + 1)
+    if controls.selectable("Move down", False)[0]:
+        doc.move_layer(index, index - 1)
+    widgets.divider()
+    if controls.selectable(f"Duplicate{span or ' layer'}", False)[0]:
+        doc.duplicate_layers(rows)
+    if controls.selectable(f"Merge down{span}", False)[0]:
+        merge_range_or_say(ctx, doc, min(rows), max(rows))
+    if controls.selectable(f"Delete{span or ' layer'}", False)[0]:
+        doc.remove_layers(rows)
+    widgets.divider()
+    if controls.selectable(f"Group{span}", False)[0]:
+        doc.group_layers(rows)
+    if doc.group_of.get(_member_uid(doc, index)) is not None and controls.selectable(
+        "Take out of group", False
+    )[0]:
+        doc.move_into_group(index, None)
+    if doc.anim is not None and index < len(doc.anim.tracks):
+        # Animated documents only, and hidden rather than greyed: a note lives
+        # on a ``Track`` and a still document has none, so there is nothing
+        # here for a disabled control to promise (``set_track_note``'s own
+        # argument, at the door).
+        _note_items(
+            ctx,
+            "track",
+            "Layer user data",
+            doc.anim.tracks[index].note,
+            lambda note: doc.set_track_note(note, index),
+        )
+    imgui.end_disabled()
+    imgui.end_popup()
+
+
+def _member_uid(doc: Any, index: int) -> int:
+    """What the group tree knows this row by -- the *track* uid on an animated
+    document, because a materialised empty cel carries a placeholder uid of its
+    own. ``Document.member_uids`` owns the argument."""
+    order = doc.member_uids()
+    return order[index] if 0 <= index < len(order) else -1
+
+
+def _ask_rename(ctx: Any, doc: Any, index: int) -> None:
+    from ..... import dialogs
+
+    layer = doc.stack[index]
+    # By **uid**, resolved when the answer comes back: a prompt is a modal the
+    # user can leave up, and everything that restructures the stack -- an undo,
+    # a new layer, a reorder -- keeps working behind it. The captured index
+    # then names whichever layer has since moved into that slot, and renames
+    # that one instead. Undo is addressed by uid and never by index (the
+    # package's rule); a deferred callback is the same problem one level up.
+    uid = layer.uid
+
+    def accept(text: str) -> None:
+        row = _row_of_uid(doc, uid)
+        if row is not None:
+            doc.set_layer_props(row, name=text[:60])
+
+    ctx.prompts.ask(
+        dialogs.Prompt(title="Rename layer", label="Name", value=layer.name, on_accept=accept)
+    )
+
+
+def _cell(
+    ctx: Any,
+    tab: Any,
+    track: Any,
+    frame: Any,
+    ti: int,
+    fi: int,
+    cell: float,
+    geom: dict[str, Any] | None = None,
+) -> None:
+    doc = tab.doc
+    anim = doc.anim
+    state = ctx.state.inker
+    if anim is None:
+        # A still document is a one-frame sprite: the single column *is* the
+        # layer, so it is never empty and never linked. ``track`` is the row
+        # index here rather than a track object, which is what lets one row
+        # renderer serve both shapes.
+        layer, linked = doc.stack[ti], False
+    else:
+        track_obj = anim.tracks[ti]
+        layer = anim.cel(track_obj.uid, frame.uid)
+        linked = layer is not None and anim.is_linked(track_obj.uid, frame.uid)
+    # Three states, three glyphs, and colour on top rather than instead: a grid
+    # that only differs by hue is unreadable to a chunk of people, which is the
+    # argument STATUS_GLYPHS already makes elsewhere in this app.
+    if layer is None:
+        label, colour, alpha = "", theme.PANEL, 0.5
+    elif linked:
+        label, colour, alpha = "=", theme.ACCENT, 0.55
+    else:
+        label, colour, alpha = "*", theme.ACCENT, 0.9
+    imgui.push_style_color(imgui.Col_.button.value, theme.rgba(colour, alpha))
+    if controls.button(label, (cell, cell)) and not tab.busy:
+        doc.set_active_layer(ti)
+        if anim is not None:
+            doc.set_current_frame(fi)
+    imgui.pop_style_color()
+    if geom is not None:
+        low = imgui.get_item_rect_min()
+        geom["tops"][ti] = low.y
+        if fi == 0:
+            geom["x0"] = low.x
+    # ``is_item_clicked`` and not the button's own return: a marquee starts on
+    # the *press*, and the button answers on the release -- by which time the
+    # drag is over.
+    if imgui.is_item_clicked(0):
+        _press(ctx, tab, ti, fi)
+    elif imgui.is_item_clicked(1) and not _in_range(tab.range_sel, ti, fi):
+        # A right-click outside the range moves it here first, so the menu
+        # below can never act on cells that are not the ones under the cursor.
+        _press(ctx, tab, ti, fi)
+    if state.timeline_thumbs:
+        _cel_thumb(ctx, tab, layer, cell)
+    if anim is not None:
+        # After the thumbnail, so the stripe is on top of the picture rather
+        # than under it -- a note the drawing hides is a note nobody can see.
+        _note_bar(anim.cel_note(anim.tracks[ti].uid, frame.uid).colour)
+        _cell_menu(ctx, tab, ti, fi, layer is not None, linked)
+
+
+def _in_range(rect: tuple[int, int, int, int] | None, ti: int, fi: int) -> bool:
+    if rect is None:
+        return False
+    t0, t1, f0, f1 = rect
+    return t0 <= ti <= t1 and f0 <= fi <= f1
+
+
+def _press(ctx: Any, tab: Any, ti: int, fi: int) -> None:
+    """Start a range at this cell, or extend the last one to it with Shift."""
+    state = ctx.state.inker
+    if imgui.get_io().key_shift and state.timeline_anchor is not None:
+        anchor_t, anchor_f = state.timeline_anchor
+        tab.range_sel = (
+            min(anchor_t, ti),
+            max(anchor_t, ti),
+            min(anchor_f, fi),
+            max(anchor_f, fi),
+        )
+        return
+    state.timeline_anchor = (ti, fi)
+    # A press on the grid is the user selecting *cells*, so an explicit layer
+    # selection made with Ctrl+click stops applying. Left standing it would go
+    # on deciding what the row verbs act on while the marquee said otherwise.
+    tab.track_sel = set()
+    tab.range_sel = (ti, ti, fi, fi)
+
+
+def _cel_thumb(ctx: Any, tab: Any, layer: Any, cell: float) -> None:
+    """Draw a cel's picture inside the button that was just laid out.
+
+    Over the button rather than instead of it, so the three cel-state colours
+    and the whole right-click surface are untouched -- and an empty slot draws
+    nothing at all, which is what a placeholder should look like.
+
+    Only asked for when the cell is actually on screen: the grid can be fifty
+    wide inside a scroller a dozen cells across, and requesting a texture per
+    cell would upload the other thirty-eight every frame.
+    """
+    from . import textures as inker_textures
+
+    if layer is None or ctx.viewer is None:
+        return
+    low, high = imgui.get_item_rect_min(), imgui.get_item_rect_max()
+    if not imgui.is_rect_visible(low, high):
+        return
+    texture = inker_textures.cel_thumb(ctx, tab, layer, int(max(8.0, cell)))
+    if texture is None:
+        return
+    imgui.get_window_draw_list().add_image(
+        widgets.texture_ref(texture),
+        (low.x + 1.0, low.y + 1.0),
+        (high.x - 1.0, high.y - 1.0),
+    )
+
+
+def _cell_menu(
+    ctx: Any, tab: Any, ti: int, fi: int, has_cel: bool, linked: bool
+) -> None:
+    doc = tab.doc
+    if not imgui.begin_popup_context_item("celmenu"):
+        return
+    widgets.popup_chrome(_imgui=imgui)
+    imgui.begin_disabled(tab.busy)
+    imgui.begin_disabled(fi <= 0)
+    if controls.menu_item_simple("Link to previous frame"):
+        doc.link_cel(fi - 1, track_index=ti, frame_index=fi)
+    imgui.end_disabled()
+    if linked and controls.menu_item_simple("Unlink"):
+        doc.unlink_cel(track_index=ti, frame_index=fi)
+    if has_cel and controls.menu_item_simple("Clear"):
+        doc.clear_cel(track_index=ti, frame_index=fi)
+    if has_cel:
+        # Per-cel opacity, on the *cel* menu and not the row menu, because that
+        # is the difference the feature is: the row's own slider is the track's
+        # and this multiplies it for this slot alone. A linked cel gets one of
+        # these per slot, which is the point -- the engine keys the value by
+        # ``(track uid, frame uid)`` rather than by the shared ``Layer``.
+        widgets.field_label("Opacity")
+        changed, alpha = controls.slider_float(
+            # ``##``-prefixed onto the unchanged ``Opacity##cel`` id: this
+            # exact string is what ``test_timeline_cel_opacity_input.py``
+            # locates the slider by through the probe census, so the label
+            # moved above without renaming the id underneath it.
+            "##Opacity##cel",
+            float(doc.anim.cel_alpha(doc.anim.tracks[ti].uid, doc.anim.frames[fi].uid)),
+            0.0,
+            1.0,
+            "%.2f",
+        )
+        controls.fold_undo(doc.history)
+        if changed:
+            doc.set_cel_opacity(float(alpha), track_index=ti, frame_index=fi)
+        # Per-cel z-index, beside the per-cel opacity and keyed the same way:
+        # how many rows *up* this one slot draws from where its track sits. The
+        # bounds are the stack's own height rather than the format's ``i16``,
+        # because anything past that is the same picture as the end of it.
+        # ``len(tracks)`` and not ``len(tracks) - 1``, which is the off-by-one
+        # worth naming: an offset that lands *on* the top row's height ties
+        # with it and a tie keeps track order, so clearing the top of an
+        # n-row stack from the bottom takes exactly n. The door
+        # (``Document.set_cel_z``) still takes the format's whole range, so a
+        # value out of somebody else's file round-trips rather than being
+        # clamped by a control the user never touched.
+        reach = max(1, len(doc.anim.tracks))
+        widgets.field_label("Z")
+        changed, zed = controls.slider_int(
+            # ``##``-prefixed onto the unchanged ``Z##cel`` id, for
+            # ``Opacity##cel``'s reason just above -- ``test_timeline_cel_
+            # z_input.py`` finds it by this exact string.
+            "##Z##cel",
+            int(doc.anim.cel_zindex(doc.anim.tracks[ti].uid, doc.anim.frames[fi].uid)),
+            -reach,
+            reach,
+        )
+        controls.fold_undo(doc.history)
+        if changed:
+            doc.set_cel_z(int(zed), track_index=ti, frame_index=fi)
+        # Per-slot user data, beside the per-slot opacity and keyed the same
+        # way. A linked cel gets one of these per slot too, which is the whole
+        # reason ``cel_notes`` is a dict rather than a ``Layer`` field.
+        _note_items(
+            ctx,
+            "cel",
+            "Cel user data",
+            doc.anim.cel_note(doc.anim.tracks[ti].uid, doc.anim.frames[fi].uid),
+            lambda note: doc.set_cel_note(note, ti, fi),
+        )
+    _range_menu(ctx, tab)
+    imgui.end_disabled()
+    imgui.end_popup()
+
+
+#: The cel-wise range verbs, as ``(label, run, needs_square)``.
+#:
+#: A table rather than nine hand-written menu items, for the reason
+#: ``tests/inker/test_ui_tables.py`` exists: every one of these is a pane
+#: offering something the engine implements, and a list the tests can walk is
+#: the only way to assert the two agree in both directions. ``needs_square``
+#: is the *pane's* copy of the engine's refusal -- greyed here so the user is
+#: told before they click, refused there so nothing can get past by another
+#: door. Both, deliberately; neither one alone is enough.
+RANGE_VERBS: tuple[tuple[str, Any, bool], ...] = (
+    ("Flip horizontal", lambda doc, r: doc.flip_range("horizontal", *r), False),
+    ("Flip vertical", lambda doc, r: doc.flip_range("vertical", *r), False),
+    # ``rotate_range`` counts counter-clockwise quarters, as ``np.rot90`` does,
+    # so clockwise is three of them.
+    ("Rotate 90 clockwise", lambda doc, r: doc.rotate_range(3, *r), True),
+    ("Rotate 90 anticlockwise", lambda doc, r: doc.rotate_range(1, *r), True),
+    ("Rotate 180", lambda doc, r: doc.rotate_range(2, *r), False),
+    # Always wrapping. The engine keeps ``wrap=False`` for a caller that wants
+    # it, but a menu verb with no number beside it should not be able to push
+    # a drawing off the edge one press at a time.
+    ("Shift left", lambda doc, r: doc.shift_range(-1, 0, True, *r), False),
+    ("Shift right", lambda doc, r: doc.shift_range(1, 0, True, *r), False),
+    ("Shift up", lambda doc, r: doc.shift_range(0, -1, True, *r), False),
+    ("Shift down", lambda doc, r: doc.shift_range(0, 1, True, *r), False),
+)
+
+
+def _run_range_verb(ctx: Any, doc: Any, run: Any, rect: tuple[int, int, int, int]) -> None:
+    """One verb, with the engine's refusal framed into a sentence.
+
+    Framed rather than forwarded: "a 90-degree rotation of a cel range needs a
+    square canvas" is a statement about the engine, and the user needs one
+    about what they just tried to do. ``test_no_toast_forwards_a_bare_exception``
+    makes that a ratchet.
+    """
+    try:
+        run(doc, rect)
+    except ValueError as exc:
+        ctx.toast(f"That range was not changed: {exc}.", "warn")
+
+
+def _range_menu(ctx: Any, tab: Any) -> None:
+    """Everything the range ops offer, as one section of the cell menu.
+
+    **Disabled, never hidden.** A menu whose items appear and disappear with
+    the selection is one the user has to re-learn every time they open it; a
+    greyed row says "this exists and here is why you cannot have it", which is
+    the same argument ``_frame_menu``'s move items already make at the ends of
+    the timeline.
+    """
+    state = ctx.state.inker
+    doc = tab.doc
+    rect = tab.range_sel
+    widgets.divider()
+    widgets.muted("Range")
+    # With no range, the corner is where the user is: the active track and the
+    # playhead. Only Paste can be reached in that state, and "put it here" is
+    # what it should mean.
+    #
+    # Greyed through ``enabled``/``reason`` rather than wrapped in
+    # ``begin_disabled``: the wrapper leaves a row that does nothing and says
+    # nothing about why, and ``menu_item_simple`` has taken the pair since it
+    # was written. This menu's own rule two screens down -- "disabled, never
+    # hidden" -- is only half a rule without the sentence.
+    has_range = rect is not None
+    no_range = "Select a block of cels on the timeline first."
+    here = (doc.stack.active_index, doc.stack.active_index, doc.anim.current, doc.anim.current)
+    t0, t1, f0, f1 = rect or here
+    if controls.menu_item_simple("Copy cels", enabled=has_range, reason=no_range):
+        state.cel_clip = doc.copy_cels(t0, t1, f0, f1)
+    # Paste is the one item whose gate is the *clipboard* rather than the
+    # selection: it lands at the range's corner, and with no range at all the
+    # playhead and active track are the corner.
+    if controls.menu_item_simple(
+        "Paste cels",
+        enabled=state.cel_clip is not None,
+        reason="Copy some cels first; there is nothing on the cel clipboard.",
+    ):
+        doc.paste_cels(state.cel_clip, t0, f0)
+
+    widgets.divider()
+    if controls.menu_item_simple("Clear cels", enabled=has_range, reason=no_range):
+        doc.clear_range(t0, t1, f0, f1)
+    if controls.menu_item_simple("Link cels", enabled=has_range, reason=no_range):
+        doc.link_range(t0, t1, f0, f1)
+    if controls.menu_item_simple("Unlink cels", enabled=has_range, reason=no_range):
+        doc.unlink_range(t0, t1, f0, f1)
+
+    widgets.divider()
+    square = doc.size[0] == doc.size[1]
+    for label, run, needs_square in RANGE_VERBS:
+        # Disabled, never hidden -- this menu's rule, stated at the top -- and
+        # now with the sentence that makes the rule worth having. Two reasons,
+        # named apart, because "no range" and "not square" are two different
+        # things to do about it.
+        blocked = "" if has_range else no_range
+        if not blocked and needs_square and not square:
+            blocked = "This drawing is not square, so it cannot be turned."
+        if controls.menu_item_simple(label, enabled=not blocked, reason=blocked):
+            _run_range_verb(ctx, doc, run, (t0, t1, f0, f1))
+    if controls.menu_item_simple(
+        "Fill with foreground", enabled=has_range, reason=no_range
+    ):
+        doc.fill_range(state.fg, t0, t1, f0, f1)
+
+    widgets.divider()
+    if controls.menu_item_simple("Duplicate frames", enabled=has_range, reason=no_range):
+        doc.duplicate_range(f0, f1)
+    if controls.menu_item_simple(
+        "Duplicate frames (linked)", enabled=has_range, reason=no_range
+    ):
+        doc.duplicate_range(f0, f1, link=True)
+    if controls.menu_item_simple("Reverse frames", enabled=has_range, reason=no_range):
+        doc.reverse_range(f0, f1)
+    if controls.menu_item_simple("Delete frames", enabled=has_range, reason=no_range):
+        doc.remove_range(f0, f1)
+
+    widgets.divider()
+    widgets.field_label("Duration, in ms")
+    imgui.set_next_item_width(sp(90))
+    changed, value = controls.input_int(
+        "##ms##rangems", state.range_ms, 10, 50, enabled=has_range, reason=no_range
+    )
+    if changed:
+        state.range_ms = max(animation.MIN_DURATION_MS, int(value))
+    if controls.menu_item_simple(
+        "Set frame durations", enabled=has_range, reason=no_range
+    ):
+        doc.set_range_duration(f0, f1, state.range_ms)
+    _range_export_items(ctx, tab, f0, f1, enabled=has_range, reason=no_range)
+
+
+def _range_export_items(
+    ctx: Any, tab: Any, f0: int, f1: int, *, enabled: bool = True, reason: str = ""
+) -> None:
+    """Export just this span, as the same three files the whole clip offers.
+
+    Frames only: the range's track bounds are about *cels*, and every export
+    writes flattened frames -- a sheet of "tracks 2-3 of frames 4-9" is not a
+    thing the sidecar can describe.
+
+    The gate is passed in rather than recomputed: these rows sat inside the
+    caller's ``begin_disabled`` and are greyed for exactly the caller's reason.
+    """
+    widgets.divider()
+    for label, kind in (
+        ("Export range → sheet...", "sheet"),
+        ("Export range → GIF...", "gif"),
+        ("Export range → PNG sequence...", "pngs"),
+    ):
+        if controls.menu_item_simple(label, enabled=enabled, reason=reason):
+            inker_mode.export_range(ctx, tab, kind, (f0, f1))
+
+
+def _tag_row(ctx: Any, tab: Any, cell: float, gutter: float) -> None:
+    """Tags as a band under the grid, drawn rather than laid out.
+
+    A row of widgets would need one per frame to keep the columns aligned; a
+    single line per tag with the draw list needs the column arithmetic once and
+    lets a tag be any length without inventing a widget for a span.
+
+    The name doubles as the handle: right-click it for the menu, and a rename
+    swaps it for an input in place. Renaming inline rather than in a modal is
+    what lets the ends be set from the playhead in the same menu -- a dialog
+    would have to own the whole tag, and the whole tag is a name plus two
+    numbers the user is picking by looking at the grid behind it.
+    """
+    anim = tab.doc.anim
+    if not anim.tags:
+        return
+    state = ctx.state.inker
+    imgui.dummy((0, sp(2)))
+    draw_list = imgui.get_window_draw_list()
+    for index, tag in enumerate(list(anim.tags)):
+        imgui.push_id(f"tag{index}")
+        imgui.dummy((sp(TRACK_LABEL_W), sp(14)))
+        origin = imgui.get_item_rect_min()
+        top = origin.y + sp(4)
+        start = origin.x + sp(TRACK_LABEL_W) + (cell + gutter) * max(0, tag.start)
+        width = (cell + gutter) * (max(tag.start, tag.end) - max(0, tag.start) + 1) - gutter
+        # The tag's own colour when it has one, the theme's otherwise. This is
+        # the band a timeline colour is *for* in Aseprite -- it is how a
+        # twelve-tag clip is read at a glance -- so it replaces the token here
+        # rather than being drawn beside it.
+        band = (
+            note_u32(tag.note.colour)
+            if getattr(tag, "note", None) and tag.note.colour
+            else _u32(theme.OK, 0.8)
+        )
+        draw_list.add_rect_filled(
+            (start, top), (start + max(width, cell), top + sp(4)), band
+        )
+        imgui.same_line(sp(TRACK_LABEL_W))
+        if state.tag_editing == index:
+            _tag_rename(ctx, tab, index)
+        else:
+            widgets.muted(f"{tag.name}{_tag_note(tag)}")
+            # The band's left-click, which it did not have: a tag names an
+            # animation and clicking it is how a user asks to see that one.
+            if imgui.is_item_clicked(0) and not tab.busy:
+                if imgui.is_mouse_double_clicked(0):
+                    begin_tag_rename(state, index, tag)
+                else:
+                    tag_jump(tab.doc, tag)
+            _tag_menu(ctx, tab, index, tag)
+        imgui.pop_id()
+
+
+#: How each direction is written beside a tag's name. The default one is spelt
+#: as nothing at all: a forward loop is what a tag has always been, so labelling
+#: it would put a word on every tag in the band to distinguish the ordinary case
+#: from itself.
+DIRECTION_NOTES = {"forward": "", "reverse": "reverse", "pingpong": "ping-pong"}
+
+
+def _tag_note(tag: Any) -> str:
+    """The parenthesised aside after a tag's name, or nothing to say."""
+    repeat = int(getattr(tag, "repeat", 0) or 0)
+    parts = [
+        DIRECTION_NOTES.get(tag.direction, ""),
+        # A repeat count *replaces* the loop note rather than joining it: it is
+        # the answer to the same question -- how many times does this play --
+        # and printing "once" beside "x3" would be two answers to it.
+        f"x{repeat}" if repeat else ("" if tag.loop else "once"),
+    ]
+    said = [part for part in parts if part]
+    return f" ({', '.join(said)})" if said else ""
+
+
+def _tag_rename(ctx: Any, tab: Any, index: int) -> None:
+    """The name field, committed on Enter or on losing focus.
+
+    Both, because a user who clicks away has still finished typing -- and
+    because leaving the field open would leave the timeline in a mode nothing
+    else can get it out of. Escape is the way out that keeps the old name.
+    """
+    state = ctx.state.inker
+    imgui.set_next_item_width(sp(140))
+    # The house idiom, from ``dialogs``: focus the field while nothing else has
+    # it, so opening the rename puts the caret in it without a one-shot flag.
+    if not imgui.is_any_item_active():
+        imgui.set_keyboard_focus_here()
+    # ``enter_returns_true`` makes the flag mean *Enter*, not *changed*, while
+    # the returned string is the live buffer either way -- so the buffer is
+    # stored unconditionally. See the same note in ``dialogs``.
+    entered, value = controls.input_text(
+        "##tagname", state.tag_name, imgui.InputTextFlags_.enter_returns_true.value
+    )
+    state.tag_name = value
+    if imgui.is_key_pressed(imgui.Key.escape):
+        state.tag_editing = -1
+        return
+    if entered or imgui.is_item_deactivated():
+        if not tab.busy:
+            tab.doc.set_tag(index, name=state.tag_name.strip() or "tag")
+        state.tag_editing = -1
+
+
+def tag_jump(doc: Any, tag: Any) -> bool:
+    """Move the playhead to a tag's first frame. Aseprite's left-click.
+
+    Clamped rather than trusted: a tag's ends are stored unclamped (the same
+    decision ``track_range`` names), and a start of -1 would otherwise ask the
+    animation for a frame that is not there.
+    """
+    if doc.anim is None or not doc.anim.frames:
+        return False
+    doc.set_current_frame(max(0, min(int(tag.start), len(doc.anim.frames) - 1)))
+    return True
+
+
+def begin_tag_rename(state: Any, index: int, tag: Any) -> None:
+    """Open the inline rename on one tag -- the menu's verb, on a double-click.
+
+    Double-click renames because that is what a double-click on a name does
+    everywhere else, and because the alternative for a band with no other
+    left-click meaning was a menu round trip for the commonest edit a tag has.
+    """
+    state.tag_editing = index
+    state.tag_name = tag.name
+
+
+def _tag_menu(ctx: Any, tab: Any, index: int, tag: Any) -> None:
+    doc = tab.doc
+    state = ctx.state.inker
+    if not imgui.begin_popup_context_item("tagmenu"):
+        return
+    widgets.popup_chrome(_imgui=imgui)
+    imgui.begin_disabled(tab.busy)
+    if controls.menu_item_simple("Rename"):
+        begin_tag_rename(state, index, tag)
+    # Both ends from the playhead, which is the frame the user just clicked to
+    # get here: a tag is a span of the timeline and the timeline is what they
+    # are looking at, so there is nothing to type.
+    if controls.menu_item_simple(f"Start at frame {doc.anim.current + 1}"):
+        doc.set_tag(index, start=doc.anim.current)
+    if controls.menu_item_simple(f"End at frame {doc.anim.current + 1}"):
+        doc.set_tag(index, end=doc.anim.current)
+    repeat = int(getattr(tag, "repeat", 0) or 0)
+    # Disabled rather than hidden: a count is the more specific answer to "how
+    # many times", so while one is set the flag has nothing left to decide --
+    # and an enabled tick that changed nothing would read as a bug in the flag.
+    imgui.begin_disabled(repeat > 0)
+    if controls.menu_item_simple("Loop", "", tag.loop):
+        doc.set_tag(index, loop=not tag.loop)
+    imgui.end_disabled()
+    # Straight onto ``set_tag``, which snapshots the whole tag list into a
+    # ``TagsEdit`` -- so a repeat count is undoable for free and needs no edit
+    # type of its own. 0 hands the question back to the Loop flag above.
+    widgets.field_label("Repeat")
+    imgui.set_next_item_width(sp(90))
+    # ``commit=True``, for ``_frame_duration``'s reason: ``set_tag`` snapshots
+    # the whole tag list into a ``TagsEdit``, so a per-keystroke write is a
+    # per-keystroke undo step.
+    changed, value = controls.input_int("##repeat", repeat, 1, 1, commit=True)
+    if changed:
+        doc.set_tag(index, repeat=max(0, int(value)))
+    widgets.help_marker(
+        "How many times this tag plays before stopping. 0 leaves it to the Loop"
+        " flag. Playback stays inside the tag when the count runs out -- it does"
+        " not carry on into the frames after it."
+    )
+    # Radio items rather than a submenu: three mutually exclusive values that
+    # each fit on a line, and the tick is the answer to "which way does this
+    # one go" without a hover. Straight off ``animation.DIRECTIONS`` -- a
+    # hand-written list here would be a second table of the same three names.
+    for key in animation.DIRECTIONS:
+        if controls.menu_item_simple(key.capitalize(), "", tag.direction == key):
+            doc.set_tag(index, direction=key)
+    widgets.divider()
+    # The tag's own span, and its own looping: a tag is the one part of the
+    # timeline that already says both which frames it covers and how many times
+    # they play, so exporting one needs nothing typed.
+    if controls.menu_item_simple("Export tag → sheet..."):
+        inker_mode.export_tag(ctx, tab, "sheet", index)
+    if controls.menu_item_simple("Export tag → GIF..."):
+        inker_mode.export_tag(ctx, tab, "gif", index)
+    widgets.divider()
+    if controls.menu_item_simple("Delete tag"):
+        doc.remove_tag(index)
+        state.tag_editing = -1
+    # Straight onto ``set_tag`` like the repeat and the direction above, so a
+    # note is one ``TagsEdit`` and needed no edit type of its own.
+    _note_items(
+        ctx,
+        "tag",
+        "Tag user data",
+        getattr(tag, "note", None) or animation.Note(),
+        lambda note: doc.set_tag(index, note=note),
+    )
+    imgui.end_disabled()
+    imgui.end_popup()

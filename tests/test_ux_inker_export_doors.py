@@ -1,7 +1,7 @@
 """Inker's five exports are one record, presented twice.
 
 Until 2026-09-05 the five labels, tooltips and refusal sentences lived in
-``panes/inker_timeline.py`` and nowhere else, as a second toolbar row under the
+``modes/inker/ui/panes/timeline.py`` and nowhere else, as a second toolbar row under the
 transport. At 1280x800, scale 1.0, that row overflowed: three of the five
 collapsed into a ``...`` menu, "Skip empty" was clipped mid-word, and the onion
 row below it was cut off by the pane's bottom edge -- so what leaves the app was
@@ -22,8 +22,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import inker_export, menus
-from warlock.studio.panes import inker_generate, inker_timeline
+from warlock.studio import menus
+from warlock.studio.modes.inker import export as inker_export
+from warlock.studio.modes.inker.ui.panes import generate as inker_generate
+from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
 LABELS = (
     "Export sheet...",
@@ -42,16 +44,30 @@ def _src_files() -> dict[Path, str]:
 def test_each_export_label_is_spelled_in_exactly_one_module():
     """The pass-2 shared-vocabulary scan, extended onto the five doors.
 
-    ``inker_ops.py`` is the one other module allowed to hold a door's label,
-    and only for the two ops that predate the doors -- which ``menus`` then
-    suppresses, so the File menu still spells each door once. Everything else,
-    every pane included, must ask :mod:`inker_export`.
+    ``modes/inker/ops.py`` is the one other module allowed to hold a door's
+    label, and only for the two ops that predate the doors -- which ``menus``
+    then suppresses, so the File menu still spells each door once. Everything
+    else, every pane included, must ask :mod:`warlock.studio.modes.inker.export`.
+
+    Owners are relative paths, not bare filenames: P5 renamed the two files
+    this pins to ``export.py``/``ops.py`` inside ``modes/inker/``, and those
+    bare stems collide with unrelated ``ops.py``/``export.py`` modules
+    elsewhere under ``studio/`` (Mason, Clay) that a name-only comparison
+    would wrongly credit or blame.
     """
+    root = Path(inspect.getsourcefile(menus)).parent
     for label in LABELS:
-        owners = sorted(p.name for p, text in _src_files().items() if label in text)
-        assert owners[0] == "inker_export.py", (label, owners)
-        assert set(owners) <= {"inker_export.py", "inker_ops.py"}, (label, owners)
-    from warlock.studio import inker_ops
+        owners = sorted(
+            p.relative_to(root).as_posix()
+            for p, text in _src_files().items()
+            if label in text
+        )
+        assert owners[0] == "modes/inker/export.py", (label, owners)
+        assert set(owners) <= {"modes/inker/export.py", "modes/inker/ops.py"}, (
+            label,
+            owners,
+        )
+    from warlock.studio.modes.inker import ops as inker_ops
 
     for name in menus.SHADOWED_BY_DOORS:
         assert inker_ops.get(name).menu == "File"

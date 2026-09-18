@@ -3,7 +3,7 @@ are inverses of each other, and the baked texture agrees with both.
 
 No imgui and no GL anywhere in this file -- the whole point of keeping the
 maths in its own module (see its docstring) is that this is provable without
-a window. ``panes/inker_picker.py``'s own tests cover the imgui half: reading
+a window. ``modes/inker/ui/panes/picker.py``'s own tests cover the imgui half: reading
 the mouse, drawing the marker, writing through ``write``.
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 import colorsys
 import math
 
-from warlock.studio import colorwheel
+from warlock.studio.modes.inker.ui import colorwheel
 
 
 def test_a_point_on_the_disc_round_trips_through_a_colour_and_back():

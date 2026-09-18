@@ -31,8 +31,10 @@ import pytest
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import brush
 from warlock.kernels.pixel.selection import SelectionMask
-from warlock.studio import inker_mode, inker_state
-from warlock.studio.panes import inker_canvas, inker_tools
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.modes.inker.ui.panes import tools as inker_tools
 
 SIZE = (48, 48)
 RED = (255, 0, 0, 255)
@@ -694,7 +696,7 @@ def test_ctrl_b_captures_the_way_aseprite_does():
     doc.select(_rect_mask(SIZE, (10, 10, 18, 18)))
     # Through the registry, which is where Ctrl+B is bound now (W2.7): the
     # chord is ``Op.key`` and the op is the only implementation of it.
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     inker_ops.run(ctx, inker_ops.get("capture_brush"))
     assert state.stamp is not None
@@ -901,7 +903,7 @@ def test_the_slots_are_not_persisted():
     every swatch click."""
     import inspect
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     source = inspect.getsource(inker_mode.persist)
     assert "stamp_slots" not in source

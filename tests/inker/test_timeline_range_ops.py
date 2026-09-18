@@ -117,14 +117,14 @@ class _Tab:
 
 
 def test_a_verb_acts_on_one_row_when_there_is_no_range():
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = _doc(4)
     assert inker_timeline.row_targets(_Tab(doc), doc, 2) == [2]
 
 
 def test_a_verb_acts_on_the_whole_block_when_the_click_is_inside_it():
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = _doc(5)
     doc.ensure_animation()
@@ -133,7 +133,7 @@ def test_a_verb_acts_on_the_whole_block_when_the_click_is_inside_it():
 
 
 def test_a_click_outside_the_block_acts_on_that_row_alone():
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = _doc(5)
     doc.ensure_animation()

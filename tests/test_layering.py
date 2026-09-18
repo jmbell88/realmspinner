@@ -91,9 +91,8 @@ MODE_KEYS: frozenset[str] = frozenset(modes.KEYS)
 #: anyway. Each comment says how it was confirmed.
 STRAY_MODE_FILES: dict[str, str] = {
     # RESTRUCTURE.md's "Mode-specific code is trapped in shared places" list,
-    # verified by reading each file.
-    "studio/ants.py": "inker",
-    "studio/colorwheel.py": "inker",
+    # verified by reading each file. ``ants.py`` and ``colorwheel.py`` left
+    # this table in P5 for ``modes/inker/ui/``.
     "studio/layout_edit.py": "plotter",
     # Three files RESTRUCTURE.md's list named as mode-owned and this file
     # copied over, all three wrong -- checked by reading them, P4,
@@ -503,7 +502,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     # invisible to an import walk. Which is the honest reading: the coupling
     # was always there, and making it an import is what made it countable.
     ("warlock.studio.shell.app", "warlock.studio.modes.clay.ui.viewport"),
-    ("warlock.studio.shell.app", "warlock.studio.inker_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.inker.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.mason_viewport"),
     ("warlock.studio.shell.app", "warlock.studio.muse_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.packwright_workspace"),
@@ -583,10 +582,10 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
     # can import the engine module directly instead of a pane object.
     ("warlock.studio.panes.app_settings", "warlock.studio.modes.create.ui.panes.settings_3d"),
     # PaintView promotion (inker_state.py -> shell/paintview.py)
-    ("warlock.studio.packwright_state", "warlock.studio.inker_state"),
-    ("warlock.studio.panes.packwright_preview", "warlock.studio.inker_state"),
-    ("warlock.studio.panes.plotter_canvas", "warlock.studio.inker_state"),
-    ("warlock.studio.plotter_state", "warlock.studio.inker_state"),
+    ("warlock.studio.packwright_state", "warlock.studio.modes.inker.state"),
+    ("warlock.studio.panes.packwright_preview", "warlock.studio.modes.inker.state"),
+    ("warlock.studio.panes.plotter_canvas", "warlock.studio.modes.inker.state"),
+    ("warlock.studio.plotter_state", "warlock.studio.modes.inker.state"),
 })
 
 # P6 -- the remaining modes, one agent per mode. Best-fit rather than named:
@@ -595,7 +594,7 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
 # editor; Mason's own asset picker), and that landing is the plausible place
 # either dependency gets resolved.
 _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.panes.inker_tiles", "warlock.studio.plotter_tilesets"),
+    ("warlock.studio.modes.inker.ui.panes.tiles", "warlock.studio.plotter_tilesets"),
     ("warlock.studio.panes.mason_palette", "warlock.studio.panes.library"),
 })
 

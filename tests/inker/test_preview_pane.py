@@ -1,6 +1,6 @@
 """The preview pane's discipline, which is entirely a list of things it must not do.
 
-``panes/inker_preview.py`` carries a second playhead so a clip can run in the
+``modes/inker/ui/panes/preview.py`` carries a second playhead so a clip can run in the
 corner while the document is painted on, and ``dev/INVARIANTS.md`` spells out
 what makes that free: it never sets ``playing``, ``saving`` or
 ``set_current_frame``, it draws through the same ``frame_texture`` onion
@@ -18,7 +18,7 @@ import ast
 import inspect
 from types import SimpleNamespace
 
-from warlock.studio.panes import inker_preview
+from warlock.studio.modes.inker.ui.panes import preview as inker_preview
 
 SOURCE = inspect.getsource(inker_preview)
 TREE = ast.parse(SOURCE)
@@ -116,6 +116,6 @@ def test_the_throttle_answers_nothing_without_a_viewer():
 def test_its_per_tab_key_is_swept_when_the_tab_closes():
     """``inker_preview:{uid}`` is not a texture, so the ``inker_tex:`` prefix
     sweep does not reach it -- it has to be named in ``_PER_TAB_KEYS``."""
-    from warlock.studio.panes import inker_textures
+    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
 
     assert "inker_preview:" in inker_textures._PER_TAB_KEYS

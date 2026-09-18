@@ -835,7 +835,7 @@ def test_clay_refuses_a_document_past_its_own_ceiling(tmp_path, monkeypatch):
 
 def test_inker_refuses_an_aseprite_past_its_ceiling(tmp_path, monkeypatch):
     from warlock.service.errors import TooLarge
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     path = tmp_path / "big.aseprite"
     path.write_bytes(_aseprite(8, 8))

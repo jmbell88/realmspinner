@@ -165,7 +165,7 @@ class TasksMixin:
                 # write makes the tab read-only until it is closed. Each
                 # editor claims its own key prefix.
                 if done.key.startswith("inker-"):
-                    from .. import inker_mode
+                    from ..modes.inker import mode as inker_mode
 
                     inker_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("clay-"):
@@ -541,7 +541,7 @@ class TasksMixin:
                 self._capture_thumbnail_from(done.result["job_id"], self.mason_view)
             return
         if key.startswith("inker-"):
-            from .. import inker_mode
+            from ..modes.inker import mode as inker_mode
 
             inker_mode.on_task_done(ctx, done)
             return

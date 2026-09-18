@@ -35,7 +35,7 @@ FILTERED = (
     "panes/mason_outliner.py",
     # The layers panel is deleted and its filter moved with the list it
     # filtered -- the timeline's track column (W2.5a).
-    "panes/inker_timeline.py",
+    "modes/inker/ui/panes/timeline.py",
     "panes/pose_panel.py",
     "panes/poser_library.py",
     # The one list in the app that grows without bound: an atlas's sources are

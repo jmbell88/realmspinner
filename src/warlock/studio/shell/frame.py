@@ -604,7 +604,8 @@ class FrameMixin:
         # before the first recovery scan. Gating on ``state.inker is not None``
         # would therefore save nothing at all while adding a condition to read.
         # What is genuinely lazy is ``ensure``'s *state*, not this import.
-        from .. import inker_mode, journal
+        from .. import journal
+        from ..modes.inker import mode as inker_mode
 
         # Every registered document kind, not only Inker (UX-05). Importing
         # ``inker_mode`` is what registers its provider; the other modes

@@ -23,8 +23,8 @@ import pytest
 from _ui_context import imgui_context
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_state
-from warlock.studio.panes import inker_canvas
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
 SIZE = (2000, 2000)
 REGION = (400.0, 300.0)

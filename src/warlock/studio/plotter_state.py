@@ -32,7 +32,7 @@ from typing import Any
 import numpy as np
 
 from . import docmodes
-from .inker_state import PaintView
+from .modes.inker.state import PaintView
 
 # What Plotter can open and what each suffix means. ``wmap`` is the project
 # file; the other two are Tiled's, and opening one is an *import* -- the
@@ -151,7 +151,7 @@ def palette_zoom_rung(zoom: float, direction: int) -> float:
     two rungs -- a nearest-then-step rule would answer a press labelled "in"
     by zooming out.
     """
-    from .inker_state import zoom_rung
+    from .modes.inker.state import zoom_rung
 
     return zoom_rung(zoom, direction, PALETTE_ZOOM_LADDER)
 

@@ -170,14 +170,14 @@ def test_a_placeholder_says_what_sort_of_thing_is_coming():
     assert thumbs.thumb_glyph({"stage": "who-knows"}) == icons.BOX
 
 
-# --- panes/inker_menu.py ------------------------------------------------------
+# --- modes/inker/ui/panes/menu.py ------------------------------------------------------
 
 
 def test_the_shortcut_sheet_lists_every_binding_the_registry_has():
     """The rows are built from ``inker_ops.BINDINGS`` rather than typed out, so
     a remapped chord and the sheet cannot disagree."""
-    from warlock.studio import inker_ops
-    from warlock.studio.panes import inker_menu
+    from warlock.studio.modes.inker import ops as inker_ops
+    from warlock.studio.modes.inker.ui.panes import menu as inker_menu
 
     rows = inker_menu._shortcut_rows()
 

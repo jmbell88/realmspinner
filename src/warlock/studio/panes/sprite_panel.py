@@ -413,7 +413,7 @@ def _candidate(
                 f"{warning.get('cell')}: {warning.get('detail')}"
             )
         if controls.small_button(verbs.open_in("inker")):
-            from .. import inker_mode
+            from ..modes.inker import mode as inker_mode
 
             inker_mode.open_sprite_draft(ctx, job_id, draft_id, letter)
     finally:

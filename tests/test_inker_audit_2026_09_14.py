@@ -12,9 +12,12 @@ from typing import Any
 
 import numpy as np
 
-from warlock.studio import inker_open, inker_palette_io, inker_sheet
-from warlock.studio.inker_state import InkerState
-from warlock.studio.panes import inker_colors, inker_tools
+from warlock.studio.modes.inker import opening as inker_open
+from warlock.studio.modes.inker import palette_io as inker_palette_io
+from warlock.studio.modes.inker import sheet as inker_sheet
+from warlock.studio.modes.inker.state import InkerState
+from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+from warlock.studio.modes.inker.ui.panes import tools as inker_tools
 from warlock.studio.state import AppState
 
 # --- a shared door harness ---------------------------------------------------

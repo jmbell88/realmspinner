@@ -29,8 +29,8 @@ def offers_inker(ctx: Any, job: Any) -> bool:
     button edits. Two spellings of "is it 2D" is how that guarantee would rot
     back into two buttons; see ``inspector.offers_inker``.
     """
-    from .. import inker_mode
     from ..modes.create.ui import stages as create_stages
+    from ..modes.inker import mode as inker_mode
 
     return create_stages.at(ctx.state, "reference") and inker_mode.can_edit_job(ctx, job)
 
@@ -76,7 +76,7 @@ def shows_front(ctx: Any, job: Any) -> bool:
 
 def toolbar(ctx: Any) -> None:
     """The viewer's own controls, along the top of the viewport."""
-    from .. import inker_mode
+    from ..modes.inker import mode as inker_mode
 
     state = ctx.state
     viewer = ctx.viewer
@@ -700,7 +700,7 @@ def _go_stage(ctx: Any, stage: str) -> None:
 
 
 def _inker_new(ctx: Any) -> None:
-    from .. import inker_mode
+    from ..modes.inker import mode as inker_mode
 
     inker_mode.new_document(ctx, *inker_mode.NEW_DEFAULT)
 

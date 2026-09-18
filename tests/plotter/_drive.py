@@ -18,7 +18,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.studio import inker_state, plotter_state
+from warlock.studio import plotter_state
+from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.plotter.tilemap import MapDoc, MapObject, new_uid
 
 

@@ -189,7 +189,7 @@ def test_the_directory_and_the_readers_offer_the_same_four_suffixes():
 def test_the_export_filter_offers_exactly_what_can_be_written():
     """The Inker's save filter against the writers behind it: a filter entry
     with no writer produces a file in the wrong format under the right name."""
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     assert set(inker_mode.PALETTE_SUFFIXES) == set(svc_palettes.SUFFIXES)
     patterns = " ".join(inker_mode.PALETTE_FILTER)

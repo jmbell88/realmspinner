@@ -1441,7 +1441,7 @@ def _text_checks(config: Config) -> list[Check]:
     vocabulary does not cover, so the row says which of the two the field is
     using rather than "broken".
     """
-    from .studio import inker_flourish
+    from .studio.modes.inker import flourish as inker_flourish
 
     path = inker_flourish.text_model_dir(config)
     missing = _missing_modules(_TEXT_IMPORTS)

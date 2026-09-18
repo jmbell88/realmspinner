@@ -11,7 +11,8 @@ is this" a plain assertion.
 from __future__ import annotations
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_ops, inker_state
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker import state as inker_state
 
 
 def _tab():
@@ -92,7 +93,7 @@ def test_the_registry_can_only_name_a_context_the_table_can_return():
 def test_the_modal_arms_read_the_context_rather_than_the_state():
     import inspect
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     source = inspect.getsource(inker_mode.handle_key)
     assert "inker_state.key_context(state, tab)" in source
@@ -111,7 +112,7 @@ def test_a_chord_is_spelled_the_way_the_menu_prints_it():
 
     import pygame
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     def chord(key, *, ctrl=False, shift=False):
         event = pygame.event.Event(pygame.KEYDOWN, key=key, mod=0)
@@ -129,7 +130,7 @@ def test_every_bound_op_is_reachable_by_its_own_chord():
     row is what fires it."""
 
 
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     for op in inker_ops.OPS:
         if not op.key:
@@ -140,7 +141,7 @@ def test_every_bound_op_is_reachable_by_its_own_chord():
 def test_the_key_handler_asks_the_registry_before_its_own_branches():
     import inspect
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     source = inspect.getsource(inker_mode.handle_key)
     registry = source.index("inker_ops.by_key")
@@ -157,8 +158,8 @@ def test_the_digits_set_brush_opacity_with_zero_meaning_full():
     import pygame
 
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_mode
     from warlock.studio import state as state_mod
+    from warlock.studio.modes.inker import mode as inker_mode
 
     doc = inker.Document.blank(8, 8)
     tab = inker_state.InkerDoc(doc=doc, uid="t1", title="t")
@@ -184,7 +185,8 @@ def test_every_bound_key_resolves_in_every_context_it_can_be_pressed_in():
     requested context and then ops with *no* context, and "Normal" is truthy, so
     with any paint tool in hand the binding resolved to nothing and the op's
     refusal never spoke."""
-    from warlock.studio import inker_ops, inker_state
+    from warlock.studio.modes.inker import ops as inker_ops
+    from warlock.studio.modes.inker import state as inker_state
 
     live = [name for name, _applies in inker_state.KEY_CONTEXTS]
     for op in inker_ops.OPS:
@@ -198,7 +200,7 @@ def test_every_bound_key_resolves_in_every_context_it_can_be_pressed_in():
 def test_a_context_bound_op_is_reachable_in_its_own_context():
     """And that a context-bound op is not shadowed out of existence: if it
     declares one, ``by_key`` has to find it there."""
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     for op in inker_ops.OPS:
         if not (op.key and op.context):
@@ -207,7 +209,8 @@ def test_a_context_bound_op_is_reachable_in_its_own_context():
 
 
 def test_enter_resolves_to_play_whatever_tool_is_held():
-    from warlock.studio import inker_ops, inker_state
+    from warlock.studio.modes.inker import ops as inker_ops
+    from warlock.studio.modes.inker import state as inker_state
 
     for name, _applies in inker_state.KEY_CONTEXTS:
         if name in ("Transformation", "Gesture"):
@@ -226,8 +229,9 @@ def test_enter_on_a_still_document_says_why_with_a_brush_in_hand():
     import pygame
 
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_mode, inker_state
     from warlock.studio import state as state_mod
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker import state as inker_state
 
     doc = inker.Document.blank(8, 8)
     assert doc.anim is None, "a still document"
@@ -256,7 +260,8 @@ def test_no_ctrl_chord_has_both_an_op_and_a_branch():
     import inspect
     import re
 
-    from warlock.studio import inker_mode, inker_ops
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker import ops as inker_ops
 
     source = inspect.getsource(inker_mode._ctrl_key)
     for chord in {op.key for op in inker_ops.OPS if op.key.startswith("Ctrl+")}:
@@ -274,7 +279,7 @@ def test_no_ctrl_chord_has_both_an_op_and_a_branch():
 
 
 def test_every_view_rotation_chord_is_advertised():
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     assert inker_ops.by_key("Ctrl+4", "").name == "rotate_view"
     assert inker_ops.by_key("Ctrl+Shift+4", "").name == "rotate_view_back"

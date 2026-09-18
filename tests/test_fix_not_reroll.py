@@ -175,7 +175,7 @@ def test_apply_pixels_lands_by_uid_as_one_undo_step():
 
 
 def test_the_op_is_registered_on_the_edit_menu():
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     op = inker_ops.get("regenerate_selection")
     assert op.menu == "Edit"

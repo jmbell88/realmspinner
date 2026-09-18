@@ -16,7 +16,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .. import docmodes, icons, inker_state, packwright_mode, theme, widgets
+from .. import docmodes, icons, packwright_mode, theme, widgets
+from ..modes.inker import state as inker_state
 from ..tokens import sp
 from . import overlay, packwright_textures
 

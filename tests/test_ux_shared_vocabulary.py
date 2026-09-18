@@ -12,10 +12,11 @@ from __future__ import annotations
 import inspect
 import re
 
-from warlock.studio import icons, inker_ops, modes, state, verbs
+from warlock.studio import icons, modes, state, verbs
 from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker.ui.panes import context as inker_context
 from warlock.studio.panes import (
-    inker_context,
     inspector,
     library,
     muse_results,

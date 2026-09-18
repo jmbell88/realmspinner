@@ -1,6 +1,6 @@
 """Landing a finished regeneration into a layer stack an encode may be walking.
 
-``land_inpaint`` (``panes/inker_bridge.py``) is the frame-thread half of a
+``land_inpaint`` (``modes/inker/ui/panes/bridge.py``) is the frame-thread half of a
 masked regenerate: the picture was decoded and resized on a task thread, and
 this call blends it in through ``apply_pixels``, which autovivifies a cel and
 pushes an undo step. It had no ``tab.busy`` check anywhere in its chain, while
@@ -19,8 +19,8 @@ from types import SimpleNamespace
 import numpy as np
 
 from warlock.kernels import pixel as inker
-from warlock.studio.inker_state import InkerDoc, InkerState
-from warlock.studio.panes import inker_bridge
+from warlock.studio.modes.inker.state import InkerDoc, InkerState
+from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
 
 
 class _Ctx:

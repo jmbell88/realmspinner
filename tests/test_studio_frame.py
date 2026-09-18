@@ -728,7 +728,8 @@ def test_paint_still_sees_both_edges():
     """
     import inspect
 
-    from warlock.studio import inker_mode, main
+    from warlock.studio import main
+    from warlock.studio.modes.inker import mode as inker_mode
 
     source = inspect.getsource(main.App._shortcut)
     head, _, tail = source.partition("inker_mode.handle_key")

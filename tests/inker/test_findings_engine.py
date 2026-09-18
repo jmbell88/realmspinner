@@ -267,7 +267,7 @@ def test_space_mid_stroke_no_longer_cancels_its_own_pan():
     """Keyboard state is not gesture state. Pressing Space during a stroke
     ends the stroke, and ``clear_drag`` then cleared the very flag the press
     had just set."""
-    from warlock.studio.inker_state import InkerState
+    from warlock.studio.modes.inker.state import InkerState
 
     state = InkerState()
     state.space_held = True
@@ -289,7 +289,7 @@ def test_the_three_writing_selection_ops_wait_for_a_save():
     thread is exactly the moment they may not run."""
     from types import SimpleNamespace
 
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     doc = Document.blank(4, 4)
     doc.select_all()
@@ -310,10 +310,10 @@ def test_every_remappable_modifier_has_a_reader():
     import inspect
     from pathlib import Path
 
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     canvas = (
-        Path(inspect.getfile(inker_ops)).parent / "panes" / "inker_canvas.py"
+        Path(inspect.getfile(inker_ops)).parent / "ui" / "panes" / "canvas.py"
     ).read_text(encoding="utf-8")
     combine = inspect.getsource(inker_ops)
     for modifier in inker_ops.ACTION_MODIFIERS:
@@ -361,7 +361,7 @@ def test_dropped_by_aseprite_reports_a_non_default_group_opacity():
 
 def test_a_fractional_wheel_notch_does_not_leave_the_zoom_lattice():
     """A 0.3 notch took the view to 101.5% and carried that fraction forever."""
-    from warlock.studio.inker_state import PaintView, zoom_step
+    from warlock.studio.modes.inker.state import PaintView, zoom_step
 
     view = PaintView()
     for _ in range(3):
@@ -375,7 +375,7 @@ def test_a_fractional_wheel_notch_does_not_leave_the_zoom_lattice():
 def test_a_layer_drag_follows_the_layer_and_not_the_slot():
     """A drag spans frames; an index is a position, and an undo landing while
     the button is held leaves it naming whichever layer moved into that slot."""
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = Document.blank(4, 4)
     doc.add_layer()
@@ -480,7 +480,7 @@ def test_the_brush_footprint_is_where_the_engine_will_stamp():
 def test_a_two_frame_clip_draws_one_onion_ghost_and_not_two():
     """The span wraps, so -1 and +1 are the same frame on a two-frame clip and
     it was drawn twice -- two tints and two fades on one picture."""
-    from warlock.studio.inker_state import onion_index
+    from warlock.studio.modes.inker.state import onion_index
 
     assert onion_index(0, -1, (0, 1)) == 1
     assert onion_index(0, 1, (0, 1)) == 1
@@ -490,7 +490,7 @@ def test_a_two_frame_clip_draws_one_onion_ghost_and_not_two():
 def test_the_picker_holds_its_own_triple():
     """A grey has no hue, so dragging Hue moved nothing and the slider snapped
     back to 0."""
-    from warlock.studio.inker_state import InkerState
+    from warlock.studio.modes.inker.state import InkerState
 
     state = InkerState()
     assert state.picker_space is None
@@ -555,7 +555,7 @@ def test_the_content_box_cache_forgets_a_document_that_is_gone():
     nothing pruned the dict."""
     import gc
 
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     doc = Document.blank(4, 4)
     doc.stack[0].pixels[1, 1] = (1, 2, 3, 255)
@@ -569,7 +569,7 @@ def test_the_content_box_cache_forgets_a_document_that_is_gone():
 
 
 def test_the_mirror_preview_draws_runs_rather_than_pixels():
-    from warlock.studio.panes.inker_canvas import _runs
+    from warlock.studio.modes.inker.ui.panes.canvas import _runs
 
     assert _runs([1, 2, 3, 7], [0, 0, 0, 0], None) == [
         (1, 0, 3, False),

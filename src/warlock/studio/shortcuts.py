@@ -88,9 +88,9 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("Esc", "End the pass and show its report"),
         ],
     )
-    from . import inker_state
-    from .inker_mode import ALT_TOOL_CHORDS
     from .modes.clay.mode import TOOL_KEYS as CLAY_KEYS
+    from .modes.inker import state as inker_state
+    from .modes.inker.mode import ALT_TOOL_CHORDS
 
     table(
         "Clay",

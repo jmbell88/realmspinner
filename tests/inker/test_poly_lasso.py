@@ -25,8 +25,9 @@ from types import SimpleNamespace
 import pytest
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_mode, inker_state
-from warlock.studio.panes import inker_canvas
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
 SIZE = (32, 32)
 ORIGIN = (0.0, 0.0)

@@ -269,7 +269,7 @@ def accept(ctx: Any, submit: Any) -> None:
 
 def fix(ctx: Any) -> None:
     """"Fix matte": the reference, in Inker, with this cutout as its alpha."""
-    from . import inker_mode
+    from .modes.inker import mode as inker_mode
 
     state = ctx.state.matte
     if state is None or not state.job_id:

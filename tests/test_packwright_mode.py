@@ -1005,7 +1005,7 @@ def test_a_rendered_sheet_handoff_is_not_silently_dropped_while_a_manual_tileset
         "warlock.service.sheets.get_sheet", lambda svc, job_id, sheet_id: {"name": "walk"}
     )
     monkeypatch.setattr("warlock.service.sheets.sheet_png", lambda svc, job_id, sheet_id: png)
-    monkeypatch.setattr("warlock.studio.inker_mode.sheet_grid", lambda record: ((4, 4), 1))
+    monkeypatch.setattr("warlock.studio.modes.inker.mode.sheet_grid", lambda record: ((4, 4), 1))
 
     ctx = _DedupingCtx()
     packwright_mode.new_document(ctx)

@@ -306,8 +306,8 @@ def test_a_journal_copy_carries_the_slices():
     """The journal encodes a drawing through ``ora_bytes``, so it rides along --
     asserted rather than trusted, because "it uses the same writer" is exactly
     the kind of claim that stops being true in one edit."""
-    from warlock.studio import inker_mode
-    from warlock.studio.inker_state import InkerDoc
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker.state import InkerDoc
 
     doc = _sliced()
     raw = inker_mode._journal_encode(InkerDoc(doc=doc))

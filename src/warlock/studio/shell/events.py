@@ -580,7 +580,7 @@ class EventsMixin:
             review_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "inker":
-            from .. import inker_mode
+            from ..modes.inker import mode as inker_mode
 
             # Unconditionally, whether or not handle_key consumed it: it
             # returns False when no document is open, and letting that fall
@@ -783,7 +783,7 @@ class EventsMixin:
 
         ctx = self.app_ctx
         if ctx.state.mode == "inker":
-            from .. import inker_mode
+            from ..modes.inker import mode as inker_mode
 
             inker_mode.open_path(ctx, path)
             return

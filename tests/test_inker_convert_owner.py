@@ -24,8 +24,8 @@ from types import SimpleNamespace
 import numpy as np
 
 from warlock.kernels.pixel.document import Document
-from warlock.studio import inker_mode
-from warlock.studio.inker_state import InkerDoc, InkerState
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker.state import InkerDoc, InkerState
 
 RAMP = [(0, 0, 0, 255), (255, 255, 255, 255)]
 

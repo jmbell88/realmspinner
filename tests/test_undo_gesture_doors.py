@@ -34,10 +34,10 @@ from warlock.core import undo
 from warlock.studio import controls, sirens_mode, widgets
 from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
 from warlock.studio.modes.clay.ui.panes import props as clay_props
+from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+from warlock.studio.modes.inker.ui.panes import picker as inker_picker
+from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 from warlock.studio.panes import (
-    inker_colors,
-    inker_picker,
-    inker_timeline,
     mason_props,
     packwright_settings,
     packwright_sources,
@@ -452,7 +452,7 @@ def test_an_interrupted_opacity_drag_still_leaves_one_undo_step(monkeypatch, fra
     import numpy as np
 
     from warlock.kernels import pixel as inker
-    from warlock.studio.panes import inker_menu
+    from warlock.studio.modes.inker.ui.panes import menu as inker_menu
 
     doc = inker.Document.from_pixels(np.full((4, 4, 4), 255, dtype=np.uint8))
     before = len(doc.history)

@@ -25,7 +25,8 @@ from types import SimpleNamespace
 import numpy as np
 
 from warlock.kernels import pixel as inker
-from warlock.studio.panes import inker_colors, inker_timeline
+from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
 
 class _Sayer:

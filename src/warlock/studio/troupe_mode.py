@@ -1577,7 +1577,7 @@ def open_in_inker(ctx: Any) -> bool:
     ``animation`` block, and Inker's sheet import already reads that block into
     tags. A second path would be a second dialect of one format.
     """
-    from . import inker_mode
+    from .modes.inker import mode as inker_mode
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):

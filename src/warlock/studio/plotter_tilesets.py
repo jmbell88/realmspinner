@@ -643,7 +643,7 @@ def polish_in_inker(ctx: Any, tab: Any, index: int) -> None:
     The way back is the Plotter side pulling the document in, which is the
     direction Packwright already takes documents from Inker.
     """
-    from . import inker_mode
+    from .modes.inker import mode as inker_mode
 
     if index < 0 or index >= len(tab.doc.tilesets):
         return

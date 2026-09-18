@@ -37,8 +37,12 @@ from warlock.kernels.pixel import composite as cp
 from warlock.kernels.pixel.brush import STAMP_ALIGN, Stamp
 from warlock.kernels.pixel.document import Document
 from warlock.kernels.pixel.selection import SelectionMask
-from warlock.studio import inker_mode, inker_state, probe, widgets
-from warlock.studio.panes import inker_canvas, inker_context, inker_tools
+from warlock.studio import probe, widgets
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.modes.inker.ui.panes import context as inker_context
+from warlock.studio.modes.inker.ui.panes import tools as inker_tools
 
 RED = (255, 0, 0, 255)
 GREEN = (0, 255, 0, 255)

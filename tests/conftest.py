@@ -1003,12 +1003,10 @@ def installed_recipes(monkeypatch):
 
 def canvas_modules() -> tuple[Any, ...]:
     """The four modules the canvas pane is made of, parent first."""
-    from warlock.studio.panes import (
-        inker_canvas,
-        inker_drag,
-        inker_gestures,
-        inker_slices,
-    )
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from warlock.studio.modes.inker.ui.panes import drag as inker_drag
+    from warlock.studio.modes.inker.ui.panes import gestures as inker_gestures
+    from warlock.studio.modes.inker.ui.panes import slices as inker_slices
 
     return (inker_canvas, inker_drag, inker_gestures, inker_slices)
 

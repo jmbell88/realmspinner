@@ -168,7 +168,7 @@ def add_rendered_sheet(ctx: Any, job_id: str, sheet_id: str, *, pixel: bool = Fa
         from PIL import Image
 
         from ..service import sheets as svc_sheets
-        from .inker_mode import sheet_grid
+        from .modes.inker.mode import sheet_grid
 
         if pixel:
             record = svc_sheets.get_pixel_sheet(ctx.svc, job_id, sheet_id)

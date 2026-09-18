@@ -12,7 +12,7 @@ import pytest
 
 from warlock.kernels.pixel import indexed as ix
 from warlock.kernels.pixel.document import Document
-from warlock.studio.inker_state import InkerState
+from warlock.studio.modes.inker.state import InkerState
 
 BLACK = (0, 0, 0, 255)
 GREY = (128, 128, 128, 255)
@@ -287,8 +287,8 @@ def test_a_usage_count_is_not_shared_between_documents():
     never say wrongly."""
 
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_state
-    from warlock.studio.panes import inker_colors
+    from warlock.studio.modes.inker import state as inker_state
+    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
 
     state = inker_state.InkerState()
     a = inker_state.InkerDoc(doc=inker.Document.blank(4, 4), uid="ta", title="a")

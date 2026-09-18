@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_state
+from warlock.studio.modes.inker import state as inker_state
 
 
 def test_every_option_is_reachable_from_some_tools_bar():
@@ -35,7 +35,7 @@ def test_every_context_key_reaches_a_widget():
     Pure: ``_field`` builds closures and returns a ``Field``, and
     ``Field.widths()`` only calls ``sp()``. No imgui context is needed.
     """
-    from warlock.studio.panes import inker_context
+    from warlock.studio.modes.inker.ui.panes import context as inker_context
 
     for key, _label, applies, _group in inker_state.CONTEXT_WIDGETS:
         state = inker_state.InkerState()
@@ -119,7 +119,7 @@ def test_a_compacted_percent_slider_shows_its_value_rather_than_its_name(monkeyp
     instead. Compact must fall back to the bare ``%.0f%%``, and the name has
     to come back some other way, so this also checks for a hover tooltip."""
 
-    from warlock.studio.panes import inker_context
+    from warlock.studio.modes.inker.ui.panes import context as inker_context
 
     state = inker_state.InkerState(tool="brush")
     field = inker_context._field(None, state, None, "hardness")

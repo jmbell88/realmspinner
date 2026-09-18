@@ -18,7 +18,10 @@ from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import filters
 from warlock.kernels.pixel.flourish import bake as B
 from warlock.kernels.pixel.flourish import engines, presets
-from warlock.studio import inker_mode, inker_open, inker_ops, inker_state
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import opening as inker_open
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.state import AppState
 
 # --- shared harness: runs a submitted task inline, exactly test_flourish_ops.py's own ------

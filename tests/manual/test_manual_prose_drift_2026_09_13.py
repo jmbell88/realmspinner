@@ -205,7 +205,7 @@ def test_chapter_17_radius_label_matches_the_sculpt_pane():
 
 
 def test_manual_shift_c_sentence_does_not_claim_slice_has_a_paired_tool():
-    inker_ops = (STUDIO / "inker_ops.py").read_text(encoding="utf-8")
+    inker_ops = (STUDIO / "modes" / "inker" / "ops.py").read_text(encoding="utf-8")
     assert 'Binding("slice", "Shift+C", "tool", priority=10)' in inker_ops
     assert 'Binding("slice", "C", "tool")' in inker_ops
 

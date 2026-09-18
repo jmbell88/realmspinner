@@ -22,8 +22,11 @@ from _ui_context import imgui_context
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import walk
 from warlock.kernels.pixel.walk import rig as R
-from warlock.studio import inker_ops, inker_state, inker_walk, probe
-from warlock.studio.panes import inker_walk as pane
+from warlock.studio import probe
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker import walk as inker_walk
+from warlock.studio.modes.inker.ui.panes import walk as pane
 
 SIZE = (64, 64)
 
@@ -281,7 +284,7 @@ def test_enter_in_walk_cycle_context_says_why_when_the_bake_is_refused():
     this broke: "a refused op says why"."""
     import pygame
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     ctx, tab = _scene()
     inker_walk.open_session(ctx, tab)

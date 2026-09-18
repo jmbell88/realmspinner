@@ -14,7 +14,10 @@ import numpy as np
 import pytest
 
 from warlock.kernels.pixel.sheetin import document_from_sheet
-from warlock.studio import inker_mode, inker_ops, inker_sheet, troupe_mode
+from warlock.studio import troupe_mode
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker import sheet as inker_sheet
 
 
 class _Ctx:

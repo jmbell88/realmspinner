@@ -51,7 +51,7 @@ def test_the_plotter_layer_menu_does_not_blame_a_save_for_a_missing_layer():
 
 
 def test_the_inker_tileset_doors_do_not_say_open_a_drawing_while_one_is_open():
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     assert inker_mode._no_document_reason(None) == "Open a drawing first."
     saving = SimpleNamespace(saving=True)

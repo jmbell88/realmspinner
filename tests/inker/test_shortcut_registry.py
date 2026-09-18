@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from warlock.studio import inker_ops
+from warlock.studio.modes.inker import ops as inker_ops
 
 
 def test_commands_tools_and_modifiers_share_one_binding_table():
@@ -84,7 +84,8 @@ def test_quick_tools_restore_on_key_up():
     import pygame
 
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_mode, inker_state
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker import state as inker_state
 
     state = inker_state.InkerState(tool="brush")
     state.add(inker_state.InkerDoc(doc=inker.Document.blank(8, 8), uid="quick", title="Quick"))
@@ -99,7 +100,7 @@ def test_quick_tools_restore_on_key_up():
 
 
 def test_shortcut_overrides_round_trip_through_studio_settings():
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     class Settings:
         def __init__(self, block):

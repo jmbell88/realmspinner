@@ -1412,7 +1412,7 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
 
         asset_open.open_asset(ctx, job)
     elif action == "inker":
-        from .. import inker_mode
+        from ..modes.inker import mode as inker_mode
 
         inker_mode.open_job_reference(ctx, job)
     elif action == "clay":

@@ -16,8 +16,11 @@ import pytest
 from _ui_context import imgui_context
 
 from warlock.kernels.pixel.sheetin import document_from_sheet
-from warlock.studio import inker_ops, inker_sheet, inker_state, probe, widgets
-from warlock.studio.panes import inker_sheet as strip
+from warlock.studio import probe, widgets
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker import sheet as inker_sheet
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import sheet as strip
 
 CELL = 16
 DIRECTIONS = ("front", "left", "back", "right")

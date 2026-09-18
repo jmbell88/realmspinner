@@ -143,8 +143,9 @@ SHADOWED_BY_DOORS = frozenset({"export_sheet", "export_gif"})
 def _inker_specs(ctx: Any, *, evaluate: bool = True) -> list[MenuSpec]:
     if ctx.state.mode != "inker":
         return []
-    from . import inker_mode, inker_ops
-    from .panes import inker_menu
+    from .modes.inker import mode as inker_mode
+    from .modes.inker import ops as inker_ops
+    from .modes.inker.ui.panes import menu as inker_menu
 
     state = inker_mode.ensure(ctx)
     tab = state.active
@@ -197,7 +198,8 @@ def _inker_export_specs(
     """
     if ctx.state.mode != "inker":
         return []
-    from . import inker_export, inker_mode
+    from .modes.inker import export as inker_export
+    from .modes.inker import mode as inker_mode
 
     tab = inker_mode.ensure(ctx).active
     # The same order as the File menu's own ``export`` row, so the five land

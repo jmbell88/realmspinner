@@ -15,8 +15,9 @@ import numpy as np
 from PIL import Image
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_mode, matte_preview
+from warlock.studio import matte_preview
 from warlock.studio.modes.create.ui.panes import settings_3d
+from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.state import DEFAULT_FORM_3D, AppState
 
 
@@ -233,7 +234,7 @@ def test_apply_matte_refuses_a_plane_that_is_not_the_canvas():
 def test_the_matte_handoff_opens_a_dirty_tab(svc):
     """The cutout is on screen and in no file, so closing must ask first."""
     from warlock.service import jobs as svc_jobs
-    from warlock.studio.inker_state import InkerDoc
+    from warlock.studio.modes.inker.state import InkerDoc
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
 
@@ -246,7 +247,7 @@ def test_the_matte_handoff_opens_a_dirty_tab(svc):
 
 def test_without_the_matte_the_tab_opens_clean(svc):
     from warlock.service import jobs as svc_jobs
-    from warlock.studio.inker_state import InkerDoc
+    from warlock.studio.modes.inker.state import InkerDoc
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
 

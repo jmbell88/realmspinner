@@ -16,8 +16,11 @@ import pytest
 
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import brush, tiling
-from warlock.studio import imgui_backend, inker_mode, inker_state
-from warlock.studio.panes import inker_canvas, inker_tools
+from warlock.studio import imgui_backend
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.modes.inker.ui.panes import tools as inker_tools
 
 SIZE = (32, 32)
 FG = (255, 0, 0, 255)
@@ -203,7 +206,7 @@ def test_the_tiled_menu_offers_every_mode_the_engine_implements():
     four tiling modes were the trailing block of the canvas's view row until
     2026-08-23, and are four checked View-menu rows now that the row above the
     canvas is the Aseprite context bar."""
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     assert tuple(key for key, _label in inker_ops.TILED_MODES) == tiling.TILED_AXES
     # And each is a registered op, so the menu cannot offer a mode nothing

@@ -10,7 +10,7 @@ the keyboard do not have.
 
 from __future__ import annotations
 
-from warlock.studio import inker_state
+from warlock.studio.modes.inker import state as inker_state
 
 
 def test_saying_something_puts_it_under_the_canvas():
@@ -60,7 +60,7 @@ def test_the_canvas_raises_no_toasts_at_all():
 
     import inspect
 
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     source = inspect.getsource(inker_canvas)
     body = "\n".join(
@@ -75,8 +75,9 @@ def test_every_remedy_names_an_op_that_exists():
 
     import inspect
 
-    from warlock.studio import inker_mode, inker_ops
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker import ops as inker_ops
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     names = {op.name for op in inker_ops.OPS}
     for module in (inker_canvas, inker_mode):

@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 
 from warlock.kernels.pixel.document import Document
-from warlock.studio import inker_mode
-from warlock.studio.inker_state import InkerDoc
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker.state import InkerDoc
 
 
 def _paint(doc: Document, colour: tuple[int, int, int, int]) -> None:
@@ -178,7 +178,7 @@ def test_the_preview_honours_constant_frame_rate():
     document's stored durations -- two playheads disagreeing about one clip."""
     from types import SimpleNamespace
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     anim = SimpleNamespace(
         frames=[SimpleNamespace(duration_ms=100), SimpleNamespace(duration_ms=250)]
@@ -193,7 +193,7 @@ def test_both_playheads_read_the_same_durations():
     by hand again, this is what says so."""
     import inspect
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     for name in ("tick_playback", "tick_preview"):
         source = inspect.getsource(getattr(inker_mode, name))

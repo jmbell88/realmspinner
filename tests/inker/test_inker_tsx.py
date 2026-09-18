@@ -18,8 +18,9 @@ import pytest
 from warlock.kernels.grid2d.tileset import TerrainSpec, Tileset
 from warlock.kernels.pixel.document import Document
 from warlock.kernels.pixel.tiles import strip
-from warlock.studio import inker_mode, plotter_mode, plotter_tilesets
-from warlock.studio.inker_state import InkerDoc, InkerState
+from warlock.studio import plotter_mode, plotter_tilesets
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker.state import InkerDoc, InkerState
 from warlock.studio.plotter import tsx as tsxlib
 from warlock.studio.plotter.tilemap import MapDoc
 from warlock.studio.plotter_state import PlotterDoc, PlotterState

@@ -15,7 +15,10 @@ from warlock.kernels import pixel as inker
 from warlock.kernels.pixel import flourish, ora
 from warlock.kernels.pixel.flourish import bake as B
 from warlock.kernels.pixel.flourish import presets
-from warlock.studio import inker_flourish, inker_mode, inker_ops, inker_state
+from warlock.studio.modes.inker import flourish as inker_flourish
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker import state as inker_state
 from warlock.studio.tasks import Done
 
 

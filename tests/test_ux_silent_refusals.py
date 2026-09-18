@@ -171,7 +171,7 @@ def test_fix_matte_records_what_happened_rather_than_swallowing_it(monkeypatch, 
     # ``setattr`` there would shadow rather than replace what the caller
     # reaches.
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_open
+    from warlock.studio.modes.inker import opening as inker_open
 
     monkeypatch.setattr(inker_open, "_cut_matte", _Recorder(applied))
     doc = inker.Document.blank(4, 4)
@@ -204,7 +204,7 @@ def test_a_matte_nobody_asked_for_records_nothing():
     completion branch cannot toast about a cutout that was never requested."""
     import inspect
 
-    from warlock.studio import inker_mode
+    from warlock.studio.modes.inker import mode as inker_mode
 
     source = inspect.getsource(inker_mode._load_job)
     body = source.split("if matte:")[0]

@@ -76,7 +76,8 @@ def test_document_load_routes_a_gif_here(tmp_path):
 
 
 def test_a_gif_is_an_image_the_studio_will_open():
-    from warlock.studio import filetypes, inker_mode
+    from warlock.studio import filetypes
+    from warlock.studio.modes.inker import mode as inker_mode
 
     assert ".gif" in filetypes.IMAGE_SUFFIXES
     assert ".gif" in inker_mode.OPENABLE

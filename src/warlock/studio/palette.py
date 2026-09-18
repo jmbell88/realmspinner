@@ -422,7 +422,7 @@ def commands(ctx: Any) -> list[Command]:
         )
 
     def new_drawing(ctx: Any) -> None:
-        from . import inker_mode
+        from .modes.inker import mode as inker_mode
 
         inker_mode.new_document(ctx, 1024, 1024)
 

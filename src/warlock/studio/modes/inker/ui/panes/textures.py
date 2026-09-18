@@ -1,0 +1,566 @@
+"""GL textures for Paint mode, one set per open document.
+
+Generalised from the inline editor's two-slot cache, with the same two rules
+that made it work. Uploads are gated on the document's revision, because
+re-sending a megapixel every frame to show something that did not move is
+megabytes of PCIe traffic per frame. And every texture is *registered* with the
+imgui backend as well as created -- an id the renderer does not know maps to no
+moderngl object, and the image comes out as the font atlas.
+
+What is new is that the upload is by dirty rectangle. ``Document.take_dirty()``
+returns the region that changed, or None to mean "everything", which is what a
+structural change and a freshly opened file both need.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable
+from typing import Any
+
+from ..... import docmodes, theme, tokens
+
+# How often one layer's panel thumbnail may re-render while its pixels keep
+# changing (B24). During a stroke ``doc.rev`` ticks per dab, and every tick
+# used to re-shrink and re-upload *every* layer's 48-square -- per frame. The
+# panel draws every frame, so a throttled thumb still catches up within a
+# quarter second of the stroke ending.
+THUMB_REFRESH_SECONDS = 0.25
+
+# The checkerboard behind transparency. One small texture drawn tiled, so the
+# pattern costs a single quad however far the canvas is zoomed out.
+#
+# **The two squares come out of the palette**, so the checker follows the theme
+# the way everything else does. They used to be module constants in the dark
+# palette's range, which meant a light-theme session drew a near-black
+# checkerboard under a white window -- and drew dark artwork onto a dark ground
+# where it could not be seen, which is the half that mattered. The cache is
+# keyed on the theme for the reason ``theme.__getattr__`` resolves live: a tile
+# built once under "dark" would otherwise outlive the switch that made it wrong.
+_CHECKER_KEY = "inker_checker"
+CHECKER_SQUARE = 8
+
+
+def _bytes(value: int) -> tuple[int, int, int, int]:
+    return ((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF, 255)
+
+
+def checker_squares() -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
+    """The two squares, as RGBA bytes, under the palette in force."""
+    return _bytes(theme.CHECKER_A), _bytes(theme.CHECKER_B)
+
+
+def _slot(uid: str, name: str) -> str:
+    return f"inker_tex:{uid}:{name}"
+
+
+def _cached(ctx: Any, key: str, size: tuple[int, int], data: Callable[[], bytes]) -> Any:
+    """Create or resize a texture in a named slot.
+
+    ``data`` is a thunk, not bytes: the common frame -- the texture exists at
+    the right size and nothing changed -- must cost no pixel copy, and eagerly
+    flattening a megapixel composite to pass in here was a full-canvas copy
+    per frame whether or not it was used.
+    """
+    gl = ctx.viewer.ctx
+    texture = ctx.state.preview.get(key)
+    if texture is not None and texture.size != size:
+        docmodes.forget_texture(texture)
+        texture = None
+        ctx.state.preview.pop(f"{key}:rev", None)
+    if texture is None:
+        texture = gl.texture(size, 4, data())
+        ctx.state.preview[key] = texture
+    return texture
+
+
+def release_dropped(ctx: Any, tab: Any) -> None:
+    """Free the textures of frames the document no longer has.
+
+    A deleted frame is simply never asked for again, so without this its
+    texture lives until the tab is closed -- a clip built up and cut down over a
+    session leaks one full-canvas texture per frame that was ever deleted.
+    ``Document.take_dropped_frames`` is a drain, so the usual frame costs one
+    empty list.
+
+    Called from :func:`composite`, which every drawn frame of the active tab
+    goes through. A background tab's deletions therefore wait until it is
+    activated or closed, and ``release_doc``'s prefix sweep covers the close.
+    """
+    if ctx.viewer is None:
+        return
+    for frame_uid in tab.doc.take_dropped_frames():
+        key = _slot(tab.uid, f"frame{frame_uid}")
+        texture = ctx.state.preview.pop(key, None)
+        ctx.state.preview.pop(f"{key}:rev", None)
+        if texture is not None:
+            docmodes.forget_texture(texture)
+
+
+def composite(ctx: Any, tab: Any, *, nearest: bool) -> Any:
+    """The document's composite, uploaded only where it changed."""
+    if ctx.viewer is None:
+        return None
+    release_dropped(ctx, tab)
+    doc = tab.doc
+    key = _slot(tab.uid, "composite")
+    rev_key = f"{key}:rev"
+    image = doc.image
+    fresh = ctx.state.preview.get(key) is None
+    texture = _cached(ctx, key, image.size, image.tobytes)
+    region = doc.take_dirty()
+    if not fresh and ctx.state.preview.get(rev_key) != doc.rev:
+        if region is not None:
+            x0, y0, x1, y1 = region
+            texture.write(image.crop(region).tobytes(), viewport=(x0, y0, x1 - x0, y1 - y0))
+        else:
+            texture.write(image.tobytes())
+    ctx.state.preview[rev_key] = doc.rev
+    mode = ctx.viewer.ctx.NEAREST if nearest else ctx.viewer.ctx.LINEAR
+    texture.filter = (mode, mode)
+    return texture
+
+
+def floating(ctx: Any, tab: Any, *, nearest: bool) -> Any:
+    """The floating buffer, which is drawn over the composite rather than in
+    it -- it is not part of any layer until it is committed."""
+    if ctx.viewer is None or tab.doc.floating is None:
+        return None
+    buf = tab.doc.floating
+    key = _slot(tab.uid, "floating")
+    rev_key = f"{key}:rev"
+    fresh = ctx.state.preview.get(key) is None
+    texture = _cached(ctx, key, buf.size, buf.pixels.tobytes)
+    if not fresh and ctx.state.preview.get(rev_key) != buf.rev:
+        texture.write(buf.pixels.tobytes())
+    ctx.state.preview[rev_key] = buf.rev
+    mode = ctx.viewer.ctx.NEAREST if nearest else ctx.viewer.ctx.LINEAR
+    texture.filter = (mode, mode)
+    return texture
+
+
+def frame_texture(
+    ctx: Any, tab: Any, frame_uid: int, *, track_uid: int | None = None
+) -> Any:
+    """One animation frame's flatten, for onion skinning and playback.
+
+    Inside the existing ``inker_tex:{uid}:`` naming on purpose, so
+    ``release_doc``'s prefix sweep collects a closed tab's frames without
+    knowing they exist -- a tab left open on a fifty-frame clip is fifty
+    textures, which is exactly the accumulation that sweep is for.
+
+    Keyed on the *frame's* stamp rather than on ``doc.rev``: rev moves for any
+    change anywhere, so every onion-skinned neighbour would re-upload on every
+    dab the user made on the frame between them.
+
+    ``track_uid`` asks for the current-layer-only flatten, and goes *into the
+    slot key*, so the filtered and unfiltered pictures of one frame are two
+    textures and toggling the checkbox cannot show the other one's pixels.
+    """
+    if ctx.viewer is None:
+        return None
+    doc = tab.doc
+    pixels = doc.frame_flat(frame_uid, track_uid=track_uid)
+    if pixels is None:
+        return None
+    suffix = "" if track_uid is None else f"t{track_uid}"
+    key = _slot(tab.uid, f"frame{frame_uid}{suffix}")
+    rev_key = f"{key}:rev"
+    stamp = doc.frame_stamp(frame_uid)
+    height, width = pixels.shape[:2]
+    fresh = ctx.state.preview.get(key) is None
+    texture = _cached(ctx, key, (width, height), pixels.tobytes)
+    if not fresh and ctx.state.preview.get(rev_key) != stamp:
+        texture.write(pixels.tobytes())
+    ctx.state.preview[rev_key] = stamp
+    mode = ctx.viewer.ctx.NEAREST
+    texture.filter = (mode, mode)
+    _touch_frame_texture(ctx, tab.uid, key)
+    return texture
+
+
+#: What one tab's animation-frame textures may hold on the GPU. The CPU side
+#: of exactly this picture is already bounded -- ``document.FRAME_CACHE_BYTES``
+#: -- and the GL side was not, while ``_doc_anim`` caps the frame count at
+#: nothing at all: a 2048-square clip is 16 MiB of VRAM a frame, and onion
+#: skinning plus a scrub along a long timeline asks for every one of them. The
+#: same number as the CPU cache deliberately, because it is a bound on the same
+#: pictures and two answers would drift.
+FRAME_TEXTURE_BYTES = 128 * 1024 * 1024
+
+#: And a count beside it, which is not redundant: a 64-square document is 16 KB
+#: a frame, so the byte budget alone would let eight thousand entries into the
+#: list this walks on every ask. Two bounds, each covering the case the other
+#: is loose about -- the same pairing ``gifin`` makes.
+FRAME_TEXTURE_CAP = 256
+
+
+def _frame_lru(ctx: Any, uid: str) -> dict[str, None]:
+    """The frame textures one tab holds, least recently drawn first.
+
+    **A dict used as an ordered set, not a list.** Both of these are touched
+    once per visible cell per frame, and ``list.remove`` is a linear scan --
+    so the touch was O(cells x held) sixty times a second, on the pane whose
+    whole job is to stay smooth while a timeline scrolls. A dict preserves
+    insertion order (the ordering this needs) and drops a key in constant
+    time. Everything the callers do with it -- ``in``, ``len``, iterate,
+    delete -- reads the same either way.
+
+    ``cel_thumb``'s pair of accessors, in the same ``inker_tex:{uid}:`` naming
+    and for the same two reasons: ``release_doc``'s prefix sweep drops it with
+    the tab, and it is not a texture so the sweep's ``hasattr(value,
+    "release")`` leaves it alone beyond the pop.
+    """
+    key = f"inker_tex:{uid}:frame-lru"
+    order = ctx.state.preview.get(key)
+    if not isinstance(order, dict):
+        order = {}
+        ctx.state.preview[key] = order
+    return order
+
+
+def _frame_touched(ctx: Any, uid: str) -> dict[str, int]:
+    key = f"inker_tex:{uid}:frame-touched"
+    touched = ctx.state.preview.get(key)
+    if touched is None:
+        touched = {}
+        ctx.state.preview[key] = touched
+    return touched
+
+
+def _texture_bytes(texture: Any) -> int:
+    size = getattr(texture, "size", None) or (0, 0)
+    try:
+        return int(size[0]) * int(size[1]) * 4
+    except (TypeError, ValueError, IndexError):
+        return 0
+
+
+def _touch_frame_texture(ctx: Any, uid: str, key: str) -> None:
+    """Record a frame texture as just drawn, then spend the budget down.
+
+    **Bytes rather than a count**, which is the one thing that had to differ
+    from ``CEL_THUMB_CAP``: a cel thumbnail is 36 square whatever the document
+    is, so counting them bounds them, and a frame texture is the whole canvas.
+    Fifty frames is 2.6 MB of thumbnails and 800 MB of frames.
+    """
+    order = _frame_lru(ctx, uid)
+    order.pop(key, None)
+    order[key] = None
+    frame = _frame_number()
+    touched = _frame_touched(ctx, uid)
+    if frame is not None:
+        touched[key] = frame
+    # Never one drawn this frame -- ``ThumbnailCache._evict``'s rule, restated
+    # once more: a texture handed out during this frame's UI build already has
+    # an ``add_image`` in the live draw list, and releasing it now frees
+    # something the backend is about to draw. Onion skinning shows three or
+    # four frames at once, so the overshoot that buys is bounded by the screen.
+    held = sum(_texture_bytes(ctx.state.preview.get(name)) for name in order)
+    for name in list(order):
+        if held <= FRAME_TEXTURE_BYTES and len(order) <= FRAME_TEXTURE_CAP:
+            return
+        if frame is not None and touched.get(name) == frame:
+            continue
+        del order[name]
+        touched.pop(name, None)
+        texture = ctx.state.preview.pop(name, None)
+        ctx.state.preview.pop(f"{name}:rev", None)
+        if texture is not None:
+            held -= _texture_bytes(texture)
+            docmodes.forget_texture(texture)
+
+
+#: How many cel thumbnails one tab may hold at once. A 36-square RGBA texture
+#: is 5.2 KB, so this is about 2.6 MB per tab -- and a fifty-frame clip with
+#: ten tracks is five hundred cells, which is why the cap is a number rather
+#: than "all of them". Least-recently-drawn goes first, which during a scroll
+#: along the timeline is exactly the column that has left the screen.
+CEL_THUMB_CAP = 512
+
+
+def _cel_lru(ctx: Any, uid: str) -> dict[str, None]:
+    """``_frame_lru``'s pair, and a dict for its reason."""
+    key = f"inker_tex:{uid}:cel-lru"
+    order = ctx.state.preview.get(key)
+    if not isinstance(order, dict):
+        order = {}
+        ctx.state.preview[key] = order
+    return order
+
+
+def _cel_touched(ctx: Any, uid: str) -> dict[str, int]:
+    """Which imgui frame each cel thumbnail was last drawn on.
+
+    Inside the ``inker_tex:{uid}:`` naming for ``release_doc``'s reason: the
+    prefix sweep drops it with the tab. Not a texture, so the sweep's
+    ``hasattr(value, "release")`` leaves it alone beyond the pop.
+    """
+    key = f"inker_tex:{uid}:cel-touched"
+    touched = ctx.state.preview.get(key)
+    if touched is None:
+        touched = {}
+        ctx.state.preview[key] = touched
+    return touched
+
+
+def _frame_number() -> int | None:
+    """This imgui frame's number, or ``None`` off-context.
+
+    ``None`` means "evict immediately": with no draw list there is nothing to
+    protect, which is the headless answer ``motion._clock`` gives the same way.
+
+    The context check comes *before* the call, not as a ``try`` around it
+    (``widgets._has_context``'s rule, and its exact reason): ``get_frame_count``
+    with no context is not an exception, it is an access violation -- imgui's
+    null check is an assert compiled out of the release build -- so wrapping it
+    catches nothing and the process dies. ``get_current_context`` is the one
+    entry point that is safe to call first.
+    """
+    try:
+        from imgui_bundle import imgui
+
+        if imgui.get_current_context() is None:
+            return None
+        return int(imgui.get_frame_count())
+    except Exception:  # noqa: BLE001 - see the docstring: None means evict now
+        return None
+
+
+def cel_thumb(ctx: Any, tab: Any, layer: Any, size: int = 36) -> Any:
+    """A small preview of one cel, for a timeline cell.
+
+    Keyed on the *layer's* uid, so two slots holding one object share one
+    texture -- which is the link made visible for free, and the reason this is
+    not keyed on the slot. Keyed on the layer's own stamp rather than on
+    ``doc.rev`` or the frame stamp for ``frame_texture``'s reason one level
+    down: those move when any cel in the document (or any track in the column)
+    changes, and every cel on screen would re-shrink on a single dab.
+
+    Rides inside the existing ``inker_tex:{uid}:`` naming so ``release_doc``'s
+    prefix sweep collects a closed tab's cels without knowing they exist, and
+    is bounded by ``CEL_THUMB_CAP`` because that sweep only runs at close and a
+    long session on a big clip would otherwise accumulate one texture per cell
+    that was ever scrolled past.
+    """
+    if ctx.viewer is None or layer is None:
+        return None
+    import numpy as np
+    from PIL import Image
+
+    doc = tab.doc
+    if doc.anim is not None and doc.anim.is_placeholder(layer):
+        return None
+    key = _slot(tab.uid, f"cel{layer.uid}")
+    rev_key = f"{key}:rev"
+    at_key = f"{key}:at"
+    order = _cel_lru(ctx, tab.uid)
+    order.pop(key, None)
+    order[key] = None
+    touched = _cel_touched(ctx, tab.uid)
+    frame = _frame_number()
+    if frame is not None:
+        touched[key] = frame
+    _evict_cel_thumbs(ctx, order, touched, frame)
+
+    stamp = (doc.layer_stamp(layer.uid), size)
+    texture = ctx.state.preview.get(key)
+    if texture is not None and ctx.state.preview.get(rev_key) == stamp:
+        return texture
+    now = time.monotonic()
+    if texture is not None and now - float(ctx.state.preview.get(at_key) or 0.0) < (
+        THUMB_REFRESH_SECONDS
+    ):
+        # Stale but recent (B24): keep showing the
+        # last shrink while a stroke is in flight and catch up within a quarter
+        # second of it ending.
+        return texture
+    small = Image.fromarray(layer.pixels, "RGBA").resize((size, size), Image.BOX)
+    data = np.asarray(small, dtype=np.uint8).tobytes()
+    texture = _cached(ctx, key, (size, size), lambda: data)
+    texture.write(data)
+    texture.filter = (ctx.viewer.ctx.NEAREST, ctx.viewer.ctx.NEAREST)
+    ctx.state.preview[rev_key] = stamp
+    ctx.state.preview[at_key] = now
+    return texture
+
+
+def _evict_cel_thumbs(
+    ctx: Any, order: dict[str, None], touched: dict[str, int], frame: int | None
+) -> None:
+    """Drop the least recently drawn cel thumbnails past the cap.
+
+    Never one drawn this frame -- ``ThumbnailCache._evict``'s rule: a thumbnail
+    handed out during this frame's UI build already has an ``add_image`` in the
+    live draw list, and releasing it now frees a texture the backend is about
+    to draw. With more cells visible than the cap holds, the overshoot is
+    bounded by what fits on screen and drains as soon as the timeline scrolls.
+    """
+    for key in list(order):
+        if len(order) <= CEL_THUMB_CAP:
+            return
+        if frame is not None and touched.get(key) == frame:
+            continue
+        del order[key]
+        touched.pop(key, None)
+        texture = ctx.state.preview.pop(key, None)
+        ctx.state.preview.pop(f"{key}:rev", None)
+        ctx.state.preview.pop(f"{key}:at", None)
+        if texture is not None:
+            docmodes.forget_texture(texture)
+
+
+def tileset_texture(ctx: Any, tab: Any, slot: Any) -> Any:
+    """One tileset's strip atlas, uploaded on first ask and re-uploaded when
+    the tileset behind it is replaced.
+
+    **The staleness stamp is the pixel array itself, held and compared by
+    ``is``.** A tileset is edited by frozen-replace -- ``grow``, ``shrink`` and
+    ``with_tiles`` each hand back a new ``Tileset`` over a new array -- so a
+    changed atlas is always a changed array, and holding the array makes a
+    false match impossible by construction. Not ``id(pixels)``, which is the
+    recycled-address bug class this repo has already been bitten by: a freed
+    array's id is handed to the next one, and a stamp that outlived its array
+    would answer "unchanged" for a completely different atlas. Not ``doc.rev``
+    either, which moves on every dab and would re-upload the atlas per frame of
+    a stroke.
+
+    Keyed per tab *and* per tileset uid, so two documents holding the same
+    imported ``.tsx`` get two textures and one tab's close cannot free the
+    other's (``release_doc``'s prefix sweep covers this key).
+
+    ``None`` when there is no GL context, which is what the headless smoke
+    suite and every state-only test run under -- the pane draws a placeholder
+    rather than branching on a viewer.
+    """
+    if ctx.viewer is None:
+        return None
+    pixels = slot.tileset.pixels
+    key = _slot(tab.uid, f"tileset{slot.uid}")
+    held_key = f"{key}:pixels"
+    texture = ctx.state.preview.get(key)
+    if texture is not None and ctx.state.preview.get(held_key) is not pixels:
+        docmodes.forget_texture(texture)
+        ctx.state.preview.pop(key, None)
+        texture = None
+    if texture is None:
+        texture = ctx.viewer.ctx.texture(
+            (int(pixels.shape[1]), int(pixels.shape[0])), 4, pixels.tobytes()
+        )
+        # Nearest, always: a tileset is pixel art far more often than not, and
+        # a linear filter samples the neighbouring tile across the strip seam.
+        nearest = ctx.viewer.ctx.NEAREST
+        texture.filter = (nearest, nearest)
+        ctx.state.preview[key] = texture
+        ctx.state.preview[held_key] = pixels
+    return texture
+
+
+def walk_texture(ctx: Any, tab: Any, index: int, pixels: Any) -> Any:
+    """One frame of the walk-cycle preview, uploaded on first ask.
+
+    ``tileset_texture``'s shape, and its staleness rule for the same reason:
+    the stamp is the **pixel array itself**, held and compared by ``is``. A walk
+    is re-rendered wholesale whenever a joint or a slider moves
+    (``inker_walk.frames`` caches on ``rig.rev``), so a changed frame is always
+    a changed array -- and ``id(pixels)`` is the recycled-address bug this repo
+    has been bitten by before.
+
+    Nearest filtering, ``tileset_texture``'s reason again: the preview draws at
+    an integer scale precisely so a pixel-art walk is judged unfiltered.
+
+    Keyed under this tab's ``inker_tex:`` prefix, so ``release_doc``'s sweep
+    frees it on close and ``inker_walk.cancel``'s ``release_prefix`` frees it
+    when the session ends.
+    """
+    if ctx.viewer is None:
+        return None
+    key = _slot(tab.uid, f"walk{int(index)}")
+    held_key = f"{key}:pixels"
+    texture = ctx.state.preview.get(key)
+    size = (int(pixels.shape[1]), int(pixels.shape[0]))
+    if texture is not None and (
+        texture.size != size or ctx.state.preview.get(held_key) is not pixels
+    ):
+        docmodes.forget_texture(texture)
+        ctx.state.preview.pop(key, None)
+        texture = None
+    if texture is None:
+        texture = ctx.viewer.ctx.texture(size, 4, pixels.tobytes())
+        nearest = ctx.viewer.ctx.NEAREST
+        texture.filter = (nearest, nearest)
+        ctx.state.preview[key] = texture
+        ctx.state.preview[held_key] = pixels
+    return texture
+
+
+def checker(ctx: Any) -> Any:
+    """A two-square-by-two-square tile, drawn repeated under the canvas."""
+    if ctx.viewer is None:
+        return None
+    # Keyed on the theme, not merely cached: the palette can change under a
+    # running app, and a stale tile is the one bug this cache can cause.
+    stamp = tokens.THEME
+    texture = ctx.state.preview.get(_CHECKER_KEY)
+    if texture is not None:
+        if ctx.state.preview.get(f"{_CHECKER_KEY}:theme") == stamp:
+            return texture
+        ctx.state.preview.pop(_CHECKER_KEY, None)
+        docmodes.forget_texture(texture)
+    pale, dark = checker_squares()
+    side = CHECKER_SQUARE * 2
+    data = bytearray()
+    for y in range(side):
+        for x in range(side):
+            light = (x < CHECKER_SQUARE) == (y < CHECKER_SQUARE)
+            data.extend(pale if light else dark)
+    texture = ctx.viewer.ctx.texture((side, side), 4, bytes(data))
+    texture.repeat_x = texture.repeat_y = True
+    texture.filter = (ctx.viewer.ctx.NEAREST, ctx.viewer.ctx.NEAREST)
+    ctx.state.preview[_CHECKER_KEY] = texture
+    ctx.state.preview[f"{_CHECKER_KEY}:theme"] = stamp
+    return texture
+
+
+#: Everything else the panes cache per tab under ``state.preview``, as key
+#: prefixes. Textures are the entries that must be *released*; these merely
+#: have to go, or a long session accumulates one marching-ants trace and one
+#: resize form per tab that was ever opened.
+#: The ``ctx.state.preview`` keys that are per tab but are *not* textures, so
+#: the ``inker_tex:{uid}:`` prefix sweep in ``release_doc`` does not reach them.
+#: Each has to be named here or a closed tab leaves its entry behind for the
+#: life of the session -- which is the accumulation this constant exists to
+#: prevent, and which four of them were quietly outside of.
+_PER_TAB_KEYS = (
+    "paint_ants:",
+    "inker_resize:",
+    # Image size keeps its own pending pair, deliberately not shared with
+    # ``inker_resize:``: scaling to 512 and then growing the canvas to 600 are
+    # two answers, and one number for both means each dialog silently rewrites
+    # the other's field.
+    "inker_scale:",
+    "inker_preview:",
+    "inker_seam:",
+    "inker_grid:",
+    "inker_anchor:",
+    "inker_tile_size:",
+)
+
+
+def release_doc(ctx: Any, uid: str) -> None:
+    """Drop every texture belonging to one closed tab, and its cached state."""
+    docmodes.release_prefix(ctx, f"inker_tex:{uid}:")
+    for name in _PER_TAB_KEYS:
+        ctx.state.preview.pop(f"{name}{uid}", None)
+
+
+def release_all(ctx: Any) -> None:
+    docmodes.release_prefix(ctx, "inker_tex:")
+    for key in [
+        k for k in list(ctx.state.preview) if k.startswith(_PER_TAB_KEYS)
+    ]:
+        ctx.state.preview.pop(key, None)
+    ctx.state.preview.pop(f"{_CHECKER_KEY}:theme", None)
+    checker_texture = ctx.state.preview.pop(_CHECKER_KEY, None)
+    if checker_texture is not None:
+        docmodes.forget_texture(checker_texture)

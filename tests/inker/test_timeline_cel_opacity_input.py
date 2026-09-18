@@ -23,7 +23,8 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import inker_state, probe
+from warlock.studio import probe
+from warlock.studio.modes.inker import state as inker_state
 
 
 @pytest.fixture
@@ -72,7 +73,7 @@ def _frame(imgui, build, *, pos=(400.0, 300.0), down=False):
 
 
 def _open_menu(imgui, ctx, tab, ti=0, fi=0):
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     def build():
         if not imgui.is_popup_open("celmenu"):
@@ -171,7 +172,7 @@ def test_the_slider_shows_the_value_the_slot_already_carries(ui):
 
 
 def test_an_empty_slot_offers_no_opacity_slider(ui):
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = _doc()
     ctx, tab = _ctx(), _tab(doc)

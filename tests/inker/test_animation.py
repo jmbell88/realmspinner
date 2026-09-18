@@ -1678,7 +1678,7 @@ def test_a_repeat_survives_a_tag_edit_and_is_clamped_at_zero():
 def test_the_onion_span_is_the_document_unless_the_tag_is_asked_for():
     from types import SimpleNamespace
 
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     anim = SimpleNamespace(
         frames=[object()] * 10,
@@ -1696,7 +1696,7 @@ def test_a_ghost_wraps_inside_the_span_rather_than_clamping():
     """A clamp draws the same ghost twice at the ends of a cycle, which reads
     as one ghost that stopped moving -- the failure onion skin exists to
     avoid."""
-    from warlock.studio.panes import inker_canvas
+    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     assert inker_canvas._onion_index(4, -1, (0, 9)) == 3
     assert inker_canvas._onion_index(0, -1, (0, 9)) == 9
@@ -1710,7 +1710,8 @@ def test_constant_frame_rate_changes_the_playback_and_not_the_frames():
     """What an animator asking "what does this look like at 12 fps" means --
     the alternative is an undoable edit to every frame of the document."""
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_mode, inker_state
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker import state as inker_state
 
     doc = inker.Document.blank(4, 4)
     doc.ensure_animation()

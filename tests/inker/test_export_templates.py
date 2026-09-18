@@ -18,8 +18,9 @@ import numpy as np
 import pytest
 
 from warlock.kernels import pixel as inker
-from warlock.studio import inker_mode, inker_state
-from warlock.studio.inker_state import InkerDoc, InkerState
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)
 
@@ -640,7 +641,8 @@ def test_a_refused_export_does_not_settle_the_document_first():
     import numpy as np
 
     from warlock.kernels import pixel as inker
-    from warlock.studio import inker_mode, inker_state
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.inker import state as inker_state
 
     doc = inker.Document.blank(8, 8)
     doc.add_frame()

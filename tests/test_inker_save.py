@@ -19,8 +19,8 @@ from PIL import Image
 from warlock.kernels import pixel as inker
 from warlock.service import files as svc_files
 from warlock.service import jobs as svc_jobs
-from warlock.studio import inker_mode
-from warlock.studio.inker_state import InkerDoc
+from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.inker.state import InkerDoc
 
 
 def _png(size=(32, 32), colour=(200, 30, 30, 255)) -> bytes:
@@ -189,7 +189,7 @@ def test_a_linked_save_is_not_dirty_the_instant_it_finishes(svc):
     send_to_3d refused with "Save first" no matter how often it was saved."""
     from types import SimpleNamespace
 
-    from warlock.studio.inker_state import InkerState
+    from warlock.studio.modes.inker.state import InkerState
 
     job_id = _reference(svc)
     tab = _tab(job_id)
@@ -234,7 +234,7 @@ def _wired(svc, tab) -> Any:
     """A ctx with the pieces ``on_task_done`` reaches for."""
     from types import SimpleNamespace
 
-    from warlock.studio.inker_state import InkerState
+    from warlock.studio.modes.inker.state import InkerState
 
     ctx = FakeCtx(svc)
     state = InkerState()
@@ -324,7 +324,7 @@ def test_the_mutating_shortcuts_do_nothing_while_a_save_is_running():
 
     import pygame
 
-    from warlock.studio.inker_state import InkerState
+    from warlock.studio.modes.inker.state import InkerState
 
     tab = _tab("")
     doc = tab.doc
@@ -380,12 +380,10 @@ def test_every_document_mutating_panel_is_gated_on_the_saving_flag():
     import ast
     import inspect
 
-    from warlock.studio.panes import (
-        inker_bridge,
-        inker_menu,
-        inker_timeline,
-        inker_tools,
-    )
+    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from warlock.studio.modes.inker.ui.panes import menu as inker_menu
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from warlock.studio.modes.inker.ui.panes import tools as inker_tools
 
     targets = (
         # ``_canvas_ops`` was the bridge panel's row of flips and rotates; the
@@ -435,7 +433,7 @@ def test_the_two_reorder_gestures_refuse_outright_rather_than_grey_out():
     check ``tab.busy`` themselves."""
     import inspect
 
-    from warlock.studio.panes import inker_timeline
+    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     for func in (inker_timeline._reorder, inker_timeline._drag_toggle):
         source = inspect.getsource(func)
@@ -460,7 +458,7 @@ def test_a_failed_save_clears_the_saving_flag():
     this flag, so a stuck one disables the whole editor."""
     from types import SimpleNamespace
 
-    from warlock.studio.inker_state import InkerState
+    from warlock.studio.modes.inker.state import InkerState
 
     tab = _tab("")
     tab.saving = True
@@ -480,7 +478,7 @@ class _SaveCtx:
     carrying a real ``InkerState`` so ``_settle`` and the save lock behave."""
 
     def __init__(self) -> None:
-        from warlock.studio.inker_state import InkerState
+        from warlock.studio.modes.inker.state import InkerState
 
         self.state = SimpleNamespace(inker=InkerState())
         self.submitted: list[str] = []

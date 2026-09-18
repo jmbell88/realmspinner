@@ -285,8 +285,9 @@ def test_request_quit_no_longer_nests_its_guards_by_hand():
 
 
 def test_the_quit_chain_stops_at_the_first_cancel():
-    from warlock.studio import inker_mode, packwright_mode, plotter_mode, poser_mode
+    from warlock.studio import packwright_mode, plotter_mode, poser_mode
     from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.inker import mode as inker_mode
     from warlock.studio.panes import pose_panel
 
     quit_calls: list[str] = []
@@ -506,7 +507,7 @@ _WORKSPACE_ARMS = {
     "clay": "modes.clay.mode",
     "poser": "poser_mode",
     "review": "review_mode",
-    "inker": "inker_mode",
+    "inker": "modes.inker.mode",
     "plotter": "plotter_mode",
     "packwright": "packwright_mode",
     "troupe": "troupe_mode",

@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from warlock.kernels import pixel as inker
-from warlock.studio.panes import inker_timeline
+from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 
 
 @pytest.fixture

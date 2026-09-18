@@ -1160,7 +1160,7 @@ def test_clay_agrees_with_the_other_editors_about_ctrl_d_and_ctrl_j() -> None:
     and merge on Ctrl+J, which duplicates in Plotter. Two chords meaning two
     things in two workspaces of one app is a user pressing the one they learned
     and getting the other verb."""
-    from warlock.studio import inker_ops
+    from warlock.studio.modes.inker import ops as inker_ops
 
     assert clay_ops.get("duplicate").key == "Ctrl+J"
     assert not any(op.key == "Ctrl+D" for op in clay_ops.OPS)

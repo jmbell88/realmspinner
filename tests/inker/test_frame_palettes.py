@@ -28,7 +28,8 @@ import pytest
 
 from warlock.kernels.pixel import asein, aseout, ora
 from warlock.kernels.pixel.document import Document
-from warlock.studio import inker_ops, inker_state
+from warlock.studio.modes.inker import ops as inker_ops
+from warlock.studio.modes.inker import state as inker_state
 
 HOLE = (0, 0, 0, 0)
 RED = (255, 0, 0, 255)

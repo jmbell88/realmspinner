@@ -386,7 +386,7 @@ def remap_tags(tags: Sequence[Any], frame_cells: Sequence[int | None]) -> list[A
 #: all the same size, so the bin-packing Aseprite's name suggests would have
 #: nothing to solve.
 ARRANGES = (None, "horizontal", "vertical", "rows", "columns", "packed")
-#: Public (not ``_``-prefixed) because ``panes/inker_timeline.py`` needs the
+#: Public (not ``_``-prefixed) because ``modes/inker/ui/panes/timeline.py`` needs the
 #: exact same set to decide when to draw the wrap-count field beside the
 #: Arrange combo -- one tuple, imported, rather than two copies that could
 #: drift the moment a third counted arrange is ever added.

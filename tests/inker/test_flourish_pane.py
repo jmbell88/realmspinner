@@ -17,8 +17,10 @@ from _ui_context import imgui_context
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel.flourish import bake as B
 from warlock.kernels.pixel.flourish import presets
-from warlock.studio import inker_flourish, inker_state, probe
-from warlock.studio.panes import inker_flourish as pane
+from warlock.studio import probe
+from warlock.studio.modes.inker import flourish as inker_flourish
+from warlock.studio.modes.inker import state as inker_state
+from warlock.studio.modes.inker.ui.panes import flourish as pane
 
 
 @pytest.fixture
