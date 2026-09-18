@@ -140,15 +140,14 @@ MAX_FRAMES = sheet.MAX_CLIP_FRAMES
 #: A layout-wide frame rate (Settings, an export choice) rather than an
 #: arbitrary number: every legal ``fps`` has to divide cleanly enough that
 #: ``round(1000 / fps)`` names a duration a person would recognise, and the
-#: ladder is Troupe's own -- restated nowhere else, unlike
-#: ``CLIP_DURATION_STEP_MS``, because no other module needs it.
+#: ladder is Troupe's own, and no other module needs it.
 FPS_CHOICES: tuple[int, ...] = (6, 8, 10, 12, 15, 24, 30)
 
-#: A v3 movement's own ``loop``/``duration_ms`` are held to the same bounds a
-#: clip library's ``duration_ms`` is (``cliplib.MIN_CLIP_DURATION_MS`` /
-#: ``MAX_CLIP_DURATION_MS`` / ``CLIP_DURATION_STEP_MS``), restated rather than
-#: imported for the same reason ``cliplib.LEGACY_CLIP_DURATION_MS`` restates
-#: ``ANIMATIONS``: the two modules do not import each other.
+#: A v3 movement's own ``loop``/``duration_ms`` bounds, and a clip library's
+#: too: ``kernels.rig.cliplib``'s ``MIN_CLIP_DURATION_MS`` /
+#: ``MAX_CLIP_DURATION_MS`` / ``CLIP_DURATION_STEP_MS`` are these three names.
+#: This module is the source because the import can only run one way --
+#: ``cliplib`` reads ``ANIMATIONS`` and the direction presets from here too.
 MIN_MOVEMENT_DURATION_MS = 10
 MAX_MOVEMENT_DURATION_MS = 1000
 MOVEMENT_DURATION_STEP_MS = 10

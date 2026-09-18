@@ -56,9 +56,7 @@ are the real functions/constant, not a second copy of them.
 ``poselib.MAX_ROOT_TRANSLATION`` is a different case -- ``poselib`` is a
 sibling module in this same import-pinned set, not something outside it --
 and stays restated below, pinned against its source of truth by a test in
-``tests/test_cliptransfer.py`` so the two cannot drift apart silently the
-way ``cliplib.LEGACY_CLIP_DURATION_MS`` is pinned against
-``kernels.charsheet.ANIMATIONS``.
+``tests/test_cliptransfer.py`` so the two cannot drift apart silently.
 
 Quaternions are XYZW throughout, this package's convention everywhere else.
 """

@@ -36,12 +36,12 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ...characters import family as family_mod
-from ...characters import recipe as recipe_mod
-from ...characters import resolve as resolve_mod
-from ...service import characters as svc_characters
-from .. import controls, forms, widgets
-from ..manual import render as manual_render
+from .....characters import family as family_mod
+from .....characters import recipe as recipe_mod
+from .....characters import resolve as resolve_mod
+from .....service import characters as svc_characters
+from .... import controls, forms, widgets
+from ....manual import render as manual_render
 
 #: ``character_theme``'s "the species' own look" value. Not a theme key: no
 #: species declares a ``none`` theme, which is what makes it safe as a sentinel
@@ -118,7 +118,7 @@ def options(ctx: Any) -> dict[str, Any]:
     alongside it; splitting the palette list out into its own cache slot would
     be a second cache to keep in step with this one for no measured saving.
     """
-    from . import stamps
+    from ....panes import stamps
 
     key = stamps.stamp_ns(ctx.svc.config.palette_dir)
     cached = ctx.state.preview.get(OPTIONS_SLOT)
@@ -243,7 +243,7 @@ def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
     only honest value it can hold; ``resolution.theme`` itself still says
     "swamp" for anything that wants to read the brief rather than the form.
     """
-    from ..state import default_form_2d
+    from ....state import default_form_2d
 
     overrides = set(overrides_of(form))
     defaults = default_form_2d()
@@ -900,8 +900,8 @@ def preflight_fix(ctx: Any, form: dict[str, Any], problem: widgets.Problem) -> b
         if controls.button(
             "Open dependency packs##character-blender", role=controls.ButtonRole.GHOST
         ):
-            from ..state import set_mode
-            from . import app_settings
+            from ....state import set_mode
+            from ....panes import app_settings
 
             ctx.state.preview[app_settings.CATEGORY_SLOT] = "packs"
             set_mode(ctx.state, "settings")
@@ -972,7 +972,7 @@ def switch_to_sprite_sheet(form: dict[str, Any]) -> None:
     rewrote the brief on the way would send a different request than the one
     the user was refused for.
     """
-    from .. import create_assets
+    from ..engine import assets as create_assets
 
     form["asset_type"] = "sprite_sheet"
     form["generation_type"] = "sprite_sheet"
@@ -986,8 +986,8 @@ def hand_to_troupe(ctx: Any, form: dict[str, Any]) -> None:
     draws, not a copy -- and then the mode opens. The prompt here is left
     exactly as it was, ``switch_to_sprite_sheet``'s rule and its reason.
     """
-    from .. import troupe_mode
-    from ..state import set_mode
+    from .... import troupe_mode
+    from ....state import set_mode
 
     troupe_mode.form(ctx)["prompt"] = str(form.get("prompt") or "")
     set_mode(ctx.state, "troupe")

@@ -17,7 +17,7 @@ are kept apart on purpose. A test pins that no ``service`` module imports this
 one.
 
 The module imports nothing from imgui and draws nothing. The rail that renders
-it is :func:`warlock.studio.create_rail.stage_rail` -- its own module (P4 of
+it is :func:`warlock.studio.modes.create.ui.rail.stage_rail` -- its own module (P4 of
 the restructure), split out precisely so this one stays headless while that
 one draws; the panes each stage maps to are wired in :mod:`.main`.
 """
@@ -26,8 +26,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..service.validation import not_done_message
-from . import icons
+from .....service.validation import not_done_message
+from .... import icons
 
 # The stages, in the order the rail draws them and the order an asset passes
 # through them. **Ordered and monotone**: :func:`reached` walks this list and
@@ -140,7 +140,7 @@ def _reached_export(job: Any, rig_meta: Any, poses: Any) -> bool:
     therefore a grid of labels long before it has anything the grid's labels
     actually name. Reached now also asks whether the job is finished.
     """
-    from . import artifacts
+    from .... import artifacts
 
     return job is not None and job.get("status") == "done" and bool(artifacts.artifacts_for(job))
 
@@ -418,7 +418,7 @@ def go(ctx: Any, stage: str, *, select: str | None = None, follow: bool = True) 
     source, and jumping the selection onto a mesh this reference already has
     would describe the wrong asset while the form builds another.
     """
-    from .panes import pose_panel
+    from ....panes import pose_panel
 
     if stage not in STAGES:
         raise ValueError(f"stage must be one of {list(STAGES)}")
@@ -437,8 +437,8 @@ def go(ctx: Any, stage: str, *, select: str | None = None, follow: bool = True) 
 def _switch(ctx: Any, stage: str, select: str | None, follow: bool) -> None:
     """:func:`go` past the pose guard. Separate so the guard can defer it into
     a confirm's ``on_confirm`` without re-asking itself on the way through."""
-    from . import state as state_mod
-    from .panes import library, pose_panel
+    from .... import state as state_mod
+    from ....panes import library, pose_panel
 
     if at(ctx.state, "pose") and stage != "pose":
         # Leaving the editor as well as the stage. Without this the viewer

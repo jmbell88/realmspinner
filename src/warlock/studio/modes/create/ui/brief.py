@@ -57,19 +57,10 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from . import (
-    anchors,
-    controls,
-    create_assets,
-    create_rail,
-    dialogs,
-    focus,
-    icons,
-    theme,
-    tokens,
-    widgets,
-)
-from .tokens import sp
+from .... import anchors, controls, dialogs, focus, icons, theme, tokens, widgets
+from ..engine import assets as create_assets
+from . import rail as create_rail
+from ....tokens import sp
 
 #: The pane's height in design pixels, on the Reference stage -- see
 #: :func:`bar_height` for the other four. Measured rather than derived: the
@@ -124,7 +115,7 @@ def shows(ctx: Any) -> bool:
     now decides only how much of the row :func:`draw` fills in and how tall
     :func:`bar_height` makes it.
     """
-    from . import create_stages
+    from . import stages as create_stages
 
     return create_stages.at(ctx.state, "reference")
 
@@ -145,7 +136,7 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     ``rail`` is ``App._stage_rail``, bound -- see the module docstring for why
     it is handed in rather than called through an import here.
     """
-    from .panes import settings_2d
+    from . import settings_2d
 
     state = ctx.state
     form = state.form_2d
@@ -211,7 +202,7 @@ def _rail_items_for_measurement() -> list[tuple[str, str, str, str | None]]:
     string as an available one's, so ``reason=None`` throughout costs the
     measurement nothing.
     """
-    from . import create_stages
+    from . import stages as create_stages
 
     return [
         (stage, create_stages.LABELS[stage], create_stages.ICONS[stage], None)
@@ -445,7 +436,7 @@ def _generate(
     relied on to catch either, since that column is itself a ``layout`` pane a
     person can collapse (the 2026-09-07 Create review, item 5.9).
     """
-    from .panes import settings_2d
+    from . import settings_2d
 
     with focus.item(ctx.state, FOCUS_PANE, "generate") as focused:
         pressed = widgets.primary_button(
@@ -523,7 +514,7 @@ def _reset(ctx: Any, *, compact: bool) -> None:
     applied here through ``controls.button`` directly so the GHOST role
     survives the swap, which ``icon_button``'s own paint does not offer.
     """
-    from .panes import settings_2d
+    from . import settings_2d
 
     label = icons.UNDO if compact else "Reset..."
     if controls.button(
@@ -560,7 +551,7 @@ def _ring(ctx: Any, field: str) -> bool:
 
 def _max_prompt() -> int:
     """``MAX_PROMPT``, imported lazily so this module stays cheap to import."""
-    from ..service.validation import MAX_PROMPT
+    from .....service.validation import MAX_PROMPT
 
     return MAX_PROMPT
 
@@ -592,7 +583,7 @@ def _species_count() -> int:
     ``characters.family`` imports nothing but the standard library, so reading
     it at import time here costs a dict copy and drags nothing in behind it.
     """
-    from ..characters.family import families
+    from .....characters.family import families
 
     return len(families())
 

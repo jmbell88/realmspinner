@@ -15,38 +15,25 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import generation, vectors
-from ... import guidance as guidancelib
-from ... import models as modelslib
-from ...bench import findings as findings_lib
-from ...pipelines import tileatlas as tileatlaslib
-from ...service import findings as svc_findings
-from ...service import jobs as svc_jobs
-from ...service import palettes as svc_palettes
-from ...service import sprites as svc_sprites
-from ...service import tilesheets as svc_tilesheets
-from ...service.errors import Invalid
-from ...service.validation import (
-    MAX_PROMPT,
-    MAX_REFERENCE_COUNT,
-    MAX_UPLOAD_BYTES,
-    random_seed,
-)
-from .. import (
-    controls,
-    create_assets,
-    dialogs,
-    focus,
-    forms,
-    generation_workspace,
-    theme,
-    tokens,
-    widgets,
-)
-from ..manual import render as manual_render
-from ..review_mode import coerce_form_value
-from ..tokens import sp
-from ..widgets import field_options as _options
+from ..... import generation, vectors
+from ..... import guidance as guidancelib
+from ..... import models as modelslib
+from .....bench import findings as findings_lib
+from .....pipelines import tileatlas as tileatlaslib
+from .....service import findings as svc_findings
+from .....service import jobs as svc_jobs
+from .....service import palettes as svc_palettes
+from .....service import sprites as svc_sprites
+from .....service import tilesheets as svc_tilesheets
+from .....service.errors import Invalid
+from .....service.validation import MAX_PROMPT, MAX_REFERENCE_COUNT, MAX_UPLOAD_BYTES, random_seed
+from .... import controls, dialogs, focus, forms, theme, tokens, widgets
+from ..engine import assets as create_assets
+from . import workspace as generation_workspace
+from ....manual import render as manual_render
+from ....review_mode import coerce_form_value
+from ....tokens import sp
+from ....widgets import field_options as _options
 from . import settings_character
 
 # This pane's key in the focus ring (UX.md Phase 3). The controls on the common
@@ -966,7 +953,7 @@ def _pixel_look(
     ago never appears. ``inspector.palette_names`` is the one stat-per-frame
     guard over that listing and is shared rather than copied.
     """
-    from . import inspector
+    from ....panes import inspector
 
     door = svc_sprites.sprite_palettes if sprite else svc_tilesheets.tile_sheet_palettes
     installed = inspector.palette_names(ctx, door)
@@ -1385,7 +1372,7 @@ def _reset(ctx: Any) -> None:
     remembering this function -- and so the seed is *rerolled* rather than
     zeroed, which is what that default does and why it is a function.
     """
-    from ..state import default_form_2d
+    from ....state import default_form_2d
 
     ctx.state.form_2d = default_form_2d()
     ctx.state.preview = {}
@@ -2462,7 +2449,7 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: widgets.Problem) -> 
     if "not downloaded" in message and controls.button(
         "Open model setup##preflight-models", role=controls.ButtonRole.GHOST
     ):
-        from ..state import set_mode
+        from ....state import set_mode
 
         set_mode(ctx.state, "settings")
 

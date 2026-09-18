@@ -23,6 +23,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .. import charsheet
 from .poses import validate_bones
 from .templates import TEMPLATE_DIR, _read_json_capped, catalog, get_template
 
@@ -102,28 +103,24 @@ CLIP_LIBRARY_VERSIONS = (2, 3)
 #: ``tests/test_clip_library_v3.py::test_the_clip_duration_step_divides_the_animation_timebase``
 #: pins ``1000 / clips.ANIMATION_FPS`` (10) against this constant so the two
 #: cannot drift apart silently.
-MIN_CLIP_DURATION_MS = 10
-MAX_CLIP_DURATION_MS = 1000
-CLIP_DURATION_STEP_MS = 10
+#:
+#: The numbers themselves are ``charsheet``'s movement bounds: a v3 movement's
+#: ``duration_ms`` and a clip's are the same quantity, and until the
+#: restructure put both modules in ``kernels/`` each restated the other's
+#: under a layer ban that no longer exists.
+MIN_CLIP_DURATION_MS = charsheet.MIN_MOVEMENT_DURATION_MS
+MAX_CLIP_DURATION_MS = charsheet.MAX_MOVEMENT_DURATION_MS
+CLIP_DURATION_STEP_MS = charsheet.MOVEMENT_DURATION_STEP_MS
 
 #: A v2 clip carries no ``duration_ms`` of its own, so migrating one to v3
-#: needs somewhere to read the time it was actually rendered at. Restated
-#: from ``charsheet.ANIMATIONS`` rather than imported: when this was written
-#: ``charsheet`` was ``pipelines.charsheet`` and this module (Layer 1) could
-#: not reach Layer 2 at all. The 2026-09-17 restructure moved ``charsheet``
-#: to ``warlock.kernels.charsheet``, a sibling kernel this module could now
-#: import directly -- collapsing the restatement is a follow-on
-#: consolidation, not done here.
-#: ``tests/test_clip_library_v3.py`` (the legacy-frame-times test) imports
-#: ``charsheet`` itself and pins this dict to ``ANIMATIONS``' own
-#: ``(name, frames, loop, duration_ms)`` rows, so a change to one without the
-#: other fails loudly instead of silently re-timing every migrated library.
+#: needs somewhere to read the time it was actually rendered at: the time
+#: ``charsheet.ANIMATIONS`` rendered it at. Derived rather than restated. It
+#: was a hand copy while ``charsheet`` lived in ``pipelines/`` (Layer 2, out
+#: of this kernel's reach), pinned back to the original by a test; the
+#: restructure moved ``charsheet`` beside this package, and a copy that can
+#: be an import is a copy that can drift for nothing.
 LEGACY_CLIP_DURATION_MS: dict[str, int] = {
-    "idle": 150,
-    "walk": 100,
-    "run": 60,
-    "attack": 80,
-    "jump": 100,
+    name: duration_ms for name, _frames, _loop, duration_ms in charsheet.ANIMATIONS
 }
 
 #: A clip named for one of Troupe's 16 facing directions -- or, worse, ending
@@ -131,27 +128,11 @@ LEGACY_CLIP_DURATION_MS: dict[str, int] = {
 #: off a filename: ``fall_back.png`` is read as clip ``fall`` facing ``back``.
 #: Once any clip name can exist (not just the shipped five), authoring one
 #: that *looks* like ``<clip>_<direction>`` is a trap the parser refuses
-#: instead of leaving for Inker to silently mis-tag. Restated here from
-#: ``charsheet._DIRECTIONS_16`` for the same now-dissolved reason
-#: ``LEGACY_CLIP_DURATION_MS`` above explains; pinned to it by
-#: ``tests/test_clip_library_v3.py`` (the restated-direction-keys test).
-TROUPE_DIRECTION_KEYS: tuple[str, ...] = (
-    "front",
-    "front_front_left",
-    "front_left",
-    "left_front_left",
-    "left",
-    "left_back_left",
-    "back_left",
-    "back_back_left",
-    "back",
-    "back_back_right",
-    "back_right",
-    "right_back_right",
-    "right",
-    "right_front_right",
-    "front_right",
-    "front_front_right",
+#: instead of leaving for Inker to silently mis-tag. The names are Troupe's
+#: sixteen-direction preset, derived for the reason ``LEGACY_CLIP_DURATION_MS``
+#: above is.
+TROUPE_DIRECTION_KEYS: tuple[str, ...] = tuple(
+    name for name, _yaw in charsheet.DIRECTION_PRESETS[16]
 )
 
 #: A clip's optional ``source`` is a small provenance note (e.g. ``{"file":

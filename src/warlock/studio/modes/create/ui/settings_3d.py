@@ -14,18 +14,19 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import guidance, vectors
-from ...bench import findings as findings_lib
-from ...service import findings as svc_findings
-from ...service import jobs as svc_jobs
-from ...service import sheets as svc_sheets
-from ...service.errors import Invalid
-from ...service.validation import MAX_MESH_CANDIDATES, MAX_UPLOAD_BYTES, random_seed
-from .. import controls, create_stages, dialogs, focus, forms, matte_preview, theme, widgets
-from ..manual import render as manual_render
-from ..review_mode import coerce_form_value
-from ..tokens import sp
-from . import stage_rig
+from ..... import guidance, vectors
+from .....bench import findings as findings_lib
+from .....service import findings as svc_findings
+from .....service import jobs as svc_jobs
+from .....service import sheets as svc_sheets
+from .....service.errors import Invalid
+from .....service.validation import MAX_MESH_CANDIDATES, MAX_UPLOAD_BYTES, random_seed
+from .... import controls, dialogs, focus, forms, matte_preview, theme, widgets
+from . import stages as create_stages
+from ....manual import render as manual_render
+from ....review_mode import coerce_form_value
+from ....tokens import sp
+from ....panes import stage_rig
 
 MATTE_TITLE = "Check the cutout"
 
@@ -242,7 +243,7 @@ def _reset(ctx: Any) -> None:
     what the user had picked to work from would be a different, larger action
     than the one the button offers.
     """
-    from ..state import DEFAULT_FORM_3D
+    from ....state import DEFAULT_FORM_3D
 
     ctx.state.form_3d = dict(DEFAULT_FORM_3D)
     ctx.toast("The model settings are back to their defaults.")
@@ -476,7 +477,7 @@ def _source(ctx: Any) -> None:
     the target has to be exactly the area the user is aiming at, at every
     display scale.
     """
-    from . import library
+    from ....panes import library
 
     state = ctx.state
     source = ctx.cache.get(state.source_job)
@@ -791,7 +792,7 @@ def _turnaround(ctx: Any) -> None:
     mesh = _selected_mesh(ctx)
     if mesh is None or "model.glb" not in (mesh.get("files") or []):
         return
-    from . import sheet_panel
+    from ....panes import sheet_panel
 
     job_id = mesh["id"]
     widgets.section("Turnaround")

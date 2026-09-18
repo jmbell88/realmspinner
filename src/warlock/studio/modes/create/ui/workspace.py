@@ -14,12 +14,13 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..service import jobs as svc_jobs
-from ..service import sprites as svc_sprites
-from . import asset_open, controls, create_assets, widgets
-from . import candidates as candidates_mod
-from .panes import thumbs
-from .tokens import sp
+from .....service import jobs as svc_jobs
+from .....service import sprites as svc_sprites
+from .... import asset_open, controls, widgets
+from ..engine import assets as create_assets
+from .... import candidates as candidates_mod
+from ....panes import thumbs
+from ....tokens import sp
 
 #: How many finished results the tray shows, and the width of its grid. One
 #: number because they are one fact: the tray is a fixed-height strip, so the
@@ -67,7 +68,7 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
         # The sprite follow-up has one preliminary character plus one sheet
         # image per planned cell/candidate.  Import lazily: settings_2d owns
         # the UI layout vocabulary and importing it at module load cycles.
-        from .panes import settings_2d
+        from . import settings_2d
 
         sprite = settings_2d.sprite_plan(form)
         candidates = int(sprite["candidates"])
@@ -84,8 +85,8 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
         # EEVEE, all of it CPU. A user with a small card is owed that before the
         # press rather than after it, which is why "no GPU needed" is in the
         # line rather than in a tooltip.
-        from ..service import characters as svc_characters
-        from .panes import settings_character
+        from .....service import characters as svc_characters
+        from . import settings_character
 
         candidates = 1
         generations = 0
@@ -115,7 +116,7 @@ def _species_label(form: dict[str, Any]) -> str:
     Pure -- ``plan_for`` takes no ``ctx``, and ``characters.family`` imports
     nothing but the standard library, so this drags nothing in behind it.
     """
-    from ..characters.family import families
+    from .....characters.family import families
 
     key = str(form.get("character_family") or "")
     row = families().get(key)
@@ -357,7 +358,7 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         # beside it.
         if group.all_failed:
             if controls.button(f"Discard##result-discard-{job_id}", half):
-                from .panes import candidates_panel
+                from ....panes import candidates_panel
 
                 candidates_panel.discard(ctx, group)
         else:
@@ -372,7 +373,7 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
                     else "This result did not finish."
                 ),
             ):
-                from .panes import candidates_panel
+                from ....panes import candidates_panel
 
                 candidates_panel.keep(ctx, group, job_id)
         # No ``same_line()`` here (the 2026-09-07 audit, finding create-08):
@@ -399,7 +400,7 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     # through the ``svc_jobs`` facade: this fix's file list does not include
     # ``service/jobs.py``, and the facade is a re-export list a different
     # change can extend without this one racing it.
-    from ..service._jobs_resubmit import rerollable_reason
+    from .....service._jobs_resubmit import rerollable_reason
 
     can_rerun = svc_jobs.rerollable(job)
     # ``rerollable``'s own status gate, restated: past it, ``rerollable_reason``'s
@@ -449,7 +450,7 @@ def _half_width() -> float:
 
 
 def _make_3d(ctx: Any, job: dict[str, Any]) -> None:
-    from .panes import settings_3d
+    from . import settings_3d
 
     ctx.state.source_job = str(job["id"])
     settings_3d.promote(ctx, job, ctx.state.form_3d)
@@ -457,8 +458,8 @@ def _make_3d(ctx: Any, job: dict[str, Any]) -> None:
 
 def _vary(ctx: Any, job: dict[str, Any]) -> None:
     """Copy a result's recorded brief back to the live form for a controlled edit."""
-    from . import create_stages
-    from .panes import library
+    from . import stages as create_stages
+    from ....panes import library
 
     library.copy_settings(ctx, job)
     create_stages.go(ctx, "reference", follow=False)
