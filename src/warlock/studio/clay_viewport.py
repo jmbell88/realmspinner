@@ -331,7 +331,7 @@ class ClayViewport:
         overlays: trellis is being given a *subject*, and a grid line in the
         picture is a subject too.
         """
-        from .panes import settings_3d
+        from .modes.create.ui import settings_3d
 
         ctx = self.app_ctx
         try:

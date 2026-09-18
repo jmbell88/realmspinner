@@ -14,9 +14,10 @@ import inspect
 from types import SimpleNamespace
 
 from warlock import guidance as guidancelib
+from warlock.studio import problems
 from warlock.studio import settings as settings_mod
-from warlock.studio import widgets
-from warlock.studio.panes import settings_2d
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.modes.create.ui import settings_2d
 from warlock.studio.state import MAX_HISTORY, AppState, default_form_2d
 
 
@@ -69,20 +70,20 @@ def test_the_reference_path_survives_a_restart_and_a_missing_file_does_not(tmp_p
     missing = str(tmp_path / "gone.png")
     ctx = _Ctx()
     form = {"ref_path": missing}
-    settings_2d._verify_reference_path(ctx, form)
+    create_recipe.verify_reference_path(ctx, form)
     assert form["ref_path"] == ""
     assert len(ctx.toasts) == 1
     assert "missing" in ctx.toasts[0][0] and missing in ctx.toasts[0][0]
 
     # Once per session, not once per frame: a second form still naming no
     # file must not toast again.
-    settings_2d._verify_reference_path(ctx, {"ref_path": missing})
+    create_recipe.verify_reference_path(ctx, {"ref_path": missing})
     assert len(ctx.toasts) == 1
 
     # And a genuinely live path is left alone.
     ctx2 = _Ctx()
     live_form = {"ref_path": str(real)}
-    settings_2d._verify_reference_path(ctx2, live_form)
+    create_recipe.verify_reference_path(ctx2, live_form)
     assert live_form["ref_path"] == str(real)
     assert ctx2.toasts == []
 
@@ -220,7 +221,7 @@ def test_structure_notes_do_not_name_a_recipe_switch_that_does_not_exist():
     for the ``model_mode`` value, which is real -- only the words a reader
     sees have to name a control that exists.
     """
-    note = settings_2d.structure_note(_note_ctx(), {"base_model": "turbo"})
+    note = create_recipe.structure_note(_note_ctx(), {"base_model": "turbo"})
     assert note is not None
     assert "Switch the Recipe to Quality" not in note
     assert "under Advanced" not in note
@@ -236,7 +237,7 @@ def test_structure_notes_do_not_name_a_recipe_switch_that_does_not_exist():
         "model_mode": "auto",
         "quality": "fast",
     }
-    recipe_note = settings_2d.recipe_structure_note(resolved_ctx, fast_form)
+    recipe_note = create_recipe.recipe_structure_note(resolved_ctx, fast_form)
     assert recipe_note is not None
     assert "Switch the Recipe to Quality" not in recipe_note
     assert "under Advanced" not in recipe_note
@@ -253,7 +254,7 @@ def test_the_structure_repair_changes_the_control_its_own_note_names(monkeypatch
     what actually decides whether the next resolved recipe can run a
     ControlNet."""
     monkeypatch.setattr(settings_2d.controls, "button", lambda *a, **k: True)
-    monkeypatch.setattr(settings_2d, "clear_for_tier", lambda ctx, form: [])
+    monkeypatch.setattr(create_recipe, "clear_for_tier", lambda ctx, form: [])
 
     form = {
         "asset_type": "image",
@@ -265,7 +266,7 @@ def test_the_structure_repair_changes_the_control_its_own_note_names(monkeypatch
         "quality": "fast",
     }
     ctx = SimpleNamespace(state=AppState())
-    problem = widgets.Problem("Structure control needs a full-CFG model.", "base_model")
+    problem = problems.Problem("Structure control needs a full-CFG model.", "base_model")
 
     settings_2d._preflight_fix(ctx, form, problem)
 

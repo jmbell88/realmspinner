@@ -23,7 +23,13 @@ from warlock.studio.panes import (
 )
 
 STUDIO = Path(inker_tools.__file__).resolve().parent.parent
-PANES = sorted((STUDIO / "panes").glob("*.py"))
+#: Every pane-drawing module: ``panes/`` plus each mode's own ``ui/`` package.
+#: ``panes/*.py`` alone was the whole set until P5 of the restructure moved
+#: Create's three settings columns to ``modes/create/ui/`` -- and both sweeps
+#: below lost six cases without a single test going red.
+PANES = sorted(
+    [*(STUDIO / "panes").glob("*.py"), *(STUDIO / "modes").glob("*/ui/*.py")]
+)
 
 #: The controls that draw at the full width of the content region. imgui puts a
 #: slider's or a combo's own label *outside* the widget, to its right, so at

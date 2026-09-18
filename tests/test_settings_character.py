@@ -13,7 +13,7 @@ every keystroke silently undoes the species the user just picked.
 a creature this program does not model, and the pane keeps that promise at the
 other end: ``character_family`` stays empty, Generate is refused in
 ``resolve.offer_sentence``'s exact words, and the substitution happens in
-exactly one place -- :func:`settings_character.apply_offer`, reachable only from
+exactly one place -- :func:`character_engine.apply_offer`, reachable only from
 a button the user presses.
 
 The species-dependent cases are parameterised over the registry rather than
@@ -24,14 +24,18 @@ test about "the default character" pass for the wrong reason.
 from __future__ import annotations
 
 import inspect
+from types import ModuleType
 
 import pytest
 
 from warlock.characters import resolve as resolve_mod
 from warlock.characters.family import families
 from warlock.characters.recipe import Recipe
-from warlock.studio import create_assets, generation_workspace
-from warlock.studio.panes import settings_2d, settings_character
+from warlock.studio.modes.create.engine import assets as create_assets
+from warlock.studio.modes.create.engine import character as character_engine
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.modes.create.ui import settings_2d, settings_character
+from warlock.studio.modes.create.ui import workspace as generation_workspace
 from warlock.studio.state import AppState
 
 # --- the harness --------------------------------------------------------------
@@ -106,14 +110,14 @@ def test_a_prompt_edit_fills_only_the_fields_nobody_has_touched(species):
     """
     fam = families()[species]
     form = _form("a wizard")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     assert form["character_family"] == "wizard"
 
     form["character_pixel"] = "128"
-    settings_character.touched(form, "character_pixel")
+    character_engine.touched(form, "character_pixel")
 
     form["prompt"] = f"a {fam.aliases[0]}"
-    assert settings_character.sync_from_prompt(form) is True
+    assert character_engine.sync_from_prompt(form) is True
     assert form["character_family"] == species
     assert form["character_pixel"] == "128", "a claimed control is the user's"
 
@@ -126,13 +130,13 @@ def test_a_field_the_new_brief_says_nothing_about_goes_back_to_its_default():
     briefs the user never wrote together.
     """
     form = _form("an attacking fire ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     assert (form["character_theme"], form["character_actions"]) == ("fire", "attack")
 
     form["prompt"] = "a wolf"
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     assert form["character_family"] == "wolf"
-    assert form["character_theme"] == settings_character.THEME_UNSET
+    assert form["character_theme"] == character_engine.THEME_UNSET
     assert form["character_actions"] == AppState().form_2d["character_actions"]
 
 
@@ -152,10 +156,10 @@ def test_the_create_pane_does_not_copy_a_look_the_species_lacks():
     assert "swamp" not in {t.key for t in fam.themes}
 
     form = _form("a swamp knight")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     assert form["character_family"] == "knight"
     assert (
-        form["character_theme"] == settings_character.THEME_UNSET
+        form["character_theme"] == character_engine.THEME_UNSET
     ), "a look the species lacks must not land here"
 
 
@@ -175,18 +179,18 @@ def test_a_look_from_the_previous_prompt_does_not_survive_a_species_that_lacks_i
     assert "fire" not in knight_themes and "swamp" not in knight_themes
 
     form = _form("a fire ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     assert (form["character_family"], form["character_theme"]) == ("ogre", "fire")
 
     form["prompt"] = "a swamp knight"
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     assert form["character_family"] == "knight"
-    assert form["character_theme"] == settings_character.THEME_UNSET, (
+    assert form["character_theme"] == character_engine.THEME_UNSET, (
         "the ogre's theme rode onto the knight"
     )
 
-    opts = settings_character.options(ctx)
-    kwargs = settings_character.recipe_kwargs(form, opts)
+    opts = character_engine.options(ctx)
+    kwargs = character_engine.recipe_kwargs(form, opts)
     assert "theme" not in kwargs
     # Built through the real door: proves the knight accepts this recipe with
     # no theme refusal, not just that this pane stopped sending one.
@@ -203,15 +207,15 @@ def test_a_species_change_via_the_prompt_drops_a_touched_appearance_slider():
     accumulating a character out of two briefs the user never wrote together.
     """
     form = _form("an ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     assert form["character_family"] == "ogre"
 
-    settings_character.set_channel(form, "bulk", 1.0)
-    settings_character.touched(form, "character_body")
-    assert "character_body" in settings_character.overrides_of(form)
+    character_engine.set_channel(form, "bulk", 1.0)
+    character_engine.touched(form, "character_body")
+    assert "character_body" in character_engine.overrides_of(form)
 
     form["prompt"] = "an elf"
-    assert settings_character.sync_from_prompt(form) is True
+    assert character_engine.sync_from_prompt(form) is True
     assert form["character_family"] == "elf"
     assert form["character_body"] == "{}", "the ogre's slider rode onto the elf"
 
@@ -219,34 +223,34 @@ def test_a_species_change_via_the_prompt_drops_a_touched_appearance_slider():
 def test_the_scan_runs_on_a_prompt_change_and_on_nothing_else():
     """The cache is what makes calling this from a draw affordable."""
     form = _form("a fire ogre")
-    assert settings_character.sync_from_prompt(form) is True
-    assert settings_character.sync_from_prompt(form) is False
+    assert character_engine.sync_from_prompt(form) is True
+    assert character_engine.sync_from_prompt(form) is False
     form["prompt"] = "a fire ogre "
-    assert settings_character.sync_from_prompt(form) is True
+    assert character_engine.sync_from_prompt(form) is True
 
 
 def test_an_explicit_change_is_recorded_as_an_override():
     form = _form("a goblin")
-    settings_character.sync_from_prompt(form)
-    assert settings_character.overrides_of(form) == []
-    settings_character.touched(form, "character_family")
-    assert settings_character.overrides_of(form) == ["character_family"]
+    character_engine.sync_from_prompt(form)
+    assert character_engine.overrides_of(form) == []
+    character_engine.touched(form, "character_family")
+    assert character_engine.overrides_of(form) == ["character_family"]
     # And recorded once, however many times the control is moved.
-    settings_character.touched(form, "character_family")
-    assert settings_character.overrides_of(form) == ["character_family"]
+    character_engine.touched(form, "character_family")
+    assert character_engine.overrides_of(form) == ["character_family"]
 
 
 def test_reset_to_prompt_forgets_every_override_and_reads_the_brief_again():
     form = _form("a fire ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     form["character_family"] = "wolf"
-    form["character_theme"] = settings_character.THEME_UNSET
-    settings_character.touched(form, "character_family")
-    settings_character.touched(form, "character_theme")
+    form["character_theme"] = character_engine.THEME_UNSET
+    character_engine.touched(form, "character_family")
+    character_engine.touched(form, "character_theme")
 
-    settings_character.reset_to_prompt(form)
+    character_engine.reset_to_prompt(form)
 
-    assert settings_character.overrides_of(form) == []
+    assert character_engine.overrides_of(form) == []
     assert (form["character_family"], form["character_theme"]) == ("ogre", "fire")
 
 
@@ -269,15 +273,15 @@ def test_an_unsupported_creature_is_a_problem_on_the_prompt_and_never_a_species(
     already happened.
     """
     form = _form(prompt)
-    settings_character.sync_from_prompt(form)
-    resolution = settings_character.resolution_of(form)
+    character_engine.sync_from_prompt(form)
+    resolution = character_engine.resolution_of(form)
     sentence = resolve_mod.offer_sentence(resolution)
     assert sentence is not None
 
     assert form["character_family"] == "", "the resolver never substitutes"
     assert resolution.offer, "and it does have something to propose"
 
-    problems = settings_character.problems(ctx, form)
+    problems = character_engine.problems(ctx, form)
     named = [p for p in problems if getattr(p, "field", "") == "prompt"]
     assert len(named) == 1
     assert str(named[0]) == sentence
@@ -291,19 +295,19 @@ def test_the_offer_is_applied_only_by_the_explicit_fix_action(ctx, prompt):
     under the refusal.
     """
     form = _form(prompt)
-    settings_character.sync_from_prompt(form)
-    settings_character.problems(ctx, form)
-    settings_character.recipe_kwargs(form, settings_character.options(ctx))
+    character_engine.sync_from_prompt(form)
+    character_engine.problems(ctx, form)
+    character_engine.recipe_kwargs(form, character_engine.options(ctx))
     settings_2d.generate(ctx, form)
     assert form["character_family"] == ""
     assert ctx.submitted == [], "a refused brief queues nothing"
 
-    applied = settings_character.apply_offer(form, settings_character.options(ctx))
-    expected = settings_character.resolution_of(form).offer[0]
+    applied = character_engine.apply_offer(form, character_engine.options(ctx))
+    expected = character_engine.resolution_of(form).offer[0]
     assert applied == expected
     assert form["character_family"] == expected
     # And it is the user's from now on: the next prompt edit leaves it.
-    assert "character_family" in settings_character.overrides_of(form)
+    assert "character_family" in character_engine.overrides_of(form)
 
 
 def test_only_one_place_in_the_program_writes_a_species_the_prompt_did_not_name():
@@ -313,17 +317,27 @@ def test_only_one_place_in_the_program_writes_a_species_the_prompt_did_not_name(
     ``apply_offer`` is the only function that reads ``resolution.offer`` and
     assigns it. A second reader would be a second chance to make the
     substitution automatic, which is the failure the wording exists to prevent.
+
+    Both modules are scanned, not only ``character_engine``: the 2026-09-18
+    restructure moved ``apply_offer``/``_fill`` there, but the claim is about
+    the *program*, and ``settings_character.py`` (``_offer_fixes``,
+    ``hand_to_troupe``) is exactly the kind of caller that could have grown a
+    second writer.
     """
-    source = inspect.getsource(settings_character)
-    writers = [
-        name
-        for name, fn in vars(settings_character).items()
-        if callable(fn)
-        and getattr(fn, "__module__", "") == settings_character.__name__
-        and ".offer" in inspect.getsource(fn)
-        and "character_family" in inspect.getsource(fn)
-        and 'form["character_family"] =' in inspect.getsource(fn)
-    ]
+    source = inspect.getsource(character_engine)
+
+    def _writers(module: ModuleType) -> list[str]:
+        return [
+            name
+            for name, fn in vars(module).items()
+            if callable(fn)
+            and getattr(fn, "__module__", "") == module.__name__
+            and ".offer" in inspect.getsource(fn)
+            and "character_family" in inspect.getsource(fn)
+            and 'form["character_family"] =' in inspect.getsource(fn)
+        ]
+
+    writers = _writers(character_engine) + _writers(settings_character)
     assert writers == ["apply_offer"], writers
     assert 'resolution.family or ""' in source, "the fill never reaches for an offer"
 
@@ -331,8 +345,8 @@ def test_only_one_place_in_the_program_writes_a_species_the_prompt_did_not_name(
 def test_a_brief_that_names_no_creature_is_refused_in_the_same_register(ctx):
     """No offer to make, and still a sentence somebody can act on."""
     form = _form("something cool")
-    settings_character.sync_from_prompt(form)
-    problems = settings_character.problems(ctx, form)
+    character_engine.sync_from_prompt(form)
+    problems = character_engine.problems(ctx, form)
     named = [p for p in problems if getattr(p, "field", "") == "prompt"]
     assert len(named) == 1
     message = str(named[0])
@@ -351,10 +365,10 @@ def test_the_ring_the_footer_and_the_toast_all_say_the_same_sentence(ctx):
     one evaluation; three evaluations only *tend* to agree.
     """
     form = _form("a manticore")
-    settings_character.sync_from_prompt(form)
-    sentence = resolve_mod.offer_sentence(settings_character.resolution_of(form))
+    character_engine.sync_from_prompt(form)
+    sentence = resolve_mod.offer_sentence(character_engine.resolution_of(form))
 
-    footer = settings_2d.problems_for(ctx, form)
+    footer = create_recipe.problems_for(ctx, form)
     assert str(footer[0]) == sentence
 
     settings_2d.generate(ctx, form)
@@ -372,9 +386,9 @@ def test_the_escape_routes_keep_the_brief(ctx):
     the prompt on the way would send a different request than the one they were
     refused for."""
     form = _form("a fierce manticore")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
 
-    settings_character.switch_to_sprite_sheet(form)
+    character_engine.switch_to_sprite_sheet(form)
     assert form["prompt"] == "a fierce manticore"
     assert create_assets.selected(form).key == "sprite_sheet"
     assert form["output"] == "sheet"
@@ -420,8 +434,8 @@ def test_without_blender_the_press_is_refused_in_the_rig_stages_own_words(svc):
 
     ctx = _Ctx(svc, rigging=False)
     form = _form("a fire ogre")
-    settings_character.sync_from_prompt(form)
-    problems = settings_character.problems(ctx, form)
+    character_engine.sync_from_prompt(form)
+    problems = character_engine.problems(ctx, form)
     assert sentence in [str(p) for p in problems]
     # No field: it is a fact about the install, not about a control, so it goes
     # to the toast and the plan block rather than ringing an arbitrary widget.
@@ -440,19 +454,19 @@ def test_recipe_kwargs_round_trips_through_the_door_it_is_built_for(ctx, species
     whose *shape* comes off the body plan -- a fixed set of sliders would be
     accepted for an ogre and refused for a wolf.
     """
-    opts = settings_character.options(ctx)
+    opts = character_engine.options(ctx)
     form = _form("a fire ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     form["character_family"] = species
-    form["character_theme"] = settings_character.THEME_UNSET
+    form["character_theme"] = character_engine.THEME_UNSET
     form["character_body"] = "{}"
 
-    kwargs = settings_character.recipe_kwargs(form, opts)
+    kwargs = character_engine.recipe_kwargs(form, opts)
     recipe = Recipe.from_dict(kwargs)
 
     assert recipe.family == species
-    assert recipe.cell_count == settings_character.cell_count(form)
-    assert recipe.directions == settings_character.DIRECTIONS
+    assert recipe.cell_count == character_engine.cell_count(form)
+    assert recipe.directions == character_engine.DIRECTIONS
     # The camera and its angle are one fact, taken from ``troupe_options``.
     preset = opts["troupe"]["camera_presets"][recipe.camera]
     assert recipe.elevation == float(preset["elevation"])
@@ -462,11 +476,11 @@ def test_recipe_kwargs_round_trips_through_the_door_it_is_built_for(ctx, species
 
 def test_the_sentinel_look_means_the_species_own_and_is_never_sent(ctx):
     """``"none"`` is not a theme key; sending it would be refused by name."""
-    opts = settings_character.options(ctx)
+    opts = character_engine.options(ctx)
     form = _form("a wolf")
-    settings_character.sync_from_prompt(form)
-    assert form["character_theme"] == settings_character.THEME_UNSET
-    kwargs = settings_character.recipe_kwargs(form, opts)
+    character_engine.sync_from_prompt(form)
+    assert form["character_theme"] == character_engine.THEME_UNSET
+    kwargs = character_engine.recipe_kwargs(form, opts)
     assert "theme" not in kwargs
     assert Recipe.from_dict(kwargs).theme == families()["wolf"].themes[0].key
 
@@ -475,11 +489,11 @@ def test_a_slider_from_another_body_plan_is_dropped_rather_than_submitted(ctx):
     """A restored form can carry one; the door refuses an unknown channel by
     name, and a refusal about a control that is no longer on screen is the dead
     end this pane's whole override model exists to avoid."""
-    opts = settings_character.options(ctx)
+    opts = character_engine.options(ctx)
     form = _form("a wolf")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     form["character_body"] = '{"not-a-channel": 0.5}'
-    kwargs = settings_character.recipe_kwargs(form, opts)
+    kwargs = character_engine.recipe_kwargs(form, opts)
     assert kwargs["appearance"] == {}
     Recipe.from_dict(kwargs)
 
@@ -505,7 +519,7 @@ def test_the_press_builds_a_character_and_never_reaches_create_job(ctx, monkeypa
     monkeypatch.setattr(svc_characters, "create_character", _build)
 
     form = _form("an attacking fire ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     settings_2d.generate(ctx, form)
 
     assert [key for key, _result in ctx.submitted] == ["submit"]
@@ -518,17 +532,17 @@ def test_the_press_builds_a_character_and_never_reaches_create_job(ctx, monkeypa
 
 def test_the_toast_names_the_species_and_the_cell_count(ctx):
     form = _form("a fire ogre")
-    settings_character.sync_from_prompt(form)
-    message = settings_character.toast_for(form, settings_character.options(ctx))
+    character_engine.sync_from_prompt(form)
+    message = character_engine.toast_for(form, character_engine.options(ctx))
     assert "ogre" in message
-    assert f"{settings_character.cell_count(form)}-cell sheet" in message
+    assert f"{character_engine.cell_count(form)}-cell sheet" in message
     assert "Troupe" in message
 
 
 def test_a_preview_has_its_own_key_so_it_can_never_swallow_a_press():
-    assert settings_character.PREVIEW_KEY != "submit"
-    assert settings_character.PREVIEW_KEY == "character-preview"
-    source = inspect.getsource(settings_character.preview)
+    assert character_engine.PREVIEW_KEY != "submit"
+    assert character_engine.PREVIEW_KEY == "character-preview"
+    source = inspect.getsource(character_engine.preview)
     assert "PREVIEW_KEY" in source
     assert "preview_character" in source
 
@@ -539,14 +553,14 @@ def test_a_preview_has_its_own_key_so_it_can_never_swallow_a_press():
 @pytest.mark.parametrize("species", ONE_PER_ARCHETYPE)
 def test_the_plan_names_the_species_the_cells_and_no_gpu(species):
     form = _form("a fire ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     form["character_family"] = species
 
     plan = generation_workspace.plan_for(form)
 
     assert plan.generations == 0, "a character draws no images at all"
     assert families()[species].label.lower() in plan.stages
-    assert f"{settings_character.cell_count(form)}-cell sheet" in plan.stages
+    assert f"{character_engine.cell_count(form)}-cell sheet" in plan.stages
     assert "no GPU needed" in plan.stages
     assert plan.duration.startswith("about ")
     assert "image model" in plan.recipe
@@ -564,8 +578,8 @@ def test_the_default_trio_is_the_recipes_own_and_makes_the_stated_sheet():
     number the tooltip, the plan and the toast all print, taken from the
     recipe's table rather than typed in three places."""
     form = _form("a fire ogre")
-    assert settings_character.actions_of(form) == ("idle", "walk", "attack")
-    assert settings_character.cell_count(form) == 144
+    assert character_engine.actions_of(form) == ("idle", "walk", "attack")
+    assert character_engine.cell_count(form) == 144
 
 
 # --- the ladders ---------------------------------------------------------------
@@ -575,10 +589,10 @@ def test_a_restored_value_off_the_ladder_is_named_rather_than_snapped(ctx):
     """Both are persisted and the ladders can move between releases, so the
     segmented control is not on its own a gate."""
     form = _form("a fire ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     form["character_pixel"] = "17"
     form["character_colors"] = "7"
-    fields = {getattr(p, "field", "") for p in settings_character.problems(ctx, form)}
+    fields = {getattr(p, "field", "") for p in character_engine.problems(ctx, form)}
     assert {"character_pixel", "character_colors"} <= fields
     assert form["character_pixel"] == "17", "named, never quietly snapped"
 
@@ -589,7 +603,7 @@ def test_the_size_and_colour_ladders_are_the_doors_own(ctx):
     door then refuses."""
     from warlock.service import troupe as svc_troupe
 
-    opts = settings_character.options(ctx)
+    opts = character_engine.options(ctx)
     assert opts["troupe"]["logical_sizes"] == list(svc_troupe.TROUPE_LOGICAL_SIZES)
     assert opts["troupe"]["colors"] == list(svc_troupe.TROUPE_COLOR_CHOICES)
 
@@ -623,12 +637,12 @@ def test_the_form_checks_that_do_not_apply_are_skipped_for_a_character(ctx):
     disabled Generate reading "Choose a recognised image model" over a run that
     opens none would be a refusal about somebody else's job."""
     form = _form("a fire ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     form["base_model"] = "not-a-model"
     form["style_lora"] = "not-a-lora"
     form["control"] = "canny"
-    assert settings_2d.validate(form) == []
-    assert settings_2d.weights_problem(ctx, form) is None
+    assert create_recipe.validate(form) == []
+    assert create_recipe.weights_problem(ctx, form) is None
 
 
 def test_the_family_picker_is_a_real_picker_grouped_by_body_plan(ctx):
@@ -636,8 +650,8 @@ def test_the_family_picker_is_a_real_picker_grouped_by_body_plan(ctx):
     as a statement. Thirty-one species across four body plans is the opposite
     situation, so this is a combo -- and grouped, because a flat alphabetical
     list of thirty-one nouns is a list nobody can find a wolf in."""
-    opts = settings_character.options(ctx)
-    entries = settings_character.family_options(opts, "ogre")
+    opts = character_engine.options(ctx)
+    entries = character_engine.family_options(opts, "ogre")
     keys = [key for key, _label in entries]
     assert set(keys) == set(families())
     assert len(keys) == len(families()) >= 31
@@ -657,10 +671,10 @@ def test_an_empty_species_is_listed_rather_than_falling_back_to_entry_zero(ctx):
     without this the picker would draw "Human" over a form that is refusing to
     submit -- the value keeping Generate off would be the one thing not on
     screen."""
-    entries = settings_character.family_options(settings_character.options(ctx), "")
+    entries = character_engine.family_options(character_engine.options(ctx), "")
     assert entries[0][0] == ""
     # And a stored key from another build is marked, never dropped.
-    marked = settings_character.family_options(settings_character.options(ctx), "gorgon")
+    marked = character_engine.family_options(character_engine.options(ctx), "gorgon")
     assert ("gorgon", "gorgon - not a species this build ships") in marked
 
 
@@ -669,10 +683,10 @@ def test_there_is_one_slider_per_channel_the_body_plan_declares(ctx, species):
     """Never a fixed column: a wolf has none of an ogre's channels, and a form
     that drew a fixed group would offer four controls of which three are
     refusals."""
-    opts = settings_character.options(ctx)
+    opts = character_engine.options(ctx)
     form = _form("")
     form["character_family"] = species
-    channels = settings_character.channels_of(form, opts)
+    channels = character_engine.channels_of(form, opts)
     assert channels
     assert {c["key"] for c in channels} == set(families()[species].appearance_defaults())
 
@@ -720,9 +734,9 @@ def test_the_whole_block_draws_for_every_body_plan(ui, ctx, species):
     raises for a wolf is exactly the failure this cannot be a pure test about.
     """
     form = _form("a fire ogre")
-    settings_character.sync_from_prompt(form)
+    character_engine.sync_from_prompt(form)
     form["character_family"] = species
-    form["character_theme"] = settings_character.THEME_UNSET
+    form["character_theme"] = character_engine.THEME_UNSET
 
     seen = _draw_block(ui, ctx, form)
 
@@ -731,8 +745,8 @@ def test_the_whole_block_draws_for_every_body_plan(ui, ctx, species):
     assert any("character_pixel" in label for label in labels), labels
     # One switch per movement, one slider per channel.
     switches = [c for c in seen if c.kind == "switch"]
-    assert len(switches) >= len(settings_character.MOVEMENTS)
-    channels = settings_character.channels_of(form, settings_character.options(ctx))
+    assert len(switches) >= len(character_engine.MOVEMENTS)
+    channels = character_engine.channels_of(form, character_engine.options(ctx))
     sliders = [c for c in seen if "character_body_" in c.label]
     assert len(sliders) == len(channels), sorted({c.kind for c in seen})
 
@@ -758,7 +772,7 @@ def test_the_refusal_and_its_three_repairs_draw_under_the_plan(ui, ctx):
     from warlock.studio import probe, widgets
 
     form = _form("a manticore")
-    problems = settings_2d.problems_for(ctx, form)
+    problems = create_recipe.problems_for(ctx, form)
     problem = next(p for p in problems if getattr(p, "field", "") == "prompt")
 
     probe.begin_frame()

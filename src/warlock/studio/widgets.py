@@ -1732,58 +1732,6 @@ def checkerboard(draw_list: Any, low: Any, high: Any, *, step: float = CHECKER) 
             )
 
 
-class Problem(str):
-    """A validation message that knows which control it is about.
-
-    A ``str`` subclass, deliberately: the aggregate block above Generate does
-    ``imgui.text_wrapped(problem)`` and the tests compare against plain
-    strings, and both keep working unchanged. What it adds is the half that was
-    missing when the *keyboard* door refused a submit -- Ctrl+Enter and the
-    command palette both call ``generate``/``promote`` directly, where the only
-    feedback was the block of red text in a pane the user may not be looking
-    at, so a refused Ctrl+Enter did nothing observable at all.
-
-    ``field`` is empty for a problem that names no single control ("Choose a
-    reference first" is about the library, not about a widget in the form), and
-    :meth:`state.note_field_error` already treats that as "keep going to the
-    toast".
-    """
-
-    __slots__ = ("field",)
-
-    def __new__(cls, text: str, field: str = "") -> Problem:
-        self = super().__new__(cls, text)
-        self.field = field
-        return self
-
-
-class Advisory(str):
-    """Something worth knowing that is **not** stopping the press.
-
-    ``Problem``'s sibling and deliberately a separate type rather than a
-    severity field on it: ``problems_for`` is documented as "everything
-    stopping a press" and every one of its members disables Generate, so a
-    warning added to that list would refuse a request the app has no grounds to
-    refuse. The two are drawn in one block and are never merged into one list.
-
-    The distinction is not decorative. The first thing this carries is the
-    open-form lint, and an audit-flagged open form still grades usable two
-    times in five (dev/measurements/2026-09-02-fantasy-v1.md) -- a rate that
-    is worth telling somebody about and nowhere near a verdict. An advisory
-    that blocked would be the app claiming a certainty the corpus does not
-    support.
-
-    Same ``field`` contract as ``Problem`` so one repair helper can serve both.
-    """
-
-    __slots__ = ("field",)
-
-    def __new__(cls, text: str, field: str = "") -> Advisory:
-        self = super().__new__(cls, text)
-        self.field = field
-        return self
-
-
 def field_error(state: Any, field: str) -> bool:
     """Ring the control just drawn, and say why, if a refusal named it (UX.md
     Phase 3). -> whether anything was drawn.
@@ -1795,7 +1743,7 @@ def field_error(state: Any, field: str) -> bool:
     covers all of them where a wrapper per widget type would not.
 
     One shared helper so every pane says it the same way. The aggregate block
-    above Generate (``settings_2d.validate``) stays: it is the list of
+    above Generate (``recipe.validate``) stays: it is the list of
     everything wrong, which is what somebody looking at a disabled button
     wants, and this is the pointer to *which control* -- two views of one fact,
     and the pointer is the half that was missing.

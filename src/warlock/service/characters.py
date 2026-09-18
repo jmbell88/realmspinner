@@ -201,7 +201,7 @@ def recipe_from_prompt(
 ) -> dict[str, Any]:
     """A prompt (plus any control the user has already touched) resolved into
     a refusal-checked recipe, with nothing minted, spawned or asked of doctor
-    -- ``settings_character``'s ``sync_from_prompt``/preview loop and an
+    -- ``character_engine``'s ``sync_from_prompt``/preview loop and an
     agent's ``character_create`` dry run both want the same answer: what
     would this actually build, and what did the words not carry.
 
@@ -216,7 +216,7 @@ def recipe_from_prompt(
     :class:`Recipe` verbatim would refuse the *whole* request on ``field="theme"``
     for a species the user just watched the form accept, so it is dropped here
     and reported in ``ignored`` instead, the same promise
-    ``settings_character._fill`` keeps at the other end of this exact bug
+    ``character_engine._fill`` keeps at the other end of this exact bug
     (settings_character-01, the 2026-09-13 audit).
     """
     from ..characters import family as family_mod

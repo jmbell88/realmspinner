@@ -1237,7 +1237,7 @@ def options(ctx: Any) -> dict[str, Any]:
     the app was running never appeared in the New Character form, Troupe's own
     New Character form, or the Send to Troupe dialog (all three read this
     function, ``troupe_send`` and ``troupe_settings`` directly and
-    ``settings_character`` through its own cache of the same shape) until the
+    ``character_engine.options`` through its own cache of the same shape) until the
     app was restarted, even though the directory's own design intent
     (``service.palettes``' module docstring) is drop-in-while-running use.
     """
@@ -1750,7 +1750,7 @@ def vary_in_create(ctx: Any, record: Mapping[str, Any] | None) -> bool:
     the next one can differ by a seed, a colour count or a horn length.
 
     **Every field is marked as an override.** The form follows the prompt for
-    anything the user has not touched (``settings_character.sync_from_prompt``),
+    anything the user has not touched (``character_engine.sync_from_prompt``),
     and the prompt in the box is whatever was last typed there -- so without
     this the species, the theme and the camera the user is varying would be
     silently rewritten on the next keystroke, by a brief that is not about this
@@ -1762,8 +1762,9 @@ def vary_in_create(ctx: Any, record: Mapping[str, Any] | None) -> bool:
     """
     import json
 
-    from . import create_assets, create_stages
-    from .panes import settings_character
+    from .modes.create.engine import assets as create_assets
+    from .modes.create.engine import character as character_engine
+    from .modes.create.ui import stages as create_stages
 
     recipe = recipe_of(record)
     if not recipe:
@@ -1775,13 +1776,13 @@ def vary_in_create(ctx: Any, record: Mapping[str, Any] | None) -> bool:
     animations = recipe.get("animations") or {}
     values = {
         "character_family": str(recipe.get("family") or ""),
-        "character_theme": str(recipe.get("theme") or settings_character.THEME_UNSET),
+        "character_theme": str(recipe.get("theme") or character_engine.THEME_UNSET),
         "character_camera": str(recipe.get("camera") or ""),
         # The recipe's own order is not trusted, for ``actions_of``'s reason:
         # two forms naming the same movements in different orders would plan two
         # different cell layouts.
         "character_actions": ",".join(
-            name for name, _frames in settings_character.MOVEMENTS if name in animations
+            name for name, _frames in character_engine.MOVEMENTS if name in animations
         ),
         # Strings, because ``state.default_form_2d`` declares these as strings
         # and ``restore_form`` gates a restore on ``type(value) is type(default)``
@@ -1797,7 +1798,7 @@ def vary_in_create(ctx: Any, record: Mapping[str, Any] | None) -> bool:
     }
     form.update(values)
     for key in values:
-        settings_character.touched(form, key)
+        character_engine.touched(form, key)
     seed = recipe.get("seed")
     if seed is not None:
         # Carried and *not* marked, because ``seed`` is not one of the recipe

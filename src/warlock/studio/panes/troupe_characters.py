@@ -146,7 +146,7 @@ def _pending(ctx: Any, pending: list[dict[str, Any]]) -> None:
             # The gate lives in Create by design -- a second promote button
             # here would be a second gate -- so this is a way *to* it, not
             # another one of it.
-            from .. import create_stages
+            from ..modes.create.ui import stages as create_stages
             from ..state import set_mode
 
             set_mode(ctx.state, "create")

@@ -38,10 +38,10 @@ VERSION = 1
 # never volatile, so the pair split on every restart (the 2026-09-07 Create
 # review, item 5.3a): a session that once conditioned a reference reopened
 # with the *conditioning* selections back and the *reference* gone, and
-# ``settings_2d.validate`` had to grow a dedicated "reachable from a restored
+# ``recipe.validate`` had to grow a dedicated "reachable from a restored
 # form" branch just to keep that split from refusing Generate over a control
 # nobody had touched. ``ref_path`` now persists like the other two, and
-# ``settings_2d._verify_reference_path`` re-checks it against the filesystem
+# ``recipe.verify_reference_path`` re-checks it against the filesystem
 # once per session on load, clearing it (and saying so) rather than leaving a
 # dead path to fail silently at submit.
 VOLATILE = ("seed", "mesh_seed")
@@ -91,7 +91,7 @@ def _migrate(data: dict[str, Any]) -> dict[str, Any]:
         # asset_type is authoritative from this release forward.  Older files
         # expressed it as three coupled switches; translate that combination
         # once, retaining every unrelated field verbatim.
-        from . import create_assets
+        from .modes.create.engine import assets as create_assets
 
         if "asset_type" not in form:
             form["asset_type"] = create_assets.legacy_asset_type(form)
@@ -354,7 +354,7 @@ def restore_form(defaults: dict[str, Any], stored: Any) -> dict[str, Any]:
     if isinstance(stored, dict):
         values = dict(stored)
         if "asset_type" in out:
-            from . import create_assets
+            from .modes.create.engine import assets as create_assets
 
             if "asset_type" not in values:
                 values["asset_type"] = create_assets.legacy_asset_type(values)
@@ -375,7 +375,7 @@ def restore_form(defaults: dict[str, Any], stored: Any) -> dict[str, Any]:
     # Keep the service-facing compatibility fields consistent even when a
     # hand-edited settings file supplied a contradictory combination.
     if "asset_type" in out:
-        from . import create_assets
+        from .modes.create.engine import assets as create_assets
 
         if out.get("generation_type") not in create_assets.ASSET_TYPES:
             out["generation_type"] = create_assets.legacy_asset_type(out)
@@ -419,7 +419,7 @@ def _safe_form_value(key: str, value: Any) -> bool:
         # set here dropped a persisted ``model_3d`` on the floor the moment
         # the two registries were unified -- and a dropped form value is a
         # preference the user set and the app forgot.
-        from .create_assets import ASSET_TYPES
+        from .modes.create.engine.assets import ASSET_TYPES
 
         return value in ASSET_TYPES
     if key == "tile_mode":

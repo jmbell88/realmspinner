@@ -13,8 +13,9 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import widgets
-from warlock.studio.panes import settings_2d, settings_3d
+from warlock.studio import problems
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.modes.create.ui import settings_2d, settings_3d
 from warlock.studio.state import default_form_2d
 
 
@@ -54,15 +55,15 @@ class _Ctx:
 
 
 def test_a_problem_is_still_a_string():
-    """``widgets.Problem`` is a ``str`` subclass so the aggregate block above
+    """``problems.Problem`` is a ``str`` subclass so the aggregate block above
     Generate (``imgui.text_wrapped(problem)``) and every existing comparison
     keep working untouched. If it stopped being one, the pane would render
     nothing and no test would notice."""
-    problem = widgets.Problem("A prompt is required.", "prompt")
+    problem = problems.Problem("A prompt is required.", "prompt")
     assert problem == "A prompt is required."
     assert isinstance(problem, str)
     assert problem.field == "prompt"
-    assert widgets.Problem("no control").field == ""
+    assert problems.Problem("no control").field == ""
 
 
 def test_every_2d_problem_that_can_name_a_control_does():
@@ -72,7 +73,7 @@ def test_every_2d_problem_that_can_name_a_control_does():
     form = dict(default_form_2d())
     form["prompt"] = ""
     form["count"] = 999
-    problems = settings_2d.validate(form)
+    problems = create_recipe.validate(form)
     assert problems, "the form is deliberately invalid"
     assert {p.field for p in problems} == {"prompt", "count"}
 
@@ -119,7 +120,7 @@ def test_a_refusal_clears_the_previous_one_before_filing_its_own():
     at a control while it works on the value in it."""
     ctx = _Ctx()
     ctx.state.field_errors["style_lora"] = "stale, from a form ago"
-    settings_2d.refuse(ctx, [widgets.Problem("A prompt is required.", "prompt")])
+    settings_2d.refuse(ctx, [problems.Problem("A prompt is required.", "prompt")])
     assert set(ctx.state.field_errors) == {"prompt"}
 
 
@@ -131,8 +132,8 @@ def test_only_the_first_problem_is_toasted_and_the_rest_are_rings():
     settings_2d.refuse(
         ctx,
         [
-            widgets.Problem("A prompt is required.", "prompt"),
-            widgets.Problem("References must be between 1 and 8.", "count"),
+            problems.Problem("A prompt is required.", "prompt"),
+            problems.Problem("References must be between 1 and 8.", "count"),
         ],
     )
     assert len(ctx.state.toasts) == 1
@@ -234,7 +235,7 @@ def test_a_selected_model_that_is_not_downloaded_is_named_before_the_submit():
     form = dict(default_form_2d())
     form["prompt"] = "a barrel"
     form["base_model"] = "sdxl_cfg"
-    problem = settings_2d.weights_problem(ctx, form)
+    problem = create_recipe.weights_problem(ctx, form)
     assert problem is not None
     assert "SDXL 1.0" in problem
     assert problem.field == "base_model"
@@ -248,7 +249,7 @@ def test_an_empty_snapshot_says_nothing_rather_than_everything():
     ctx.model_rows = []
     form = dict(default_form_2d())
     form["base_model"] = "sdxl_cfg"
-    assert settings_2d.weights_problem(ctx, form) is None
+    assert create_recipe.weights_problem(ctx, form) is None
 
 
 def test_a_row_the_snapshot_has_never_heard_of_is_skipped():
@@ -257,7 +258,7 @@ def test_a_row_the_snapshot_has_never_heard_of_is_skipped():
     ctx.model_rows = _rows(("base:something_else", "Other", True))
     form = dict(default_form_2d())
     form["base_model"] = "sdxl_cfg"
-    assert settings_2d.weights_problem(ctx, form) is None
+    assert create_recipe.weights_problem(ctx, form) is None
 
 
 def test_a_present_model_is_no_problem():
@@ -265,7 +266,7 @@ def test_a_present_model_is_no_problem():
     ctx.model_rows = _rows(("base:sdxl_cfg", "SDXL 1.0", True))
     form = dict(default_form_2d())
     form["base_model"] = "sdxl_cfg"
-    assert settings_2d.weights_problem(ctx, form) is None
+    assert create_recipe.weights_problem(ctx, form) is None
 
 
 def test_the_optional_selections_are_checked_too():
@@ -280,7 +281,7 @@ def test_the_optional_selections_are_checked_too():
     form = dict(default_form_2d())
     form["base_model"] = "sdxl_cfg"
     form["style_lora"] = "ps1"
-    problem = settings_2d.weights_problem(ctx, form)
+    problem = create_recipe.weights_problem(ctx, form)
     assert problem is not None and problem.field == "style_lora"
 
 

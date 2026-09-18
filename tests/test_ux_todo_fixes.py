@@ -231,8 +231,8 @@ REASON_SWEPT = (
     "panes/retarget_panel.py",
     "panes/sheet_panel.py",
     "panes/sprite_panel.py",
-    "panes/settings_2d.py",
-    "panes/settings_3d.py",
+    "modes/create/ui/settings_2d.py",
+    "modes/create/ui/settings_3d.py",
     # Added by the 2026-09-05 audit, finding create-09: the library pose
     # "Apply" button was the one disabled_button in the seven Create stage
     # panes with no reason=, greying out with no explanation while its own

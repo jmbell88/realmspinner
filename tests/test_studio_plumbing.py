@@ -1173,16 +1173,21 @@ def test_the_send_to_3d_render_happens_on_the_frame_thread():
     assert "submit" not in source
     assert "upload_bytes" in source
     assert "submit" in inspect.getsource(
-        __import__("warlock.studio.panes.settings_3d", fromlist=["x"]).upload_bytes
+        __import__("warlock.studio.modes.create.ui.settings_3d", fromlist=["x"]).upload_bytes
     )
 
 
 def test_both_upload_paths_read_the_same_form():
     """A form field honoured for a dropped file and ignored for a rendered one
-    is the shape of bug this consolidation exists to prevent."""
-    from warlock.studio.panes import settings_3d
+    is the shape of bug this consolidation exists to prevent.
 
-    assert len(_calls_to(settings_3d, "_upload_kwargs")) == 2
+    ``upload_kwargs`` (``_upload_kwargs`` before the 2026-09-18 restructure)
+    lives in ``modes/create/engine/mesh.py`` now; both of ``settings_3d.py``'s
+    upload paths still call it, as ``create_mesh.upload_kwargs``.
+    """
+    from warlock.studio.modes.create.ui import settings_3d
+
+    assert len(_calls_to(settings_3d, "upload_kwargs")) == 2
 
 
 def test_clay_is_a_workspace_rather_than_a_single_pane():

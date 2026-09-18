@@ -56,7 +56,7 @@ class _FakeCtx:
         )
         self.settings = SimpleNamespace()
         # T7: ``config.palette_dir`` is all ``_character_options`` needs off
-        # ``svc`` -- ``settings_character.options``/``service.characters.
+        # ``svc`` -- ``character_engine.options``/``service.characters.
         # character_options`` read every other registry in memory, and
         # ``palettes.available``/``stamps.stamp_ns`` both already answer "no
         # palettes" for a directory that is not there rather than raising.

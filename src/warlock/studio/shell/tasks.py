@@ -487,7 +487,7 @@ class TasksMixin:
             ctx.toast("Model removed." if key.startswith("remove:") else "Download finished.")
             return
         if key == "upload" and done.result is not None:
-            from ..panes import settings_3d
+            from ..modes.create.ui import settings_3d
 
             settings_3d.upload(ctx, Path(done.result))
             return
@@ -985,7 +985,7 @@ class TasksMixin:
         time, and the move itself goes through ``create_stages.go`` -- the
         one stage switch -- never a bare ``state.selected =``.
         """
-        from .. import create_stages
+        from ..modes.create.ui import stages as create_stages
 
         ctx = self.app_ctx
         if not create_stages.at(ctx.state, "mesh"):
@@ -1009,8 +1009,8 @@ class TasksMixin:
         ``create_stages.go`` rather than a bare ``select``: it is the one stage
         switch, and it is what moves the selection along with the stage.
         """
-        from .. import create_stages
-        from ..panes import settings_character
+        from ..modes.create.ui import settings_character
+        from ..modes.create.ui import stages as create_stages
 
         ctx = self.app_ctx
         job_id = str(result.get("id") or "")
@@ -1062,8 +1062,8 @@ class TasksMixin:
         is the pin set below, ``_clear_viewport``'s idiom in the other
         direction.
         """
-        from .. import create_stages
         from ..main import CHARACTER_PIN
+        from ..modes.create.ui import stages as create_stages
 
         ctx = self.app_ctx
         if self.viewer is None or not isinstance(done.tag, tuple) or len(done.tag) != 2:
@@ -1111,7 +1111,8 @@ class TasksMixin:
         changes, because ``wanted`` changes with it. Reselecting the same job
         re-shows it, which is what the tooltip says.
         """
-        from .. import create_stages, modes
+        from .. import modes
+        from ..modes.create.ui import stages as create_stages
 
         ctx = self.app_ctx
         viewer = self.viewer
@@ -1144,8 +1145,9 @@ class TasksMixin:
         Driven off the cache rather than off the click so a job that finishes
         while it is selected starts showing its mesh without another click.
         """
-        from .. import create_stages, modes
+        from .. import modes
         from ..main import CHARACTER_PIN, VIEWER_KEY
+        from ..modes.create.ui import stages as create_stages
 
         ctx = self.app_ctx
         if ctx.state.mode not in modes.VIEWPORT_MODES:

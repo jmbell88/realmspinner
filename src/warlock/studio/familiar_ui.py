@@ -262,22 +262,22 @@ def _character_options(ctx: Any) -> dict[str, Any]:
     movement across every archetype's own skeleton, the direction ladder and
     the custom-size range.
 
-    Read through ``settings_character.options`` -- Create's own frame-thread
+    Read through ``character_engine.options`` -- Create's own frame-thread
     cache, keyed on the palette directory's stamp
-    (``panes/settings_character.py``'s own docstring) -- rather than calling
-    ``service.characters.character_options`` fresh: it is the one place
-    already paying for this read every frame Create's own form is open, and
-    a second, uncached copy here would answer the same registries a frame
-    later for no reason. Computed on the frame thread, alongside
+    (``modes/create/engine/character.py``'s own docstring) -- rather than
+    calling ``service.characters.character_options`` fresh: it is the one
+    place already paying for this read every frame Create's own form is
+    open, and a second, uncached copy here would answer the same registries
+    a frame later for no reason. Computed on the frame thread, alongside
     *destinations*/*asset_types* (T8's own precedent) rather than inside the
     worker closure below: unlike those two this touches no ``ctx.state``
     gate, but it does touch ``ctx.state.preview``'s own cache slot, which is
     frame-thread state exactly like the Clay scene capture is.
     """
     from ..kernels.rig import cliplib
-    from .panes import settings_character
+    from .modes.create.engine import character as character_engine
 
-    raw = settings_character.options(ctx)
+    raw = character_engine.options(ctx)
     families = [
         {"key": f["key"], "label": f["label"], "themes": [t["key"] for t in f["themes"]]}
         for f in raw["families"]
@@ -330,7 +330,8 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     # which reads ``ctx.state`` (the mode gate, the active document), so the
     # list the router is offered has to describe *this* frame, not whatever
     # it is by the time a worker thread gets around to it.
-    from . import create_assets, familiar_doors
+    from . import familiar_doors
+    from .modes.create.engine import assets as create_assets
 
     destinations = familiar_doors.destinations(ctx)
     asset_types = create_assets.ASSET_TYPE_OPTIONS
@@ -942,7 +943,7 @@ def _character_fields(plan: dict[str, Any]) -> dict[str, Any]:
     only from whichever of *plan*'s fields are actually present (never
     invents a theme, a camera or a name the plan itself does not carry).
 
-    ``movements`` is filtered against ``settings_character.MOVEMENTS`` (the
+    ``movements`` is filtered against ``character_engine.MOVEMENTS`` (the
     closed default trio Create's own action checkboxes offer), the same
     filter ``vary_in_create`` applies to a recipe's ``animations`` keys --
     Create's form has no control for a movement outside that ladder, so one
@@ -951,7 +952,7 @@ def _character_fields(plan: dict[str, Any]) -> dict[str, Any]:
     checkbox that cannot show it; the plan itself still built the full list
     into *its own* ``overrides``, for the Create button's own path.
     """
-    from .panes import settings_character
+    from .modes.create.engine import character as character_engine
 
     fields: dict[str, Any] = {}
     if "family" in plan:
@@ -961,7 +962,7 @@ def _character_fields(plan: dict[str, Any]) -> dict[str, Any]:
     if "movements" in plan:
         wanted = set(plan["movements"])
         fields["character_actions"] = ",".join(
-            name for name, _frames in settings_character.MOVEMENTS if name in wanted
+            name for name, _frames in character_engine.MOVEMENTS if name in wanted
         )
     if "size" in plan:
         fields["character_pixel"] = str(int(plan["size"]))

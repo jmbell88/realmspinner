@@ -16,7 +16,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio.panes import settings_3d
+from warlock.studio.modes.create.engine import mesh as create_mesh
+from warlock.studio.modes.create.ui import settings_3d
 from warlock.studio.state import DEFAULT_FORM_3D, AppState
 
 
@@ -148,8 +149,8 @@ def test_the_engine_disclosure_hints_each_axis_it_draws(monkeypatch, ui):
     monkeypatch.setattr(settings_3d.controls, "collapsing_header", lambda *a, **k: True)
     seen: list[str] = []
     monkeypatch.setattr(
-        settings_3d,
-        "_findings_hint",
+        create_mesh,
+        "findings_hint",
         lambda ctx, param, value: seen.append(param) or None,
     )
     ctx = _Ctx({})
@@ -183,8 +184,8 @@ def test_the_engine_disclosure_draws_nothing_while_collapsed(monkeypatch, ui):
     monkeypatch.setattr(settings_3d.controls, "collapsing_header", lambda *a, **k: False)
     calls: list[str] = []
     monkeypatch.setattr(
-        settings_3d,
-        "_findings_hint",
+        create_mesh,
+        "findings_hint",
         lambda ctx, param, value: calls.append(param) or None,
     )
     ctx = _Ctx({})

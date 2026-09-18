@@ -9,7 +9,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from warlock import guidance, models
-from warlock.studio.panes import settings_2d
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.modes.create.ui import settings_2d
 
 
 def _ctx():
@@ -72,14 +73,14 @@ def test_the_pane_scopes_its_hints_to_the_prompt_in_the_form(tmp_path):
     error and no visible difference except a wrong number.
     """
     ctx = _hint_ctx(tmp_path, "a snes rogue", _scoped_doc("a snes rogue"))
-    assert settings_2d._findings_hint(ctx, "base_model", "turbo") == (
+    assert create_recipe.findings_hint(ctx, "base_model", "turbo") == (
         "accept 6/8 · this subject"
     )
 
 
 def test_the_pane_says_when_it_fell_back_to_every_subject(tmp_path):
     ctx = _hint_ctx(tmp_path, "a wooden crate", _scoped_doc("a snes rogue"))
-    assert settings_2d._findings_hint(ctx, "base_model", "turbo") == (
+    assert create_recipe.findings_hint(ctx, "base_model", "turbo") == (
         "accept 3/84 · all subjects"
     )
 
@@ -129,11 +130,11 @@ def test_pressing_use_writes_the_value_in_the_forms_own_type(tmp_path, monkeypat
 
 def test_a_cfg_base_gets_no_negative_prompt_note():
     form = {"base_model": models.cfg_bases()[0]}
-    assert settings_2d.negative_prompt_note(_ctx(), form) is None
+    assert create_recipe.negative_prompt_note(_ctx(), form) is None
 
 
 def test_a_distilled_base_is_told_the_negative_prompt_is_inert():
-    note = settings_2d.negative_prompt_note(_ctx(), {"base_model": "turbo"})
+    note = create_recipe.negative_prompt_note(_ctx(), {"base_model": "turbo"})
     assert note is not None
     assert "no effect" in note
 
@@ -141,7 +142,7 @@ def test_a_distilled_base_is_told_the_negative_prompt_is_inert():
 def test_the_note_names_a_model_the_user_could_switch_to():
     # A refusal that doesn't say what would work is a dead end -- the label,
     # not the key, because the key is not what the picker shows.
-    note = settings_2d.negative_prompt_note(_ctx(), {"base_model": "turbo"})
+    note = create_recipe.negative_prompt_note(_ctx(), {"base_model": "turbo"})
     label = models.BASE_MODELS[models.cfg_bases()[0]].label
     assert label in note
 
@@ -149,7 +150,7 @@ def test_the_note_names_a_model_the_user_could_switch_to():
 def test_an_unset_base_is_treated_as_the_default_which_is_distilled():
     # "" means "use the configured default", which is turbo -- so the field is
     # inert and saying nothing would be the same silence the note replaces.
-    assert settings_2d.negative_prompt_note(_ctx(), {"base_model": ""}) is not None
+    assert create_recipe.negative_prompt_note(_ctx(), {"base_model": ""}) is not None
 
 
 def test_negative_prompt_note_follows_the_resolved_tier():
@@ -174,17 +175,17 @@ def test_negative_prompt_note_follows_the_resolved_tier():
         # never cleared by ``_model``'s switch back to Automatic.
         "base_model": "turbo",
     }
-    assert settings_2d.negative_prompt_note(ctx, form) is None
-    assert settings_2d._negative_supported(ctx, form) is True
+    assert create_recipe.negative_prompt_note(ctx, form) is None
+    assert create_recipe.negative_supported(ctx, form) is True
 
 
 def test_a_controlnet_base_gets_no_structure_note():
     form = {"base_model": models.controlnet_bases()[0]}
-    assert settings_2d.structure_note(_ctx(), form) is None
+    assert create_recipe.structure_note(_ctx(), form) is None
 
 
 def test_the_structure_note_names_the_bases_that_can_run_one():
-    note = settings_2d.structure_note(_ctx(), {"base_model": "turbo"})
+    note = create_recipe.structure_note(_ctx(), {"base_model": "turbo"})
     assert note is not None
     for key in models.controlnet_bases():
         assert models.BASE_MODELS[key].label in note
@@ -213,7 +214,7 @@ def _model_form(base: str) -> dict:
 
 
 def test_an_sdxl_base_gets_no_img2img_note():
-    assert settings_2d.img2img_note(_ctx_resolving(), _model_form("sdxl_cfg")) is None
+    assert create_recipe.img2img_note(_ctx_resolving(), _model_form("sdxl_cfg")) is None
 
 
 def test_a_non_sdxl_base_is_told_img2img_is_unavailable():
@@ -222,7 +223,7 @@ def test_a_non_sdxl_base_is_told_img2img_is_unavailable():
     pressed"; this is that sentence for img2img, drawn beside the checkbox
     rather than only discovered at the queue door.
     """
-    note = settings_2d.img2img_note(_ctx_resolving(), _model_form(_non_sdxl_base()))
+    note = create_recipe.img2img_note(_ctx_resolving(), _model_form(_non_sdxl_base()))
     assert note is not None and "image" in note
 
 
@@ -268,12 +269,12 @@ def test_choosing_a_base_that_cannot_use_a_lora_clears_the_style():
     base_key, lora_key = _mismatched_pair()
     form = _form(style_lora=lora_key, lora_weight=0.4)
     form["base_model"] = base_key
-    cleared = settings_2d.clear_unusable(_ctx(), form)
+    cleared = create_recipe.clear_unusable(_ctx(), form)
     assert form["style_lora"] == ""
     assert form["lora_weight"] == models.DEFAULT_LORA_WEIGHT
     assert cleared
     # And Generate is live again: that is the whole point.
-    assert settings_2d.validate(form) == []
+    assert create_recipe.validate(form) == []
 
 
 def test_switching_back_does_not_resurrect_the_cleared_style():
@@ -285,9 +286,9 @@ def test_switching_back_does_not_resurrect_the_cleared_style():
     base_key, lora_key = _mismatched_pair()
     form = _form(style_lora=lora_key)
     form["base_model"] = base_key
-    settings_2d.clear_unusable(ctx, form)
+    create_recipe.clear_unusable(ctx, form)
     form["base_model"] = models.lora_bases()[0]
-    settings_2d.clear_unusable(ctx, form)
+    create_recipe.clear_unusable(ctx, form)
     assert form["style_lora"] == ""
 
 
@@ -304,9 +305,9 @@ def test_a_base_that_cannot_run_a_controlnet_clears_the_structure_control():
     form["base_model"] = next(
         k for k in models.BASE_MODELS if k not in models.controlnet_bases()
     )
-    settings_2d.clear_unusable(_ctx(), form)
+    create_recipe.clear_unusable(_ctx(), form)
     assert form["control"] == ""
-    assert settings_2d.validate(form) == []
+    assert create_recipe.validate(form) == []
 
 
 def test_switching_to_a_non_sdxl_base_clears_the_start_image():
@@ -317,12 +318,12 @@ def test_switching_to_a_non_sdxl_base_clears_the_start_image():
     """
     form = _form(ref_path="ref.png", init_image=True, init_strength=0.5)
     form["base_model"] = _non_sdxl_base()
-    cleared = settings_2d.clear_unusable(_ctx(), form)
+    cleared = create_recipe.clear_unusable(_ctx(), form)
     assert form["init_image"] is False
     assert form["init_strength"] is None
     assert any("start image" in note.lower() and "cleared" in note.lower() for note in cleared)
     # And Generate is live again: that is the whole point.
-    assert settings_2d.validate(form) == []
+    assert create_recipe.validate(form) == []
 
 
 def test_the_negative_prompt_is_deliberately_not_cleared():
@@ -332,16 +333,16 @@ def test_the_negative_prompt_is_deliberately_not_cleared():
     rather than erasing it on a base-model change or blocking Generate.
     """
     form = _form(base_model="turbo", negative_prompt="blurry, watermark")
-    settings_2d.clear_unusable(_ctx(), form)
+    create_recipe.clear_unusable(_ctx(), form)
     assert form["negative_prompt"] == "blurry, watermark"
-    assert not any("negative" in p.lower() for p in settings_2d.validate(form))
+    assert not any("negative" in p.lower() for p in create_recipe.validate(form))
 
 
 def test_the_clear_is_explained_rather_than_silent():
     base_key, lora_key = _mismatched_pair()
     form = _form(style_lora=lora_key)
     form["base_model"] = base_key
-    cleared = settings_2d.clear_unusable(_ctx(), form)
+    cleared = create_recipe.clear_unusable(_ctx(), form)
     assert any("style" in note.lower() and "cleared" in note.lower() for note in cleared)
     # Inside imgui's default Basic-Latin+Latin-1 atlas range.
     for note in cleared:
@@ -395,11 +396,11 @@ def test_a_restored_form_is_not_rewritten_merely_by_being_opened():
     base_key, lora_key = _mismatched_pair()
     form = _form(style_lora=lora_key, base_model=base_key)
     ctx = _ctx()
-    settings_2d.lora_note(ctx, form)
-    settings_2d.lora_filter_note(ctx, form)
-    settings_2d.lora_options(ctx, form)
-    settings_2d.structure_note(ctx, form)
-    settings_2d.validate(form)
+    create_recipe.lora_note(ctx, form)
+    create_recipe.lora_filter_note(ctx, form)
+    create_recipe.lora_options(ctx, form)
+    create_recipe.structure_note(ctx, form)
+    create_recipe.validate(form)
     assert form["style_lora"] != ""
 
 
@@ -424,7 +425,7 @@ def test_every_mesh_setting_that_evidence_exists_for_shows_it():
     from pathlib import Path
 
     from warlock import vectors
-    from warlock.studio.panes import settings_3d
+    from warlock.studio.modes.create.ui import settings_3d
 
     source = Path(settings_3d.__file__).read_text(encoding="utf-8")
     # ``_hint`` also draws the best-value offer now (findings v5, "actionable
@@ -448,7 +449,7 @@ def test_every_field_reads_as_its_key():
     # 2026-09-14 audit (finding docs-07) restored labels for below, so this
     # narrower set still reads as its bare key with the underscores out.
     for field in guidance.form_fields():
-        assert settings_2d.field_label(field) == field.replace("_", " ")
+        assert create_recipe.field_label(field) == field.replace("_", " ")
 
 
 def test_sweep_add_axis_combo_shows_the_manuals_human_readable_axis_names():
@@ -458,7 +459,7 @@ def test_sweep_add_axis_combo_shows_the_manuals_human_readable_axis_names():
     -- but ``FIELD_LABELS`` was emptied at the taxonomy retirement and never
     regained them, so the Add-axis combo (``review_panes.py``'s "what to
     vary", built from ``sweeps.axis_params()`` through
-    ``settings_2d.field_label``) drew the bare keys instead: "lora weight",
+    ``create_recipe.field_label``) drew the bare keys instead: "lora weight",
     "ip scale", "control scale", "control end", "reference prep",
     "bg removal", "size m". Every name here is the manual's own string,
     verbatim, so the combo and the chapter that documents it cannot drift
@@ -481,13 +482,13 @@ def test_sweep_add_axis_combo_shows_the_manuals_human_readable_axis_names():
     }
     assert manual_names.keys() <= set(sweeps_mod.axis_params())
     for field, name in manual_names.items():
-        assert settings_2d.field_label(field) == name
+        assert create_recipe.field_label(field) == name
     # The six ``trellis_*`` engine flags are deliberately untouched: the
     # manual describes them narratively rather than naming each one as a
     # combo label, so there is no single manual string to hold them to.
     for field in sweeps_mod.axis_params():
         if field.startswith("trellis_"):
-            assert settings_2d.field_label(field) == field.replace("_", " ")
+            assert create_recipe.field_label(field) == field.replace("_", " ")
 
 
 # --- which styles the picker offers ------------------------------------------
@@ -508,7 +509,7 @@ def _synth_ctx(by_base, loras):
 
 def test_the_picker_lists_only_the_styles_fitted_to_the_chosen_base():
     ctx = _synth_ctx({"a": ["one"], "b": ["two"]}, [("one", "One"), ("two", "Two")])
-    keys = [k for k, _ in settings_2d.lora_options(ctx, {"base_model": "a"})]
+    keys = [k for k, _ in create_recipe.lora_options(ctx, {"base_model": "a"})]
     assert keys == ["one"]
 
 
@@ -518,7 +519,7 @@ def test_a_stale_selection_stays_listed_and_is_marked():
     refusing -- the dead end clear_unusable exists to prevent, by another
     door."""
     ctx = _synth_ctx({"a": ["one"], "b": ["two"]}, [("one", "One"), ("two", "Two")])
-    options = settings_2d.lora_options(ctx, {"base_model": "a", "style_lora": "two"})
+    options = create_recipe.lora_options(ctx, {"base_model": "a", "style_lora": "two"})
     assert ("two" in [k for k, _ in options])
     label = next(label for key, label in options if key == "two")
     assert "not fitted" in label
@@ -526,8 +527,8 @@ def test_a_stale_selection_stays_listed_and_is_marked():
 
 def test_the_disabled_note_fires_only_for_a_base_no_style_fits():
     ctx = _synth_ctx({"a": ["one"], "b": []}, [("one", "One")])
-    assert settings_2d.lora_note(ctx, {"base_model": "a"}) is None
-    note = settings_2d.lora_note(ctx, {"base_model": "b"})
+    assert create_recipe.lora_note(ctx, {"base_model": "a"}) is None
+    note = create_recipe.lora_note(ctx, {"base_model": "b"})
     assert note is not None and "architecture" in note
     # And it names a base the user can actually pick, by its own label.
     assert "A" in note
@@ -535,16 +536,16 @@ def test_the_disabled_note_fires_only_for_a_base_no_style_fits():
 
 def test_the_filter_note_names_what_is_listed_and_defers_when_nothing_fits():
     ctx = _synth_ctx({"a": ["one"], "b": []}, [("one", "One"), ("two", "Two")])
-    narrowed = settings_2d.lora_filter_note(ctx, {"base_model": "a"})
+    narrowed = create_recipe.lora_filter_note(ctx, {"base_model": "a"})
     assert narrowed is not None and "One" in narrowed
     # lora_note owns the empty case; saying it twice is one control saying two
     # things under a disabled combo.
-    assert settings_2d.lora_filter_note(ctx, {"base_model": "b"}) is None
+    assert create_recipe.lora_filter_note(ctx, {"base_model": "b"}) is None
 
 
 def test_the_filter_note_is_silent_when_the_whole_list_is_offered():
     ctx = _synth_ctx({"a": ["one", "two"]}, [("one", "One"), ("two", "Two")])
-    assert settings_2d.lora_filter_note(ctx, {"base_model": "a"}) is None
+    assert create_recipe.lora_filter_note(ctx, {"base_model": "a"}) is None
 
 
 def test_lora_options_follows_the_resolved_tier_under_automatic_routing():
@@ -572,7 +573,7 @@ def test_lora_options_follows_the_resolved_tier_under_automatic_routing():
         "base_model": "flux_klein_distilled",
         "style_lora": "",
     }
-    keys = {key for key, _ in settings_2d.lora_options(ctx, form)}
+    keys = {key for key, _ in create_recipe.lora_options(ctx, form)}
     assert keys == {"render3d", "redmond3d", "ps1", "pixelxl"}
     assert "pixelklein" not in keys
 
@@ -581,7 +582,7 @@ def test_every_note_stays_inside_the_default_atlas_range():
     ctx = _ctx()
     for base in models.BASE_MODELS:
         form = _form(base_model=base)
-        for note in (settings_2d.lora_note(ctx, form), settings_2d.lora_filter_note(ctx, form)):
+        for note in (create_recipe.lora_note(ctx, form), create_recipe.lora_filter_note(ctx, form)):
             if note is not None:
                 assert all(ord(ch) < 0x100 for ch in note)
 

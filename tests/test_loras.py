@@ -29,6 +29,7 @@ from warlock.service import loras as svc_loras
 from warlock.service import verdicts as svc_verdicts
 from warlock.service.errors import Invalid
 from warlock.service.validation import DERIVED_PARAMS
+from warlock.studio.modes.create.ui import settings_2d
 from warlock.studio.panes import app_settings
 
 # --- the pure module -----------------------------------------------------------------
@@ -710,7 +711,7 @@ def test_style_lock_requires_the_encoder_weights_at_the_door(svc, monkeypatch):
 def test_the_materials_form_carries_style_lock_into_the_request():
     src = Path(generation.__file__).read_text(encoding="utf-8")
     assert 'style_lock=bool(form.get("style_lock"))' in src
-    pane = Path(app_settings.__file__).parent / "settings_2d.py"
+    pane = Path(settings_2d.__file__)
     assert "Keep one style across the list" in pane.read_text(encoding="utf-8")
 
 

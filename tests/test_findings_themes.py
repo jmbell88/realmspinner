@@ -84,7 +84,7 @@ def test_a_failed_result_row_says_it_failed_and_can_be_rerun():
     """The tray said "not ready yet" and disabled Rerun on rows that had
     already stopped, while the library card offered "Try again" on the same
     ones."""
-    from warlock.studio import generation_workspace as gw
+    from warlock.studio.modes.create.ui import workspace as gw
 
     assert "not ready yet" in gw._why_not_finished({}, "running")
     assert "cancelled" in gw._why_not_finished({}, "cancelled")
@@ -99,7 +99,7 @@ def test_the_tray_opens_a_result_through_the_one_door():
     and every "Open" goes through it."""
     import inspect
 
-    from warlock.studio import generation_workspace as gw
+    from warlock.studio.modes.create.ui import workspace as gw
 
     body = inspect.getsource(gw._result_card)
     assert "asset_open.open_asset(ctx, job)" in body
@@ -198,12 +198,12 @@ def test_a_missing_reference_is_re_asked_rather_than_remembered(tmp_path):
 def test_the_reference_stage_validates_once_a_frame_not_twice():
     """The command bar and the plan block under it both ask what is wrong, and
     both answers have to agree -- which one evaluation guarantees."""
-    from warlock.studio import create_assets
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.engine import assets as create_assets
+    from warlock.studio.modes.create.engine import recipe as create_recipe
     from warlock.studio.state import AppState, default_form_2d
 
     calls: list[int] = []
-    original = settings_2d.validate
+    original = create_recipe.validate
 
     def counting(form, ctx=None):
         # The 2026-09-15 audit, finding create-03, gave ``validate`` an
@@ -218,16 +218,16 @@ def test_the_reference_stage_validates_once_a_frame_not_twice():
     create_assets.sync_legacy_fields(form)
     ctx = SimpleNamespace(state=AppState())
     ctx.state.problems_cache = None
-    settings_2d.validate = counting
+    create_recipe.validate = counting
     try:
-        first = settings_2d.problems_for(ctx, form)
-        assert settings_2d.problems_for(ctx, form) is first
+        first = create_recipe.problems_for(ctx, form)
+        assert create_recipe.problems_for(ctx, form) is first
         assert len(calls) == 1
         ctx.state.frame_index += 1
-        settings_2d.problems_for(ctx, form)
+        create_recipe.problems_for(ctx, form)
         assert len(calls) == 2
     finally:
-        settings_2d.validate = original
+        create_recipe.validate = original
 
 
 def test_a_primitive_measures_its_own_box_once():
@@ -600,7 +600,7 @@ def test_the_tray_and_the_shell_agree_about_whether_there_is_a_tray():
     viewer lost ``tray_height`` permanently and the tray's own empty state was
     unreachable -- while a corpus of candidate rows reserved the strip and drew
     that empty state into it."""
-    from warlock.studio import generation_workspace as gw
+    from warlock.studio.modes.create.ui import workspace as gw
 
     empty = SimpleNamespace(cache=SimpleNamespace(jobs=[], active=None))
     assert gw.should_draw(empty) is False
@@ -651,7 +651,8 @@ def test_the_export_rail_segment_does_not_import_imgui_to_answer():
     reached ``widgets`` -- which imports imgui at module scope -- per frame."""
     import inspect
 
-    from warlock.studio import artifacts, create_stages
+    from warlock.studio import artifacts
+    from warlock.studio.modes.create.ui import stages as create_stages
 
     assert "widgets" not in inspect.getsource(create_stages._reached_export)
     assert artifacts.artifacts_for({"stage": "reference"})
@@ -668,7 +669,7 @@ def test_the_export_rail_segment_does_not_import_imgui_to_answer():
 
 
 def test_the_two_public_names_the_tray_and_the_footer_share():
-    from warlock.studio import generation_workspace as gw
+    from warlock.studio.modes.create.ui import workspace as gw
     from warlock.studio.panes import library
 
     assert callable(gw.queue_position)

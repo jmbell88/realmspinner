@@ -639,8 +639,12 @@ class ReviewPanes:
 
         # The label table for every guidance field, which is where a param's
         # human name already lives. Resolved here rather than in ``review_mode``
-        # for that module's own rule: it may not import a pane.
-        from .panes import settings_2d
+        # for that module's own rule: it may not import another mode, and
+        # Create's engine is one (Layer 5, same as its ``ui/`` sibling) even
+        # though it draws nothing -- a lazy import keeps this edge off the
+        # module-scope graph ``tests/test_layering.py`` walks, the same way
+        # it always has.
+        from .modes.create.engine import recipe as create_recipe
 
         if not widgets.header("New sweep", default_open=False):
             return
@@ -669,7 +673,9 @@ class ReviewPanes:
         # over a combo of thirty raw param names.
         widgets.field_label("what to vary")
         rows = {row["param"]: row for row in review_mode.axis_options(ctx)}
-        options = [("", "-")] + [(p, settings_2d.field_label(p)) for p in sweeps_mod.axis_params()]
+        options = [("", "-")] + [
+            (p, create_recipe.field_label(p)) for p in sweeps_mod.axis_params()
+        ]
         for i, row in enumerate(form.axes):
             imgui.push_id(f"axis-{i}")
             row["param"] = widgets.combo("##param", row.get("param", ""), options, width=-1)
@@ -686,7 +692,7 @@ class ReviewPanes:
         if planned < 0:
             widgets.muted("Fill in the prompt and one axis.")
         else:
-            labels = {p: settings_2d.field_label(p) for p in rows}
+            labels = {p: create_recipe.field_label(p) for p in rows}
             widgets.muted_wrapped(review_mode.preview_line(state, labels))
             widgets.muted(f"Roughly two minutes of GPU each - {planned * 2} minutes in all.")
         enabled = planned > 0 and not form.submitting and not state.scanning

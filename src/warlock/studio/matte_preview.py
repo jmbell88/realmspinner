@@ -40,7 +40,7 @@ class MatteState:
     # field rather than a separate flag, because "open, about nothing" is not a
     # state anything could draw.
     job_id: str = ""
-    # ``settings_3d.promote_kwargs`` as it stood when the user pressed the
+    # ``create_mesh.promote_kwargs`` as it stood when the user pressed the
     # button. Captured then rather than re-read on Accept: the form is live UI
     # state and the preview the user is looking at is of the settings they
     # pressed with.

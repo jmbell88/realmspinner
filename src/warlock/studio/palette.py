@@ -146,8 +146,8 @@ def _go(key: str) -> Callable[[Any], None]:
 
 
 def _generate(ctx: Any) -> None:
-    from . import create_stages
-    from .panes import settings_2d, settings_3d
+    from .modes.create.ui import settings_2d, settings_3d
+    from .modes.create.ui import stages as create_stages
 
     if create_stages.at(ctx.state, "reference"):
         settings_2d.generate(ctx, ctx.state.form_2d)
@@ -156,7 +156,7 @@ def _generate(ctx: Any) -> None:
 
 
 def _in_generate_mode(ctx: Any) -> bool:
-    from . import create_stages
+    from .modes.create.ui import stages as create_stages
 
     return create_stages.in_create(ctx.state)
 

@@ -54,7 +54,8 @@ from warlock.config import get_config
 from warlock.familiar import character_plan, contract, doors, llama_client, router
 from warlock.pipelines.llama import LlamaServer
 from warlock.service import familiar as familiar_service
-from warlock.studio import create_assets, modes
+from warlock.studio import modes
+from warlock.studio.modes.create.engine import assets as create_assets
 from warlock.studio.panes import app_settings
 
 pytestmark = [pytest.mark.gpu, pytest.mark.timeout(1800)]
@@ -232,7 +233,7 @@ def _character_options_from_service(svc: Any) -> dict[str, Any]:
     """The plan-shaped slice ``familiar_ui._character_options`` builds, off
     the same ``service.characters.character_options(svc)`` read, duplicated
     here rather than called through ``familiar_ui`` -- that function reads
-    ``settings_character.options(ctx)``, a frame-thread cache keyed on a
+    ``character_engine.options(ctx)``, a frame-thread cache keyed on a
     palette-directory stamp, and there is no ``ctx`` (no window, no App) in a
     headless gpu test to hand it. ``svc`` is a throwaway
     ``WarlockService`` (the ``svc`` fixture from ``tests/conftest.py``, tmp

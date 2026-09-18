@@ -7,8 +7,10 @@ import json
 import pytest
 
 from warlock import config as config_module
-from warlock.studio import create_assets, settings
-from warlock.studio.panes import settings_2d
+from warlock.studio import settings
+from warlock.studio.modes.create.engine import assets as create_assets
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.modes.create.ui import settings_2d
 from warlock.studio.state import default_form_2d, primary_action
 
 
@@ -57,7 +59,7 @@ def test_the_brief_hides_the_count_for_a_character_as_well_as_for_a_sheet():
     the thing behind it will not do."""
     import inspect
 
-    from warlock.studio import create_brief
+    from warlock.studio.modes.create.ui import brief as create_brief
 
     source = inspect.getsource(create_brief.draw)
     assert '("sheet", "character")' in source
@@ -211,7 +213,7 @@ def test_the_visible_model_default_is_the_model_that_will_run():
 def test_submit_persists_type_and_intent():
     form = default_form_2d()
     form.update(prompt="a barrel", asset_type="image_2d")
-    kwargs = settings_2d.submit_kwargs(form)
+    kwargs = create_recipe.submit_kwargs(form)
     # Persisted under today's key, not the retired one it was written with.
     assert kwargs["asset_type"] == "image"
     assert kwargs["asset_intent"] == "refine_2d"
@@ -314,7 +316,7 @@ def test_sync_legacy_fields_docstring_names_a_caller_that_still_exists():
     editable" contract before wiring a new control onto one of them would
     have missed ``create_brief.py``'s own calls.
     """
-    from warlock.studio import create_brief
+    from warlock.studio.modes.create.ui import brief as create_brief
 
     doc = create_assets.sync_legacy_fields.__doc__ or ""
 

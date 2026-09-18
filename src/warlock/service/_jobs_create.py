@@ -487,7 +487,7 @@ def create_job(
         # queue.DEFAULT_REFERENCE_PREP rather than being pinned to whatever
         # today's default happens to be. The 3D pane *always* asks -- its
         # checkbox is on screen, and pinning what the user can see is the
-        # deliberate choice there (settings_3d.promote_kwargs) -- so the
+        # deliberate choice there (mesh.promote_kwargs) -- so the
         # follow-the-default path is the API's and the sweeps', not the UI's.
         params["reference_prep"] = bool(reference_prep)
     for key, value in (

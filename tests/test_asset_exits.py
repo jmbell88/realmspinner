@@ -471,15 +471,6 @@ def test_no_gate_touches_the_filesystem(svc, monkeypatch):
     patch below, so this only catches a stat made by a gate itself and not
     one made by some unrelated module's own import machinery.
     """
-    from warlock.studio import (  # noqa: F401
-        clay_mode,
-        create_stages,
-        inker_mode,
-        muse_mode,
-        packwright_mode,
-        plotter_mode,
-        troupe_mode,
-    )
     from warlock.studio.panes import pose_panel, troupe_send  # noqa: F401
 
     def _raise(self, *_a, **_k):

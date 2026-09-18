@@ -184,7 +184,7 @@ def test_a_drop_says_so_where_it_landed():
     ``widgets._OPEN_REQUESTS``. Asserting it here is what kept it alive.
     """
     from warlock.studio import main
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     source = inspect.getsource(main.App._on_drop)
     assert '_flash_drop("2d-ref")' in source
@@ -250,7 +250,8 @@ def test_every_mode_that_draws_the_viewport_has_its_own_placeholder():
     Create is keyed per *stage* (wave 5): one mode with two viewports has two
     empty states, and answering both with one sentence is the same defect this
     test was written for."""
-    from warlock.studio import create_stages, modes
+    from warlock.studio import modes
+    from warlock.studio.modes.create.ui import stages as create_stages
     from warlock.studio.panes import overlay
 
     for key in modes.WORK_MODES:

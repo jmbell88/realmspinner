@@ -19,20 +19,10 @@ from ...service import derive as svc_derive
 from ...service import files as svc_files
 from ...service import jobs as svc_jobs
 from ...service import system as svc_system
-from .. import (
-    artifacts,
-    asset_open,
-    controls,
-    create_stages,
-    fonts,
-    forms,
-    quality,
-    theme,
-    verbs,
-    widgets,
-)
+from .. import artifacts, asset_open, controls, fonts, forms, quality, theme, verbs, widgets
 from ..app_ctx import derive_key, pixel_prefs
 from ..manual import render as manual_render
+from ..modes.create.ui import stages as create_stages
 from ..tokens import sp
 from . import (
     candidates_panel,
@@ -291,7 +281,8 @@ def _lineage(ctx: Any, job: Any) -> None:
     at the stage that asset belongs to rather than leaving the rail pointing at
     a step this row has not reached.
     """
-    from .. import create_stages, icons
+    from .. import icons
+    from ..modes.create.ui import stages as create_stages
 
     came_from = create_stages.parent(ctx, job)
     made = create_stages.promotions(ctx, job)

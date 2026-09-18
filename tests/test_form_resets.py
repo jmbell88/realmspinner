@@ -18,8 +18,9 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
-from warlock.studio import create_brief, dialogs
-from warlock.studio.panes import settings_2d, settings_3d
+from warlock.studio import dialogs
+from warlock.studio.modes.create.ui import brief as create_brief
+from warlock.studio.modes.create.ui import settings_2d, settings_3d
 from warlock.studio.state import DEFAULT_FORM_3D, default_form_2d
 
 

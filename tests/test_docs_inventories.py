@@ -27,7 +27,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from _pure_packages import pure_packages
+from _pure_packages import KERNELS, STUDIO, dotted_root, pure_packages
 
 from warlock.studio.modes import MODES
 
@@ -59,22 +59,85 @@ _ENGINE_TO_MODE = {
 }
 
 
+def _package_dir(name: str) -> Path:
+    """The directory :func:`pure_packages` found *name* in, by the same
+    three searches that function makes.
+    """
+    if (KERNELS / name / "__init__.py").exists():
+        return KERNELS / name
+    engine = STUDIO / "modes" / name / "engine"
+    if (engine / "__init__.py").exists():
+        return engine
+    return STUDIO / name
+
+
+def _module_scope_targets(path: Path, package_dotted: str) -> set[str]:
+    """Every absolute module a file's *module-scope* imports reach, resolving
+    a relative ``from`` against ``package_dotted`` the way Python itself
+    resolves it: ``level=1`` is the file's own containing package."""
+    found: set[str] = set()
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                if node.module:
+                    found.add(node.module)
+            else:
+                base = package_dotted.rsplit(".", node.level - 1)[0]
+                if node.module:
+                    found.add(f"{base}.{node.module}")
+                else:
+                    found.update(f"{base}.{alias.name}" for alias in node.names)
+    return found
+
+
+def _imports_service(name: str) -> bool:
+    """Whether any module of pure package *name* imports ``warlock.service``
+    at module scope.
+
+    2026-09-18 restructure, P5: ``pure_packages()`` started finding ``create``
+    the day its engine (``modes/create/engine/``) landed, because that
+    function's whole test is "no window at module scope" -- and Create's
+    engine is deliberately layer 5, built to import ``warlock.service``
+    (``recipe.py``/``mesh.py``/``character.py`` all do). CLAUDE.md's and
+    CONTRIBUTING.md's "headless editor package" claim is narrower than
+    "no window": both documents say, in as many words, a package that
+    imports "no imgui, moderngl, pygame **or service**". A package that
+    fails that third clause is not one of them, and this derives the
+    exclusion from the tree instead of hand-naming ``create`` -- the same
+    argument ``tests/_pure_packages.py``'s own docstring makes against every
+    hand list in this area.
+    """
+    package_dotted = dotted_root(name)
+    for path in _package_dir(name).rglob("*.py"):
+        targets = _module_scope_targets(path, package_dotted)
+        if any(t == "warlock.service" or t.startswith("warlock.service.") for t in targets):
+            return True
+    return False
+
+
 def editor_packages() -> tuple[str, ...]:
     """The "headless editor packages" CLAUDE.md's Architecture bullet names.
 
     ``pure_packages()`` is broader than that bullet on purpose: it also finds
     ``tilegrid``'s successor ``grid2d`` and the rest of the shared kernels
-    (``geom3d``, ``audio``, ``manual`` -- none of them a workspace of its own)
-    and ``tour`` (pure data, explicitly *not* a mode per its own CLAUDE.md
-    bullet). What CLAUDE.md's bullet and CONTRIBUTING.md's list both mean by
-    "headless editor package" is narrower: a pure package that is also one of
-    the workspaces in ``studio/modes.py``'s ``MODES``, once :data:`_ENGINE_TO_MODE`
-    translates Clay's and Inker's engines back to the mode name a contributor
-    actually reads -- so that set, not the raw derivation, is what a doc's
-    prose list is held to.
+    (``geom3d``, ``audio``, ``manual`` -- none of them a workspace of its own),
+    ``tour`` (pure data, explicitly *not* a mode per its own CLAUDE.md
+    bullet), and, since P5, ``create`` (headless by the "no window" test, but
+    not by the "no service either" one -- see :func:`_imports_service`). What
+    CLAUDE.md's bullet and CONTRIBUTING.md's list both mean by "headless
+    editor package" is narrower: a pure package that imports no service door
+    either, and that is also one of the workspaces in
+    ``studio/modes.py``'s ``MODES``, once :data:`_ENGINE_TO_MODE` translates
+    Clay's and Inker's engines back to the mode name a contributor actually
+    reads -- so that set, not the raw derivation, is what a doc's prose list
+    is held to.
     """
     mode_keys = {key for key, _, _, _ in MODES}
-    named = (_ENGINE_TO_MODE.get(name, name) for name in pure_packages())
+    candidates = (name for name in pure_packages() if not _imports_service(name))
+    named = (_ENGINE_TO_MODE.get(name, name) for name in candidates)
     return tuple(sorted(name for name in named if name in mode_keys))
 
 

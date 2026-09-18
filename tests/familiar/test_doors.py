@@ -9,7 +9,7 @@ before its first assertion runs against the unmodified code.
 from __future__ import annotations
 
 from warlock.familiar import doors
-from warlock.studio import create_assets
+from warlock.studio.modes.create.engine import assets as create_assets
 
 
 def test_a_navigate_target_outside_the_offered_keys_is_none():

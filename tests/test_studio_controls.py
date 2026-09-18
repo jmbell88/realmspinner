@@ -290,6 +290,7 @@ def test_major_panes_have_roles_and_no_production_pane_child_calls():
     sources = [
         root / "main.py",
         *(root / "panes").glob("*.py"),
+        *(root / "modes").rglob("*.py"),
         *(root / "shell").glob("*.py"),
         root / "clay_viewport.py",
         root / "mason_viewport.py",

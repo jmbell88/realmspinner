@@ -31,10 +31,12 @@ from imgui_bundle import imgui
 from PIL import Image
 
 from warlock.service import matte as svc_matte
-from warlock.studio import create_stages, layout, theme, tokens
+from warlock.studio import layout, theme, tokens
 from warlock.studio import textures as textures_mod
 from warlock.studio.app_ctx import Ctx
-from warlock.studio.panes import inspector, settings_3d
+from warlock.studio.modes.create.ui import settings_3d
+from warlock.studio.modes.create.ui import stages as create_stages
+from warlock.studio.panes import inspector
 from warlock.studio.state import AppState
 
 # --- harness ------------------------------------------------------------

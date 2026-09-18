@@ -58,9 +58,10 @@ from typing import Any
 from imgui_bundle import imgui
 
 from .... import anchors, controls, dialogs, focus, icons, theme, tokens, widgets
-from ..engine import assets as create_assets
-from . import rail as create_rail
 from ....tokens import sp
+from ..engine import assets as create_assets
+from ..engine import recipe as create_recipe
+from . import rail as create_rail
 
 #: The pane's height in design pixels, on the Reference stage -- see
 #: :func:`bar_height` for the other four. Measured rather than derived: the
@@ -136,7 +137,6 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     ``rail`` is ``App._stage_rail``, bound -- see the module docstring for why
     it is handed in rather than called through an import here.
     """
-    from . import settings_2d
 
     state = ctx.state
     form = state.form_2d
@@ -164,7 +164,7 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     # three, so four radios of which three are refusals would be a control
     # offering what the thing behind it will not do.
     hide_count = form.get("output") in ("sheet", "character")
-    problems = settings_2d.problems_for(ctx, form)
+    problems = create_recipe.problems_for(ctx, form)
     busy = ctx.busy("submit")
 
     items = _rail_items_for_measurement()

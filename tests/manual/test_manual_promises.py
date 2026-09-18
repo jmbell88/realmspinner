@@ -259,7 +259,7 @@ def test_chapter_02_names_all_five_other_asset_types_including_character():
     out, which is exactly what a reader without a capable card most needs
     to know.
     """
-    from warlock.studio import create_assets
+    from warlock.studio.modes.create.engine import assets as create_assets
 
     others = [item for item in create_assets._ORDERED if item.key != "3d_model"]
     assert len(others) == 5, (

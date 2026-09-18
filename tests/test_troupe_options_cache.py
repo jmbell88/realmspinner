@@ -7,7 +7,7 @@ applied the rule that file already had to learn.
 
 ``troupe_mode.options`` backs three surfaces (itself, ``panes.troupe_send``
 and ``panes.troupe_settings``, which all call it directly) and
-``panes.settings_character.options`` backs Create's Character arm and its own
+``panes.character_engine.options`` backs Create's Character arm and its own
 New Character form. Before the fix both cached ``ctx.state.preview`` forever
 on ``OPTIONS_SLOT`` with no key at all, so a palette file dropped in while the
 app was running never appeared in any of the four until restart, even though
@@ -22,7 +22,8 @@ from typing import Any
 import pytest
 
 from warlock.studio import troupe_mode
-from warlock.studio.panes import settings_character, stamps
+from warlock.studio.modes.create.engine import character as character_engine
+from warlock.studio.panes import stamps
 
 
 class FakeState:
@@ -98,7 +99,7 @@ def test_a_settled_troupe_options_directory_is_walked_once(svc, monkeypatch, pal
     assert len(calls) == 1
 
 
-# --- settings_character.options: Create's Character arm -----------------------
+# --- character_engine.options: Create's Character arm -----------------------
 
 
 def test_a_palette_dropped_in_mid_session_appears_in_settings_character(
@@ -108,11 +109,11 @@ def test_a_palette_dropped_in_mid_session_appears_in_settings_character(
     (palette_dir / "nes.hex").write_text("000000\nffffff\n", encoding="utf-8")
     _frozen(monkeypatch, palette_dir)
 
-    assert settings_character.options(ctx)["troupe"]["palettes"] == ["nes"]
+    assert character_engine.options(ctx)["troupe"]["palettes"] == ["nes"]
 
     (palette_dir / "gameboy.hex").write_text("081820\ne0f8d0\n", encoding="utf-8")
 
-    assert settings_character.options(ctx)["troupe"]["palettes"] == ["gameboy", "nes"]
+    assert character_engine.options(ctx)["troupe"]["palettes"] == ["gameboy", "nes"]
 
 
 def test_a_settled_settings_character_options_directory_is_read_once(
@@ -131,6 +132,6 @@ def test_a_settled_settings_character_options_directory_is_read_once(
     )
 
     for _ in range(5):
-        assert settings_character.options(ctx)["troupe"]["palettes"] == ["nes"]
+        assert character_engine.options(ctx)["troupe"]["palettes"] == ["nes"]
 
     assert len(calls) == 1

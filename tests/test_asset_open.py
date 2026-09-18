@@ -161,7 +161,8 @@ def test_one_module_decides_where_an_asset_opens():
         str(path.relative_to(SRC))
         for path in (SRC / "studio").rglob("*.py")
         if "stage_for(" in path.read_text(encoding="utf-8")
-        and path.name not in ("asset_open.py", "create_stages.py")
+        and path.relative_to(SRC).as_posix()
+        not in ("studio/asset_open.py", "studio/modes/create/ui/stages.py")
     )
     assert offenders == [], "route through asset_open.route instead"
 

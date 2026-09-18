@@ -47,7 +47,7 @@ from ..manual import render as manual_render
 #
 # The 2026-09-08 audit, finding create-02: "prompt" needed the same
 # treatment. It is also ``create_brief.py``'s bare id for the Reference
-# stage's main asset prompt, and the id ``settings_2d.validate()`` files an
+# stage's main asset prompt, and the id ``recipe.validate()`` files an
 # empty-prompt refusal under -- so an ordinary "the asset prompt is empty"
 # refusal on Create's Reference stage rang this panel's Surface field
 # whenever a mesh's inspector happened to be open at the same time, and

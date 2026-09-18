@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio import create_assets
-from warlock.studio.panes import library, settings_2d
+from warlock.studio.modes.create.engine import assets as create_assets
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.panes import library
 from warlock.studio.state import default_form_2d
 
 
@@ -105,7 +106,7 @@ def test_copying_a_legacy_tilesheet_job_keeps_its_tileset_type():
 
 
 def _ctx_resolving():
-    """What ``settings_2d._resolved_recipe`` needs: ``ctx.svc.config`` --
+    """What ``create_recipe.resolved_recipe`` needs: ``ctx.svc.config`` --
     ``None`` reads as "nothing downloaded, no opinion", matching
     ``test_settings_2d_notes.py``'s own ``_ctx_resolving``."""
     return SimpleNamespace(svc=SimpleNamespace(config=None))
@@ -129,8 +130,8 @@ def test_validate_agrees_with_the_resolved_recipe_after_switching_to_automatic(m
     asks ``_resolved_recipe`` at all once it has a ``ctx``.
     """
     monkeypatch.setattr(
-        settings_2d,
-        "_resolved_recipe",
+        create_recipe,
+        "resolved_recipe",
         lambda ctx, form: SimpleNamespace(base_model="flux_klein"),
     )
 
@@ -144,10 +145,10 @@ def test_validate_agrees_with_the_resolved_recipe_after_switching_to_automatic(m
     form["style_lora"] = "render3d"
 
     ctx = _ctx_resolving()
-    problems = settings_2d.validate(form, ctx)
+    problems = create_recipe.validate(form, ctx)
 
     assert any(p.field == "style_lora" for p in problems), problems
     # And the pre-fix reading (no ctx, or a ctx nothing asks) still validates
     # against the raw field, so the same form passes -- proving the
     # disagreement really is the resolved-vs-stale base, not a broken form.
-    assert not any(p.field == "style_lora" for p in settings_2d.validate(form))
+    assert not any(p.field == "style_lora" for p in create_recipe.validate(form))

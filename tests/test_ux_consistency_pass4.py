@@ -41,8 +41,8 @@ _RAW_LABELLED = re.compile(
 #: kept as explicit files (not a glob) so a fifteenth pane silently added to
 #: the ownership list is not assumed clean.
 _OWNED_FILES = (
-    "settings_2d.py",
-    "settings_3d.py",
+    "../modes/create/ui/settings_2d.py",
+    "../modes/create/ui/settings_3d.py",
     "clay_props.py",
     "clay_header.py",
     "clay_menu.py",
@@ -62,7 +62,7 @@ _OWNED_FILES = (
 #: ``controls.*`` call, and why. Everything else the inventory named must have
 #: moved its name onto a ``field_label`` line above.
 _ALLOW: dict[str, set[str]] = {
-    "settings_2d.py": {
+    "../modes/create/ui/settings_2d.py": {
         # Checkboxes whose label reads as a sentence ("this list keeps one
         # style", "this pass erases the seam", "start from this image") are
         # switches, not name+value fields -- the judgement call this pass's
@@ -72,7 +72,7 @@ _ALLOW: dict[str, set[str]] = {
         "Erase the seam",
         "Start from this image (img2img)",
     },
-    "settings_3d.py": {
+    "../modes/create/ui/settings_3d.py": {
         "Rig when the mesh lands",  # sentence checkbox
     },
     "clay_props.py": {
@@ -187,7 +187,7 @@ def test_settings_2d_sub_fields_each_get_their_own_name_line():
     Style LoRA), so each gets one small-caps name line of its own rather than
     an indented half-line -- the same shape ``field_label`` already draws for
     every full field in this pane."""
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     source = Path(settings_2d.__file__).read_text(encoding="utf-8")
     for ident in ("##Strength##ip", "##Strength##init", "##Strength##cn", "##Until##cn"):
@@ -307,7 +307,7 @@ def test_settings_3d_size_keeps_its_unit_and_gets_a_label():
     """"Size" moved to a field_label; the unit stays in the drag's own printf
     format (K96's reason for a drag over a slider), not duplicated into the
     label."""
-    from warlock.studio.panes import settings_3d
+    from warlock.studio.modes.create.ui import settings_3d
 
     source = Path(settings_3d.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label("Size")' in source

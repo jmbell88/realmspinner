@@ -29,7 +29,8 @@ def offers_inker(ctx: Any, job: Any) -> bool:
     button edits. Two spellings of "is it 2D" is how that guarantee would rot
     back into two buttons; see ``inspector.offers_inker``.
     """
-    from .. import create_stages, inker_mode
+    from .. import inker_mode
+    from ..modes.create.ui import stages as create_stages
 
     return create_stages.at(ctx.state, "reference") and inker_mode.can_edit_job(ctx, job)
 
@@ -48,7 +49,7 @@ def shows_tiled(ctx: Any, job: Any) -> bool:
     tile on screen in 2D" is how a toggle comes to be shown for something it
     does not affect -- or, worse, to affect something that does not show it.
     """
-    from .. import create_stages
+    from ..modes.create.ui import stages as create_stages
 
     return (
         create_stages.at(ctx.state, "reference")
@@ -245,7 +246,7 @@ def _has_content(ctx: Any, viewer: Any) -> bool:
     Reference stage because a *mesh* happened to be loaded would appear to do
     nothing at all.
     """
-    from .. import create_stages
+    from ..modes.create.ui import stages as create_stages
 
     if create_stages.at(ctx.state, "reference"):
         return viewer.reference is not None
@@ -629,7 +630,7 @@ def _focus_brief(ctx: Any) -> None:
     running a command. Written against :mod:`focus`'s two fields directly
     because ``focus.move`` only knows about relative steps.
     """
-    from .. import create_brief
+    from ..modes.create.ui import brief as create_brief
 
     ctx.state.focus_key[create_brief.FOCUS_PANE] = "prompt"
     ctx.state.focus_moved = True
@@ -693,7 +694,7 @@ ACTIONS: dict[str, tuple[str, Any]] = {
 
 
 def _go_stage(ctx: Any, stage: str) -> None:
-    from .. import create_stages
+    from ..modes.create.ui import stages as create_stages
 
     create_stages.go(ctx, stage)
 
@@ -760,13 +761,13 @@ def centred_empty(
 
 def placeholder(ctx: Any) -> None:
     """What the viewport says when there is nothing in it."""
-    from .. import create_stages
+    from ..modes.create.ui import stages as create_stages
 
     # The reference stage is a composition workspace before it is a viewer.
     # Give its generous central canvas a useful next action rather than the
     # generic missing-asset copy downstream stages need.
     if create_stages.at(ctx.state, "reference"):
-        from .. import create_assets
+        from ..modes.create.engine import assets as create_assets
 
         form = getattr(ctx.state, "form_2d", {})
         asset = create_assets.selected(form).label

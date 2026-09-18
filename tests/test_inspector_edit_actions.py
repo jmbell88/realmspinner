@@ -115,7 +115,8 @@ def test_the_toolbar_and_the_inspector_agree_about_which_of_them_it_is(svc):
     every mode, *exactly* one of them offers an editable reference. The
     inspector's gate is written as the complement of the toolbar's rather than
     as a second reading of the mode, which is what makes both halves true."""
-    from warlock.studio import create_stages, modes
+    from warlock.studio import modes
+    from warlock.studio.modes.create.ui import stages as create_stages
     from warlock.studio.panes import overlay
 
     job = _reference(svc)

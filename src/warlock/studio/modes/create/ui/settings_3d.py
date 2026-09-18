@@ -1,10 +1,18 @@
-"""The 3D pane: the mesh-side decisions, and where a mesh comes from.
+"""The 3D pane: drawing, and the orchestration of a press.
 
 No prompt controls at all. A 3D job starts from a finished 2D asset (whose
 reference is promoted) or from an uploaded image, and everything this pane
 holds is an *override* on what that source already recorded -- which is why
 every one of them is optional and "unset" is a real value rather than a
 default in disguise.
+
+**What a recipe means** -- validation, kwargs, the findings hint -- lives in
+``modes/create/engine/mesh.py`` now (2026-09-18 restructure, P5), except the
+cluster that reaches ``modes/create/ui/stages.py`` for the parent of a
+selected finished mesh (``_source_param``, ``_inherit_label``,
+``_platform_options``, ``_bg_options``, ``_selected_mesh``,
+``_effective_source``): an engine module may not import a mode's ``ui/``
+package, so that half stays here even though none of it draws.
 """
 
 from __future__ import annotations
@@ -22,11 +30,12 @@ from .....service import sheets as svc_sheets
 from .....service.errors import Invalid
 from .....service.validation import MAX_MESH_CANDIDATES, MAX_UPLOAD_BYTES, random_seed
 from .... import controls, dialogs, focus, forms, matte_preview, theme, widgets
-from . import stages as create_stages
+from ....formvalues import coerce_form_value
 from ....manual import render as manual_render
-from ....review_mode import coerce_form_value
-from ....tokens import sp
 from ....panes import stage_rig
+from ....tokens import sp
+from ..engine import mesh as create_mesh
+from . import stages as create_stages
 
 MATTE_TITLE = "Check the cutout"
 
@@ -249,22 +258,6 @@ def _reset(ctx: Any) -> None:
     ctx.toast("The model settings are back to their defaults.")
 
 
-def _findings_hint(ctx: Any, param: str, value: Any) -> str | None:
-    """Same lookup as the 2D pane's -- see ``settings_2d._findings_hint``.
-
-    The subject comes from the source asset rather than from a form, because
-    this pane owns no prompt controls at all: a 3D job starts from a finished
-    2D reference and inherits its prompt, so that reference's prompt *is* the
-    subject the mesh will be of. With no source picked yet there is no subject
-    to scope by and the pooled corpus answers, unlabelled -- which is honest:
-    nothing has been chosen for a hint to be about.
-    """
-    doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
-    source = ctx.cache.get(ctx.state.source_job)
-    subject = vectors.prompt_hash(source.get("prompt")) if source else ""
-    return findings_lib.hint(doc, param, value, prompt_hash=subject or None)
-
-
 def _hint(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
     """Draw the findings hint for the control just drawn, if there is one,
     plus the offer to jump straight to what the evidence favours.
@@ -281,7 +274,7 @@ def _hint(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
     was where it stopped -- a user agreeing had to go find the winning value
     and dial it in by hand. ``_best_value_offer`` is the click.
     """
-    hint = _findings_hint(ctx, param, value)
+    hint = create_mesh.findings_hint(ctx, param, value)
     if hint is not None:
         widgets.hint_text(hint)
     _best_value_offer(ctx, form, param, value)
@@ -368,7 +361,7 @@ def _size_suggestion(ctx: Any, form: dict[str, Any]) -> None:
 
     The noun comes from the source reference's prompt, because this pane owns no
     prompt controls at all: the 3D job inherits the 2D asset's words, which is
-    the same reasoning ``_findings_hint`` picks its subject by.
+    the same reasoning ``create_mesh.findings_hint`` picks its subject by.
     """
     if float(form["size_m"]) > 0.0:
         return
@@ -651,7 +644,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     that opens by default would risk the moment somebody brushed a value.
 
     Each control leaves its field at ``state.DEFAULT_FORM_3D``'s sentinel
-    when untouched, and :func:`_engine_kwargs` is what turns "still at the
+    when untouched, and :func:`create_mesh.engine_kwargs` is what turns "still at the
     sentinel" into "omit the kwarg" -- the same shape ``_size`` and
     ``_budget`` already use for ``size_m`` and ``custom_triangles``. Findings
     hints follow the same lookup as every other control here (``_hint``); a
@@ -744,34 +737,6 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     _hint(ctx, form, "trellis_atlas", form["trellis_atlas"])
 
 
-def _engine_kwargs(form: dict[str, Any]) -> dict[str, Any]:
-    """The engine axes as override kwargs, with "still at its sentinel" left
-    out entirely -- ``promote_kwargs``'s own rule, restated once and shared
-    with :func:`_upload_kwargs` rather than duplicated into it: a form field
-    honoured for a promoted reference and quietly ignored for a dropped file
-    is exactly the bug ``_upload_kwargs``'s docstring already names for every
-    other field here.
-    """
-    out: dict[str, Any] = {}
-    if int(form["trellis_band"]) > 0:
-        out["trellis_band"] = int(form["trellis_band"])
-    if int(form["trellis_tex_res"]) > 0:
-        out["trellis_tex_res"] = int(form["trellis_tex_res"])
-    if float(form["trellis_gss"]) > 0:
-        out["trellis_gss"] = float(form["trellis_gss"])
-    if float(form["trellis_gsh"]) > 0:
-        out["trellis_gsh"] = float(form["trellis_gsh"])
-    if int(form["trellis_max_tokens"]) > 0:
-        out["trellis_max_tokens"] = int(form["trellis_max_tokens"])
-    # >= 0, not > 0: 0 is decimation off, a real value the exe must receive,
-    # and only -1 (DEFAULT_FORM_3D's sentinel) means "unset" for this one.
-    if int(form["trellis_decim"]) >= 0:
-        out["trellis_decim"] = int(form["trellis_decim"])
-    if int(form["trellis_atlas"]) > 0:
-        out["trellis_atlas"] = int(form["trellis_atlas"])
-    return out
-
-
 def _turnaround(ctx: Any) -> None:
     """"Render turnaround": the sprite-sheet control, reached from the mesh
     that already exists rather than from a rig-shaped stage.
@@ -843,13 +808,13 @@ def _submit(ctx: Any, form: dict[str, Any]) -> None:
     state = ctx.state
     explicit = ctx.cache.get(state.source_job)
     source = _effective_source(ctx, explicit)
-    problems = validate(source)
+    problems = create_mesh.validate(source)
     for problem in problems:
         imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.ERR)))
         imgui.text_wrapped(problem)
         imgui.pop_style_color()
     _candidates(form)
-    count = candidate_count(form)
+    count = create_mesh.candidate_count(form)
     if explicit is None and source is not None:
         # Item 5.2: naming the reference this button would actually use, since
         # it is not the one the user last explicitly picked -- it is the
@@ -889,21 +854,6 @@ def _submit(ctx: Any, form: dict[str, Any]) -> None:
         imgui.set_tooltip("Ctrl+Enter")
 
 
-def candidate_count(form: dict[str, Any]) -> int:
-    """How many meshes this form asks for, clamped to what the service admits.
-
-    Clamped here as well as refused there because the form is persisted: a
-    settings file written when the ceiling was higher (or edited by hand) would
-    otherwise send a number ``promote_candidates`` refuses, and the refusal
-    would arrive as an error toast on a control the user cannot see is wrong.
-    """
-    try:
-        count = int(form.get("candidates", 1))
-    except (TypeError, ValueError):
-        return 1
-    return max(1, min(count, MAX_MESH_CANDIDATES))
-
-
 def _candidates(form: dict[str, Any]) -> None:
     """The Candidates control: how many attempts one press buys.
 
@@ -914,7 +864,7 @@ def _candidates(form: dict[str, Any]) -> None:
     putting it anywhere else in the form would hide that.
     """
     widgets.field_label("Candidates")
-    current = candidate_count(form)
+    current = create_mesh.candidate_count(form)
     for count in range(1, MAX_MESH_CANDIDATES + 1):
         if count > 1:
             imgui.same_line()
@@ -928,61 +878,6 @@ def _candidates(form: dict[str, Any]) -> None:
         "engine is deterministic in its seed, so each attempt draws a new one; "
         "the rest are hidden from the library until you keep one."
     )
-
-
-def validate(source: dict[str, Any] | None) -> list[widgets.Problem]:
-    """``settings_2d.validate``'s counterpart, and its field rule.
-
-    All three of these are about the *reference*, not about a control in this
-    form, so none carries a field: they are refusals the library answers, and
-    ringing a widget in the promotion form would point at the wrong thing.
-    ``note_field_error`` already treats an empty field as "keep going to the
-    toast", which is the behaviour that leaves.
-    """
-    if source is None:
-        return [widgets.Problem("Choose a reference first.")]
-    if source.get("status") != "done":
-        return [widgets.Problem(f"That reference is {source.get('status')}.")]
-    if "input.png" not in (source.get("files") or []):
-        return [widgets.Problem("That reference has no image.")]
-    return []
-
-
-def promote_kwargs(form: dict[str, Any]) -> dict[str, Any]:
-    """The overrides, with "unset" left out entirely.
-
-    Omitted means "keep what the reference recorded", and that is not the same
-    as sending the reference's value back. ``promote_to_model`` drops the
-    inherited resolution unconditionally -- re-deriving it from a platform
-    override, or from the default 3D platform when there is none -- so this
-    pane sends no ``resolution`` at all: an override here would pin a number
-    the platform no longer implies.
-    """
-    out: dict[str, Any] = {}
-    if form["platform"]:
-        out["platform"] = form["platform"]
-    if float(form["size_m"]) > 0:
-        out["size_m"] = float(form["size_m"])
-    if form["bg_removal"]:
-        out["bg_removal"] = form["bg_removal"]
-    if form["profile"]:
-        out["profile"] = form["profile"]
-        if int(form["custom_triangles"]) > 0:
-            out["custom_triangles"] = int(form["custom_triangles"])
-    if int(form["mesh_seed"]) > 0:
-        out["mesh_seed"] = int(form["mesh_seed"])
-    # An explicit False, not an omission: it has to clear a rig request the
-    # reference inherited, or a reference generated with rigging on would rig
-    # every promotion of it whatever this pane says.
-    out["rig"] = bool(form["rig"])
-    if form["rig"] and form["rig_template"]:
-        out["rig_template"] = form["rig_template"]
-    # Explicit like rig, and for the same reason: an omission would let the
-    # promotion inherit whatever the reference recorded, and this checkbox is
-    # the 3D pane's decision, not the reference's.
-    out["reference_prep"] = bool(form["reference_prep"])
-    out.update(_engine_kwargs(form))
-    return out
 
 
 def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> None:
@@ -1004,7 +899,7 @@ def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> No
     correction ``_submit`` does.
     """
     source = _effective_source(ctx, source)
-    problems = validate(source)
+    problems = create_mesh.validate(source)
     if problems:
         # ``settings_2d.generate``'s reason exactly: Ctrl+Enter in 3D mode and
         # the palette's promote both land here, and this used to return in
@@ -1020,7 +915,9 @@ def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> No
     # of it is part of that. ``promote_candidates`` takes it as a kwarg, so
     # nothing downstream has to unpack it back out.
     matte_preview.open_for(
-        ctx, source["id"], {**promote_kwargs(form), "count": candidate_count(form)}
+        ctx,
+        source["id"],
+        {**create_mesh.promote_kwargs(form), "count": create_mesh.candidate_count(form)},
     )
 
 
@@ -1051,29 +948,7 @@ def submit_promotion(ctx: Any, job_id: str, kwargs: dict[str, Any], force: bool)
     ):
         ctx.toast("Still submitting the last one - try again in a moment.")
         return
-    reroll_mesh_seed(ctx.state.form_3d)
-
-
-def reroll_mesh_seed(form: dict[str, Any]) -> None:
-    """After an *accepted* submit, and only then: the seed the job was made
-    with is already in ``kwargs``, so what moves here is the form's next one.
-    ``settings_2d.generate`` does the same for the image seed."""
-    if not form.get("mesh_seed_locked", False):
-        form["mesh_seed"] = random_seed()
-
-
-def _matte_is_clean(preview: Any) -> bool:
-    """Whether ``preview`` is boring enough that the setting may skip it.
-
-    Item 5.4's bar, verbatim: the composition gate raised nothing at all --
-    neither a hard refusal (``reasons``) nor a soft one (``warnings``) -- and
-    the cut itself came from BiRefNet rather than the corner-fill fallback
-    (``MATTE_SOURCES``'s "the model's weights are not installed" case) or an
-    alpha the reference already carried. ``approved`` is deliberately not
-    enough on its own: the review names the *backend*, and a pre-matted image
-    can carry an edge nobody here has ever looked at.
-    """
-    return preview.source == "birefnet" and not preview.reasons and not preview.warnings
+    create_mesh.reroll_mesh_seed(ctx.state.form_3d)
 
 
 def _auto_accept(ctx: Any, state: Any) -> None:
@@ -1082,7 +957,7 @@ def _auto_accept(ctx: Any, state: Any) -> None:
     Through ``matte_preview.accept`` -> ``submit_promotion``, identically: the
     review requires the skipped route to be indistinguishable from pressing
     Accept, and this is how ``_matte_body``'s Accept button does it two
-    screens down. ``refused`` is never true here -- ``_matte_is_clean`` is the
+    screens down. ``refused`` is never true here -- ``create_mesh.matte_is_clean`` is the
     gate that got this function called at all, and a refused preview always
     carries a reason.
     """
@@ -1112,7 +987,7 @@ def _wants_auto_accept(ctx: Any, state: Any) -> bool:
         # dev/INVARIANTS.md on ``_tried_and_failed`` vs. ``failed_stamp``:
         # the stamp alone cannot tell "not tried yet" from "tried and failed".
         return not state._tried_and_failed
-    if not _matte_is_clean(state.preview):
+    if not create_mesh.matte_is_clean(state.preview):
         return False
     _auto_accept(ctx, state)
     return True
@@ -1284,7 +1159,7 @@ def upload_bytes(ctx: Any, data: bytes) -> None:
     values are read here for the same reason ``upload`` reads them here: they
     are UI state, and the task thread has no business touching them.
     """
-    kwargs = _upload_kwargs(ctx)
+    kwargs = create_mesh.upload_kwargs(ctx.state.form_3d)
 
     def run():
         return svc_jobs.create_job(ctx.svc, image=data, **kwargs)
@@ -1294,45 +1169,9 @@ def upload_bytes(ctx: Any, data: bytes) -> None:
     settings_2d.submit_job(ctx, run)
 
 
-def _upload_kwargs(ctx: Any) -> dict[str, Any]:
-    """The 3D form as create_job keyword arguments.
-
-    Shared by both upload paths so a form field cannot be honoured for a
-    dropped file and quietly ignored for a rendered one.
-    """
-    form = ctx.state.form_3d
-    kwargs: dict[str, Any] = {"kind": "image"}
-    if form["platform"]:
-        kwargs["guidance_fields"] = {"platform": form["platform"]}
-    if float(form["size_m"]) > 0:
-        kwargs["size_m"] = float(form["size_m"])
-    if form["bg_removal"]:
-        kwargs["bg_removal"] = form["bg_removal"]
-    if form["profile"]:
-        kwargs["profile"] = form["profile"]
-        # The 2026-09-06 audit (create2-05): this helper's own docstring states
-        # the rule -- a form field cannot be honoured for a dropped file and
-        # quietly ignored for a rendered one -- and this line broke it. Without
-        # it, an uploaded reference with a custom triangle budget reached
-        # ``resolve_profile``/``optimize.resolve`` with ``custom=None`` and was
-        # refused, even though ``promote_kwargs`` sends the exact same pair for
-        # a promoted reference.
-        if int(form["custom_triangles"]) > 0:
-            kwargs["custom_triangles"] = int(form["custom_triangles"])
-    if int(form["mesh_seed"]) > 0:
-        kwargs["mesh_seed"] = int(form["mesh_seed"])
-    kwargs["reference_prep"] = bool(form["reference_prep"])
-    if form["rig"]:
-        kwargs["rig"] = True
-        if form["rig_template"]:
-            kwargs["rig_template"] = form["rig_template"]
-    kwargs.update(_engine_kwargs(form))
-    return kwargs
-
-
 def upload(ctx: Any, path: Path) -> None:
     """Start a mesh job from an image on disk (a picker, or a dropped file)."""
-    kwargs = _upload_kwargs(ctx)
+    kwargs = create_mesh.upload_kwargs(ctx.state.form_3d)
 
     # The form values are read here, on the frame thread, because they are UI
     # state; the *file* is read in the task, because a large one would freeze

@@ -1,4 +1,4 @@
-"""The 2D pane: everything that composes the SDXL prompt, and Generate.
+"""The 2D pane: drawing, and the orchestration of a press.
 
 This pane owns the prompt and every field that reaches the text encoder; the
 3D pane owns nothing that does. Since the 2026-08-17 taxonomy retirement the
@@ -6,6 +6,11 @@ form is flat -- no folds, no guidance groups -- and every section draws as a
 full-width tinted block, matching Plotter's tools pane: the block scope is
 opened *inside* the ``2d-form`` child so the fills land on the child's own
 draw list rather than under its opaque background.
+
+**What a recipe means** -- the plan, the validation, the kwargs, the option
+lists, the notes explaining a disabled control -- lives in
+``modes/create/engine/recipe.py`` now (2026-09-18 restructure, P5): this
+module is what draws, and what a press does once it is accepted.
 """
 
 from __future__ import annotations
@@ -16,7 +21,6 @@ from typing import Any
 from imgui_bundle import imgui
 
 from ..... import generation, vectors
-from ..... import guidance as guidancelib
 from ..... import models as modelslib
 from .....bench import findings as findings_lib
 from .....pipelines import tileatlas as tileatlaslib
@@ -26,15 +30,18 @@ from .....service import palettes as svc_palettes
 from .....service import sprites as svc_sprites
 from .....service import tilesheets as svc_tilesheets
 from .....service.errors import Invalid
-from .....service.validation import MAX_PROMPT, MAX_REFERENCE_COUNT, MAX_UPLOAD_BYTES, random_seed
+from .....service.validation import MAX_PROMPT, MAX_UPLOAD_BYTES, random_seed
 from .... import controls, dialogs, focus, forms, theme, tokens, widgets
-from ..engine import assets as create_assets
-from . import workspace as generation_workspace
+from .... import problems as problem_types
+from ....formvalues import coerce_form_value
 from ....manual import render as manual_render
-from ....review_mode import coerce_form_value
 from ....tokens import sp
 from ....widgets import field_options as _options
+from ..engine import assets as create_assets
+from ..engine import character as character_engine
+from ..engine import recipe as create_recipe
 from . import settings_character
+from . import workspace as generation_workspace
 
 # This pane's key in the focus ring (UX.md Phase 3). The controls on the common
 # path take a place in it: the ring exists so a first job can be composed and
@@ -42,15 +49,9 @@ from . import settings_character
 FOCUS_PANE = "2d"
 
 
-# What the submit block took last frame, in design pixels (K92). The same
-# measure-last-frame idiom the library's footer uses, and for the same reason:
-# the block's height is a function of the theme, the UI scale and how many
-# problems it is currently reporting, so no constant is right for all of them.
-# Seeded at roughly one button plus its cost note, so the first frame reserves
-# something sane rather than nothing.
-_submit_px = [96.0]
-_LOAD_FINDINGS = object()
+FOCUS_PANE = "2d"
 
+_submit_px = [96.0]
 
 def draw(ctx: Any) -> None:
     state = ctx.state
@@ -63,7 +64,7 @@ def draw(ctx: Any) -> None:
     if "asset_type" not in form:
         form["asset_type"] = create_assets.legacy_asset_type(form)
     create_assets.sync_legacy_fields(form)
-    _verify_reference_path(ctx, form)
+    create_recipe.verify_reference_path(ctx, form)
     # Form.errors now places the rings and copy beneath the owning controls;
     # these are the routes it replaces and keeps wired by the same field keys:
     # field_error(ctx.state, "prompt")
@@ -73,8 +74,8 @@ def draw(ctx: Any) -> None:
     # Before the form is built, because ``forms.Form`` snapshots the error map
     # at construction: a refusal recorded under a *recipe* field name has to be
     # re-filed under the control that answers to it, or the ring lands nowhere.
-    if _is_character(form):
-        settings_character.mirror_errors(ctx)
+    if create_recipe.is_character(form):
+        character_engine.mirror_errors(ctx)
     with forms.Form("create-2d", errors=ctx.state.field_errors) as form_ui:
         # The plan block is pinned and does not scroll (K92): the statement of
         # what a press will cost must not be at the bottom of a scrolled column
@@ -128,7 +129,7 @@ def draw(ctx: Any) -> None:
                     if form.get("style_lora") and intent != "tileset":
                         widgets.section("Style strength")
                         _lora_strength(ctx, form, findings_doc)
-                    if _negative_supported(ctx, form):
+                    if create_recipe.negative_supported(ctx, form):
                         widgets.section("Negative prompt / Avoid")
                         _negative(ctx, form)
                     _history(ctx, form)
@@ -136,7 +137,7 @@ def draw(ctx: Any) -> None:
                     # Image and 3D Model draw none at all, which is the whole
                     # point: a control that cannot apply is not shown greyed, it
                     # is not shown.
-                    if _is_tile_arm(form):
+                    if create_recipe.is_tile_arm(form):
                         widgets.section("Tileset")
                         manual_render.help_button(ctx, "settings-sheet")
                         _tile_layout(ctx, form, form_ui)
@@ -155,7 +156,7 @@ def draw(ctx: Any) -> None:
                     # all; the tail says when one is attached, so a closed
                     # section never hides a setting that is doing something.
                     opened = controls.collapsing_header(
-                        f"Conditioning{_conditioning_tail(form)}##create"
+                        f"Conditioning{create_recipe.conditioning_tail(form)}##create"
                     )
                     if opened:
                         _references(ctx, form)
@@ -165,157 +166,6 @@ def draw(ctx: Any) -> None:
         height = imgui.get_cursor_pos_y() - top
         if height > 0:
             _submit_px[0] = height / max(tokens.SCALE, 0.01)
-
-
-# What a field is *called* on screen, where that is not its key with the
-# underscores taken out. Emptied at the taxonomy retirement (it carried
-# ``art_style``) and stayed empty until the 2026-09-14 audit, finding
-# docs-07: the sweep's own manual chapter (``docs/manual/38-review.md``,
-# "What you can vary") names eleven of its axes in prose -- "Style
-# strength", "IP-Adapter scale", "Reference prep", "Background removal" and
-# the rest -- while the Add-axis combo (``review_panes.py``'s "what to
-# vary", built from ``sweeps.axis_params()`` through this table) drew the
-# bare keys with underscores swapped for spaces: "lora weight", "ip scale",
-# "bg removal". None of these eleven are in ``guidance.form_fields()`` (the
-# five the pane's own combos read this table for -- ``platform``,
-# ``base_model``, ``style_lora``, ``ip_adapter``, ``control`` -- none of
-# which the manual names), so restoring them widens no combo this table
-# already served correctly. The six ``trellis_*`` engine flags stay out on
-# purpose: the manual describes them narratively ("band width, texture
-# resolution, the two guidance strengths...") rather than naming each as a
-# combo label the way it does the other eleven, so there is no single
-# manual string to restore one to.
-FIELD_LABELS: dict[str, str] = {
-    "lora_weight": "Style strength",
-    "negative_prompt": "Negative prompt",
-    "ip_scale": "IP-Adapter scale",
-    "control_scale": "ControlNet scale",
-    "control_end": "ControlNet end",
-    "reference_prep": "Reference prep",
-    "bg_removal": "Background removal",
-    "resolution": "Resolution",
-    "profile": "Profile",
-    "custom_triangles": "Custom triangles",
-    "size_m": "Size in metres",
-}
-
-
-def field_label(field: str) -> str:
-    return FIELD_LABELS.get(field, field.replace("_", " "))
-
-
-def _resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
-    """What automatic routing would load for this form, or None.
-
-    Wrapped because it runs on the frame thread from three note helpers: a
-    partially restored form must make the pane say nothing rather than raise
-    inside the draw, which is ``_negative_supported``'s standing rule here.
-
-    Memoised on the *request*, not on frame or form identity (2026-09-08
-    audit, finding create-06, and the orchestrator's ruling on it: a
-    fingerprint feeding a provenance record may not be memoised on wall
-    time, only on content or a generation counter). ``request_from_legacy``
-    is cheap and pure, so it is rebuilt every call; only
-    ``generation.resolve_recipe`` -- which fingerprints every installed
-    checkpoint directory (``provenance.file_fingerprint`` via ``_checksum``)
-    -- is worth skipping, and only while the request compares equal to the
-    one the cached answer was resolved from and ``ctx.svc.config`` is the
-    same object. The result stays correct across many unchanged frames and
-    resolves again the moment either input actually changes, which a
-    frame-keyed cache could not promise. Set with ``setattr`` rather than a
-    declared ``AppState`` field: this module does not own ``state.py``, and a
-    plain dataclass instance takes an extra attribute without one. A caller
-    with no ``ctx.state`` at all (several note helpers are exercised
-    headlessly against a bare ``SimpleNamespace``) gets the pre-fix
-    behaviour instead of an ``AttributeError``: resolve every call, memoise
-    nothing.
-    """
-    try:
-        request = generation.request_from_legacy(form)
-        config = ctx.svc.config
-    except Exception:
-        # Silent on purpose, and the same choice ``_negative_supported`` makes
-        # for the same reason: this runs sixty times a second inside the draw,
-        # so a partially restored form must make the pane say *nothing* rather
-        # than log a line per frame or raise through the frame loop. The
-        # service remains the final compatibility gate, and it is not silent.
-        # ``ctx.svc`` is read here, inside the same guard, for the same
-        # reason: some note helpers are exercised headlessly against a
-        # ``SimpleNamespace`` that carries no ``svc`` at all.
-        return None
-
-    # ``getattr`` rather than ``ctx.state``: the frame thread's ``ctx`` always
-    # carries an ``AppState`` to hang the memo on, but several note helpers
-    # (``recipe_structure_note`` and friends, exercised headlessly by
-    # tests/test_settings_2d_notes.py and tests/test_generation_tiers.py) call
-    # this with a bare ``SimpleNamespace(svc=..., guidance=...)`` that has no
-    # ``.state`` at all. A headless caller with nothing to memoise onto just
-    # gets the pre-fix behaviour -- resolve every call -- rather than an
-    # ``AttributeError``.
-    state = getattr(ctx, "state", None)
-    cache = getattr(state, "_resolved_recipe_cache", None) if state is not None else None
-    if cache is not None:
-        cached_request, cached_config_id, cached_resolved = cache
-        if cached_config_id == id(config) and cached_request == request:
-            return cached_resolved
-
-    try:
-        resolved = generation.resolve_recipe(request, config)
-    except Exception:
-        # A form that resolves to a broken request must say nothing once,
-        # not raise every frame -- caching the ``None`` here is what makes
-        # that once rather than sixty times a second.
-        resolved = None
-    if state is not None:
-        state._resolved_recipe_cache = (request, id(config), resolved)
-    return resolved
-
-
-def clear_for_tier(ctx: Any, form: dict[str, Any]) -> list[str]:
-    """Drop the selections the newly chosen tier cannot run.
-
-    -> one sentence per selection cleared, for the pane to show.
-
-    :func:`clear_unusable`'s argument applied to the other end of the same
-    routing. Under automatic routing the *tier* picks the checkpoint, so
-    switching to Fast strands a ControlNet and an Avoid text exactly the way
-    switching the base model under Advanced does -- and both of those controls
-    are hidden rather than merely disabled once the tier cannot use them, which
-    would leave Generate refusing on a field that is off screen. Clearing is
-    the same choice ``clear_unusable`` makes and for the same reason: a
-    refusal the user cannot act on is a dead end.
-
-    Called only on a change of tier, never per frame -- see ``clear_unusable``.
-    """
-    cleared: list[str] = []
-    if str(form.get("model_mode") or "auto") == "advanced":
-        # The tier does not choose the checkpoint here, so it cannot strand
-        # anything; ``clear_unusable`` owns that half.
-        return cleared
-    resolved = _resolved_recipe(ctx, form)
-    if resolved is None:
-        # Either the form does not compile or this host qualifies no recipe;
-        # the Recipe combo already says so, and clearing selections on the
-        # strength of an answer nobody has would be the silent rewrite
-        # ``clear_unusable`` refuses to do.
-        return cleared
-    # Cannot raise: ``_resolved_recipe`` just built the same request and got a
-    # recipe out of it.
-    caps = generation.capability_controls(generation.request_from_legacy(form), resolved)
-    if form.get("control") and not caps["controlnet"]:
-        form["control"] = ""
-        cleared.append(
-            "The structure control was cleared: this recipe runs at guidance 0 "
-            "and cannot run a ControlNet."
-        )
-    if str(form.get("negative_prompt") or "").strip() and not caps["negative_prompt"]:
-        form["negative_prompt"] = ""
-        cleared.append(
-            "The Avoid text was cleared: this recipe runs at guidance 0, where "
-            "a negative prompt has no effect."
-        )
-    return cleared
-
 
 def _locked_sheet_recipe(
     ctx: Any, note: str, *, part: str = "both", sprite: bool = False
@@ -335,10 +185,9 @@ def _locked_sheet_recipe(
         imgui.text_wrapped(modelslib.STYLE_LORAS[lora_key].label)
     widgets.muted_wrapped(note)
 
-
 def _tile_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """Only the editable dimension of a tileset asset type."""
-    sizes = tile_sizes_for(form)
+    sizes = create_recipe.tile_sizes_for(form)
     changed, picked = form_ui.segmented_choice(
         "tile_size", "Tile size", str(form.get("tile_size", "32")),
         tuple((str(size), str(size)) for size in sizes),
@@ -349,7 +198,7 @@ def _tile_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         helper=(
             f"A seamless material is drawn at {tileatlaslib.MATERIAL_PX} px and "
             f"reduced, so its tile size has to divide that exactly."
-            if is_seamless(form)
+            if create_recipe.is_seamless(form)
             else ""
         ),
         compact=True,
@@ -358,52 +207,7 @@ def _tile_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         form["tile_size"] = picked
         ctx.state.clear_field_error("tile_size")
 
-
-#: Where the sentences explaining a layout change's clears are kept between
-#: frames. :data:`CLEARED_KEY`'s sibling and for its reason -- the notice belongs
-#: to the change the user just made, not to the form that outlives the session.
 TILE_MODE_CLEARED_KEY = "tile_mode_cleared"
-
-
-def clear_for_layout(form: dict[str, Any]) -> list[str]:
-    """Drop the geometry the newly chosen layout cannot draw.
-
-    -> one sentence per value moved, for the pane to show.
-
-    :func:`clear_unusable`'s rule applied to the tile arm, and for its reason: a
-    control that ``validate`` refuses while offering only legal values is a dead
-    end unless the illegal value is cleared, and the two things a seamless layout
-    cannot keep -- a 48 px tile and a view that does not wrap -- are both
-    persisted, so both survive a switch of layout.
-
-    Called only when the layout changes, never per frame. A form *restored* with
-    a size the layout refuses keeps it: ``validate`` names it above Generate, the
-    control offers the sizes that work, and rewriting a stored value on the way
-    in would change a request nobody touched.
-    """
-    if not is_seamless(form):
-        return []
-    options = _tile_options()
-    cleared: list[str] = []
-    sizes = tile_sizes_for(form)
-    if str(form.get("tile_size") or "") not in {str(size) for size in sizes}:
-        form["tile_size"] = str(options["defaults"]["tile_size"])
-        cleared.append(
-            f"The tile size moved to {form['tile_size']} px: a seamless material "
-            f"is reduced from one {tileatlaslib.MATERIAL_PX} px frame, and only "
-            f"{sizes} divide it exactly."
-        )
-    views = views_for(form)
-    if _view_of(form) not in views:
-        form["projection"] = views[0]
-        label = options["view_labels"].get(views[0], views[0])
-        cleared.append(
-            f"The view moved to {label}: a seamless material wraps a square, and "
-            f"neither an isometric diamond nor a 3/4 tile's visible front face is "
-            f"one."
-        )
-    return cleared
-
 
 def _tile_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """What this sheet is a sheet *of*, and therefore which request it compiles.
@@ -413,8 +217,8 @@ def _tile_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     the two geometry menus all come from ``svc_tilesheets.tile_sheet_options``,
     which is the door that enforces them.
     """
-    options = _tile_options()
-    before = tile_mode_of(form)
+    options = create_recipe.tile_options()
+    before = create_recipe.tile_mode_of(form)
     changed, picked = form_ui.combo(
         "mode",
         "Layout",
@@ -431,12 +235,12 @@ def _tile_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         # The geometry a seamless layout cannot keep, dropped with a sentence --
         # and the preview recomposed, because the words that will be sent are a
         # different set of words now.
-        ctx.state.preview[TILE_MODE_CLEARED_KEY] = clear_for_layout(form)
+        ctx.state.preview[TILE_MODE_CLEARED_KEY] = create_recipe.clear_for_layout(form)
         for field in _TILE_FIELDS:
             ctx.state.clear_field_error(field)
     for note in ctx.state.preview.get(TILE_MODE_CLEARED_KEY) or ():
         widgets.muted_wrapped(note)
-    mode = tile_mode_of(form)
+    mode = create_recipe.tile_mode_of(form)
     if mode == svc_tilesheets.MODE_MATERIALS:
         _tile_materials(ctx, form, form_ui, options)
     elif mode == svc_tilesheets.MODE_TERRAIN:
@@ -444,11 +248,6 @@ def _tile_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     else:
         _tile_grid(ctx, form, form_ui, options)
 
-
-#: Every field this section owns, for the one thing that has to name them
-#: together: clearing last submit's rings when the layout changes, since a
-#: refusal about a material list is not about the request the user is now
-#: composing.
 _TILE_FIELDS = (
     "mode",
     "prompt_items",
@@ -460,7 +259,6 @@ _TILE_FIELDS = (
     "projection",
 )
 
-
 def _tile_materials(
     ctx: Any, form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]
 ) -> None:
@@ -469,8 +267,8 @@ def _tile_materials(
     One generation per cell, which is why the count is said out loud beside the
     field rather than left to be discovered when the queue takes four minutes.
     """
-    lines = material_lines(form)
-    variants = _safe_int(form.get("variants"), 1)
+    lines = create_recipe.material_lines(form)
+    variants = create_recipe.safe_int(form.get("variants"), 1)
     cells = len(lines) * max(variants, 1)
     before = str(form.get("materials") or "")
     changed, text = form_ui.multiline_text(
@@ -532,7 +330,6 @@ def _tile_materials(
         form["seam_erase"] = erase
     _tile_description_note()
 
-
 def _tile_terrain(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """Two surfaces and the world they share.
 
@@ -581,7 +378,6 @@ def _tile_terrain(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         ctx.state.clear_field_error("boundary")
     _tile_description_note()
 
-
 def _tile_grid(
     ctx: Any, form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]
 ) -> None:
@@ -592,7 +388,7 @@ def _tile_grid(
     here -- the other two accept one view and would draw a picker with nothing
     to pick.
     """
-    before = _view_of(form)
+    before = create_recipe.view_of(form)
     changed, picked = form_ui.combo(
         "projection",
         "View",
@@ -612,7 +408,6 @@ def _tile_grid(
         "rerunning a sheet made under it."
     )
 
-
 def _tile_description_note() -> None:
     """What the Description above actually does in the two seamless layouts.
 
@@ -627,186 +422,6 @@ def _tile_description_note() -> None:
         "painted from is what you type here."
     )
 
-
-#: The Action combo's own key space, and why it is not simply the action name.
-#:
-#: **A legacy kind and an action can be spelled the same and mean different
-#: sheets.** Legacy ``walk`` is a four-frame cycle over four directions; the
-#: action ``walk`` is eight frames, and picking it composes ``walk8``. One combo
-#: cannot carry both under the key ``"walk"`` -- a stored legacy walk would show
-#: as the action, and selecting it would silently double the user's cycle. So
-#: every entry that names a *kind* is prefixed, every entry that names an action
-#: is bare, and the two are converted at exactly one place each.
-LEGACY_KEY_PREFIX = "legacy:"
-
-#: What a legacy sheet kind is called in that combo. The ``walk`` is labelled
-#: with its frame count because that is the whole trap; the turnaround is the
-#: first entry and needs no disambiguation.
-LEGACY_LAYOUT_LABELS: dict[str, str] = {
-    "turnaround": "Turnaround (still views)",
-    "walk": "Walk (legacy, 4 frames)",
-}
-
-
-def sprite_action_key(layout: str) -> str:
-    """The Action combo's key for a stored ``sheet_layout``. See
-    :data:`LEGACY_KEY_PREFIX`."""
-    mode, action, _directions = generation.sprite_from_layout(layout)
-    if mode in generation.SPRITE_LEGACY_MODES:
-        return f"{LEGACY_KEY_PREFIX}{mode}"
-    if layout not in generation.SPRITE_SHEET_KINDS:
-        # A kind from some other build: named as itself, so the combo can show
-        # what the form is actually set to rather than moving it.
-        return layout
-    return action
-
-
-def sprite_action_options(
-    options: dict[str, Any], current: str
-) -> tuple[tuple[str, str], ...]:
-    """The Action combo's entries: the turnaround, then what has a guide.
-
-    An action is offered **only if its pose guide is on this disk**, which is
-    ``sprite_options``' own filter and the whole reason that key exists: the
-    guide is what decides where the limbs go, so an action offered without one
-    is a control whose result is eight bands of an unposed character -- or, once
-    the doors refuse it, a control whose only outcome is that refusal.
-
-    A stored layout the menu does not carry is appended rather than dropped,
-    which is :func:`palette_options`' rule and its reason: silently moving a
-    form off the thing it says it is set to is how a user comes to submit
-    something they did not choose. That covers both the legacy ``walk`` -- a
-    real sheet this build still draws -- and a kind from some other build, which
-    is not.
-
-    ``current`` is a :func:`sprite_action_key`, not a layout.
-    """
-    out = [(f"{LEGACY_KEY_PREFIX}turnaround", LEGACY_LAYOUT_LABELS["turnaround"])]
-    out.extend((entry["key"], entry["label"]) for entry in options["actions"])
-    if current not in {key for key, _label in out}:
-        bare = current.removeprefix(LEGACY_KEY_PREFIX)
-        out.append((current, LEGACY_LAYOUT_LABELS.get(bare, f"{bare} (unavailable)")))
-    return tuple(out)
-
-
-def sprite_action_entry(options: dict[str, Any], action: str) -> dict[str, Any] | None:
-    """``sprite_options()['actions']``' row for ``action``, or None for a
-    turnaround or a legacy kind -- neither of which is one."""
-    for entry in options["actions"]:
-        if entry["key"] == action:
-            return entry
-    return None
-
-
-def sprite_layout_for(
-    options: dict[str, Any], action: str, directions: int
-) -> str:
-    """The ``sheet_layout`` an Action/Directions pair names.
-
-    Takes a :func:`sprite_action_key`, so a prefixed legacy entry resolves to the
-    kind it names and the Directions control has nothing to say about it.
-
-    Falls back to the action's *first available* direction count rather than to
-    the asked-for one, because the two controls move independently: picking an
-    action that has no eight-direction guide while the Directions control still
-    says eight must land on a sheet that exists.
-    """
-    if action.startswith(LEGACY_KEY_PREFIX):
-        return action.removeprefix(LEGACY_KEY_PREFIX)
-    entry = sprite_action_entry(options, action)
-    if entry is None:
-        return action
-    counts = [row["count"] for row in entry["directions"]]
-    if not counts:
-        return action
-    return f"{action}{directions if directions in counts else counts[0]}"
-
-
-def _sprite_logical(form: dict[str, Any], sizes: tuple[int, ...]) -> int:
-    """The cell size this form will actually be submitted at.
-
-    Clamped **here** rather than only in the picker, and that is the difference
-    between a gate and a decoration: the Action control is always on screen and
-    the size picker is inside Advanced, so a user who picks an eight-frame walk
-    without ever opening Advanced would otherwise compile a 64px request that
-    the door refuses -- a press that does nothing, decided by a section they
-    never looked at.
-    """
-    if not sizes:
-        return _safe_int(form.get("cell_size"), 64)
-    asked = _safe_int(form.get("cell_size"), max(sizes))
-    return asked if asked in sizes else max(sizes)
-
-
-def sprite_plan(form: dict[str, Any]) -> dict[str, Any]:
-    """What this form's sprite arm will actually draw, arithmetic included.
-
-    One function, read by the Dimensions section's summary line, by the size
-    picker's ladder and by :func:`sprite_sheet_kwargs`, so what the user is told
-    and what is submitted are the same numbers rather than two calculations of
-    them. Every one of them comes from ``sprite_options()`` -- the door's own --
-    for the reason the tile arm's do: a pane that recomputes a cell count is a
-    label that goes stale the first time a frame count moves.
-    """
-    options = _sprite_options()
-    layout = str(form.get("sheet_layout") or "turnaround")
-    _mode, action, directions = generation.sprite_from_layout(layout)
-    entry = sprite_action_entry(options, action)
-    row = None
-    if entry is not None and layout not in generation.SPRITE_LEGACY_MODES:
-        row = next(
-            (r for r in entry["directions"] if r["count"] == directions), None
-        )
-    if row is None:
-        # A turnaround or a legacy walk: one generation of one fixed atlas, and
-        # its grid is the ``sheet_types`` table's rather than an action's.
-        fixed = next(
-            (t for t in options["sheet_types"] if t["key"] == layout),
-            options["sheet_types"][0],
-        )
-        sizes = tuple(fixed["logical_sizes"])
-        return {
-            "layout": layout,
-            "action": "",
-            "directions": len(fixed["directions"]),
-            "frames": int(fixed["frames_per_direction"]),
-            "cells": int(fixed["cells"]),
-            "bands": 1,
-            "candidates": 2,
-            "generations": 2,
-            "sizes": sizes,
-            "logical_size": _sprite_logical(form, sizes),
-        }
-    candidates = int(row["candidates"])
-    sizes = tuple(entry["logical_sizes"])
-    return {
-        "layout": layout,
-        "action": action,
-        "directions": int(row["count"]),
-        "frames": int(entry["frames"]),
-        "cells": int(row["cells"]),
-        "bands": int(row["bands"]),
-        "candidates": candidates,
-        "generations": int(row["bands"]) * candidates,
-        "sizes": sizes,
-        "logical_size": _sprite_logical(form, sizes),
-    }
-
-
-def _sprite_cost(plan: dict[str, Any]) -> str:
-    """The one sentence under the sprite controls, from :func:`sprite_plan`."""
-    # The wait comes from the door, not from a second multiplication of
-    # ``seconds_per_generation`` here: the sprite panel draws the same sentence
-    # about the same press, and two copies of the arithmetic is two promises.
-    when = svc_sprites.generation_time_phrase(plan["generations"])
-    draft = "one draft" if plan["candidates"] == 1 else f"{plan['candidates']} drafts"
-    return (
-        f"{plan['directions']} directions x {plan['frames']} frames = "
-        f"{plan['cells']} cells, {plan['generations']} generations for "
-        f"{draft}, {when}."
-    )
-
-
 def _sprite_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """What the sheet depicts: an action, and how many ways it is drawn.
 
@@ -816,15 +431,15 @@ def _sprite_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     generations, which is a fact a user is owed before pressing rather than
     after.
     """
-    options = _sprite_options()
+    options = create_recipe.sprite_options()
     layout = str(form.get("sheet_layout") or "turnaround")
     _mode, action, directions = generation.sprite_from_layout(layout)
-    current = sprite_action_key(layout)
+    current = create_recipe.sprite_action_key(layout)
     changed, picked = form_ui.combo(
         "sprite_action",
         "Action",
         current,
-        sprite_action_options(options, current),
+        create_recipe.sprite_action_options(options, current),
         help_text=(
             "What the character is doing. Only the actions this install has a "
             "pose guide for are offered -- the guide is what puts the limbs "
@@ -832,11 +447,11 @@ def _sprite_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         ),
     )
     if changed:
-        form["sheet_layout"] = sprite_layout_for(options, picked, directions)
+        form["sheet_layout"] = create_recipe.sprite_layout_for(options, picked, directions)
         ctx.state.clear_field_error("sheet_type")
         layout = str(form["sheet_layout"])
         _mode, action, directions = generation.sprite_from_layout(layout)
-    entry = sprite_action_entry(options, action)
+    entry = create_recipe.sprite_action_entry(options, action)
     if entry is not None and layout not in generation.SPRITE_LEGACY_MODES:
         counts = [row["count"] for row in entry["directions"]]
         help_text = (
@@ -867,9 +482,8 @@ def _sprite_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
                 compact=True,
             )
             if changed:
-                form["sheet_layout"] = sprite_layout_for(options, action, int(count))
-    widgets.muted_wrapped(_sprite_cost(sprite_plan(form)))
-
+                form["sheet_layout"] = create_recipe.sprite_layout_for(options, action, int(count))
+    widgets.muted_wrapped(create_recipe.sprite_cost(create_recipe.sprite_plan(form)))
 
 def _sprite_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """Only the editable dimension of a sprite asset type.
@@ -882,13 +496,13 @@ def _sprite_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     doors re-raise that sentence. A picker still offering 48 and 64 there would
     be three sizes of which two are a refusal.
     """
-    options = _sprite_options()
-    plan = sprite_plan(form)
+    options = create_recipe.sprite_options()
+    plan = create_recipe.sprite_plan(form)
     sizes = plan["sizes"] or tuple(options["logical_sizes"])
     current = str(plan["logical_size"])
     if str(form.get("cell_size", "")) != current:
         # Written back so the control shows what the submit will send. The clamp
-        # itself is ``_sprite_logical``'s, above -- a picker that was the only
+        # itself is the recipe engine's own clamp, above -- a picker that was the only
         # thing holding the line would not hold it for a user who never opened
         # this section.
         form["cell_size"] = current
@@ -910,7 +524,6 @@ def _sprite_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
             f"whole direction at a time, and only {max(sizes)}px and below fit "
             "one generation."
         )
-
 
 def _pixel_look(
     ctx: Any, form: dict[str, Any], form_ui: forms.Form, *, sprite: bool
@@ -947,7 +560,7 @@ def _pixel_look(
     unconditionally for the same reason.
 
     The palette list comes from the arm's own door and never from
-    ``tile_sheet_options`` / ``sprite_options``: those are pure functions of
+    ``tile_sheet_options`` / ``create_recipe.sprite_options``: those are pure functions of
     module constants and this pane caches them for the life of the process, so
     a directory listing inside one would mean a palette dropped in five minutes
     ago never appears. ``inspector.palette_names`` is the one stat-per-frame
@@ -963,12 +576,12 @@ def _pixel_look(
         # "derive one" is a picker with nothing in it, and palettes are opt-in
         # -- the honest rendering of "none installed" is no control, which is
         # ``palettes.available``'s own stated rule and ``inspector``'s. A form
-        # that *names* one is the exception: see :func:`palette_options`.
+        # that *names* one is the exception: see :func:`create_recipe.palette_options`.
         changed, picked = form_ui.combo(
             "palette",
             "Palette",
             chosen,
-            palette_options(installed, chosen),
+            create_recipe.palette_options(installed, chosen),
             help_text=(
                 "Map every pixel to the nearest colour of a palette you "
                 "authored, instead of to the colours this render happened to "
@@ -1004,12 +617,12 @@ def _pixel_look(
         form["dither"] = dithered
     if not sprite:
         return
-    options = _sprite_options()
+    options = create_recipe.sprite_options()
     changed, picked = form_ui.segmented_choice(
         "outline",
         "Outline",
         str(form.get("outline") or options["defaults"]["outline"]),
-        tuple((mode, OUTLINE_LABELS.get(mode, mode)) for mode in options["outlines"]),
+        tuple((mode, create_recipe.OUTLINE_LABELS.get(mode, mode)) for mode in options["outlines"]),
         help_text=(
             "Darken the edge of each frame. Inside recolours the character's "
             "own edge pixels; Around grows the silhouette by one pixel, which "
@@ -1020,37 +633,6 @@ def _pixel_look(
     if changed:
         form["outline"] = picked
         ctx.state.clear_field_error("outline")
-
-
-def palette_options(installed: list[str], chosen: str) -> tuple[tuple[str, str], ...]:
-    """The palette combo's entries: "derive one", what is installed, and a
-    selection that is not.
-
-    ``lora_options``' rule, and for its reason. A palette is a file, so a stem
-    the form holds can stop existing between two launches -- an external drive,
-    a folder tidied -- and the door refuses the submit by that name. Dropping it
-    from the list would leave the combo showing its bare stem with no
-    explanation, or, in any control that falls back to entry zero, silently
-    rewrite the user's choice to "derive one" and change what the sheet looks
-    like without saying so. Listed and marked, the thing keeping Generate off is
-    the one thing on screen.
-
-    It was shared with the profile editor, which drew the same picker over the
-    same directory against a draft rather than the live form; that editor went
-    with Profiles, and the helper stayed because the pane is its real caller.
-    """
-    options = [("", "Derived from the render"), *((name, name) for name in installed)]
-    if chosen and chosen not in installed:
-        options.append((chosen, f"{chosen} - not in the palette folder"))
-    return tuple(options)
-
-
-#: What each ``pixelize.OUTLINE_MODES`` entry is called on screen. The keys are
-#: the pipeline's words and these are sentences about what happens, which is
-#: this pane's rule for every other segmented control: "outer" is a direction
-#: only to somebody who already knows where the outline goes.
-OUTLINE_LABELS = {"none": "None", "inner": "Inside", "outer": "Around"}
-
 
 def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """Optional final reduction; blank means keep the high-resolution cell."""
@@ -1073,43 +655,12 @@ def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         form["target_cell_px"] = str(number)
     widgets.muted_wrapped("Blank preserves the 256px/512px working cell; reduction never upscales.")
 
-
-def _findings_hint(
-    ctx: Any,
-    param: str,
-    value: Any,
-    doc: Any = _LOAD_FINDINGS,
-) -> str | None:
-    """The sweep's own verdict on this field's current value, or None.
-
-    Read fresh every frame -- ``findings.load`` is mtime-cached, so the common
-    case (no bench dir, or an unchanged file) costs one ``stat()`` and never
-    blocks the frame loop.
-
-    Scoped to what the user is currently asking for. This pane owns the prompt,
-    so it always knows its subject: the hash of the prompt in the form is what
-    ``vectors.prompt_hash`` recorded on every verdict and observation, so
-    ``hint`` can prefer the evidence about *this* subject and say when it fell
-    back to the pooled corpus. Hashing a short string once per control per
-    frame is a sha1 over a few dozen bytes, which is nothing beside the
-    ``stat()`` above it.
-    """
-    if doc is _LOAD_FINDINGS:
-        doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
-    return findings_lib.hint(
-        doc,
-        param,
-        value,
-        prompt_hash=vectors.prompt_hash(ctx.state.form_2d.get("prompt")),
-    )
-
-
 def _hint(
     ctx: Any,
     form: dict[str, Any],
     param: str,
     value: Any,
-    findings_doc: Any = _LOAD_FINDINGS,
+    findings_doc: Any = create_recipe.LOAD_FINDINGS,
 ) -> None:
     """Draw the findings hint for the control just drawn, plus the offer to
     jump straight to what the evidence favours -- ``settings_3d._hint``'s
@@ -1120,18 +671,17 @@ def _hint(
     where it stopped -- a user agreeing had to go find the winning value and
     dial it in by hand. ``_best_value_offer`` is the click.
     """
-    hint = _findings_hint(ctx, param, value, findings_doc)
+    hint = create_recipe.findings_hint(ctx, param, value, findings_doc)
     if hint is not None:
         widgets.hint_text(hint)
     _best_value_offer(ctx, form, param, value, findings_doc)
-
 
 def _best_value_offer(
     ctx: Any,
     form: dict[str, Any],
     param: str,
     value: Any,
-    findings_doc: Any = _LOAD_FINDINGS,
+    findings_doc: Any = create_recipe.LOAD_FINDINGS,
 ) -> None:
     """"7/8 usable (47%+) · avg +2.9 · this subject" with a button, when the
     evidence favours a value other than the one already set.
@@ -1145,7 +695,7 @@ def _best_value_offer(
     offering to set what is already set is not an offer, it is clutter.
     """
     doc = findings_doc
-    if doc is _LOAD_FINDINGS:
+    if doc is create_recipe.LOAD_FINDINGS:
         doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
     found = findings_lib.best_value(
         doc,
@@ -1162,208 +712,6 @@ def _best_value_offer(
     if controls.button(f"Use {value_str}##best-{param}"):
         form[param] = coerce_form_value(form[param], value_str)
 
-
-# --- pieces -----------------------------------------------------------------
-
-
-# The output kind is **not** a control on this pane. ``_asset_type`` is what
-# the user picks, and ``create_assets.sync_legacy_fields`` sets ``form["output"]``
-# from the chosen spec -- so the pre-registry segmented control that used to be
-# here, its ``OUTPUTS`` table, its left/right keyboard arms and its
-# ``OUTPUT_NOTES`` prose were all superseded rather than lost. They were deleted
-# on 2026-08-22 with zero callers between them; ``git show`` has them if the
-# asset registry is ever unwound.
-
-
-# The two things a Sheet can be, stepped through by index so a third added to
-# the control and missed by the arrows cannot become a segment the keyboard
-# cannot reach.
-SHEET_TYPES: tuple[tuple[str, str], ...] = (
-    ("tile", "Tile grid"),
-    ("sprite", "Sprite sheet"),
-)
-
-# ``tile_sheet_options()`` and ``sprite_options()`` are pure functions of module
-# constants, and this pane calls them from the frame loop. The tile-sheet one
-# builds a geometry per size per view -- sixty-four Cell objects each --
-# which is nothing once and a thousand short-lived dataclasses a frame at 60fps.
-# Cached in a one-slot list, the ``_submit_px`` idiom, because there is nothing
-# for them to go stale against: neither reads config, disk or state.
-_sheet_options: list[Any] = [None, None]
-
-
-def _tile_options() -> dict[str, Any]:
-    if _sheet_options[0] is None:
-        _sheet_options[0] = svc_tilesheets.tile_sheet_options()
-    return _sheet_options[0]
-
-
-def _sprite_options() -> dict[str, Any]:
-    if _sheet_options[1] is None:
-        _sheet_options[1] = svc_sprites.sprite_options()
-    return _sheet_options[1]
-
-
-def _is_tile_arm(form: dict[str, Any]) -> bool:
-    """Whether this form is the Sheet output's *tile* arm.
-
-    The expression six places in this file were spelling out, given a name once
-    the tile arm grew three layouts of its own: "not a sprite sheet" and "the
-    grid layout" stopped being the same sentence, and a local called ``grid``
-    that meant the first is exactly how the submit came to compile a materials
-    request with no materials in it.
-    """
-    return form.get("output") == "sheet" and form.get("sheet_type") != "sprite"
-
-
-def _is_character(form: dict[str, Any]) -> bool:
-    """Whether this form is the Character type. **The registry, not a field.**
-
-    Asked through ``create_assets.selected`` rather than by testing
-    ``output == "character"``, for the reason ``selected`` itself gives: a form
-    that one writer touched and another did not can carry a stale ``output``,
-    and the *type* is the field the user set.
-    """
-    return create_assets.selected(form).intent == "character"
-
-
-def sheet_rows(form: dict[str, Any]) -> tuple[str, ...]:
-    """Which registry rows the Sheet output currently needs.
-
-    A function of the form rather than a constant, because the two arms load
-    different things and the tile arm's own list depends on whether a reference
-    is attached: its IP-Adapter is optional, and a gate that demanded one would
-    tell a user with everything the common request uses that they are missing a
-    download. Shared with :func:`weights_problem` so the note above the button
-    and the gate inside the section cannot disagree.
-
-    **And on the layout**, since the tile arm grew three of them: the grid guide
-    *is* a ControlNet and the two seamless layouts never open one, so asking for
-    the grid's rows under a materials sheet told a user with everything that
-    request uses to download canny weights it will never load. The per-mode maps
-    are ``tile_sheet_options``' own, which is where :func:`rows_needed` publishes
-    them.
-    """
-    if form.get("sheet_type") == "sprite":
-        return svc_sprites.SPRITE_ROWS
-    # ``style_lock`` counts as a reference. The checkbox makes the first
-    # material the IP-Adapter reference for every material after it
-    # (``tilesheets._check_weights`` folds it into ``rows_needed`` the same
-    # way), so a locked sheet loads the adapter with no file attached -- and a
-    # gate that only looked at ``ref_path`` let that press reach the door and
-    # be refused there for a download this note had said nothing about.
-    needs_adapter = bool(form.get("ref_path")) or bool(form.get("style_lock"))
-    key = "mode_reference_rows_needed" if needs_adapter else "mode_rows_needed"
-    return tuple(_tile_options()[key][tile_mode_of(form)])
-
-
-def tile_mode_of(form: dict[str, Any]) -> str:
-    """The tile layout this form is asking for, in the service's own spelling.
-
-    An unrecognised stored value reads as the default rather than as a refusal,
-    which is this pane's standing rule for a settings-file value: the field is
-    persisted, the menu can change between releases, and a form that resolved to
-    nothing would disable Generate over a control whose value the user cannot
-    see.
-
-    **The default is not ``grid``.** The door refuses the grid layout unless the
-    request explicitly asks for it -- see ``create_tile_sheet``'s ``allow_grid``
-    -- precisely so that a default nobody chose can never land on the one layout
-    a measurement says does not work.
-    """
-    stored = str(form.get("tile_mode") or svc_tilesheets.DEFAULT_MODE)
-    return stored if stored in svc_tilesheets.TILE_MODES else svc_tilesheets.DEFAULT_MODE
-
-
-def is_seamless(form: dict[str, Any]) -> bool:
-    """Whether this form draws each tile as its own seamless material.
-
-    The two layouts ``pipelines.tileatlas`` builds, asked as one question,
-    because everything that differs between them and the grid -- the tile sizes
-    that divide a 1024px material, the one view that wraps, what the preview
-    composes -- differs the same way for both.
-    """
-    return tile_mode_of(form) != svc_tilesheets.MODE_GRID
-
-
-def tile_sizes_for(form: dict[str, Any]) -> list[int]:
-    """Which tile sizes this layout can publish.
-
-    Sourced from the service rather than filtered here: a seamless material is
-    reduced from one 1024px frame on an exact partition, so 48 is on the grid's
-    menu and not on this one -- and the day that frame size changes, this list
-    changes with it because ``tile_sheet_options`` derives it by asking
-    ``pipelines.tileatlas``.
-    """
-    options = _tile_options()
-    return list(options["seamless_tile_sizes" if is_seamless(form) else "tile_sizes"])
-
-
-def views_for(form: dict[str, Any]) -> list[str]:
-    """Which views this layout can draw. One, for the seamless pair.
-
-    ``tileatlas``' own list, for :func:`tile_sizes_for`'s reason: an isometric
-    tile is a diamond and a 3/4 tile has a visible front face, so neither wraps,
-    and the sentences explaining that live in the pipeline that refuses them.
-    """
-    options = _tile_options()
-    return list(options["seamless_views" if is_seamless(form) else "views"])
-
-
-def material_lines(form: dict[str, Any]) -> tuple[str, ...]:
-    """The materials field as the door takes it: one surface per non-blank line.
-
-    Blank lines are dropped rather than counted, which is what makes a trailing
-    newline harmless -- the door drops them too, and a form that counted them
-    would report a cell total the request will not produce.
-    """
-    return tuple(
-        line
-        for line in (raw.strip() for raw in str(form.get("materials") or "").splitlines())
-        if line
-    )
-
-
-def _view_of(form: dict[str, Any]) -> str:
-    """The form's view, in today's spelling.
-
-    The form field is still ``projection`` -- it is a persisted key and a
-    control the user has a name for -- and a form saved before the
-    vocabulary widened carries ``"orthogonal"``. Read through the service's
-    alias table rather than by comparing strings here, so the pane never holds
-    a second opinion about what an old value means.
-    """
-    stored = str(form.get("projection") or svc_tilesheets.DEFAULT_VIEW)
-    return svc_tilesheets.LEGACY_VIEWS.get(stored, stored)
-
-
-def seamless_subject(form: dict[str, Any]) -> str | None:
-    """The subject the *first* cell of a seamless layout will be generated from.
-
-    ``None`` when the request does not describe one yet, which is a real answer
-    rather than a failure: a materials sheet with no lines and a terrain set
-    with no inner surface have no first material, and the honest preview of a
-    request that names nothing is no preview at all.
-
-    Composed by ``pipelines.tileatlas`` rather than here -- the style clause both
-    layouts append and the context a terrain set shares between its two halves
-    are that module's, and a second copy of either would be a preview of a
-    sentence nothing sends.
-    """
-    mode = tile_mode_of(form)
-    try:
-        if mode == svc_tilesheets.MODE_TERRAIN:
-            return tileatlaslib.terrain_subjects(
-                str(form.get("inner_terrain") or ""),
-                str(form.get("outer_terrain") or ""),
-                str(form.get("boundary") or ""),
-            )[0]
-        lines = material_lines(form)
-        return tileatlaslib.material_subject(lines[0], index=0, total=len(lines))
-    except (IndexError, ValueError):
-        return None
-
-
 def _reset(ctx: Any) -> None:
     """The 2D form back to first-launch defaults.
 
@@ -1377,41 +725,6 @@ def _reset(ctx: Any) -> None:
     ctx.state.form_2d = default_form_2d()
     ctx.state.preview = {}
     ctx.toast("The image settings are back to their defaults.")
-
-
-def _verify_reference_path(ctx: Any, form: dict[str, Any]) -> None:
-    """Clear a restored reference path that no longer names a file.
-
-    The 2026-09-07 Create review, item 5.3a: ``ref_path`` used to be the one
-    conditioning field ``settings.VOLATILE`` dropped on every restart, while
-    its neighbours ``ip_adapter`` and ``control`` survived -- so a session
-    that had conditioned a job reopened with the *conditioning* selections
-    back and no reference to apply them to, and Generate refused for a reason
-    that named a control the user had not touched this session. ``ref_path``
-    now persists like the other two, which trades that defect for a new one a
-    plain restore would have: a path that has since moved or been deleted
-    would come back as a live-looking value that only fails at the far end of
-    a submit, or worse, silently reaches the worker as "no reference" once
-    ``generation.request_from_legacy`` starts guarding on existence too.
-    Checked once per session, against the filesystem, rather than trusted
-    because it round-tripped through JSON.
-
-    A toast rather than a silent drop: the Conditioning header already claims
-    a reference is attached until this clears it (``_conditioning_tail``), so
-    saying nothing here would make a control disappear with no visible cause.
-    Once per session rather than every frame it is missing, so relaunching
-    with the drive that held it still unmounted does not toast on every visit
-    to this pane.
-    """
-    if ctx.state.reference_path_checked:
-        return
-    ctx.state.reference_path_checked = True
-    path = str(form.get("ref_path") or "")
-    if not path or Path(path).is_file():
-        return
-    form["ref_path"] = ""
-    ctx.toast(f"The reference image is missing and was cleared: {path}", "warn")
-
 
 def _history(ctx: Any, form: dict[str, Any]) -> None:
     """Reuse a prompt from this session.
@@ -1432,25 +745,6 @@ def _history(ctx: Any, form: dict[str, Any]) -> None:
             if controls.menu_item(f"{label}##{hash(entry)}", "", False)[0]:
                 form["prompt"] = entry
         imgui.end_popup()
-
-
-def _conditioning_tail(form: dict[str, Any]) -> str:
-    """" - 2 attached" and the like, on the collapsed Conditioning header.
-
-    A closed disclosure must never hide a setting that is doing something. The
-    header says how many of its controls are live, so a reference image left
-    attached from a previous run is visible without opening it.
-    """
-    live = sum(
-        1
-        for key in ("ref_path", "ip_adapter", "control")
-        if str(form.get(key) or "")
-    )
-    live += 1 if form.get("init_image") else 0
-    if not live:
-        return ""
-    return f"  ({live} on)"
-
 
 def _references(ctx: Any, form: dict[str, Any]) -> None:
     """Conditioning: an image to steer appearance and/or structure.
@@ -1475,7 +769,6 @@ def _references(ctx: Any, form: dict[str, Any]) -> None:
             theme.ACCENT,
             widgets.drop_flash(ctx.state, "2d-ref"),
         )
-
 
 def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
     path = form["ref_path"]
@@ -1537,7 +830,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
     # disabled with a reason rather than hidden, matching ``_negative``'s
     # pattern for the same shape of problem: a value restored from a prior
     # SDXL run must stay visible, not vanish silently, until the user acts.
-    inert = img2img_note(ctx, form)
+    inert = create_recipe.img2img_note(ctx, form)
     if inert is not None:
         imgui.begin_disabled()
     changed, on = controls.checkbox(
@@ -1570,7 +863,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         widgets.muted_wrapped(inert)
 
     widgets.field_label("structure")
-    note = recipe_structure_note(ctx, form) or structure_note(ctx, form)
+    note = create_recipe.recipe_structure_note(ctx, form) or create_recipe.structure_note(ctx, form)
     if note is not None:
         widgets.muted_wrapped(note)
         return
@@ -1606,7 +899,6 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
             "the shape to the end and tends to look traced."
         )
 
-
 def _range(ctx: Any, key: str, low: float, high: float) -> tuple[float, float]:
     """The bounds the service will actually enforce, so a slider can never
     produce a value the submit rejects."""
@@ -1615,327 +907,9 @@ def _range(ctx: Any, key: str, low: float, high: float) -> tuple[float, float]:
         return (float(bounds[0]), float(bounds[1]))
     return (low, high)
 
-
-def _base_labels(ctx: Any, keys: list[str]) -> str:
-    """The picker's own labels for a set of base-model keys.
-
-    Labels rather than keys: "sdxl_cfg" is not what the combo shows, and a
-    message naming something the user cannot find in the list is worse than no
-    message at all.
-    """
-    labels = [label for key, label in (ctx.base_models or []) if key in keys]
-    return ", ".join(labels or keys)
-
-
-def negative_prompt_note(ctx: Any, form: dict[str, Any]) -> str | None:
-    """Why the negative prompt is inert here, or None when it is live.
-
-    A distilled base runs at guidance 0, and text2image encodes the negative
-    branch only above 1.0 -- so on turbo the field accepted text, stored it in
-    params and changed nothing about the image. That silence is the bug; this
-    is the sentence that ends it.
-
-    The 2026-09-06 audit, finding create2-04: this note used to test only
-    ``form["base_model"]`` directly, while the section's own visibility gate,
-    ``_negative_supported``, read the *resolved* recipe -- so under Automatic
-    routing a stale distilled ``base_model`` left over from a prior Advanced
-    selection (``_model``'s ``else`` branch clears ``model_override``, never
-    ``base_model``) could disagree with a resolution that now lands on a
-    full-CFG tier: the section opened because ``_negative_supported`` and
-    ``generate()`` both correctly consult the resolved recipe, but this note
-    still reported the field dead. Resolve the recipe here too, exactly as
-    ``img2img_note`` does for the same shape of staleness, and fall back to
-    the raw base check whenever there is nothing to resolve -- a picked base
-    with missing weights under Advanced, or a caller (this file's own note
-    tests included) that supplies only a bare ``base_model`` with no
-    ``ctx.svc`` to resolve against at all -- so the note and the gate can
-    never say different things about the same field once a recipe *does*
-    resolve.
-    """
-    resolved = _resolved_recipe(ctx, form)
-    if resolved is not None:
-        request = generation.request_from_legacy(form)
-        supported = generation.capability_controls(request, resolved)["negative_prompt"]
-    else:
-        # No recipe to resolve: fall back to the raw base check, the pre-fix
-        # rule. ``ctx.guidance`` is read only down this path -- a caller that
-        # can resolve a recipe need not carry a catalog at all, and several of
-        # this file's own tests don't.
-        bases = ctx.guidance.get("cfg_bases") or []
-        supported = (form.get("base_model") or "") in bases
-    if supported:
-        return None
-    bases = ctx.guidance.get("cfg_bases") or []
-    return (
-        "This model runs at guidance 0, so the negative prompt has no effect. "
-        f"It does on: {_base_labels(ctx, bases)}."
-    )
-
-
-def _lora_labels(ctx: Any, keys: list[str]) -> str:
-    """The picker's own labels for a set of style-LoRA keys.
-
-    _base_labels' argument applied to the other combo: a message naming
-    "pixelklein" points at something the user cannot find in the list.
-    """
-    labels = [label for key, label in (ctx.style_loras or []) if key in keys]
-    return ", ".join(labels or keys)
-
-
-def _lora_base(ctx: Any, form: dict[str, Any]) -> str:
-    """The base model the Style LoRA picker should judge fit against.
-
-    The 2026-09-14 audit, finding create-03: ``lora_note``/``lora_options``
-    (and ``lora_filter_note``) used to read the raw, possibly stale
-    ``form["base_model"]`` directly -- under Automatic routing that field is
-    not what actually runs (``_model``'s Automatic branch never writes it),
-    so the picker could label a selection fitted for a base that
-    ``generation.validate_request`` then refuses at submit with a
-    ``CompatibilityIssue(field='style_lora')``. Resolve the recipe first,
-    exactly as ``img2img_note`` and ``negative_prompt_note`` (2026-09-05 and
-    2026-09-06 audits) already do for the same shape of staleness, and fall
-    back to the raw base only when nothing resolves -- a picked base with
-    missing weights under Advanced, or a caller (this file's own note tests
-    included) that supplies only a bare ``base_model`` with no ``ctx.svc`` to
-    resolve against at all.
-    """
-    resolved = _resolved_recipe(ctx, form)
-    if resolved is not None:
-        return resolved.base_model
-    return form.get("base_model") or ""
-
-
-def lora_note(ctx: Any, form: dict[str, Any]) -> str | None:
-    """Why the style LoRA picker is inert here, or None when it is live.
-
-    The narrow question -- whether *any* adapter in the registry is fitted to
-    this architecture -- which is the only case where the control has nothing
-    at all to do. An adapter names one architecture's modules, so a mismatch is
-    not a weak effect but a refusal: the service rejects the submit outright
-    rather than generating without it.
-    """
-    bases = ctx.guidance.get("lora_bases") or []
-    if _lora_base(ctx, form) in bases:
-        return None
-    return (
-        "No style LoRA in the registry is fitted to this model's architecture. "
-        f"These models can use one: {_base_labels(ctx, bases)}."
-    )
-
-
-def lora_options(ctx: Any, form: dict[str, Any]) -> list[tuple[str, str]]:
-    """The style-LoRA combo's entries for the chosen base.
-
-    Those fitted to it, plus whatever the form already holds, marked. Keeping a
-    stale selection listed is load-bearing rather than tidy: widgets.combo
-    falls back to index 0 for a value it cannot find, so dropping it would draw
-    "no style LoRA" over a selection ``validate`` is refusing -- making the
-    value that keeps Generate off the one control the user cannot see. That is
-    exactly the dead end ``clear_unusable`` exists to prevent, arriving by
-    another door. The marking mirrors what main.py puts on a base whose weights
-    are missing.
-    """
-    fitting = (ctx.guidance.get("loras_by_base") or {}).get(_lora_base(ctx, form)) or []
-    options: list[tuple[str, str]] = []
-    for key, label in ctx.style_loras or []:
-        if key in fitting:
-            options.append((key, label))
-        elif key and key == (form.get("style_lora") or ""):
-            options.append((key, f"{label} - not fitted to this model"))
-    return options
-
-
-def lora_filter_note(ctx: Any, form: dict[str, Any]) -> str | None:
-    """Why the picker lists fewer styles than the registry holds, or None.
-
-    A second function rather than a branch inside ``lora_note`` for
-    ``tile_bases``' reason: that one explains a control that cannot act at all,
-    this one a control acting on less than the whole list. Folded together,
-    one sentence comes to say both things under a disabled combo.
-    """
-    by_base = ctx.guidance.get("loras_by_base") or {}
-    fitting = by_base.get(_lora_base(ctx, form)) or []
-    if not fitting:
-        # lora_note owns this case; saying it twice is the fold above.
-        return None
-    everything = [key for key, _ in (ctx.style_loras or [])]
-    if len(fitting) >= len(everything):
-        return None
-    return (
-        "A style LoRA is fitted to one architecture, so this model is offered "
-        f"only: {_lora_labels(ctx, fitting)}."
-    )
-
-
-def recipe_structure_note(ctx: Any, form: dict[str, Any]) -> str | None:
-    """Why *automatic* routing's recipe cannot run a ControlNet, or None.
-
-    :func:`structure_note`'s sibling for the other half of the Recipe control.
-    That one answers for the checkpoint the user picked under Advanced; this
-    one answers for the checkpoint the tier picks on their behalf, which is not
-    in ``form["base_model"]`` at all. Without it the Structure picker was drawn
-    under Fast, the selection was submitted, and the refusal came back from
-    ``guidance.normalize`` naming ``base_model`` -- a combo automatic routing
-    does not display.
-    """
-    if str(form.get("model_mode") or "auto") == "advanced":
-        return None
-    resolved = _resolved_recipe(ctx, form)
-    if resolved is None:
-        # The pane already says "no compatible installed recipe" under the
-        # Recipe combo; saying it again here names the wrong subject.
-        return None
-    spec = modelslib.BASE_MODELS.get(resolved.base_model)
-    if spec is None or spec.controlnet:
-        return None
-    # The 2026-09-07 Create review, item 5.5.1: this used to say "Switch the
-    # Recipe to Quality", a control that has not existed since the Fast/Quality
-    # tier was folded into the Model combo (``model_options``'s own comment).
-    # The only remedy left is the same one ``structure_note`` gives for the
-    # advanced case -- pick a full-CFG checkpoint from that combo -- so this
-    # says that instead of naming a control nobody can find.
-    return (
-        f"{resolved.recipe.label} runs at guidance 0 and cannot run a "
-        "ControlNet. Pick a full-CFG model above to run one."
-    )
-
-
-def structure_note(ctx: Any, form: dict[str, Any]) -> str | None:
-    """Which bases could run the ControlNet this one cannot, or None."""
-    bases = ctx.guidance.get("controlnet_bases") or []
-    if (form.get("base_model") or "") in bases:
-        return None
-    # The 2026-09-07 Create review, item 5.5.1: "under Advanced" named a
-    # disclosure the 2026-08-17 taxonomy retirement flattened away -- the
-    # Model combo this points at is drawn earlier in this same column, not
-    # behind a fold, which is the wording ``model_options``'s own "no
-    # compatible installed recipe" note already uses ("pick one above").
-    return (
-        "Structure control needs a full-CFG model -- pick one of "
-        f"{_base_labels(ctx, bases)} above."
-    )
-
-
-def img2img_note(ctx: Any, form: dict[str, Any]) -> str | None:
-    """Why "Start from this image" is inert here, or None when it is live.
-
-    The 2026-09-05 audit, finding create-04: only the SDXL family's img2img
-    path accepts a start image -- the same fact ``guidance.normalize``
-    refuses on, late, at the queue door. Read through the resolved recipe
-    rather than ``form["base_model"]`` directly, the reason
-    ``recipe_structure_note`` exists beside ``structure_note``: under
-    automatic routing a tier can resolve to FLUX.2 Klein (``image_flux2``)
-    with the checkbox still ticked from an earlier SDXL run, and
-    ``form["base_model"]`` is not what actually ran. One function rather than
-    that pair's split, because the message here does not change with the
-    routing mode -- there is no ControlNet-style "under automatic, name the
-    tier instead" branch, only "pick an SDXL model" either way.
-    """
-    resolved = _resolved_recipe(ctx, form)
-    if resolved is None:
-        # The pane already says "no compatible installed recipe" elsewhere;
-        # naming that here too would be the wrong subject.
-        return None
-    request = generation.request_from_legacy(form)
-    if generation.capability_controls(request, resolved)["img2img"]:
-        return None
-    return "This model cannot start from an image; pick an SDXL model to use img2img."
-
-
-#: Where the sentences explaining a base-model change's clears are kept between
-#: frames. ``state.preview`` is this app's frame-scratch namespace and is not
-#: persisted, which is right: the notice belongs to the change the user just
-#: made, not to the form that outlives the session.
 CLEARED_KEY = "base_model_cleared"
 
-
-def clear_unusable(ctx: Any, form: dict[str, Any]) -> list[str]:
-    """Drop the selections the newly chosen base cannot run.
-
-    -> one sentence per selection cleared, for the pane to show.
-
-    Called *only* when the base model changes, never per frame: a form restored
-    with a style picked under another base must keep it until the user changes
-    the base, or opening the pane silently rewrites a selection nobody touched
-    and does it before the note explaining it can be read.
-
-    Clearing rather than only disabling, because a disabled control that
-    ``validate`` refuses is a dead end -- the value keeping Generate off is the
-    one thing the user cannot reach, and the only recovery was to guess which
-    earlier choice to undo. It applies to exactly the two gates ``validate``
-    refuses: the style LoRA, whose picker goes disabled, and the structure
-    control, whose whole group ``structure_note`` hides. The negative prompt
-    stays in the brief: a distilled recipe cannot consume it, but that is not a
-    reason to reject the generation. ``generation.effective_negative_prompt``
-    removes it from the worker payload without erasing the authored text.
-    """
-    cleared: list[str] = []
-    base = form.get("base_model") or ""
-    # The *pair*, not the base. Asking "is this base in lora_bases()" was right
-    # only while one architecture had adapters and the others had none: with
-    # both families covered that test is never true, and the clear would
-    # silently stop happening. An unknown stored base resolves to [] and
-    # therefore clears, the pane's standing rule for a settings-file value.
-    fitting = (ctx.guidance.get("loras_by_base") or {}).get(base) or []
-    if form.get("style_lora") and form["style_lora"] not in fitting:
-        form["style_lora"] = ""
-        # The weight goes back to the default with it: it scales a selection
-        # that no longer exists, and a strength left at 0.2 would silently
-        # apply to whatever style is picked next.
-        form["lora_weight"] = modelslib.DEFAULT_LORA_WEIGHT
-        cleared.append(
-            "The style LoRA was cleared: it is not fitted to this model's "
-            "architecture."
-            if fitting
-            else "The style LoRA was cleared: this model cannot use one."
-        )
-    if form.get("control") and base not in (ctx.guidance.get("controlnet_bases") or []):
-        # Only the selection, exactly as the Clear-reference button does: the
-        # strengths are hidden with it and never submitted without it.
-        form["control"] = ""
-        cleared.append(
-            "The structure control was cleared: this model cannot run a ControlNet."
-        )
-    # The 2026-09-05 audit, finding create-04: the third gate ``validate``
-    # refuses, added beside the two above. Checked directly against the
-    # spec's family rather than a models.py bases list -- see
-    # ``generation._takes_img2img`` for why ``tile_bases()`` is the wrong
-    # reuse here even though it answers the same question today. Left
-    # disabled instead of cleared before this fix, "Start from this image"
-    # stayed ticked with no explanation across a base change that
-    # ``guidance.normalize`` would refuse outright.
-    base_spec = modelslib.BASE_MODELS.get(base)
-    if (
-        form.get("init_image")
-        and base_spec is not None
-        and base_spec.family != modelslib.FAMILY_SDXL
-    ):
-        form["init_image"] = False
-        form["init_strength"] = None
-        cleared.append(
-            "The start image was cleared: this model cannot start from an image."
-        )
-    return cleared
-
-
-def model_options(ctx: Any) -> list[tuple[str, str]]:
-    """The Model combo's entries: Automatic, then every installed checkpoint.
-
-    **One control where there were three.** The pane used to draw a Fast/Quality
-    tier, an Automatic/Advanced switch and a checkpoint combo -- three controls
-    for one decision, of which the first two only ever chose *which checkpoint*.
-    Nothing is lost by folding them: the sole ``fast`` recipe resolves to the
-    ``sdxl`` checkpoint, which is in this list, so picking Fast and picking
-    ``sdxl`` were the same act said two ways.
-
-    ``""`` is Automatic, which is ``model_mode="auto"``; any other key is
-    ``model_mode="advanced"`` with that key as the override. The two form
-    fields are unchanged, because the door and the recipe registry read them.
-    """
-    return [("", "Automatic")] + list(ctx.base_models)
-
-
-def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = _LOAD_FINDINGS) -> None:
+def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOAD_FINDINGS) -> None:
     auto = str(form.get("model_mode") or "auto") == "auto"
     before = "" if auto else str(form.get("base_model") or "")
     # The 2026-09-07 Create review, item 5.5.3: drawn as a bare ``##model``
@@ -1945,13 +919,13 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = _LOAD_FINDINGS) -
     # section heading is not a field label, and the two neighbouring
     # controls in it (Seed, Style LoRA) both have their own.
     widgets.field_label("Image model")
-    picked = widgets.combo("##model", before, model_options(ctx))
+    picked = widgets.combo("##model", before, create_recipe.model_options(ctx))
     if picked != before:
         if picked:
             form["model_mode"] = "advanced"
             form["base_model"] = picked
             form["model_override"] = picked
-            ctx.state.preview[CLEARED_KEY] = clear_unusable(ctx, form)
+            ctx.state.preview[CLEARED_KEY] = create_recipe.clear_unusable(ctx, form)
         else:
             form["model_mode"] = "auto"
             form["model_override"] = ""
@@ -1962,12 +936,12 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = _LOAD_FINDINGS) -
     if form.get("model_mode") == "auto":
         # The 2026-09-13 audit, finding create-03: this called
         # ``generation.resolve_recipe`` directly instead of going through
-        # the ``_resolved_recipe`` memo, repeating
+        # the ``create_recipe.resolved_recipe`` memo, repeating
         # ``provenance._dir_fingerprint``'s ``rglob`` over every installed
         # checkpoint directory every frame -- the five sibling call sites
         # were moved onto the memo by the 2026-09-08 create-06 fix, but the
         # Model combo's own Automatic branch was missed.
-        resolved = _resolved_recipe(ctx, form)
+        resolved = create_recipe.resolved_recipe(ctx, form)
         if resolved is None:
             widgets.muted_wrapped(
                 "No compatible installed recipe is available. "
@@ -1992,7 +966,6 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = _LOAD_FINDINGS) -
         widgets.muted_wrapped(note)
     _hint(ctx, form, "base_model", form["base_model"], findings_doc)
     _licence_note(form["base_model"])
-
 
 def _licence_note(key: str) -> None:
     """What this checkpoint's weights permit, under the picker that chose them.
@@ -2024,40 +997,12 @@ def _licence_note(key: str) -> None:
         return
     widgets.muted_wrapped(f"Licence: {spec.license} — commercial use permitted.")
 
-
-def lora_default_weight(key: str) -> float:
-    """The measured strength for one style LoRA, or the flat default.
-
-    ``ctx.style_loras`` is pinned to 2-tuples by the smoke tests and
-    ``guidance.catalog()`` does not carry the weight, so the pane reads the
-    registry it already imports.
-    """
-    spec = modelslib.STYLE_LORAS.get(key or "")
-    return spec.default_weight if spec is not None else modelslib.DEFAULT_LORA_WEIGHT
-
-
-def reseed_lora_weight(form: dict[str, Any], was_lora: str) -> None:
-    """Put the newly-picked adapter's tuned strength into ``form``.
-
-    One copy of the rule, which is the point of the function.
-    Each adapter carries its own measured strength -- pixel-art-klein restores
-    an rslora scale of 16, so the flat ``DEFAULT_LORA_WEIGHT`` is ~14x its
-    usable band and returns black frames -- and ``guidance.normalize`` only
-    applies ``default_weight`` when the caller *omits* the field. Both of these
-    forms always send a number, so the seed has to happen at the widget. It
-    lives here because the deleted profile editor already had this bug once by
-    holding a second copy of the rule, and a third copy would find it again.
-    """
-    if form["style_lora"] != was_lora:
-        form["lora_weight"] = lora_default_weight(form["style_lora"])
-
-
 def _lora(
     ctx: Any,
     form: dict[str, Any],
     *,
     show_strength: bool = True,
-    findings_doc: Any = _LOAD_FINDINGS,
+    findings_doc: Any = create_recipe.LOAD_FINDINGS,
 ) -> None:
     # The 2026-09-07 Create review, item 5.5.3: drawn as a bare ``##style_lora``
     # widget with no visible name, unlike ``_locked_sheet_recipe``'s "Style
@@ -2065,7 +1010,7 @@ def _lora(
     # Drawn before the disabled block below, not inside it: the name of a
     # disabled control is exactly the thing a disabled control must not hide.
     widgets.field_label("Style LoRA")
-    no_lora = lora_note(ctx, form)
+    no_lora = create_recipe.lora_note(ctx, form)
     if no_lora is not None:
         # Disabled rather than hidden, this pane's stated rule: the form holds
         # a style the user picked under another base, and hiding the control
@@ -2074,12 +1019,12 @@ def _lora(
         imgui.begin_disabled()
     was_lora = form["style_lora"]
     form["style_lora"] = widgets.combo(
-        "##style_lora", form["style_lora"], lora_options(ctx, form)
+        "##style_lora", form["style_lora"], create_recipe.lora_options(ctx, form)
     )
     widgets.field_error(ctx.state, "style_lora")
     if form["style_lora"] != was_lora:
         ctx.state.clear_field_error("style_lora")
-    reseed_lora_weight(form, was_lora)
+    create_recipe.reseed_lora_weight(form, was_lora)
     _hint(ctx, form, "style_lora", form["style_lora"], findings_doc)
     if form["style_lora"] and show_strength:
         _lora_strength(ctx, form, findings_doc)
@@ -2087,22 +1032,21 @@ def _lora(
         imgui.end_disabled()
         widgets.muted_wrapped(no_lora)
     else:
-        # One sentence at a time: lora_note explains a control that cannot act,
-        # lora_filter_note one acting on less than the whole list, and both
+        # One sentence at a time: create_recipe.lora_note explains a control that cannot act,
+        # create_recipe.lora_filter_note one acting on less than the whole list, and both
         # under a disabled combo would be one control saying two things.
-        narrowed = lora_filter_note(ctx, form)
+        narrowed = create_recipe.lora_filter_note(ctx, form)
         if narrowed is not None:
             widgets.muted_wrapped(narrowed)
 
-
 def _lora_strength(
-    ctx: Any, form: dict[str, Any], findings_doc: Any = _LOAD_FINDINGS
+    ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOAD_FINDINGS
 ) -> None:
     """The advanced half of the style choice."""
     if not form.get("style_lora"):
         return
     # A sub-field of "Style LoRA" above (2026-09-08 consistency pass): the
-    # combo already carries the field_label, so this slider gets its own
+    # combo already carries the field label, so this slider gets its own
     # name line rather than repeating the sentence-case label beside it.
     widgets.field_label("Strength")
     # The 2026-09-16 audit, finding create-panes-02: this hardcoded the
@@ -2114,12 +1058,12 @@ def _lora_strength(
     )
     if changed:
         form["lora_weight"] = value
-    widgets.muted_wrapped(f"tuned default: {lora_default_weight(form['style_lora']):g}")
+    default = create_recipe.lora_default_weight(form["style_lora"])
+    widgets.muted_wrapped(f"tuned default: {default:g}")
     _hint(ctx, form, "lora_weight", form["lora_weight"], findings_doc)
 
-
 def _negative(ctx: Any, form: dict[str, Any]) -> None:
-    inert = negative_prompt_note(ctx, form)
+    inert = create_recipe.negative_prompt_note(ctx, form)
     if inert is not None:
         # Disabled rather than hidden, and with the reason underneath: the
         # field holds text the user typed under another base, and hiding it
@@ -2134,27 +1078,6 @@ def _negative(ctx: Any, form: dict[str, Any]) -> None:
     if inert is not None:
         imgui.end_disabled()
         widgets.muted_wrapped(inert)
-
-
-def _negative_supported(ctx: Any, form: dict[str, Any]) -> bool:
-    """Show Avoid only when the resolved recipe will actually consume it.
-
-    The 2026-09-06 audit, finding create2-04: this used to resolve the recipe
-    independently of ``negative_prompt_note``, which read only the raw
-    ``form["base_model"]`` -- so the two could disagree on a stale field and
-    the section would open with a note claiming the opposite. Deriving this
-    gate from the same note that draws under it makes that impossible: there
-    is exactly one place left that decides whether the negative prompt is
-    live.
-    """
-    try:
-        return negative_prompt_note(ctx, form) is None
-    except Exception:
-        # The service remains the final compatibility gate.  During a partially
-        # restored form, hiding an unresolved control is safer than presenting
-        # an active field whose text would be silently discarded.
-        return False
-
 
 def _seed_row(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """The seed, and the two controls that act on it.
@@ -2197,108 +1120,7 @@ def _seed_row(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     if changed:
         form["seed_locked"] = locked
 
-
-def problems_for(ctx: Any, form: dict[str, Any]) -> list[widgets.Problem]:
-    """Everything stopping a press, form problems first. Once per frame.
-
-    Cached as ``(frame, id(form)) -> problems`` on ``ctx.state`` rather than
-    at module scope: the Reference stage asks the same question twice on every
-    frame -- the command bar, to know whether Generate is live, and this
-    footer, to list what is wrong -- and both answers have to agree, which one
-    evaluation guarantees and two only tend to. Per-ctx because ``id(form)``
-    can be reused after GC; a module global keyed on it alone would let a
-    second ctx's form read the first ctx's stale verdict.
-    """
-
-    key = (int(getattr(ctx.state, "frame_index", 0)), id(form))
-    cache = ctx.state.problems_cache
-    if cache is not None and cache[0] == key:
-        return cache[1]
-    problems = validate(form, ctx)
-    if _is_character(form):
-        # Appended here rather than inside ``validate`` because they need a
-        # ``ctx``: whether Blender exists is a fact about this install, and the
-        # species registry is read through the service door. Appended *at all*
-        # so the ring, this footer, the disabled Generate's tooltip and the
-        # Ctrl+Enter toast are one sentence -- which is the property this
-        # function's cache exists to guarantee.
-        problems = [*problems, *settings_character.problems(ctx, form)]
-    weight = weights_problem(ctx, form)
-    if weight is not None:
-        problems = [*problems, weight]
-    ctx.state.problems_cache = (key, problems)
-    return problems
-
-
-# Words whose subjects reconstruct as *open* forms: gaps, slats, spokes, spans
-# and thin members that a single-view reconstruction has to guess the back of.
-# Open form is the surviving failure class after the matte question was settled
-# -- the audit flags it on the meshes that die -- so this is the one lint worth
-# drawing before three minutes are spent.
-#
-# Nouns and materials only, no adjectives: "open" is in half the prompts that
-# reconstruct fine, and a lint that fires on everything is a lint nobody reads.
-OPEN_FORM_WORDS = (
-    "awning", "basket", "bellows", "birdcage", "bow", "branch", "branches",
-    "bridge", "cage", "chain", "chains", "fence", "gate", "grate", "grating",
-    "harp", "lattice", "ladder", "leg", "legs", "mesh", "net", "netting",
-    "pane", "panes", "post", "posts", "railing", "rigging", "rope", "sail",
-    "scaffold", "spoke", "spokes", "stairs", "string", "strings", "trellis",
-    "web", "wheel", "wicker", "wire", "wires",
-)
-
-# What the repair appends. A clause rather than a rewrite: the user's words are
-# theirs, and a lint that silently rewrote a prompt would be answering a
-# question it is only allowed to ask.
-CLOSED_FORM_CLAUSE = "solid closed form, filled-in gaps, no see-through openings"
-
-
-def open_form_words(prompt: str) -> tuple[str, ...]:
-    """The open-form words in ``prompt``, in the order they appear.
-
-    Whole words, lowercased, de-duplicated -- pure, so the wording of the
-    advisory and the test that pins it read the same function.
-    """
-    import re
-
-    seen: list[str] = []
-    for word in re.findall(r"[a-z]+", str(prompt or "").lower()):
-        if word in OPEN_FORM_WORDS and word not in seen:
-            seen.append(word)
-    return tuple(seen)
-
-
-def advisories_for(ctx: Any, form: dict[str, Any]) -> list[widgets.Advisory]:
-    """Everything worth knowing that is **not** stopping the press.
-
-    Deliberately not folded into :func:`problems_for`: that list is documented
-    as "everything stopping a press" and every member of it disables Generate.
-    An advisory disables nothing, and the separation is what makes it safe to
-    say something uncertain.
-
-    Cheap enough to run per frame without ``problems_for``'s cache -- a regex
-    over one prompt -- and it takes ``ctx`` anyway so that the next tenant can
-    look at the corpus without changing every call site.
-    """
-    del ctx
-    out: list[widgets.Advisory] = []
-    if create_assets.selected(form).key == "3d_model":
-        words = open_form_words(str(form.get("prompt") or ""))
-        if words:
-            named = ", ".join(words[:3])
-            out.append(
-                widgets.Advisory(
-                    f"\"{named}\" tends to draw an open form -- gaps, slats or thin "
-                    "members. Open forms reconstruct usable about 2 times in 5; "
-                    "the graded corpus overall runs about 1 in 2. Worth a press "
-                    "either way -- this is a risk, not a verdict.",
-                    field="prompt",
-                )
-            )
-    return out
-
-
-def _advisory_fix(ctx: Any, form: dict[str, Any], advisory: widgets.Advisory) -> None:
+def _advisory_fix(ctx: Any, form: dict[str, Any], advisory: problem_types.Advisory) -> None:
     """The one-press repair for an advisory, where there is a safe one.
 
     ``_preflight_fix``'s shape and its rule: only repairs that need no second
@@ -2308,14 +1130,13 @@ def _advisory_fix(ctx: Any, form: dict[str, Any], advisory: widgets.Advisory) ->
     if getattr(advisory, "field", "") != "prompt":
         return
     prompt = str(form.get("prompt") or "")
-    if CLOSED_FORM_CLAUSE in prompt:
+    if create_recipe.CLOSED_FORM_CLAUSE in prompt:
         return
     if controls.button(
         "Ask for a closed form##advisory-open-form", role=controls.ButtonRole.GHOST
     ):
-        form["prompt"] = f"{prompt.rstrip().rstrip(',')}, {CLOSED_FORM_CLAUSE}"
+        form["prompt"] = f"{prompt.rstrip().rstrip(',')}, {create_recipe.CLOSED_FORM_CLAUSE}"
         ctx.state.clear_field_error("prompt")
-
 
 def _plan_footer(ctx: Any, form: dict[str, Any]) -> None:
     """What a press will cost, and what is stopping it. Pinned, never scrolled.
@@ -2327,23 +1148,24 @@ def _plan_footer(ctx: Any, form: dict[str, Any]) -> None:
     """
     imgui.dummy((0, sp(8)))
     widgets.divider()
-    _generation_plan(ctx, form, problems_for(ctx, form), advisories_for(ctx, form))
-
+    _generation_plan(
+        ctx, form, create_recipe.problems_for(ctx, form), create_recipe.advisories_for(ctx, form)
+    )
 
 def _generation_plan(
     ctx: Any,
     form: dict[str, Any],
-    problems: list[widgets.Problem],
-    advisories: list[widgets.Advisory] | None = None,
+    problems: list[problem_types.Problem],
+    advisories: list[problem_types.Advisory] | None = None,
 ) -> None:
     """The persistent, actionable statement of what Generate will do.
 
-    Validation still belongs to :func:`validate` and the service.  This is the
+    Validation still belongs to :func:`create_recipe.validate` and the service.  This is the
     in-place account of their answer, kept immediately beside the commitment
     rather than in a footer whose errors explain nothing about the run.
     """
     widgets.secondary("Generation plan")
-    resolved = _resolved_recipe(ctx, form)
+    resolved = create_recipe.resolved_recipe(ctx, form)
     plan = generation_workspace.plan_for(form, resolved)
     imgui.text_wrapped(plan.stages)
     if plan.generations > 0:
@@ -2392,9 +1214,8 @@ def _generation_plan(
         _preflight_fix(ctx, form, problem)
     _advisories_block(ctx, form, advisories)
 
-
 def _advisories_block(
-    ctx: Any, form: dict[str, Any], advisories: list[widgets.Advisory]
+    ctx: Any, form: dict[str, Any], advisories: list[problem_types.Advisory]
 ) -> None:
     """The advisories, under the problems, in the warning colour.
 
@@ -2409,8 +1230,7 @@ def _advisories_block(
         imgui.pop_style_color()
         _advisory_fix(ctx, form, advisory)
 
-
-def _preflight_fix(ctx: Any, form: dict[str, Any], problem: widgets.Problem) -> None:
+def _preflight_fix(ctx: Any, form: dict[str, Any], problem: problem_types.Problem) -> None:
     """Offer the safe, direct repairs which do not need another decision."""
     field = getattr(problem, "field", "")
     message = str(problem)
@@ -2419,7 +1239,7 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: widgets.Problem) -> 
     # character sentence, but "not downloaded" could one day, and a pane that
     # offered "Open model setup" under "Warlock has no manticore yet" would be
     # pointing at a download that changes nothing.
-    if _is_character(form) and settings_character.preflight_fix(ctx, form, problem):
+    if create_recipe.is_character(form) and settings_character.preflight_fix(ctx, form, problem):
         return
     if field == "ref_path":
         if controls.button(
@@ -2436,14 +1256,14 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: widgets.Problem) -> 
             # The 2026-09-07 Create review, item 5.5.2, the create-03 finding's
             # shape repeated: this used to write ``form["quality"]``, a key no
             # control sets any more since the Fast/Quality tier folded into the
-            # Model combo (``model_options``) -- so the write changed nothing
+            # Model combo (``create_recipe.model_options``) -- so the write changed nothing
             # ``resolve_recipe`` reads once ``model_mode`` is "auto". What the
             # combo's own Automatic entry actually writes is these two fields
             # (``_model``'s ``else`` branch), which is what genuinely decides
             # whether the recipe that resolves next can run a ControlNet.
             form["model_mode"] = "auto"
             form["model_override"] = ""
-            clear_for_tier(ctx, form)
+            create_recipe.clear_for_tier(ctx, form)
             ctx.state.clear_field_error("base_model")
         return
     if "not downloaded" in message and controls.button(
@@ -2452,7 +1272,6 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: widgets.Problem) -> 
         from ....state import set_mode
 
         set_mode(ctx.state, "settings")
-
 
 def submit_job(ctx: Any, run: Any) -> bool:
     """Queue ``run`` under the shared ``"submit"`` key. -> whether it was taken.
@@ -2467,502 +1286,8 @@ def submit_job(ctx: Any, run: Any) -> bool:
     ctx.toast("Still submitting the last one - try again in a moment.")
     return False
 
-
 def _enter_pressed() -> bool:
     return imgui.is_key_pressed(imgui.Key.enter) or imgui.is_key_pressed(imgui.Key.keypad_enter)
-
-
-def validate(form: dict[str, Any], ctx: Any = None) -> list[widgets.Problem]:
-    """What would be refused, said before the button is pressed.
-
-    A summary rather than a refusal on submit: the API checks all of this too,
-    but a disabled button with a reason beats a toast after a round trip.
-
-    Each entry carries the control it is about (:class:`widgets.Problem`, a
-    ``str`` subclass, so the aggregate block and every existing comparison are
-    unchanged). The field is what lets the *keyboard* doors -- Ctrl+Enter and
-    the palette, which call :func:`generate` directly and never draw that block
-    -- put the ring on the control the button path would have pointed at.
-
-    ``ctx`` is optional and new (the 2026-09-15 audit, finding create-03): the
-    ControlNet/img2img/style-LoRA checks below compare against
-    ``form["base_model"]``, which is correct under Advanced but stale under
-    Automatic -- ``_model()``'s switch-to-Automatic branch moves the *notes*
-    to the resolved recipe and leaves ``base_model`` holding whatever was
-    last picked under Advanced. Without this, a mismatch with what Automatic
-    actually loads passed validation here and only surfaced as a toast
-    refusal after the round trip through the queue door. Every caller with a
-    ``ctx`` (``problems_for``, ``generate``) now passes it; callers that
-    cannot (tests exercising the form in isolation) keep the pre-fix
-    raw-``base_model`` reading, which is exactly right under Advanced and the
-    same approximation as before under Automatic.
-    """
-    problems: list[widgets.Problem] = []
-    asset_key = form.get("asset_type")
-    if asset_key is not None and asset_key not in create_assets.ASSET_TYPES:
-        problems.append(widgets.Problem("Choose a recognised asset type.", "asset_type"))
-    prompt = form.get("prompt")
-    if not isinstance(prompt, str) or not prompt.strip():
-        problems.append(widgets.Problem("A prompt is required.", "prompt"))
-    if isinstance(prompt, str) and len(prompt) > MAX_PROMPT:
-        problems.append(
-            widgets.Problem(f"The prompt is over {MAX_PROMPT} characters.", "prompt")
-        )
-    count = _safe_int(form.get("count"), 0)
-    if not 1 <= count <= MAX_REFERENCE_COUNT:
-        problems.append(
-            widgets.Problem(
-                f"References must be between 1 and {MAX_REFERENCE_COUNT}.", "count"
-            )
-        )
-    # The *tile arm*, which is not the same question as the *grid layout* -- see
-    # :func:`_is_tile_arm`. Every check below that was written when the two were
-    # one thing is about the arm, because what makes a tile set exempt from them
-    # is that its door pins its own recipe, which all three layouts do.
-    tileset = _is_tile_arm(form)
-    # **The tileset precedent, applied to the second type with its own door.**
-    # A character request reaches ``service.characters.create_character``, which
-    # reads no checkpoint, no LoRA, no ControlNet and no reference -- so every
-    # check below guarded by this flag would be a refusal about somebody else's
-    # job, and reachable rather than theoretical: ``control`` is persisted and
-    # so is ``ref_path``, but ``_verify_reference_path`` clears a ``ref_path``
-    # that has since moved or been deleted (the 2026-09-07 Create review, item
-    # 5.3a), so a session that once conditioned an Object can still reopen
-    # with the pair split.
-    pinned = tileset or _is_character(form)
-    base = form.get("base_model")
-    if ctx is not None and str(form.get("model_mode") or "auto") == "auto":
-        # See the docstring: under Automatic, the resolved recipe's base is
-        # what will actually load, not the stale ``form["base_model"]`` an
-        # earlier Advanced pick left behind.
-        resolved = _resolved_recipe(ctx, form)
-        if resolved is not None:
-            base = resolved.base_model
-    style = form.get("style_lora")
-    # A tile set's fixed recipe does not read either selection. It validates
-    # its pinned pair at its own service door.
-    if not pinned and (not isinstance(base, str) or base not in modelslib.BASE_MODELS):
-        problems.append(widgets.Problem("Choose a recognised image model.", "base_model"))
-    if not pinned and (
-        not isinstance(style, str) or (style and style not in modelslib.STYLE_LORAS)
-    ):
-        problems.append(widgets.Problem("Choose a recognised style LoRA.", "style_lora"))
-    if not pinned and style:
-        try:
-            weight = float(form.get("lora_weight"))
-        except (TypeError, ValueError, OverflowError):
-            weight = float("nan")
-        if not modelslib.LORA_WEIGHT_MIN <= weight <= modelslib.LORA_WEIGHT_MAX:
-            problems.append(
-                widgets.Problem(
-                    f"Style strength must be between {modelslib.LORA_WEIGHT_MIN:g} "
-                    f"and {modelslib.LORA_WEIGHT_MAX:g}.",
-                    "style_lora",
-                )
-            )
-    # The tile arm is the one output that does not go through
-    # ``create_job``: ``create_tile_sheet`` pins its own base, its own LoRA and
-    # its own ControlNet and reads none of the four fields below. So the three
-    # checks after this are skipped for it -- not as a tolerance, but because a
-    # disabled Generate reading "Conditioning needs a reference image" over a
-    # ``control`` the run will never load is a refusal about somebody else's
-    # job. It is reachable rather than theoretical: ``control`` and ``ref_path``
-    # both persist, but ``_verify_reference_path`` clears a ``ref_path`` that
-    # has since moved or been deleted (the 2026-09-07 Create review, item
-    # 5.3a), so a session that once conditioned an Object can reopen with the
-    # pair split. The sprite arm is deliberately *not* exempt -- its first
-    # step is an ordinary reference job and reads all four. Both reachable
-    # from a restored form rather than from this frame's controls, which is
-    # why they are checked here and not only where the widgets are drawn: a
-    # persisted ``control``/``ip_adapter`` can outlive the ``ref_path`` that
-    # justified it, and the base model can be changed under Advanced after a
-    # control was picked.
-    if (
-        not pinned
-        and not form.get("ref_path")
-        and (form.get("ip_adapter") or form.get("control"))
-    ):
-        problems.append(
-            widgets.Problem("Conditioning needs a reference image.", "ref_path")
-        )
-    # The 2026-09-16 audit, finding create-panes-01: guidance.normalize's
-    # ``_number`` refuses ip_scale/control_scale/control_end/init_strength by
-    # name (the same shape of check as lora_weight above), but this function
-    # never range-checked any of the four before Generate is enabled -- a
-    # persisted out-of-range value reached the queue door with the
-    # Conditioning section still collapsed and no ring anywhere on this pane
-    # to land on. Gated the same way ``submit_kwargs`` gates what it sends:
-    # a slider whose selection is unset never reaches params as a live
-    # setting, so it is not checked here either.
-    if not pinned and form.get("ip_adapter"):
-        try:
-            ip_scale = float(form.get("ip_scale"))
-        except (TypeError, ValueError, OverflowError):
-            ip_scale = float("nan")
-        if not modelslib.IP_SCALE_MIN <= ip_scale <= modelslib.IP_SCALE_MAX:
-            problems.append(
-                widgets.Problem(
-                    f"Reference strength must be between {modelslib.IP_SCALE_MIN:g} "
-                    f"and {modelslib.IP_SCALE_MAX:g}.",
-                    "ip_scale",
-                )
-            )
-    if (
-        not pinned
-        and form.get("control")
-        and base not in modelslib.controlnet_bases()
-    ):
-        problems.append(
-            widgets.Problem("Structure control needs a full-CFG model.", "base_model")
-        )
-    if not pinned and form.get("control"):
-        try:
-            control_scale = float(form.get("control_scale"))
-        except (TypeError, ValueError, OverflowError):
-            control_scale = float("nan")
-        if not modelslib.CONTROL_SCALE_MIN <= control_scale <= modelslib.CONTROL_SCALE_MAX:
-            problems.append(
-                widgets.Problem(
-                    f"Structure strength must be between "
-                    f"{modelslib.CONTROL_SCALE_MIN:g} and {modelslib.CONTROL_SCALE_MAX:g}.",
-                    "control_scale",
-                )
-            )
-        try:
-            control_end = float(form.get("control_end"))
-        except (TypeError, ValueError, OverflowError):
-            control_end = float("nan")
-        if not modelslib.CONTROL_END_MIN <= control_end <= modelslib.CONTROL_END_MAX:
-            problems.append(
-                widgets.Problem(
-                    f"Structure 'until' must be between "
-                    f"{modelslib.CONTROL_END_MIN:g} and {modelslib.CONTROL_END_MAX:g}.",
-                    "control_end",
-                )
-            )
-    # The 2026-09-05 audit, finding create-04: this pane's docstring promises
-    # "what would be refused, said before the button is pressed", but nothing
-    # here checked img2img against the base's family, so the refusal only
-    # arrived from the queue door (``guidance.normalize``) after a round
-    # trip. Checked against the spec's family directly rather than a
-    # models.py bases list -- see ``generation._takes_img2img``.
-    base_spec = modelslib.BASE_MODELS.get(base)
-    if (
-        not pinned
-        and form.get("init_image")
-        and base_spec is not None
-        and base_spec.family != modelslib.FAMILY_SDXL
-    ):
-        problems.append(
-            widgets.Problem(
-                "This model cannot start from an image; pick an SDXL model.",
-                "init_image",
-            )
-        )
-    if not pinned and form.get("init_image") and form.get("ref_path"):
-        try:
-            init_strength = float(form.get("init_strength") or 0.45)
-        except (TypeError, ValueError, OverflowError):
-            init_strength = float("nan")
-        if not (
-            modelslib.IMG2IMG_STRENGTH_MIN <= init_strength <= modelslib.IMG2IMG_STRENGTH_MAX
-        ):
-            problems.append(
-                widgets.Problem(
-                    f"Start strength must be between "
-                    f"{modelslib.IMG2IMG_STRENGTH_MIN:g} and "
-                    f"{modelslib.IMG2IMG_STRENGTH_MAX:g}.",
-                    "init_strength",
-                )
-            )
-    # Reachable the same way: a style picked under one base survives a change
-    # of base under Advanced, and the service refuses the submit outright
-    # rather than generating without it.
-    if not pinned and form.get("style_lora") and form["style_lora"] not in (
-        modelslib.loras_by_base().get(base) or []
-    ):
-        problems.append(
-            widgets.Problem(
-                "The style LoRA is not fitted to this model's architecture.",
-                "style_lora",
-            )
-        )
-    if form.get("output") == "tile" and base not in modelslib.tile_bases():
-        problems.append(
-            widgets.Problem("Seamless tiles need an SDXL model.", "base_model")
-        )
-    if form.get("output") == "sheet":
-        # The tile arm's own two fields, and nothing about the model: what a
-        # sheet is short of on this host is a different question, and
-        # ``weights_problem`` asks it against the rows a sheet actually loads.
-        size = str(form.get("tile_size") or "")
-        # Both menus are asked for *this layout*: a seamless material is reduced
-        # from one 1024px frame on an exact partition and wraps a square, so 48
-        # px and two of the three views are on the grid's menu and not on
-        # theirs. The lists come from the service so the pane holds no second
-        # opinion about either ceiling.
-        sizes = tile_sizes_for(form)
-        views = views_for(form)
-        if tileset and size not in {str(s) for s in sizes}:
-            # Reachable from a restored form rather than from this frame's
-            # control: the value is persisted, and the menu it came from can
-            # change between releases -- or between layouts.
-            problems.append(
-                widgets.Problem(f"Tile size must be one of {sizes}.", "tile_size")
-            )
-        if tileset and _view_of(form) not in views:
-            # Interpolated rather than spelled out. The sentence used to name
-            # its two values, so the day a third arrived the form would have
-            # refused it with a list that did not contain it.
-            problems.append(
-                widgets.Problem(f"View must be one of {views}.", "projection")
-            )
-        if tileset:
-            problems.extend(_layout_problems(form))
-        if tileset or form.get("sheet_type") == "sprite":
-            raw_target = form.get("target_cell_px") or ""
-            target = None if raw_target == "" else _safe_int(raw_target, -1)
-            for issue in generation.validate_target_cell(
-                target, isometric=tileset and _view_of(form) == "isometric"
-            ):
-                problems.append(widgets.Problem(issue.message, issue.field))
-    return problems
-
-
-def _layout_problems(form: dict[str, Any]) -> list[widgets.Problem]:
-    """What the chosen tile layout is still short of.
-
-    The door's own refusals, asked before the request exists. Each one names the
-    control it is about, and each ceiling is read from
-    ``tile_sheet_options`` rather than written here -- the door enforces them
-    against ``asset_workflows.collection_cells``, and a second set of numbers in
-    a pane is a form that accepts what the door then refuses.
-
-    The grid layout contributes nothing: everything it needs is the prompt and
-    the geometry, both checked above.
-    """
-    options = _tile_options()
-    mode = tile_mode_of(form)
-    problems: list[widgets.Problem] = []
-    if mode == svc_tilesheets.MODE_MATERIALS:
-        lines = material_lines(form)
-        variants = _safe_int(form.get("variants"), 0)
-        if not lines:
-            problems.append(
-                widgets.Problem(
-                    "A materials sheet is the list of surfaces you type; describe "
-                    "at least one, one per line.",
-                    "prompt_items",
-                )
-            )
-        if len(lines) > int(options["max_materials"]):
-            problems.append(
-                widgets.Problem(
-                    f"{len(lines)} materials is past the {options['max_materials']} "
-                    f"one sheet can name.",
-                    "prompt_items",
-                )
-            )
-        if any(len(line) > MAX_PROMPT for line in lines):
-            problems.append(
-                widgets.Problem(
-                    f"One material is over {MAX_PROMPT} characters.", "prompt_items"
-                )
-            )
-        if not 1 <= variants <= int(options["max_variants"]):
-            problems.append(
-                widgets.Problem(
-                    f"Draws of each material must be between 1 and "
-                    f"{options['max_variants']}.",
-                    "variants",
-                )
-            )
-        elif len(lines) * variants > int(options["max_cells"]):
-            problems.append(
-                widgets.Problem(
-                    f"{len(lines)} materials by {variants} draws is "
-                    f"{len(lines) * variants} cells, past the "
-                    f"{options['max_cells']} one sheet can hold; each cell is its "
-                    f"own full generation.",
-                    "variants",
-                )
-            )
-    elif mode == svc_tilesheets.MODE_TERRAIN:
-        # One sentence per empty field, and each names its own control.
-        #
-        # This loop used to append one *identical* sentence per empty field, so
-        # a fresh terrain form -- where both are empty -- stacked the same
-        # words twice above Generate, and neither copy said which of the two it
-        # was about. A refusal here is meant to be a sentence the user can act
-        # on, and "one of the two fields" is not one. The list stays per-field
-        # rather than collapsing to a single line because ``refuse`` rings the
-        # control each problem names: a merged line could ring only one of them
-        # and would leave the other looking accepted.
-        for field, name in (("inner_terrain", "Inside"), ("outer_terrain", "Outside")):
-            if not str(form.get(field) or "").strip():
-                problems.append(
-                    widgets.Problem(
-                        f"{name} is empty. A terrain set is two surfaces and both "
-                        f"are generated, so both have to be described.",
-                        field,
-                    )
-                )
-        for field in ("inner_terrain", "outer_terrain", "boundary"):
-            if len(str(form.get(field) or "")) > MAX_PROMPT:
-                problems.append(
-                    widgets.Problem(f"That is over {MAX_PROMPT} characters.", field)
-                )
-    return problems
-
-
-def _safe_int(value: Any, fallback: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError, OverflowError):
-        return fallback
-
-
-def submit_kwargs(form: dict[str, Any]) -> dict[str, Any]:
-    """The 2D form as create_job takes it.
-
-    ``output`` is this pane's own switch and never "model": this pane is the
-    first stage of a two-stage pipeline made visible, and going straight to a
-    mesh from here would spend two minutes of GPU on an image nobody has
-    approved. A tile has no second stage at all.
-    """
-    tile = form.get("output") == "tile"
-    # Every surviving field is machinery (model identity, conditioning) rather
-    # than subject taxonomy, so a tile submits the same set an object does.
-    known = set(guidancelib.form_fields())
-    fields = {k: v for k, v in form.items() if k in known and v not in ("", None)}
-    sprite_sheet = (
-        sprite_sheet_kwargs(form)
-        if form.get("output") == "sheet" and form.get("sheet_type") == "sprite"
-        else None
-    )
-    return {
-        "kind": "text",
-        "prompt": form["prompt"].strip(),
-        "output": "tile" if tile else "reference",
-        "count": _safe_int(form.get("count"), 1),
-        **({"sprite_sheet": sprite_sheet} if sprite_sheet is not None else {}),
-        "seed": int(form["seed"]),
-        # Verbatim, never ``or None``: an emptied box is the user asking for no
-        # negative prompt, which is a different request from the default.
-        "negative_prompt": str(form["negative_prompt"]),
-        "lora_weight": float(form["lora_weight"]) if form.get("style_lora") else None,
-        # Mirroring lora_weight: sent only alongside the selection it scales,
-        # so an unused slider never reaches params as a live setting.
-        "ip_scale": float(form["ip_scale"]) if form.get("ip_adapter") else None,
-        "init_image": bool(form.get("init_image")) and bool(form.get("ref_path")),
-        "init_strength": (
-            float(form.get("init_strength") or 0.45)
-            if form.get("init_image") and form.get("ref_path")
-            else None
-        ),
-        "control_scale": float(form["control_scale"]) if form.get("control") else None,
-        "control_end": float(form["control_end"]) if form.get("control") else None,
-        "guidance_fields": fields,
-        **create_assets.persisted_intent(form),
-    }
-
-
-def sprite_sheet_kwargs(form: dict[str, Any]) -> dict[str, Any]:
-    """The 2D form as ``create_job``'s ``sprite_sheet=`` block takes it.
-
-    :func:`tile_sheet_kwargs`' opposite number on the other arm, and split out
-    of :func:`submit_kwargs` for that function's reason: the sprite arm is an
-    ordinary reference job *carrying a follow-up request* -- the rig checkbox's
-    shape, so the character is a row in its own right and the sheet is queued
-    against it once it lands -- and the compilation of that follow-up is the one
-    part of the press no test could name while it lived inside a literal.
-
-    ``_jobs_create._check_sprite_sheet`` validates every key here at the
-    *reference* door rather than when the follow-up is minted, so a palette
-    that has been deleted since the form listed it costs the request instead of
-    an SDXL generation and an hour.
-
-    ``candidates`` is sent rather than left to the door's own default, and that
-    is not belt-and-braces: the Dimensions section has already told the user how
-    many generations this press costs, and a block that let the worker decide
-    the number separately is how a form comes to promise eight and spend
-    sixteen. It is :func:`sprite_plan`'s number, which is the line's number.
-    """
-    plan = sprite_plan(form)
-    return {
-        "sheet_type": plan["layout"],
-        "candidates": plan["candidates"],
-        "logical_size": plan["logical_size"],
-        "colors": svc_sprites.DEFAULT_SPRITE_COLORS,
-        "target_cell_px": (
-            None if form.get("target_cell_px") in (None, "")
-            else _safe_int(form.get("target_cell_px"), 0)
-        ),
-        # The three the form draws under Dimensions. Sent always rather than
-        # only when set: the door's own defaults are these values, and a block
-        # that omitted them would make "no palette" and "the form was never
-        # asked" the same request -- which is how a setting comes to be recorded
-        # as something nobody chose.
-        "palette": str(form.get("palette") or ""),
-        "dither": bool(form.get("dither")),
-        "outline": str(form.get("outline") or svc_sprites.DEFAULT_SPRITE_OUTLINE),
-    }
-
-
-def tile_sheet_kwargs(form: dict[str, Any]) -> dict[str, Any]:
-    """The 2D form as ``create_tile_sheet`` takes it, minus the reference bytes.
-
-    :func:`submit_kwargs`' opposite number, and it exists for the reason that
-    one does: the tile arm is the only output that does not go through
-    ``create_job``, so the compilation of its request had no name and lived
-    inside a closure -- where no test could reach it. The submit then went on
-    sending a request with no layout in it, against a door whose default layout
-    is ``materials``, and every press was refused at ``field="prompt_items"``
-    with nothing in the form saying why.
-
-    **``allow_grid`` is sent when, and only when, the user picked the grid.**
-    That flag is the door's escape hatch on a refusal about a measurement rather
-    than about an impossibility, so an explicit choice is exactly what it is for
-    -- and a default that carried it would put every unconsidered press back on
-    the layout the measurement is about.
-    """
-    mode = tile_mode_of(form)
-    kwargs: dict[str, Any] = {
-        "prompt": str(form.get("prompt") or "").strip(),
-        "tile_size": _safe_int(form.get("tile_size"), 32),
-        "view": _view_of(form),
-        "seed": int(form["seed"]),
-        "negative_prompt": form.get("negative_prompt"),
-        "mode": mode,
-        # The pixel look, from the two controls under Dimensions. No ``outline``
-        # key at all -- and the absence is load-bearing rather than tidy: the
-        # door refuses one by name (a tile is opaque edge to edge, so an outline
-        # is a grid line around every cell), and a form that sent even
-        # ``"none"`` here would be naming a setting this kind does not have.
-        "palette": str(form.get("palette") or ""),
-        "dither": bool(form.get("dither")),
-        # The two checkboxes under Materials. They were drawn, they wrote to
-        # the form, and the form was never read: the request left without them
-        # and ``default_form_2d`` declared neither, so the values did not
-        # survive a restart either. Both halves below them were already live --
-        # ``service.jobs`` passes them to the worker and
-        # ``tilesheets._check_weights`` already widens the weight gate on
-        # ``style_lock`` -- so this line is the whole of what was missing.
-        "style_lock": bool(form.get("style_lock")),
-        "seam_erase": bool(form.get("seam_erase")),
-        **create_assets.persisted_intent(form),
-    }
-    if mode == svc_tilesheets.MODE_MATERIALS:
-        kwargs["prompt_items"] = list(material_lines(form))
-        kwargs["variants"] = _safe_int(form.get("variants"), 1)
-    elif mode == svc_tilesheets.MODE_TERRAIN:
-        kwargs["inner_terrain"] = str(form.get("inner_terrain") or "").strip()
-        kwargs["outer_terrain"] = str(form.get("outer_terrain") or "").strip()
-        kwargs["boundary"] = str(form.get("boundary") or "").strip()
-    else:
-        kwargs["allow_grid"] = True
-    return kwargs
-
 
 def _generate_tile_sheet(ctx: Any, form: dict[str, Any]) -> bool:
     """Submit the tile set, on the shared ``submit`` key.
@@ -2977,7 +1302,7 @@ def _generate_tile_sheet(ctx: Any, form: dict[str, Any]) -> bool:
     freeze the window for as long as the disk took. ``generate``'s own split,
     kept.
     """
-    kwargs = tile_sheet_kwargs(form)
+    kwargs = create_recipe.tile_sheet_kwargs(form)
     ref_path = form.get("ref_path") or ""
 
     def run():
@@ -2996,95 +1321,7 @@ def _generate_tile_sheet(ctx: Any, form: dict[str, Any]) -> bool:
 
     return submit_job(ctx, run)
 
-
-# Which registry row each model-shaped form field would need, and the name the
-# refusal puts the ring on. The service layer is the authority (``check_weights``
-# raises the real refusal at the door); this is the courtesy in front of it, and
-# it answers from ``ctx.model_rows`` rather than the disk for ``model_gate``'s
-# reason -- this runs on the frame thread sixty times a second.
-_WEIGHT_FIELDS = (
-    ("base_model", "base", "The image model"),
-    ("style_lora", "lora", "The style LoRA"),
-    ("ip_adapter", "adapter", "The reference adapter"),
-    ("control", "control", "The structure control"),
-)
-
-
-def weights_problem(ctx: Any, form: dict[str, Any]) -> widgets.Problem | None:
-    """The first selected model this host has not downloaded, or None.
-
-    Beside :func:`validate` rather than inside it, and the split is deliberate.
-    ``validate`` is about the *form* -- a prompt that is empty, a count out of
-    range -- and is true on any machine; this is about this **install**, and
-    two forms identical in every field can disagree about it. Keeping them
-    apart is also what stops the aggregate block above Generate from listing a
-    download as a mistake the user made.
-
-    ``model_gate``'s doctrine throughout: an empty ``model_rows`` says nothing
-    rather than everything-is-missing (a headless ctx, or the first frame
-    before the answers land, must not lock a fully-installed host), and a row
-    the snapshot has never heard of is skipped. A stale snapshot costs a
-    missing warning, never a wrong outcome -- ``service.validation.check_weights``
-    is still the authority and still refuses at the door.
-    """
-    if _is_character(form):
-        # A character downloads nothing. Its body comes off the baked assets
-        # this build ships and its cells are rendered by Blender, so walking
-        # ``_WEIGHT_FIELDS`` here would point a "not downloaded" refusal at a
-        # checkpoint the run never opens. What a character *is* short of --
-        # Blender -- is ``settings_character.problems``' sentence, in the Rig
-        # segment's exact words.
-        return None
-    by_key = {str(row.get("row_key")): row for row in (getattr(ctx, "model_rows", None) or [])}
-    if not by_key:
-        return None
-    if _is_tile_arm(form):
-        # A tile set's door pins its own base and LoRA and ignores the form's,
-        # so walking ``_WEIGHT_FIELDS`` here would point at a selection the run
-        # never reads. Sprite sheets are different: their preliminary
-        # reference does use those selected fields, then a pinned final recipe.
-        for row_key in sheet_rows(form):
-            row = by_key.get(row_key)
-            if row is None or row.get("present"):
-                continue
-            label = row.get("label") or row_key
-            return widgets.Problem(
-                f"A sheet needs {label!r}, which is not downloaded. "
-                f"Install it in Settings.",
-                "output",
-            )
-        return None
-    for field, kind, noun in _WEIGHT_FIELDS:
-        chosen = str(form.get(field) or "")
-        if not chosen:
-            continue
-        row = by_key.get(f"{kind}:{chosen}")
-        if row is None or row.get("present"):
-            continue
-        label = row.get("label") or chosen
-        return widgets.Problem(
-            f"{noun} {label!r} is selected but not downloaded. "
-            f"Install it in Settings, or pick another.",
-            field,
-        )
-    if form.get("output") == "sheet" and form.get("sheet_type") == "sprite":
-        # Only after the visible preliminary recipe has passed: both stages
-        # are real requirements, and the first problem should point at the
-        # editable control before naming the locked follow-up recipe.
-        for row_key in sheet_rows(form):
-            row = by_key.get(row_key)
-            if row is None or row.get("present"):
-                continue
-            label = row.get("label") or row_key
-            return widgets.Problem(
-                f"The final sheet needs {label!r}, which is not downloaded. "
-                f"Install it in Settings.",
-                "output",
-            )
-    return None
-
-
-def refuse(ctx: Any, problems: list[widgets.Problem]) -> None:
+def refuse(ctx: Any, problems: list[problem_types.Problem]) -> None:
     """Say no where the user can see it, whichever door they came through.
 
     Shared with ``settings_3d.promote`` because the two refusals are the same
@@ -3101,24 +1338,23 @@ def refuse(ctx: Any, problems: list[widgets.Problem]) -> None:
     if problems:
         ctx.toast(str(problems[0]), "warn")
 
-
 def generate(ctx: Any, form: dict[str, Any]) -> None:
-    character = _is_character(form)
+    character = create_recipe.is_character(form)
     if character:
         # **The keyboard door.** Ctrl+Enter and the palette call straight in
         # here and never draw the Character block, so a form filled only from
         # that draw would submit the species of the *previous* prompt for
         # anyone who typed and pressed in one motion.
-        settings_character.sync_from_prompt(form)
-    problems = validate(form, ctx)
+        character_engine.sync_from_prompt(form)
+    problems = create_recipe.validate(form, ctx)
     if character:
-        problems = [*problems, *settings_character.problems(ctx, form)]
+        problems = [*problems, *character_engine.problems(ctx, form)]
     # The install-shaped refusal, folded in behind the form-shaped ones: it is
     # the same "this will not submit" from the user's side, and putting it here
     # rather than at the service door turns a two-minute queue-and-fail into an
     # immediate sentence naming the control. The service still refuses at the
     # door; this only means the user rarely reaches it.
-    weights = weights_problem(ctx, form)
+    weights = create_recipe.weights_problem(ctx, form)
     if weights is not None and not problems:
         problems = [weights]
     if problems:
@@ -3156,10 +1392,10 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
         else:
             form["seed"] = seed_before
         return
-    if _is_tile_arm(form):
+    if create_recipe.is_tile_arm(form):
         # The one output that does not go through ``create_job``: a tile set is
         # its own job kind, with its own door and its own admission. The sprite
-        # arm deliberately *does* go through it -- see ``submit_kwargs`` -- so
+        # arm deliberately *does* go through it -- see ``create_recipe.submit_kwargs`` -- so
         # this is the only branch here.
         if _generate_tile_sheet(ctx, form):
             ctx.state.remember_prompt(form["prompt"])
@@ -3172,9 +1408,9 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
         resolved = generation.resolve_recipe(request, ctx.svc.config)
         recipe_issues = generation.validate_request(request, resolved)
         if recipe_issues:
-            refuse(ctx, [widgets.Problem(item.message, item.field) for item in recipe_issues])
+            refuse(ctx, [problem_types.Problem(item.message, item.field) for item in recipe_issues])
             return
-    kwargs = submit_kwargs(form)
+    kwargs = create_recipe.submit_kwargs(form)
     if resolved is not None:
         # Automatic routing is resolved at submit time. The selected recipe is
         # copied after the legacy door accepts the request so reruns retain the

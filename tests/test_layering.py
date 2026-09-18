@@ -120,13 +120,8 @@ STRAY_MODE_FILES: dict[str, str] = {
     #   frame, which is why it was lifted out of ``widgets`` on
     #   2026-09-03), ``panes/library.py`` and ``panes/inspector.py``.
     #   Job-artifact vocabulary, the same shape as ``quality.py``.
-    # Create's real 2D/3D/character recipe engine under a stale "settings"
-    # name -- RESTRUCTURE.md measured this by name: "plus its real engine
-    # buried in panes/settings_2d.py (2,917 lines of non-UI plan/validate/
-    # kwargs logic)"; P5's Create bullet is the same file.
-    "studio/panes/settings_2d.py": "create",
-    "studio/panes/settings_3d.py": "create",
-    "studio/panes/settings_character.py": "create",
+    # ``panes/settings_{2d,3d,character}.py`` sat here until P5 moved them to
+    # ``studio/modes/create/ui/``, where the path itself says Create.
     # The actual Settings-mode pane -- not studio/settings.py, which is the
     # persisted-JSON engine (imported by every mode, not Settings-owned).
     "studio/panes/app_settings.py": "settings",
@@ -286,6 +281,18 @@ def classify(rel: str) -> Layer:
     if rel in STRAY_MODE_FILES:
         return Layer(5, "mode", STRAY_MODE_FILES[rel])
     parts = rel.split("/")
+    # P5: a mode's own package. ``studio/modes/__init__.py`` is the mode list
+    # itself -- imported by the shell and every mode alike, and importing
+    # nothing but ``icons`` -- so it is shell; everything *under* a mode's
+    # directory is that mode's, whatever its file is called. Without this the
+    # first file to move in (``modes/create/ui/brief.py``, no ``create_``
+    # prefix left to match) fell through to the L4 default below, and every
+    # shell -> Create edge the fold was meant to leave countable became
+    # invisible instead.
+    if parts[:2] == ["studio", "modes"]:
+        if len(parts) >= 4 and parts[2] in MODE_KEYS:
+            return Layer(5, "mode", parts[2])
+        return Layer(4, "shell")
     if parts[0] == "studio" and len(parts) >= 2:
         base = parts[-1]
         stem = base[:-3] if base.endswith(".py") else base
@@ -519,14 +526,14 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.shell.app", "warlock.studio.review_panes"),
     ("warlock.studio.shell.app", "warlock.studio.sirens_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.troupe_workspace"),
-    ("warlock.studio.shell.frame", "warlock.studio.create_brief"),
+    ("warlock.studio.shell.frame", "warlock.studio.modes.create.ui.brief"),
     # No ``create_rail`` row, though P4 moved Create's stage rail out of
     # ``widgets.py`` and ``_stage_rail`` (now in ``shell/frame.py``) calls
     # it: that import is function-scope, and this walk is module-scope only,
     # for the reasons the module docstring gives. Named here because an entry
     # *was* added on the reasoning that it would be an edge, and the pin
     # refused it as stale -- which is the pin working.
-    ("warlock.studio.panes.landing", "warlock.studio.create_stages"),
+    ("warlock.studio.panes.landing", "warlock.studio.modes.create.ui.stages"),
 })
 
 # P3 -- shared code moves out of studio/, DONE for Familiar's headless half
@@ -582,12 +589,12 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.agent_host", "warlock.studio.agent_clay"),
     ("warlock.studio.agent_transcript", "warlock.studio.agent_clay"),
     # Create UI fold
-    ("warlock.studio.asset_exits", "warlock.studio.create_stages"),
-    ("warlock.studio.generation_workspace", "warlock.studio.create_assets"),
-    ("warlock.studio.panes.inspector", "warlock.studio.create_stages"),
+    ("warlock.studio.asset_exits", "warlock.studio.modes.create.ui.stages"),
+    ("warlock.studio.modes.create.ui.workspace", "warlock.studio.modes.create.engine.assets"),
+    ("warlock.studio.panes.inspector", "warlock.studio.modes.create.ui.stages"),
     # Create's recipe engine lifting out of panes/settings_*.py means Settings
     # can import the engine module directly instead of a pane object.
-    ("warlock.studio.panes.app_settings", "warlock.studio.panes.settings_3d"),
+    ("warlock.studio.panes.app_settings", "warlock.studio.modes.create.ui.settings_3d"),
     # PaintView promotion (inker_state.py -> shell/paintview.py)
     ("warlock.studio.packwright_state", "warlock.studio.inker_state"),
     ("warlock.studio.panes.packwright_preview", "warlock.studio.inker_state"),
@@ -657,12 +664,6 @@ _UNRESOLVED: frozenset[tuple[str, str]] = frozenset({
     # so studio/panes/mason_palette.py reaching into Clay's own tool-palette
     # pane is invisible to every existing pin. Not named by any phase.
     ("warlock.studio.panes.mason_palette", "warlock.studio.panes.clay_tools"),
-    # Create referencing Review's mode module directly for its own settings
-    # panes -- plausibly resolved once Create's engine (P5) has its own
-    # verdict/grade vocabulary to import instead, but P5's bullet does not
-    # say so, so this is not filed under it.
-    ("warlock.studio.panes.settings_2d", "warlock.studio.review_mode"),
-    ("warlock.studio.panes.settings_3d", "warlock.studio.review_mode"),
 })
 
 EXCEPTIONS: frozenset[tuple[str, str]] = (
@@ -723,3 +724,16 @@ def test_exceptions_has_no_stale_entries() -> None:
         "the import is gone, so delete the entry (the phase that removed it "
         "already landed):\n" + "\n".join(lines)
     )
+
+
+def test_every_stray_mode_file_still_exists() -> None:
+    """Every hand-attributed path in STRAY_MODE_FILES names a real file.
+
+    A row keyed on a path that has moved does not fail anything -- it simply
+    stops matching, and the file it was about falls through to whatever
+    :func:`classify` says by default. P5 moved three of these (the Create
+    settings panes) and the rows stayed behind naming nothing; this is the
+    check that would have said so.
+    """
+    missing = sorted(rel for rel in STRAY_MODE_FILES if not (SRC / rel).is_file())
+    assert missing == [], f"STRAY_MODE_FILES names files that are gone: {missing}"

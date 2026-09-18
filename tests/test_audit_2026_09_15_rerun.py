@@ -135,7 +135,7 @@ def test_the_create_tray_rerun_button_agrees_with_rerollable():
     """
     import inspect
 
-    from warlock.studio import generation_workspace as gw
+    from warlock.studio.modes.create.ui import workspace as gw
 
     source = inspect.getsource(gw._result_card)
     assert "can_rerun = svc_jobs.rerollable(job)" in source

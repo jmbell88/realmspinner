@@ -199,13 +199,13 @@ def test_the_first_run_overlay_builds_and_dismisses(app_ctx, imgui_ctx, monkeypa
 
 
 def test_the_2d_pane_builds_with_an_empty_form(app_ctx, imgui_ctx):
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     _frame(imgui_ctx, lambda: settings_2d.draw(app_ctx))
 
 
 def test_the_2d_pane_builds_with_advanced_open_and_a_lora_chosen(app_ctx, imgui_ctx):
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     app_ctx.state.form_2d["style_lora"] = "render3d"
     app_ctx.state.form_2d["prompt"] = "a barrel"
@@ -219,7 +219,7 @@ def test_the_2d_pane_builds_every_output_kind(app_ctx, imgui_ctx):
     swap the count radios for a bare seed field. Drawn rather than reasoned
     about because the failure this catches is a layout one: ``same_line`` past
     the content edge puts a control nowhere, and no pure test sees it."""
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "mossy dungeon"
     for asset_type in ("model_3d", "seamless_tile", "tileset_top_down"):
@@ -236,7 +236,7 @@ def test_the_2d_pane_builds_the_character_column_and_its_refusal(app_ctx, imgui_
     reasoned about for this test's own reason -- the failures here are layout
     ones, and no pure test sees a control put nowhere.
     """
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     app_ctx.state.form_2d["asset_type"] = "character"
     for prompt in ("an attacking fire ogre, 3/4 top down", "a manticore", ""):
@@ -248,7 +248,7 @@ def test_the_2d_pane_builds_both_arms_of_the_sheet_output(app_ctx, imgui_ctx):
     """The two arms draw different controls off the same form dict, and the
     sprite arm's are the ones a stale tile-arm value can reach."""
     from warlock.service import tilesheets as svc_tilesheets
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "a hooded ranger"
     # Every view the service offers, off the service's own list rather than a
@@ -282,7 +282,7 @@ def test_the_2d_pane_builds_every_tile_layout(app_ctx, imgui_ctx):
     whose current value is off its own menu is the failure no pure test sees.
     """
     from warlock.service import tilesheets as svc_tilesheets
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "mossy dungeon"
     app_ctx.state.form_2d["asset_type"] = "tileset"
@@ -308,7 +308,8 @@ def test_the_2d_pane_draws_the_pixel_look_on_both_arms(app_ctx, imgui_ctx, tmp_p
     never been drawn. Both arms, because only one of them draws the outline row
     and only one of them lists palettes through ``sprite_palettes``.
     """
-    from warlock.studio.panes import inspector, settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.panes import inspector
 
     directory = tmp_path / "smoke-palettes"
     directory.mkdir(exist_ok=True)
@@ -338,7 +339,7 @@ def test_the_sheet_output_pins_the_count_to_one(app_ctx, imgui_ctx):
     """Both doors refuse a batch, so the radios are not drawn -- and the value
     is persisted, so a 4 left over from the Object output has to be written
     back rather than merely ignored."""
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "mossy dungeon"
     app_ctx.state.form_2d["count"] = 4
@@ -348,7 +349,7 @@ def test_the_sheet_output_pins_the_count_to_one(app_ctx, imgui_ctx):
 
 
 def test_the_3d_pane_builds_with_and_without_rigging(app_ctx, imgui_ctx):
-    from warlock.studio.panes import settings_3d
+    from warlock.studio.modes.create.ui import settings_3d
 
     _frame(imgui_ctx, lambda: settings_3d.draw(app_ctx))
     app_ctx.rigging_available = True
@@ -494,7 +495,7 @@ def test_an_evidence_hint_stays_inside_the_pane(app_ctx, imgui_ctx, pane, param,
     from warlock.studio import widgets
     from warlock.studio.tokens import sp
 
-    module = importlib.import_module(f"warlock.studio.panes.{pane}")
+    module = importlib.import_module(f"warlock.studio.modes.create.ui.{pane}")
     _seed_findings(app_ctx, param, value)
     (app_ctx.state.form_2d if pane == "settings_2d" else app_ctx.state.form_3d)[param] = value
     # The base-model combo -- and so the hint attached to it -- is an Advanced
@@ -553,6 +554,7 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     import traceback
 
     from warlock.studio import layout as layout_mod
+    from warlock.studio.modes.create.ui import settings_2d, settings_3d
     from warlock.studio.panes import (
         app_settings,
         candidates_panel,
@@ -569,8 +571,6 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
         library,
         pose_panel,
         retarget_panel,
-        settings_2d,
-        settings_3d,
         sheet_panel,
     )
     from warlock.studio.tokens import sp
@@ -996,7 +996,8 @@ def test_the_whole_frame_builds_at_once(app_ctx, imgui_ctx):
     that exists to prevent exactly that.
     """
     from warlock.studio import layout as layout_mod
-    from warlock.studio.panes import inspector, library, overlay, settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.panes import inspector, library, overlay
     from warlock.studio.shell import frame as frame_mod
 
     _seeded(app_ctx)
@@ -1747,7 +1748,7 @@ def test_the_bulk_deletes_left_the_library_footer_for_settings(app_ctx, imgui_ct
 def test_the_2d_pane_builds_with_a_reference_chosen(app_ctx, imgui_ctx):
     """The conditioning group is hidden until ref_path is set, so the empty-form
     smoke test never reaches it."""
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     form = app_ctx.state.form_2d
     form["prompt"] = "a barrel"
@@ -1783,7 +1784,8 @@ def test_a_non_sdxl_base_disables_the_style_lora_control_and_says_why(app_ctx, i
     makes this test assert something about *this* base rather than about
     whatever Automatic resolves to on whoever's machine runs it.
     """
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.engine import recipe as create_recipe
+    from warlock.studio.modes.create.ui import settings_2d
 
     form = app_ctx.state.form_2d
     form["prompt"] = "a barrel"
@@ -1793,24 +1795,24 @@ def test_a_non_sdxl_base_disables_the_style_lora_control_and_says_why(app_ctx, i
     form["model_mode"] = "advanced"
     form["model_override"] = "sdxl_cfg"
     form["style_lora"] = "render3d"
-    assert settings_2d.lora_note(app_ctx, form) is None
-    assert not settings_2d.validate(form)
+    assert create_recipe.lora_note(app_ctx, form) is None
+    assert not create_recipe.validate(form)
 
     form["base_model"] = "flux_klein"
     form["model_override"] = "flux_klein"
-    note = settings_2d.lora_note(app_ctx, form)
+    note = create_recipe.lora_note(app_ctx, form)
     if note is not None:
         # No adapter in the registry fits this architecture: the whole control
         # is inert, and the note has to name bases the user can find in the
         # picker.
-        assert settings_2d._base_labels(app_ctx, models.lora_bases()) in note
+        assert create_recipe._base_labels(app_ctx, models.lora_bases()) in note
     else:
         # Some adapter fits it, so the control is live and merely narrowed --
         # and the stale SDXL selection must still be listed, or the value that
         # keeps Generate off is the one control the user cannot see.
-        assert "render3d" in [k for k, _ in settings_2d.lora_options(app_ctx, form)]
-        assert settings_2d.lora_filter_note(app_ctx, form) is not None
-    assert "The style LoRA is not fitted to this model's architecture." in settings_2d.validate(
+        assert "render3d" in [k for k, _ in create_recipe.lora_options(app_ctx, form)]
+        assert create_recipe.lora_filter_note(app_ctx, form) is not None
+    assert "The style LoRA is not fitted to this model's architecture." in create_recipe.validate(
         form
     )
     # And whichever branch it is has to draw.
@@ -1819,7 +1821,7 @@ def test_a_non_sdxl_base_disables_the_style_lora_control_and_says_why(app_ctx, i
     # A tile is refused on the same grounds, and independently of the LoRA.
     form["style_lora"] = ""
     form["output"] = "tile"
-    assert "Seamless tiles need an SDXL model." in settings_2d.validate(form)
+    assert "Seamless tiles need an SDXL model." in create_recipe.validate(form)
 
 
 def test_the_inspector_builds_with_a_reference_report(app_ctx, imgui_ctx):
@@ -3171,7 +3173,7 @@ def test_the_review_pane_builds_a_findings_table(app_ctx, imgui_ctx):
 def test_the_2d_pane_builds_with_stale_vector_preset_settings(app_ctx, imgui_ctx):
     # The vector-preset save mechanism retired with the taxonomy; a
     # studio_settings.json still carrying old entries must not break the pane.
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     app_ctx.settings.set("vector_presets", {"chests": {"genre": "fantasy", "platform": "pc"}})
     _frame(imgui_ctx, lambda: settings_2d.draw(app_ctx))
@@ -3925,7 +3927,7 @@ def test_the_3d_source_slot_builds_while_a_drag_is_in_flight(app_ctx, imgui_ctx)
     """The outline is drawn from the group's rect, which only exists after
     ``end_group`` -- a frame with a drag in flight is the one that exercises
     it."""
-    from warlock.studio.panes import settings_3d
+    from warlock.studio.modes.create.ui import settings_3d
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
@@ -4082,7 +4084,7 @@ def test_the_home_resume_rows_build_with_the_keyboard_cursor_on_each(app_ctx, im
 def test_the_3d_form_builds_with_a_custom_budget(app_ctx, imgui_ctx, monkeypatch):
     """K94/K95: the disabled single-option path *and* the custom-triangles
     widget, which the shipped tier list never reaches."""
-    from warlock.studio.panes import settings_3d
+    from warlock.studio.modes.create.ui import settings_3d
 
     app_ctx.state.mode = "create"
     app_ctx.state.create_stage = "mesh"
@@ -4442,7 +4444,8 @@ def test_the_create_pane_builds_at_every_stage(app_ctx, imgui_ctx):
     wave 5 is that they are one pane with a breadcrumb -- and through
     ``shell.frame._stage_pane`` rather than a copy of it, so a stage that the
     rail offers and the dispatch has no branch for fails here."""
-    from warlock.studio import create_stages, main
+    from warlock.studio import main
+    from warlock.studio.modes.create.ui import stages as create_stages
     from warlock.studio.shell import frame as frame_mod
 
     _seeded(app_ctx)
@@ -4465,7 +4468,7 @@ def test_the_inspector_builds_at_every_stage(app_ctx, imgui_ctx):
     Create -- the rail is the tab bar -- so a stage with no ``_STAGE_SECTIONS``
     entry silently shows a header and nothing else, and only a build of all
     five says so."""
-    from warlock.studio import create_stages
+    from warlock.studio.modes.create.ui import stages as create_stages
     from warlock.studio.panes import inspector
 
     _seeded(app_ctx)
@@ -4480,7 +4483,8 @@ def test_the_inspector_builds_at_every_stage(app_ctx, imgui_ctx):
 def test_the_create_pane_builds_at_every_stage_with_nothing_selected(app_ctx, imgui_ctx):
     """The empty case, which is the one a first run sees: no selection, and
     four stages of which three are about an asset that does not exist."""
-    from warlock.studio import create_stages, main
+    from warlock.studio import main
+    from warlock.studio.modes.create.ui import stages as create_stages
     from warlock.studio.shell import frame as frame_mod
 
     app_ctx.state.select(None)
@@ -4495,7 +4499,7 @@ def test_the_create_pane_builds_at_every_stage_with_nothing_selected(app_ctx, im
 
 
 def _stage_items(blocked=()):
-    from warlock.studio import create_stages
+    from warlock.studio.modes.create.ui import stages as create_stages
 
     return [
         (
@@ -4547,8 +4551,9 @@ def test_the_stage_rail_compacts_rather_than_clipping_a_stage(imgui_ctx, scale):
     pipeline with no way in.
     """
     imgui, renderer = imgui_ctx
-    from warlock.studio import create_rail, tokens
     from warlock.studio import layout as layout_mod
+    from warlock.studio import tokens
+    from warlock.studio.modes.create.ui import rail as create_rail
 
     old_scale = tokens.SCALE
     tokens.set_scale(scale)
@@ -4580,7 +4585,7 @@ def _rail_probe(imgui_ctx, rail_id, items, current, done):
     padding, the font and therefore the segment widths are all scale-dependent.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.studio import create_rail
+    from warlock.studio.modes.create.ui import rail as create_rail
 
     seen: dict[str, float] = {}
 
@@ -4598,7 +4603,7 @@ def _rail_probe(imgui_ctx, rail_id, items, current, done):
 
 
 def test_a_stage_rail_segment_can_be_picked(imgui_ctx):
-    from warlock.studio import create_stages
+    from warlock.studio.modes.create.ui import stages as create_stages
 
     build, seen = _rail_probe(imgui_ctx, "rail-pick", _stage_items(), "reference", "mesh")
     _click(imgui_ctx, build, (-100.0, -100.0))
@@ -4610,7 +4615,7 @@ def test_a_blocked_stage_cannot_be_picked(imgui_ctx):
     """The reason is a tooltip, not a refusal after the fact. A blocked
     segment is still an item -- it has to be hoverable to carry its sentence --
     so the click is *dropped* rather than the button not being drawn."""
-    from warlock.studio import create_stages
+    from warlock.studio.modes.create.ui import stages as create_stages
 
     last = create_stages.STAGES[-1]
     build, seen = _rail_probe(

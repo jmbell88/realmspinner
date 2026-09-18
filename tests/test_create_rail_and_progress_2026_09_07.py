@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio import create_stages
+from warlock.studio.modes.create.ui import stages as create_stages
 from warlock.studio.state import AppState
 
 
@@ -123,7 +123,7 @@ def test_the_stage_rail_ticks_a_set_not_a_single_furthest_key():
     answer through, whatever ``create_stages`` computes."""
     import inspect
 
-    from warlock.studio import create_rail
+    from warlock.studio.modes.create.ui import rail as create_rail
 
     signature = inspect.signature(create_rail.stage_rail)
     assert "optional" in signature.parameters
@@ -141,7 +141,7 @@ def test_the_rig_stage_shows_the_progress_of_a_job_it_started(monkeypatch):
     a remesh or a rig bake started from the Rig stage showed nothing here but
     the floating card. ``_stage_pane`` now draws the same row before it
     dispatches to any stage's own panel."""
-    from warlock.studio import generation_workspace
+    from warlock.studio.modes.create.ui import workspace as generation_workspace
     from warlock.studio.panes import stage_rig
     from warlock.studio.shell import frame
 
@@ -161,8 +161,8 @@ def test_the_reference_stage_does_not_draw_the_tray_progress_row_twice(monkeypat
     """Reference already carries the canvas tray and the floating card; a
     third copy from ``_stage_pane`` would put the count back up to three
     instead of trading one restatement for reach on every other stage."""
-    from warlock.studio import generation_workspace
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui import workspace as generation_workspace
     from warlock.studio.shell import frame
 
     calls: list[object] = []
@@ -188,7 +188,7 @@ def test_the_canvas_tray_no_longer_draws_its_own_working_now_row():
     """
     import inspect
 
-    from warlock.studio import generation_workspace as gw
+    from warlock.studio.modes.create.ui import workspace as gw
 
     draw_source = inspect.getsource(gw.draw)
     assert "_progress(ctx, active)" not in draw_source

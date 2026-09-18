@@ -11,7 +11,8 @@ from types import SimpleNamespace
 
 from warlock.pipelines import seam
 from warlock.studio import theme
-from warlock.studio.panes import inspector, settings_2d
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.panes import inspector
 from warlock.studio.state import default_form_2d
 
 
@@ -22,14 +23,14 @@ def test_a_new_form_makes_references():
 def test_the_default_form_submits_a_reference():
     form = default_form_2d()
     form["prompt"] = "a barrel"
-    assert settings_2d.submit_kwargs(form)["output"] == "reference"
+    assert create_recipe.submit_kwargs(form)["output"] == "reference"
 
 
 def test_switching_to_tile_changes_what_is_submitted():
     form = default_form_2d()
     form["prompt"] = "cobblestone"
     form["output"] = "tile"
-    assert settings_2d.submit_kwargs(form)["output"] == "tile"
+    assert create_recipe.submit_kwargs(form)["output"] == "tile"
 
 
 def test_a_tile_keeps_the_checkpoint_it_is_drawn_with():
@@ -39,7 +40,7 @@ def test_a_tile_keeps_the_checkpoint_it_is_drawn_with():
     form["prompt"] = "cobblestone"
     form["base_model"] = "turbo"
     form["output"] = "tile"
-    assert settings_2d.submit_kwargs(form)["guidance_fields"]["base_model"] == "turbo"
+    assert create_recipe.submit_kwargs(form)["guidance_fields"]["base_model"] == "turbo"
 
 
 def test_switching_back_keeps_what_was_typed():
@@ -47,13 +48,13 @@ def test_switching_back_keeps_what_was_typed():
     form["base_model"] = "turbo"
     form["output"] = "tile"
     form["output"] = "reference"
-    assert settings_2d.submit_kwargs(form)["guidance_fields"]["base_model"] == "turbo"
+    assert create_recipe.submit_kwargs(form)["guidance_fields"]["base_model"] == "turbo"
 
 
 def test_a_tile_still_needs_a_prompt():
     form = default_form_2d()
     form["output"] = "tile"
-    assert settings_2d.validate(form)
+    assert create_recipe.validate(form)
 
 
 # -- the preview the pane asks for -----------------------------------------
@@ -271,7 +272,7 @@ def test_style_lock_reaches_the_tile_sheet_job():
     form["style_lock"] = True
     form["seam_erase"] = True
 
-    kwargs = settings_2d.tile_sheet_kwargs(form)
+    kwargs = create_recipe.tile_sheet_kwargs(form)
 
     assert kwargs["style_lock"] is True
     assert kwargs["seam_erase"] is True
@@ -294,9 +295,9 @@ def test_locking_the_style_asks_for_the_adapter_it_will_load():
     form = default_form_2d()
     form["output"] = "sheet"
     form["sheet_type"] = "tile"
-    plain = settings_2d.sheet_rows(form)
+    plain = create_recipe.sheet_rows(form)
     form["style_lock"] = True
-    locked = settings_2d.sheet_rows(form)
+    locked = create_recipe.sheet_rows(form)
 
     assert set(plain) < set(locked)
     assert any(row.startswith("adapter:") for row in locked)

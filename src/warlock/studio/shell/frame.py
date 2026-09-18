@@ -40,7 +40,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from .. import anchors, create_brief, guard, probe, tokens
+from .. import anchors, guard, probe, tokens
+from ..modes.create.ui import brief as create_brief
 
 log = logging.getLogger(__name__)
 
@@ -193,8 +194,10 @@ def _stage_pane(ctx: Any) -> None:
     """
     from imgui_bundle import imgui
 
-    from .. import generation_workspace, icons, widgets
-    from ..panes import inspector, pose_panel, settings_2d, settings_3d, stage_rig
+    from .. import icons, widgets
+    from ..modes.create.ui import settings_2d, settings_3d
+    from ..modes.create.ui import workspace as generation_workspace
+    from ..panes import inspector, pose_panel, stage_rig
 
     stage = ctx.state.create_stage
     # 2026-09-07 Create review, item 5.7: progress used to be visible only
@@ -959,7 +962,8 @@ class FrameMixin:
         """
         from imgui_bundle import imgui
 
-        from .. import create_rail, create_stages
+        from ..modes.create.ui import rail as create_rail
+        from ..modes.create.ui import stages as create_stages
         from ..panes import inspector
 
         job = ctx.job()
@@ -1001,8 +1005,9 @@ class FrameMixin:
     def _viewport_pane(self) -> None:
         from imgui_bundle import imgui
 
-        from .. import create_stages, generation_workspace
         from .. import layout as layout_mod
+        from ..modes.create.ui import stages as create_stages
+        from ..modes.create.ui import workspace as generation_workspace
         from ..panes import overlay
         from ..tokens import sp
 
@@ -1131,7 +1136,8 @@ class FrameMixin:
         which is why this is not inline in either.
         """
         from .. import widgets
-        from ..panes import first_run, overlay, palette, settings_3d, troupe_send
+        from ..modes.create.ui import settings_3d
+        from ..panes import first_run, overlay, palette, troupe_send
 
         ctx = self.app_ctx
         # The layout editor, over the workspace that has just recorded its pane

@@ -763,7 +763,7 @@ def test_inker_mode_never_leaks_a_key_to_the_viewport(monkeypatch):
     import pygame
 
     from warlock.studio import main
-    from warlock.studio.panes import settings_2d, settings_3d
+    from warlock.studio.modes.create.ui import settings_2d, settings_3d
     from warlock.studio.state import AppState
 
     submitted: list[str] = []

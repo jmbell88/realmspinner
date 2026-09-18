@@ -66,7 +66,7 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from . import icons, modes, verbs
-from .create_stages import IMAGE_STAGES as _NEAR_MISS_IMAGE_STAGES
+from .modes.create.ui.stages import IMAGE_STAGES as _NEAR_MISS_IMAGE_STAGES
 
 #: The stages a job carries before it has a mesh -- a picture still being
 #: painted, generated or reconstructed from. The same tuple
@@ -230,7 +230,8 @@ def _mesh_for(ctx: Any, job: Any) -> Any:
 def _inker(ctx: Any, job: Any) -> Exit | None:
     if job.get("stage") not in _REFERENCE_STAGES:
         return None
-    from . import create_stages, inker_mode
+    from . import inker_mode
+    from .modes.create.ui import stages as create_stages
     from .panes import inspector
 
     hint = "Paint over the reference; saving updates this asset."

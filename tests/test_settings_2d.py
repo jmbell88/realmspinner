@@ -22,7 +22,8 @@ from __future__ import annotations
 import inspect
 
 from warlock import models
-from warlock.studio.panes import settings_2d
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.modes.create.ui import settings_2d
 from warlock.studio.state import default_form_2d
 
 #: The four fields ``guidance._number`` (src/warlock/guidance.py:299-313,
@@ -57,7 +58,7 @@ def _unpinned_form() -> dict:
 
 
 def test_validate_range_checks_the_conditioning_sliders_before_generate():
-    """The aggregate block above Generate (``settings_2d.validate``) has to
+    """The aggregate block above Generate (``create_recipe.validate``) has to
     catch an out-of-range slider before the round trip through
     ``guidance.normalize`` -- the same thing it already does for
     ``lora_weight`` (see the check right beside these in ``validate``)."""
@@ -65,28 +66,28 @@ def test_validate_range_checks_the_conditioning_sliders_before_generate():
     form["ip_adapter"] = "concept"
     form["ref_path"] = "ref.png"
     form["ip_scale"] = models.IP_SCALE_MAX + 1
-    problems = settings_2d.validate(form)
+    problems = create_recipe.validate(form)
     assert any(p.field == "ip_scale" for p in problems), problems
 
     form = _unpinned_form()
     form["control"] = "canny"
     form["ref_path"] = "ref.png"
     form["control_scale"] = models.CONTROL_SCALE_MAX + 1
-    problems = settings_2d.validate(form)
+    problems = create_recipe.validate(form)
     assert any(p.field == "control_scale" for p in problems), problems
 
     form = _unpinned_form()
     form["control"] = "canny"
     form["ref_path"] = "ref.png"
     form["control_end"] = models.CONTROL_END_MIN - 1
-    problems = settings_2d.validate(form)
+    problems = create_recipe.validate(form)
     assert any(p.field == "control_end" for p in problems), problems
 
     form = _unpinned_form()
     form["init_image"] = True
     form["ref_path"] = "ref.png"
     form["init_strength"] = models.IMG2IMG_STRENGTH_MAX + 1
-    problems = settings_2d.validate(form)
+    problems = create_recipe.validate(form)
     assert any(p.field == "init_strength" for p in problems), problems
 
 
@@ -98,7 +99,7 @@ def test_an_in_range_conditioning_form_is_not_flagged_by_the_new_checks():
     form["control"] = "canny"
     form["init_image"] = True
     form["ref_path"] = "ref.png"
-    problems = settings_2d.validate(form)
+    problems = create_recipe.validate(form)
     assert {p.field for p in problems}.isdisjoint(_CONDITIONING_FIELDS), problems
 
 

@@ -30,7 +30,7 @@ def test_your_first_asset_names_the_actual_generate_button_label_for_3d_model():
     label for asset type "image", not "3d_model". The real label is
     ``spec.create_label`` for the "3d_model" entry, drawn at
     ``create_brief.py:233`` as ``spec.create_label``."""
-    from warlock.studio.create_assets import ASSET_TYPES
+    from warlock.studio.modes.create.engine.assets import ASSET_TYPES
 
     label = ASSET_TYPES["3d_model"].create_label
     assert label == "Generate reference"

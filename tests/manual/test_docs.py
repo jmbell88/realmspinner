@@ -223,16 +223,15 @@ def test_help_button_call_sites_match_help_targets():
     # scan that missed it would call the viewport's (?) dead data.
     pattern = re.compile(r'help_button(?:_inline)?\(\s*ctx\s*,\s*"([^"]+)"\s*\)')
     found: set[str] = set()
-    # ``main.py`` and ``review_panes.py`` join the scan because Review's and the
-    # shell's own workspace panes are drawn there rather than in ``panes/`` --
-    # their (?) would otherwise be invisible to this test in both directions.
-    # Review's moved out of ``main`` on 2026-09-04 (T7), and this list moved
-    # with it rather than the gate quietly losing a file.
-    for path in [
-        *(studio_dir / "panes").glob("*.py"),
-        studio_dir / "main.py",
-        studio_dir / "review_panes.py",
-    ]:
+    # The whole studio tree, not a list of the directories that draw panes.
+    # The list was ``panes/*.py`` plus ``main.py`` and ``review_panes.py``, and
+    # it went stale twice: once when Review's panes left ``main`` (2026-09-04),
+    # and again when P5 of the restructure moved Create's settings columns to
+    # ``modes/create/ui/`` -- the scan lost their keys and read the targets
+    # they open as dead data.
+    paths = sorted(studio_dir.rglob("*.py"))
+    assert len(paths) > 100, "the scan found almost nothing -- is studio_dir right?"
+    for path in paths:
         found.update(pattern.findall(path.read_text(encoding="utf-8")))
     assert found == HELP_TARGETS.keys()
 

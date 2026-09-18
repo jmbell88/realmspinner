@@ -15,7 +15,8 @@ import pytest
 
 from warlock.studio import layout as layout_mod
 from warlock.studio import theme, tokens
-from warlock.studio.panes import app_settings, landing, library, settings_2d, settings_3d
+from warlock.studio.modes.create.ui import settings_2d, settings_3d
+from warlock.studio.panes import app_settings, landing, library
 
 PANES = Path(inspect.getfile(library)).resolve().parent
 
@@ -28,8 +29,8 @@ SP_SWEPT = (
     "../dialogs.py",
     "inker_canvas.py",
     "inker_bridge.py",
-    "settings_2d.py",
-    "settings_3d.py",
+    "../modes/create/ui/settings_2d.py",
+    "../modes/create/ui/settings_3d.py",
     "stage_rig.py",
     "inker_colors.py",
     # Joined 2026-08-19: THUMB and INDENT were used as raw physical pixels, so
@@ -115,7 +116,7 @@ def test_the_2d_form_scrolls_under_a_fixed_plan():
 
 
 def test_generate_is_not_in_the_scrolling_column_at_all():
-    from warlock.studio import create_brief
+    from warlock.studio.modes.create.ui import brief as create_brief
 
     assert "primary_button" not in inspect.getsource(settings_2d)
     assert "primary_button" in inspect.getsource(create_brief)

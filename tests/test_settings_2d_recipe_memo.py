@@ -1,4 +1,4 @@
-"""``settings_2d._resolved_recipe`` must not re-resolve an unchanged form.
+"""``create_recipe.resolved_recipe`` must not re-resolve an unchanged form.
 
 The 2026-09-08 audit's finding create-06 is two symptoms of one cause seen
 from two ends: ``provenance._dir_fingerprint`` re-walks every installed
@@ -16,8 +16,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from warlock import generation
-from warlock.studio import create_assets
-from warlock.studio.panes import settings_2d
+from warlock.studio.modes.create.engine import assets as create_assets
+from warlock.studio.modes.create.engine import recipe as create_recipe
 from warlock.studio.state import AppState, default_form_2d
 
 
@@ -53,10 +53,10 @@ def test_resolved_recipe_is_not_recomputed_while_the_form_is_unchanged():
     counting, original = _counting_resolve_recipe(calls)
     generation.resolve_recipe = counting
     try:
-        first = settings_2d._resolved_recipe(ctx, form)
+        first = create_recipe.resolved_recipe(ctx, form)
         for _ in range(5):
             ctx.state.frame_index += 1
-            again = settings_2d._resolved_recipe(ctx, form)
+            again = create_recipe.resolved_recipe(ctx, form)
             assert again == first
         assert len(calls) == 1, f"expected one resolution across many frames, got {len(calls)}"
     finally:
@@ -71,11 +71,11 @@ def test_resolved_recipe_reflects_a_form_edit_on_the_next_frame():
     create_assets.sync_legacy_fields(form)
     ctx = _ctx()
 
-    first = settings_2d._resolved_recipe(ctx, form)
+    first = create_recipe.resolved_recipe(ctx, form)
 
     form["model_mode"] = "advanced"
     form["model_override"] = "does-not-exist-in-the-registry"
-    changed = settings_2d._resolved_recipe(ctx, form)
+    changed = create_recipe.resolved_recipe(ctx, form)
     # An unknown override resolves to None (generation.resolve_recipe's
     # documented behaviour for an unrecognised base_model key).
     assert changed is None
@@ -105,7 +105,7 @@ def test_an_edit_and_undo_resolves_again_rather_than_reading_a_sticky_cache():
     counting, original = _counting_resolve_recipe(calls)
     generation.resolve_recipe = counting
     try:
-        first = settings_2d._resolved_recipe(ctx, form)
+        first = create_recipe.resolved_recipe(ctx, form)
 
         form["prompt"] = "a wholly different prompt, chosen to differ"
         ctx.state.frame_index += 1
@@ -113,18 +113,18 @@ def test_an_edit_and_undo_resolves_again_rather_than_reading_a_sticky_cache():
         # only the *request* differs, which is exactly the point: the cache
         # has to notice a changed request even when the changed field is not
         # one the resolved answer depends on, or it would only work by luck.
-        settings_2d._resolved_recipe(ctx, form)
+        create_recipe.resolved_recipe(ctx, form)
 
         form["prompt"] = original_prompt
         ctx.state.frame_index += 1
-        restored = settings_2d._resolved_recipe(ctx, form)
+        restored = create_recipe.resolved_recipe(ctx, form)
         assert restored == first
 
         # Several more unchanged frames after the undo must not add a fourth
         # resolution -- the cache is content-keyed, not frame-keyed.
         for _ in range(3):
             ctx.state.frame_index += 1
-            assert settings_2d._resolved_recipe(ctx, form) == restored
+            assert create_recipe.resolved_recipe(ctx, form) == restored
 
         assert len(calls) == 3, (
             "expected exactly one recompute per transition (initial, edit, "
@@ -147,7 +147,7 @@ def test_model_combo_resolves_the_recipe_through_the_memo_not_directly():
     so the pane function can be driven headlessly, same as this module's
     other tests drive ``_resolved_recipe`` directly.
     """
-    from warlock.studio.panes import settings_2d as mod
+    from warlock.studio.modes.create.ui import settings_2d as mod
 
     form = default_form_2d()
     create_assets.sync_legacy_fields(form)

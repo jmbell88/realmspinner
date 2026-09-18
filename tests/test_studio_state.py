@@ -692,7 +692,7 @@ def test_the_reference_path_persists_and_is_checked_rather_than_dropped(tmp_path
     rule existed for is real -- a remembered path to a file that has since
     moved would condition next week's generation on nothing -- so it is
     answered where it can actually be answered, against the filesystem
-    (``panes.settings_2d._verify_reference_path``), rather than by throwing
+    (``panes.create_recipe.verify_reference_path``), rather than by throwing
     the value away every time on the chance that it went stale.
     """
     kept = tmp_path / "knight.png"

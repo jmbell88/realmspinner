@@ -17,10 +17,10 @@ from imgui_bundle import imgui
 from .....service import jobs as svc_jobs
 from .....service import sprites as svc_sprites
 from .... import asset_open, controls, widgets
-from ..engine import assets as create_assets
 from .... import candidates as candidates_mod
 from ....panes import thumbs
 from ....tokens import sp
+from ..engine import assets as create_assets
 
 #: How many finished results the tray shows, and the width of its grid. One
 #: number because they are one fact: the tray is a fixed-height strip, so the
@@ -66,11 +66,10 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
         stages = "Generate tile sheet → inspect cells"
     elif spec.key == "sprite_sheet":
         # The sprite follow-up has one preliminary character plus one sheet
-        # image per planned cell/candidate.  Import lazily: settings_2d owns
-        # the UI layout vocabulary and importing it at module load cycles.
-        from . import settings_2d
+        # image per planned cell/candidate.
+        from ..engine import recipe as create_recipe
 
-        sprite = settings_2d.sprite_plan(form)
+        sprite = create_recipe.sprite_plan(form)
         candidates = int(sprite["candidates"])
         generations = 1 + int(sprite["generations"])
         duration = svc_sprites.generation_time_phrase(generations)
@@ -86,11 +85,11 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
         # press rather than after it, which is why "no GPU needed" is in the
         # line rather than in a tooltip.
         from .....service import characters as svc_characters
-        from . import settings_character
+        from ..engine import character as character_engine
 
         candidates = 1
         generations = 0
-        cells = settings_character.cell_count(form)
+        cells = character_engine.cell_count(form)
         stages = (
             f"1 character ({_species_label(form)}) → rig → {cells}-cell "
             f"sheet, CPU only, no GPU needed"
@@ -458,8 +457,8 @@ def _make_3d(ctx: Any, job: dict[str, Any]) -> None:
 
 def _vary(ctx: Any, job: dict[str, Any]) -> None:
     """Copy a result's recorded brief back to the live form for a controlled edit."""
-    from . import stages as create_stages
     from ....panes import library
+    from . import stages as create_stages
 
     library.copy_settings(ctx, job)
     create_stages.go(ctx, "reference", follow=False)

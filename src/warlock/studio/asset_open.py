@@ -103,7 +103,7 @@ def route(job: Any) -> Route:
     Pure: no ``ctx``, no imgui, no I/O, so the rule can be tested as a table
     rather than by driving a window.
     """
-    from . import create_stages
+    from .modes.create.ui import stages as create_stages
 
     if not isinstance(job, dict):
         return Route("create", "reference", "", "", "")
@@ -152,7 +152,8 @@ def open_asset(ctx: Any, job_or_id: Any) -> None:
     # Lazily: this module is imported by panes and by main, while ``widgets``
     # pulls in imgui at module scope and this file must stay importable by a
     # test with no GL context.
-    from . import create_stages, troupe_mode, widgets
+    from . import troupe_mode, widgets
+    from .modes.create.ui import stages as create_stages
     from .panes import library
 
     job = job_or_id if isinstance(job_or_id, dict) else ctx.cache.get(job_or_id)

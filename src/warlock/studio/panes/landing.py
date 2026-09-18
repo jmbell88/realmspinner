@@ -34,7 +34,6 @@ from ... import changelog
 from .. import (
     asset_open,
     controls,
-    create_stages,
     fonts,
     icons,
     mode_manifest,
@@ -45,6 +44,7 @@ from .. import (
     widgets,
 )
 from ..manual import render as manual_render
+from ..modes.create.ui import stages as create_stages
 from ..state import DEFAULT_FORM_3D, default_form_2d, format_bytes, set_mode
 from ..tokens import sp
 from . import thumbs

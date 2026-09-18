@@ -158,7 +158,7 @@ def test_the_details_tab_still_skips_the_verdict_section_for_a_reference():
     not grow "Mesh quality" or "Was this any good?" just because the gate
     moved off ``state.mode``.
     """
-    from warlock.studio import create_stages
+    from warlock.studio.modes.create.ui import stages as create_stages
 
     job = {"id": "bbbbbbbbbbbb", "stage": "reference", "status": "done"}
     assert create_stages.stage_for(job) != "mesh"

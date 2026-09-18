@@ -549,7 +549,7 @@ def test_the_picker_reads_grades_once_per_group_not_per_frame(svc):
 def test_an_engine_axis_set_on_the_mesh_form_reaches_the_promoted_jobs_params(svc):
     """The pane's own kwargs builder, through the service door, into the
     stored row -- the whole path a press of Make 3D actually takes."""
-    from warlock.studio.panes import settings_3d
+    from warlock.studio.modes.create.engine import mesh as create_mesh
     from warlock.studio.state import DEFAULT_FORM_3D
 
     source = _reference(svc)
@@ -563,7 +563,7 @@ def test_an_engine_axis_set_on_the_mesh_form_reaches_the_promoted_jobs_params(sv
         "trellis_decim": 0,  # the interesting rung: "decimation off", not "unset"
         "trellis_atlas": 4096,
     }
-    kwargs = settings_3d.promote_kwargs(form)
+    kwargs = create_mesh.promote_kwargs(form)
     for key, expected in (
         ("trellis_band", 8),
         ("trellis_tex_res", 256),
@@ -615,10 +615,10 @@ def test_an_unset_engine_axis_writes_no_param_so_the_exe_default_runs(svc):
 
     # The pane's own path to the same thing: a form left at its sentinels
     # sends no engine kwarg at all, so an ordinary promotion is unaffected.
-    from warlock.studio.panes import settings_3d
+    from warlock.studio.modes.create.engine import mesh as create_mesh
     from warlock.studio.state import DEFAULT_FORM_3D
 
-    kwargs = settings_3d.promote_kwargs(dict(DEFAULT_FORM_3D))
+    kwargs = create_mesh.promote_kwargs(dict(DEFAULT_FORM_3D))
     assert not any(k.startswith("trellis_") for k in kwargs)
 
 
@@ -651,16 +651,16 @@ def test_a_bad_engine_value_is_refused_at_promotion_with_its_field(svc):
 
 def test_the_candidate_count_is_clamped_to_what_the_service_admits():
     from warlock.service.validation import MAX_MESH_CANDIDATES
-    from warlock.studio.panes import settings_3d
+    from warlock.studio.modes.create.engine import mesh as create_mesh
 
-    assert settings_3d.candidate_count({"candidates": 1}) == 1
-    assert settings_3d.candidate_count({"candidates": 3}) == 3
+    assert create_mesh.candidate_count({"candidates": 1}) == 1
+    assert create_mesh.candidate_count({"candidates": 3}) == 3
     # A persisted settings file written under a higher ceiling, or edited by
     # hand, must not send a number the service refuses.
-    assert settings_3d.candidate_count({"candidates": 99}) == MAX_MESH_CANDIDATES
-    assert settings_3d.candidate_count({"candidates": 0}) == 1
-    assert settings_3d.candidate_count({"candidates": "three"}) == 1
-    assert settings_3d.candidate_count({}) == 1
+    assert create_mesh.candidate_count({"candidates": 99}) == MAX_MESH_CANDIDATES
+    assert create_mesh.candidate_count({"candidates": 0}) == 1
+    assert create_mesh.candidate_count({"candidates": "three"}) == 1
+    assert create_mesh.candidate_count({}) == 1
 
 
 def test_the_count_rides_the_matte_preview_into_the_promotion(svc):
@@ -668,7 +668,7 @@ def test_the_count_rides_the_matte_preview_into_the_promotion(svc):
     captures the form as it stood at the press. The count is part of that
     capture, or Accept would submit a number the user has since changed."""
     from warlock.studio import matte_preview
-    from warlock.studio.panes import settings_3d
+    from warlock.studio.modes.create.ui import settings_3d
     from warlock.studio.state import DEFAULT_FORM_3D
 
     source = _reference(svc)

@@ -343,7 +343,8 @@ def test_settings_draws_no_bare_imgui_text_as_a_name_column():
 
 def _modal_sources() -> dict[str, str]:
     from warlock.studio import dialogs
-    from warlock.studio.panes import plotter_canvas, settings_3d
+    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.panes import plotter_canvas
 
     return {
         name: inspect.getsource(module)

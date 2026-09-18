@@ -13,7 +13,7 @@ import pytest
 
 from warlock.service.errors import Invalid, TooLarge
 from warlock.service.validation import MAX_UPLOAD_BYTES
-from warlock.studio.panes import settings_3d
+from warlock.studio.modes.create.ui import settings_3d
 from warlock.studio.state import DEFAULT_FORM_3D
 
 
@@ -152,7 +152,7 @@ class _Ctx2D:
 def test_the_reference_is_read_off_the_frame_thread(tmp_path, monkeypatch, installed_recipes):
     """Same rule as the 3D upload: picking a 20 MB reference must not freeze
     the window for as long as the disk takes."""
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     seen = {}
     monkeypatch.setattr(
@@ -173,7 +173,7 @@ def test_the_reference_is_read_off_the_frame_thread(tmp_path, monkeypatch, insta
 
 
 def test_an_unreadable_reference_becomes_a_readable_error(tmp_path, installed_recipes):
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     ctx = _Ctx2D(prompt="a barrel", ref_path=str(tmp_path / "gone.png"))
     settings_2d.generate(ctx, ctx.state.form_2d)
@@ -185,7 +185,7 @@ def test_an_unreadable_reference_becomes_a_readable_error(tmp_path, installed_re
 def test_no_reference_means_no_reference_kwarg(tmp_path, monkeypatch, installed_recipes):
     """The unconditioned submit must be exactly what it was before any of this
     existed -- create_job is never handed reference=None to interpret."""
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     seen = {}
     monkeypatch.setattr(
@@ -203,14 +203,14 @@ def test_no_reference_means_no_reference_kwarg(tmp_path, monkeypatch, installed_
 def test_a_scale_is_sent_only_with_the_selection_it_scales():
     """Mirrors lora_weight: an unused slider must not reach params as a live
     setting the next run would inherit."""
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.engine import recipe as create_recipe
     from warlock.studio.state import default_form_2d
 
-    bare = settings_2d.submit_kwargs({**default_form_2d(), "prompt": "a barrel"})
+    bare = create_recipe.submit_kwargs({**default_form_2d(), "prompt": "a barrel"})
     assert bare["ip_scale"] is None
     assert bare["control_scale"] is None
 
-    picked = settings_2d.submit_kwargs(
+    picked = create_recipe.submit_kwargs(
         {
             **default_form_2d(),
             "prompt": "a barrel",
@@ -228,11 +228,11 @@ def test_validate_catches_what_a_restored_form_can_still_be():
     """ref_path is VOLATILE, so a persisted selection outlives the image that
     justified it -- and the base model can be changed after a control is
     picked."""
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.engine import recipe as create_recipe
     from warlock.studio.state import default_form_2d
 
     orphan = {**default_form_2d(), "prompt": "a barrel", "ip_adapter": "plus"}
-    assert any("reference image" in p for p in settings_2d.validate(orphan))
+    assert any("reference image" in p for p in create_recipe.validate(orphan))
 
     wrong_base = {
         **default_form_2d(),
@@ -241,7 +241,7 @@ def test_validate_catches_what_a_restored_form_can_still_be():
         "control": "canny",
         "base_model": "turbo",
     }
-    assert any("full-CFG" in p for p in settings_2d.validate(wrong_base))
+    assert any("full-CFG" in p for p in create_recipe.validate(wrong_base))
 
     ok = {**wrong_base, "base_model": "sdxl_cfg"}
-    assert settings_2d.validate(ok) == []
+    assert create_recipe.validate(ok) == []

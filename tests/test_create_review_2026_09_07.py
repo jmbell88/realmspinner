@@ -15,7 +15,9 @@ from types import SimpleNamespace
 
 from warlock.service import matte as svc_matte
 from warlock.studio import matte_preview
-from warlock.studio.panes import settings_3d, sheet_panel, stage_rig
+from warlock.studio.modes.create.engine import mesh as create_mesh
+from warlock.studio.modes.create.ui import settings_3d
+from warlock.studio.panes import sheet_panel, stage_rig
 from warlock.studio.state import DEFAULT_FORM_3D, AppState
 
 
@@ -97,7 +99,7 @@ def test_selecting_a_finished_mesh_does_not_ask_the_mesh_stage_to_choose_a_refer
 
     Verified at ``library.select`` (panes/library.py): ``state.source_job`` is
     only ever set for a *done reference* row, so selecting a finished mesh
-    leaves it untouched (or None). Unfixed, ``settings_3d.validate`` then sees
+    leaves it untouched (or None). Unfixed, ``create_mesh.validate`` then sees
     no source at all and refuses with "Choose a reference first." for a job
     that plainly has one.
     """
@@ -121,7 +123,7 @@ def test_selecting_a_finished_mesh_does_not_ask_the_mesh_stage_to_choose_a_refer
     resolved = settings_3d._effective_source(ctx, ctx.cache.get(ctx.state.source_job))
 
     assert resolved is reference
-    assert settings_3d.validate(resolved) == []
+    assert create_mesh.validate(resolved) == []
 
 
 def test_an_explicit_source_pick_still_wins_over_the_selected_mesh():

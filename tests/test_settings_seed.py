@@ -64,7 +64,7 @@ def test_a_malformed_seed_from_a_settings_file_still_rings_the_seed_control():
     seed row must ring their own control and clear the ring on edit, the same
     contract every other refusable control on these panes already keeps
     (``tests/test_field_error_wiring.py``)."""
-    from warlock.studio.panes import settings_2d
+    from warlock.studio.modes.create.ui import settings_2d
 
     seed_row_src = inspect.getsource(settings_2d._seed_row)
     assert 'field_error(ctx.state, "seed")' in seed_row_src, (
@@ -78,7 +78,7 @@ def test_a_malformed_seed_from_a_settings_file_still_rings_the_seed_control():
     # (unlike settings_2d, which split it out) -- checked over the pane's
     # whole source for that reason, the same way test_field_error_wiring.py
     # checks stage_rig's bare combo.
-    settings_3d_src = _source("panes/settings_3d.py")
+    settings_3d_src = _source("modes/create/ui/settings_3d.py")
     assert 'field_error(ctx.state, "mesh_seed")' in settings_3d_src, (
         "settings_3d never rings the mesh_seed control on a refusal"
     )

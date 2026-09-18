@@ -12,7 +12,7 @@ anywhere without dragging imgui in.
 
 from __future__ import annotations
 
-from . import icons
+from .. import icons
 
 # (key, label, icon, purpose). The key is what lands in ``AppState.mode``.
 # ``purpose`` is a short, plain sentence saying what the mode is *for* -- a

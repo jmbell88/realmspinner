@@ -147,7 +147,7 @@ def test_migrate_makes_the_two_asset_type_fields_agree_on_a_pre_asset_type_file(
         "the migrated file must not disagree with itself about which asset "
         "type was chosen"
     )
-    from warlock.studio import create_assets
+    from warlock.studio.modes.create.engine import assets as create_assets
 
     assert form["asset_type"] == create_assets.DEFAULT_ASSET_TYPE
     # _migrate must stay a silent repair: no notice, and nothing marked dirty.

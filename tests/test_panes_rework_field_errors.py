@@ -103,7 +103,7 @@ def test_a_create_brief_empty_prompt_refusal_does_not_ring_the_retexture_surface
     """The 2026-09-08 audit, finding create-02: ``texture_panel``'s Surface
     prompt field was keyed by the bare id "prompt" -- the same id
     ``create_brief.py``'s main asset-prompt field uses, and the same id
-    ``settings_2d.validate()`` files an empty-prompt refusal under -- in the
+    ``create_recipe.validate()`` files an empty-prompt refusal under -- in the
     shared, flat ``ctx.state.field_errors`` dict. An ordinary "the asset
     prompt is empty" refusal from Create's Reference stage carried
     ``field="prompt"`` and so rang the Surface field of an unrelated,

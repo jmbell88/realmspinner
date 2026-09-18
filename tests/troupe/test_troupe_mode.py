@@ -1689,13 +1689,13 @@ def test_varying_a_character_loads_its_recipe_as_the_users_own_choices(ctx, svc,
     """**Every field is marked as an override, and that is the whole claim.**
 
     Create's character form follows the prompt for anything the user has not
-    touched (``settings_character.sync_from_prompt``), and the prompt in the
+    touched (``character_engine.sync_from_prompt``), and the prompt in the
     box is whatever was last typed there -- so a recipe loaded without the
     override marks would have its species, theme and camera silently rewritten
     on the next keystroke, by a brief that is not about this character. The
     press of the button *is* the touch."""
-    from warlock.studio import create_stages
-    from warlock.studio.panes import settings_character
+    from warlock.studio.modes.create.engine import character as character_engine
+    from warlock.studio.modes.create.ui import stages as create_stages
     from warlock.studio.state import default_form_2d
 
     went: list[str] = []
@@ -1731,14 +1731,14 @@ def test_varying_a_character_loads_its_recipe_as_the_users_own_choices(ctx, svc,
     assert '"horn"' in form["character_body"]
     assert form["seed"] == 4242
 
-    marked = set(settings_character.overrides_of(form))
-    assert set(settings_character.RECIPE_FIELDS) <= marked, "no field follows the prompt"
+    marked = set(character_engine.overrides_of(form))
+    assert set(character_engine.RECIPE_FIELDS) <= marked, "no field follows the prompt"
 
     # And the proof of what the marks are for: re-resolving the brief in the
     # box leaves every one of them exactly where this put it.
-    before = {key: form[key] for key in settings_character.RECIPE_FIELDS}
-    settings_character.sync_from_prompt(form)
-    assert {key: form[key] for key in settings_character.RECIPE_FIELDS} == before
+    before = {key: form[key] for key in character_engine.RECIPE_FIELDS}
+    character_engine.sync_from_prompt(form)
+    assert {key: form[key] for key in character_engine.RECIPE_FIELDS} == before
 
 
 def test_a_sheet_with_no_recipe_offers_no_variation(ctx, svc):

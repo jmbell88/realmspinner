@@ -38,7 +38,7 @@ def default_form_2d() -> dict[str, Any]:
     from ..service.sprites import DEFAULT_SPRITE_OUTLINE
     from ..service.tilesheets import DEFAULT_MODE as DEFAULT_TILE_MODE
     from ..service.validation import random_seed
-    from .create_assets import DEFAULT_ASSET_TYPE
+    from .modes.create.engine.assets import DEFAULT_ASSET_TYPE
 
     return {
         "prompt": "",
@@ -181,7 +181,7 @@ def default_form_2d() -> dict[str, Any]:
         # ``type(value) is type(default)`` -- so every type below is chosen for
         # what the control hands back and for what survives a round trip
         # through JSON. The character door takes a ``characters.recipe.Recipe``
-        # dict; ``panes.settings_character.recipe_kwargs`` is the one place
+        # dict; ``modes.create.engine.character.recipe_kwargs`` is the one place
         # these are compiled into one.
         #
         # Empty means "whatever the prompt resolved to", and it stays empty
@@ -210,7 +210,7 @@ def default_form_2d() -> dict[str, Any]:
         # The movements this sheet carries, comma separated. A string rather
         # than a list because it is three switches whose set is small and
         # ordered, and because a comma-joined value diffs readably in the
-        # settings file; ``settings_character.actions_of`` splits it once.
+        # settings file; ``character_engine.actions_of`` splits it once.
         "character_actions": "idle,walk,attack",
         # The appearance sliders, as JSON: the channel *set* belongs to the
         # species' archetype, so this cannot be a fixed group of float fields
@@ -265,7 +265,7 @@ def form_from_params(params: dict[str, Any], *, stage: str = "") -> dict[str, An
                 form[key] = str(value)
         except (TypeError, ValueError):
             continue
-    from . import create_assets
+    from .modes.create.engine import assets as create_assets
 
     _restore_sheet_block(form, params)
     form["asset_type"] = (
@@ -1062,7 +1062,7 @@ class AppState:
     # silently hides half its contents on launch.
     list_filters: dict[str, str] = field(default_factory=dict)
     # ``(frame, id(form)) -> problems`` for the Reference stage's plan footer
-    # (``settings_2d.problems_for``). Per-ctx rather than a module global: a
+    # (``recipe.problems_for``). Per-ctx rather than a module global: a
     # module-level cache keyed on ``id(form)`` alone would let a second ctx's
     # form -- reusing a GC'd id -- read the first ctx's stale verdict.
     problems_cache: tuple[tuple[int, int], list[Any]] | None = None

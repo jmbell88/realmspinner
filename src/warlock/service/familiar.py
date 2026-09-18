@@ -487,7 +487,7 @@ def create_planned_character(
     finished, a species that no longer resolves the way it did when the
     model last saw it) -- and only the fresh recipe it returns is handed to
     :func:`~..service.characters.create_character`, the same door Create's
-    own submit calls (``panes/settings_character.py``'s ``submit``): a
+    own submit calls (``modes/create/ui/settings_character.py``'s ``submit``): a
     character queued from a plan is queued exactly the way a person's own
     Generate press would have queued it, comment or no comment from an
     agent session in between.
@@ -551,7 +551,7 @@ def ask(
     (``service.characters.character_options``) is already service-layer
     data, not studio machinery, so the caller (``studio/familiar_ui.py``)
     only exists as the one place already computing it, cached, for Create's
-    own form (``panes/settings_character.options``); this module still never
+    own form (``modes/create/engine/character.options``); this module still never
     reads a registry to build it fresh.
     """
     route_reply = _call(

@@ -96,6 +96,7 @@ from typing import Any
 from .. import vectors
 from ..service import verdicts as verdicts_mod
 from . import quality
+from .formvalues import coerce_form_value
 
 log = logging.getLogger(__name__)
 
@@ -1536,7 +1537,7 @@ def capture_base(ctx: Any) -> dict[str, Any]:
         base["size_m"] = float(form_3d["size_m"])
     base["reference_prep"] = bool(form_3d.get("reference_prep"))
     # The seven engine axes, the same "still at its sentinel means omitted"
-    # rule ``settings_3d._engine_kwargs`` states for the same fields -- a
+    # rule ``mesh.engine_kwargs`` states for the same fields -- a
     # sweep launched from a form that never touched these must not claim a
     # trellis flag nobody set. 0 is every sentinel but trellis_decim's, whose
     # own 0 is "decimation off" rather than "unset" (state.DEFAULT_FORM_3D).
@@ -1884,7 +1885,7 @@ def preview_line(state: ReviewState, labels: dict[str, str] | None = None) -> st
     GPU rather than after.
 
     ``labels`` is a param -> human-name map the *caller* supplies, because label
-    resolution is ``panes.settings_2d.field_label``'s and this module may not
+    resolution is ``modes.create.engine.recipe.field_label``'s and this module may not
     import a pane. Absent, the param names are used, which is what a headless
     caller wants anyway.
 
@@ -2268,26 +2269,3 @@ def apply_vector(state: Any, vector: dict[str, Any]) -> None:
             form[key] = coerce_form_value(form[key], value)
 
 
-def coerce_form_value(default: Any, value: Any) -> Any:
-    """``value`` cast to the type ``default`` already is.
-
-    Public (promoted from ``_coerce_form_value``) because the best-value
-    "Use ..." button the generate panes offer next to a findings hint
-    (``settings_2d``/``settings_3d``) writes into a form the identical way
-    ``apply_vector`` does, and for the identical reason: a bucket key such as
-    ``"0.6"`` in ``findings.json`` is always a string, and the form field it
-    is offered against may be a float, so the write has to land in the type
-    the widget actually reads.
-    """
-    try:
-        if isinstance(default, bool):
-            return bool(value)
-        if isinstance(default, float):
-            return float(value)
-        if isinstance(default, int):
-            return int(value)
-        if isinstance(default, str):
-            return str(value)
-    except (TypeError, ValueError):
-        return default
-    return value

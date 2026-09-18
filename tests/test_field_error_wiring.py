@@ -28,8 +28,8 @@ from warlock.studio import forms
 #: The panes whose forms carry fields a refusal can name. Each entry is the
 #: module path and the ``forms.Form`` id it opens.
 FIELD_FORMS = (
-    ("panes/settings_2d.py", "create-2d"),
-    ("panes/settings_3d.py", "create-3d"),
+    ("modes/create/ui/settings_2d.py", "create-2d"),
+    ("modes/create/ui/settings_3d.py", "create-3d"),
     ("panes/app_settings.py", "lora-import"),
     ("panes/app_settings.py", "lora-train"),
     ("panes/remesh_panel.py", "remesh-settings"),
@@ -87,8 +87,8 @@ def test_the_retarget_field_ids_are_the_refusals_own_names():
 def test_every_submit_that_can_be_refused_by_name_drops_last_times_rings():
     """A new submit is judged on its own."""
     for rel in (
-        "panes/settings_2d.py",
-        "panes/settings_3d.py",
+        "modes/create/ui/settings_2d.py",
+        "modes/create/ui/settings_3d.py",
         "panes/sheet_panel.py",
         "panes/sprite_panel.py",
         "panes/retarget_panel.py",
@@ -207,12 +207,12 @@ def test_the_character_panes_own_refusals_name_its_own_controls():
     """
     import inspect
 
-    from warlock.studio.panes import settings_character
+    from warlock.studio.modes.create.engine import character as character_engine
 
-    drawn = _form_field_ids("panes/settings_character.py")
-    source = inspect.getsource(settings_character.problems)
-    source += inspect.getsource(settings_character._no_species)
-    fields = set(re.findall(r'widgets\.Problem\([^)]*?,\s*"([a-z_]+)"\s*\)', source, re.S))
+    drawn = _form_field_ids("modes/create/ui/settings_character.py")
+    source = inspect.getsource(character_engine.problems)
+    source += inspect.getsource(character_engine._no_species)
+    fields = set(re.findall(r'problem_types\.Problem\([^)]*?,\s*"([a-z_]+)"\s*\)', source, re.S))
     assert fields, "the extraction found nothing, which is not an answer"
     for name in sorted(fields):
         assert name in drawn or name in ELSEWHERE, (
@@ -233,7 +233,7 @@ def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
 
     from warlock.characters.errors import CharacterError
     from warlock.characters.recipe import DEFAULT_RECIPE, Recipe
-    from warlock.studio.panes import settings_character
+    from warlock.studio.modes.create.engine import character as character_engine
 
     #: One request per address, each wrong in exactly the way that address
     #: names. Provoked rather than pattern-matched out of the source: several
@@ -261,10 +261,10 @@ def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
         "appearance": {"appearance": {"not-a-channel": 1.0}},
         "name": {"name": "x" * 500},
     }
-    drawn = _form_field_ids("panes/settings_character.py")
-    mapped = {alias for aliases in settings_character.RECIPE_FIELDS.values() for alias in aliases}
+    drawn = _form_field_ids("modes/create/ui/settings_character.py")
+    mapped = {alias for aliases in character_engine.RECIPE_FIELDS.values() for alias in aliases}
     assert mapped == set(provoke), "every address this map claims, and no other"
-    for control, aliases in settings_character.RECIPE_FIELDS.items():
+    for control, aliases in character_engine.RECIPE_FIELDS.items():
         assert control in drawn, f"{control} is mapped but nothing draws it"
         for alias in aliases:
             with pytest.raises(CharacterError) as excinfo:
@@ -277,14 +277,14 @@ def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
     # And it actually moves one. A door refusal about the colour count must
     # come back rung on the Colours control.
     state = SimpleNamespace(field_errors={"colors": "colours must be one of [8, 16, 32, 64]"})
-    settings_character.mirror_errors(SimpleNamespace(state=state))
+    character_engine.mirror_errors(SimpleNamespace(state=state))
     assert state.field_errors["character_colors"] == state.field_errors["colors"]
     # An address the pane already holds is never overwritten: the pane's own
     # sentence is about this frame's form, and the door's is about the last
     # submitted one.
     state.field_errors["character_pixel"] = "mine"
     state.field_errors["logical_size"] = "theirs"
-    settings_character.mirror_errors(SimpleNamespace(state=state))
+    character_engine.mirror_errors(SimpleNamespace(state=state))
     assert state.field_errors["character_pixel"] == "mine"
 
 
@@ -410,7 +410,8 @@ def test_changing_the_rig_stage_skeleton_clears_its_field_error_ring():
     """
     import inspect
 
-    from warlock.studio.panes import settings_3d, stage_rig
+    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.panes import stage_rig
 
     field_src = inspect.getsource(stage_rig.skeleton_field)
     assert 'clear_field_error("rig_template")' in field_src, (

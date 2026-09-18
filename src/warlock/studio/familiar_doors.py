@@ -135,11 +135,13 @@ def draft_in_create(
 
     *character_fields* exists for T7's character-plan card: applied the way
     ``troupe_mode.vary_in_create`` applies a recipe's own fields -- written,
-    then marked ``settings_character.touched`` so the next prompt edit
+    then marked ``character_engine.touched`` so the next prompt edit
     (``sync_from_prompt``) leaves them alone rather than silently
     overwriting what the card just proposed.
     """
-    from . import create_assets, create_stages
+    from .modes.create.engine import assets as create_assets
+    from .modes.create.engine import character as character_engine
+    from .modes.create.ui import stages as create_stages
     from .panes import model_gate
 
     where, _blocked = model_gate.mode_gate(ctx, "create")
@@ -151,12 +153,10 @@ def draft_in_create(
     form["generation_type"] = asset_type
     form["prompt"] = prompt
     if asset_type == "character":
-        from .panes import settings_character
-
-        settings_character.sync_from_prompt(form)
+        character_engine.sync_from_prompt(form)
         for field_key, value in (character_fields or {}).items():
             form[field_key] = value
-            settings_character.touched(form, field_key)
+            character_engine.touched(form, field_key)
     create_assets.sync_legacy_fields(form)
     create_stages.go(ctx, "reference")
     return "Drafted in Create -- check the brief and press Generate."

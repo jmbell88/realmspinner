@@ -1291,7 +1291,7 @@ def copy_settings(ctx: Any, job: Any) -> None:
     Public: the results tray's "Vary" is the same verb on the same row and was
     reaching for the private name to do it.
     """
-    from .. import create_assets
+    from ..modes.create.engine import assets as create_assets
     from ..state import form_from_params
 
     params = job.get("params") or {}
@@ -1323,7 +1323,7 @@ def copy_settings(ctx: Any, job: Any) -> None:
     ):
         form["asset_type"] = create_assets.legacy_asset_type(form)
     create_assets.sync_legacy_fields(form)
-    from .. import create_stages
+    from ..modes.create.ui import stages as create_stages
 
     ctx.state.form_2d = form
     create_stages.go(ctx, "reference")
@@ -1366,7 +1366,7 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
         mode = "remesh" if _remeshable(job) else "reroll"
         ctx.submit(f"retry:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode=mode)
     elif action == "promote":
-        from .. import create_stages
+        from ..modes.create.ui import stages as create_stages
 
         ctx.state.source_job = job_id
         # ``follow=False``: the source is named on the line above, and walking

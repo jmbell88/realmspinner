@@ -16,7 +16,7 @@ from PIL import Image
 
 from warlock.kernels import pixel as inker
 from warlock.studio import inker_mode, matte_preview
-from warlock.studio.panes import settings_3d
+from warlock.studio.modes.create.ui import settings_3d
 from warlock.studio.state import DEFAULT_FORM_3D, AppState
 
 

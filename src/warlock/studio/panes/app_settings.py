@@ -33,8 +33,8 @@ from ...service import library as svc_library
 from .. import app_ctx, controls, dialogs, forms, icons, theme, tokens, widgets
 from .. import layouts as layouts_mod
 from ..manual import render as manual_render
+from ..modes.create.ui import settings_3d
 from ..tokens import sp
-from . import settings_3d
 
 #: How wide the settings column is allowed to grow, in design pixels.
 #:
@@ -474,7 +474,7 @@ def _interface(ctx: Any, form_ui: forms.Form | None = None) -> None:
     # This is the opt-in escape from it, and it is narrow on purpose: it only
     # ever lets Make 3D skip the question when the composition gate raised
     # nothing at all and BiRefNet made the cut, never a refused, warned, or
-    # corner-fill-fallback matte (``settings_3d._matte_is_clean``).
+    # corner-fill-fallback matte (``create_mesh.matte_is_clean``).
     skip_matte = bool(ctx.settings.get(settings_3d.SKIP_CLEAN_MATTE_SETTING, False))
     changed, skip_matte = form_ui.switch(
         "skip_clean_matte_preview",

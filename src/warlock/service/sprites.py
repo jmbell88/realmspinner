@@ -264,7 +264,7 @@ def sprite_cost(
 ) -> dict[str, Any]:
     """What one press of Generate draws for this kind at this size, and its cost.
 
-    The reference panel's counterpart to ``settings_2d.sprite_plan``, and it is
+    The reference panel's counterpart to ``recipe.sprite_plan``, and it is
     here for the reason that one's docstring gives about its own numbers: what
     the user is told and what is submitted have to be the same arithmetic rather
     than two of it. The panel had neither -- it stated "two drafts" and "two full

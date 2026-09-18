@@ -31,8 +31,10 @@ from warlock.service import jobs as svc_jobs
 from warlock.service import sprites as svc_sprites
 from warlock.service import tilesheets as svc_tilesheets
 from warlock.service.errors import Invalid
-from warlock.studio import create_assets, settings
-from warlock.studio.panes import settings_2d
+from warlock.studio import settings
+from warlock.studio.modes.create.engine import assets as create_assets
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.modes.create.ui import settings_2d
 from warlock.studio.state import default_form_2d
 
 #: The three layouts, under the names the form field carries.
@@ -95,7 +97,7 @@ def test_the_output_kind_comes_from_the_asset_registry_not_a_control():
     # ``create_job``'s own three are the first three and nothing else may join
     # them without a branch at that door.
     from warlock.service import _jobs_create
-    from warlock.studio import create_assets
+    from warlock.studio.modes.create.engine import assets as create_assets
 
     outputs = {spec.output for spec in create_assets.ASSET_TYPES.values()}
     assert outputs == {"reference", "tile", "sheet", "character"}
@@ -130,35 +132,35 @@ def test_a_tile_grid_does_not_go_through_create_job():
     branches before it -- this pins that the branch exists by pinning that the
     kwargs would be wrong if it did not."""
     form = _sheet_form()
-    assert settings_2d.submit_kwargs(form)["output"] == "reference"
+    assert create_recipe.submit_kwargs(form)["output"] == "reference"
 
 
 def test_a_tile_grid_still_needs_a_prompt():
     form = _sheet_form(prompt="")
-    assert any(p.field == "prompt" for p in settings_2d.validate(form))
+    assert any(p.field == "prompt" for p in create_recipe.validate(form))
 
 
 @pytest.mark.parametrize("size", svc_tilesheets.TILE_SIZES)
 def test_every_size_the_grid_layout_offers_validates(size):
-    assert not settings_2d.validate(_sheet_form(tile_mode=GRID, tile_size=str(size)))
+    assert not create_recipe.validate(_sheet_form(tile_mode=GRID, tile_size=str(size)))
 
 
 @pytest.mark.parametrize("mode", [MATERIALS, TERRAIN])
 def test_every_size_a_seamless_layout_offers_validates(mode):
     form = _terrain_form() if mode == TERRAIN else _sheet_form()
-    for size in settings_2d.tile_sizes_for(form):
-        assert not settings_2d.validate({**form, "tile_size": str(size)}), size
+    for size in create_recipe.tile_sizes_for(form):
+        assert not create_recipe.validate({**form, "tile_size": str(size)}), size
 
 
 def test_a_tile_size_off_the_menu_is_caught_before_the_door():
     """Reachable from a *restored* form rather than from this frame's control:
     the value is persisted and the menu can change between releases."""
-    problems = settings_2d.validate(_sheet_form(tile_size="24"))
+    problems = create_recipe.validate(_sheet_form(tile_size="24"))
     assert any(p.field == "tile_size" for p in problems)
 
 
 def test_a_view_off_the_menu_is_caught_before_the_door():
-    problems = settings_2d.validate(_sheet_form(tile_mode=GRID, projection="hexagonal"))
+    problems = create_recipe.validate(_sheet_form(tile_mode=GRID, projection="hexagonal"))
     assert any(p.field == "projection" for p in problems)
 
 
@@ -166,7 +168,7 @@ def test_the_sprite_arm_is_not_judged_by_the_tile_arms_rules():
     """The two arms share a form dict, so a tile size left over from the other
     arm must not refuse a sprite sheet that never reads it."""
     form = _sheet_form(sheet_type="sprite", tile_size="24", projection="hexagonal")
-    assert not settings_2d.validate(form)
+    assert not create_recipe.validate(form)
 
 
 @pytest.mark.parametrize(
@@ -189,7 +191,7 @@ def test_a_tile_grid_is_not_refused_over_fields_its_door_never_reads(leftover):
     output then came up with a dead Generate button reading "Conditioning needs
     a reference image".
     """
-    assert not settings_2d.validate(_sheet_form(**leftover))
+    assert not create_recipe.validate(_sheet_form(**leftover))
 
 
 @pytest.mark.parametrize(
@@ -205,7 +207,7 @@ def test_the_sprite_arm_keeps_every_one_of_them(leftover, field):
     reference job, so it reads all four and every refusal above still applies
     to it."""
     form = _sheet_form(sheet_type="sprite", **leftover)
-    assert any(p.field == field for p in settings_2d.validate(form)), leftover
+    assert any(p.field == field for p in create_recipe.validate(form)), leftover
 
 
 # -- the sprite arm ----------------------------------------------------------
@@ -214,7 +216,7 @@ def test_the_sprite_arm_keeps_every_one_of_them(leftover, field):
 def test_a_sprite_sheet_is_a_reference_job_carrying_a_follow_up():
     """The rig checkbox's shape, and for its reason: the character is a row in
     its own right, so a sheet the user hates still leaves them the drawing."""
-    kwargs = settings_2d.submit_kwargs(_sheet_form(sheet_type="sprite"))
+    kwargs = create_recipe.submit_kwargs(_sheet_form(sheet_type="sprite"))
     assert kwargs["output"] == "reference"
     assert kwargs["sprite_sheet"] == {
         "sheet_type": "turnaround",
@@ -237,7 +239,7 @@ def test_a_sprite_sheet_is_a_reference_job_carrying_a_follow_up():
 
 
 def test_the_sprite_block_carries_what_the_form_chose():
-    kwargs = settings_2d.submit_kwargs(
+    kwargs = create_recipe.submit_kwargs(
         _sheet_form(sheet_type="sprite", sheet_layout="walk", cell_size="32")
     )
     assert kwargs["sprite_sheet"]["sheet_type"] == "walk"
@@ -249,7 +251,7 @@ def test_no_other_output_carries_a_sprite_block():
     grew one would queue two generations nobody asked for."""
     for form in (default_form_2d(), _sheet_form(), _sheet_form(output="tile")):
         form["prompt"] = "a barrel"
-        assert "sprite_sheet" not in settings_2d.submit_kwargs(form)
+        assert "sprite_sheet" not in create_recipe.submit_kwargs(form)
 
 
 # -- what a sheet needs downloaded -------------------------------------------
@@ -259,13 +261,13 @@ def test_the_tile_arm_asks_for_no_adapter_without_a_reference():
     """Its IP-Adapter is optional, and a gate that demanded one would tell a
     user who has everything the common request uses that they are missing a
     download."""
-    assert settings_2d.sheet_rows(_sheet_form(tile_mode=GRID)) == (
+    assert create_recipe.sheet_rows(_sheet_form(tile_mode=GRID)) == (
         svc_tilesheets.TILE_SHEET_ROWS
     )
 
 
 def test_attaching_a_reference_adds_the_adapter_to_what_is_needed():
-    rows = settings_2d.sheet_rows(
+    rows = create_recipe.sheet_rows(
         _sheet_form(tile_mode=GRID, ref_path="C:/somewhere/style.png")
     )
     assert rows == svc_tilesheets.TILE_SHEET_REFERENCE_ROWS
@@ -277,16 +279,16 @@ def test_a_seamless_layout_asks_for_no_controlnet(mode):
     """The grid guide *is* the ControlNet and these two never open one, so
     asking for canny here tells a user who has everything this request uses that
     they are missing a download."""
-    rows = settings_2d.sheet_rows(_sheet_form(tile_mode=mode))
+    rows = create_recipe.sheet_rows(_sheet_form(tile_mode=mode))
     assert rows == tuple(svc_tilesheets.rows_needed(mode))
     assert not any("control" in row for row in rows)
-    assert any("control" in row for row in settings_2d.sheet_rows(_sheet_form(tile_mode=GRID)))
+    assert any("control" in row for row in create_recipe.sheet_rows(_sheet_form(tile_mode=GRID)))
 
 
 def test_the_sprite_arm_asks_for_the_sprite_rows():
     """Both adapters are mandatory there -- the pose guide *is* the ControlNet
     and the identity *is* the IP-Adapter."""
-    assert settings_2d.sheet_rows(_sheet_form(sheet_type="sprite")) == svc_sprites.SPRITE_ROWS
+    assert create_recipe.sheet_rows(_sheet_form(sheet_type="sprite")) == svc_sprites.SPRITE_ROWS
 
 
 def test_a_missing_sheet_row_names_the_output_not_a_model_select():
@@ -299,7 +301,7 @@ def test_a_missing_sheet_row_names_the_output_not_a_model_select():
             for key in svc_tilesheets.TILE_SHEET_ROWS
         ]
     )
-    problem = settings_2d.weights_problem(ctx, _sheet_form(tile_mode=GRID))
+    problem = create_recipe.weights_problem(ctx, _sheet_form(tile_mode=GRID))
     assert problem is not None
     assert problem.field == "output"
 
@@ -314,7 +316,7 @@ def test_a_seamless_layout_is_not_stopped_by_the_grids_missing_controlnet():
             for key in svc_tilesheets.TILE_SHEET_ROWS
         ]
     )
-    assert settings_2d.weights_problem(ctx, _sheet_form()) is None
+    assert create_recipe.weights_problem(ctx, _sheet_form()) is None
 
 
 def test_a_fully_installed_host_has_no_sheet_problem():
@@ -324,7 +326,7 @@ def test_a_fully_installed_host_has_no_sheet_problem():
             for key in svc_tilesheets.TILE_SHEET_REFERENCE_ROWS
         ]
     )
-    assert settings_2d.weights_problem(ctx, _sheet_form()) is None
+    assert create_recipe.weights_problem(ctx, _sheet_form()) is None
 
 
 def test_a_sprite_checks_its_selected_reference_model_before_the_locked_recipe():
@@ -335,7 +337,7 @@ def test_a_sprite_checks_its_selected_reference_model_before_the_locked_recipe()
         for key in svc_sprites.SPRITE_ROWS
     ]
     rows.append({"row_key": "base:turbo", "present": False, "label": "Turbo"})
-    problem = settings_2d.weights_problem(SimpleNamespace(model_rows=rows), form)
+    problem = create_recipe.weights_problem(SimpleNamespace(model_rows=rows), form)
     assert problem is not None
     assert problem.field == "base_model"
 
@@ -349,7 +351,7 @@ def test_a_sprite_checks_its_locked_recipe_after_the_reference_recipe():
             for key in svc_sprites.SPRITE_ROWS
         ],
     ]
-    problem = settings_2d.weights_problem(SimpleNamespace(model_rows=rows), form)
+    problem = create_recipe.weights_problem(SimpleNamespace(model_rows=rows), form)
     assert problem is not None
     assert problem.field == "output"
 
@@ -374,7 +376,7 @@ def test_a_restored_form_with_the_old_projection_word_still_validates():
     """A profile saved before the vocabulary widened carries "orthogonal". The
     form reads it through the service's alias table rather than holding a second
     opinion, so an old profile opens on Top-down instead of being refused."""
-    assert not [p for p in settings_2d.validate(_sheet_form(projection="orthogonal"))
+    assert not [p for p in create_recipe.validate(_sheet_form(projection="orthogonal"))
                 if p.field == "projection"]
 
 
@@ -383,7 +385,7 @@ def test_every_view_the_grid_layout_offers_validates():
     sweep for views, which is how a third one could have been added and gone
     unexercised by the form."""
     for view in svc_tilesheets.VIEWS:
-        problems = settings_2d.validate(_sheet_form(tile_mode=GRID, projection=view))
+        problems = create_recipe.validate(_sheet_form(tile_mode=GRID, projection=view))
         assert not [p for p in problems if p.field == "projection"], view
 
 
@@ -395,13 +397,13 @@ def test_a_new_form_asks_for_materials_and_never_for_the_grid():
     the layout a user never touched must not be the one that needs the escape
     hatch."""
     assert default_form_2d()["tile_mode"] == svc_tilesheets.DEFAULT_MODE
-    assert settings_2d.tile_mode_of(default_form_2d()) != GRID
+    assert create_recipe.tile_mode_of(default_form_2d()) != GRID
 
 
 def test_an_unrecognised_stored_layout_reads_as_the_default():
     """A persisted field whose menu moved between releases: resolving to nothing
     would disable Generate over a control whose value nobody can see."""
-    assert settings_2d.tile_mode_of(_sheet_form(tile_mode="quilt")) == MATERIALS
+    assert create_recipe.tile_mode_of(_sheet_form(tile_mode="quilt")) == MATERIALS
 
 
 def test_a_seamless_layout_offers_only_the_sizes_that_divide_a_material():
@@ -409,8 +411,8 @@ def test_a_seamless_layout_offers_only_the_sizes_that_divide_a_material():
     and a block that differs by a pixel puts a step at the wrap seam of a torus.
     Sourced from the pipeline rather than listed here, so the day the frame size
     moves this test moves with it."""
-    offered = settings_2d.tile_sizes_for(_sheet_form())
-    assert 48 in settings_2d.tile_sizes_for(_sheet_form(tile_mode=GRID))
+    offered = create_recipe.tile_sizes_for(_sheet_form())
+    assert 48 in create_recipe.tile_sizes_for(_sheet_form(tile_mode=GRID))
     assert 48 not in offered
     assert offered == [
         size for size in svc_tilesheets.TILE_SIZES if not tileatlas.MATERIAL_PX % size
@@ -420,7 +422,7 @@ def test_a_seamless_layout_offers_only_the_sizes_that_divide_a_material():
 @pytest.mark.parametrize("mode", [MATERIALS, TERRAIN])
 def test_a_seamless_layout_offers_only_the_view_that_wraps(mode):
     form = _terrain_form() if mode == TERRAIN else _sheet_form()
-    assert settings_2d.views_for(form) == list(tileatlas.VIEWS) == ["top_down"]
+    assert create_recipe.views_for(form) == list(tileatlas.VIEWS) == ["top_down"]
 
 
 @pytest.mark.parametrize("size,view", [("48", "top_down"), ("32", "isometric")])
@@ -428,13 +430,13 @@ def test_a_seamless_layout_refuses_the_geometry_it_cannot_draw(size, view):
     """Reachable from a restored form: both fields are persisted, so a sheet
     composed under the grid layout and reopened under a seamless one arrives
     carrying values that layout has no way to draw."""
-    problems = settings_2d.validate(_sheet_form(tile_size=size, projection=view))
+    problems = create_recipe.validate(_sheet_form(tile_size=size, projection=view))
     assert problems
     assert {p.field for p in problems} & {"tile_size", "projection"}
 
 
 def test_a_materials_sheet_with_no_materials_is_refused_on_that_field():
-    problems = settings_2d.validate(_sheet_form(materials="  \n\n"))
+    problems = create_recipe.validate(_sheet_form(materials="  \n\n"))
     assert [p.field for p in problems] == ["prompt_items"]
 
 
@@ -443,12 +445,12 @@ def test_a_materials_sheet_counts_lines_rather_than_newlines():
     blanks too -- a form that counted them would report a cell total the request
     will not produce."""
     form = _sheet_form(materials="grass\n\ndirt\n")
-    assert settings_2d.material_lines(form) == ("grass", "dirt")
+    assert create_recipe.material_lines(form) == ("grass", "dirt")
 
 
 def test_more_materials_than_one_sheet_can_name_is_refused():
     lines = "\n".join(f"material {n}" for n in range(svc_tilesheets.MAX_MATERIALS + 1))
-    problems = settings_2d.validate(_sheet_form(materials=lines))
+    problems = create_recipe.validate(_sheet_form(materials=lines))
     assert any(p.field == "prompt_items" for p in problems)
 
 
@@ -456,9 +458,9 @@ def test_lines_by_variants_past_the_cell_ceiling_is_refused_on_the_variants():
     """Each cell is its own full generation, so the ceiling is on the product --
     and the control that can be turned down is the one the refusal names."""
     lines = "\n".join(f"material {n}" for n in range(svc_tilesheets.MAX_MATERIALS))
-    problems = settings_2d.validate(_sheet_form(materials=lines, variants="4"))
+    problems = create_recipe.validate(_sheet_form(materials=lines, variants="4"))
     assert not problems  # 16 x 4 is exactly the ceiling
-    problems = settings_2d.validate(
+    problems = create_recipe.validate(
         _sheet_form(materials=lines, variants=str(svc_tilesheets.MAX_VARIANTS + 1))
     )
     assert any(p.field == "variants" for p in problems)
@@ -468,19 +470,19 @@ def test_lines_by_variants_past_the_cell_ceiling_is_refused_on_the_variants():
 def test_a_terrain_set_needs_both_surfaces_described(missing):
     """Both halves are generated: a request describing one has nothing to put on
     the other side of every boundary."""
-    problems = settings_2d.validate(_terrain_form(**{missing: ""}))
+    problems = create_recipe.validate(_terrain_form(**{missing: ""}))
     assert [p.field for p in problems] == [missing]
 
 
 def test_a_terrain_sets_boundary_is_optional():
-    assert not settings_2d.validate(_terrain_form(boundary=""))
-    assert not settings_2d.validate(_terrain_form(boundary="a temperate coastline"))
+    assert not create_recipe.validate(_terrain_form(boundary=""))
+    assert not create_recipe.validate(_terrain_form(boundary="a temperate coastline"))
 
 
 def test_a_grid_sheet_needs_no_materials_and_no_terrains():
     """The layouts do not share their fields, and a leftover from another one
     must not refuse the request in front of the user."""
-    assert not settings_2d.validate(
+    assert not create_recipe.validate(
         _sheet_form(tile_mode=GRID, materials="", projection="isometric")
     )
 
@@ -491,25 +493,25 @@ def test_switching_to_a_seamless_layout_drops_the_geometry_it_cannot_draw():
     both of these are persisted, so both survive the switch."""
     form = _sheet_form(tile_mode=GRID, tile_size="48", projection="isometric")
     form["tile_mode"] = MATERIALS
-    cleared = settings_2d.clear_for_layout(form)
+    cleared = create_recipe.clear_for_layout(form)
     assert len(cleared) == 2
     assert form["tile_size"] == "32"
     assert form["projection"] == "top_down"
     # And the dead end is gone rather than merely explained.
-    assert not settings_2d.validate(form)
+    assert not create_recipe.validate(form)
 
 
 def test_switching_to_the_grid_takes_nothing_away():
     """It draws every size and every view, so there is nothing it cannot keep --
     and a clear that fired here would throw away a choice the user just made."""
     form = _sheet_form(tile_mode=GRID, tile_size="48", projection="isometric")
-    assert settings_2d.clear_for_layout(form) == []
+    assert create_recipe.clear_for_layout(form) == []
     assert form["tile_size"] == "48"
 
 
 def test_a_seamless_layout_keeps_a_geometry_it_can_draw():
     form = _sheet_form(tile_size="64")
-    assert settings_2d.clear_for_layout(form) == []
+    assert create_recipe.clear_for_layout(form) == []
     assert form["tile_size"] == "64"
 
 
@@ -655,7 +657,7 @@ def test_every_layout_the_form_offers_is_queued_by_the_real_door(svc, mode):
     """
     form = _terrain_form() if mode == TERRAIN else _sheet_form(tile_mode=mode)
     made = svc_tilesheets.create_tile_sheet(
-        svc, **settings_2d.tile_sheet_kwargs(form)
+        svc, **create_recipe.tile_sheet_kwargs(form)
     )
     assert made["mode"] == mode
     block = svc.store.get(made["id"])["params"]["sheet"]
@@ -679,7 +681,7 @@ def test_every_layout_sends_only_arguments_the_door_accepts(mode):
     ``TypeError`` on a background thread that the button reports as a toast with
     no field in it."""
     form = _terrain_form() if mode == TERRAIN else _sheet_form(tile_mode=mode)
-    kwargs = settings_2d.tile_sheet_kwargs(form)
+    kwargs = create_recipe.tile_sheet_kwargs(form)
     signature = inspect.signature(svc_tilesheets.create_tile_sheet)
     signature.bind(object(), reference=None, **kwargs)
 
@@ -733,7 +735,7 @@ def test_a_tile_sheet_with_a_palette_is_queued_by_the_real_door(svc, paldir):
     that does nothing."""
     (paldir / "duo.hex").write_text("#1a1c2c\n#f4f4f4\n")
     form = _sheet_form(palette="duo", dither=True)
-    made = svc_tilesheets.create_tile_sheet(svc, **settings_2d.tile_sheet_kwargs(form))
+    made = svc_tilesheets.create_tile_sheet(svc, **create_recipe.tile_sheet_kwargs(form))
     params = svc.store.get(made["id"])["params"]
     assert params["palette"] == "duo"
     assert params["dither"] is True
@@ -744,12 +746,12 @@ def test_a_palette_deleted_since_the_form_listed_it_costs_the_request(svc, paldi
     generations and a sheet that merely came back the wrong colours."""
     form = _sheet_form(palette="gone")
     with pytest.raises(Invalid) as excinfo:
-        svc_tilesheets.create_tile_sheet(svc, **settings_2d.tile_sheet_kwargs(form))
+        svc_tilesheets.create_tile_sheet(svc, **create_recipe.tile_sheet_kwargs(form))
     assert excinfo.value.field == "palette"
 
 
 def test_the_sprite_block_carries_the_whole_pixel_look():
-    block = settings_2d.sprite_sheet_kwargs(
+    block = create_recipe.sprite_sheet_kwargs(
         _sheet_form(sheet_type="sprite", palette="nord", dither=True, outline="outer")
     )
     assert block["palette"] == "nord"
@@ -761,7 +763,7 @@ def test_the_sprite_block_defaults_to_the_outline_its_geometry_forces():
     """``inner`` and never ``outer``: a synthesised cell is 256 or 512px of a
     1024px atlas the model filled as it liked, so the subject runs off its cell
     edge often enough that growing the silhouette would clip."""
-    block = settings_2d.sprite_sheet_kwargs(_sheet_form(sheet_type="sprite"))
+    block = create_recipe.sprite_sheet_kwargs(_sheet_form(sheet_type="sprite"))
     assert block["outline"] == svc_sprites.DEFAULT_SPRITE_OUTLINE == "inner"
 
 
@@ -771,7 +773,7 @@ def test_the_sprite_block_is_refused_by_the_real_checker_for_a_bad_palette(svc, 
     generation and an hour."""
     from warlock.service import sprites as sprites_door
 
-    block = settings_2d.sprite_sheet_kwargs(_sheet_form(sheet_type="sprite", palette="gone"))
+    block = create_recipe.sprite_sheet_kwargs(_sheet_form(sheet_type="sprite", palette="gone"))
     with pytest.raises(Invalid) as excinfo:
         sprites_door._check_options(svc, block)
     assert excinfo.value.field == "palette"
@@ -785,7 +787,7 @@ def test_every_outline_the_sprite_arm_offers_survives_the_sprite_checker(svc):
     from warlock.service import sprites as sprites_door
 
     for mode in pixelize.OUTLINE_MODES:
-        block = settings_2d.sprite_sheet_kwargs(
+        block = create_recipe.sprite_sheet_kwargs(
             _sheet_form(sheet_type="sprite", outline=mode)
         )
         assert sprites_door._check_options(svc, block)["outline"] == mode
@@ -804,17 +806,17 @@ def test_a_palette_that_is_no_longer_installed_stays_on_the_menu_marked():
     """``lora_options``' rule, and for its reason: a palette is a file, so a
     stem the form holds can stop existing between two launches -- and the value
     keeping Generate off must not be the one thing the user cannot see."""
-    assert settings_2d.palette_options(["duo"], "") == (
+    assert create_recipe.palette_options(["duo"], "") == (
         ("", "Derived from the render"),
         ("duo", "duo"),
     )
-    assert settings_2d.palette_options(["duo"], "duo")[-1] == ("duo", "duo")
-    missing = settings_2d.palette_options(["duo"], "nord")[-1]
+    assert create_recipe.palette_options(["duo"], "duo")[-1] == ("duo", "duo")
+    missing = create_recipe.palette_options(["duo"], "nord")[-1]
     assert missing[0] == "nord"
     assert "not in the palette folder" in missing[1]
     # And with nothing installed at all, the named one is still listed: it is
     # what the door is about to refuse.
-    assert settings_2d.palette_options([], "nord")[-1][0] == "nord"
+    assert create_recipe.palette_options([], "nord")[-1][0] == "nord"
 
 
 def test_each_arm_lists_palettes_through_its_own_door(svc, paldir):
@@ -862,8 +864,8 @@ def test_a_form_saved_before_the_layout_control_reopens_on_the_grid(tmp_path):
     """It described an 8x8 grid, because that was the only sheet the tile arm
     drew. Grid is the layout that still draws exactly that."""
     form = _upgraded_form(tmp_path)
-    assert settings_2d.tile_mode_of(form) == GRID
-    assert not settings_2d.validate(form)
+    assert create_recipe.tile_mode_of(form) == GRID
+    assert not create_recipe.validate(form)
 
 
 def test_that_form_generates_the_grid_it_described(tmp_path, monkeypatch):
@@ -882,7 +884,7 @@ def test_that_form_is_queued_by_the_real_door(svc, tmp_path):
     """And the end of the wire, since a request the door refuses is a button
     that does nothing rather than a wrong value in a dict."""
     form = _upgraded_form(tmp_path)
-    made = svc_tilesheets.create_tile_sheet(svc, **settings_2d.tile_sheet_kwargs(form))
+    made = svc_tilesheets.create_tile_sheet(svc, **create_recipe.tile_sheet_kwargs(form))
     assert made["mode"] == GRID
     assert svc.store.get(made["id"])["params"]["sheet"]["mode"] == GRID
 
@@ -927,7 +929,7 @@ def _sprite_form(**overrides):
 def test_a_new_sprite_form_is_the_turnaround_it_has_always_been():
     """The default is not moved by the actions arriving: a stored form and a new
     one have to mean the same sheet."""
-    plan = settings_2d.sprite_plan(_sprite_form())
+    plan = create_recipe.sprite_plan(_sprite_form())
 
     assert plan["layout"] == "turnaround"
     assert plan["cells"] == 4
@@ -936,7 +938,7 @@ def test_a_new_sprite_form_is_the_turnaround_it_has_always_been():
 
 def test_the_action_combo_offers_the_turnaround_and_what_has_a_guide():
     options = svc_sprites.sprite_options()
-    entries = settings_2d.sprite_action_options(options, "legacy:turnaround")
+    entries = create_recipe.sprite_action_options(options, "legacy:turnaround")
 
     keys = [key for key, _label in entries]
     assert keys[0] == "legacy:turnaround"
@@ -951,16 +953,16 @@ def test_a_legacy_kind_and_an_action_of_the_same_name_are_different_entries():
     walk as the action -- and selecting it would silently double the cycle."""
     options = svc_sprites.sprite_options()
 
-    assert settings_2d.sprite_action_key("walk") == "legacy:walk"
-    assert settings_2d.sprite_action_key("walk8") == "walk"
-    assert settings_2d.sprite_action_key("turnaround") == "legacy:turnaround"
+    assert create_recipe.sprite_action_key("walk") == "legacy:walk"
+    assert create_recipe.sprite_action_key("walk8") == "walk"
+    assert create_recipe.sprite_action_key("turnaround") == "legacy:turnaround"
 
-    entries = dict(settings_2d.sprite_action_options(options, "legacy:walk"))
+    entries = dict(create_recipe.sprite_action_options(options, "legacy:walk"))
     assert entries["legacy:walk"] == "Walk (legacy, 4 frames)"
     assert entries["walk"] == "Walk"
     # And each resolves back to the sheet it names.
-    assert settings_2d.sprite_layout_for(options, "legacy:walk", 8) == "walk"
-    assert settings_2d.sprite_layout_for(options, "walk", 8) == "walk8"
+    assert create_recipe.sprite_layout_for(options, "legacy:walk", 8) == "walk"
+    assert create_recipe.sprite_layout_for(options, "walk", 8) == "walk8"
 
 
 def test_a_stored_layout_the_menu_cannot_offer_is_named_rather_than_dropped():
@@ -968,24 +970,24 @@ def test_a_stored_layout_the_menu_cannot_offer_is_named_rather_than_dropped():
     it is set to is how a user comes to submit something they did not choose."""
     options = svc_sprites.sprite_options()
 
-    unknown = dict(settings_2d.sprite_action_options(options, "dance4"))
+    unknown = dict(create_recipe.sprite_action_options(options, "dance4"))
     assert unknown["dance4"] == "dance4 (unavailable)"
 
 
 def test_picking_an_action_composes_the_kind_from_the_pair():
     options = svc_sprites.sprite_options()
 
-    assert settings_2d.sprite_layout_for(options, "idle", 8) == "idle8"
+    assert create_recipe.sprite_layout_for(options, "idle", 8) == "idle8"
     # An action with no four-direction guide falls back to a count it *has*,
     # because the two controls move independently: picking an action while the
     # Directions control still says four must land on a sheet that exists.
-    assert settings_2d.sprite_layout_for(options, "walk", 4) == "walk8"
-    assert settings_2d.sprite_layout_for(options, "legacy:turnaround", 8) == "turnaround"
+    assert create_recipe.sprite_layout_for(options, "walk", 4) == "walk8"
+    assert create_recipe.sprite_layout_for(options, "legacy:turnaround", 8) == "turnaround"
 
 
 def test_the_plan_is_the_arithmetic_the_line_and_the_block_both_read():
     form = _sprite_form(sheet_layout="walk8")
-    plan = settings_2d.sprite_plan(form)
+    plan = create_recipe.sprite_plan(form)
 
     assert plan == {
         "layout": "walk8",
@@ -1002,7 +1004,7 @@ def test_the_plan_is_the_arithmetic_the_line_and_the_block_both_read():
 
 
 def test_the_cost_line_names_the_grid_the_generations_and_the_wait():
-    line = settings_2d._sprite_cost(settings_2d.sprite_plan(_sprite_form(sheet_layout="idle8")))
+    line = create_recipe.sprite_cost(create_recipe.sprite_plan(_sprite_form(sheet_layout="idle8")))
 
     assert "8 directions x 4 frames = 32 cells" in line
     assert "8 generations for one draft" in line
@@ -1010,14 +1012,14 @@ def test_the_cost_line_names_the_grid_the_generations_and_the_wait():
 
 
 def test_the_turnaround_line_still_describes_a_pair():
-    line = settings_2d._sprite_cost(settings_2d.sprite_plan(_sprite_form()))
+    line = create_recipe.sprite_cost(create_recipe.sprite_plan(_sprite_form()))
 
     assert "4 directions x 1 frames = 4 cells" in line
     assert "2 generations for 2 drafts" in line
 
 
 def test_the_submit_block_carries_the_action_the_form_chose():
-    kwargs = settings_2d.submit_kwargs(_sprite_form(sheet_layout="idle8", cell_size="32"))
+    kwargs = create_recipe.submit_kwargs(_sprite_form(sheet_layout="idle8", cell_size="32"))
 
     assert kwargs["sprite_sheet"]["sheet_type"] == "idle8"
     assert kwargs["sprite_sheet"]["logical_size"] == 32
@@ -1033,19 +1035,19 @@ def test_the_size_picker_moves_off_a_size_the_chosen_action_cannot_take():
     press."""
     form = _sprite_form(sheet_layout="walk8", cell_size="64")
 
-    assert settings_2d.sprite_plan(form)["sizes"] == (32,)
-    assert settings_2d.sprite_plan(form)["logical_size"] == 32
+    assert create_recipe.sprite_plan(form)["sizes"] == (32,)
+    assert create_recipe.sprite_plan(form)["logical_size"] == 32
     # And the *submit* is what carries it, not the picker: the Action control is
     # always on screen and the size picker lives inside Advanced, so a clamp
     # that only ran while that section was drawn would not run at all for a user
     # who never opened it.
-    assert settings_2d.submit_kwargs(form)["sprite_sheet"]["logical_size"] == 32
+    assert create_recipe.submit_kwargs(form)["sprite_sheet"]["logical_size"] == 32
 
 
 def test_a_size_the_chosen_action_does_allow_is_left_alone():
     for size in ("32", "48", "64"):
         form = _sprite_form(sheet_layout="idle8", cell_size=size)
-        assert settings_2d.sprite_plan(form)["logical_size"] == int(size)
+        assert create_recipe.sprite_plan(form)["logical_size"] == int(size)
 
 
 def test_an_action_sheet_press_is_admitted_by_the_real_door(svc, sprite_weights):
@@ -1054,7 +1056,7 @@ def test_an_action_sheet_press_is_admitted_by_the_real_door(svc, sprite_weights)
     reaches ``create_job`` can tell a carried setting from a button that does
     nothing. The follow-up block is validated *here*, at the reference door."""
     form = _sprite_form(sheet_layout="idle8", cell_size="32")
-    made = svc_jobs.create_job(svc, **settings_2d.submit_kwargs(form))
+    made = svc_jobs.create_job(svc, **create_recipe.submit_kwargs(form))
 
     block = svc.store.get(made["id"])["params"]["sprite_sheet"]
     assert block["sheet_type"] == "idle8"
@@ -1069,7 +1071,7 @@ def test_a_press_the_size_gate_would_have_stopped_is_refused_at_that_door(
     the action cannot take, this is what the press would meet -- a sentence
     naming both numbers, on the field the control is drawn under."""
     form = _sprite_form(sheet_layout="walk8", cell_size="64")
-    kwargs = settings_2d.submit_kwargs(form)
+    kwargs = create_recipe.submit_kwargs(form)
     kwargs["sprite_sheet"]["logical_size"] = 64
 
     with pytest.raises(Invalid) as caught:
@@ -1083,7 +1085,7 @@ def test_a_sprite_form_sends_only_arguments_the_door_accepts():
     """The contract check the tile arm has, on the arm that grew two controls:
     the failure when the pane's kwargs and the door's parameters drift is a
     ``TypeError`` on a background thread, reported as a toast with no field."""
-    kwargs = settings_2d.submit_kwargs(_sprite_form(sheet_layout="idle8"))
+    kwargs = create_recipe.submit_kwargs(_sprite_form(sheet_layout="idle8"))
     signature = inspect.signature(svc_jobs.create_job)
     signature.bind(object(), **kwargs)
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio import create_brief
+from warlock.studio.modes.create.ui import brief as create_brief
 
 
 def test_the_generate_tooltip_states_the_count_when_the_pills_are_hidden():

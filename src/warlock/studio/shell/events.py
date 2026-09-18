@@ -673,8 +673,8 @@ class EventsMixin:
         if docmodes.pose_undo_key(self.viewer, event):
             return
         if event.key == pygame.K_RETURN and mods & pygame.KMOD_CTRL:
-            from .. import create_stages
-            from ..panes import settings_2d, settings_3d
+            from ..modes.create.ui import settings_2d, settings_3d
+            from ..modes.create.ui import stages as create_stages
 
             if create_stages.at(ctx.state, "reference"):
                 settings_2d.generate(ctx, ctx.state.form_2d)
@@ -777,9 +777,9 @@ class EventsMixin:
         return tokens.SCALE
 
     def _on_drop(self, path: Path) -> None:
-        from .. import create_stages
         from ..main import DROP_REFUSALS, DROPPABLE_IMAGES
-        from ..panes import settings_3d
+        from ..modes.create.ui import settings_3d
+        from ..modes.create.ui import stages as create_stages
 
         ctx = self.app_ctx
         if ctx.state.mode == "inker":

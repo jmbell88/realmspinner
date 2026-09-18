@@ -912,7 +912,7 @@ def create_tile_sheet(
         params["asset_intent"] = asset_intent
     if reference is not None:
         # Only alongside the image it scales, so an unused adapter never
-        # reaches params as a live setting -- ``settings_2d.submit_kwargs``'
+        # reaches params as a live setting -- ``recipe.submit_kwargs``'
         # rule for ip_scale, applied at the door.
         params["ip_adapter"] = "plus"
 

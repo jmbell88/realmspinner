@@ -16,7 +16,9 @@ from types import SimpleNamespace
 
 from warlock.guidance import DEFAULT_NEGATIVE_PROMPT
 from warlock.studio import state as state_mod
-from warlock.studio.panes import settings_2d, settings_3d
+from warlock.studio.modes.create.engine import mesh as create_mesh
+from warlock.studio.modes.create.engine import recipe as create_recipe
+from warlock.studio.modes.create.ui import settings_3d
 
 
 def test_the_form_starts_with_the_default_negative_prompt_visible():
@@ -28,9 +30,9 @@ def test_an_emptied_avoid_box_is_sent_as_an_explicit_empty_string():
     form = state_mod.default_form_2d()
     form["prompt"] = "a chest"
     form["negative_prompt"] = ""
-    assert settings_2d.submit_kwargs(form)["negative_prompt"] == ""
+    assert create_recipe.submit_kwargs(form)["negative_prompt"] == ""
     form["negative_prompt"] = "blurry"
-    assert settings_2d.submit_kwargs(form)["negative_prompt"] == "blurry"
+    assert create_recipe.submit_kwargs(form)["negative_prompt"] == "blurry"
 
 
 def test_the_door_keeps_an_explicit_empty_negative_prompt(svc):
@@ -82,8 +84,8 @@ def test_a_refused_make_3d_keeps_the_seed():
 
 def test_reroll_mesh_seed_respects_the_lock():
     form = {"mesh_seed": 7, "mesh_seed_locked": True}
-    settings_3d.reroll_mesh_seed(form)
+    create_mesh.reroll_mesh_seed(form)
     assert form["mesh_seed"] == 7
     form["mesh_seed_locked"] = False
-    settings_3d.reroll_mesh_seed(form)
+    create_mesh.reroll_mesh_seed(form)
     assert form["mesh_seed"] != 7

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio import create_stages
+from warlock.studio.modes.create.ui import stages as create_stages
 from warlock.studio.state import AppState
 
 
@@ -290,10 +290,16 @@ def test_go_is_the_only_thing_that_writes_the_stage():
 
     # An *assignment*, so a comparison (``!=``, ``==``) is not mistaken for one.
     write = re.compile(r"\.create_stage\s*=(?!=)")
-    root = pathlib.Path(create_stages.__file__).resolve().parent
+    # The whole studio package, not ``create_stages``'s own directory: since P5
+    # that directory is ``modes/create/ui/``, and a root derived from the
+    # module's parent silently stopped covering every other mode and pane.
+    from warlock import studio
+
+    root = pathlib.Path(studio.__file__).resolve().parent
+    here = pathlib.Path(create_stages.__file__).resolve()
     offenders = []
     for path in sorted(root.rglob("*.py")):
-        if path.name == "create_stages.py":
+        if path.resolve() == here:
             continue
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if write.search(line):

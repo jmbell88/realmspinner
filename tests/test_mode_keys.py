@@ -561,8 +561,8 @@ def test_a_workspace_mode_never_falls_through_to_the_shared_block(mode, monkeypa
     for target, name in (
         ("warlock.studio.panes.library.delete_asset", "delete_asset"),
         ("warlock.studio.panes.library.select_relative", "select_relative"),
-        ("warlock.studio.panes.settings_2d.generate", "generate"),
-        ("warlock.studio.panes.settings_3d.promote", "promote"),
+        ("warlock.studio.modes.create.ui.settings_2d.generate", "generate"),
+        ("warlock.studio.modes.create.ui.settings_3d.promote", "promote"),
     ):
         monkeypatch.setattr(target, (lambda n: lambda *a, **k: fired.append(n))(name))
 

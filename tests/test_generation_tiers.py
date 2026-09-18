@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 from warlock import generation, models
-from warlock.studio.panes import settings_2d
+from warlock.studio.modes.create.engine import recipe as create_recipe
 
 
 def _request(**over):
@@ -86,7 +86,7 @@ def test_fast_names_the_hyper_sd_recipe_over_the_shared_sdxl_weights():
 def test_advanced_selection_of_the_fast_checkpoint_keeps_its_curated_note():
     """The 2026-09-07 audit, finding create-03.
 
-    ``settings_2d.model_options`` folded the retired Fast/Quality switch into
+    ``create_recipe.model_options`` folded the retired Fast/Quality switch into
     the Model combo on the claim that "nothing is lost by folding them" --
     picking the ``sdxl`` checkpoint through Advanced is supposed to be the
     same act picking Fast used to be. But nothing sets ``quality="fast"``
@@ -127,9 +127,9 @@ def test_the_fast_recipe_reports_no_negative_prompt_support():
 
 def test_the_form_does_not_offer_avoid_under_fast():
     form = {"asset_type": "image", "generation_type": "image", "quality": "fast"}
-    assert settings_2d._negative_supported(_ctx(), form) is False
+    assert create_recipe.negative_supported(_ctx(), form) is False
     form["quality"] = "quality"
-    assert settings_2d._negative_supported(_ctx(), form) is True
+    assert create_recipe.negative_supported(_ctx(), form) is True
 
 
 def test_klein_distilled_accepts_a_saved_negative_prompt():
@@ -159,7 +159,7 @@ def test_avoid_text_typed_under_quality_is_cleared_by_switching_to_fast():
         "quality": "fast",
         "negative_prompt": "blurry, watermark",
     }
-    cleared = settings_2d.clear_for_tier(_ctx(), form)
+    cleared = create_recipe.clear_for_tier(_ctx(), form)
     assert form["negative_prompt"] == ""
     assert any("Avoid" in one for one in cleared)
 
@@ -198,10 +198,10 @@ def test_quality_plus_structure_control_is_accepted():
 
 def test_the_pane_hides_the_structure_picker_under_fast():
     form = {"asset_type": "image", "generation_type": "image", "quality": "fast"}
-    note = settings_2d.recipe_structure_note(_ctx(), form)
+    note = create_recipe.recipe_structure_note(_ctx(), form)
     assert note is not None and "ControlNet" in note
     form["quality"] = "quality"
-    assert settings_2d.recipe_structure_note(_ctx(), form) is None
+    assert create_recipe.recipe_structure_note(_ctx(), form) is None
 
 
 def test_switching_to_fast_clears_a_structure_control():
@@ -212,7 +212,7 @@ def test_switching_to_fast_clears_a_structure_control():
         "ref_path": "ref.png",
         "control": "canny",
     }
-    cleared = settings_2d.clear_for_tier(_ctx(), form)
+    cleared = create_recipe.clear_for_tier(_ctx(), form)
     assert form["control"] == ""
     assert any("structure control" in one for one in cleared)
 
@@ -229,7 +229,7 @@ def test_advanced_mode_leaves_the_tier_clear_alone():
         "ref_path": "ref.png",
         "control": "canny",
     }
-    assert settings_2d.clear_for_tier(_ctx(), form) == []
+    assert create_recipe.clear_for_tier(_ctx(), form) == []
     assert form["control"] == "canny"
 
 

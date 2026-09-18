@@ -235,7 +235,7 @@ def _combo_label(source: str, key_literal: str) -> str:
 
 
 def test_manual_12_names_the_bg_removal_control_by_its_pane_label():
-    pane_src = _read("src/warlock/studio/panes/settings_3d.py")
+    pane_src = _read("src/warlock/studio/modes/create/ui/settings_3d.py")
     label = _combo_label(pane_src, "bg_removal")
     assert label == "Background"
 
@@ -245,7 +245,7 @@ def test_manual_12_names_the_bg_removal_control_by_its_pane_label():
 
 
 def test_manual_09_names_the_tileset_layout_combo_by_its_pane_label():
-    pane_src = _read("src/warlock/studio/panes/settings_2d.py")
+    pane_src = _read("src/warlock/studio/modes/create/ui/settings_2d.py")
     label = _combo_label(pane_src, "mode")
     assert label == "Layout"
 

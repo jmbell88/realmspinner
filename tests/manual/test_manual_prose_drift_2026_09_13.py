@@ -107,9 +107,11 @@ def test_before_you_begin_manual_names_the_show_me_around_button():
 
 
 def test_manual_chapter_12_places_the_count_control_in_the_command_bar():
-    brief = (ROOT / "src" / "warlock" / "studio" / "create_brief.py").read_text(
-        encoding="utf-8"
-    )
+    # Derived from the module rather than spelled as a path: the file moved
+    # once already (studio/create_brief.py -> modes/create/ui/brief.py).
+    from warlock.studio.modes.create.ui import brief as create_brief
+
+    brief = Path(create_brief.__file__).read_text(encoding="utf-8")
     assert "def _count(" in brief
 
     text = _chapter("12-tuning-what-you-get.md")
