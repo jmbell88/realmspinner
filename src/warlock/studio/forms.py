@@ -272,6 +272,7 @@ class Form:
         reason: str = "",
         fmt: str = "%.3f",
         history: Any = None,
+        commit: bool = False,
     ) -> tuple[bool, int | float]:
         with self.field(
             field, label, help_text=help_text, helper=helper, error=error, history=history
@@ -283,6 +284,7 @@ class Form:
                     enabled=enabled,
                     reason=reason,
                     error=problem,
+                    commit=commit,
                 )
             else:
                 result = controls.input_float(
@@ -294,6 +296,7 @@ class Form:
                     enabled=enabled,
                     reason=reason,
                     error=problem,
+                    commit=commit,
                 )
         return self._answer(field, result)
 

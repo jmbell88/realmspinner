@@ -661,22 +661,29 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     changed, value = form_ui.number(
         "trellis_band", "Band", int(form["trellis_band"]),
         help_text=(
-            "Narrow-band width in voxels for the DC remesh. 0 keeps the "
-            "engine's own default."
+            "Narrow-band width in voxels for the DC remesh, 1 to 64. 0 keeps "
+            "the engine's own default."
         ),
+        # Committed on leaving the field, for Texture resolution's reason
+        # below: the clamp should judge the number typed, not each prefix of it.
+        commit=True,
     )
     if changed:
-        form["trellis_band"] = max(0, int(value))
+        form["trellis_band"] = create_mesh.clamp_band(int(value))
     _hint(ctx, form, "trellis_band", form["trellis_band"])
 
     changed, value = form_ui.number(
         "trellis_tex_res", "Texture resolution", int(form["trellis_tex_res"]),
         help_text=(
-            "Baked PBR texture edge in px. 0 keeps the engine's own default."
+            "Baked PBR texture edge in px, 128 to 4096. 0 keeps the engine's "
+            "own default."
         ),
+        # Committed on leaving the field, not per keystroke: a clamp that ran
+        # on every character would turn the "2" of a typed 2048 into 128.
+        commit=True,
     )
     if changed:
-        form["trellis_tex_res"] = max(0, int(value))
+        form["trellis_tex_res"] = create_mesh.clamp_tex_res(int(value))
     _hint(ctx, form, "trellis_tex_res", form["trellis_tex_res"])
 
     changed, value = form_ui.number(

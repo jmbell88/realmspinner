@@ -463,4 +463,15 @@ def _safe_form_value(key: str, value: Any) -> bool:
         return LORA_WEIGHT_MIN <= value <= LORA_WEIGHT_MAX
     if key in {"ip_scale", "control_scale", "control_end"}:
         return 0.0 <= value <= 1.5
+    if key == "trellis_tex_res":
+        # 0 is "unset"; anything else the door would refuse at every Accept.
+        # A file saved before the field clamped can hold 64 (2026-09-18).
+        from ..service.validation import MAX_TRELLIS_TEX_RES, MIN_TRELLIS_TEX_RES
+
+        return value == 0 or MIN_TRELLIS_TEX_RES <= value <= MAX_TRELLIS_TEX_RES
+    if key == "trellis_band":
+        # The same rule and the same history as trellis_tex_res above.
+        from ..service.validation import MAX_TRELLIS_BAND, MIN_TRELLIS_BAND
+
+        return value == 0 or MIN_TRELLIS_BAND <= value <= MAX_TRELLIS_BAND
     return True

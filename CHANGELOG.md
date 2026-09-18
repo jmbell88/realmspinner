@@ -26,6 +26,16 @@ data-loss bug five modes shared: opening a file that was already open in another
 tab made a second, independent tab on the same path, and whichever tab saved
 last silently discarded the other's edits.
 
+- **A reference can no longer be stuck unable to become a mesh by an engine
+  setting the engine refuses.** Create's Texture resolution field stopped only
+  at 0, but the engine accepts 128 to 4096, so a typed 64 was saved and every
+  Make 3D -> Accept after it was refused. The refusal pointed at a field inside
+  the collapsed Engine (advanced) header and was never logged, so it looked
+  like the button did nothing. Texture resolution and Band (1 to 64, same gap)
+  now pull an out-of-range entry to the nearest end when you leave the field,
+  and a value saved before this is dropped back to the engine's default at
+  launch.
+
 - **Opening a file that is already open focuses its tab instead of forking a
   second one.** File › Open (and Ctrl+O) in Inker, Mason, Plotter, Packwright
   and Sirens decoded the file and adopted it as a new tab even when that path

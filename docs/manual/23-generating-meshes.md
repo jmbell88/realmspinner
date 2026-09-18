@@ -205,7 +205,9 @@ Every control here starts **unset**, and unset is a real value: it means "the en
 runs", the same rule every other control on this stage follows. Leave the whole section alone and
 nothing about this changes from what shipped before it existed. **Decimation** is the one exception
 worth knowing — its unset reading is `-1`, not `0`, because `0` is itself a meaningful setting here
-("turn decimation off and ship the full reconstruction"), not an empty box.
+("turn decimation off and ship the full reconstruction"), not an empty box. **Band** takes 1 to 64
+voxels and **Texture resolution** 128 to 4096 pixels: a value outside that range is pulled to the
+nearest end when you leave the field, because the engine refuses anything else.
 
 Changing any one of these restarts the engine process for the job it applies to — that is what a
 launch flag *is* — so the note under the header says so, and this is not a section to open on every

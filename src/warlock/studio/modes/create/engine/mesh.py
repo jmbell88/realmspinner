@@ -23,7 +23,14 @@ from typing import Any
 
 from ..... import vectors
 from .....bench import findings as findings_lib
-from .....service.validation import MAX_MESH_CANDIDATES, random_seed
+from .....service.validation import (
+    MAX_MESH_CANDIDATES,
+    MAX_TRELLIS_BAND,
+    MAX_TRELLIS_TEX_RES,
+    MIN_TRELLIS_BAND,
+    MIN_TRELLIS_TEX_RES,
+    random_seed,
+)
 from .... import problems
 
 
@@ -102,6 +109,31 @@ def engine_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     if int(form["trellis_atlas"]) > 0:
         out["trellis_atlas"] = int(form["trellis_atlas"])
     return out
+
+
+def clamp_tex_res(value: int) -> int:
+    """The Texture resolution field's value, held inside the door's range.
+
+    0 (and anything below it) stays the "unset" sentinel. Everything else is
+    pulled into ``check_trellis_tex_res``'s bounds: the field used to clamp
+    only at 0, so a typed 64 was kept, persisted, and refused at every Accept
+    with a toast naming a control inside a collapsed header -- a reference
+    that could never become a mesh and a log that said nothing (2026-09-18).
+    """
+    if value <= 0:
+        return 0
+    return min(max(value, MIN_TRELLIS_TEX_RES), MAX_TRELLIS_TEX_RES)
+
+
+def clamp_band(value: int) -> int:
+    """The Band field's value, held inside ``check_trellis_band``'s range.
+
+    :func:`clamp_tex_res`'s twin, for the same defect: the field clamped only
+    at 0, so a typed 65 was kept and refused at every Accept.
+    """
+    if value <= 0:
+        return 0
+    return min(max(value, MIN_TRELLIS_BAND), MAX_TRELLIS_BAND)
 
 
 def promote_kwargs(form: dict[str, Any]) -> dict[str, Any]:
