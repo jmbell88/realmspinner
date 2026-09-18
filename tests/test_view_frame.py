@@ -110,3 +110,21 @@ def test_the_import_scan_actually_matches_this_module():
     found = _imports(_view_frame)
     assert (".", "imgui_backend") in found, "the import scan no longer finds a known import"
     assert len(found) >= 3, f"the import scan found only {sorted(found)}"
+
+
+def test_every_3d_host_resolves_the_frame_plumbing_to_the_leaf():
+    """The embedded viewer (Create, Poser, the inspector) carried its own
+    ``_forget``, ``_local`` and ``_resize``, byte for byte but for the
+    viewport argument, plus an inlined ``_frame_unchanged`` and an
+    ``_alt_held`` that was ``_mods``' third answer. Restructure P7 folded
+    them in; a host that grows a local copy again fails here by name."""
+    from warlock.studio.modes.mason.ui.view import MasonView
+    from warlock.studio.viewer_embed import Viewer
+
+    names = sorted(n for n in vars(_view_frame.FrameOps) if not n.startswith("__"))
+    assert names, "the scan found no methods on FrameOps at all"
+    for host in (ClayView, MasonView, Viewer):
+        for name in names:
+            assert getattr(host, name) is getattr(_view_frame.FrameOps, name), (
+                f"{host.__name__}.{name} is not FrameOps' own function"
+            )

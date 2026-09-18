@@ -107,7 +107,7 @@ class FrameOps:
 
     # -- the imgui texture -------------------------------------------------
 
-    def _resize(self: Any, width: int, height: int) -> None:
+    def _resize(self: Any, width: int, height: int, viewport: Any = None) -> None:
         """Resize, forgetting the outgoing texture first.
 
         ``Viewport.resize`` releases its texture and makes a new one, and the
@@ -115,11 +115,15 @@ class FrameOps:
         forgetting leaves it holding a dead object under a name the driver is
         free to reissue, which is how an unrelated image starts rendering as
         this one.
+
+        ``viewport`` defaults to ``self.viewport``; the embedded viewer passes
+        its comparison viewport, the one host with two.
         """
-        if (width, height) == self.viewport.size:
+        viewport = self.viewport if viewport is None else viewport
+        if (width, height) == viewport.size:
             return
-        self._forget(self.viewport.texture)
-        self.viewport.resize((width, height))
+        self._forget(viewport.texture)
+        viewport.resize((width, height))
 
     def _forget(self: Any, texture: Any) -> None:
         if texture is None:

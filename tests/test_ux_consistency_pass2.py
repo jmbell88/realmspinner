@@ -409,6 +409,9 @@ def test_every_bridge_draws_the_one_history_block():
     sources = _pane_sources()
     for name in (
         "clay_bridge.py",
+        # Mason postdates this list and drew the block from the start; it was
+        # simply never enrolled (restructure P7 survey, 2026-09-18).
+        "mason_bridge.py",
         "plotter_bridge.py",
         "packwright_bridge.py",
         "sirens_bridge.py",

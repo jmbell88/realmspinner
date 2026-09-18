@@ -379,11 +379,11 @@ def test_alt_drag_orbits_even_when_the_press_lands_on_a_pose_marker(monkeypatch)
         _ray=lambda local: (np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),
         _active_gizmo=lambda: None,
     )
-    # Unbound-method-over-a-stub pattern: ``_press`` calls ``self._alt_held()``,
-    # bound here to the real implementation (over the same stub) so the test
-    # exercises the actual pygame read the monkeypatch above sets up, not a
-    # second fake standing in for it.
-    stub._alt_held = lambda: Viewer._alt_held(stub)
+    # Unbound-method-over-a-stub pattern: ``_press`` calls ``self._mods()``,
+    # bound here to the real implementation (``FrameOps._mods``, over the same
+    # stub) so the test exercises the actual pygame read the monkeypatch above
+    # sets up, not a second fake standing in for it.
+    stub._mods = lambda: Viewer._mods(stub)
 
     consumed = Viewer._press(stub, 1, (0.0, 0.0))
 

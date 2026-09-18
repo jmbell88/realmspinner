@@ -21,6 +21,7 @@ import numpy as np
 
 from ..kernels.geom3d import gltf
 from ..kernels.geom3d import math3d as m3
+from ._view_frame import FrameOps
 from ._viewer_pose import PoseOps
 from .viewer import bonelines as bonelineslib
 from .viewer import capture, glctx, picking
@@ -35,7 +36,7 @@ from .viewer.render import Renderer
 log = logging.getLogger(__name__)
 
 
-class Viewer(PoseOps):
+class Viewer(PoseOps, FrameOps):
     """The 3D pane, from the UI's point of view.
 
     The pose half is inherited rather than written here (``_viewer_pose``), the
@@ -380,17 +381,11 @@ class Viewer(PoseOps):
         self._rect = rect
         width, height = int(max(rect[2], 1)), int(max(rect[3], 1))
         key = (width, height, bool(self.wireframe), self.comparing)
-        if (
-            not self._render_dirty
-            and key == self._last_render_key
-            and not self.pose_mode
-            and self.camera.settled()
-            and self.viewport.texture is not None
-        ):
+        if not self.pose_mode and self._frame_unchanged(key):
             return self.viewport.texture
         self._last_render_key = key
         self._render_dirty = False
-        self._resize(self.viewport, width, height)
+        self._resize(width, height)
         self.camera.update(dt)
         self.renderer.draw(
             self.viewport,
@@ -403,7 +398,7 @@ class Viewer(PoseOps):
         if self.comparing and self.compare_viewport is not None:
             # One camera state, two renders: the point of a comparison is that
             # both meshes are seen from the identical angle.
-            self._resize(self.compare_viewport, width, height)
+            self._resize(width, height, self.compare_viewport)
             self.compare_camera.copy_from(self.camera)
             self.renderer.draw(
                 self.compare_viewport,
@@ -413,29 +408,6 @@ class Viewer(PoseOps):
                 wireframe=self.wireframe,
             )
         return self.viewport.texture
-
-    def _resize(self, viewport: glctx.Viewport, width: int, height: int) -> None:
-        """Resize, forgetting the outgoing texture first.
-
-        ``Viewport.resize`` releases its texture and makes a new one, and the
-        imgui backend maps GL names to moderngl objects: releasing without
-        forgetting leaves it holding a dead object under a name the driver is
-        free to reissue, which is how an unrelated image starts rendering as
-        this one. Same rule, same shape as ``ClayView._resize``.
-        """
-        if (width, height) == viewport.size:
-            return
-        self._forget(viewport.texture)
-        viewport.resize((width, height))
-
-    def _forget(self, texture: Any) -> None:
-        if texture is None:
-            return
-        from . import imgui_backend
-
-        renderer = imgui_backend.current()
-        if renderer is not None:
-            renderer.forget_texture(texture)
 
     # ``_overlays`` and ``_active_gizmo`` live in ``PoseOps`` with the rest of
     # the pose half: both return nothing outside pose mode, and the gizmo
@@ -550,30 +522,12 @@ class Viewer(PoseOps):
             return True
         return False
 
-    def _local(self, event: Any) -> tuple[float, float]:
-        pos = getattr(event, "pos", None)
-        if pos is None:
-            return self._last_mouse
-        return (pos[0] - self._rect[0], pos[1] - self._rect[1])
-
-    def _alt_held(self) -> bool:
-        """Whether Alt is down right now. Mirrors ``_view_drag.DragOps._mods``,
-        Clay's equivalent input handler, down to the headless fallback: a test
-        with no display driver can't ask pygame for modifier state at all.
-        """
-        try:
-            import pygame
-
-            return bool(pygame.key.get_mods() & pygame.KMOD_ALT)
-        except Exception:  # pragma: no cover - headless pygame without a display
-            return False
-
     def _press(self, button: int, local: tuple[float, float]) -> bool:
         self._last_mouse = local
         if button not in (1, 2, 3):
             return False
         if button == 1 and self.pose_mode and self.editor.bound:
-            if self._alt_held():
+            if self._mods()[2]:
                 # The 2026-09-08 audit (finding create-01) found this method
                 # never read Alt before testing what was under the cursor, so
                 # an Alt+drag that started over a joint marker or a gizmo
