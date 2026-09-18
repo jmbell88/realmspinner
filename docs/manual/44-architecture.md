@@ -190,6 +190,6 @@ back to sRGB — so the background is the literal hex you asked for.
 
 The GLB loader is hand-rolled for two reasons that no general-purpose loader satisfies: trimesh
 discards a scene root's transform, which is precisely where the grounding transform is written, and
-it has no notion of a skin. `viewer/gltf.py` keeps the node graph live after loading, because posing
+it has no notion of a skin. `kernels/geom3d/gltf.py` keeps the node graph live after loading, because posing
 *is* setting a joint node's local rotation and recomputing world matrices — see
 [The pose contract](45-pipelines.md#the-pose-contract).

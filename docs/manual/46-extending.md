@@ -231,9 +231,9 @@ Several parts of the app are pure by rule, and the rule is always the same: noth
 imports imgui, moderngl, pygame or the service layer. Three places do this, for three versions of
 the same reason.
 
-**The Inker engine.** `studio/inker/` holds blend arithmetic, layers with stable uids, typed undo
+**The Inker engine.** `kernels/pixel/` holds blend arithmetic, layers with stable uids, typed undo
 edits, selection masks, brush stamps, gradients and OpenRaster I/O, and none of it knows a window
-exists. `studio/inker_mode.py` is the only layer that knows about jobs and task threads. That is
+exists. `studio/modes/inker/mode.py` is the only layer that knows about jobs and task threads. That is
 what makes every rule about pixels assertable headlessly — and there are a lot of such rules, since
 undo is addressed by layer uid rather than index precisely so that an undo issued after a reorder
 still lands on the layer the edit was made to.
@@ -242,7 +242,7 @@ still lands on the layer the edit was made to.
 decided in a module with no Blender and no GPU, so the layout can be tested exhaustively and the
 preview cannot drift from the render.
 
-**This manual.** `studio/manual/loader.py` finds chapters and reads them; `studio/manual/parser.py`
+**This manual.** `kernels/manual/loader.py` finds chapters and reads them; `kernels/manual/parser.py`
 turns markdown into typed blocks. Neither imports imgui, so every rule about what a chapter may
 contain is a headless test. The renderer that draws those blocks in the app is a separate thing
 entirely and holds no opinions about syntax.
@@ -434,7 +434,7 @@ yourself.
 
 ### Adding a tool
 
-`studio/agent_clay.py` is the surface and `studio/agent_host.py` is the plumbing. The important
+`studio/modes/clay/agent/` is the surface and `studio/agent_host.py` is the plumbing. The important
 thing about the first is that **most of it is not written down**: the shapes an agent may place come
 from `primitives.GENERATORS`, the figures from `presets.ASSEMBLIES`, the operations from
 `clay_ops.OPS`, and the selection questions `clay_select_by` can answer from `select.QUERIES` — the
@@ -476,7 +476,7 @@ at, and the whole document's introspection was bricked until someone thought to 
 for `_validate_vec3` for a TRS-shaped argument, `_validate_unit` for a 0..1 number and
 `_validate_number_or_vec` for the `number | array-of-numbers | array-of-arrays` shape
 `clay_set_params` and `clay_add_primitive`'s `params` use (a lathe's `profile` is the
-array-of-arrays case) — all three live beside `agent_clay.py`'s other validators, in the same
+array-of-arrays case) — all three live beside `validate.py`'s other validators, in the same
 "validate everything before the
 first mutation" style `_h_add_primitive` and `_h_add_figure` already followed.
 `tests/test_agent_schemas.py` is what proves this half is actually done, tool by tool and
@@ -502,7 +502,7 @@ exactly what the suite replays, so a session worth keeping can become a regressi
 `tests/fixtures/agent_transcripts/` with a claim about what it should build written beside it.
 
 A refusal now also *reports* that nothing moved. Every one built through `agent_clay.fail` carries
-`changed`, defaulted to `False` in that one wrapper rather than at each of this file's ~100 call
+`changed`, defaulted to `False` in that one wrapper rather than at each of these files' ~100 call
 sites, so a new tool that follows the rule above gets the answer right by doing nothing at all — a
 refusal that never reaches a mutation is `changed: false` for free, and there is nothing to write.
 Only a tool that can genuinely refuse *after* changing something has to think about it, and today
@@ -636,7 +636,7 @@ is no document, and no prompt text at all, in the bridge's own leaf to fall back
 ## Adding a mode
 
 A mode is a rung on the rail and a workspace behind it, and adding one is a sweep rather than a
-file. `studio/modes.py` is the authoritative list — the module's own comments explain, inline, why
+file. `studio/modes/__init__.py` is the authoritative list — the module's own comments explain, inline, why
 each structure beside `MODES` is hand-written rather than derived — and everything below is a site
 that list does not reach on its own. Mason was the fourteenth and walked all of it; the order here
 is the order it went in.
@@ -740,7 +740,7 @@ below check the chapter list, the index's own sections, every cross-link and eve
 entry, in both directions.
 
 The one piece of wiring outside the files themselves is `HELP_TARGETS` in
-`studio/manual/targets.py`. It maps a pane's key to the chapter and heading that documents it, which
+`kernels/manual/targets.py`. It maps a pane's key to the chapter and heading that documents it, which
 is what lets the help affordance in a panel open the manual at the relevant place instead of at the
 top. Adding a chapter that documents a pane means adding its entry there; that map is the only
 coupling between the UI's structure and the manual's, and keeping it in one table is what stops

@@ -36,7 +36,7 @@ spelling: Plotter canonicalizes layer data to CSV and bundles external assets
 under collision-free paths.
 
 **The `tiledversion` this build writes is `1.12.2`** — see
-`src/warlock/studio/plotter/tsx.py`'s `TILED_VERSION` — and it says what it
+`src/warlock/studio/modes/plotter/engine/tsx.py`'s `TILED_VERSION` — and it says what it
 means as of **2026-08-29**. It was held at `1.10.2` behind a gate that only a
 human with Tiled installed could open: a real Tiled 1.12.2 had to be confirmed
 to open one of our exports without complaint. (The gate was briefly deleted and
@@ -103,7 +103,7 @@ map covers — falls back the same way. Both are now read by
 `tmx.read_tmx`/`read_tmj` into `tmx.ImportWarning` rows, one per fallback,
 carrying the layer or object name it is about (empty for a map-level
 fallback like the stagger case). The Map file pane
-(`panes/plotter_bridge.py`) shows them under the import row, grouped by
+(`src/warlock/studio/modes/plotter/ui/panes/bridge.py`) shows them under the import row, grouped by
 layer, so a map that opened looking wrong says why without the log open. The
 `log.warning` call each already made is unchanged and still fires first — the
 pane is a second channel for the same fact, not a replacement for the first.
@@ -134,7 +134,7 @@ inventing a `1.12` format-version value.
 ### The `M{n}` citations
 
 A milestone number used to be cited as `M{n}` from comments under
-`src/warlock/studio/plotter/`, from the project's internal invariants ledger and from the table
+`src/warlock/studio/modes/plotter/engine/`, from the project's internal invariants ledger and from the table
 below. **They referred to `docs/PLOTTER_PLAN.md`, which was deleted in
 `09c64b4`** — chase it with `git log --all --diff-filter=D --
 '*PLOTTER_PLAN.md'`, the same way a retired plan file's citation is chased. This is the

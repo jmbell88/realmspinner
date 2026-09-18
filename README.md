@@ -13,7 +13,7 @@ The generation pipeline:
 ## The modes
 
 A rail down the left of the window chooses between **fourteen** top-level modes
-(`src/warlock/studio/modes.py` is the authoritative list, and `RAIL_GROUPS` is
+(`src/warlock/studio/modes/__init__.py` is the authoritative list, and `RAIL_GROUPS` is
 the grouping) in three sections: **Pipeline**, **Workspaces**, and an
 unlabelled footer. There is no per-mode key — the `Ctrl+K` command palette is
 the keyboard route, and `F1` opens the manual as an overlay over whatever you

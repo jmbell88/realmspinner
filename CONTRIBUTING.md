@@ -53,9 +53,12 @@ The ones that most often surprise people:
 - **`bpy` never runs in the app process**, and every subprocess goes in the
   `winjob` kill-on-close job. A scan test enforces each: `tests/modes/poser/test_poser_imports.py`
   for the import, `tests/test_vram.py` for the job.
-- **The headless editor packages** (`studio/inker/`, `clay/`, `mason/`,
-  `plotter/`, `packwright/`, `sirens/`, `troupe/`, `muse/`) import no imgui,
-  moderngl, pygame or `service`. Import-pinning tests enforce the exact
+- **The headless engine packages** (`kernels/mesh/`, the `clay` engine;
+  `kernels/pixel/`, the `inker` engine, incl. `flourish/` and `walk/`;
+  `kernels/grid2d/`, `kernels/geom3d/`, `kernels/manual/`, `kernels/audio/`;
+  plus each mode's own `studio/modes/<name>/engine/` for
+  `mason`, `plotter`, `packwright`, `sirens`, `troupe` and `muse`) import no
+  imgui, moderngl, pygame or `service`. Import-pinning tests enforce the exact
   outward set, so adding an import means updating the pin -- deliberately.
   The list is `tests/_pure_packages.py`'s `pure_packages()`, worked out from
   the tree rather than hand-kept, because the 2026-09-12 audit found this
