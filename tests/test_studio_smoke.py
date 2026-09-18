@@ -4108,16 +4108,15 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
     from imgui_bundle import imgui
 
     from warlock.kernels.grid2d import gid
-    from warlock.studio import plotter_mode, plotter_state
-    from warlock.studio.panes import (
-        plotter_bridge,
-        plotter_canvas,
-        plotter_layers,
-        plotter_textures,
-        plotter_tileset,
-        plotter_tools,
-    )
-    from warlock.studio.plotter.tilemap import MapObject, new_uid
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter import state as plotter_state
+    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
+    from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import textures as plotter_textures
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
     from warlock.studio.tokens import sp
 
     app_ctx.state.mode = "plotter"
@@ -4204,7 +4203,7 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
 
     from plotter._terrainset import terrain_tileset
 
-    from warlock.studio.plotter import terrain as terrainlib
+    from warlock.studio.modes.plotter.engine import terrain as terrainlib
 
     ground = tab.doc.add_tileset(terrain_tileset(tile_w=16, tile_h=16))
     state.terrain = (tab.doc.tilesets.index(ground), 0)
@@ -4218,7 +4217,7 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
 
     # Both property editors, with a property in each so the value row and the
     # remove button rasterise rather than only the empty new-key form.
-    from warlock.studio.plotter.tsx import Prop
+    from warlock.studio.modes.plotter.engine.tsx import Prop
 
     widgets.request_open("plotter/map-props")
     widgets.request_open("plotter/layer-props")
@@ -5267,8 +5266,8 @@ def test_the_new_map_dialog_opens_once_per_request(app_ctx, imgui_ctx):
     re-open itself every frame and could never be cancelled -- and the five
     doors that raise it are spread across four windows, so the only place that
     can honour it is the one that draws it."""
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     state = plotter_mode.ensure(app_ctx)
     plotter_mode.ask_new_document(app_ctx)
@@ -5286,14 +5285,12 @@ def test_the_new_map_dialog_opens_once_per_request(app_ctx, imgui_ctx):
     ["tools", "tileset", "layers", "bridge", "setup"],
 )
 def test_no_two_plotter_items_claim_one_imgui_id(app_ctx, imgui_ctx, pane):
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import (
-        plotter_bridge,
-        plotter_canvas,
-        plotter_layers,
-        plotter_tileset,
-        plotter_tools,
-    )
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5382,8 +5379,8 @@ def test_plotter_tileset_pane_leads_with_the_picker(app_ctx, imgui_ctx):
     the cost of one glyph. So what this asserts is that the strip leads, the
     bar follows it, and none of the four is drawn in the column.
     """
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_tileset
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5412,8 +5409,8 @@ def test_plotter_tileset_pane_leads_with_the_picker(app_ctx, imgui_ctx):
 def test_plotter_tileset_pane_is_only_the_file_door_when_empty(app_ctx, imgui_ctx):
     """With no tileset attached there is nothing to pick and nothing to polish,
     so the one way of getting one is the whole pane."""
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_tileset
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5435,8 +5432,8 @@ def test_the_sheet_popup_pump_runs_before_the_empty_map_return(app_ctx, imgui_ct
     import numpy as np
 
     from warlock.kernels.grid2d import slicing
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_tileset
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5465,8 +5462,8 @@ def test_a_frame_without_the_sheet_popup_drops_the_pixels(app_ctx, imgui_ctx):
     import numpy as np
 
     from warlock.kernels.grid2d import slicing
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_tileset
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5696,7 +5693,7 @@ def test_a_rendered_sheet_offers_both_hand_offs(app_ctx, imgui_ctx):
 
 
 def test_the_offset_and_autocrop_controls_render(app_ctx, imgui_ctx):
-    from warlock.studio import plotter_mode
+    from warlock.studio.modes.plotter import mode as plotter_mode
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5710,7 +5707,7 @@ def test_the_offset_and_autocrop_controls_render(app_ctx, imgui_ctx):
     state.resize_pending = True
 
     def frame() -> None:
-        from warlock.studio.panes import plotter_tools as pane
+        from warlock.studio.modes.plotter.ui.panes import tools as pane
 
         pane.resize_popup(app_ctx, state, tab)
 
@@ -5727,8 +5724,8 @@ def test_the_wand_row_renders_and_no_dead_generator_route_remains(app_ctx, imgui
     import subprocess
     from pathlib import Path as _Path
 
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_tools
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     imgui, _renderer = imgui_ctx
     plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5803,7 +5800,7 @@ def test_the_menu_bar_and_bottom_pane_actually_render(app_ctx, imgui_ctx):
 
 
 def _plotter_tab(app_ctx, tilesets=("terrain",)):
-    from warlock.studio import plotter_mode
+    from warlock.studio.modes.plotter import mode as plotter_mode
 
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
     for name in tilesets:
@@ -5818,7 +5815,7 @@ def _plotter_tab(app_ctx, tilesets=("terrain",)):
 def test_the_object_toolbox_draws_a_capsule_button(app_ctx, imgui_ctx):
     """The shape was drawable, hit-testable and writable by four codecs, and
     reachable only by hand-editing a file."""
-    from warlock.studio.panes import plotter_tools
+    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     imgui, _renderer = imgui_ctx
     tab = _plotter_tab(app_ctx)
@@ -5837,8 +5834,9 @@ def test_the_undo_history_popover_lists_the_stack_and_jumps(app_ctx, imgui_ctx):
     import numpy as np
 
     from warlock.kernels.grid2d import gid as gidlib
-    from warlock.studio import controls, plotter_mode
-    from warlock.studio.panes import plotter_bridge
+    from warlock.studio import controls
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
 
     imgui, _renderer = imgui_ctx
     tab = _plotter_tab(app_ctx)
@@ -5882,8 +5880,9 @@ def test_the_undo_history_popover_lists_the_stack_and_jumps(app_ctx, imgui_ctx):
 
 def test_go_to_coordinate_draws_a_dialog_that_moves_the_view(app_ctx, imgui_ctx):
     """Menu -> flag -> popup -> door -> pan, every leg through the real code."""
-    from warlock.studio import plotter_mode, widgets
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio import widgets
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     imgui, _renderer = imgui_ctx
     tab = _plotter_tab(app_ctx)
@@ -5919,7 +5918,7 @@ def test_go_to_coordinate_draws_a_dialog_that_moves_the_view(app_ctx, imgui_ctx)
 
 
 def test_the_tileset_strip_draws_one_tab_per_tileset(app_ctx, imgui_ctx):
-    from warlock.studio.panes import plotter_tileset
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     _plotter_tab(app_ctx, tilesets=("Grass", "Dungeon", "props"))
@@ -5944,8 +5943,8 @@ def test_choosing_a_tab_changes_the_tileset_and_drops_the_brush(app_ctx, imgui_c
     import numpy as np
 
     from warlock.kernels.grid2d import gid as gidlib
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_tileset
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     _plotter_tab(app_ctx, tilesets=("Grass", "Dungeon", "props"))
@@ -5982,7 +5981,7 @@ def test_choosing_a_tab_changes_the_tileset_and_drops_the_brush(app_ctx, imgui_c
 
 def test_the_tileset_filter_appears_and_narrows_the_strip(app_ctx, imgui_ctx):
     """At the count where the strip starts scrolling, and not before."""
-    from warlock.studio.panes import plotter_tileset
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     names = ("Grass", "grass cliff", "Dungeon", "props", "water", "sand", "ice", "lava")
@@ -6112,8 +6111,8 @@ def test_the_plotter_layer_bar_and_the_rename_field_both_render(app_ctx, imgui_c
     while it is being typed. Neither draws unless it is asked for, so neither
     rasterises in the workspace frame above.
     """
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_layers
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -6162,8 +6161,8 @@ def test_the_plotter_stamp_ghost_draws_the_brush_under_the_pointer(app_ctx, imgu
     import numpy as np
 
     from warlock.kernels.grid2d import gid
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
     state = plotter_mode.ensure(app_ctx)
@@ -6322,9 +6321,9 @@ def test_the_plotter_properties_table_draws_every_branch(app_ctx, imgui_ctx):
     has been pressed, and the ``-`` in the footer is live only with a top-level
     row selected.
     """
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_layers
-    from warlock.studio.plotter.tsx import Prop
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.engine.tsx import Prop
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -6385,8 +6384,9 @@ def test_the_plotter_properties_table_draws_every_branch(app_ctx, imgui_ctx):
 def test_the_plotter_objects_dock_lists_and_filters(app_ctx, imgui_ctx):
     """The dock, in each of the states it can be in: empty, listing, filtered
     to nothing, and with a selection its right-click menu can act on."""
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_layers, plotter_objects
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import objects as plotter_objects
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (16, 16, 16, 16))
@@ -6441,8 +6441,8 @@ def test_the_plotter_stamps_pane_draws_full_and_empty_slots(app_ctx, imgui_ctx):
     import numpy as np
 
     from warlock.kernels.grid2d import gid
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_stamps
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import stamps as plotter_stamps
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -6486,8 +6486,8 @@ def test_the_plotter_stamps_pane_draws_full_and_empty_slots(app_ctx, imgui_ctx):
 def test_the_stamps_pane_is_offered_only_on_a_tile_layer(app_ctx, imgui_ctx):
     """A stamp is a block of tiles, so nine controls that cannot act is worse
     than not claiming the height."""
-    from warlock.studio import plotter_mode
-    from warlock.studio.panes import plotter_stamps
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.ui.panes import stamps as plotter_stamps
 
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
     assert plotter_stamps.on_tile_layer(app_ctx) is True

@@ -45,11 +45,11 @@ from ..modes.inker.ui.workspace import InkerWorkspace
 from ..modes.mason.ui.viewport import MasonViewport
 from ..modes.muse.ui.workspace import MuseWorkspace
 from ..modes.packwright.ui.workspace import PackwrightWorkspace
+from ..modes.plotter.ui.workspace import PlotterWorkspace
 from ..modes.poser.ui.viewport import PoserViewport
 from ..modes.review.ui.workspace import ReviewPanes
 from ..modes.sirens.ui.workspace import SirensWorkspace
 from ..modes.troupe.ui.workspace import TroupeWorkspace
-from ..plotter_workspace import PlotterWorkspace
 from .events import EventsMixin
 from .frame import FrameMixin
 from .quit import QuitMixin

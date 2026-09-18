@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import tsx
+from warlock.studio.modes.plotter.engine import tsx
 
 
 def _pixels(w: int = 64, h: int = 64) -> np.ndarray:

@@ -181,7 +181,10 @@ _CONVERTED_TO_DOWNLOAD = (
         STUDIO_ROOT / "modes/packwright/ui/panes/bridge.py",
         '{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}',
     ),
-    (STUDIO_ROOT / "panes" / "plotter_bridge.py", '{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}'),
+    (
+        STUDIO_ROOT / "modes/plotter/ui/panes/bridge.py",
+        '{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}',
+    ),
 )
 
 _CONVERTED_TO_FOLDER_OPEN = (

@@ -19,7 +19,7 @@ from typing import Any
 import numpy as np
 
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import tsx
+from warlock.studio.modes.plotter.engine import tsx
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "tiled"
 

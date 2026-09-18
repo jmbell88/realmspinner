@@ -79,8 +79,8 @@ def test_the_plotter_render_is_at_least_three_times_the_numpy_path() -> None:
     on the 200x200x3 map the plan benched (4348 ms to 759 ms)."""
     from warlock.kernels.grid2d import gid
     from warlock.kernels.grid2d.tileset import Tileset
-    from warlock.studio.plotter import render
-    from warlock.studio.plotter.tilemap import MapDoc
+    from warlock.studio.modes.plotter.engine import render
+    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
     rng = np.random.default_rng(0x71E)
     tiles, size, cells = 64, 32, 60

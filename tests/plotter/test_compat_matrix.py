@@ -18,8 +18,13 @@ import ast
 import re
 from pathlib import Path
 
+from warlock.studio.modes.plotter import engine as plotter_engine
+
 MATRIX = Path(__file__).resolve().parents[2] / "docs" / "COMPAT.md"
-ENGINE = Path(__file__).resolve().parents[2] / "src" / "warlock" / "studio" / "plotter"
+# Derived from the package: restructure P6 moved the engine from
+# ``studio/plotter/`` to ``studio/modes/plotter/engine/``, and the literal path
+# this used to be found no files there.
+ENGINE = Path(plotter_engine.__file__).parent
 
 STATES = {
     "round-trips",
@@ -262,7 +267,7 @@ def test_every_authoring_claim_names_a_tab_that_exists():
     exist for something Tiled has no construct for, and demanding a row for one
     would be inventing ledger entries to satisfy a test.
     """
-    from warlock.studio.panes.plotter_tileset_editor import TABS
+    from warlock.studio.modes.plotter.ui.panes.tileset_editor import TABS
 
     named = set()
     for feature, state, note in _rows():

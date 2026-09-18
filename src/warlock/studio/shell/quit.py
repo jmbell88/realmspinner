@@ -186,11 +186,11 @@ class QuitMixin:
         clicking "Keep editing" on the first still left two more questions to
         dismiss, after the user has already said they are not quitting.
         """
-        from .. import plotter_mode
         from ..modes.clay import mode as clay_mode
         from ..modes.inker import mode as inker_mode
         from ..modes.mason import mode as mason_mode
         from ..modes.packwright import mode as packwright_mode
+        from ..modes.plotter import mode as plotter_mode
         from ..modes.poser import mode as poser_mode
         from ..modes.sirens import mode as sirens_mode
         from ..panes import pose_panel
@@ -272,9 +272,9 @@ class QuitMixin:
             # registered with the imgui backend by ``widgets.texture_ref``, so
             # it must be forgotten before it is released.
             _step("release troupe atlas", lambda: troupe_mode.release_texture(ctx))
-            from .. import plotter_mode
             from ..modes.inker import mode as inker_mode
             from ..modes.packwright import mode as packwright_mode
+            from ..modes.plotter import mode as plotter_mode
 
             _step("release inker textures", lambda: inker_mode.release_all(ctx))
             _step("release plotter textures", lambda: plotter_mode.release_all(ctx))

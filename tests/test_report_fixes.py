@@ -104,7 +104,7 @@ def test_every_container_door_reads_through_the_bounded_reader():
         Path("src/warlock/kernels/pixel/ora.py"),
         Path("src/warlock/kernels/mesh/serialize.py"),
         Path("src/warlock/studio/modes/packwright/engine/wpack.py"),
-        Path("src/warlock/studio/plotter/wmap.py"),
+        Path("src/warlock/studio/modes/plotter/engine/wmap.py"),
     ]
     for door in doors:
         source = door.read_text(encoding="utf-8")
@@ -213,8 +213,8 @@ def test_an_infinite_maps_chunk_cannot_outrun_the_extent_cap():
     """``tmx`` capped a *fixed* map's dimensions through ``MapDoc.__init__``,
     but an infinite map's real dimensions arrive as ``<chunk>`` attributes,
     which went straight into the decode bound uncapped."""
-    from warlock.studio.plotter import tmx
-    from warlock.studio.plotter.tilemap import MAX_DIMENSION
+    from warlock.studio.modes.plotter.engine import tmx
+    from warlock.studio.modes.plotter.engine.tilemap import MAX_DIMENSION
 
     assert tmx._chunk_side(16, "width") == 16
     assert tmx._chunk_side(MAX_DIMENSION, "width") == MAX_DIMENSION

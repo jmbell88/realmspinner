@@ -6,9 +6,9 @@ eight times, across six modules: ``document.py`` for :mod:`warlock.core.undo`
 (the shared history engine); ``layout.py`` for :mod:`warlock.kernels.sheet`
 (the authority on the atlas ceiling and on what "trim" means); ``tsxout.py``
 twice, for :mod:`warlock.kernels.grid2d.tileset` and
-:mod:`warlock.studio.plotter.tsx` (the one ``.tsx`` writer in the repo, and the
+:mod:`warlock.studio.modes.plotter.engine.tsx` (the one ``.tsx`` writer in the repo, and the
 type it writes); ``compose.py`` and ``wpack.py`` for
-:mod:`warlock.studio.plotter.pngio` (the one RGBA-to-PNG encoder, which four
+:mod:`warlock.studio.modes.plotter.engine.pngio` (the one RGBA-to-PNG encoder, which four
 byte-identical copies used to spell); ``sources.py`` for
 :mod:`warlock.kernels.grid2d.tileset` again, for ``frozen_rgba``; and
 ``wpack.py`` for :mod:`warlock.core.safeio.zipguard` (the shared bounded-zip reader

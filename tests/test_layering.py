@@ -506,7 +506,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.shell.app", "warlock.studio.modes.mason.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.muse.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.modes.packwright.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.plotter_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.plotter.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.modes.poser.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.review.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.modes.sirens.ui.workspace"),
@@ -536,9 +536,9 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
 # texture caches, which P3 and P7 already fix" (RESTRUCTURE.md's own words).
 # Packwright's atlas writers reuse Plotter's PNG/TSX writers directly today.
 _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.modes.packwright.engine.compose", "warlock.studio.plotter.pngio"),
-    ("warlock.studio.modes.packwright.engine.tsxout", "warlock.studio.plotter.tsx"),
-    ("warlock.studio.modes.packwright.engine.wpack", "warlock.studio.plotter.pngio"),
+    ("warlock.studio.modes.packwright.engine.compose", "warlock.studio.modes.plotter.engine.pngio"),
+    ("warlock.studio.modes.packwright.engine.tsxout", "warlock.studio.modes.plotter.engine.tsx"),
+    ("warlock.studio.modes.packwright.engine.wpack", "warlock.studio.modes.plotter.engine.pngio"),
 })
 
 # P4 -- the god-file split. The group this comment used to head is empty and
@@ -595,7 +595,7 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
 # which Mason's palette offers the same rows through), and that landing is the
 # plausible place either dependency gets resolved.
 _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.modes.inker.ui.panes.tiles", "warlock.studio.plotter_tilesets"),
+    ("warlock.studio.modes.inker.ui.panes.tiles", "warlock.studio.modes.plotter.tilesets"),
     ("warlock.studio.modes.mason.ui.panes.palette", "warlock.studio.panes.library"),
 })
 

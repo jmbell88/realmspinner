@@ -12,8 +12,8 @@ import pytest
 
 from warlock.kernels.grid2d import gid
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import render
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter.engine import render
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 # A 2x1 tileset of 2x2 tiles: tile 0 has one opaque red pixel at its top-left,
@@ -130,7 +130,7 @@ def test_a_half_opaque_layer_composites_rather_than_replacing():
 def test_an_object_layer_contributes_no_pixels():
     """Objects are metadata an engine reads; drawing the editor's handles into
     an export would be drawing the ruler onto the drawing."""
-    from warlock.studio.plotter.tilemap import MapObject, new_uid
+    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
 
     doc = _doc(1, 1)
     layer = doc.add_object_layer()
@@ -164,7 +164,7 @@ def test_the_flat_render_places_an_isometric_cell_where_the_canvas_does():
     """The "two renderers agree" rule, asserted rather than intended. Both take
     placement from ``project`` now, so this is what would catch one of them
     growing its own arithmetic."""
-    from warlock.studio.plotter import project
+    from warlock.studio.modes.plotter.engine import project
 
     doc = MapDoc(3, 3, 32, 16, projection="isometric")
     pixels = np.zeros((16, 32, 4), dtype=np.uint8)
@@ -201,7 +201,7 @@ def test_a_transformed_brush_stamps_what_the_flat_renderer_then_draws():
     map, and compare against the same rotation applied to the pixels of the map
     the untransformed brush produced.
     """
-    from warlock.studio.plotter import tools
+    from warlock.studio.modes.plotter.engine import tools
 
     # A 2x2 map of 2x2 tiles, so the composite is a 4x4 image a numpy rotation
     # can be compared against directly.

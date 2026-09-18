@@ -17,7 +17,7 @@ def test_land_tileset_docstring_does_not_claim_the_projection_arm_is_test_only()
     ``plotter_mode.on_task_done``'s ``plotter-tileset`` arm passes that
     result straight into ``land_tileset``.
     """
-    from warlock.studio import plotter_tilesets
+    from warlock.studio.modes.plotter import tilesets as plotter_tilesets
 
     source = inspect.getsource(plotter_tilesets.land_tileset)
     assert "reached only from tests" not in source

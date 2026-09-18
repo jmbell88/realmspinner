@@ -14,10 +14,12 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import plotter_mode, plotter_state
-from warlock.studio.panes import plotter_layers, plotter_objects
-from warlock.studio.plotter import layer_rows
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter import mode as plotter_mode
+from warlock.studio.modes.plotter import state as plotter_state
+from warlock.studio.modes.plotter.engine import layer_rows
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
+from warlock.studio.modes.plotter.ui.panes import objects as plotter_objects
 
 
 @pytest.fixture

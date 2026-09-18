@@ -48,11 +48,11 @@ FILTERED = (
     # *tabs*: the count passed to ``no_matches`` deliberately excludes the set
     # in hand, which is never filtered out, so a query matching nothing still
     # says so with one tab still on screen.
-    "panes/plotter_tileset.py",
+    "modes/plotter/ui/panes/tileset.py",
     # Plotter's Objects dock. The list that most needs one: a map's objects are
     # whatever has been placed on it, which is hundreds by the end of a level,
     # and "where is the door I named" is the question the dock exists for.
-    "panes/plotter_objects.py",
+    "modes/plotter/ui/panes/objects.py",
 )
 
 

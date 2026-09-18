@@ -22,8 +22,8 @@ from warlock.kernels.grid2d.tileset import (
     TileRect,
     Tileset,
 )
-from warlock.studio.plotter import tools
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter.engine import tools
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 def _pixels(size: int = 64) -> np.ndarray:
@@ -133,7 +133,7 @@ def test_an_out_of_range_tileset_is_refused() -> None:
 
 
 def _weights(doc: MapDoc):
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     return plotter_canvas._tile_weights(doc)
 
@@ -212,7 +212,7 @@ def _animated(doc: MapDoc, value: int, clock_ms: int) -> int:
     the arrangement that produces it -- these tests outlived one change of
     arrangement already, from a scalar called per cell to this.
     """
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     subs = plotter_canvas.animated_substitutions(doc, clock_ms)
     block = np.array([[value]], dtype=gidlib.DTYPE)
@@ -265,7 +265,7 @@ def test_the_document_bytes_are_identical_across_animation_frames() -> None:
 def test_the_flat_renderer_draws_frame_one() -> None:
     """An export is a still -- the parallax precedent, where the canvas and the
     export deliberately disagree and the disagreement is stated."""
-    from warlock.studio.plotter import render
+    from warlock.studio.modes.plotter.engine import render
 
     doc = _doc({0: TileMeta(animation=(TileFrame(0, 100), TileFrame(1, 100)))})
     layer = doc.tile_layers()[0]

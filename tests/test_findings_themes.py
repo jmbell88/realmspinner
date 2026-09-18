@@ -24,7 +24,7 @@ def test_the_progress_card_cancel_says_why_it_is_grey():
 def test_the_plotter_layer_menu_does_not_blame_a_save_for_a_missing_layer():
     """It passed ``BUSY`` for the ``active``/``many`` gates, so "Delete layer"
     on a one-layer map said the map was being written."""
-    from warlock.studio.panes import plotter_menu as menu
+    from warlock.studio.modes.plotter.ui.panes import menu as menu
 
     idle = SimpleNamespace(busy=False)
     busy = SimpleNamespace(busy=True)

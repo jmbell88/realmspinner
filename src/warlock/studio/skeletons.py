@@ -234,13 +234,11 @@ def plotter(ctx: Any) -> dict[str, Column]:
     column drew anyway.
     """
 
-    from .panes import (
-        plotter_bridge,
-        plotter_layers,
-        plotter_objects,
-        plotter_stamps,
-        plotter_tileset,
-    )
+    from .modes.plotter.ui.panes import bridge as plotter_bridge
+    from .modes.plotter.ui.panes import layers as plotter_layers
+    from .modes.plotter.ui.panes import objects as plotter_objects
+    from .modes.plotter.ui.panes import stamps as plotter_stamps
+    from .modes.plotter.ui.panes import tileset as plotter_tileset
 
     left = Column(
         "left",

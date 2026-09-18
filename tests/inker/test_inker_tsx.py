@@ -18,12 +18,13 @@ import pytest
 from warlock.kernels.grid2d.tileset import TerrainSpec, Tileset
 from warlock.kernels.pixel.document import Document
 from warlock.kernels.pixel.tiles import strip
-from warlock.studio import plotter_mode, plotter_tilesets
 from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.modes.inker.state import InkerDoc, InkerState
-from warlock.studio.plotter import tsx as tsxlib
-from warlock.studio.plotter.tilemap import MapDoc
-from warlock.studio.plotter_state import PlotterDoc, PlotterState
+from warlock.studio.modes.plotter import mode as plotter_mode
+from warlock.studio.modes.plotter import tilesets as plotter_tilesets
+from warlock.studio.modes.plotter.engine import tsx as tsxlib
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from warlock.studio.modes.plotter.state import PlotterDoc, PlotterState
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -207,7 +208,7 @@ def test_import_places_a_terrain_set_with_terrains_intact(monkeypatch, tmp_path)
     tsx_path = tmp_path / "ground.tsx"
     png_path = tmp_path / "ground.png"
     tsx_path.write_bytes(tsxlib.tsx_bytes(source, image_name="ground.png"))
-    from warlock.studio.plotter import pngio
+    from warlock.studio.modes.plotter.engine import pngio
 
     png_path.write_bytes(pngio.png_bytes(source.pixels))
     monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: tsx_path)

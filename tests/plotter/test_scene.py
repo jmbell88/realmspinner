@@ -7,7 +7,7 @@ restating rules the flat stack already had.
 group; a group is a *state* its descendants inherit, so the same six numbers --
 offset, parallax, opacity, visibility, tint, lock -- have to combine the same
 way for every consumer or the canvas and an export start disagreeing about what
-a nested layer looks like. :mod:`warlock.studio.plotter.scene` is that one
+a nested layer looks like. :mod:`warlock.studio.modes.plotter.engine.scene` is that one
 answer and both renderers iterate it.
 
 **A uid still addresses.** The whole point of never recording an index is that
@@ -29,8 +29,8 @@ import pytest
 
 from warlock.kernels.grid2d import gid
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import scene
-from warlock.studio.plotter.tilemap import (
+from warlock.studio.modes.plotter.engine import scene
+from warlock.studio.modes.plotter.engine.tilemap import (
     GroupLayer,
     ImageLayer,
     MapDoc,
@@ -373,7 +373,7 @@ def test_a_resolved_state_is_frozen():
 
 
 def test_a_group_opacity_reaches_the_flat_render():
-    from warlock.studio.plotter import render as plotter_render
+    from warlock.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     group = doc.add_group_layer("G")
@@ -387,7 +387,7 @@ def test_a_group_opacity_reaches_the_flat_render():
 
 
 def test_a_hidden_group_hides_its_children_from_the_export_and_the_minimap():
-    from warlock.studio.plotter import render as plotter_render
+    from warlock.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     group = doc.add_group_layer("G")
@@ -401,7 +401,7 @@ def test_a_hidden_group_hides_its_children_from_the_export_and_the_minimap():
 
 
 def test_a_layer_offset_moves_what_the_flat_render_draws():
-    from warlock.studio.plotter import render as plotter_render
+    from warlock.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     layer = doc.add_tile_layer("t")
@@ -413,7 +413,7 @@ def test_a_layer_offset_moves_what_the_flat_render_draws():
 
 
 def test_an_image_layer_composites_into_the_flat_render():
-    from warlock.studio.plotter import render as plotter_render
+    from warlock.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     doc.add_image_layer("sky", pixels=_picture(8, 8))
@@ -424,7 +424,7 @@ def test_an_image_layer_composites_into_the_flat_render():
 
 
 def test_a_repeating_image_layer_fills_the_map():
-    from warlock.studio.plotter import render as plotter_render
+    from warlock.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     doc.add_image_layer("sky", pixels=_picture(8, 8), repeat_x=True, repeat_y=True)
@@ -433,7 +433,7 @@ def test_a_repeating_image_layer_fills_the_map():
 
 
 def test_a_layer_tint_multiplies_the_flat_render():
-    from warlock.studio.plotter import render as plotter_render
+    from warlock.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     doc.add_image_layer("sky", pixels=_picture(4, 4), tint=(128, 255, 255, 255))
@@ -449,7 +449,7 @@ def test_a_wmap_of_a_document_holding_a_group_stores_the_tree():
     was a flat list; version 3's entries are recursive, so the refusal moved
     for the only reason a refusal here is ever allowed to move -- the format
     learned to hold the thing."""
-    from warlock.studio.plotter import wmap
+    from warlock.studio.modes.plotter.engine import wmap
 
     doc = _doc()
     group = doc.add_group_layer("G")
@@ -465,7 +465,7 @@ def test_a_wmap_of_a_document_holding_an_image_layer_stores_the_picture():
     member now, embedded the way a tileset's atlas already was."""
     import numpy as np
 
-    from warlock.studio.plotter import wmap
+    from warlock.studio.modes.plotter.engine import wmap
 
     doc = _doc()
     doc.add_image_layer("sky", pixels=_picture(), source="art/sky.png", repeat_x=True)
@@ -488,7 +488,7 @@ def test_the_wmap_writer_door_has_a_name_of_its_own():
     future layer type can reach -- so it is provoked with one, and a bare
     object is enough precisely because the writer decides the kind *before* it
     asks a layer for anything."""
-    from warlock.studio.plotter import wmap
+    from warlock.studio.modes.plotter.engine import wmap
 
     assert issubclass(wmap.WmapUnstorable, ValueError)
 
@@ -508,7 +508,7 @@ def test_the_wmap_door_is_the_encoder_rather_than_the_json_formatter():
     remaining refusal lives, which is why ``wmap_bytes`` still builds the whole
     manifest *before* it opens the archive. A refusal raised inside the ``with``
     would leave a half-written zip behind it."""
-    import warlock.studio.plotter.wmap as wmap
+    import warlock.studio.modes.plotter.engine.wmap as wmap
 
     doc = _doc()
     doc.add_group_layer("G")
@@ -523,7 +523,7 @@ def test_the_wmap_door_is_the_encoder_rather_than_the_json_formatter():
 
 
 def test_a_flat_document_still_writes_a_wmap():
-    from warlock.studio.plotter import wmap
+    from warlock.studio.modes.plotter.engine import wmap
 
     doc = _doc()
     doc.add_tile_layer("t")
@@ -535,7 +535,7 @@ def test_groups_and_image_layers_are_written_to_both_tiled_formats():
     import json
     import xml.etree.ElementTree as ET
 
-    from warlock.studio.plotter import tmx
+    from warlock.studio.modes.plotter.engine import tmx
 
     doc = _doc()
     group = doc.add_group_layer("G")
@@ -565,7 +565,7 @@ def test_decorated_layers_are_written_to_both_tiled_formats(values, xml_attr, js
     import json
     import xml.etree.ElementTree as ET
 
-    from warlock.studio.plotter import tmx
+    from warlock.studio.modes.plotter.engine import tmx
 
     doc = _doc()
     layer = doc.add_tile_layer("t")
@@ -590,7 +590,7 @@ def test_a_wmap_of_a_decorated_layer_round_trips_since_v3(values):
     the four decorations the ``.tmx`` door still refuses by name are stored
     here field for field -- which is what makes the *other* door's message
     honest, since ".wmap holds it, Tiled cannot" is now a true sentence."""
-    from warlock.studio.plotter import wmap
+    from warlock.studio.modes.plotter.engine import wmap
 
     doc = _doc()
     layer = doc.add_tile_layer("t")
@@ -604,7 +604,7 @@ def test_a_wmap_of_a_decorated_layer_round_trips_since_v3(values):
 def test_an_undecorated_document_is_not_caught_by_either_door():
     """The guard that keeps the four refusals above from being a size limit on
     every map: identity values are not decorations."""
-    from warlock.studio.plotter import tmx, wmap
+    from warlock.studio.modes.plotter.engine import tmx, wmap
 
     doc = _doc()
     doc.add_tile_layer("t")
@@ -635,7 +635,7 @@ def test_a_nested_tile_layer_is_resized_with_the_rest():
 
 
 def test_the_layer_kinds_are_all_in_the_union():
-    from warlock.studio.plotter import _map_model
+    from warlock.studio.modes.plotter.engine import _map_model
 
     assert set(_map_model.LEAF_LAYERS) == {TileLayer, ObjectLayer, ImageLayer}
     assert GroupLayer not in _map_model.LEAF_LAYERS

@@ -255,13 +255,14 @@ def test_one_question_covers_however_many_are_dirty():
 def test_every_mode_reaches_for_the_shared_helpers():
     """The point of the module. A fourth copy that happens to agree today is
     the drift this replaced."""
-    from warlock.studio import plotter_io, plotter_state
     from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.modes.inker import mode as inker_mode
     from warlock.studio.modes.inker import state as inker_state
     from warlock.studio.modes.inker.ui.panes import textures as inker_textures
     from warlock.studio.modes.packwright.ui.panes import textures as packwright_textures
-    from warlock.studio.panes import plotter_textures
+    from warlock.studio.modes.plotter import fileio as plotter_io
+    from warlock.studio.modes.plotter import state as plotter_state
+    from warlock.studio.modes.plotter.ui.panes import textures as plotter_textures
 
     assert clay_mode._start is docmodes.start_save
     assert inker_mode._start is docmodes.start_save
@@ -434,7 +435,7 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
     expected_at_least = {
         "modes.clay.mode",
         "modes.mason.mode",
-        "plotter_mode",
+        "modes.plotter.mode",
         "modes.packwright.mode",
         "modes.sirens.mode",
         "modes.inker.mode",

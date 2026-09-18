@@ -17,8 +17,8 @@ import pytest
 from warlock import native
 from warlock.kernels.grid2d import gid
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import render
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter.engine import render
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
 needs_dll = pytest.mark.skipif(not native.available(), reason="warlockc.dll not built")
 

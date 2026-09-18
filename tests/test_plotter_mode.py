@@ -18,9 +18,10 @@ import pytest
 
 from warlock.kernels.grid2d import gid
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio import plotter_io, plotter_mode
-from warlock.studio.plotter import tmx, wmap
-from warlock.studio.plotter.tilemap import MapObject, new_uid
+from warlock.studio.modes.plotter import fileio as plotter_io
+from warlock.studio.modes.plotter import mode as plotter_mode
+from warlock.studio.modes.plotter.engine import tmx, wmap
+from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
 
 
 class FakeCtx:
@@ -571,7 +572,7 @@ def test_the_exported_render_is_the_source_beside_it_not_a_later_document(svc, m
     cannot appear in the picture without appearing in the source too."""
     from PIL import Image
 
-    from warlock.studio.plotter.render import render_map
+    from warlock.studio.modes.plotter.engine.render import render_map
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
@@ -609,7 +610,7 @@ def test_the_exported_render_is_the_source_beside_it_not_a_later_document(svc, m
 def test_picking_from_the_second_tileset_selects_the_second_tileset():
     """``list.index`` on a ``TilesetRef`` compares ndarrays; it only ever
     returned the right answer by short-circuiting on the firstgid."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -637,7 +638,7 @@ def _stamping(ctx: FakeCtx):
 def test_a_shift_click_line_is_one_undo_step():
     """The whole point of drawing it inside the open session: forty cells must
     cost one Ctrl+Z, exactly as a forty-cell drag does."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer = _stamping(ctx)
@@ -654,7 +655,7 @@ def test_a_shift_click_line_is_one_undo_step():
 
 
 def test_a_line_with_nothing_in_hand_toasts_once():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, _layer = _stamping(ctx)
@@ -666,7 +667,7 @@ def test_a_line_with_nothing_in_hand_toasts_once():
 def test_a_fast_drag_paints_the_cells_it_skipped_over():
     """A drag is sampled once a frame, so a fast one arrives with gaps. Without
     interpolation the stroke comes out dotted."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer = _stamping(ctx)
@@ -679,7 +680,7 @@ def test_a_fast_drag_paints_the_cells_it_skipped_over():
 
 
 def test_a_drag_that_stays_in_one_cell_paints_it_once():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer = _stamping(ctx)
@@ -693,7 +694,7 @@ def test_a_drag_that_stays_in_one_cell_paints_it_once():
 
 
 def test_the_line_origin_follows_the_last_stamp():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, _layer = _stamping(ctx)
@@ -721,7 +722,7 @@ def test_the_line_origin_does_not_survive_a_tab_switch():
 def test_a_marquee_drag_selects_and_a_plain_click_clears_it():
     """Tiled's gesture, including the last part: a click with no drag is how a
     selection is dropped without reaching for a menu."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -936,7 +937,7 @@ def test_delete_removes_the_object_when_the_object_tool_is_held():
 
 
 def test_a_selection_constrains_a_stamp():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer = _stamping(ctx)
@@ -951,8 +952,8 @@ def test_a_selection_does_not_constrain_a_terrain_refit():
     Trimming it to the marquee would leave that ring showing the edge art of a
     neighbour that is no longer what it was -- a visibly broken field, which is
     worse than a tool reaching one cell past a selection."""
-    from warlock.studio.panes import plotter_canvas
-    from warlock.studio.plotter import terrain as terrainlib
+    from warlock.studio.modes.plotter.engine import terrain as terrainlib
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, ref = _terrain_tab(ctx)
@@ -975,7 +976,7 @@ def test_a_selection_does_not_constrain_a_terrain_refit():
 def test_a_selection_does_constrain_a_plain_erase():
     """The other half of the rule: an erase that is *not* a re-fit is an
     ordinary placement, and gets cut down like any other."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer, _value = _painted(ctx)
@@ -986,7 +987,7 @@ def test_a_selection_does_constrain_a_plain_erase():
 
 
 def test_a_selection_constrains_a_shape_fill():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer = _stamping(ctx)
@@ -1012,7 +1013,7 @@ def test_a_cut_is_refused_while_the_tab_is_busy(monkeypatch):
 def test_the_minimap_is_sized_to_its_longest_edge():
     """A wide map and a tall one both fit the same box, and neither is
     stretched -- the scale comes from whichever edge is longer."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
     from warlock.studio.tokens import sp
 
     ctx = FakeCtx()
@@ -1029,7 +1030,7 @@ def test_the_minimap_is_sized_to_its_longest_edge():
 
 
 def test_the_minimap_sits_inside_the_bottom_right_of_the_pane():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1041,7 +1042,7 @@ def test_the_minimap_sits_inside_the_bottom_right_of_the_pane():
 def test_the_minimap_cache_is_keyed_on_the_head_and_the_layer_count():
     """The head moves for every edit, which is exactly when the picture
     changes; the layer count catches an add whose step the head also moved."""
-    from warlock.studio.plotter import render as plotter_render
+    from warlock.studio.modes.plotter.engine import render as plotter_render
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1060,7 +1061,7 @@ def test_the_minimap_cache_is_keyed_on_the_head_and_the_layer_count():
 
 def test_a_resize_pins_the_opposite_corner():
     """Named by the corner that moves; the other stays still."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     class Obj:
         x, y, w, h = 10.0, 20.0, 30.0, 40.0
@@ -1076,7 +1077,7 @@ def test_a_resize_pins_the_opposite_corner():
 def test_dragging_a_corner_past_its_opposite_flips_rather_than_going_negative():
     """A negative size draws as nothing and exports as a rectangle no engine
     can read, so the rect is normalized as it goes."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     # Pinned at (40, 60); the pointer crosses well past it.
     class Unrotated:
@@ -1099,7 +1100,7 @@ def test_resizing_a_rotated_object_keeps_the_pinned_corner_still():
     """
     import math
 
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     class Obj:
         x, y, w, h = 100.0, 100.0, 40.0, 20.0
@@ -1125,7 +1126,7 @@ def test_resizing_a_rotated_object_keeps_the_pinned_corner_still():
 
 def test_only_a_rect_has_resize_handles():
     """A point has no corners; its position *is* the object."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     class Point:
         x, y, w, h = 5.0, 5.0, 0.0, 0.0
@@ -1155,7 +1156,7 @@ def test_a_moved_object_is_one_undo_step_through_the_document():
 
 
 def test_painting_a_locked_layer_toasts_and_pushes_nothing():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer = _stamping(ctx)
@@ -1344,7 +1345,7 @@ def test_a_lock_on_a_group_stops_painting_inside_it():
     """The lock the canvas draws is the *resolved* one -- a group's lock is
     inherited -- so the lock the input path enforces has to be the same one, or
     a layer whose handles are hidden goes on taking paint."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer = _stamping(ctx)
@@ -1361,7 +1362,7 @@ def test_a_lock_on_a_group_stops_painting_inside_it():
 def test_a_lock_on_a_group_stops_a_handle_drag_inside_it(monkeypatch):
     """The handles are not drawn on an inherited lock; without this the hit test
     still fires where one would sit, and the drag starts on an invisible grip."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
     from warlock.studio.shell import paintview
 
     ctx = FakeCtx()
@@ -1381,7 +1382,7 @@ def test_a_lock_on_a_group_stops_a_handle_drag_inside_it(monkeypatch):
 
 
 def test_a_lock_on_a_group_stops_drawing_a_new_object_inside_it(monkeypatch):
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
     from warlock.studio.shell import paintview
 
     ctx = FakeCtx()
@@ -1415,7 +1416,7 @@ def test_locking_leaves_the_rest_of_the_stack_alone():
 def test_the_shape_tool_fills_whichever_shape_is_chosen():
     """One tool with a mode, not two tools: the gesture, the preview and the
     undo step are the same and only the set of cells differs."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer = _stamping(ctx)
@@ -1436,7 +1437,7 @@ def test_the_shape_preview_outlines_the_box_it_would_fill():
     """Pure lattice arithmetic, like ``_corner_uvs``: the outline is measured to
     the *far* edge of the last cell, not its near edge, or the preview sits one
     cell short of what lands."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     corners = plotter_canvas._shape_points("rect", (1, 2), (4, 5))
     assert corners == [(1.0, 2.0), (5.0, 2.0), (5.0, 6.0), (1.0, 6.0)]
@@ -1446,7 +1447,7 @@ def test_the_shape_preview_outlines_the_box_it_would_fill():
 
 
 def test_the_ellipse_preview_is_sampled_inside_the_same_box():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     points = plotter_canvas._shape_points("ellipse", (0, 0), (7, 7))
     assert len(points) == plotter_canvas._ELLIPSE_SAMPLES
@@ -1461,7 +1462,7 @@ def test_the_ellipse_preview_is_sampled_inside_the_same_box():
 
 
 def test_a_shape_fill_is_one_undo_step():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, _layer = _stamping(ctx)
@@ -1473,7 +1474,7 @@ def test_a_shape_fill_is_one_undo_step():
 
 
 def test_the_shape_tool_still_needs_something_in_hand():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, layer = _stamping(ctx)
@@ -1488,7 +1489,7 @@ def test_a_line_needs_shift_a_stamp_and_somewhere_to_start_from():
     """All three, because each rules out a different wrong line: no shift is an
     ordinary click, another tool has no "from" to draw from, and no last cell
     means the user has not placed anything in this map yet."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     class Io:
         def __init__(self, shift):
@@ -1543,8 +1544,8 @@ def _terrain_tab(ctx: FakeCtx):
 def test_erasing_a_terrain_cell_re_fits_what_surrounded_it():
     """A terrain hole has to grow an outline on everything that now borders it,
     or the field keeps the edge art of a neighbour that is no longer there."""
-    from warlock.studio.panes import plotter_canvas
-    from warlock.studio.plotter import terrain as terrainlib
+    from warlock.studio.modes.plotter.engine import terrain as terrainlib
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, ref = _terrain_tab(ctx)
@@ -1570,7 +1571,7 @@ def test_erasing_a_terrain_cell_re_fits_what_surrounded_it():
 def test_erasing_a_plain_cell_on_a_terrain_map_is_still_a_plain_erase():
     """Self-selecting per cell is the only rule that makes one eraser correct on
     a mixed map; the alternative is a second eraser and a user deciding which."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, ref = _terrain_tab(ctx)
@@ -1592,8 +1593,8 @@ def test_erasing_a_plain_cell_on_a_terrain_map_is_still_a_plain_erase():
 def test_fill_with_a_terrain_in_hand_floods_instead_of_refusing():
     """Fill used to toast "Pick a tile from the tileset first" whenever the
     brush was empty, including with a terrain unambiguously in hand."""
-    from warlock.studio.panes import plotter_canvas
-    from warlock.studio.plotter import terrain as terrainlib
+    from warlock.studio.modes.plotter.engine import terrain as terrainlib
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, ref = _terrain_tab(ctx)
@@ -1614,7 +1615,7 @@ def test_fill_with_a_terrain_in_hand_floods_instead_of_refusing():
 
 
 def test_fill_with_a_tile_in_hand_is_the_plain_flood_it_always_was():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, ref = _terrain_tab(ctx)
@@ -1628,7 +1629,7 @@ def test_fill_with_a_tile_in_hand_is_the_plain_flood_it_always_was():
 
 
 def test_fill_with_neither_still_says_so():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1648,8 +1649,8 @@ def test_the_canvas_and_the_flat_renderer_agree_about_every_flag():
     than in ``tests/plotter/`` because it reaches into a pane -- ``_corner_uvs``
     is imgui-free and pure, so importing it headlessly is safe.
     """
-    from warlock.studio.panes.plotter_canvas import _corner_uvs
-    from warlock.studio.plotter.render import orient
+    from warlock.studio.modes.plotter.engine.render import orient
+    from warlock.studio.modes.plotter.ui.panes.canvas import _corner_uvs
 
     # Four distinct corners, so every permutation is distinguishable.
     tile = np.zeros((2, 2, 4), dtype=np.uint8)
@@ -1675,7 +1676,7 @@ def test_the_tileset_memo_is_kept_until_the_epoch_moves():
     per layer. It is memoised, and ``tileset_epoch`` is the only thing that may
     invalidate it. Imgui-free like ``_corner_uvs``, so it is safe headlessly.
     """
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     plotter_canvas.forget_all()
     memo = plotter_canvas._index_memo("tab-a", 0)
@@ -1693,7 +1694,7 @@ def test_the_tileset_memo_is_kept_until_the_epoch_moves():
 def test_the_tileset_memo_remembers_that_an_id_belongs_to_nothing():
     """``None`` is the expensive answer, not the missing one: every cell painted
     from a since-detached tileset scans the whole list to reach it."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     plotter_canvas.forget_all()
     memo = plotter_canvas._index_memo("tab-a", 0)
@@ -1703,7 +1704,7 @@ def test_the_tileset_memo_remembers_that_an_id_belongs_to_nothing():
 
 
 def test_each_document_memoises_separately():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     plotter_canvas.forget_all()
     plotter_canvas._index_memo("tab-a", 0)[1] = 0
@@ -1719,7 +1720,7 @@ def test_each_document_memoises_separately():
 def test_closing_a_tab_drops_its_tileset_memo():
     """A tab uid is never reissued, so a memo left behind leaks rather than
     merely going stale -- released at the moment the textures are."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1757,7 +1758,7 @@ def test_a_replaced_tileset_gets_a_fresh_texture_and_a_kept_one_does_not():
     ``id(pixels)`` before, and CPython recycles an id after GC, so a
     replacement atlas landing on a recycled id false-matched and the stale
     atlas drew forever."""
-    from warlock.studio.panes import plotter_textures
+    from warlock.studio.modes.plotter.ui.panes import textures as plotter_textures
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1839,7 +1840,7 @@ def test_the_palette_ladder_is_reciprocal_below_one_and_whole_above():
     non-uniform subset of source pixels and the palette grid beats against
     itself. 1/N samples uniformly and merely gets smaller.
     """
-    from warlock.studio import plotter_state as ps
+    from warlock.studio.modes.plotter import state as ps
 
     ladder = ps.PALETTE_ZOOM_LADDER
     assert ladder == tuple(sorted(ladder))
@@ -1858,7 +1859,7 @@ def test_the_palette_ladder_is_reciprocal_below_one_and_whole_above():
 
 def test_fitting_picks_the_largest_rung_that_shows_the_whole_atlas():
     """"View the entire tile set", which is what the pane could not do."""
-    from warlock.studio import plotter_state as ps
+    from warlock.studio.modes.plotter import state as ps
 
     # A 1024px atlas in a 300px pane: must go below 1:1, which the old
     # ``max(1, ...)`` floor made impossible.
@@ -1877,7 +1878,7 @@ def test_fitting_picks_the_largest_rung_that_shows_the_whole_atlas():
 
 def test_fitting_answers_rather_than_dividing_by_zero():
     """A tileset with no pixels is a load that failed, not a crash in the loop."""
-    from warlock.studio import plotter_state as ps
+    from warlock.studio.modes.plotter import state as ps
 
     floor = ps.PALETTE_ZOOM_LADDER[0]
     assert ps.palette_fit_zoom(0, 0, 300.0, 260.0) == floor
@@ -1892,7 +1893,7 @@ def test_a_zoom_nudge_steps_strictly_past_a_fitted_scale():
     A fit-derived zoom routinely sits *between* two rungs, and a
     nearest-then-step rule would answer a press labelled "in" by zooming out.
     """
-    from warlock.studio import plotter_state as ps
+    from warlock.studio.modes.plotter import state as ps
 
     ladder = ps.PALETTE_ZOOM_LADDER
     between = (ladder[3] + ladder[4]) / 2.0
@@ -1927,7 +1928,7 @@ def test_a_tool_letter_picks_that_tool(monkeypatch):
     this test named G/fill and so had to be edited by hand when the keymap moved
     to Tiled's letters, which is exactly the drift the derivation prevents."""
 
-    from warlock.studio import plotter_state
+    from warlock.studio.modes.plotter import state as plotter_state
 
     ctx = FakeCtx()
     _tab(ctx)
@@ -1942,8 +1943,8 @@ def test_a_tool_letter_picks_that_tool(monkeypatch):
 def test_no_tool_letter_collides_with_another_binding():
     """X, Y and Z transform the brush and are read before the tool table, so a
     tool that took one of them would be unreachable rather than ambiguous."""
-    from warlock.studio import plotter_mode as mode
-    from warlock.studio import plotter_state
+    from warlock.studio.modes.plotter import mode as mode
+    from warlock.studio.modes.plotter import state as plotter_state
 
     letters = [letter.lower() for _k, _l, letter in plotter_state.TOOLS]
     assert len(letters) == len(set(letters)), "two tools share a letter"
@@ -1992,7 +1993,7 @@ def test_ctrl_shift_z_redoes_the_way_inker_and_clay_accept(monkeypatch):
 
 def test_the_two_empty_states_name_the_same_droppable_suffixes():
     """Two hand-written copies existed and they already disagreed."""
-    from warlock.studio import plotter_state
+    from warlock.studio.modes.plotter import state as plotter_state
 
     assert plotter_state.MAP_SUFFIX_TEXT == ".wmap / .tmx / .tmj"
 
@@ -2162,7 +2163,7 @@ def test_an_arriving_tileset_refits_the_view():
 
 
 def test_sending_an_atlas_back_from_inker_keeps_every_painted_cell():
-    from warlock.studio.plotter import terrain
+    from warlock.studio.modes.plotter.engine import terrain
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -2216,7 +2217,7 @@ class _FakeInkerDoc:
 
 def test_the_new_property_row_offers_scalar_and_recursive_types():
     """Class and list start empty, then unfold into the recursive editor."""
-    from warlock.studio.panes import plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     assert plotter_layers.AUTHORABLE_TYPES == (
         "string",
@@ -2236,8 +2237,8 @@ def test_the_new_property_row_offers_scalar_and_recursive_types():
 
 
 def test_a_container_property_gets_a_compact_summary_for_its_editor_header():
-    from warlock.studio.panes import plotter_layers
-    from warlock.studio.plotter.props import Prop
+    from warlock.studio.modes.plotter.engine.props import Prop
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     npc = Prop("class", {"hp": Prop("int", 3), "name": Prop("string", "Bob")}, propertytype="NPC")
     assert plotter_layers._summary(npc) == "NPC (2 members)"
@@ -2245,7 +2246,7 @@ def test_a_container_property_gets_a_compact_summary_for_its_editor_header():
 
 
 def test_object_property_choices_use_persistent_ids_in_recursive_layers():
-    from warlock.studio.panes import plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -2308,7 +2309,9 @@ def test_every_new_map_door_asks_rather_than_inventing():
     import inspect
 
     from warlock.studio import palette
-    from warlock.studio.panes import landing, plotter_bridge, plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from warlock.studio.panes import landing
 
     for module in (palette, landing, plotter_bridge, plotter_canvas, plotter_mode):
         source = inspect.getsource(module)
@@ -2323,8 +2326,8 @@ def test_every_new_map_door_asks_rather_than_inventing():
 def test_create_builds_the_map_the_form_describes(monkeypatch):
     """The dialog's one job. ``_create`` is what Create is wired to, so this is
     the assertion that the numbers on screen are the numbers in the map."""
-    from warlock.studio import plotter_setup
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter import setup as plotter_setup
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     form = plotter_setup.blank_form()
@@ -2346,9 +2349,9 @@ def test_create_gives_a_hexagonal_map_the_presets_own_hex_side(monkeypatch):
     to survive all the way to the document ``_create`` actually builds, or a
     freshly created "Hexagonal" map still draws as "Staggered" (``hex_side =
     0``) despite the form itself now carrying the right value."""
-    from warlock.studio import plotter_setup
-    from warlock.studio.panes import plotter_canvas
-    from warlock.studio.plotter import project
+    from warlock.studio.modes.plotter import setup as plotter_setup
+    from warlock.studio.modes.plotter.engine import project
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     form = plotter_setup.apply_preset(plotter_setup.blank_form(), "Hexagonal, 32 px")
@@ -2364,8 +2367,9 @@ def test_create_opens_the_tileset_door_the_form_chose(monkeypatch):
     """A new map cannot be painted until it has a tileset, so the dialog offers
     both doors rather than leaving the user to find them. Monkeypatched because
     one of them opens an OS picker."""
-    from warlock.studio import plotter_setup, widgets
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio import widgets
+    from warlock.studio.modes.plotter import setup as plotter_setup
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     asked: list[str] = []
     monkeypatch.setattr(plotter_mode, "ask_add_tileset", lambda _c: asked.append("file"))
@@ -2385,8 +2389,8 @@ def test_create_opens_the_tileset_door_the_form_chose(monkeypatch):
 def test_create_clamps_a_number_the_field_would_have_accepted(monkeypatch):
     """The cap is enforced where the map is built, not only where it is typed:
     the form is restored from ``state.preview`` and could carry anything."""
-    from warlock.studio import plotter_setup
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter import setup as plotter_setup
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     form = plotter_setup.blank_form()
@@ -2526,7 +2530,7 @@ def test_importing_with_nothing_parked_is_a_no_op():
 
 
 def test_use_as_tileset_routes_through_detection(tmp_path, monkeypatch):
-    from warlock.studio import plotter_tilesets
+    from warlock.studio.modes.plotter import tilesets as plotter_tilesets
 
     ctx = FakeCtx()
     tab = _tab(ctx, tileset=False)
@@ -2725,7 +2729,7 @@ def test_a_blob_sheet_parks_as_a_terrain_set(tmp_path):
 
 
 def test_importing_a_terrain_set_reorders_and_enables_painting(tmp_path):
-    from warlock.studio.plotter import terrain as terrainlib
+    from warlock.studio.modes.plotter.engine import terrain as terrainlib
 
     ctx = FakeCtx()
     tab = _tab(ctx, tileset=False)
@@ -2925,7 +2929,7 @@ def test_a_record_the_image_does_not_fit_falls_back_to_the_ordinary_path(
 def test_a_terrain_record_is_all_or_nothing(tmp_path, monkeypatch):
     """A terrain's position in the list is its precedence, so a list with one
     entry quietly dropped is not a smaller set -- it is a different one."""
-    from warlock.studio import plotter_tilesets
+    from warlock.studio.modes.plotter import tilesets as plotter_tilesets
 
     sidecar = _generated_terrain_sidecar()
     sidecar["terrains"] = [sidecar["terrains"][0], {"name": "broken"}]
@@ -2945,8 +2949,8 @@ def test_the_seamless_sidecars_own_spelling_of_the_view_is_read(tmp_path, monkey
     """The grid path writes ``projection`` and the seamless path writes ``view``.
     Reading only the first left every generated tileset with no lattice at all,
     which is the silent half of "the sidecar records it and nothing reads it"."""
-    from warlock.studio import plotter_tilesets
-    from warlock.studio.plotter import project
+    from warlock.studio.modes.plotter import tilesets as plotter_tilesets
+    from warlock.studio.modes.plotter.engine import project
 
     _library(monkeypatch, tmp_path, _flat(), _generated_terrain_sidecar())
     record = plotter_tilesets._recorded_sheet(FakeCtx(), "j1")
@@ -2969,8 +2973,8 @@ def test_a_sidecar_from_before_the_planner_was_deleted_still_opens(
     import json
 
     from warlock.pipelines import tilesheet
-    from warlock.studio import plotter_tilesets
-    from warlock.studio.plotter import project
+    from warlock.studio.modes.plotter import tilesets as plotter_tilesets
+    from warlock.studio.modes.plotter.engine import project
 
     sidecar = tilesheet.sheet_sidecar(
         prompt="a damp dungeon",
@@ -3032,7 +3036,7 @@ def _infinite(ctx: FakeCtx):
 def test_painting_past_the_edge_of_an_infinite_map_grows_it():
     """The gesture the whole feature is for. The cell keeps its *true*
     coordinate; it is the window that moved under it."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state = _infinite(ctx)
@@ -3046,7 +3050,7 @@ def test_painting_past_the_edge_of_an_infinite_map_grows_it():
 def test_a_stamp_at_the_edge_makes_room_for_its_whole_footprint():
     """The brush's footprint, not the cell under the cursor: growing by one
     cell would clip the rest of a 3x3 stamp."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state = _infinite(ctx)
@@ -3059,7 +3063,7 @@ def test_a_stamp_at_the_edge_makes_room_for_its_whole_footprint():
 def test_painting_past_a_finite_map_still_clips():
     """The flag is the only thing that decides it, and a finite map is exactly
     as it was."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, _layer = _stamping(ctx)
@@ -3077,7 +3081,7 @@ def test_a_refused_growth_says_so_instead_of_stopping_silently():
     layer to the full 4096 a side between two frames -- and the assertion here
     is about the refusal arriving, not about which of the two it was. The
     extent cap has its own case below."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state = _infinite(ctx)
@@ -3093,8 +3097,8 @@ def test_the_extent_cap_also_reaches_the_user():
     growing a modest amount is what the per-press cap lets through and the
     extent cap then stops -- so both have to say something, and they come out
     of the one ``except ValueError`` in ``_room_for``."""
-    from warlock.studio.panes import plotter_canvas
-    from warlock.studio.plotter import tilemap
+    from warlock.studio.modes.plotter.engine import tilemap
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state = _infinite(ctx)
@@ -3108,7 +3112,7 @@ def test_a_growth_carries_the_selection_and_the_line_anchor_with_it():
     """Every cell-space view field is an *index* into the window, and a growth
     slides the window. Left alone they all point one growth to the left of
     where the user put them."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state = _infinite(ctx)
@@ -3127,7 +3131,7 @@ def test_a_drag_that_grows_the_map_interpolates_in_the_new_window():
     """The line is drawn from ``drag_last_cell``, which the growth moved. Drawn
     before the growth it would start one growth to the left of the cell the
     pointer was actually in."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state = _infinite(ctx)
@@ -3143,7 +3147,7 @@ def test_a_drag_that_grows_the_map_interpolates_in_the_new_window():
 def test_a_shift_click_line_survives_the_growth_it_causes():
     """``last_paint`` is the anchor and the growth moves it, so the line lands
     between the two cells the user actually clicked."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state = _infinite(ctx)
@@ -3165,7 +3169,7 @@ def test_a_recovered_map_reads_dirty_and_close_asks(tmp_path):
     wrote ``tab.saved_head`` produced a *clean* recovered tab: one unprompted
     close skipped the confirm and ``drop()`` deleted the journal copy, the only
     surviving copy of the work."""
-    from warlock.studio.plotter.tilemap import MapDoc
+    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(4, 4, 16, 16)
     doc.add_tile_layer("Ground")
@@ -3223,8 +3227,8 @@ def test_every_plotter_tool_has_its_own_icon():
     landed -- at 300 px with a label beside it a wrong glyph was survivable,
     and on a 28 px pill the glyph is the whole of what is on screen.
     """
-    from warlock.studio import plotter_state
-    from warlock.studio.panes import plotter_tools
+    from warlock.studio.modes.plotter import state as plotter_state
+    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     palettes = (plotter_state.TILE_TOOLS, plotter_state.OBJECT_TOOLS)
     named = set()
@@ -3266,7 +3270,7 @@ def test_the_new_map_dialog_hands_the_waiting_asset_to_the_map_it_makes(
     """``plotter_canvas._create`` is the far side of the dialog: it calls back
     into ``use_as_tileset`` with a tab to work on, and the pending asset wins
     over the form's own "Then" choice."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     png = _save_png(tmp_path / "input.png", _ruled_sheet())
@@ -3412,7 +3416,7 @@ def _wang_tab(ctx: FakeCtx):
 def test_the_terrain_tool_paints_a_wang_colour():
     """The bug, through the path it actually took: the picker's encoding reached
     the blob painter and raised out of the frame loop."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, ref = _wang_tab(ctx)
@@ -3432,7 +3436,7 @@ def test_the_terrain_tool_paints_a_wang_colour():
 def test_the_second_wang_colour_is_the_second_negative_rank():
     """``-1 - colour_index``: the decode has to be the picker's encode, or the
     tool lays down a colour the user did not click."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, ref = _wang_tab(ctx)
@@ -3449,7 +3453,7 @@ def test_the_second_wang_colour_is_the_second_negative_rank():
 
 
 def test_a_wang_colour_that_does_not_exist_is_refused_rather_than_painted():
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, _ref = _wang_tab(ctx)
@@ -3466,7 +3470,7 @@ def test_a_wang_colour_that_does_not_exist_is_refused_rather_than_painted():
 def test_filling_with_a_wang_colour_in_hand_floods_instead_of_raising():
     """Fill's terrain branch reads the same state the terrain tool does, so it
     had the same crash and needs the same dispatch."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     ctx = FakeCtx()
     tab, state, ref = _wang_tab(ctx)
@@ -3487,7 +3491,8 @@ def test_filling_with_a_wang_colour_in_hand_floods_instead_of_raising():
 def test_the_picker_arms_a_terrain_the_canvas_can_paint_with():
     """No click is needed to reach the bug: the section auto-selects its first
     entry, and on a Wang-only map that entry is a negative rank."""
-    from warlock.studio.panes import plotter_canvas, plotter_tools
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     ctx = FakeCtx()
     tab, state, _ref = _wang_tab(ctx)
@@ -3649,7 +3654,8 @@ def test_the_reload_door_picks_a_file_on_its_own_key(monkeypatch):
     """Not the ``plotter-tileset:`` arrival key the other five doors share: this
     one replaces rather than appends, and sharing the key would make a reload and
     an add refuse each other as duplicates."""
-    from warlock.studio import dialogs, plotter_tilesets
+    from warlock.studio import dialogs
+    from warlock.studio.modes.plotter import tilesets as plotter_tilesets
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -3688,7 +3694,7 @@ def _menu_rows(ctx: Any, state: Any, tab: Any, menu: str, hit: str, monkeypatch)
     exactly the defect these two rows exist to close.
     """
     from warlock.studio import controls
-    from warlock.studio.panes import plotter_menu
+    from warlock.studio.modes.plotter.ui.panes import menu as plotter_menu
 
     pressed: list[str] = []
 
@@ -3714,7 +3720,7 @@ def test_the_map_menu_has_a_go_to_coordinate_row_that_acts(monkeypatch):
 
 
 def test_the_tileset_menu_has_a_reload_row_that_acts(monkeypatch):
-    from warlock.studio import plotter_tilesets
+    from warlock.studio.modes.plotter import tilesets as plotter_tilesets
 
     ctx = FakeCtx()
     tab = _tab(ctx)

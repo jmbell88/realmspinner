@@ -22,8 +22,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from warlock.studio import plotter_mode, plotter_state
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter import mode as plotter_mode
+from warlock.studio.modes.plotter import state as plotter_state
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 def _session():
@@ -207,7 +208,7 @@ def test_an_object_reorder_is_one_undo_step():
     """Order is draw order, and Tiled's Raise/Lower is exactly this. Two steps
     would put a state on the stack in which the object does not exist."""
 
-    from warlock.studio.plotter.tilemap import MapObject, new_uid
+    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
 
     doc = MapDoc(8, 8, 16, 16)
     layer = doc.add_object_layer()
@@ -224,7 +225,7 @@ def test_an_object_reorder_is_one_undo_step():
 
 
 def test_a_reorder_off_either_end_does_nothing_and_says_so():
-    from warlock.studio.plotter.tilemap import MapObject, new_uid
+    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
 
     doc = MapDoc(8, 8, 16, 16)
     layer = doc.add_object_layer()

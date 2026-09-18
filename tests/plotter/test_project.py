@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.plotter import project
+from warlock.studio.modes.plotter.engine import project
 
 SHAPES = [(7, 5, 32, 32), (7, 5, 32, 16), (4, 9, 24, 12), (1, 1, 16, 16)]
 

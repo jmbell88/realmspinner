@@ -23,9 +23,9 @@ import pytest
 
 from warlock.kernels.grid2d import tileset as tileset_lib
 from warlock.kernels.grid2d.tileset import TileFrame, TileMeta, Tileset
-from warlock.studio import plotter_state
-from warlock.studio.panes import plotter_tileset_editor as editor
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter import state as plotter_state
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from warlock.studio.modes.plotter.ui.panes import tileset_editor as editor
 
 
 def _frames(*pairs):
@@ -72,7 +72,7 @@ def test_the_canvas_substitutes_gids_through_the_same_function():
     a scalar per cell, and a scan for ``frame_at(`` would have gone on passing
     across that change while saying nothing about whether it still agreed.
     """
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     doc, frames = _animated_doc()
     ref = doc.tilesets[0]
@@ -88,7 +88,7 @@ def test_the_canvas_substitutes_gids_through_the_same_function():
 def test_a_map_with_nothing_animated_hands_the_block_straight_back():
     """The common case, and the one that used to pay a Python call per cell."""
     from warlock.kernels.grid2d import gid as gidlib
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     pixels = np.zeros((8, 32, 4), dtype=np.uint8)
     pixels[..., 3] = 255

@@ -1420,7 +1420,7 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
 
         clay_mode.edit_asset_in_clay(ctx, job)
     elif action == "plotter":
-        from .. import plotter_mode
+        from ..modes.plotter import mode as plotter_mode
 
         plotter_mode.use_as_tileset(ctx, job)
     elif action in ("troupe", "muse"):

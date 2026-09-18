@@ -706,7 +706,7 @@ def _inker_new(ctx: Any) -> None:
 
 
 def _plotter_new(ctx: Any) -> None:
-    from .. import plotter_mode
+    from ..modes.plotter import mode as plotter_mode
 
     plotter_mode.ask_new_document(ctx)
 

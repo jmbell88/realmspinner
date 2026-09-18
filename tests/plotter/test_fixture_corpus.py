@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.plotter import tmx
+from warlock.studio.modes.plotter.engine import tmx
 
 from ._corpus import FIXTURE_DIR, MANIFEST, loaders_for, pairs
 from ._semantics import doc_facts
@@ -92,7 +92,7 @@ def test_a_tiled_map_survives_our_own_save_format(stem):
     by construction, which is what makes it the right comparator here --
     ``.wmap`` stores indices and mints fresh uids on read, so a comparator
     that saw uids would fail this on every document."""
-    from warlock.studio.plotter import wmap
+    from warlock.studio.modes.plotter.engine import wmap
 
     loaders = loaders_for(FIXTURE_DIR)
     original = tmx.read_tmx((FIXTURE_DIR / f"{stem}.tmx").read_bytes(), **loaders)

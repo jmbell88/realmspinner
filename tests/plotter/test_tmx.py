@@ -23,8 +23,14 @@ from PIL import Image
 
 from warlock.kernels.grid2d import gid
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import tmx, tsx
-from warlock.studio.plotter.tilemap import MapDoc, MapObject, ObjectLayer, TileLayer, new_uid
+from warlock.studio.modes.plotter.engine import tmx, tsx
+from warlock.studio.modes.plotter.engine.tilemap import (
+    MapDoc,
+    MapObject,
+    ObjectLayer,
+    TileLayer,
+    new_uid,
+)
 
 
 def _pixels(w: int = 64, h: int = 64) -> np.ndarray:
@@ -536,7 +542,7 @@ def test_an_embedded_tileset_keeps_the_terrains_its_wangset_declares():
     Terrain tool greyed out on a map whose own atlas declares one. Read-side
     parity with the ``.tmj`` case in ``test_tmx_refusals``."""
     from warlock.kernels.grid2d import blob
-    from warlock.studio.plotter import terrain as terrainlib
+    from warlock.studio.modes.plotter.engine import terrain as terrainlib
 
     from ._terrainset import terrain_tileset
 
@@ -705,7 +711,7 @@ def test_an_image_layer_name_collision_never_clobbers_the_other_layers_bytes():
     """Layer B's fallback name is exactly layer A's declared safe source, so
     the collision branch used to recompute the *same* string and overwrite A's
     bytes -- the export showed one layer's picture on both."""
-    from warlock.studio.plotter.pngio import png_bytes
+    from warlock.studio.modes.plotter.engine.pngio import png_bytes
 
     doc = MapDoc(4, 4, 16, 16)
     a_pixels = _pixels(8, 8)
@@ -745,9 +751,9 @@ def test_import_warnings_reach_the_pane_not_only_the_log(caplog):
     Now the same sentences come back as data on the read, and the Map file
     pane groups them by layer under the import row."""
     from warlock.kernels.grid2d.tileset import Tileset
-    from warlock.studio.panes import plotter_bridge
-    from warlock.studio.plotter.tilemap import MapDoc, MapObject, TileShape, new_uid
-    from warlock.studio.plotter_state import PlotterDoc
+    from warlock.studio.modes.plotter.engine.tilemap import MapDoc, MapObject, TileShape, new_uid
+    from warlock.studio.modes.plotter.state import PlotterDoc
+    from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
 
     # The stagger fallback, through the real read path: map-level, so no
     # layer name attaches to it.

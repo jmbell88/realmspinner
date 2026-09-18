@@ -158,7 +158,7 @@ def test_no_document_still_describes_the_deleted_profiles_feature():
 
 
 def test_json_number_keeps_a_stored_zero():
-    from warlock.studio.plotter.props import json_number
+    from warlock.studio.modes.plotter.engine.props import json_number
 
     assert json_number({"probability": 0}, "probability", 1.0) == 0.0
     assert json_number({"opacity": None}, "opacity", 1.0) == 1.0
@@ -170,7 +170,7 @@ def test_a_tmj_keeps_a_stored_zero_opacity_and_origin():
     an invisible layer drew, and an object at the origin moved."""
     import json
 
-    from warlock.studio.plotter import tmx
+    from warlock.studio.modes.plotter.engine import tmx
 
     payload = {
         "type": "map",

@@ -1265,7 +1265,7 @@ def start_mason(ctx: Any) -> None:
 
 
 def start_plotter(ctx: Any) -> None:
-    from .. import plotter_mode
+    from ..modes.plotter import mode as plotter_mode
 
     set_mode(ctx.state, "plotter")
     if not plotter_mode.ensure(ctx).docs:

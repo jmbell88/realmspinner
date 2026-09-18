@@ -21,8 +21,8 @@ import pytest
 
 from warlock.kernels.grid2d import gid
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import tsx, wmap
-from warlock.studio.plotter.tilemap import (
+from warlock.studio.modes.plotter.engine import tsx, wmap
+from warlock.studio.modes.plotter.engine.tilemap import (
     Capsule,
     Ellipse,
     MapDoc,
@@ -511,7 +511,7 @@ def test_a_version_one_file_still_reads_as_orthogonal():
 
 
 def test_a_terrain_set_survives_a_save():
-    from warlock.studio.plotter.terrain import DEFAULT_TERRAINS
+    from warlock.studio.modes.plotter.engine.terrain import DEFAULT_TERRAINS
 
     from ._terrainset import terrain_tileset
 

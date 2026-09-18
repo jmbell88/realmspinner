@@ -16,11 +16,11 @@ carry it.
 
 from __future__ import annotations
 
-from warlock.studio import plotter_state
-from warlock.studio.panes import plotter_layers
-from warlock.studio.plotter import tmx
-from warlock.studio.plotter._map_model import Capsule, shape_kind
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter import state as plotter_state
+from warlock.studio.modes.plotter.engine import tmx
+from warlock.studio.modes.plotter.engine._map_model import Capsule, shape_kind
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
 
 def _doc() -> MapDoc:

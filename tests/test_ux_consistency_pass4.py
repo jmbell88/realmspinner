@@ -242,7 +242,7 @@ def test_plotter_goto_popup_matches_its_own_files_precedent():
     file's ``_setup_body`` -- three lines away in the same module -- already
     drew a coordinate row as one field_label above short letters. Now they
     agree."""
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     source = Path(plotter_canvas.__file__).read_text(encoding="utf-8")
     assert '"Column##goto-x"' not in source
@@ -362,7 +362,8 @@ def test_plotter_tileset_probability_fields_are_each_labelled():
     fixed copy apart from the wang-colour list row's deliberately-left one
     (same literal string, different function), so this test scopes to the
     function each copy actually lives in."""
-    from warlock.studio.panes import plotter_tileset, plotter_tileset_editor
+    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
 
     tileset_source = Path(plotter_tileset.__file__).read_text(encoding="utf-8")
     form_start = tileset_source.index("def _tile_form")

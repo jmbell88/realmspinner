@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import tilemap, tmx, tsx, wmap
+from warlock.studio.modes.plotter.engine import tilemap, tmx, tsx, wmap
 
 
 def _pixels() -> np.ndarray:

@@ -24,8 +24,8 @@ import pytest
 
 from warlock.kernels.grid2d import gid as gidlib
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import tilemap, tmx, tools, wmap
-from warlock.studio.plotter.tilemap import new_uid
+from warlock.studio.modes.plotter.engine import tilemap, tmx, tools, wmap
+from warlock.studio.modes.plotter.engine.tilemap import new_uid
 
 
 def _pixels() -> np.ndarray:

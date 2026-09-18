@@ -344,7 +344,7 @@ def test_settings_draws_no_bare_imgui_text_as_a_name_column():
 def _modal_sources() -> dict[str, str]:
     from warlock.studio import dialogs
     from warlock.studio.modes.create.ui.panes import settings_3d
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     return {
         name: inspect.getsource(module)
@@ -397,8 +397,8 @@ def test_every_bounded_modal_scrolls_its_body():
 
 def test_plotter_presets_do_not_all_share_one_row():
     """Five presets at ``grid_width(5)`` truncated every label."""
-    from warlock.studio import plotter_setup
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter import setup as plotter_setup
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     assert len(plotter_setup.PRESETS) == 5
     assert len(plotter_setup.PRESETS) > plotter_canvas.PRESET_COLUMNS

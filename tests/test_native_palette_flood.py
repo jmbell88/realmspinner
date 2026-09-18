@@ -261,7 +261,7 @@ def test_random_masks_agree() -> None:
 
 
 def test_flood_mask_agrees_with_and_without_the_kernel(monkeypatch) -> None:
-    from warlock.studio.plotter import tools
+    from warlock.studio.modes.plotter.engine import tools
 
     rng = np.random.default_rng(17)
     match = rng.random((32, 32)) > 0.3

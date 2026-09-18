@@ -834,7 +834,7 @@ def test_every_real_provider_is_registered_by_ensure():
     [
         ("warlock.studio.modes.inker.state", "InkerDoc"),
         ("warlock.studio.modes.clay.state", "ClayTab"),
-        ("warlock.studio.plotter_state", "PlotterDoc"),
+        ("warlock.studio.modes.plotter.state", "PlotterDoc"),
         ("warlock.studio.modes.packwright.state", "PackTab"),
         ("warlock.studio.modes.sirens.state", "SongTab"),
         ("warlock.studio.modes.mason.state", "MasonTab"),
@@ -927,9 +927,9 @@ def test_a_map_with_a_layer_tree_journals_and_comes_back():
     scope."""
     import numpy as np
 
-    from warlock.studio import plotter_mode
-    from warlock.studio.plotter import wmap
-    from warlock.studio.plotter.tilemap import MapDoc
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter.engine import wmap
+    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(4, 4, 16, 16)
     group = doc.add_group_layer("G")

@@ -12,9 +12,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio.panes import plotter_layers
-from warlock.studio.plotter.props import Prop
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter.engine.props import Prop
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
 
 def _map():
@@ -139,7 +139,7 @@ def test_the_text_flags_name_real_fields_of_the_text_shape():
     """Six toggles that were six rows are one row of six checkboxes. A flag
     named here that the shape does not carry would be a box that writes an
     attribute nothing reads."""
-    from warlock.studio.plotter.tilemap import Text
+    from warlock.studio.modes.plotter.engine.tilemap import Text
 
     shape = Text(text="hello")
     for key, label in plotter_layers.TEXT_FLAGS:
@@ -172,7 +172,7 @@ def test_layer_properties_name_class_offset_parallax_typing_is_one_undo_step():
     """
     import inspect
 
-    from warlock.studio.panes import plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     table = inspect.getsource(plotter_layers._layer_table)
 
@@ -217,7 +217,7 @@ def test_the_object_properties_form_folds_a_position_drag_into_one_step():
     """
     import inspect
 
-    from warlock.studio.panes import plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     table = inspect.getsource(plotter_layers._object_fields)
 
@@ -271,7 +271,7 @@ def test_a_custom_property_value_is_typed_as_one_undo_step():
     """
     import inspect
 
-    from warlock.studio.panes import plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     source = inspect.getsource(plotter_layers._value_editor)
 
@@ -309,7 +309,7 @@ def test_editing_a_tile_objects_gid_field_folds_into_one_undo_step():
     """
     import inspect
 
-    from warlock.studio.panes import plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     source = inspect.getsource(plotter_layers._shape_fields)
     after_gid_field = source.split('"##obj-gid"', 1)[1]

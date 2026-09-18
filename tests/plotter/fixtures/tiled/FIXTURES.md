@@ -151,7 +151,7 @@ In rough order of what it would buy:
 3. **A Tiled-authored `core`** — everything `core-112` covers *minus* the
    dialect constructs listed under its entry.
 ~~4. Once any Tiled-authored fixture opens one of our exports without
-   complaint, `TILED_VERSION` in `src/warlock/studio/plotter/tsx.py` may move
+   complaint, `TILED_VERSION` in `src/warlock/studio/modes/plotter/engine/tsx.py` may move
    to `1.12.2` and the gate paragraph in `docs/COMPAT.md` comes out.~~
    **Done 2026-08-29 — and not by a fixture.** Tiled 1.12.x opened a Plotter
    export, and a map Tiled 1.12.2 wrote reads here; `TILED_VERSION` is now

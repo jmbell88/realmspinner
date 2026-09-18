@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio import plotter_state
-from warlock.studio.plotter import project
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter import state as plotter_state
+from warlock.studio.modes.plotter.engine import project
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 @pytest.mark.parametrize(

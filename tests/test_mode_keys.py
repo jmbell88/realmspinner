@@ -285,10 +285,10 @@ def test_request_quit_no_longer_nests_its_guards_by_hand():
 
 
 def test_the_quit_chain_stops_at_the_first_cancel():
-    from warlock.studio import plotter_mode
     from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.modes.inker import mode as inker_mode
     from warlock.studio.modes.packwright import mode as packwright_mode
+    from warlock.studio.modes.plotter import mode as plotter_mode
     from warlock.studio.modes.poser import mode as poser_mode
     from warlock.studio.panes import pose_panel
 
@@ -510,7 +510,7 @@ _WORKSPACE_ARMS = {
     "poser": "modes.poser.mode",
     "review": "modes.review.mode",
     "inker": "modes.inker.mode",
-    "plotter": "plotter_mode",
+    "plotter": "modes.plotter.mode",
     "packwright": "modes.packwright.mode",
     "troupe": "modes.troupe.mode",
     "muse": "modes.muse.mode",

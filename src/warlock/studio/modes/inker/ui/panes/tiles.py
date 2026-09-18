@@ -33,9 +33,10 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import controls, icons, plotter_tilesets, theme, tokens, widgets
+from ..... import controls, icons, theme, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
+from ....plotter import tilesets as plotter_tilesets
 from ... import mode as inker_mode
 from . import textures as inker_textures
 

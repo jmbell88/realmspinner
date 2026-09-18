@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
 # --- a tileset is "in use" wherever a gid of it is ------------------------------
 
@@ -44,7 +44,7 @@ def test_a_tileset_painted_inside_a_group_counts_as_used():
 def test_a_tile_object_counts_as_used_too():
     """A ``TileShape`` holds a gid exactly as a cell does."""
     from warlock.kernels.grid2d.tileset import Tileset
-    from warlock.studio.plotter.tilemap import MapObject, TileShape, new_uid
+    from warlock.studio.modes.plotter.engine.tilemap import MapObject, TileShape, new_uid
 
     doc = MapDoc(4, 4, 16, 16)
     pixels = np.zeros((16, 32, 4), dtype=np.uint8)
@@ -73,7 +73,7 @@ def test_a_foreign_wang_set_keeps_its_representative_tile_and_class():
     somebody's file."""
     import xml.etree.ElementTree as ET
 
-    from warlock.studio.plotter import tsx
+    from warlock.studio.modes.plotter.engine import tsx
 
     xml = (
         '<tileset><wangsets>'
@@ -103,7 +103,7 @@ def test_the_deprecated_image_layer_offsets_fold_on_both_spellings():
     ``.tmx`` and at the origin from the ``.tmj`` beside it."""
     import inspect
 
-    from warlock.studio.plotter import tmx
+    from warlock.studio.modes.plotter.engine import tmx
 
     body = inspect.getsource(tmx._read_tmj_layer_list)
     assert 'common["offset_x"] += json_number(entry, "x", 0)' in body
@@ -112,7 +112,7 @@ def test_the_deprecated_image_layer_offsets_fold_on_both_spellings():
 def test_an_image_layer_cannot_overwrite_the_map_document():
     """The export writes ``map.tmx`` into the same dict, and a source that
     spelt it replaced the map with PNG bytes."""
-    from warlock.studio.plotter import tmx
+    from warlock.studio.modes.plotter.engine import tmx
 
     doc = MapDoc(4, 4, 16, 16)
     pixels = np.zeros((8, 8, 4), dtype=np.uint8)
@@ -130,7 +130,7 @@ def test_an_unknown_stagger_value_is_said_out_loud(caplog):
     value was not understood."""
     import xml.etree.ElementTree as ET
 
-    from warlock.studio.plotter import tmx
+    from warlock.studio.modes.plotter.engine import tmx
 
     node = ET.fromstring('<map staggeraxis="diagonal" staggerindex="middle"/>')
     with caplog.at_level("WARNING"):

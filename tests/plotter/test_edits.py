@@ -12,7 +12,7 @@ import numpy as np
 
 from warlock.kernels.grid2d import gid
 from warlock.kernels.grid2d.tileset import Tileset, TilesetRef
-from warlock.studio.plotter.edits import (
+from warlock.studio.modes.plotter.engine.edits import (
     LayerAddEdit,
     LayerRemoveEdit,
     ObjectPropsEdit,
@@ -20,7 +20,7 @@ from warlock.studio.plotter.edits import (
     TilePatchEdit,
     TilesetAddEdit,
 )
-from warlock.studio.plotter.tilemap import (
+from warlock.studio.modes.plotter.engine.tilemap import (
     Ellipse,
     MapDoc,
     MapObject,

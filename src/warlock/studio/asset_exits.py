@@ -407,7 +407,7 @@ def _troupe_out(ctx: Any, job: Any) -> Exit | None:
 def _plotter_reopen(ctx: Any, job: Any) -> Exit | None:
     if _params(job).get("authored") != "plotter":
         return None
-    from . import plotter_mode
+    from .modes.plotter import mode as plotter_mode
 
     def door(ctx: Any, job: Any) -> None:
         plotter_mode.edit_asset_in_plotter(ctx, job)
@@ -416,7 +416,7 @@ def _plotter_reopen(ctx: Any, job: Any) -> Exit | None:
 
 
 def _plotter_add(ctx: Any, job: Any) -> Exit | None:
-    from . import plotter_mode
+    from .modes.plotter import mode as plotter_mode
 
     label = verbs.add_to("plotter", "as a tileset")
     hint = "Use the generated grid as a map tileset."

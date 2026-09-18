@@ -179,19 +179,19 @@ def test_studio_packwright_states_its_invariants_without_assert():
     ``ValueError``; it says nothing about whether the *next* one that reaches
     for a quick invariant check reaches for ``assert`` again. Mirrors
     ``tests/inker/test_inker_document.py::test_the_engine_states_its_invariants_without_assert``,
-    scoped to ``studio/packwright/`` -- that scan is scoped to
-    ``studio/inker/`` only and does not reach this package."""
+    scoped to Packwright's engine -- that scan is scoped to Inker's and does
+    not reach this package.
+
+    The root is derived from the package and the glob must find files: a
+    literal ``studio/packwright`` path went on globbing an empty directory
+    after restructure P6 moved the engine, and passed."""
     import pathlib
 
-    root = (
-        pathlib.Path(__file__).resolve().parents[2]
-        / "src"
-        / "warlock"
-        / "studio"
-        / "packwright"
-    )
+    root = pathlib.Path(compose.__file__).parent
+    paths = sorted(root.glob("*.py"))
+    assert len(paths) >= 8, f"only {len(paths)} engine modules under {root}"
     offenders = []
-    for path in sorted(root.glob("*.py")):
+    for path in paths:
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if line.strip().startswith("assert "):
                 offenders.append(f"{path.name}:{number}")

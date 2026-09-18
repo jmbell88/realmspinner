@@ -472,7 +472,7 @@ def commands(ctx: Any) -> list[Command]:
         ctx.state.show_fps = not ctx.state.show_fps
 
     def new_map(ctx: Any) -> None:
-        from . import plotter_mode
+        from .modes.plotter import mode as plotter_mode
 
         plotter_mode.ask_new_document(ctx)
 

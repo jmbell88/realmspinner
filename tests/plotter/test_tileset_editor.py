@@ -15,8 +15,8 @@ import pytest
 from _ui_context import imgui_context
 
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio import plotter_state
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter import state as plotter_state
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 @pytest.fixture
@@ -111,7 +111,7 @@ def test_reading_a_wmap_refuses_a_stamp_whose_tileset_is_gone():
     so a map carrying a stamp nothing accounts for opened without complaint and
     only went wrong on recall -- where the user's gesture was a number key and
     there is nothing useful to say."""
-    from warlock.studio.plotter import wmap
+    from warlock.studio.modes.plotter.engine import wmap
 
     doc = _doc()
     ref = doc.add_tileset(_tileset())
@@ -125,7 +125,7 @@ def test_reading_a_wmap_refuses_a_stamp_whose_tileset_is_gone():
 
 
 def test_the_sheet_is_off_until_a_tileset_is_chosen():
-    from warlock.studio.panes import plotter_tileset_editor
+    from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
 
     doc = _doc()
     tab = plotter_state.PlotterDoc(doc=doc, title="m")
@@ -147,7 +147,7 @@ def test_the_editor_offers_no_reordering():
 
     import inspect
 
-    from warlock.studio.panes import plotter_tileset_editor
+    from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
 
     source = inspect.getsource(plotter_tileset_editor)
     assert "move_tileset" not in source
@@ -173,7 +173,7 @@ def test_tileset_editor_tile_class_and_duration_and_wang_name_typing_is_one_undo
     """
     import inspect
 
-    from warlock.studio.panes import plotter_tileset_editor as editor
+    from warlock.studio.modes.plotter.ui.panes import tileset_editor as editor
 
     # Each check is bounded to the gap between one field and the *next* one
     # drawn (or the shared write, for the last field in a group) -- not merely
@@ -240,7 +240,7 @@ def test_the_tiles_tab_does_not_draw_a_button_per_tile_on_a_large_tileset(ui, mo
     ``ImGuiListClipper`` submits only the rows the visible, scrolled region
     can show.
     """
-    from warlock.studio.panes import plotter_tileset_editor as editor
+    from warlock.studio.modes.plotter.ui.panes import tileset_editor as editor
 
     calls: list[int] = []
     monkeypatch.setattr(

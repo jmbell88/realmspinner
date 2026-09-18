@@ -2078,8 +2078,8 @@ def export_tileset(ctx: Any, tab: InkerDoc | None = None, *, index: int) -> None
     suggested = tileset.name or "tileset"
 
     def run() -> dict[str, Any] | None:
-        from ...plotter import pngio
-        from ...plotter import tsx as tsxlib
+        from ..plotter.engine import pngio
+        from ..plotter.engine import tsx as tsxlib
 
         dest = dialogs.save_file("Export tileset", f"{suggested}.tsx", TSX_FILTER)
         if dest is None:
@@ -2116,8 +2116,8 @@ def import_tileset(ctx: Any, tab: InkerDoc | None = None) -> None:
 
     def run() -> dict[str, Any] | None:
         from ....service.errors import invalid_from
-        from ...plotter import tsx as tsxlib
-        from ...plotter_io import _resolve_source, _within_ceiling
+        from ..plotter.engine import tsx as tsxlib
+        from ..plotter.fileio import _resolve_source, _within_ceiling
 
         path = dialogs.open_file("Import tileset", TSX_FILTER)
         if path is None:

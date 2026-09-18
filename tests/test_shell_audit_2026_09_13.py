@@ -49,7 +49,7 @@ def test_leaving_muse_mode_stops_a_sounding_take(monkeypatch):
 
 
 def test_leaving_plotter_mode_mid_drag_closes_the_open_edit_session(monkeypatch):
-    from warlock.studio import plotter_state
+    from warlock.studio.modes.plotter import state as plotter_state
 
     ended: list[str] = []
     doc = SimpleNamespace(

@@ -173,7 +173,7 @@ class TasksMixin:
 
                     clay_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("plotter-"):
-                    from .. import plotter_mode
+                    from ..modes.plotter import mode as plotter_mode
 
                     plotter_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("packwright-"):
@@ -546,7 +546,7 @@ class TasksMixin:
             inker_mode.on_task_done(ctx, done)
             return
         if key.startswith("plotter-"):
-            from .. import plotter_mode
+            from ..modes.plotter import mode as plotter_mode
 
             plotter_mode.on_task_done(ctx, done)
             if isinstance(done.result, dict) and done.result.get("exported_asset"):

@@ -25,7 +25,7 @@ import pytest
 
 from warlock.kernels.grid2d import picking
 from warlock.kernels.grid2d.tileset import TileEllipse, TilePolygon, TileRect
-from warlock.studio.panes import plotter_tileset_editor as editor
+from warlock.studio.modes.plotter.ui.panes import tileset_editor as editor
 
 from ._drive import TileScene
 

@@ -15,7 +15,7 @@ from warlock.studio.modes.packwright.engine import tsxout
 from warlock.studio.modes.packwright.engine.compose import compose
 from warlock.studio.modes.packwright.engine.layout import PackSettings, layout
 from warlock.studio.modes.packwright.engine.sources import Sprite
-from warlock.studio.plotter import tsx as tsxmod
+from warlock.studio.modes.plotter.engine import tsx as tsxmod
 
 
 def _sprite(key: str, colour) -> Sprite:

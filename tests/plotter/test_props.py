@@ -21,8 +21,8 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from warlock.studio.plotter import props as P
-from warlock.studio.plotter.props import Prop, TiledUnsupported
+from warlock.studio.modes.plotter.engine import props as P
+from warlock.studio.modes.plotter.engine.props import Prop, TiledUnsupported
 
 
 def _xml_round_trip(values: dict[str, Prop]) -> dict[str, Prop]:

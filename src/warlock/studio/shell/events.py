@@ -120,7 +120,7 @@ def _leave_mode_if_needed(ctx: Any, old: str) -> None:
 
         muse_mode.stop(ctx)
     elif old == "plotter":
-        from .. import plotter_state
+        from ..modes.plotter import state as plotter_state
 
         tab = plotter_state.active(ctx)
         if tab is not None:
@@ -591,7 +591,7 @@ class EventsMixin:
             inker_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "plotter":
-            from .. import plotter_mode
+            from ..modes.plotter import mode as plotter_mode
 
             # Unconditional for the reason the three above are: handle_key
             # returns False with no map open, and letting that fall through
@@ -815,7 +815,8 @@ class EventsMixin:
                 ctx.toast("Mason opens .wscn scenes and places .glb meshes.", "error")
             return
         if ctx.state.mode == "plotter":
-            from .. import plotter_mode, plotter_state
+            from ..modes.plotter import mode as plotter_mode
+            from ..modes.plotter import state as plotter_state
 
             suffix = path.suffix.lower()
             if suffix in plotter_state.MAP_SUFFIXES:
@@ -965,7 +966,7 @@ class EventsMixin:
             # own Restore button is pressed.
             library.restore_asset(ctx, arg)
         elif name == "unlock" and arg:
-            from .. import plotter_mode
+            from ..modes.plotter import mode as plotter_mode
 
             plotter_mode.unlock_layer(ctx, arg)
         elif name == "review":

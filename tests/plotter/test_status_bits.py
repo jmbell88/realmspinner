@@ -15,8 +15,8 @@ import pytest
 
 from warlock.kernels.grid2d import gid as gidlib
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.panes.plotter_canvas import status_bits
-from warlock.studio.plotter.tilemap import MapDoc
+from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from warlock.studio.modes.plotter.ui.panes.canvas import status_bits
 
 
 def _tileset(name: str = "terrain", size: int = 32, tile: int = 16) -> Tileset:

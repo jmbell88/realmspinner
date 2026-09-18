@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 
 from .....kernels.grid2d.tileset import Tileset
-from ....plotter.tsx import tsx_bytes
+from ...plotter.engine.tsx import tsx_bytes
 from .layout import Layout
 
 

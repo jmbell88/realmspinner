@@ -37,7 +37,7 @@ from warlock.kernels.geom3d import gltf
 from warlock.kernels.geom3d.glbio import CHUNK_BIN, CHUNK_JSON, GLB_MAGIC
 from warlock.kernels.grid2d.tileset import Tileset
 from warlock.kernels.pixel import asein, gpl, ora, sheetout
-from warlock.studio.plotter import tmx, tsx, wmap
+from warlock.studio.modes.plotter.engine import tmx, tsx, wmap
 
 # --- fixtures -----------------------------------------------------------------
 
@@ -270,7 +270,7 @@ def test_a_wmap_layer_is_sized_from_its_npy_header_before_it_is_read():
 
 def _wmap_with_layer(payload: bytes | None) -> bytes:
     """A real ``.wmap``, with its layer member replaced by *payload* or left be."""
-    from warlock.studio.plotter.tilemap import MapDoc
+    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(2, 2, 16, 16)
     doc.add_tile_layer("L")
@@ -804,7 +804,7 @@ def test_the_plotter_open_path_frames_a_recursion_error(tmp_path, monkeypatch):
     """``_load`` caught only ``ValueError``, so a ``RecursionError`` from any
     walker left the task thread raw."""
     from warlock.service.errors import ServiceError
-    from warlock.studio import plotter_io
+    from warlock.studio.modes.plotter import fileio as plotter_io
 
     path = tmp_path / "m.wmap"
     path.write_bytes(b"not a map")
@@ -812,7 +812,7 @@ def test_the_plotter_open_path_frames_a_recursion_error(tmp_path, monkeypatch):
     def boom(*_args, **_kwargs):
         raise RecursionError("too deep")
 
-    monkeypatch.setattr("warlock.studio.plotter.wmap.read_wmap", boom)
+    monkeypatch.setattr("warlock.studio.modes.plotter.engine.wmap.read_wmap", boom)
     with pytest.raises(ServiceError, match="nested deeper"):
         plotter_io._load(path)
 
@@ -879,7 +879,7 @@ def test_the_pixel_ceiling_reaches_the_shared_document_decoder(tmp_path, monkeyp
 def test_an_alternate_data_stream_source_is_refused(tmp_path):
     """``PureWindowsPath("sheet.png:secret").drive`` is ``''``, so the
     absolute/UNC filter passed an NTFS stream straight through."""
-    from warlock.studio import plotter_io
+    from warlock.studio.modes.plotter import fileio as plotter_io
 
     with pytest.raises(ValueError, match="colon"):
         plotter_io._resolve_source(tmp_path, "sheet.png:$DATA")
@@ -890,7 +890,7 @@ def test_an_alternate_data_stream_source_is_refused(tmp_path):
 def test_an_overlong_composed_path_is_a_framed_refusal(tmp_path):
     """It used to raise a bare ``OSError`` from the open, which leaves this
     module's refusal contract by the back door."""
-    from warlock.studio import plotter_io
+    from warlock.studio.modes.plotter import fileio as plotter_io
 
     with pytest.raises(ValueError, match="too long"):
         plotter_io._resolve_source(tmp_path, "a" * 300 + ".png")

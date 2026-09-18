@@ -54,8 +54,8 @@ def test_image_layers_export_under_minted_names_only():
     """A drive-absolute source read as "relative" through ``PurePosixPath``,
     and a relative one resolved beside the map: both were the user's original
     file, and the export overwrote it with PNG bytes."""
-    from warlock.studio.plotter import tmx
-    from warlock.studio.plotter.tilemap import MapDoc
+    from warlock.studio.modes.plotter.engine import tmx
+    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(4, 4, 16, 16)
     pixels = np.zeros((8, 8, 4), dtype=np.uint8)
@@ -254,7 +254,7 @@ def test_delete_and_copy_apply_the_wand_mask():
     from test_plotter_mode import FakeCtx, _tab
 
     from warlock.kernels.grid2d import gid
-    from warlock.studio import plotter_mode
+    from warlock.studio.modes.plotter import mode as plotter_mode
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -274,7 +274,7 @@ def test_delete_and_copy_apply_the_wand_mask():
 def test_select_all_drops_the_wand_mask():
     from test_plotter_mode import FakeCtx, _key, _tab
 
-    from warlock.studio import plotter_mode
+    from warlock.studio.modes.plotter import mode as plotter_mode
 
     ctx = FakeCtx()
     tab = _tab(ctx)

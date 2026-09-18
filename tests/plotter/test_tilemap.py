@@ -14,7 +14,13 @@ import pytest
 
 from warlock.kernels.grid2d import gid
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter.tilemap import MapDoc, MapObject, ObjectLayer, TileLayer, new_uid
+from warlock.studio.modes.plotter.engine.tilemap import (
+    MapDoc,
+    MapObject,
+    ObjectLayer,
+    TileLayer,
+    new_uid,
+)
 
 
 def _tileset(name: str = "t", tiles: int = 4) -> Tileset:
@@ -294,7 +300,7 @@ def test_set_tile_size_scales_a_polygons_vertices_too():
     as vertices. A scale that knew only the first spelling would leave every
     polygon at its old size, which is the one case where the map visibly stops
     matching itself."""
-    from warlock.studio.plotter._map_model import Polygon
+    from warlock.studio.modes.plotter.engine._map_model import Polygon
 
     doc = _doc()
     objects = doc.add_object_layer()
@@ -455,7 +461,7 @@ def _terrain_doc():
 
 
 def test_a_stroke_is_one_undo_step_however_many_cells_it_wrote():
-    from warlock.studio.plotter import terrain
+    from warlock.studio.modes.plotter.engine import terrain
 
     doc, ref, layer = _terrain_doc()
     # Depth, not ``head``: head is a process-wide *serial*, so comparing it to
@@ -495,7 +501,7 @@ def test_ending_a_stroke_that_was_never_begun_is_harmless():
 
 
 def test_beginning_a_second_stroke_closes_the_first():
-    from warlock.studio.plotter import terrain
+    from warlock.studio.modes.plotter.engine import terrain
 
     doc, ref, layer = _terrain_doc()
     depth = len(doc.history)
@@ -509,7 +515,7 @@ def test_an_undo_during_a_stroke_commits_it_first():
     """A stroke writes the live array with no history, so undoing through an
     open session used to reverse the step *before* it and leave the
     uncommitted paint sitting on the layer."""
-    from warlock.studio.plotter import terrain
+    from warlock.studio.modes.plotter.engine import terrain
 
     doc, ref, layer = _terrain_doc()
     doc.write_region(layer.uid, *terrain.paint_terrain(layer.data, 6, 6, 0, ref))
@@ -533,7 +539,7 @@ def test_an_undo_during_a_stroke_commits_it_first():
 def test_a_redo_during_a_stroke_commits_it_too():
     """Redoing with a session open would replay a step onto pixels the session
     has already changed underneath it."""
-    from warlock.studio.plotter import terrain
+    from warlock.studio.modes.plotter.engine import terrain
 
     doc, ref, layer = _terrain_doc()
     doc.write_region(layer.uid, *terrain.paint_terrain(layer.data, 6, 6, 0, ref))
@@ -551,7 +557,7 @@ def test_a_redo_during_a_stroke_commits_it_too():
 def test_a_stroke_covers_only_the_cells_that_moved():
     """The step is the union of what was written, not the whole layer -- the
     dirty-rect rule ``TilePatchEdit`` exists for."""
-    from warlock.studio.plotter import terrain
+    from warlock.studio.modes.plotter.engine import terrain
 
     doc, ref, layer = _terrain_doc()
     doc.begin_stroke(layer.uid)
@@ -562,7 +568,7 @@ def test_a_stroke_covers_only_the_cells_that_moved():
 
 def test_replacing_a_tileset_keeps_every_painted_cell():
     from warlock.kernels.grid2d.tileset import repolish
-    from warlock.studio.plotter import terrain
+    from warlock.studio.modes.plotter.engine import terrain
 
     doc, ref, layer = _terrain_doc()
     region = terrain.paint_terrain(layer.data, 3, 3, 2, ref)
@@ -600,7 +606,7 @@ def test_a_replace_undoes_back_to_the_original_art():
 
 
 def test_the_maps_own_properties_are_undoable():
-    from warlock.studio.plotter.tsx import Prop
+    from warlock.studio.modes.plotter.engine.tsx import Prop
 
     doc = _doc()
     depth = len(doc.history)
@@ -665,7 +671,7 @@ def test_invalid_map_metadata_changes_nothing_and_pushes_nothing():
 def test_a_map_properties_edit_owns_its_dicts():
     """Handed the live mapping, a "before" that moves with the document
     restores nothing."""
-    from warlock.studio.plotter.tsx import Prop
+    from warlock.studio.modes.plotter.engine.tsx import Prop
 
     doc = _doc()
     doc.set_map_properties({"a": Prop("int", 1)})
@@ -684,7 +690,7 @@ def test_a_layer_properties_edit_keeps_its_two_sides_apart():
     shared one mapping whenever properties was not the field being changed.
     Nothing mutated it in place, so this is the hazard removed rather than a bug
     fixed -- but the two sides of an edit should never be one object."""
-    from warlock.studio.plotter.tsx import Prop
+    from warlock.studio.modes.plotter.engine.tsx import Prop
 
     doc = _doc()
     layer = doc.add_tile_layer()
@@ -696,7 +702,7 @@ def test_a_layer_properties_edit_keeps_its_two_sides_apart():
 
 
 def test_layer_properties_survive_an_undo():
-    from warlock.studio.plotter.tsx import Prop
+    from warlock.studio.modes.plotter.engine.tsx import Prop
 
     doc = _doc()
     layer = doc.add_tile_layer()

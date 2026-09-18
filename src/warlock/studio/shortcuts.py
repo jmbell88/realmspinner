@@ -250,7 +250,7 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("Enter", "Play or pause (animated)"),
         ],
     )
-    from .plotter_state import TOOLS as PLOTTER_TOOLS
+    from .modes.plotter.state import TOOLS as PLOTTER_TOOLS
 
     table(
         "Plotter",

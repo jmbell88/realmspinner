@@ -20,10 +20,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import plotter
+from warlock.studio.modes.plotter import engine as plotter
 
 ENGINE = Path(plotter.__file__).parent
-PACKAGE = "warlock.studio.plotter"
+PACKAGE = "warlock.studio.modes.plotter.engine"
 
 #: ``(module, imported name)`` for every import that leaves the package.
 #: :mod:`~warlock.core.undo` is the history engine the raster editor and Clay
@@ -189,7 +189,7 @@ def test_pillow_is_never_imported_at_module_scope():
 def test_the_package_imports_with_no_optional_dependency_present():
     """Importing every module is the cheapest possible smoke test that the
     lazy-import rule above is actually being followed."""
-    from warlock.studio.plotter import (  # noqa: F401
+    from warlock.studio.modes.plotter.engine import (  # noqa: F401
         _map_geometry,
         _map_layers,
         _map_model,

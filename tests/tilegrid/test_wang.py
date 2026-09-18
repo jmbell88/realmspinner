@@ -223,7 +223,7 @@ def test_the_blob_preset_matches_the_exporters_own_table_exactly() -> None:
     has always written are the same table. If they ever disagree, a set
     generated here opens in Tiled with a brush that paints the wrong tile, and
     nothing in either file says so."""
-    from warlock.studio.plotter.tsx import _expected_wangids
+    from warlock.studio.modes.plotter.engine.tsx import _expected_wangids
 
     made = wang.blob_wangset(["a", "b"], ["#ff0000", "#00ff00"])
     expected = _expected_wangids(2, 1)
@@ -246,7 +246,7 @@ def test_the_blob_preset_matches_the_xml_a_tsx_export_actually_writes() -> None:
     import xml.etree.ElementTree as ET
 
     from warlock.kernels.grid2d.tileset import TerrainSpec
-    from warlock.studio.plotter.tsx import write_wangsets
+    from warlock.studio.modes.plotter.engine.tsx import write_wangsets
 
     terrains = (
         TerrainSpec(name="wet grass", fill=(106, 153, 78, 255), outline=(63, 91, 46, 255)),

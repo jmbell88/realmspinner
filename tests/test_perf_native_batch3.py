@@ -114,7 +114,7 @@ def test_the_flood_is_linear_on_a_serpentine_corridor() -> None:
     furthest cell approaches the cell count, so the pass count does too and the
     work goes quadratic. The queue is linear in both cases, so the ratio between
     a corridor and an open room of the same area stays bounded."""
-    from warlock.studio.plotter import tools
+    from warlock.studio.modes.plotter.engine import tools
 
     size = 512
     corridor = np.zeros((size, size), dtype=bool)
@@ -137,7 +137,7 @@ def test_the_flood_is_linear_on_a_serpentine_corridor() -> None:
 
 @pytest.mark.skipif(not native.available(), reason="warlockc is not built")
 def test_the_flood_kernel_beats_the_dilation_on_the_corridor() -> None:
-    from warlock.studio.plotter import tools
+    from warlock.studio.modes.plotter.engine import tools
 
     size = 256
     corridor = np.zeros((size, size), dtype=bool)

@@ -25,7 +25,7 @@ from types import SimpleNamespace
 import pytest
 from _panes import pane_files
 
-from warlock.studio import plotter_mode
+from warlock.studio.modes.plotter import mode as plotter_mode
 from warlock.studio.state import TOAST_LEVELS
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "warlock"

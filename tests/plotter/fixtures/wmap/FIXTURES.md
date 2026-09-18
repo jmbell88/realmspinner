@@ -38,13 +38,13 @@ from pathlib import Path
 def load(path, name):                      # after:
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
-    module.__package__ = "warlock.studio.plotter"   # so ``from . import gid`` resolves
+    module.__package__ = "warlock.studio.modes.plotter.engine"   # so ``from . import gid`` resolves
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
-# git show 05ba731^:src/warlock/studio/plotter/wmap.py > old_v1.py
-# git show d13f0a1:src/warlock/studio/plotter/wmap.py  > old_v2.py
+# git show 05ba731^:src/warlock/studio/modes/plotter/engine/wmap.py > old_v1.py
+# git show d13f0a1:src/warlock/studio/modes/plotter/engine/wmap.py  > old_v2.py
 v1, v2 = load(Path("old_v1.py"), "_legacy_v1"), load(Path("old_v2.py"), "_legacy_v2")
 assert (v1.VERSION, v2.VERSION) == (1, 2)
 Path("v1.wmap").write_bytes(v1.wmap_bytes(build("orthogonal", locked=False)))

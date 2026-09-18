@@ -17,7 +17,7 @@ import numpy as np
 from warlock.kernels.grid2d import blob
 from warlock.kernels.grid2d import gid as gidlib
 from warlock.kernels.grid2d.tileset import TilesetRef
-from warlock.studio.plotter import terrain
+from warlock.studio.modes.plotter.engine import terrain
 
 from ._terrainset import terrain_ref
 

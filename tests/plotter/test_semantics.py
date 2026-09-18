@@ -14,8 +14,15 @@ import pytest
 
 from warlock.kernels.grid2d import gid
 from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.plotter import tsx
-from warlock.studio.plotter.tilemap import Ellipse, MapDoc, MapObject, Polygon, Rect, new_uid
+from warlock.studio.modes.plotter.engine import tsx
+from warlock.studio.modes.plotter.engine.tilemap import (
+    Ellipse,
+    MapDoc,
+    MapObject,
+    Polygon,
+    Rect,
+    new_uid,
+)
 
 from ._semantics import doc_facts
 

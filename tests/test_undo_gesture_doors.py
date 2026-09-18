@@ -40,13 +40,14 @@ from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
 from warlock.studio.modes.mason.ui.panes import props as mason_props
 from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
 from warlock.studio.modes.packwright.ui.panes import sources as packwright_sources
+from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
+from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
 from warlock.studio.modes.sirens import mode as sirens_mode
 from warlock.studio.modes.sirens.ui.panes import effects as sirens_effects
 from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
 from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
 from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
 from warlock.studio.modes.sirens.ui.panes import transport as sirens_transport
-from warlock.studio.panes import plotter_layers, plotter_tileset_editor
 
 
 @dataclass
@@ -492,7 +493,7 @@ def test_the_plotter_layer_list_opacity_row_drag_is_one_step(monkeypatch, frames
     from test_plotter_mode import FakeCtx as PlotterFakeCtx
     from test_plotter_mode import _tab as _plotter_tab
 
-    from warlock.studio.panes import plotter_layers
+    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     ctx = PlotterFakeCtx()
     tab = _plotter_tab(ctx)

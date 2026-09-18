@@ -14,7 +14,7 @@ import numpy as np
 from warlock.kernels.grid2d import gid as gidlib
 from warlock.kernels.grid2d.tileset import Tileset, TilesetRef
 from warlock.kernels.grid2d.wang import WangColour, WangSet
-from warlock.studio.plotter import terrain
+from warlock.studio.modes.plotter.engine import terrain
 
 
 def _pixels(size: int = 64) -> np.ndarray:

@@ -93,7 +93,7 @@ def test_workflow_modals_use_the_same_overlay_recipe():
     """Generation and document setup must not fall outside dialog chrome."""
     from warlock.studio import dialogs
     from warlock.studio.modes.create.ui.panes import settings_3d
-    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     owners = (
         dialogs.ConfirmQueue.draw,
@@ -167,7 +167,7 @@ def test_no_tool_palette_hand_rolls_its_selection():
     from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
     from warlock.studio.modes.inker.ui.panes import menu as inker_menu
     from warlock.studio.modes.inker.ui.panes import tools as inker_tools
-    from warlock.studio.panes import plotter_tools
+    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     for module in (inker_tools, clay_tools, plotter_tools, inker_bridge, inker_menu):
         source = inspect.getsource(module)

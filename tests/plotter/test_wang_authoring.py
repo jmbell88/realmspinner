@@ -32,7 +32,7 @@ import pytest
 
 from warlock.kernels.grid2d import blob, wang
 from warlock.kernels.grid2d.tileset import TerrainSpec
-from warlock.studio.panes import plotter_tileset_editor as editor
+from warlock.studio.modes.plotter.ui.panes import tileset_editor as editor
 
 from ._drive import TileScene
 
@@ -367,7 +367,8 @@ def test_a_set_authored_here_paints_the_map_through_the_canvas_dispatch(scene):
     that painting works: it is that authoring and painting meet, with **no**
     plumbing between them.
     """
-    from warlock.studio.panes import plotter_canvas, plotter_tools
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     # 1. Author. Colour 1 at all four corners of tile 0 makes it that colour's
     #    interior -- the tile a click on the map lays down.
@@ -405,7 +406,7 @@ def test_a_set_authored_here_paints_the_map_through_the_canvas_dispatch(scene):
 def test_the_authored_set_survives_a_wmap_round_trip(scene):
     """The format half, so the claim in ``docs/COMPAT.md`` is not one-ended:
     what the editor writes is what a reopened map reads back."""
-    from warlock.studio.plotter import wmap
+    from warlock.studio.modes.plotter.engine import wmap
 
     scene.state.tileset_wang_colour = 1
     for slot in wang.CORNER_SLOTS:
@@ -577,7 +578,7 @@ def test_a_tsx_never_writes_two_wangsets_blocks(monkeypatch):
     """The pin the two refusals exist for. One block for a blob preset, one for
     a hand-authored set, and the combination refused by name rather than
     written as two."""
-    from warlock.studio.plotter import tsx
+    from warlock.studio.modes.plotter.engine import tsx
 
     made = _blob_scene(monkeypatch)
     generated = made.doc.tilesets[0].tileset

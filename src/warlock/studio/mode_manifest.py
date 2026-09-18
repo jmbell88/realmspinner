@@ -99,7 +99,7 @@ DOC_MODES: tuple[ModeManifest, ...] = (
     ModeManifest(
         "mason", "modes.mason.mode", "mason", "Export .glb + manifest", "modes.mason.mode"
     ),
-    ModeManifest("plotter", "plotter_mode", "plotter", "Export .tmx", "plotter_mode"),
+    ModeManifest("plotter", "modes.plotter.mode", "plotter", "Export .tmx", "modes.plotter.mode"),
     ModeManifest(
         "packwright",
         "modes.packwright.mode",

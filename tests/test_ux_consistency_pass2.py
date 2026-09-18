@@ -18,7 +18,7 @@ import pytest
 
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
 from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
-from warlock.studio.panes import plotter_canvas
+from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 from warlock.studio.shell import paintview
 
 # --- the wheel (A1) ---------------------------------------------------------
@@ -119,10 +119,11 @@ def test_find_path_folds_case_in_every_mode(tmp_path):
     two tabs in four of the five modes; Plotter alone normcased."""
     from types import SimpleNamespace
 
-    from warlock.studio import docmodes, plotter_state
+    from warlock.studio import docmodes
     from warlock.studio.modes.clay import state as clay_state
     from warlock.studio.modes.inker import state as inker_state
     from warlock.studio.modes.packwright import state as packwright_state
+    from warlock.studio.modes.plotter import state as plotter_state
     from warlock.studio.modes.sirens import state as sirens_state
 
     for module in (clay_state, inker_state, packwright_state, plotter_state, sirens_state):
@@ -146,10 +147,11 @@ def test_closing_a_tab_mid_save_is_refused_out_loud_in_every_mode():
     serialise task reads the live document on a task thread."""
     from types import SimpleNamespace
 
-    from warlock.studio import docmodes, plotter_mode
+    from warlock.studio import docmodes
     from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.modes.inker import mode as inker_mode
     from warlock.studio.modes.packwright import mode as packwright_mode
+    from warlock.studio.modes.plotter import mode as plotter_mode
     from warlock.studio.modes.sirens import mode as sirens_mode
 
     for module in (clay_mode, inker_mode, packwright_mode, plotter_mode, sirens_mode):
@@ -227,10 +229,11 @@ def test_a_crash_copy_that_will_not_reopen_warns_the_same_way_in_every_mode():
     """Inker let the exception through, Clay raised an error, three warned."""
     from types import SimpleNamespace
 
-    from warlock.studio import journal, plotter_mode
+    from warlock.studio import journal
     from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.modes.inker import mode as inker_mode
     from warlock.studio.modes.packwright import mode as packwright_mode
+    from warlock.studio.modes.plotter import mode as plotter_mode
     from warlock.studio.modes.sirens import mode as sirens_mode
 
     for module in (clay_mode, inker_mode, packwright_mode, plotter_mode, sirens_mode):
@@ -243,8 +246,9 @@ def test_a_crash_copy_that_will_not_reopen_warns_the_same_way_in_every_mode():
 def test_a_refusal_outside_inker_is_coalesced_and_carries_its_remedy():
     from types import SimpleNamespace
 
-    from warlock.studio import docmodes, plotter_mode
+    from warlock.studio import docmodes
     from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.plotter import mode as plotter_mode
 
     calls: list = []
     ctx = SimpleNamespace(toast_once=lambda *a: calls.append(a))
@@ -267,10 +271,11 @@ def test_export_waits_for_a_save_in_every_document_mode():
     task thread was still serialising."""
     from types import SimpleNamespace
 
-    from warlock.studio import docmodes, plotter_mode
+    from warlock.studio import docmodes
     from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.modes.inker import keys as inker_keys
     from warlock.studio.modes.packwright import mode as packwright_mode
+    from warlock.studio.modes.plotter import mode as plotter_mode
     from warlock.studio.modes.sirens import keys as sirens_keys
 
     for module in (clay_mode, inker_keys, packwright_mode, plotter_mode, sirens_keys):
@@ -471,7 +476,7 @@ def test_rename_is_a_double_click_in_every_list_that_renames():
 
 
 def test_the_five_modes_share_one_tab_bar_save_label_and_recents():
-    from warlock.studio import docmodes, plotter_io, plotter_mode, plotter_state
+    from warlock.studio import docmodes
     from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.modes.clay import state as clay_state
     from warlock.studio.modes.clay.ui import viewport as clay_viewport
@@ -482,11 +487,14 @@ def test_the_five_modes_share_one_tab_bar_save_label_and_recents():
     from warlock.studio.modes.packwright import mode as packwright_mode
     from warlock.studio.modes.packwright import state as packwright_state
     from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
+    from warlock.studio.modes.plotter import fileio as plotter_io
+    from warlock.studio.modes.plotter import mode as plotter_mode
+    from warlock.studio.modes.plotter import state as plotter_state
+    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
     from warlock.studio.modes.sirens import fileio as sirens_io
     from warlock.studio.modes.sirens import mode as sirens_mode
     from warlock.studio.modes.sirens import state as sirens_state
     from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
-    from warlock.studio.panes import plotter_canvas
 
     tab_bars = (inker_canvas, clay_viewport, plotter_canvas, packwright_preview, sirens_patterns)
     for module in tab_bars:

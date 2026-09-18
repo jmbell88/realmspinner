@@ -28,7 +28,7 @@ from typing import Any
 import numpy as np
 
 from .....core.safeio import zipguard
-from ....plotter.pngio import png_bytes
+from ...plotter.engine.pngio import png_bytes
 from .document import PackDoc, Source, new_uid
 from .layout import PackSettings
 from .sources import EMPTY_META, SliceSpec, Sprite, SpriteMeta
