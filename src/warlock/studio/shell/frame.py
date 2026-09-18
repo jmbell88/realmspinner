@@ -1138,7 +1138,8 @@ class FrameMixin:
         """
         from .. import widgets
         from ..modes.create.ui.panes import settings_3d
-        from ..panes import first_run, overlay, palette, troupe_send
+        from ..modes.troupe.ui.panes import send as troupe_send
+        from ..panes import first_run, overlay, palette
 
         ctx = self.app_ctx
         # The layout editor, over the workspace that has just recorded its pane

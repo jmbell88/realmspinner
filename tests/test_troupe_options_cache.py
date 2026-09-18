@@ -21,8 +21,8 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import troupe_mode
 from warlock.studio.modes.create.engine import character as character_engine
+from warlock.studio.modes.troupe import mode as troupe_mode
 from warlock.studio.panes import stamps
 
 

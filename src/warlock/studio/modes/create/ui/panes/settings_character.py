@@ -393,8 +393,8 @@ def hand_to_troupe(ctx: Any, form: dict[str, Any]) -> None:
     Not in the engine: it imports ``troupe_mode``, a sibling mode's UI module,
     which an engine module may never do.
     """
-    from ..... import troupe_mode
     from .....state import set_mode
+    from ....troupe import mode as troupe_mode
 
     troupe_mode.form(ctx)["prompt"] = str(form.get("prompt") or "")
     set_mode(ctx.state, "troupe")

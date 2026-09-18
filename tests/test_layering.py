@@ -510,7 +510,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.shell.app", "warlock.studio.modes.poser.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.review.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.sirens_workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.troupe_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.troupe.ui.workspace"),
     ("warlock.studio.shell.frame", "warlock.studio.modes.create.ui.brief"),
     # No ``create_rail`` row, though P4 moved Create's stage rail out of
     # ``widgets.py`` and ``_stage_rail`` (now in ``shell/frame.py``) calls

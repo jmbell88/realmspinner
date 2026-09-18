@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.troupe import qa
+from warlock.studio.modes.troupe.engine import qa
 
 CELL = 16
 COLUMNS = 8

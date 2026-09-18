@@ -20,10 +20,11 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ...kernels import charsheet
-from .. import controls, icons, theme, tokens, troupe_mode, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
+from ......kernels import charsheet
+from ..... import controls, icons, theme, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as troupe_mode
 
 
 def draw(ctx: Any) -> None:
@@ -324,7 +325,7 @@ def _form(ctx: Any, state: Any) -> dict[str, Any]:
 
 def _rebuild(ctx: Any, state: Any) -> None:
     """Another sheet of the same character, at the form's current options."""
-    from . import troupe_settings
+    from . import settings as troupe_settings
 
     if not state.job_id:
         return

@@ -204,7 +204,7 @@ class TasksMixin:
                     # *successful* ``on_task_done`` ever turned it back off.
                     muse_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("troupe-"):
-                    from .. import troupe_mode
+                    from ..modes.troupe import mode as troupe_mode
 
                     # Both of Troupe's tasks are *doors*, so a failure here is
                     # always a refusal with a sentence in it -- and one the
@@ -574,7 +574,7 @@ class TasksMixin:
             sirens_mode.on_task_done(ctx, done)
             return
         if key.startswith("troupe-"):
-            from .. import troupe_mode
+            from ..modes.troupe import mode as troupe_mode
 
             troupe_mode.on_task_done(ctx, done)
             return

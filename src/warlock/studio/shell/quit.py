@@ -261,7 +261,7 @@ class QuitMixin:
             _step("write settings", ctx.settings.flush)
             if ctx.textures is not None:
                 _step("release textures", ctx.textures.release)
-            from .. import troupe_mode
+            from ..modes.troupe import mode as troupe_mode
             from ..panes import sheet_panel
 
             _step("release sheet strip", lambda: sheet_panel.release_strip_texture(ctx))

@@ -16,10 +16,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import troupe
+from warlock.studio.modes.troupe import engine as troupe
 
 ENGINE = Path(troupe.__file__).parent
-PACKAGE = "warlock.studio.troupe"
+PACKAGE = "warlock.studio.modes.troupe.engine"
 
 # The 2026-09-15 audit, finding troupe-04: ``_modules()`` below globs only
 # ``ENGINE`` (``studio/troupe/*.py``), so ``studio/troupe_state.py`` -- a
@@ -27,7 +27,7 @@ PACKAGE = "warlock.studio.troupe"
 # own rather than folded into ``_modules()``'s glob, per the orchestrator's
 # call for this batch: widening what the existing pin's glob matches would
 # also silently adopt whatever else later lands beside it in ``studio/``.
-STATE_MODULE = ENGINE.parent / "troupe_state.py"
+STATE_MODULE = ENGINE.parent / "state.py"
 
 OUTWARD_IMPORTS: set[tuple[str, str]] = set()
 
@@ -124,7 +124,7 @@ def test_the_shipped_layout_table_is_part_of_the_package():
 
 
 def test_every_module_imports():
-    from warlock.studio.troupe import qa, spec, ulpc  # noqa: F401
+    from warlock.studio.modes.troupe.engine import qa, spec, ulpc  # noqa: F401
 
 
 def test_troupe_state_stays_headless():

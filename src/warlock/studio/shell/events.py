@@ -632,7 +632,7 @@ class EventsMixin:
             sirens_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "troupe":
-            from .. import troupe_mode
+            from ..modes.troupe import mode as troupe_mode
 
             # Unconditional and returning, for the reason the three above are:
             # ``handle_key`` answers False for every key it does not bind, and

@@ -216,7 +216,7 @@ def test_troupe_shortcuts_sheet_lists_the_checkerboard_and_pivot_keys():
     import inspect
     import re
 
-    from warlock.studio import troupe_mode
+    from warlock.studio.modes.troupe import mode as troupe_mode
 
     source = inspect.getsource(troupe_mode.handle_key)
     # Plain lower-case letter constants only (``pygame.K_c``, not

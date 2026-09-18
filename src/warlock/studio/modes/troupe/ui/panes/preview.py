@@ -34,10 +34,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import controls, icons, probe, theme, tokens, toolbar, troupe_mode, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
-from ..troupe import qa
+from ..... import controls, icons, probe, theme, tokens, toolbar, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as troupe_mode
+from ...engine import qa
 
 #: The playback multipliers the transport offers. A short ladder rather than a
 #: slider: the useful speeds for reading a run cycle are a quarter, a half and

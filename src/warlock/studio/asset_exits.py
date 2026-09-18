@@ -335,8 +335,8 @@ def _troupe_in(ctx: Any, job: Any) -> Exit | None:
     mesh = _mesh_for(ctx, job)
     if mesh is None:
         return None
-    from . import troupe_mode
-    from .panes import troupe_send
+    from .modes.troupe import mode as troupe_mode
+    from .modes.troupe.ui.panes import send as troupe_send
 
     rigged = "rig.glb" in _files(mesh)
     hint = (
@@ -386,7 +386,7 @@ def _troupe_out(ctx: Any, job: Any) -> Exit | None:
     if not source:
         return None
     sheet_id = str(params.get("sheet_id") or "")
-    from . import troupe_mode
+    from .modes.troupe import mode as troupe_mode
 
     def door(ctx: Any, job: Any, _source: str = source, _sheet: str = sheet_id) -> None:
         troupe_mode.open_sheet(ctx, _source, _sheet)

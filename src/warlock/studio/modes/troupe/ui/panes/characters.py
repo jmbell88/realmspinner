@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import controls, icons, theme, tokens, troupe_mode, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
+from ..... import controls, icons, theme, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as troupe_mode
 
 
 def draw(ctx: Any) -> None:
@@ -146,8 +147,8 @@ def _pending(ctx: Any, pending: list[dict[str, Any]]) -> None:
             # The gate lives in Create by design -- a second promote button
             # here would be a second gate -- so this is a way *to* it, not
             # another one of it.
-            from ..modes.create.ui import stages as create_stages
-            from ..state import set_mode
+            from .....state import set_mode
+            from ....create.ui import stages as create_stages
 
             set_mode(ctx.state, "create")
             create_stages.go(ctx, "reference", select=item["id"])

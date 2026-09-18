@@ -1307,7 +1307,7 @@ def start_troupe(ctx: Any) -> None:
     Plotter *was* the act of creating a map" mistake the function above it
     exists to have stopped making.
     """
-    from .. import troupe_mode
+    from ..modes.troupe import mode as troupe_mode
 
     set_mode(ctx.state, "troupe")
     troupe_mode.ensure(ctx)

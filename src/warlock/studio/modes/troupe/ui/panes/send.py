@@ -28,10 +28,11 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ...kernels import charsheet
-from ...kernels.rig import skeleton
-from .. import controls, tokens, troupe_mode, widgets
-from ..tokens import sp
+from ......kernels import charsheet
+from ......kernels.rig import skeleton
+from ..... import controls, tokens, widgets
+from .....tokens import sp
+from ... import mode as troupe_mode
 
 TITLE = "Send to Troupe"
 
@@ -129,7 +130,7 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
         # an unreadable rig here is not this dialog's refusal to raise, only a
         # missed warning -- the send itself re-reads the rig and is the real
         # gate.
-        from ...service import rig as svc_rig
+        from ......service import rig as svc_rig
 
         with contextlib.suppress(Exception):
             rig = svc_rig.get_rig(ctx.svc, job_id)
@@ -411,7 +412,7 @@ def _camera_helper(presets: dict[str, Any], key: str) -> str:
 
 
 def _actions(ctx: Any, state: TroupeSend, form: dict[str, Any]) -> None:
-    from . import troupe_settings
+    from . import settings as troupe_settings
 
     count = troupe_settings.cell_count(form)
     note = f"{count} cells are rendered at {state.logical_size} px."

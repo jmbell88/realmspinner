@@ -20,8 +20,8 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import troupe_mode
-from warlock.studio.panes import troupe_preview
+from warlock.studio.modes.troupe import mode as troupe_mode
+from warlock.studio.modes.troupe.ui.panes import preview as troupe_preview
 
 
 @pytest.fixture

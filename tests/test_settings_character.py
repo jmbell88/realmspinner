@@ -396,7 +396,7 @@ def test_the_escape_routes_keep_the_brief(ctx):
     other = _form("a fierce manticore")
     settings_character.hand_to_troupe(ctx, other)
     assert other["prompt"] == "a fierce manticore"
-    from warlock.studio import troupe_mode
+    from warlock.studio.modes.troupe import mode as troupe_mode
 
     assert troupe_mode.form(ctx)["prompt"] == "a fierce manticore"
     assert ctx.state.mode == "troupe"
@@ -406,8 +406,8 @@ def test_troupes_form_has_one_construction_and_both_callers_use_it():
     """``troupe_settings._form`` moved to ``troupe_mode.form`` for this: the
     hand-off has to reach the form the pane will draw, and two constructions of
     one request are two defaults."""
-    from warlock.studio import troupe_mode
-    from warlock.studio.panes import troupe_settings
+    from warlock.studio.modes.troupe import mode as troupe_mode
+    from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
 
     assert "troupe_mode.form(ctx)" in inspect.getsource(troupe_settings.draw)
     assert callable(troupe_mode.form)

@@ -13,11 +13,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...kernels import charsheet
-from ...kernels.rig import store
-from .. import forms, tokens, troupe_mode, verbs, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
+from ......kernels import charsheet
+from ......kernels.rig import store
+from ..... import forms, tokens, verbs, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as troupe_mode
 
 
 def draw(ctx: Any) -> None:

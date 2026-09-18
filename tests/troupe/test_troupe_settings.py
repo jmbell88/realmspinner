@@ -23,8 +23,9 @@ import pytest
 from _ui_context import imgui_context
 
 from warlock.service import troupe as svc_troupe
-from warlock.studio import probe, troupe_mode
-from warlock.studio.panes import troupe_settings
+from warlock.studio import probe
+from warlock.studio.modes.troupe import mode as troupe_mode
+from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
 from warlock.studio.state import AppState
 
 

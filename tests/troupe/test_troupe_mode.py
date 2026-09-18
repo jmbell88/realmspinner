@@ -25,8 +25,8 @@ import pytest
 from warlock.kernels import charsheet
 from warlock.kernels.rig import store
 from warlock.studio import modes as modes_mod
-from warlock.studio import troupe_mode
-from warlock.studio.troupe import spec as troupe_spec
+from warlock.studio.modes.troupe import mode as troupe_mode
+from warlock.studio.modes.troupe.engine import spec as troupe_spec
 
 
 class _Ctx:
@@ -838,7 +838,7 @@ def test_a_key_release_never_acts_twice(ctx):
 def _preview_source() -> str:
     import pathlib
 
-    from warlock.studio.panes import troupe_preview
+    from warlock.studio.modes.troupe.ui.panes import preview as troupe_preview
 
     return pathlib.Path(troupe_preview.__file__).read_text(encoding="utf-8")
 
@@ -856,7 +856,7 @@ def test_playback_speed_has_a_control_at_last() -> None:
     """``advance`` has divided the frame interval by ``state.speed`` since the
     mode was written and nothing could ever change it, so every preview played
     at exactly 1x."""
-    from warlock.studio.panes import troupe_preview
+    from warlock.studio.modes.troupe.ui.panes import preview as troupe_preview
 
     assert "##troupe-speed" in _preview_source()
     keys = [float(key) for key, _ in troupe_preview._SPEEDS]
@@ -965,7 +965,7 @@ def test_a_sheet_can_be_named_from_the_form(ctx, svc):
     source = inspect.getsource(troupe_mode.build_sheet)
     assert "name=" in source, "build_sheet must carry the form's name to the door"
 
-    from warlock.studio.panes import troupe_settings
+    from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
 
     pane = inspect.getsource(troupe_settings)
     assert '"name"' in pane, "the form needs a name field for build_sheet to carry"
@@ -981,7 +981,8 @@ def test_the_cell_caps_are_read_from_charsheet_not_restated(ctx, svc):
     """
     import inspect
 
-    from warlock.studio.panes import troupe_settings, troupe_sheets
+    from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
+    from warlock.studio.modes.troupe.ui.panes import sheets as troupe_sheets
 
     for module in (troupe_settings, troupe_sheets):
         source = inspect.getsource(module)
@@ -1145,7 +1146,7 @@ def test_no_pane_hard_codes_a_pose_it_cannot_know(ctx):
     import ast
     from pathlib import Path
 
-    from warlock.studio.panes import troupe_characters
+    from warlock.studio.modes.troupe.ui.panes import characters as troupe_characters
 
     for module in (troupe_characters, troupe_mode):
         source = Path(module.__file__).read_text(encoding="utf-8")
@@ -1675,7 +1676,7 @@ def test_the_bridge_offers_export_frames_beside_the_package_export():
     ``troupe_mode.export_frames`` and gated the same way -- ready and not
     busy on the frames key, one call sharing the busy check with the button
     it sits beside."""
-    from warlock.studio.panes import troupe_bridge
+    from warlock.studio.modes.troupe.ui.panes import bridge as troupe_bridge
 
     source = inspect.getsource(troupe_bridge)
     package_at = source.index('"Export package..."')

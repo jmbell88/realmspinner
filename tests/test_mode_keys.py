@@ -428,7 +428,7 @@ def test_modal_open_sees_both_queues():
     # never built a state object.
     from types import SimpleNamespace as _NS
 
-    from warlock.studio.panes import troupe_send
+    from warlock.studio.modes.troupe.ui.panes import send as troupe_send
 
     ctx.prompts.dismiss()
     assert main.App._modal_open(app) is False
@@ -511,7 +511,7 @@ _WORKSPACE_ARMS = {
     "inker": "modes.inker.mode",
     "plotter": "plotter_mode",
     "packwright": "packwright_mode",
-    "troupe": "troupe_mode",
+    "troupe": "modes.troupe.mode",
     "muse": "muse_mode",
     "sirens": "sirens_mode",
     "mason": "mason_mode",

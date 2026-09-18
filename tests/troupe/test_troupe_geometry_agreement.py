@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 
 from warlock.kernels import charsheet as cs
-from warlock.studio.troupe import spec as troupe_spec
+from warlock.studio.modes.troupe.engine import spec as troupe_spec
 
 
 @pytest.fixture(scope="module")

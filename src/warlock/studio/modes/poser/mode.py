@@ -603,7 +603,7 @@ def riggable_assets(ctx: Any) -> list[dict[str, Any]]:
     be one more thing for this and ``open_asset`` to agree about by hand.
     """
     from ....service import jobs as svc_jobs
-    from ... import troupe_mode
+    from ..troupe import mode as troupe_mode
 
     state = ensure(ctx)
     now = time.monotonic()

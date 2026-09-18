@@ -34,11 +34,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .. import followups
-from . import icons
-from .state import set_mode
-from .troupe import spec as troupe_spec
-from .troupe_state import (  # noqa: F401  -- re-exported; every caller says troupe_mode.X
+from .... import followups
+from ... import icons
+from ...state import set_mode
+from .engine import spec as troupe_spec
+from .state import (  # noqa: F401  -- re-exported; every caller says troupe_mode.X
     TroupeState,
     ensure,
 )
@@ -180,7 +180,7 @@ def invalidate_sheets(ctx: Any) -> None:
 
 def _read_sheets(ctx: Any, job_id: str) -> list[dict[str, Any]]:
     """The uncached read :func:`sheets` throttles."""
-    from ..kernels.rig import store
+    from ....kernels.rig import store
 
     out = [
         record
@@ -472,7 +472,7 @@ def sendable_meshes(ctx: Any) -> list[dict[str, Any]]:
     the same store, at the same cadence, for the same reason. A mesh becomes
     sendable only when a job finishes, which is not a per-frame event.
     """
-    from ..service import jobs as svc_jobs
+    from ....service import jobs as svc_jobs
 
     state = ensure(ctx)
     now = time.monotonic()
@@ -514,7 +514,7 @@ def send_to_troupe(ctx: Any, job: Any, form: dict[str, Any] | None = None) -> bo
     yanking somebody out of the library mid-review to watch a spinner is the
     opposite of the affordance. The toast says where to watch instead.
     """
-    from ..service import troupe as svc_troupe
+    from ....service import troupe as svc_troupe
 
     job_id = str((job or {}).get("id") or "")
     if not job_id:
@@ -604,7 +604,7 @@ def active_sheet(ctx: Any) -> dict[str, Any] | None:
     list once -- so it was three JSON reads a frame of a file that changes only
     when a sheet is rebuilt.
     """
-    from ..kernels.rig import store
+    from ....kernels.rig import store
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):
@@ -933,7 +933,7 @@ def _score_task(path: Path, layout: dict[str, Any], geometry: tuple[int, int, in
     import numpy as np
     from PIL import Image
 
-    from .troupe import qa
+    from .engine import qa
 
     with Image.open(path) as opened:
         opened.load()
@@ -957,7 +957,7 @@ def release_rerender_selection(ctx: Any) -> None:
 def scores(ctx: Any) -> Any:
     """The selected sheet's :class:`~.troupe.qa.SheetScore`, or None while it
     is being computed, absent or unscorable. Frame thread; cheap."""
-    from ..kernels.rig import store
+    from ....kernels.rig import store
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):
@@ -1018,7 +1018,7 @@ def release_texture(ctx: Any) -> None:
     cached = ctx.state.preview.pop("troupe_texture", None)
     if cached is None:
         return
-    from . import imgui_backend
+    from ... import imgui_backend
 
     renderer = imgui_backend.current()
     if renderer is not None:
@@ -1054,7 +1054,7 @@ def atlas_texture(ctx: Any) -> Any:
     12-direction sheet is the longest frame the mode drew. ``_adopt_atlas``
     is the other half; the upload stays here because the texture is GL.
     """
-    from ..kernels.rig import store
+    from ....kernels.rig import store
 
     state = ensure(ctx)
     if ctx.viewer is None or not (state.job_id and state.sheet_id):
@@ -1150,7 +1150,7 @@ def _layout_request(form: dict[str, Any]) -> dict[str, Any]:
     for one on a v3+ payload), so a form that set a rate and stayed on
     ``"version": 2`` would have the rate silently ignored rather than applied.
     """
-    from ..kernels import charsheet
+    from ....kernels import charsheet
 
     source = form.get("layout") or {}
     movements = [
@@ -1201,7 +1201,7 @@ def camera_elevation(form: Mapping[str, Any]) -> float | None:
     key = str(form.get("camera") or "")
     if not key:
         return None
-    from ..kernels import charsheet
+    from ....kernels import charsheet
 
     return next(
         (angle for preset, _label, angle in charsheet.CAMERA_PRESETS if preset == key),
@@ -1241,8 +1241,8 @@ def options(ctx: Any) -> dict[str, Any]:
     app was restarted, even though the directory's own design intent
     (``service.palettes``' module docstring) is drop-in-while-running use.
     """
-    from ..service import troupe as svc_troupe
-    from .panes import stamps
+    from ....service import troupe as svc_troupe
+    from ...panes import stamps
 
     key = stamps.stamp_ns(ctx.svc.config.palette_dir)
     cached = ctx.state.preview.get(OPTIONS_SLOT)
@@ -1466,7 +1466,7 @@ def start_character(ctx: Any, form: dict[str, Any]) -> bool:
     than staying here -- the approval lives where every other reference's
     approval lives, and a second promote button would be a second gate.
     """
-    from ..service import jobs as svc_jobs
+    from ....service import jobs as svc_jobs
 
     key = "troupe-start"
     if ctx.busy(key):
@@ -1505,7 +1505,7 @@ def build_sheet(ctx: Any, job_id: str, form: dict[str, Any]) -> bool:
     different size from the same character. It is not the chain's normal route
     and is not meant to be: the chain's route is the block on the reference.
     """
-    from ..service import troupe as svc_troupe
+    from ....service import troupe as svc_troupe
 
     key = f"troupe-sheet:{job_id}"
     if ctx.busy(key):
@@ -1535,7 +1535,7 @@ def rerender_runs(ctx: Any, subset: list[dict[str, str]]) -> bool:
     the cells that come back match the ones they land beside. See
     ``service.troupe.rerender_charsheet`` for why that is not negotiable.
     """
-    from ..service import troupe as svc_troupe
+    from ....service import troupe as svc_troupe
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id and subset):
@@ -1577,7 +1577,7 @@ def open_in_inker(ctx: Any) -> bool:
     ``animation`` block, and Inker's sheet import already reads that block into
     tags. A second path would be a second dialect of one format.
     """
-    from .modes.inker import mode as inker_mode
+    from ..inker import mode as inker_mode
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):
@@ -1589,7 +1589,7 @@ def open_in_inker(ctx: Any) -> bool:
 def add_to_packwright(ctx: Any) -> bool:
     """The other way out, and the other existing bridge -- one sheet's cells
     into an atlas beside everything else being packed."""
-    from . import packwright_mode
+    from ... import packwright_mode
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):
@@ -1618,7 +1618,7 @@ def export_package(ctx: Any) -> bool:
     the user cancelled -- which is why this returns whether the *request* was
     taken rather than whether anything was written.
     """
-    from ..service import characters as svc_characters
+    from ....service import characters as svc_characters
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):
@@ -1634,7 +1634,7 @@ def export_package(ctx: Any) -> bool:
     def run() -> Any:
         dest = configured
         if dest is None:
-            from . import dialogs
+            from ... import dialogs
 
             picked = dialogs.select_folder("Export the character sheet")
             if picked is None:
@@ -1661,7 +1661,7 @@ def export_frames(ctx: Any) -> bool:
     what actually writes, through ``export.staged_tree``, so a half-written
     tree is never the one a viewer sees.
     """
-    from ..service import characters as svc_characters
+    from ....service import characters as svc_characters
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):
@@ -1677,7 +1677,7 @@ def export_frames(ctx: Any) -> bool:
     def run() -> Any:
         dest = configured
         if dest is None:
-            from . import dialogs
+            from ... import dialogs
 
             picked = dialogs.select_folder("Export the character sheet's frames")
             if picked is None:
@@ -1720,7 +1720,7 @@ def needs_repair(record: Mapping[str, Any] | None) -> bool:
 
 def repair_notes(record: Mapping[str, Any] | None) -> list[str]:
     """``sheetcheck.describe`` over this sheet's block. The pane's diagnostics."""
-    from ..pipelines import sheetcheck
+    from ....pipelines import sheetcheck
 
     return list(sheetcheck.describe(validation_of(record) or None))
 
@@ -1762,9 +1762,9 @@ def vary_in_create(ctx: Any, record: Mapping[str, Any] | None) -> bool:
     """
     import json
 
-    from .modes.create.engine import assets as create_assets
-    from .modes.create.engine import character as character_engine
-    from .modes.create.ui import stages as create_stages
+    from ..create.engine import assets as create_assets
+    from ..create.engine import character as character_engine
+    from ..create.ui import stages as create_stages
 
     recipe = recipe_of(record)
     if not recipe:

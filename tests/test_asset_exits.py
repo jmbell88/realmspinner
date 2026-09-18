@@ -471,7 +471,8 @@ def test_no_gate_touches_the_filesystem(svc, monkeypatch):
     patch below, so this only catches a stat made by a gate itself and not
     one made by some unrelated module's own import machinery.
     """
-    from warlock.studio.panes import pose_panel, troupe_send  # noqa: F401
+    from warlock.studio.modes.troupe.ui.panes import send as troupe_send  # noqa: F401
+    from warlock.studio.panes import pose_panel  # noqa: F401
 
     def _raise(self, *_a, **_k):
         raise AssertionError(f"a gate touched the filesystem: {self}")

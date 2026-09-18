@@ -196,7 +196,8 @@ def test_the_troupe_bridge_and_sheet_panes_import_without_a_context():
     """Both had no test reference at all. Importing them is the floor: a pane
     that cannot be imported takes the whole frame down through ``guard``, and
     the smoke pass is what draws them."""
-    from warlock.studio.panes import troupe_bridge, troupe_sheets
+    from warlock.studio.modes.troupe.ui.panes import bridge as troupe_bridge
+    from warlock.studio.modes.troupe.ui.panes import sheets as troupe_sheets
 
     assert callable(troupe_bridge.draw)
     assert callable(troupe_sheets.draw)
@@ -211,7 +212,7 @@ def test_a_rerender_names_the_runs_it_was_asked_for():
     slot now has to be owned by the module that clears it in ``select``, not
     by the pane that only reads it.
     """
-    from warlock.studio import troupe_mode
+    from warlock.studio.modes.troupe import mode as troupe_mode
 
     assert troupe_mode.RERENDER_SLOT == "troupe_rerender_runs"
 

@@ -155,7 +155,7 @@ def test_ulpc_docstring_no_longer_claims_a_door_nothing_wires():
     feature work of its own, out of scope for this fix, and returned as owed
     rather than done.
     """
-    from warlock.studio.troupe import ulpc
+    from warlock.studio.modes.troupe.engine import ulpc
 
     assert "bring their own" not in (ulpc.__doc__ or "")
 
@@ -704,8 +704,8 @@ def test_send_to_troupe_does_not_submit_the_currently_selected_characters_layout
     """
     from types import SimpleNamespace
 
-    from warlock.studio import troupe_mode
-    from warlock.studio.panes import troupe_send
+    from warlock.studio.modes.troupe import mode as troupe_mode
+    from warlock.studio.modes.troupe.ui.panes import send as troupe_send
 
     class _Ctx:
         """The slice of the app context the door's logic touches. No GL --
@@ -1762,7 +1762,7 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
 
     from warlock.kernels.pixel import sheetin
     from warlock.kernels.rig import store as rig_store
-    from warlock.studio import troupe_mode
+    from warlock.studio.modes.troupe import mode as troupe_mode
 
     calls = _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
     # A themed character and, in the same run, a mesh with no species behind it.

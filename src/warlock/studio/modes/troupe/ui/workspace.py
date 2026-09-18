@@ -33,15 +33,13 @@ class TroupeWorkspace:
         """
         from imgui_bundle import imgui
 
-        from . import layout as layout_mod
-        from .panes import (
-            troupe_bridge,
-            troupe_characters,
-            troupe_preview,
-            troupe_settings,
-            troupe_sheets,
-        )
-        from .shell.frame import _column_boundary, _split_column
+        from .... import layout as layout_mod
+        from ....shell.frame import _column_boundary, _split_column
+        from .panes import bridge as troupe_bridge
+        from .panes import characters as troupe_characters
+        from .panes import preview as troupe_preview
+        from .panes import settings as troupe_settings
+        from .panes import sheets as troupe_sheets
 
         ctx = self.app_ctx
         lay = self.layout

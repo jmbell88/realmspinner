@@ -23,9 +23,10 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import probe, troupe_mode
-from warlock.studio.panes import troupe_preview
-from warlock.studio.troupe import qa
+from warlock.studio import probe
+from warlock.studio.modes.troupe import mode as troupe_mode
+from warlock.studio.modes.troupe.engine import qa
+from warlock.studio.modes.troupe.ui.panes import preview as troupe_preview
 
 
 @pytest.fixture

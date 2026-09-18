@@ -16,6 +16,8 @@ from warlock.studio import icons, modes, state, verbs
 from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
 from warlock.studio.modes.inker import ops as inker_ops
 from warlock.studio.modes.inker.ui.panes import context as inker_context
+from warlock.studio.modes.troupe.ui.panes import bridge as troupe_bridge
+from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
 from warlock.studio.panes import (
     inspector,
     library,
@@ -25,8 +27,6 @@ from warlock.studio.panes import (
     plotter_menu,
     sheet_panel,
     sprite_panel,
-    troupe_bridge,
-    troupe_settings,
 )
 
 # --- property labels --------------------------------------------------------
@@ -86,7 +86,7 @@ def test_every_rail_icon_is_unique():
 
 
 def test_troupe_wears_the_same_glyph_on_every_surface():
-    from warlock.studio import troupe_mode
+    from warlock.studio.modes.troupe import mode as troupe_mode
 
     icon = dict((k, i) for k, _l, i, _p in modes.MODES)["troupe"]
     assert icon == troupe_mode.ICON == icons.FILM

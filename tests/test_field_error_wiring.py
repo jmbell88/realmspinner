@@ -42,7 +42,7 @@ FIELD_FORMS = (
     ("panes/remesh_panel.py", "remesh-settings"),
     ("panes/sheet_panel.py", "sheet-settings"),
     ("panes/sprite_panel.py", "sprite-settings"),
-    ("panes/troupe_settings.py", "troupe-settings"),
+    ("modes/troupe/ui/panes/settings.py", "troupe-settings"),
     ("panes/retarget_panel.py", "retarget-settings"),
     ("panes/texture_panel.py", "retexture-settings"),
 )
@@ -112,7 +112,7 @@ def test_every_submit_that_can_be_refused_by_name_drops_last_times_rings():
         "panes/remesh_panel.py",
         "panes/texture_panel.py",
         "panes/app_settings.py",
-        "troupe_mode.py",
+        "modes/troupe/mode.py",
     ):
         assert "clear_field_errors()" in _source(rel), rel
 
@@ -345,7 +345,7 @@ def test_every_refusal_a_pane_can_provoke_names_something_that_pane_draws():
         ("panes/sprite_panel.py", sprites.create_sprite_synthesis),
         ("panes/retarget_panel.py", _jobs_rework.optimize_job),
         ("panes/remesh_panel.py", _jobs_rework.remesh_job),
-        ("panes/troupe_settings.py", troupe.check_troupe),
+        ("modes/troupe/ui/panes/settings.py", troupe.check_troupe),
     )
     for rel, fn in cases:
         drawn = _form_field_ids(rel)

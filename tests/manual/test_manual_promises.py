@@ -387,7 +387,8 @@ def test_the_packwright_manual_chapter_lists_every_source_door_the_code_has():
     consulting Packwright's own reference chapter was told the door did
     not exist.
     """
-    from warlock.studio import packwright_mode, troupe_mode
+    from warlock.studio import packwright_mode
+    from warlock.studio.modes.troupe import mode as troupe_mode
 
     assert hasattr(packwright_mode, "add_rendered_sheet"), (
         "sanity: packwright_mode lost its rendered-sheet door"

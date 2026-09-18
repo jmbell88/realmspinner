@@ -518,7 +518,7 @@ def test_the_troupe_cast_rows_have_a_context_menu():
     selecting it and then finding a button in another pane."""
     import inspect
 
-    from warlock.studio.panes import troupe_characters
+    from warlock.studio.modes.troupe.ui.panes import characters as troupe_characters
 
     source = inspect.getsource(troupe_characters)
     assert "_row_menu(ctx, state, character)" in source

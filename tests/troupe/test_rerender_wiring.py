@@ -14,10 +14,10 @@ import numpy as np
 import pytest
 
 from warlock.kernels.pixel.sheetin import document_from_sheet
-from warlock.studio import troupe_mode
 from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.modes.inker import ops as inker_ops
 from warlock.studio.modes.inker import sheet as inker_sheet
+from warlock.studio.modes.troupe import mode as troupe_mode
 
 
 class _Ctx:
@@ -57,7 +57,7 @@ def ctx(svc):
 def test_the_runs_offered_come_from_the_sheet_rather_than_the_shipped_table(ctx, svc):
     """A sheet built with four directions has four runs per animation, and
     offering it eight would be offering runs it does not contain."""
-    from warlock.studio import troupe_mode as mode
+    from warlock.studio.modes.troupe import mode as mode
 
     state = mode.ensure(ctx)
     state.job_id, state.sheet_id = "", ""
@@ -95,7 +95,7 @@ def test_a_re_render_needs_a_selected_sheet_and_some_runs(ctx):
 def test_the_pane_offers_the_control_and_names_what_it_costs():
     import inspect
 
-    from warlock.studio.panes import troupe_sheets
+    from warlock.studio.modes.troupe.ui.panes import sheets as troupe_sheets
 
     source = inspect.getsource(troupe_sheets)
     assert "rerender_runs" in source, "the pane must reach the controller"

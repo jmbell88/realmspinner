@@ -178,7 +178,7 @@ def test_troupe_settings_draws_the_fps_control_the_invariant_says_it_lacks():
     ``form_ui.combo("fps", "Frame rate", ...)``.
     """
     troupe_settings_path = (
-        ROOT / "src" / "warlock" / "studio" / "panes" / "troupe_settings.py"
+        ROOT / "src" / "warlock" / "studio" / "modes/troupe/ui/panes/settings.py"
     )
     troupe_settings = troupe_settings_path.read_text(encoding="utf-8")
     assert 'form_ui.combo(\n        "fps",' in troupe_settings or re.search(

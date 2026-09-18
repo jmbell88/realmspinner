@@ -2576,7 +2576,7 @@ def test_riggable_assets_is_throttled_page_capped_and_passes_a_files_cache(svc, 
     ``list_jobs`` so the picker is not a stat per listed name per row every
     frame its header is open."""
     from warlock.service import jobs as svc_jobs
-    from warlock.studio import troupe_mode
+    from warlock.studio.modes.troupe import mode as troupe_mode
 
     job_id = _rigged_job(svc)
     ctx = FakeCtx(svc)

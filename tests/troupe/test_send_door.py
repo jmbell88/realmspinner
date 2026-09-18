@@ -18,8 +18,9 @@ import pytest
 from warlock.kernels.rig import cliplib, templates
 from warlock.service import troupe as svc_troupe
 from warlock.service.errors import Invalid
-from warlock.studio import asset_exits, troupe_mode
-from warlock.studio.panes import troupe_send
+from warlock.studio import asset_exits
+from warlock.studio.modes.troupe import mode as troupe_mode
+from warlock.studio.modes.troupe.ui.panes import send as troupe_send
 
 
 class _Ctx:
@@ -386,7 +387,8 @@ def test_building_another_sheet_with_no_form_yet_uses_the_modes_defaults(ctx, sv
     more, so the guard against submitting the door's defaults raised
     AttributeError in exactly the case it exists for -- ``state.form`` empty,
     which is a fresh session's state."""
-    from warlock.studio.panes import troupe_settings, troupe_sheets
+    from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
+    from warlock.studio.modes.troupe.ui.panes import sheets as troupe_sheets
 
     assert not hasattr(troupe_settings, "_form")
     state = troupe_mode.ensure(ctx)

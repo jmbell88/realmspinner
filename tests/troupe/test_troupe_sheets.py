@@ -7,7 +7,7 @@ window -- ``camera_line``'s own argument, applied to its neighbour.
 
 from __future__ import annotations
 
-from warlock.studio.panes import troupe_sheets
+from warlock.studio.modes.troupe.ui.panes import sheets as troupe_sheets
 
 
 def test_an_hd_sheet_reports_full_colour_not_a_palette():

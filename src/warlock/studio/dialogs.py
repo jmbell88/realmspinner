@@ -673,7 +673,8 @@ def modal_open(ctx: Any) -> bool:
     on the shell. This module already owns two of the four answers.
     """
     from . import matte_preview, muse_mode
-    from .panes import first_run, packwright_sources, troupe_send
+    from .modes.troupe.ui.panes import send as troupe_send
+    from .panes import first_run, packwright_sources
 
     return (
         ctx.confirms.pending is not None

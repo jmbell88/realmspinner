@@ -16,7 +16,7 @@ from warlock import _q_troupe
 from warlock.kernels import charsheet
 from warlock.kernels import sheet as sheetlib
 from warlock.service import troupe as svc_troupe
-from warlock.studio.panes import troupe_settings
+from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
 
 
 def test_the_form_and_the_door_read_one_preset_table(svc):
