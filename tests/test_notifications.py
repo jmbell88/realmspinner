@@ -231,7 +231,7 @@ def test_the_accepted_suffixes_are_stated_once():
 
 def test_a_missing_thumbnail_says_what_kind_of_thing_is_coming():
     from warlock.studio import icons
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     assert library.thumb_glyph({"kind": "text", "stage": "model"}) == icons.BOX
     assert library.thumb_glyph({"kind": "text", "stage": "tile"}) == icons.GRID

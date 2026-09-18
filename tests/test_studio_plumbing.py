@@ -322,7 +322,7 @@ def _calls_to(module: Any, name: str) -> list[ast.Call]:
 def test_rigging_an_existing_mesh_forwards_the_chosen_skeleton():
     """The skeleton combo applied only to rig-on-generate; the library's Rig
     action passed nothing, so the config default always won."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     # create_rig is never called directly here -- it is handed to ctx.submit --
     # so the call to inspect is the submit that carries it.
@@ -659,7 +659,7 @@ def test_copying_a_tiles_settings_keeps_it_a_tile():
     means the pane offers a taxonomy the prompt compiler will discard and a
     second stage the job cannot have.
     """
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     ctx = _copy_ctx()
     library.copy_settings(ctx, {"stage": "tile", "params": {"prompt": "cobblestone"}})
@@ -668,7 +668,7 @@ def test_copying_a_tiles_settings_keeps_it_a_tile():
 
 
 def test_copying_a_references_settings_makes_an_object():
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     ctx = _copy_ctx()
     ctx.state.form_2d["output"] = "tile"
@@ -929,28 +929,28 @@ def test_a_finished_tile_is_not_offered_a_remesh():
     came back as an error toast -- the exact failure the ``rerollable`` check
     beside it exists to prevent.
     """
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     tile = {"id": "a", "stage": "tile", "kind": "text", "files": ["input.png"]}
     assert library._remeshable(tile) is False
 
 
 def test_a_finished_reference_is_still_offered_a_remesh():
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     reference = {"id": "a", "stage": "reference", "kind": "text", "files": ["input.png"]}
     assert library._remeshable(reference) is True
 
 
 def test_a_job_with_no_image_is_not_offered_a_remesh():
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     assert library._remeshable({"id": "a", "stage": "model", "files": []}) is False
 
 
 def test_the_retry_ladder_rerolls_a_tile_rather_than_remeshing_it():
     """The other call site, through the action it actually submits."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     calls: list[dict] = []
 
@@ -973,7 +973,7 @@ def test_both_remesh_call_sites_go_through_the_one_predicate():
     the rule: the menu item and the retry ladder held the same expression, one
     of them learned about tiles and the other did not.
     """
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     assert len(_calls_to(library, "_remeshable")) == 2
     source = inspect.getsource(library)

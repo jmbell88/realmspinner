@@ -233,7 +233,7 @@ def _run(ctx: Any, chosen: tuple[str, Any]) -> bool:
     """
     kind, item = chosen
     if kind == "asset":
-        from . import library
+        from ..modes.library.ui.panes import library
 
         library.run_action(ctx, item, "open")
         return True

@@ -59,7 +59,7 @@ def _compare_key() -> str:
     great deal of the app and every other reference to it in this file is
     already deferred to its call site for that reason.
     """
-    from ..panes import library
+    from ..modes.library.ui.panes import library
 
     return library.COMPARE_KEY
 
@@ -67,7 +67,7 @@ def _compare_key() -> str:
 def _import_mesh_key() -> str:
     """``library.IMPORT_MESH_KEY``, looked up lazily -- :func:`_compare_key`'s
     reason, and the same shape so the two read as one convention."""
-    from ..panes import library
+    from ..modes.library.ui.panes import library
 
     return library.IMPORT_MESH_KEY
 
@@ -364,7 +364,7 @@ class TasksMixin:
             # trash that has since moved on (a restore, another empty) is
             # dropped instead of shown against the wrong list.
             if isinstance(done.result, dict):
-                from ..panes import library
+                from ..modes.library.ui.panes import library
 
                 ctx.state.preview[library.TRASH_SIZE_SLOT] = (done.tag, done.result)
             return

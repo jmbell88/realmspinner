@@ -31,8 +31,9 @@ from imgui_bundle import imgui
 from ......kernels.mesh import primitives as bp
 from ..... import controls, icons, tool_palette, widgets
 from .....manual import render as manual_render
-from .....panes import library, thumbs
+from .....panes import thumbs
 from .....tokens import sp
+from ....library.ui.panes import library
 from ... import mode as mason_mode
 from ... import state as mason_state
 

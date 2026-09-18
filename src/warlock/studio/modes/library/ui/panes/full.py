@@ -32,10 +32,11 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import controls, icons, layout, theme, tokens, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
-from . import inspector, library, thumbs
+from ..... import controls, icons, layout, theme, tokens, widgets
+from .....manual import render as manual_render
+from .....panes import inspector, thumbs
+from .....tokens import sp
+from . import library
 
 #: The left rail, in design pixels. Narrower than a sidebar (260-360) because
 #: it holds no form: a query box, a column of one-line selectables and a sort.

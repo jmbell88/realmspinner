@@ -438,7 +438,8 @@ def _switch(ctx: Any, stage: str, select: str | None, follow: bool) -> None:
     """:func:`go` past the pose guard. Separate so the guard can defer it into
     a confirm's ``on_confirm`` without re-asking itself on the way through."""
     from .... import state as state_mod
-    from ....panes import library, pose_panel
+    from ....panes import pose_panel
+    from ...library.ui.panes import library
 
     if at(ctx.state, "pose") and stage != "pose":
         # Leaving the editor as well as the stage. Without this the viewer

@@ -310,7 +310,7 @@ class _FakeImgui:
 
 
 def _clipped(monkeypatch, count: int, view: float, scroll: float, selected=None):
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     fake = _FakeImgui(view, scroll)
     monkeypatch.setattr(library, "imgui", fake)
@@ -333,14 +333,14 @@ def _clipped(monkeypatch, count: int, view: float, scroll: float, selected=None)
 def test_a_short_library_is_never_clipped(monkeypatch):
     """The threshold is not about correctness -- it keeps a scroll-dependent
     path from underneath the ordinary case."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     drawn, _ = _clipped(monkeypatch, library.CLIP_THRESHOLD - 1, 400.0, 0.0)
     assert drawn is None
 
 
 def test_a_long_library_draws_only_what_is_on_screen(monkeypatch):
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     count = 400
     drawn, fake = _clipped(monkeypatch, count, 400.0, 0.0)
@@ -360,7 +360,7 @@ def test_the_selected_card_is_drawn_even_when_it_is_off_screen(monkeypatch):
 
 
 def test_scrolling_moves_which_cards_are_drawn(monkeypatch):
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     drawn, _ = _clipped(monkeypatch, 400, 400.0, 100.0 * library.CARD_HEIGHT)
     assert drawn is not None and drawn[0] >= 99

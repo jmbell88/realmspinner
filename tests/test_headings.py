@@ -20,7 +20,7 @@ import ast
 import inspect
 from pathlib import Path
 
-from warlock.studio.panes import library_full
+from warlock.studio.modes.library.ui.panes import full as library_full
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from warlock.studio.panes import library
+from warlock.studio.modes.library.ui.panes import library
 from warlock.studio.state import AppState
 
 

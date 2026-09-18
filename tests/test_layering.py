@@ -600,7 +600,10 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
 # plausible place either dependency gets resolved.
 _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.modes.inker.ui.panes.tiles", "warlock.studio.modes.plotter.tilesets"),
-    ("warlock.studio.modes.mason.ui.panes.palette", "warlock.studio.panes.library"),
+    (
+        "warlock.studio.modes.mason.ui.panes.palette",
+        "warlock.studio.modes.library.ui.panes.library",
+    ),
 })
 
 # P10 -- Muse folds into Create's audio stage, explicitly removing "the
@@ -619,9 +622,9 @@ _P10_MUSE_FOLDS_INTO_CREATE: frozenset[tuple[str, str]] = frozenset({
 # empty state. `panes/candidates_panel.py` and `panes/library.py` reaching
 # into both Review and Create today are exactly the seam P9-P12 close.
 _P11_P12_LIBRARY_ABSORBS: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.panes.candidates_panel", "warlock.studio.panes.library"),
+    ("warlock.studio.panes.candidates_panel", "warlock.studio.modes.library.ui.panes.library"),
     ("warlock.studio.panes.candidates_panel", "warlock.studio.modes.review.mode"),
-    ("warlock.studio.panes.library", "warlock.studio.modes.review.mode"),
+    ("warlock.studio.modes.library.ui.panes.library", "warlock.studio.modes.review.mode"),
 })
 
 # Not owned by any phase as dev/RESTRUCTURE.md is written today -- real,

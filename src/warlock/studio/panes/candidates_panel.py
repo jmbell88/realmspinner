@@ -47,9 +47,9 @@ from ...service import jobs as svc_jobs
 from .. import candidates as candidates_mod
 from .. import controls, dialogs, widgets
 from ..manual import render as manual_render
+from ..modes.library.ui.panes import library
 from ..modes.review import mode as review_mode
 from ..tokens import sp
-from . import library
 
 #: The nudge, drawn once per group while some finished attempt has no grade.
 #: Basic-Latin only (imgui's default atlas), so " - " and not an em dash --

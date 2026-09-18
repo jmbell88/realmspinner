@@ -458,7 +458,7 @@ def test_trashing_offers_the_undo_it_was_already_relying_on():
     """The card's Delete asks nothing on the grounds that the trash *is* the
     confirmation -- which was true and invisible."""
     from warlock.studio import main
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     source = inspect.getsource(library.delete_asset)
     assert '"undo"' in source
@@ -470,7 +470,7 @@ def test_trashing_offers_the_undo_it_was_already_relying_on():
 def test_the_confirms_that_stay_are_the_irreversible_ones():
     """Prune deletes from disk and empty-trash is the trash; neither has an
     undo to offer, so both keep their question."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     source = inspect.getsource(library)
     assert "empty_trash" in source

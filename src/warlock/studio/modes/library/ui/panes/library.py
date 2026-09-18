@@ -18,14 +18,14 @@ from typing import Any, NamedTuple
 
 from imgui_bundle import imgui
 
-from ... import followups, vectors
-from ...core.safeio import atomic
-from ...service import derive as svc_derive
-from ...service import export as svc_export
-from ...service import jobs as svc_jobs
-from ...service import rig as svc_rig
-from ...service.errors import ServiceError
-from .. import (
+from ...... import followups, vectors
+from ......core.safeio import atomic
+from ......service import derive as svc_derive
+from ......service import export as svc_export
+from ......service import jobs as svc_jobs
+from ......service import rig as svc_rig
+from ......service.errors import ServiceError
+from ..... import (
     app_ctx,
     artifacts,
     controls,
@@ -38,11 +38,11 @@ from .. import (
     toolbar,
     widgets,
 )
-from ..manual import render as manual_render
-from ..modes.review import mode as review_mode
-from ..state import ACTIONS, QUERY_FIELDS, SORTS, card_kind, parse_query, primary_action
-from ..tokens import sp
-from . import thumbs
+from .....manual import render as manual_render
+from .....panes import thumbs
+from .....state import ACTIONS, QUERY_FIELDS, SORTS, card_kind, parse_query, primary_action
+from .....tokens import sp
+from ....review import mode as review_mode
 
 log = logging.getLogger(__name__)
 
@@ -1100,7 +1100,7 @@ def _overflow(ctx: Any, job: Any) -> None:
     # dimmed rather than left off, carrying its reason as the tooltip a
     # disabled menu row shows on hover -- the same "not hidden" argument
     # ``create_rail.stage_rail``'s docstring makes about a blocked stage segment.
-    from .. import asset_exits
+    from ..... import asset_exits
 
     for exit_ in asset_exits.exits_for(ctx, job):
         if (
@@ -1272,7 +1272,7 @@ def open_selected(ctx: Any) -> None:
     from the library. Silently nothing with no selection: Enter with no cursor
     has nothing it could mean.
     """
-    from .. import asset_open
+    from ..... import asset_open
 
     job = ctx.cache.get(ctx.state.selected)
     if job is None:
@@ -1291,8 +1291,8 @@ def copy_settings(ctx: Any, job: Any) -> None:
     Public: the results tray's "Vary" is the same verb on the same row and was
     reaching for the private name to do it.
     """
-    from ..modes.create.engine import assets as create_assets
-    from ..state import form_from_params
+    from .....state import form_from_params
+    from ....create.engine import assets as create_assets
 
     params = job.get("params") or {}
     stage = str(job.get("stage") or "")
@@ -1323,7 +1323,7 @@ def copy_settings(ctx: Any, job: Any) -> None:
     ):
         form["asset_type"] = create_assets.legacy_asset_type(form)
     create_assets.sync_legacy_fields(form)
-    from ..modes.create.ui import stages as create_stages
+    from ....create.ui import stages as create_stages
 
     ctx.state.form_2d = form
     create_stages.go(ctx, "reference")
@@ -1366,7 +1366,7 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
         mode = "remesh" if _remeshable(job) else "reroll"
         ctx.submit(f"retry:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode=mode)
     elif action == "promote":
-        from ..modes.create.ui import stages as create_stages
+        from ....create.ui import stages as create_stages
 
         ctx.state.source_job = job_id
         # ``follow=False``: the source is named on the line above, and walking
@@ -1379,7 +1379,7 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
         # picking "quadruped" there and then rigging from a card here has to
         # use the same template, and two spellings of the submit key would let
         # both fire at once.
-        from . import stage_rig
+        from .....panes import stage_rig
 
         ctx.submit(
             stage_rig.rig_key(job),
@@ -1397,7 +1397,7 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
         # no way to verify against Blender's own Y-up -> Z-up import
         # rotation. The same submit key as "Rig": a mesh cannot be both rigs
         # at once.
-        from . import stage_rig
+        from .....panes import stage_rig
 
         ctx.submit(
             stage_rig.rig_key(job), svc_rig.create_rig, ctx.svc, job_id, template="blank"
@@ -1408,19 +1408,19 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
         # directory holds what it made. All three are ``asset_open``'s to know,
         # which is what keeps this and the landing page's identical "open this
         # asset" from being two answers to one question.
-        from .. import asset_open
+        from ..... import asset_open
 
         asset_open.open_asset(ctx, job)
     elif action == "inker":
-        from ..modes.inker import mode as inker_mode
+        from ....inker import mode as inker_mode
 
         inker_mode.open_job_reference(ctx, job)
     elif action == "clay":
-        from ..modes.clay import mode as clay_mode
+        from ....clay import mode as clay_mode
 
         clay_mode.edit_asset_in_clay(ctx, job)
     elif action == "plotter":
-        from ..modes.plotter import mode as plotter_mode
+        from ....plotter import mode as plotter_mode
 
         plotter_mode.use_as_tileset(ctx, job)
     elif action in ("troupe", "muse"):
@@ -1439,7 +1439,7 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
         # neither arm could sensibly repeat here -- a Troupe sheet whose sidecar
         # has gone, and a take whose selection has to be set before the mode
         # switch. A third spelling of that routing is a third thing to go stale.
-        from .. import asset_open
+        from ..... import asset_open
 
         asset_open.open_asset(ctx, job)
 
@@ -1494,8 +1494,8 @@ def _read_and_import(ctx: Any, path: Path) -> dict[str, Any]:
     that is how a refusal becomes a swap storm. ``import_mesh`` re-checks the
     bytes it is handed, so this is a cheaper first gate and not the rule.
     """
-    from ...service.errors import Invalid
-    from ...service.validation import MAX_MESH_BYTES
+    from ......service.errors import Invalid
+    from ......service.validation import MAX_MESH_BYTES
 
     if path.stat().st_size > MAX_MESH_BYTES:
         raise Invalid(
@@ -2401,7 +2401,7 @@ def _storage(ctx: Any, jobs: list[Any]) -> None:
         if imgui.is_item_hovered():
             imgui.set_tooltip(ctx.cache.storage_error)
     if storage:
-        from ..state import format_bytes
+        from .....state import format_bytes
 
         widgets.muted(f"{storage['job_dirs']} jobs - {format_bytes(storage['bytes'])}")
     # **Prune...** and **Clean library...** used to be here, and moved to
@@ -2483,7 +2483,7 @@ def trash_summary(answer: Any) -> str | None:
     """
     if not isinstance(answer, dict):
         return None
-    from ..state import format_bytes
+    from .....state import format_bytes
 
     count = int(answer.get("count") or 0)
     what = "1 asset" if count == 1 else f"{count} assets"
@@ -2574,7 +2574,7 @@ def ask_clean(ctx: Any) -> None:
     def body() -> None:
         storage = ctx.cache.storage
         if storage:
-            from ..state import format_bytes
+            from .....state import format_bytes
 
             widgets.muted(
                 f"{storage['job_dirs']} jobs - {format_bytes(storage['bytes'])} "

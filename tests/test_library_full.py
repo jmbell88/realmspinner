@@ -13,7 +13,8 @@ from types import SimpleNamespace
 
 from _ui_context import imgui_context
 
-from warlock.studio.panes import library, library_full
+from warlock.studio.modes.library.ui.panes import full as library_full
+from warlock.studio.modes.library.ui.panes import library
 
 
 def _job(job_id: str) -> dict:

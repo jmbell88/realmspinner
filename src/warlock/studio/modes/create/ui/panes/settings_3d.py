@@ -470,7 +470,7 @@ def _source(ctx: Any) -> None:
     the target has to be exactly the area the user is aiming at, at every
     display scale.
     """
-    from .....panes import library
+    from ....library.ui.panes import library
 
     state = ctx.state
     source = ctx.cache.get(state.source_job)

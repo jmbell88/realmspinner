@@ -154,8 +154,8 @@ def open_asset(ctx: Any, job_or_id: Any) -> None:
     # test with no GL context.
     from . import widgets
     from .modes.create.ui import stages as create_stages
+    from .modes.library.ui.panes import library
     from .modes.troupe import mode as troupe_mode
-    from .panes import library
 
     job = job_or_id if isinstance(job_or_id, dict) else ctx.cache.get(job_or_id)
     if job is None:

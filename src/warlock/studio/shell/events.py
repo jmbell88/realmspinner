@@ -529,7 +529,7 @@ class EventsMixin:
                 # The Home idiom exactly: the same selection-move the 2D/3D
                 # fall-through routes the arrows to, so the library pane has
                 # one keyboard whichever mode it is drawn in.
-                from ..panes import library
+                from ..modes.library.ui.panes import library
 
                 # A *grid* here, so Up and Down move by a row and Left and
                 # Right by one -- the column count is whatever the grid drew
@@ -693,7 +693,7 @@ class EventsMixin:
             # The library is the sidebar in both generate modes, so the arrows
             # are unambiguous here; Review owns Left/Right for its own list and
             # is returned above. Nothing else in 2D/3D reads an arrow key.
-            from ..panes import library
+            from ..modes.library.ui.panes import library
 
             library.select_relative(ctx, -1 if event.key == pygame.K_UP else 1)
         elif event.key == pygame.K_DELETE and ctx.state.selected:
@@ -710,7 +710,7 @@ class EventsMixin:
             # offering it: F already frames the viewer a few lines below, and
             # taking a live 3D binding to add a library one would be a trade,
             # not a fix.
-            from ..panes import library
+            from ..modes.library.ui.panes import library
 
             library.delete_asset(ctx, ctx.state.selected)
         elif event.key == pygame.K_f:
@@ -885,7 +885,7 @@ class EventsMixin:
             # dropped mid-generation is ambiguous between "start from this" and
             # "put this in my library", and the branch below already answers
             # that question for images.
-            from ..panes import library
+            from ..modes.library.ui.panes import library
 
             library.import_mesh_path(ctx, path)
             ctx.toast(f"Importing {path.name}...", "info")
@@ -959,7 +959,7 @@ class EventsMixin:
             job = ctx.cache.get(arg)
             ctx.state.library_scroll_to = asset_open.route(job).job_id if job is not None else arg
         elif name == "undo" and arg:
-            from ..panes import library
+            from ..modes.library.ui.panes import library
 
             # Through the library's own restore, so the tick set and the
             # selection are handled exactly as they are when the trash view's

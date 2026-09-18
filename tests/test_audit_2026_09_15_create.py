@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 from warlock.studio.modes.create.engine import assets as create_assets
 from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.panes import library
+from warlock.studio.modes.library.ui.panes import library
 from warlock.studio.state import default_form_2d
 
 

@@ -25,7 +25,8 @@ from types import SimpleNamespace
 import numpy as np
 
 from warlock.studio import motion, ninepatch, shadows, surfaces, vibrancy
-from warlock.studio.panes import landing, library, overlay
+from warlock.studio.modes.library.ui.panes import library
+from warlock.studio.panes import landing, overlay
 from warlock.studio.shortcuts import filter_shortcuts
 
 

@@ -386,7 +386,7 @@ def commands(ctx: Any) -> list[Command]:
     wants.
     """
     from ..service._jobs_resubmit import rerollable_reason as _reroll_why
-    from .panes import library
+    from .modes.library.ui.panes import library
 
     def reroll(ctx: Any) -> None:
         from ..service import jobs as svc_jobs

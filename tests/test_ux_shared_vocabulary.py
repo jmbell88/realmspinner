@@ -16,13 +16,14 @@ from warlock.studio import icons, modes, state, verbs
 from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
 from warlock.studio.modes.inker import ops as inker_ops
 from warlock.studio.modes.inker.ui.panes import context as inker_context
+from warlock.studio.modes.library.ui.panes import library
 from warlock.studio.modes.muse.ui.panes import results as muse_results
 from warlock.studio.modes.packwright.ui.panes import bridge as packwright_bridge
 from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 from warlock.studio.modes.plotter.ui.panes import menu as plotter_menu
 from warlock.studio.modes.troupe.ui.panes import bridge as troupe_bridge
 from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
-from warlock.studio.panes import inspector, library, sheet_panel, sprite_panel
+from warlock.studio.panes import inspector, sheet_panel, sprite_panel
 
 # --- property labels --------------------------------------------------------
 

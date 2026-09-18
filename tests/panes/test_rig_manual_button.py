@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio.panes import library, pose_panel, stage_rig
+from warlock.studio.modes.library.ui.panes import library
+from warlock.studio.panes import pose_panel, stage_rig
 
 
 def test_pose_panel_offers_a_manual_rig_button_gated_on_being_unrigged():

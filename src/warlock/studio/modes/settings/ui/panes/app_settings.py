@@ -1167,8 +1167,8 @@ def _storage(ctx: Any) -> None:
     *confirms* stay in ``library.py`` -- the wording of a destructive question
     is the feature, and it is asserted where it lives.
     """
-    from .....panes import library
     from .....state import format_bytes
+    from ....library.ui.panes import library
 
     # No heading: the lit segment says "Storage". Maintenance below keeps
     # its own, because it is a second group inside this one category.

@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.panes import library
+from warlock.studio.modes.library.ui.panes import library
 
 
 class _Viewer:

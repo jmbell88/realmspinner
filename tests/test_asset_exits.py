@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from warlock.studio import asset_exits, modes, verbs
-from warlock.studio.panes import inspector, library
+from warlock.studio.modes.library.ui.panes import library
+from warlock.studio.panes import inspector
 from warlock.studio.state import AppState
 
 

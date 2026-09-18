@@ -639,8 +639,9 @@ class FrameMixin:
         from .. import menus, modes, rail
         from .. import tokens as tokens_mod
         from ..main import _SINGLE_PANE_MODES
+        from ..modes.library.ui.panes import library
         from ..modes.settings.ui.panes import app_settings
-        from ..panes import bottom_pane, inspector, landing, library
+        from ..panes import bottom_pane, inspector, landing
 
         ctx = self.app_ctx
         # The rail first of all, because the sidebars are fitted against what
@@ -848,7 +849,7 @@ class FrameMixin:
                         # the same cards' actions and the same inspector, arranged for
                         # a window rather than for a 300 px sidebar. The library itself
                         # is still one implementation -- this module composes it.
-                        from ..panes import library_full
+                        from ..modes.library.ui.panes import full as library_full
 
                         library_full.draw(ctx)
                     elif mode == "clay":

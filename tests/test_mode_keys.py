@@ -557,8 +557,8 @@ def test_a_workspace_mode_never_falls_through_to_the_shared_block(mode, monkeypa
         lambda ctx, event: False,
     )
     for target, name in (
-        ("warlock.studio.panes.library.delete_asset", "delete_asset"),
-        ("warlock.studio.panes.library.select_relative", "select_relative"),
+        ("warlock.studio.modes.library.ui.panes.library.delete_asset", "delete_asset"),
+        ("warlock.studio.modes.library.ui.panes.library.select_relative", "select_relative"),
         ("warlock.studio.modes.create.ui.panes.settings_2d.generate", "generate"),
         ("warlock.studio.modes.create.ui.panes.settings_3d.promote", "promote"),
     ):

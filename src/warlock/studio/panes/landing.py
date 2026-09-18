@@ -994,7 +994,7 @@ def _start(ctx: Any) -> None:
     # alone, which refuses a rigged one because it has no skinning.
     imgui.same_line()
     if widgets.ghost_button(f"{icons.FOLDER_OPEN} Import mesh..."):
-        from . import library
+        from ..modes.library.ui.panes import library
 
         library.pick_and_import_mesh(ctx)
     imgui.dummy((0, sp(tokens.SP_2)))

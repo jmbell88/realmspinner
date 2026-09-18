@@ -350,7 +350,7 @@ def test_the_manual_overlay_owns_the_keyboard_except_for_the_exempt_keys():
     """
     import pygame
 
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     app = _shell()
     state = app.app_ctx.state
@@ -394,7 +394,7 @@ def test_delete_is_bound_in_library_mode_as_well_as_the_create_sidebar():
     """The shortcuts sheet advertised it in both and only one had it."""
     import pygame
 
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     app = _shell("library")
     app.app_ctx.state.selected = "job-1"
@@ -633,7 +633,7 @@ def test_the_tray_and_the_shell_agree_about_whether_there_is_a_tray():
 def test_deleting_several_losers_is_one_toast_and_one_undo():
     """Choosing between eight attempts finished with seven stacked toasts and
     no way to put them all back at once."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.state import AppState
 
     toasts: list[tuple] = []
@@ -678,7 +678,7 @@ def test_the_export_rail_segment_does_not_import_imgui_to_answer():
 
 def test_the_two_public_names_the_tray_and_the_footer_share():
     from warlock.studio.modes.create.ui import workspace as gw
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     assert callable(gw.queue_position)
     assert callable(library.copy_settings)

@@ -35,7 +35,7 @@ import pytest
 
 from warlock.kernels.mesh.elements import OpError
 from warlock.service.errors import Invalid
-from warlock.studio.panes import library
+from warlock.studio.modes.library.ui.panes import library
 
 # --- the refusal reaches the user -------------------------------------------
 

@@ -18,7 +18,8 @@ import pytest
 from warlock.service import jobs as svc_jobs
 from warlock.service.errors import Conflict
 from warlock.studio import jobs_cache as cache_mod
-from warlock.studio.panes import library, library_full
+from warlock.studio.modes.library.ui.panes import full as library_full
+from warlock.studio.modes.library.ui.panes import library
 from warlock.studio.state import SORTS, Filters, parse_query
 
 

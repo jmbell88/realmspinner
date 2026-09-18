@@ -426,7 +426,7 @@ def test_the_library_footer_reservation_only_grows_within_one_regime(frames, mon
     larger value and stays there, rather than tracking the smaller one back
     down and feeding the loop again.
     """
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     monkeypatch.setattr(library, "_footer_px", [36.0])
     monkeypatch.setattr(library, "_footer_regime", [None])

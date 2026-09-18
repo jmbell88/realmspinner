@@ -14,7 +14,8 @@ from typing import Any
 import pytest
 
 from warlock.studio import state as state_mod
-from warlock.studio.panes import inspector, library
+from warlock.studio.modes.library.ui.panes import library
+from warlock.studio.panes import inspector
 from warlock.studio.shell import events as events_mod
 from warlock.studio.state import AppState
 

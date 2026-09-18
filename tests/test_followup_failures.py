@@ -11,7 +11,8 @@ from warlock.config import Config
 from warlock.db import JobStore
 from warlock.queue import Worker
 from warlock.service.validation import DERIVED_PARAMS
-from warlock.studio.panes import inspector, library
+from warlock.studio.modes.library.ui.panes import library
+from warlock.studio.panes import inspector
 
 
 def test_persist_keeps_parent_params_and_each_followup(tmp_path):

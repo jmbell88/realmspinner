@@ -356,7 +356,7 @@ def test_the_3d_pane_builds_with_and_without_rigging(app_ctx, imgui_ctx):
 
 
 def test_the_library_builds_empty_and_populated(app_ctx, imgui_ctx):
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     _frame(imgui_ctx, lambda: library.draw(app_ctx))
     job_id = _seeded(app_ctx)
@@ -368,7 +368,7 @@ def test_the_library_builds_empty_and_populated(app_ctx, imgui_ctx):
 def test_the_library_offers_a_way_to_the_failed_jobs(app_ctx, imgui_ctx):
     """A failed job says why it failed in the inspector and nowhere else, so
     the only route to the reason was to already know which card to click."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     job_id = _seeded(app_ctx)
     app_ctx.svc.store.set_status(job_id, "error", error="it broke")
@@ -386,7 +386,7 @@ def test_the_failure_affordance_is_absent_once_the_filter_is_already_on_errors()
     raises if the count is ever computed, which is what proves the guard runs
     before the work rather than merely before the button.
     """
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     class Detonating:
         @property
@@ -412,7 +412,7 @@ def test_the_library_filter_row_fits_the_sidebar(app_ctx, imgui_ctx):
     """
     imgui, _renderer = imgui_ctx
     from warlock.studio import layout as layout_mod
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.tokens import sp
 
     measured: list[float] = []
@@ -435,7 +435,7 @@ def test_a_library_cards_action_row_stays_inside_the_card(app_ctx, imgui_ctx):
     favourite star off the edge of the card, where it could not be clicked."""
     imgui, _renderer = imgui_ctx
     from warlock.studio import layout as layout_mod
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.tokens import sp
 
     app_ctx.rigging_available = True
@@ -562,11 +562,11 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     from warlock.studio.modes.inker.ui.panes import menu as inker_menu
     from warlock.studio.modes.inker.ui.panes import picker as inker_picker
     from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.modes.settings.ui.panes import app_settings
     from warlock.studio.panes import (
         candidates_panel,
         inspector,
-        library,
         pose_panel,
         retarget_panel,
         sheet_panel,
@@ -995,7 +995,8 @@ def test_the_whole_frame_builds_at_once(app_ctx, imgui_ctx):
     """
     from warlock.studio import layout as layout_mod
     from warlock.studio.modes.create.ui.panes import settings_2d
-    from warlock.studio.panes import inspector, library, overlay
+    from warlock.studio.modes.library.ui.panes import library
+    from warlock.studio.panes import inspector, overlay
     from warlock.studio.shell import frame as frame_mod
 
     _seeded(app_ctx)
@@ -1142,7 +1143,7 @@ def test_the_landing_screen_builds_with_unsaved_work_to_offer(app_ctx, imgui_ctx
 def test_the_library_builds_as_its_own_mode(app_ctx, imgui_ctx):
     """It was a sub-view of Home behind an enum; it is a single-pane mode now,
     drawn by the same call Home used to make."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     _seeded(app_ctx)
     app_ctx.state.mode = "library"
@@ -1725,8 +1726,8 @@ def test_the_bulk_deletes_left_the_library_footer_for_settings(app_ctx, imgui_ct
     """
     import inspect
 
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.modes.settings.ui.panes import app_settings
-    from warlock.studio.panes import library
 
     footer = inspect.getsource(library._storage)
     assert "ask_prune" not in footer and "ask_clean" not in footer
@@ -3201,7 +3202,7 @@ def test_the_bulk_bar_says_how_much_of_the_selection_is_off_screen(app_ctx, imgu
     defensible is the destructive path describing a smaller act than it
     performs, so the count and the confirm both name what is no longer shown."""
     imgui, _renderer = imgui_ctx
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     kept = _seeded(app_ctx)
     gone = _seeded(app_ctx)
@@ -3405,7 +3406,7 @@ def test_no_two_of_a_panes_icon_buttons_are_drawn_on_top_of_each_other(app_ctx, 
     from warlock.studio import layout as layout_mod
     from warlock.studio import widgets as widgets_mod
     from warlock.studio.manual import render as manual_render
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.tokens import sp
 
     _seeded(app_ctx)
@@ -3599,7 +3600,7 @@ def test_a_library_card_says_which_kind_of_asset_it_is(app_ctx, imgui_ctx, stage
     from warlock.studio import layout as layout_mod
     from warlock.studio import theme
     from warlock.studio import widgets as widgets_mod
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.tokens import sp
 
     # rig/sheet rows are follow-up jobs, minted with no ``stage=``, so they
@@ -3707,7 +3708,7 @@ def _overflow_labels(app_ctx, imgui_ctx) -> list[str]:
     """
     imgui, _renderer = imgui_ctx
     from warlock.studio import layout as layout_mod
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.tokens import sp
 
     labels: list[str] = []
@@ -3819,7 +3820,7 @@ def test_the_palette_rows_put_the_commands_above_the_assets(app_ctx):
 def test_arrow_keys_walk_the_library_and_ask_it_to_scroll(app_ctx):
     """I79. The list walked is the one on screen -- filtered and sorted -- so
     Down always goes to the card below."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     first = _seeded(app_ctx)
     second = _seeded(app_ctx)
@@ -3839,7 +3840,7 @@ def test_arrow_keys_walk_the_library_and_ask_it_to_scroll(app_ctx):
 
 
 def test_arrow_keys_with_nothing_selected_enter_from_the_near_end(app_ctx):
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     _seeded(app_ctx)
     _seeded(app_ctx)
@@ -3856,7 +3857,7 @@ def test_the_full_window_library_builds_in_every_column_arrangement(app_ctx, img
     """The UI redesign, wave 4.4. Four states, because the middle column's width is
     a function of whether the inspector is there and the grid is a function of
     which pile it is drawing."""
-    from warlock.studio.panes import library_full
+    from warlock.studio.modes.library.ui.panes import full as library_full
 
     # Empty: the grid reuses the library's own empty state.
     app_ctx.state.select(None)
@@ -3888,7 +3889,8 @@ def test_the_grid_publishes_its_column_count_for_the_keyboard(app_ctx, imgui_ctx
     been laid out -- so the grid says how wide it was and the keyboard reads it
     back. A pane that has never drawn answers one, not zero: zero would make
     both keys do nothing at all."""
-    from warlock.studio.panes import library, library_full
+    from warlock.studio.modes.library.ui.panes import full as library_full
+    from warlock.studio.modes.library.ui.panes import library
 
     app_ctx.state.preview.pop(library.COLUMNS_SLOT, None)
     assert library.columns(app_ctx) == 1
@@ -3913,7 +3915,7 @@ def test_the_grid_publishes_its_column_count_for_the_keyboard(app_ctx, imgui_ctx
 def test_only_a_finished_reference_can_be_dragged(app_ctx):
     """A card that lifts and a slot that refuses it is worse than a card that
     does not lift -- so the predicate is stated once and both use it."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     assert library.can_drag({"stage": "reference", "status": "done"})
     assert not library.can_drag({"stage": "reference", "status": "running"})
@@ -3964,7 +3966,7 @@ def test_the_placeholder_builds_in_every_mode(app_ctx, imgui_ctx):
 
 
 def test_a_card_with_no_thumbnail_builds_its_placeholder(app_ctx, imgui_ctx):
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     job_id = _seeded(app_ctx)
     # No thumb.png was written, so every card takes the placeholder path.
@@ -3978,7 +3980,7 @@ def test_the_library_builds_in_every_view_and_density(app_ctx, imgui_ctx):
     """J85/J89/J91. The trash view, the compact rows and the date headings are
     all branches nothing else builds."""
     from warlock.service import jobs as svc_jobs
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.state import SORTS
 
     job_id = _seeded(app_ctx)
@@ -4008,7 +4010,7 @@ def test_the_library_builds_in_every_view_and_density(app_ctx, imgui_ctx):
 
 def test_the_prune_confirm_builds_its_keep_count(app_ctx, imgui_ctx):
     """O116: a confirm with a widget in it, which nothing else exercises."""
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     library.ask_prune(app_ctx)
     assert app_ctx.confirms.pending is not None
@@ -4045,8 +4047,9 @@ def test_the_whole_frame_builds_under_every_palette(app_ctx, imgui_ctx, palette)
     *switch into*.
     """
     from warlock.studio import theme, tokens
+    from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.modes.settings.ui.panes import app_settings
-    from warlock.studio.panes import inspector, landing, library
+    from warlock.studio.panes import inspector, landing
 
     imgui, _renderer = imgui_ctx
     _seeded(app_ctx)
@@ -5052,7 +5055,7 @@ def _rows():
     """``(label, items, dispatcher)`` for every row wave 4.2 rewrote."""
     from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
     from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     return [
         ("inker-transform", _transform_items(), inker_canvas._transform_action),

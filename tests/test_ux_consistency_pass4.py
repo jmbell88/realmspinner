@@ -389,7 +389,7 @@ def test_plotter_tileset_probability_fields_are_each_labelled():
 
 
 def test_library_prune_dialog_keeps_the_newest_field_labelled():
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     source = Path(library.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label("Keep the newest")' in source

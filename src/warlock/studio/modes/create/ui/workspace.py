@@ -457,7 +457,7 @@ def _make_3d(ctx: Any, job: dict[str, Any]) -> None:
 
 def _vary(ctx: Any, job: dict[str, Any]) -> None:
     """Copy a result's recorded brief back to the live form for a controlled edit."""
-    from ....panes import library
+    from ...library.ui.panes import library
     from . import stages as create_stages
 
     library.copy_settings(ctx, job)

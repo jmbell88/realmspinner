@@ -927,7 +927,7 @@ def test_every_action_the_ladder_returns_is_one_the_library_can_run():
     feature is broken rather than missing."""
     import inspect
 
-    from warlock.studio.panes import library
+    from warlock.studio.modes.library.ui.panes import library
 
     source = inspect.getsource(library.run_action)
     for action in sorted(_primary_action_returns()):
