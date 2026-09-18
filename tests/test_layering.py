@@ -508,7 +508,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.shell.app", "warlock.studio.packwright_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.plotter_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.poser_viewport"),
-    ("warlock.studio.shell.app", "warlock.studio.review_panes"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.review.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.sirens_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.troupe_workspace"),
     ("warlock.studio.shell.frame", "warlock.studio.modes.create.ui.brief"),
@@ -615,8 +615,8 @@ _P10_MUSE_FOLDS_INTO_CREATE: frozenset[tuple[str, str]] = frozenset({
 # into both Review and Create today are exactly the seam P9-P12 close.
 _P11_P12_LIBRARY_ABSORBS: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.panes.candidates_panel", "warlock.studio.panes.library"),
-    ("warlock.studio.panes.candidates_panel", "warlock.studio.review_mode"),
-    ("warlock.studio.panes.library", "warlock.studio.review_mode"),
+    ("warlock.studio.panes.candidates_panel", "warlock.studio.modes.review.mode"),
+    ("warlock.studio.panes.library", "warlock.studio.modes.review.mode"),
 })
 
 # Not owned by any phase as dev/RESTRUCTURE.md is written today -- real,

@@ -128,7 +128,7 @@ def test_the_lora_import_form_does_not_claim_to_be_importing_before_add_style_is
 def test_launch_sweep_button_greys_with_a_reason_while_a_scan_or_submit_is_in_flight():
     """shell-07: "Launch sweep" used to grey during a scan or a submit with
     no ``reason=`` at all, unlike Rescan and Remove on the same pane."""
-    from warlock.studio.review_panes import _launch_sweep_reason
+    from warlock.studio.modes.review.ui.workspace import _launch_sweep_reason
 
     assert _launch_sweep_reason(3, submitting=False, scanning=True) != ""
     assert _launch_sweep_reason(3, submitting=True, scanning=False) != ""

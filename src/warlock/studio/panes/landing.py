@@ -439,7 +439,7 @@ def visible_home_rows(rows: list[Status]) -> list[Status]:
 
 
 def _count_unreviewed(svc: Any) -> int:
-    from ..review_mode import SOURCE
+    from ..modes.review.mode import SOURCE
 
     return len(svc.store.unverdicted_models(source=SOURCE, limit=UNREVIEWED_LIMIT))
 

@@ -506,7 +506,7 @@ def test_the_confirm_modal_binds_enter_and_escape_and_focuses_confirm():
 _WORKSPACE_ARMS = {
     "clay": "modes.clay.mode",
     "poser": "poser_mode",
-    "review": "review_mode",
+    "review": "modes.review.mode",
     "inker": "modes.inker.mode",
     "plotter": "plotter_mode",
     "packwright": "packwright_mode",

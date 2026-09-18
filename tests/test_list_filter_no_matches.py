@@ -27,7 +27,7 @@ FILTERED = (
     # Review's sweep list. In ``review_panes`` rather than ``main`` since
     # 2026-09-04, when Review's pane drawing moved out of the shell as a mixin
     # (T7 of the 2026-09-02 review).
-    "review_panes.py",
+    "modes/review/ui/workspace.py",
     "modes/clay/ui/panes/outliner.py",
     # Mason's outliner, the second scene tree. Filtered for Clay's reason and
     # then some: a dressed scene is tens of props where a Clay document is a

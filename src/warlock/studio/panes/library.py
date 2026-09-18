@@ -33,13 +33,13 @@ from .. import (
     icons,
     jobs_cache,
     motion,
-    review_mode,
     theme,
     tokens,
     toolbar,
     widgets,
 )
 from ..manual import render as manual_render
+from ..modes.review import mode as review_mode
 from ..state import ACTIONS, QUERY_FIELDS, SORTS, card_kind, parse_query, primary_action
 from ..tokens import sp
 from . import thumbs

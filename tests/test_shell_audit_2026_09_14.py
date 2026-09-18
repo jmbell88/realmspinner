@@ -23,7 +23,8 @@ from test_review_mode import FakeCtx, _mesh, _scanned  # noqa: F401 -- see shell
 
 from warlock.core.safeio import zipguard
 from warlock.service import export as svc_export
-from warlock.studio import dialogs, review_mode, status_bar
+from warlock.studio import dialogs, status_bar
+from warlock.studio.modes.review import mode as review_mode
 from warlock.studio.panes import inspector, library
 
 # --- shell-01: Enter always cancelled a Confirm, even mid-edit --------------

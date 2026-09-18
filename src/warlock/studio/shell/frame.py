@@ -568,7 +568,7 @@ class FrameMixin:
     # -- frame steps that are drawing, not landing --------------------------
 
     def _refresh(self) -> None:
-        from .. import review_mode
+        from ..modes.review import mode as review_mode
 
         ctx = self.app_ctx
 
@@ -717,7 +717,7 @@ class FrameMixin:
             # would ask. Driven off the change and not off "the list is empty",
             # which would submit a walk of the bench directory every frame on a
             # machine that has never run a sweep.
-            from .. import review_mode
+            from ..modes.review import mode as review_mode
 
             review_mode.scan(ctx)
         if ctx.state.mode != self._last_mode and ctx.state.mode == "poser":

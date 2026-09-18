@@ -45,8 +45,9 @@ from imgui_bundle import imgui
 
 from ...service import jobs as svc_jobs
 from .. import candidates as candidates_mod
-from .. import controls, dialogs, review_mode, widgets
+from .. import controls, dialogs, widgets
 from ..manual import render as manual_render
+from ..modes.review import mode as review_mode
 from ..tokens import sp
 from . import library
 

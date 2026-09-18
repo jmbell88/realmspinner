@@ -50,7 +50,7 @@ def test_the_review_line_reports_the_reading_that_exists():
     """``mesh_audit`` has no ``verdict`` key -- the worker stores worst, mean,
     faces and resolution -- so the branch that read one was dead from the day
     it was typed, exactly as ``report["verdict"]`` was in the badge."""
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     lines = review_mode.mesh_lines({"params": {"mesh_audit": {"worst": 0.0304, "mean": 0.01}}})
     assert any("3.0%" in line for line in lines)

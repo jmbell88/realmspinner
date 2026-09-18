@@ -206,8 +206,9 @@ def _main_source() -> str:
     shell's entry module is not silently invisible to this scan.
     """
     from warlock.studio import main as main_mod
-    from warlock.studio import packwright_workspace, review_panes, troupe_workspace
+    from warlock.studio import packwright_workspace, troupe_workspace
     from warlock.studio.modes.inker.ui import workspace as inker_workspace
+    from warlock.studio.modes.review.ui import workspace as review_panes
     from warlock.studio.shell import frame
 
     sources = [

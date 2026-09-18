@@ -14,7 +14,9 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import probe, review_mode, review_panes
+from warlock.studio import probe
+from warlock.studio.modes.review import mode as review_mode
+from warlock.studio.modes.review.ui import workspace as review_panes
 
 
 @pytest.fixture

@@ -571,7 +571,7 @@ class EventsMixin:
             poser_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "review":
-            from .. import review_mode
+            from ..modes.review import mode as review_mode
 
             # Unconditional for the reason Clay's and Inker's are: handle_key
             # returns False with no sweep run open, and letting that fall

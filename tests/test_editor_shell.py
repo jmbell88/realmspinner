@@ -519,7 +519,7 @@ def test_quit_summary_names_a_sweep_launch_or_delete_in_flight():
     gave no warning at all, unlike the three lines beside it.
     """
     from warlock.studio import main as main_mod
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     app = main_mod.App.__new__(main_mod.App)
     app.runtime = SimpleNamespace(current_job_id=None)

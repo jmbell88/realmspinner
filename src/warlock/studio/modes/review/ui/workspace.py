@@ -24,7 +24,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from . import tokens
+from .... import tokens
 
 log = logging.getLogger(__name__)
 
@@ -134,9 +134,9 @@ class ReviewPanes:
         """
         from imgui_bundle import imgui
 
-        from . import layout as layout_mod
-        from . import review_mode
-        from .shell.frame import _column_boundary, _split_column
+        from .... import layout as layout_mod
+        from ....shell.frame import _column_boundary, _split_column
+        from .. import mode as review_mode
 
         ctx = self.app_ctx
         state = review_mode.ensure(ctx)
@@ -212,9 +212,9 @@ class ReviewPanes:
         """
         from imgui_bundle import imgui
 
-        from . import icons, theme, widgets
-        from .main import _LABEL_QUESTIONS, _LABEL_TITLES
-        from .tokens import sp
+        from .... import icons, theme, widgets
+        from ....main import _LABEL_QUESTIONS, _LABEL_TITLES
+        from ....tokens import sp
 
         labels = state.labels
         widgets.section(_LABEL_TITLES.get(labels.stage, labels.stage))
@@ -262,7 +262,7 @@ class ReviewPanes:
         """What is being labelled, and what the probe knows so far."""
         from imgui_bundle import imgui
 
-        from . import controls, widgets
+        from .... import controls, widgets
 
         labels = state.labels
         row = review_mode.current_label(state)
@@ -329,9 +329,9 @@ class ReviewPanes:
         """The sweep list, and the form that launches a new one."""
         from imgui_bundle import imgui
 
-        from . import controls, icons, widgets
-        from .main import _LABEL_TITLES
-        from .manual import render as manual_render
+        from .... import controls, icons, widgets
+        from ....main import _LABEL_TITLES
+        from ....manual import render as manual_render
 
         self._review_judging_card(ctx, state, review_mode)
         widgets.section("Sweeps")
@@ -435,7 +435,7 @@ class ReviewPanes:
         """
         from imgui_bundle import imgui
 
-        from . import widgets
+        from .... import widgets
 
         if state.judging_report is not None:
             self._review_judging_report(ctx, state, review_mode)
@@ -473,7 +473,7 @@ class ReviewPanes:
         """
         from imgui_bundle import imgui
 
-        from . import controls, widgets
+        from .... import controls, widgets
 
         report = state.judging_report
         widgets.section("Judging pass")
@@ -514,7 +514,7 @@ class ReviewPanes:
         existed; they were kept, and the pixels three blocked items needed were
         not. So this says which promise is being broken, ``ask_clean``'s rule.
         """
-        from . import controls, widgets
+        from .... import controls, widgets
 
         if not retained:
             return None
@@ -544,7 +544,7 @@ class ReviewPanes:
         reached from exactly one place and the lifecycle paths that actually
         take a sweep's units never look at the ``sweeps`` table.
         """
-        from . import dialogs, icons, widgets
+        from .... import dialogs, icons, widgets
 
         ids = review_mode.removable_ids(state)
         if not ids:
@@ -598,7 +598,7 @@ class ReviewPanes:
         """
         from imgui_bundle import imgui
 
-        from . import dialogs, icons, widgets
+        from .... import dialogs, icons, widgets
 
         sweep_id = sweep["id"]
         units = len(sweep.get("units") or ())
@@ -634,8 +634,8 @@ class ReviewPanes:
         seeds, and the axes to vary."""
         from imgui_bundle import imgui
 
-        from ..service import sweeps as sweeps_mod
-        from . import controls, widgets
+        from .....service import sweeps as sweeps_mod
+        from .... import controls, widgets
 
         # The label table for every guidance field, which is where a param's
         # human name already lives. Resolved here rather than in ``review_mode``
@@ -644,7 +644,7 @@ class ReviewPanes:
         # though it draws nothing -- a lazy import keeps this edge off the
         # module-scope graph ``tests/test_layering.py`` walks, the same way
         # it always has.
-        from .modes.create.engine import recipe as create_recipe
+        from ...create.engine import recipe as create_recipe
 
         if not widgets.header("New sweep", default_open=False):
             return
@@ -715,7 +715,7 @@ class ReviewPanes:
         always been, which is why an unknown param is less discoverable rather
         than broken.
         """
-        from . import controls, widgets
+        from .... import controls, widgets
 
         kind = (spec or {}).get("kind", "text")
         if spec and spec.get("help"):
@@ -749,7 +749,7 @@ class ReviewPanes:
         )
 
     def _review_units(self, state: Any, review_mode: Any) -> None:
-        from . import controls, icons, widgets
+        from .... import controls, icons, widgets
 
         widgets.section("Units")
         if not state.units:
@@ -783,8 +783,8 @@ class ReviewPanes:
         """
         from imgui_bundle import imgui
 
-        from ..vectors import BINARY_GRADES
-        from . import controls, widgets
+        from .....vectors import BINARY_GRADES
+        from .... import controls, widgets
 
         reason = "A scan is running; the queue is being rebuilt."
         if widgets.disabled_button("Accept (A)", enabled, reason=reason):
@@ -815,8 +815,8 @@ class ReviewPanes:
         """
         from imgui_bundle import imgui
 
-        from . import widgets
-        from .panes import overlay
+        from .... import widgets
+        from ....panes import overlay
 
         ctx = self.app_ctx
         if ctx.state.comparing:
@@ -868,7 +868,7 @@ class ReviewPanes:
         a frozen frame per arrow press through a pass -- and a judging pass is
         forty arrow presses. ``_adopt_review_model`` is the other half.
         """
-        from .main import REVIEW_MESH_KEY
+        from ....main import REVIEW_MESH_KEY
 
         wanted = None if unit is None else review_mode.model_path(unit)
         if self.viewer.path == wanted or self.viewer.pending == wanted:
@@ -907,7 +907,7 @@ class ReviewPanes:
     def _review_verdict(self, ctx: Any, state: Any, review_mode: Any) -> None:
         from imgui_bundle import imgui
 
-        from . import forms, widgets
+        from .... import forms, widgets
 
         unit = review_mode.current(state)
         if unit is None:
@@ -956,7 +956,7 @@ class ReviewPanes:
             # away came back and pressed 4 expecting +4. Warn-coloured because
             # the consequence of not noticing is the opposite verdict, and it
             # says how to drop it -- Esc, which ``_disarm`` already answers.
-            from . import theme
+            from .... import theme
 
             widgets.text_colored(
                 theme.WARN, "Negative armed: the next digit files a minus. Esc drops it."
@@ -1032,9 +1032,10 @@ class ReviewPanes:
         """
         from imgui_bundle import imgui
 
-        from ..bench import findings as findings_lib
-        from ..service import findings as svc_findings
-        from . import controls, review_mode, widgets
+        from .....bench import findings as findings_lib
+        from .....service import findings as svc_findings
+        from .... import controls, widgets
+        from .. import mode as review_mode
 
         imgui.separator()
         if not widgets.header("What works", default_open=False):
@@ -1148,7 +1149,7 @@ def open_examples(ctx: Any, job_ids: list[str]) -> None:
     reaching here would only be a stale click racing a re-render, not a
     situation worth a toast about.
     """
-    from .state import set_mode
+    from ....state import set_mode
 
     ids = [job_id for job_id in job_ids if job_id]
     if not ids:

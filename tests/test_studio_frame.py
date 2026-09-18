@@ -143,8 +143,9 @@ def test_a_finished_job_asks_for_storage_off_the_frame_thread(svc):
 def test_a_finished_mesh_recomputes_the_findings_without_any_verdict(svc):
     """The regression: observations were recorded on every generation and
     reached the file only when somebody next filed a verdict."""
-    from warlock.studio import main, review_mode
+    from warlock.studio import main
     from warlock.studio.jobs_cache import JobsCache
+    from warlock.studio.modes.review import mode as review_mode
 
     cache = JobsCache(svc)
     app = _fake_app(svc, cache)
@@ -159,8 +160,9 @@ def test_a_finished_mesh_recomputes_the_findings_without_any_verdict(svc):
 def test_a_finished_reference_recomputes_nothing(svc):
     """``_observe_finished`` writes no row for a reference, so there is nothing
     new to aggregate -- the condition is mirrored rather than approximated."""
-    from warlock.studio import main, review_mode
+    from warlock.studio import main
     from warlock.studio.jobs_cache import JobsCache
+    from warlock.studio.modes.review import mode as review_mode
 
     cache = JobsCache(svc)
     app = _fake_app(svc, cache)
@@ -175,8 +177,9 @@ def test_a_refused_recompute_is_retried_on_the_next_frame(svc):
     """The re-arm. ``submit`` refuses a key already in flight and nothing used
     to reschedule, so the last unit of a sweep -- with no verdict after it to
     pick anything up -- left the file behind for good."""
-    from warlock.studio import main, review_mode
+    from warlock.studio import main
     from warlock.studio.jobs_cache import JobsCache
+    from warlock.studio.modes.review import mode as review_mode
 
     cache = JobsCache(svc)
     app = _fake_app(svc, cache, accept_submits=False)
@@ -198,7 +201,7 @@ def test_requesting_a_recompute_does_no_work_on_the_frame_thread(svc):
     every verdict in the store."""
     from types import SimpleNamespace
 
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
     from warlock.studio.state import AppState
 
     ctx = SimpleNamespace(state=AppState())

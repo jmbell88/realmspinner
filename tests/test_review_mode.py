@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 
 from warlock.service import verdicts as svc_verdicts
-from warlock.studio import review_mode
+from warlock.studio.modes.review import mode as review_mode
 from warlock.studio.state import AppState
 
 # --- the harness -------------------------------------------------------------
@@ -1347,7 +1347,7 @@ def test_review_sweep_list_hides_axis_and_values_under_blinding():
     ``review_mode.score_line`` already withholds the judge's opinion the same
     way; ``review_panes._review_sweep_summary`` is that rule for this line.
     """
-    from warlock.studio import review_panes
+    from warlock.studio.modes.review.ui import workspace as review_panes
 
     spec = {
         "axes": [{"param": "trellis_gss", "values": [1.0, 1.5]}],
@@ -1376,7 +1376,7 @@ def test_single_sweep_delete_confirm_uses_the_blinded_label():
     open. Covers both message branches (``units`` present and the already-gone
     "0 job(s)" case), since both interpolated the raw label.
     """
-    from warlock.studio import review_panes
+    from warlock.studio.modes.review.ui import workspace as review_panes
 
     sweep = {"id": "abcdef0123456789", "label": "lora sweep", "units": [1, 2, 3]}
     state = review_mode.ReviewState()
@@ -1463,7 +1463,7 @@ def test_review_runs_and_delete_button_route_through_the_blind_helpers():
     own source and checks the wiring, the way ``test_review_mode_imports_no_imgui``
     above reads ``review_mode``'s.
     """
-    from warlock.studio import review_panes
+    from warlock.studio.modes.review.ui import workspace as review_panes
 
     source = Path(review_panes.__file__).read_text("utf-8")
     assert _blind_routing_violations(source) == []

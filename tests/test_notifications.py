@@ -290,7 +290,7 @@ def test_the_six_lists_that_lacked_an_empty_state_have_one():
         # not on anything about a sweep. That call moved to ``shell/frame.py``
         # with the rest of ``_stage_pane``, which is what surfaced the stale
         # name here.
-        "review_panes.py",
+        "modes/review/ui/workspace.py",
     ):
         assert "empty_state(" in (root / relative).read_text(encoding="utf-8"), relative
 

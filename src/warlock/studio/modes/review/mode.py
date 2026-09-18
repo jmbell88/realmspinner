@@ -93,10 +93,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import vectors
-from ..service import verdicts as verdicts_mod
-from . import quality
-from .formvalues import coerce_form_value
+from .... import vectors
+from ....service import verdicts as verdicts_mod
+from ... import quality
+from ...formvalues import coerce_form_value
 
 log = logging.getLogger(__name__)
 
@@ -355,8 +355,8 @@ def _collect(svc: Any) -> list[dict[str, Any]]:
     Task thread only: several DB reads behind one serialized connection, and
     the frame loop must never queue behind them.
     """
-    from ..service import jobs as jobs_mod
-    from ..service import sweeps as sweeps_mod
+    from ....service import jobs as jobs_mod
+    from ....service import sweeps as sweeps_mod
 
     out: list[dict[str, Any]] = []
 
@@ -437,7 +437,7 @@ def delete(ctx: Any, sweep_id: str, *, drop_retained: bool = False) -> bool:
     stays "Deleted" for a hand-pressed trash and "Cleaned up" stays the
     automatic path's word.
     """
-    from ..service import sweeps as sweeps_mod
+    from ....service import sweeps as sweeps_mod
 
     if sweep_id == RECENT_ID:
         return False
@@ -504,7 +504,7 @@ def remove_reviewed(
     ctx: Any, sweep_ids: Any, *, drop_retained: bool = False
 ) -> bool:
     """Remove every named sweep, off the frame thread."""
-    from ..service import sweeps as sweeps_mod
+    from ....service import sweeps as sweeps_mod
 
     ids = [str(sweep_id) for sweep_id in sweep_ids if sweep_id != RECENT_ID]
     if not ids:
@@ -544,7 +544,7 @@ def pump_findings(ctx: Any) -> None:
     recompute reads the DB when it starts, one pass absorbs however many
     requests piled up behind it.
     """
-    from ..service import findings as findings_mod
+    from ....service import findings as findings_mod
 
     if not ctx.state.findings_dirty:
         return
@@ -573,7 +573,7 @@ def pump_scores(ctx: Any) -> None:
     Scoring is a DINOv2 forward pass per row, so it is a task and never a frame.
     A ``blind`` session asks for nothing at all: see ``open_sweep``.
     """
-    from ..service import judge as judge_mod
+    from ....service import judge as judge_mod
 
     if not ctx.state.review_scores_dirty:
         return
@@ -981,8 +981,8 @@ def record(ctx: Any, grade: int, tags: Any = ()) -> None:
     recompute that follows *is* a task, because it reads every verdict and
     writes a file.
     """
-    from ..service.errors import ServiceError
-    from .panes import inspector
+    from ....service.errors import ServiceError
+    from ...panes import inspector
 
     state = ensure(ctx)
     unit = current(state)
@@ -1207,7 +1207,7 @@ def auto_cleanup(ctx: Any, sweep_id: str) -> bool:
     No dialog, per the user's explicit choice -- the entry card carries the
     warning up front instead, and the toast says what went and what was kept.
     """
-    from ..service import sweeps as sweeps_mod
+    from ....service import sweeps as sweeps_mod
 
     if sweep_id == RECENT_ID:
         return False
@@ -1235,8 +1235,8 @@ def _label_rows(svc: Any, stage: str) -> dict[str, Any]:
     class of work the frame loop may not do. The counts are kept current
     afterwards by arithmetic on this snapshot rather than by re-reading.
     """
-    from ..service import judge as judge_mod
-    from ..service import verdicts as verdicts_mod
+    from ....service import judge as judge_mod
+    from ....service import verdicts as verdicts_mod
 
     out: list[dict[str, Any]] = []
     for job in svc.store.unlabelled_references(stage=stage, source=SOURCE):
@@ -1303,7 +1303,7 @@ def record_label(ctx: Any, verdict: str) -> bool:
     one INSERT under the store's lock, and a keypress whose effect arrives some
     frames later reorders labels against navigation at the rate these are pressed.
     """
-    from ..service.errors import ServiceError
+    from ....service.errors import ServiceError
 
     state = ensure(ctx)
     row = current_label(state)
@@ -1353,7 +1353,7 @@ def pump_judge(ctx: Any) -> None:
     training reads the labels when it starts, one pass absorbs however many
     presses piled up behind it.
     """
-    from ..service import judge as judge_mod
+    from ....service import judge as judge_mod
 
     stage = ctx.state.judge_dirty
     if not stage:
@@ -1511,7 +1511,7 @@ def capture_base(ctx: Any) -> dict[str, Any]:
     "this, but vary that", and re-picking every setting inside a second form
     would be its own small hell.
     """
-    from .. import guidance
+    from .... import guidance
 
     state = ctx.state
     form_2d, form_3d = state.form_2d, state.form_3d
@@ -1595,7 +1595,7 @@ def _coerce(value: str) -> Any:
 
 def build_plan(state: ReviewState) -> Any:
     """The form as a ``SweepPlan``. Raises ValueError for a malformed form."""
-    from ..service.sweeps import Axis, SweepPlan
+    from ....service.sweeps import Axis, SweepPlan
 
     form = state.form
     axes = []
@@ -1634,8 +1634,8 @@ def launch(ctx: Any) -> bool:
     ``on_task_failed`` lowers the flag -- the runner has already toasted the
     failure.
     """
-    from ..service import sweeps as sweeps_mod
-    from ..service.errors import ServiceError
+    from ....service import sweeps as sweeps_mod
+    from ....service.errors import ServiceError
 
     state = ensure(ctx)
     if state.form.submitting or state.scanning:
@@ -1791,7 +1791,7 @@ def axis_options(ctx: Any) -> list[dict[str, Any]]:
     exactly today's behaviour -- so a param added to ``axis_params`` without
     being described here is *less* discoverable, never broken.
     """
-    from ..service import sweeps as sweeps_mod
+    from ....service import sweeps as sweeps_mod
 
     guidance = getattr(ctx, "guidance", None) or {}
     sweeps_extra = guidance.get("sweeps") or {}
@@ -1911,7 +1911,7 @@ def preview_line(state: ReviewState, labels: dict[str, str] | None = None) -> st
 
 def preview_units(state: ReviewState) -> int:
     """How many jobs the form would queue, or -1 if it cannot be planned yet."""
-    from ..service import sweeps as sweeps_mod
+    from ....service import sweeps as sweeps_mod
 
     try:
         return len(sweeps_mod.expand(build_plan(state)))

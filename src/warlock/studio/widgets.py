@@ -2168,7 +2168,7 @@ def grade_buttons(id_prefix: str, enabled: bool) -> int | None:
     the unit list, the inspector's toast and this row must agree about how a
     grade is written.
     """
-    from .review_mode import grade_text
+    from .modes.review.mode import grade_text
 
     clicked: int | None = None
     width = grid_width(GRADES_PER_ROW)

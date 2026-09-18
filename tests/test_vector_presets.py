@@ -7,7 +7,7 @@ helpers moved into ``studio/review_mode.py``.
 
 from __future__ import annotations
 
-from warlock.studio import review_mode
+from warlock.studio.modes.review import mode as review_mode
 from warlock.studio.state import AppState
 
 

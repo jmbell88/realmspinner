@@ -242,7 +242,7 @@ def test_manual_poser_revert_label_matches_button():
 
 
 def test_manual_review_start_from_current_settings_label():
-    review_panes = (STUDIO / "review_panes.py").read_text(encoding="utf-8")
+    review_panes = (STUDIO / "modes/review/ui/workspace.py").read_text(encoding="utf-8")
     assert '"Start from current 2D/3D settings"' in review_panes
 
     text = _chapter("38-review.md")

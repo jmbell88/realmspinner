@@ -248,7 +248,7 @@ class TasksMixin:
                         self.viewer.clear()
                         self.viewer.path = done.tag
                 elif done.key.startswith("review-"):
-                    from .. import review_mode
+                    from ..modes.review import mode as review_mode
 
                     # Same rule: ``scanning`` gates every button and key, so a
                     # failed scan that left it set would make the mode inert.
@@ -579,7 +579,7 @@ class TasksMixin:
             troupe_mode.on_task_done(ctx, done)
             return
         if key.startswith("review-"):
-            from .. import review_mode
+            from ..modes.review import mode as review_mode
 
             review_mode.on_task_done(ctx, done)
             return
@@ -801,8 +801,8 @@ class TasksMixin:
         (which lands it), so a status change is announced identically
         whichever call happens to be the one that adopted it.
         """
-        from .. import review_mode
         from ..jobs_cache import sweep_summary, transition_message
+        from ..modes.review import mode as review_mode
 
         ctx = self.app_ctx
         sweep_id = job.get("sweep_id")

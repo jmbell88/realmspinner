@@ -210,8 +210,8 @@ def test_the_engine_never_imports_a_sibling_mode():
     """
     other_mode_markers = (
         "warlock.studio.troupe_mode",
-        "warlock.studio.review_mode",
-        "warlock.studio.review_panes",
+        "warlock.studio.modes.review.mode",
+        "warlock.studio.modes.review.ui.workspace",
         "warlock.studio.modes.clay",
         "warlock.studio.modes.mason",
         "warlock.studio.mason",

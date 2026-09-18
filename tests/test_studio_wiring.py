@@ -33,7 +33,6 @@ from warlock.studio import (
     plotter_io,
     plotter_mode,
     plotter_tilesets,
-    review_mode,
     sirens_io,
     sirens_mode,
     theme,
@@ -43,6 +42,7 @@ from warlock.studio import (
 from warlock.studio import state as state_mod
 from warlock.studio.modes.clay import mode as clay_mode
 from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.review import mode as review_mode
 from warlock.studio.state import AppState, Filters
 
 
@@ -355,7 +355,7 @@ def test_the_pane_skips_a_label_through_the_public_surface():
     # ``App`` inherits Review's pane drawing from ``review_panes.ReviewPanes``
     # since 2026-09-04 (T7), and ``getsource`` on a class shows only its own
     # body -- so the call lives in the mixin now.
-    from warlock.studio import review_panes
+    from warlock.studio.modes.review.ui import workspace as review_panes
 
     assert "review_mode.advance_labels" in inspect.getsource(review_panes.ReviewPanes)
     assert issubclass(main.App, review_panes.ReviewPanes)

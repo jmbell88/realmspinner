@@ -294,7 +294,7 @@ def test_manual_ch04_and_ch37_name_the_labelling_section_teach_the_judge():
     """
     review_panes_src = (
         Path(__file__).resolve().parents[2]
-        / "src" / "warlock" / "studio" / "review_panes.py"
+        / "src" / "warlock" / "studio" / "modes/review/ui/workspace.py"
     ).read_text(encoding="utf-8")
     assert 'widgets.section("Teach the judge")' in review_panes_src, (
         "sanity: review_panes.py no longer draws a 'Teach the judge' "

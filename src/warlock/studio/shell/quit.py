@@ -94,7 +94,7 @@ class QuitMixin:
         # will be stopped" context downloads, exports and packs already give.
         # ``review-scan``/``findings``/``scores`` are read-only and left out
         # on purpose: interrupting a scan or a re-score loses nothing on disk.
-        from .. import review_mode
+        from ..modes.review import mode as review_mode
 
         if any(
             k

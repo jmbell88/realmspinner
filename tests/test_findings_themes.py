@@ -171,7 +171,7 @@ def test_home_builds_its_resume_list_once_per_job_page():
 
 
 def test_the_review_inspector_does_not_stat_the_reference_every_frame(tmp_path):
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     review_mode._REFERENCE_CACHE.clear()
     (tmp_path / "reference.png").write_bytes(b"x")
@@ -185,7 +185,7 @@ def test_the_review_inspector_does_not_stat_the_reference_every_frame(tmp_path):
 
 
 def test_a_missing_reference_is_re_asked_rather_than_remembered(tmp_path):
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     review_mode._REFERENCE_CACHE.clear()
     unit = {"dir": str(tmp_path)}
@@ -571,7 +571,8 @@ def test_the_remesh_line_is_not_a_ranking():
 
 
 def test_one_caveat_wording_in_one_headless_place():
-    from warlock.studio import quality, review_mode, widgets
+    from warlock.studio import quality, widgets
+    from warlock.studio.modes.review import mode as review_mode
 
     # No re-export: P4 of the restructure killed ``widgets.AUDIT_UNINFORMATIVE``
     # (a straight alias of ``quality.AUDIT_UNINFORMATIVE``), which is the shim
@@ -596,7 +597,7 @@ def test_every_sweep_axis_explains_itself():
     """Three of fourteen had tooltips -- the three that had just been added --
     which teaches the reader that the tooltips are decoration."""
     from warlock.service.sweeps import KWARG_AXES
-    from warlock.studio.review_mode import AXIS_HELP
+    from warlock.studio.modes.review.mode import AXIS_HELP
 
     assert set(AXIS_HELP) == set(KWARG_AXES)
     assert all(len(text) > 30 for text in AXIS_HELP.values())

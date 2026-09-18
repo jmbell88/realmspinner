@@ -2818,7 +2818,7 @@ class _ReviewApp:
 
 
 def _review_state(ctx, *, with_units=True):
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     state = review_mode.ensure(ctx)
     units = []
@@ -2864,7 +2864,7 @@ def _review_state(ctx, *, with_units=True):
 
 
 def test_the_review_panes_build_with_a_sweep_and_a_unit(app_ctx, imgui_ctx):
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -2884,7 +2884,7 @@ def test_the_review_panes_build_with_a_sweep_and_a_unit(app_ctx, imgui_ctx):
 def test_the_review_panes_build_with_a_judging_pass_running(app_ctx, imgui_ctx):
     """The entry card gives way to the in-pane controls, and the verdict panel
     grows an Accept/Reject pair above the grade row it does not replace."""
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -2903,7 +2903,7 @@ def test_the_review_panes_build_with_a_judging_pass_running(app_ctx, imgui_ctx):
 
 
 def test_the_review_panes_build_the_judging_entry_card(app_ctx, imgui_ctx):
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -2914,7 +2914,7 @@ def test_the_review_panes_build_the_judging_entry_card(app_ctx, imgui_ctx):
 
 
 def test_the_review_panes_build_the_judging_report(app_ctx, imgui_ctx):
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -2927,7 +2927,7 @@ def test_the_review_panes_build_the_judging_report(app_ctx, imgui_ctx):
 
 
 def test_the_review_panes_build_with_nothing_recorded(app_ctx, imgui_ctx):
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx, with_units=False)
@@ -2948,7 +2948,8 @@ def test_the_sweep_list_is_blinded_in_both_the_filter_and_the_row_text(app_ctx, 
     beside it exists to hide. ``bucket_label`` is the one spelling of the
     blinding rule (``review_mode.bucket_label``'s own docstring); this asserts
     the pane actually calls it rather than the dict key directly."""
-    from warlock.studio import controls, review_mode
+    from warlock.studio import controls
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -2999,7 +3000,8 @@ def test_the_verdict_headers_second_line_is_blinded_too(app_ctx, imgui_ctx):
     """L: that line used to print ``unit["job_id"]`` in full regardless of
     blinding, handing back the id the truncated ``#abcdef`` label above it was
     withholding."""
-    from warlock.studio import review_mode, widgets
+    from warlock.studio import widgets
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -3029,7 +3031,7 @@ def _label_pass(ctx, stage="blank", rows=3):
 
     from PIL import Image as _Image
 
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     state = review_mode.ensure(ctx)
     made = []
@@ -3061,7 +3063,7 @@ def _label_pass(ctx, stage="blank", rows=3):
 def test_the_labelling_grid_builds_and_uploads_one_cell_per_frame(app_ctx, imgui_ctx):
     """Three cells, three frames: ``StripRender``'s rule, and the reason the grid
     draws a placeholder for a cell whose texture has not been uploaded yet."""
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _label_pass(app_ctx)
@@ -3081,7 +3083,7 @@ def test_the_labelling_grid_builds_and_uploads_one_cell_per_frame(app_ctx, imgui
 
 
 def test_the_labelling_grid_builds_with_nothing_left_to_label(app_ctx, imgui_ctx):
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _label_pass(app_ctx, rows=0)
@@ -3096,7 +3098,7 @@ def test_the_labelling_grid_builds_with_nothing_left_to_label(app_ctx, imgui_ctx
 
 
 def test_the_labelling_grid_builds_while_the_listing_is_still_reading(app_ctx, imgui_ctx):
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _label_pass(app_ctx, rows=0)
@@ -3106,7 +3108,8 @@ def test_the_labelling_grid_builds_while_the_listing_is_still_reading(app_ctx, i
 
 
 def test_the_runs_pane_offers_both_labelling_passes(app_ctx, imgui_ctx):
-    from warlock.studio import main, review_mode
+    from warlock.studio import main
+    from warlock.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -3133,7 +3136,7 @@ def test_the_review_pane_builds_a_findings_table(app_ctx, imgui_ctx):
     frame with an empty findings.json never touches the rows."""
     import json
 
-    from warlock.studio import review_mode
+    from warlock.studio.modes.review import mode as review_mode
 
     bench = app_ctx.svc.config.bench_dir
     bench.mkdir(parents=True, exist_ok=True)

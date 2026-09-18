@@ -1398,7 +1398,7 @@ def toggle_tag(state: Any, job_id: str, tag: str) -> None:
     the "which asset is this staged against" half lives here, because that is
     the part the inspector genuinely does differently.
     """
-    from .. import review_mode
+    from ..modes.review import mode as review_mode
 
     if state.inspector_tags_job != job_id:
         state.inspector_tags_job = job_id
@@ -1421,7 +1421,7 @@ def record_verdict(ctx: Any, job_id: str, grade: int, tags: tuple[str, ...] = ()
     """
     from ...service import verdicts as svc_verdicts
     from ...service.errors import ServiceError
-    from .. import review_mode
+    from ..modes.review import mode as review_mode
 
     try:
         svc_verdicts.record_verdict(ctx.svc, job_id, grade=grade, reasons=tags)
