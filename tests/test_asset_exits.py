@@ -42,7 +42,7 @@ class FakeCtx:
         self.cache = FakeCache()
         self.state = AppState()
         self.state.mode = mode
-        self.state.create_stage = stage
+        self.state.create.stage = stage
         self.state.selected = None
 
     def job(self) -> Any:

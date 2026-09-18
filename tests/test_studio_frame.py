@@ -411,7 +411,7 @@ def _viewer_app(svc, *, mode="create", stage="mesh", job=None, accept=True):
 
     state = AppState()
     state.mode = mode
-    state.create_stage = stage
+    state.create.stage = stage
 
     class FakeApp:
         def __init__(self) -> None:
@@ -523,7 +523,7 @@ def test_the_stage_decides_which_file_the_viewport_wants(svc):
     assert app.viewer.pending == svc.job_dir(job["id"]) / "input.png"
     assert app.submitted[-1] == (main.VIEWER_KEY, app.viewer.pending)
 
-    app.app_ctx.state.create_stage = "mesh"
+    app.app_ctx.state.create.stage = "mesh"
     main.App._sync_viewer(app)
     assert app.viewer.pending == svc.job_dir(job["id"]) / "model.glb"
 

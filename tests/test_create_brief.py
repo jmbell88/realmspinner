@@ -38,7 +38,7 @@ def _body(fn) -> str:
 def _state(stage="reference", mode="create", **kw):
     return SimpleNamespace(
         mode=mode,
-        create_stage=stage,
+        create=SimpleNamespace(stage=stage),
         form_2d=default_form_2d(),
         field_errors={},
         clear_field_error=lambda _f: None,
@@ -51,11 +51,13 @@ def _real_ctx(*, stage: str = "reference") -> Any:
     tests below that draw ``create_brief.draw`` for real: it goes through
     ``focus.pump``/``begin``/``item`` and ``create_recipe.problems_for``, both of
     which read fields (``focus_order``, ``focus_key``, ``focus_moved``,
-    ``problems_cache``, ``frame_index``) a hand-rolled stub would have to grow
-    one at a time. ``test_muse_panes_smoke.py`` sets the same precedent.
+    ``create.problems_cache``, ``frame_index``) a hand-rolled stub would have to
+    grow one at a time. ``test_muse_panes_smoke.py`` sets the same precedent.
     """
+    state = AppState(mode="create")
+    state.create.stage = stage
     return SimpleNamespace(
-        state=AppState(mode="create", create_stage=stage),
+        state=state,
         svc=SimpleNamespace(config=None),
         busy=lambda _key: False,
         confirms=SimpleNamespace(ask=lambda _dialog: None),
@@ -82,7 +84,7 @@ def _synthetic_rail(
     create_rail.stage_rail(
         "create-stages",
         _synthetic_rail_items(),
-        ctx.state.create_stage,
+        ctx.state.create.stage,
         max_width=max_width,
         row_height=row_height,
     )
@@ -143,7 +145,7 @@ def test_the_bar_draws_on_the_reference_stage_only():
 
 
 def test_the_bar_draws_in_no_other_mode():
-    """``create_stage`` is not cleared on a mode switch -- coming back from
+    """``create.stage`` is not cleared on a mode switch -- coming back from
     Inker lands where you left -- so asking the stage alone would put Create's
     brief across the top of another workspace."""
     for mode in ("inker", "clay", "plotter", "home", "library"):
@@ -419,7 +421,7 @@ def test_the_rail_callable_is_called_at_every_stage(frames):
     calls: list[str] = []
 
     def rail_stub(ctx, *, max_width=None, row_height=None):
-        calls.append(ctx.state.create_stage)
+        calls.append(ctx.state.create.stage)
 
     for stage in create_stages.STAGES:
         ctx = _real_ctx(stage=stage)

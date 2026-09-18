@@ -28,7 +28,7 @@ def _ctx(mode: str = "home", *, model_rows: list[dict[str, Any]] | None = None) 
             mode=mode,
             previous_mode=mode,
             mode_observed=mode,
-            create_stage="reference",
+            create=SimpleNamespace(stage="reference"),
             selected=None,
             source_job=None,
             wireframe=False,
@@ -139,7 +139,7 @@ def test_a_create_draft_fills_the_brief_and_never_submits():
     message = familiar_doors.draft_in_create(ctx, "3d_model", "a lantern")
 
     assert ctx.state.mode == "create"
-    assert ctx.state.create_stage == "reference"
+    assert ctx.state.create.stage == "reference"
     assert ctx.state.form_2d["asset_type"] == "3d_model"
     assert ctx.state.form_2d["generation_type"] == "3d_model"
     assert ctx.state.form_2d["prompt"] == "a lantern"

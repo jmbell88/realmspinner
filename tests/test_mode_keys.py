@@ -384,14 +384,14 @@ def test_enter_opens_the_selected_asset_in_the_mode_that_shows_it(no_mods):
     app = _library_app(jobs, selected="bbb")
     _press(app, pygame.K_RETURN)
     assert app.app_ctx.state.mode == "create"
-    assert app.app_ctx.state.create_stage == "mesh"
+    assert app.app_ctx.state.create.stage == "mesh"
     # Through set_mode, so Esc still knows it came from the library.
     assert app.app_ctx.state.previous_mode == "library"
 
     app = _library_app(jobs, selected="aaa")
     _press(app, pygame.K_RETURN)
     assert app.app_ctx.state.mode == "create"
-    assert app.app_ctx.state.create_stage == "reference"
+    assert app.app_ctx.state.create.stage == "reference"
 
 
 def test_enter_with_no_selection_stays_in_the_library(no_mods):

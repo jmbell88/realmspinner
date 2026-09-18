@@ -153,7 +153,8 @@ def _rigged_mesh_job(svc: Any) -> dict[str, Any]:
 
 
 def _ctx(svc: Any, job: dict[str, Any]) -> Ctx:
-    state = AppState(mode="create", create_stage="rig", selected=job["id"])
+    state = AppState(mode="create", selected=job["id"])
+    state.create.stage = "rig"
     cache = SimpleNamespace(
         get=lambda job_id: job if job_id == job["id"] else None, jobs=[job]
     )
@@ -252,7 +253,7 @@ def test_the_create_inspector_settles_within_four_frames(frames, svc, monkeypatc
 
     failures: list[str] = []
     for stage in create_stages.STAGES:
-        ctx.state.create_stage = stage
+        ctx.state.create.stage = stage
         for scale in SCALES:
             monkeypatch.setattr(tokens, "SCALE", scale)
             # Idempotent and reads tokens.SCALE at call time (see

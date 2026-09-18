@@ -153,7 +153,7 @@ def _cross_ctx(*, dirty: bool):
     ctx = _ctx(viewer=viewer)
     ctx.state = AppState()
     ctx.state.mode = "create"
-    ctx.state.create_stage = "pose"
+    ctx.state.create.stage = "pose"
     ctx.svc = SimpleNamespace(job_dir=lambda _id: (_ for _ in ()).throw(OSError))
     ctx.rig_default = ""
     ctx.submit = lambda *args, **kwargs: False

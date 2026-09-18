@@ -109,11 +109,11 @@ def app(tmp_path):
 
 
 def _at_mesh(ctx: _Ctx) -> None:
-    ctx.state.create_stage = "mesh"
+    ctx.state.create.stage = "mesh"
 
 
 def _at_reference(ctx: _Ctx) -> None:
-    ctx.state.create_stage = "reference"
+    ctx.state.create.stage = "reference"
 
 
 # --- the mesh stage ----------------------------------------------------------

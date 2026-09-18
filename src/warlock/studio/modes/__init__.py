@@ -108,7 +108,7 @@ MODES: list[tuple[str, str, str, str]] = [
     # stays true. So this one has to say why a mode whose results *are* job rows
     # is still a workspace and not a stage of Create: because a Create stage is
     # a position on ``create_stages.STAGES``, and the rail above that column
-    # computes over things Muse has none of. There is no ``create_stage`` a take
+    # computes over things Muse has none of. There is no ``state.create.stage`` a take
     # advances to, no asset viewport to frame it in, and no lineage -- a track
     # is not promoted into anything and nothing is reconstructed from it. What
     # Muse owns is a form and a tray of results, which is a workspace.

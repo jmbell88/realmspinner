@@ -152,10 +152,10 @@ def test_activating_an_asset_row_lands_at_the_stage_that_made_it():
         ]
     )
     landing.activate(ctx, 0)
-    assert (ctx.state.selected, ctx.state.create_stage) == ("ref", "reference")
+    assert (ctx.state.selected, ctx.state.create.stage) == ("ref", "reference")
     assert ctx.state.mode == "create"
     landing.activate(ctx, 1)
-    assert (ctx.state.selected, ctx.state.create_stage) == ("mesh", "mesh")
+    assert (ctx.state.selected, ctx.state.create.stage) == ("mesh", "mesh")
 
 
 def test_a_row_whose_file_is_gone_is_dropped_rather_than_failing_silently(tmp_path):

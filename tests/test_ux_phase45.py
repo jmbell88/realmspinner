@@ -80,7 +80,7 @@ def test_resuming_selects_what_it_opens_and_lands_in_the_right_pane():
         mode="home",
         previous_mode="home",
         mode_observed="home",
-        create_stage="reference",
+        create=SimpleNamespace(stage="reference"),
         source_job=None,
         select=picked.append,
     )
@@ -88,7 +88,7 @@ def test_resuming_selects_what_it_opens_and_lands_in_the_right_pane():
     landing.activate(ctx, 0)
     assert picked == ["ref"]
     assert state.mode == "create"
-    assert state.create_stage == "reference"
+    assert state.create.stage == "reference"
 
 
 def test_a_queued_job_is_not_offered_and_a_bare_ctx_is_not_a_crash():

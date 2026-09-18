@@ -232,7 +232,9 @@ def test_the_tiled_toggle_is_offered_for_a_tile_at_the_reference_stage_only():
     from warlock.studio.panes import overlay
 
     def ctx(stage, mode="create"):
-        return SimpleNamespace(state=SimpleNamespace(mode=mode, create_stage=stage))
+        return SimpleNamespace(
+            state=SimpleNamespace(mode=mode, create=SimpleNamespace(stage=stage))
+        )
 
     done_tile = {"stage": "tile", "status": "done"}
     assert overlay.shows_tiled(ctx("reference"), done_tile)
@@ -251,7 +253,7 @@ def test_the_tiled_preview_is_off_by_default():
     quarter of its size."""
     from warlock.studio.state import AppState
 
-    assert AppState().tile_preview is False
+    assert AppState().create.tile_preview is False
 
 
 def test_style_lock_reaches_the_tile_sheet_job():

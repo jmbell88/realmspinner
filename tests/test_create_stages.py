@@ -278,7 +278,7 @@ def test_an_unknown_stage_is_a_programming_error():
 
 
 def test_the_stage_starts_at_the_front_of_the_pipeline():
-    assert AppState().create_stage == create_stages.STAGES[0]
+    assert AppState().create.stage == create_stages.STAGES[0]
 
 
 def test_go_is_the_only_thing_that_writes_the_stage():
@@ -289,7 +289,10 @@ def test_go_is_the_only_thing_that_writes_the_stage():
     import re
 
     # An *assignment*, so a comparison (``!=``, ``==``) is not mistaken for one.
-    write = re.compile(r"\.create_stage\s*=(?!=)")
+    # Scoped to ``create.stage`` (P5 of the restructure moved the field off
+    # ``AppState`` onto ``CreateState``): a bare ``\.stage\s*=`` would also
+    # match every job dict's unrelated ``"stage"`` key elsewhere in the tree.
+    write = re.compile(r"\.create\.stage\s*=(?!=)")
     # The whole studio package, not ``create_stages``'s own directory: since P5
     # that directory is ``modes/create/ui/``, and a root derived from the
     # module's parent silently stopped covering every other mode and pane.
@@ -310,7 +313,7 @@ def test_go_is_the_only_thing_that_writes_the_stage():
 def test_go_records_where_it_arrived():
     ctx = FakeCtx()
     create_stages.go(ctx, "mesh")
-    assert ctx.state.create_stage == "mesh"
+    assert ctx.state.create.stage == "mesh"
 
 
 def test_go_switches_the_mode_and_leaves_escape_a_way_back():
@@ -370,12 +373,12 @@ def test_go_refuses_a_stage_that_does_not_exist():
 
 
 def test_a_stage_is_only_the_thing_on_screen_while_create_is_the_mode():
-    """``create_stage`` is not cleared on the way out -- coming back to Create
+    """``create.stage`` is not cleared on the way out -- coming back to Create
     from Inker should land where you left. So the panes' gate has to ask both
     halves, or the inspector in Poser grows the Mesh stage's quality section."""
     state = AppState()
     state.mode = create_stages.MODE
-    state.create_stage = "mesh"
+    state.create.stage = "mesh"
     assert create_stages.at(state, "mesh") is True
     assert create_stages.in_create(state) is True
 
@@ -393,7 +396,7 @@ def test_follow_false_leaves_the_selection_where_it_was():
     ctx = FakeCtx([ref, mesh], selected="aaaaaaaaaaaa")
     create_stages.go(ctx, "mesh", follow=False)
     assert ctx.state.selected == "aaaaaaaaaaaa"
-    assert ctx.state.create_stage == "mesh"
+    assert ctx.state.create.stage == "mesh"
 
 
 def test_a_ctx_with_no_job_cache_can_still_switch_stage():
@@ -404,7 +407,7 @@ def test_a_ctx_with_no_job_cache_can_still_switch_stage():
     state = AppState()
     create_stages.go(SimpleNamespace(state=state), "mesh")
     assert state.mode == create_stages.MODE
-    assert state.create_stage == "mesh"
+    assert state.create.stage == "mesh"
 
 
 # --- the lineage ------------------------------------------------------------
@@ -469,7 +472,7 @@ def _posing(unsaved):
 
     ctx = FakeCtx([rigged(id="bbbbbbbbbbbb")], selected="bbbbbbbbbbbb")
     ctx.state.mode = create_stages.MODE
-    ctx.state.create_stage = "pose"
+    ctx.state.create.stage = "pose"
     ctx.viewer = FakeViewer(unsaved)
     ctx.confirms = dialogs.ConfirmQueue()
     return ctx
@@ -478,11 +481,11 @@ def _posing(unsaved):
 def test_leaving_the_pose_stage_with_unsaved_work_asks_first():
     ctx = _posing(True)
     create_stages.go(ctx, "mesh")
-    assert ctx.state.create_stage == "pose", "the stage moved before the question was answered"
+    assert ctx.state.create.stage == "pose", "the stage moved before the question was answered"
     assert ctx.confirms.pending is not None
 
     ctx.confirms.pending.on_confirm()
-    assert ctx.state.create_stage == "mesh"
+    assert ctx.state.create.stage == "mesh"
 
 
 def test_leaving_the_pose_stage_leaves_the_editor_too():
@@ -490,7 +493,7 @@ def test_leaving_the_pose_stage_leaves_the_editor_too():
     early while it is -- so the Mesh stage would go on showing rig.glb."""
     ctx = _posing(False)
     create_stages.go(ctx, "mesh")
-    assert ctx.state.create_stage == "mesh"
+    assert ctx.state.create.stage == "mesh"
     assert ctx.viewer.left is True
 
 

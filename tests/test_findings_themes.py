@@ -217,7 +217,7 @@ def test_the_reference_stage_validates_once_a_frame_not_twice():
     form = default_form_2d()
     create_assets.sync_legacy_fields(form)
     ctx = SimpleNamespace(state=AppState())
-    ctx.state.problems_cache = None
+    ctx.state.create.problems_cache = None
     create_recipe.validate = counting
     try:
         first = create_recipe.problems_for(ctx, form)
@@ -537,7 +537,7 @@ def test_a_vram_refusal_survives_long_enough_to_be_read():
     from warlock.studio.state import AppState
 
     state = AppState()
-    assert state.submit_refusal == ""
+    assert state.create.submit_refusal == ""
 
 
 def test_the_remesh_line_is_not_a_ranking():

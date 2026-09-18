@@ -137,7 +137,7 @@ class TasksMixin:
                     # kept so the plan block can say it, because a toast cannot
                     # hold ``vram.shortfall_message``'s list of remedies and
                     # the block was going on saying "Ready to generate."
-                    ctx.state.submit_refusal = done.message or ""
+                    ctx.state.create.submit_refusal = done.message or ""
                 message = done.message or "That did not work."
                 action = done.action
                 if done.key.startswith("journal:"):
@@ -602,7 +602,7 @@ class TasksMixin:
         if key == "submit":
             # The press was taken, so whatever the last one was refused for is
             # no longer the state of things.
-            ctx.state.submit_refusal = ""
+            ctx.state.create.submit_refusal = ""
             ctx.cache.invalidate()
             if isinstance(done.result, dict) and done.result.get("kind") == "character":
                 self._landed_character(done.result)

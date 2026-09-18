@@ -124,7 +124,7 @@ def _stage_body(ctx: Any, job: Any) -> None:
         "retexture": lambda: texture_panel.draw(ctx, job),
         "sheet": lambda: sheet_panel.draw(ctx, job),
     }
-    for name in _STAGE_SECTIONS.get(ctx.state.create_stage, ()):
+    for name in _STAGE_SECTIONS.get(ctx.state.create.stage, ()):
         named[name]()
 
 
@@ -343,7 +343,7 @@ def _readiness(ctx: Any, job: Any) -> None:
             imgui.same_line()
             if controls.small_button(f"Fix on Rig stage##readiness-{row.label}"):
                 # The one stage switch (``create_stages.go``'s own docstring);
-                # this pane must never set ``state.create_stage`` itself. The
+                # this pane must never set ``state.create.stage`` itself. The
                 # rig-stage repairs (remesh for an over-budget mesh, the
                 # retarget panel's Rebuild mesh for a degraded normalize or a
                 # rig that has outrun a retarget) all live there already.

@@ -43,7 +43,7 @@ def _ctx(
             mode=mode,
             previous_mode=mode,
             mode_observed=mode,
-            create_stage=stage,
+            create=SimpleNamespace(stage=stage),
             selected=selected,
             source_job=None,
             wireframe=False,

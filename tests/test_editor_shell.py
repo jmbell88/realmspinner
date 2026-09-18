@@ -355,7 +355,10 @@ class _PreviewCtx:
 
     def __init__(self, selected="job1", mode="create", create_stage="reference"):
         self.state = SimpleNamespace(
-            mode=mode, create_stage=create_stage, selected=selected, preview={}
+            mode=mode,
+            create=SimpleNamespace(stage=create_stage),
+            selected=selected,
+            preview={},
         )
         self.submitted: list[str] = []
         self.tags: list[object] = []

@@ -52,7 +52,7 @@ class FakeCtx:
         self.state = AppState()
         self.state.selected = selected
         self.state.mode = mode
-        self.state.create_stage = stage
+        self.state.create.stage = stage
         self.cache = FakeCache(jobs)
 
     def job(self, job_id=None):
@@ -151,7 +151,7 @@ def test_the_rig_stage_shows_the_progress_of_a_job_it_started(monkeypatch):
     )
     monkeypatch.setattr(stage_rig, "draw", lambda ctx: None)
 
-    ctx = SimpleNamespace(state=SimpleNamespace(create_stage="rig"))
+    ctx = SimpleNamespace(state=SimpleNamespace(create=SimpleNamespace(stage="rig")))
     frame._stage_pane(ctx)
 
     assert calls == [ctx], "the Rig stage never asked the tray for its progress row"
@@ -171,7 +171,7 @@ def test_the_reference_stage_does_not_draw_the_tray_progress_row_twice(monkeypat
     )
     monkeypatch.setattr(settings_2d, "draw", lambda ctx: None)
 
-    ctx = SimpleNamespace(state=SimpleNamespace(create_stage="reference"))
+    ctx = SimpleNamespace(state=SimpleNamespace(create=SimpleNamespace(stage="reference")))
     frame._stage_pane(ctx)
 
     assert calls == []
@@ -209,7 +209,7 @@ def test_a_finished_mesh_becomes_the_selection_when_the_user_waited_on_the_mesh_
     App._select_finished_mesh_if_waiting(app, mesh)
 
     assert ctx.state.selected == "bbbbbbbbbbbb"
-    assert ctx.state.create_stage == "mesh"
+    assert ctx.state.create.stage == "mesh"
 
 
 def test_it_does_not_move_a_selection_the_user_changed():

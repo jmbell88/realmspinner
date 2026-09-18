@@ -28,7 +28,7 @@ def _copy_ctx():
             mode="create",
             previous_mode="create",
             mode_observed="create",
-            create_stage="mesh",
+            create=SimpleNamespace(stage="mesh"),
             selected=None,
         ),
         toast=lambda _text: None,

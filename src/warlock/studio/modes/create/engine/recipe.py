@@ -623,9 +623,9 @@ def verify_reference_path(ctx: Any, form: dict[str, Any]) -> None:
     with the drive that held it still unmounted does not toast on every visit
     to this pane.
     """
-    if ctx.state.reference_path_checked:
+    if ctx.state.create.reference_path_checked:
         return
-    ctx.state.reference_path_checked = True
+    ctx.state.create.reference_path_checked = True
     path = str(form.get("ref_path") or "")
     if not path or Path(path).is_file():
         return
@@ -1006,7 +1006,7 @@ def problems_for(ctx: Any, form: dict[str, Any]) -> list[problem_types.Problem]:
     """
 
     key = (int(getattr(ctx.state, "frame_index", 0)), id(form))
-    cache = ctx.state.problems_cache
+    cache = ctx.state.create.problems_cache
     if cache is not None and cache[0] == key:
         return cache[1]
     problems = validate(form, ctx)
@@ -1021,7 +1021,7 @@ def problems_for(ctx: Any, form: dict[str, Any]) -> list[problem_types.Problem]:
     weight = weights_problem(ctx, form)
     if weight is not None:
         problems = [*problems, weight]
-    ctx.state.problems_cache = (key, problems)
+    ctx.state.create.problems_cache = (key, problems)
     return problems
 
 OPEN_FORM_WORDS = (

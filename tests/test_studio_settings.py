@@ -1,11 +1,12 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from warlock.service import tilesheets as svc_tilesheets
 from warlock.studio import settings as settings_mod
 from warlock.studio.settings import Settings, restore_form, sanitise_form
-from warlock.studio.state import default_form_2d
+from warlock.studio.state import DEFAULT_FORM_3D, AppState, default_form_2d
 
 
 def _write(tmp_path, data):
@@ -219,3 +220,69 @@ def test_the_layout_migration_decides_on_any_stored_form_without_raising():
         # Idempotent: migrations here run under version 1, every launch.
         settings_mod._migrate_tile_mode(form)
         assert form == expected, stored
+
+
+# -- P5: CreateState split off AppState must not move the on-disk shape -----
+
+
+def test_an_old_settings_file_still_restores_into_state_form_2d_and_form_3d(tmp_path):
+    """P5 of the restructure moved ``create_stage``/``problems_cache``/
+    ``submit_refusal``/``tile_preview``/``reference_path_checked`` off
+    ``AppState`` onto ``state.create`` -- but ``form_2d``/``form_3d`` stayed on
+    ``AppState`` itself (``state.py``'s own comment on the ``create`` field
+    says why: ``review_mode.capture_base`` reads them live without leaving
+    Review, and ``panes/library.py`` writes them as a side effect of selecting
+    or copying *any* card). A file saved by a pre-split Warlock has no
+    ``create`` block at all -- its ``form_2d``/``form_3d`` are top-level, the
+    same shape ``shell/app.py``'s ``setup_context`` still reads them with, and
+    this is that exact call, not a reimplementation of it.
+    """
+    stored_form_2d = {**default_form_2d(), "prompt": "a torch"}
+    stored_form_3d = {**DEFAULT_FORM_3D, "platform": "high"}
+    _write(tmp_path, {"form_2d": stored_form_2d, "form_3d": stored_form_3d})
+
+    loaded = Settings.load(tmp_path)
+    state = AppState()
+    # The exact two lines ``App.setup_context`` runs.
+    state.form_2d = restore_form(default_form_2d(), loaded.get("form_2d"))
+    state.form_3d = restore_form(DEFAULT_FORM_3D, loaded.get("form_3d"))
+
+    assert state.form_2d["prompt"] == "a torch"
+    assert state.form_3d["platform"] == "high"
+    # A settings restore touches only the two forms -- CreateState is
+    # volatile by design and a restore that reached into it (say, by reading
+    # a stray "stage" key some file happened to hold) would be exactly the
+    # seam this test exists to catch.
+    from warlock.studio.modes.create.engine.state import CreateState
+
+    assert state.create == CreateState()
+
+
+def test_saving_still_writes_the_same_top_level_keys_no_nested_create_block(tmp_path):
+    """The other half: a fresh session's save must produce the same flat file
+    a pre-split Warlock would have, not a ``"create": {...}`` block -- proven
+    against ``QuitMixin._persist`` itself (it reads no ``self``, so a
+    placeholder stands in for the ``App`` it is normally bound to), the one
+    function that ever writes these keys.
+    """
+    from warlock.studio.shell import quit as quit_mod
+
+    state = AppState()
+    state.form_2d["prompt"] = "a torch"
+    state.create.stage = "mesh"  # moved to CreateState; must not leak into the file
+    out = Settings(tmp_path / settings_mod.FILENAME)
+    ctx = SimpleNamespace(settings=out, state=state)
+
+    quit_mod.QuitMixin._persist(None, ctx)
+    assert out.flush() is True
+
+    raw = json.loads((tmp_path / settings_mod.FILENAME).read_text(encoding="utf-8"))
+    assert set(raw["data"]) == {
+        "show_fps",
+        "show_resources",
+        "form_2d",
+        "form_3d",
+        "history",
+        "filters",
+    }, "the persisted top-level keys must not gain a nested create block"
+    assert raw["data"]["form_2d"]["prompt"] == "a torch"

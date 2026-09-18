@@ -1190,7 +1190,7 @@ def _generation_plan(
             widgets.muted("Queue: one local generation is running")
     else:
         widgets.muted("Queue: ready")
-    refusal = str(getattr(ctx.state, "submit_refusal", "") or "")
+    refusal = str(getattr(ctx.state.create, "submit_refusal", "") or "")
     advisories = advisories or []
     if not problems and not refusal:
         # "Ready to generate" is still true with an advisory standing -- that

@@ -117,8 +117,8 @@ def toolbar(ctx: Any) -> None:
         # texture is drawn at half size, and a toggle that only said "Tiled"
         # would leave the user wondering why the image shrank.
         _wrap(f"Tiled {TILE_REPEAT}x{TILE_REPEAT}")
-        _changed, ctx.state.tile_preview = widgets.toggle(
-            f"Tiled {TILE_REPEAT}x{TILE_REPEAT}", ctx.state.tile_preview, tag="tile_preview"
+        _changed, ctx.state.create.tile_preview = widgets.toggle(
+            f"Tiled {TILE_REPEAT}x{TILE_REPEAT}", ctx.state.create.tile_preview, tag="tile_preview"
         )
     _wrap(icons.MAXIMIZE)
     if widgets.icon_button(icons.MAXIMIZE, "Frame the model (F)"):
@@ -782,7 +782,7 @@ def placeholder(ctx: Any) -> None:
         )
         return
     key = (
-        f"{create_stages.MODE}/{ctx.state.create_stage}"
+        f"{create_stages.MODE}/{ctx.state.create.stage}"
         if create_stages.in_create(ctx.state)
         else ctx.state.mode
     )

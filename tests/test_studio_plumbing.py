@@ -645,7 +645,7 @@ def _copy_ctx():
             mode="create",
             previous_mode="create",
             mode_observed="create",
-            create_stage="mesh",
+            create=SimpleNamespace(stage="mesh"),
             selected=None,
         ),
         toast=lambda _text: None,
@@ -664,7 +664,7 @@ def test_copying_a_tiles_settings_keeps_it_a_tile():
     ctx = _copy_ctx()
     library.copy_settings(ctx, {"stage": "tile", "params": {"prompt": "cobblestone"}})
     assert ctx.state.form_2d["output"] == "tile"
-    assert ctx.state.create_stage == "reference"
+    assert ctx.state.create.stage == "reference"
 
 
 def test_copying_a_references_settings_makes_an_object():

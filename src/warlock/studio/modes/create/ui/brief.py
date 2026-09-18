@@ -42,7 +42,7 @@ reads downstream as controls nobody owns.
 
 **The rail is drawn through a callable, never imported and called here.**
 ``App._stage_rail`` reads a job, an on-disk rig and the preview state to
-build ``done``/``optional``, and its click writes ``state.create_stage``
+build ``done``/``optional``, and its click writes ``state.create.stage``
 through ``create_stages.go`` -- documented as "the one stage switch." Giving
 this module that logic directly would make it a second place the switch could
 fire from; instead ``main.py`` hands its own bound ``_stage_rail`` in as
@@ -168,8 +168,8 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     busy = ctx.busy("submit")
 
     items = _rail_items_for_measurement()
-    rail_full_w = create_rail.stage_rail_width(items, state.create_stage)
-    rail_floor_w = create_rail.stage_rail_width(items, state.create_stage, max_width=0.0)
+    rail_full_w = create_rail.stage_rail_width(items, state.create.stage)
+    rail_floor_w = create_rail.stage_rail_width(items, state.create.stage, max_width=0.0)
     rail_w, prompt_w, show_count, reset_compact = _row_widths(
         hide_count, rail_full_w, rail_floor_w
     )

@@ -199,7 +199,7 @@ def _stage_pane(ctx: Any) -> None:
     from ..modes.create.ui import workspace as generation_workspace
     from ..panes import inspector, pose_panel, stage_rig
 
-    stage = ctx.state.create_stage
+    stage = ctx.state.create.stage
     # 2026-09-07 Create review, item 5.7: progress used to be visible only
     # from the Reference stage's canvas tray, so a remesh or a rig bake
     # started from its own stage showed nothing here but the floating card
@@ -686,8 +686,8 @@ class FrameMixin:
         # watched separately: Reference and Mesh are one mode now, so stepping
         # between them moves no mode at all -- and what the viewport should be
         # showing (``input.png`` against ``model.glb``) changed anyway.
-        stage_moved = ctx.state.create_stage != self._last_stage
-        self._last_stage = ctx.state.create_stage
+        stage_moved = ctx.state.create.stage != self._last_stage
+        self._last_stage = ctx.state.create.stage
         if (
             ctx.state.mode != self._last_mode or stage_moved
         ) and ctx.state.mode in modes.VIEWPORT_MODES:
@@ -941,7 +941,7 @@ class FrameMixin:
     ) -> None:
         """Create's breadcrumb, over the three columns.
 
-        The pane dispatch that follows it reads ``state.create_stage``, and
+        The pane dispatch that follows it reads ``state.create.stage``, and
         this is the only control that writes one -- through
         ``create_stages.go``, which is what makes "switching stage may move the
         selection" a rule rather than a thing this happens to remember.
@@ -985,7 +985,7 @@ class FrameMixin:
         picked = create_rail.stage_rail(
             "create-stages",
             items,
-            ctx.state.create_stage,
+            ctx.state.create.stage,
             # A set of ticked segments, not the single furthest one
             # (2026-09-07 Create review, item 3.5): ``reached`` stops at the
             # first stage a job has not got to, which left Rig, Pose and
@@ -999,7 +999,7 @@ class FrameMixin:
             row_height=row_height,
         )
         anchors.mark("create/stages")
-        if picked != ctx.state.create_stage:
+        if picked != ctx.state.create.stage:
             create_stages.go(ctx, picked)
 
     def _viewport_pane(self) -> None:
@@ -1106,7 +1106,7 @@ class FrameMixin:
         # have to be positioned by hand and would show a seam of their own
         # wherever the arithmetic left a sub-pixel gap.
         repeat = 1
-        if self.app_ctx.state.tile_preview and overlay.shows_tiled(
+        if self.app_ctx.state.create.tile_preview and overlay.shows_tiled(
             self.app_ctx, self.app_ctx.job()
         ):
             repeat = overlay.TILE_REPEAT

@@ -277,9 +277,9 @@ def test_the_2d_pane_builds_every_tile_layout(app_ctx, imgui_ctx):
     """Three layouts, three different sets of controls, drawn in a real frame.
 
     Off the service's own list rather than a literal here, for the reason the
-    view sweep above gives -- and with Advanced open, because the tile size is
-    the one control whose *menu* is a function of the layout and a segmented row
-    whose current value is off its own menu is the failure no pure test sees.
+    view sweep above gives: the tile size is the one control whose *menu* is a
+    function of the layout, and a segmented row whose current value is off its
+    own menu is the failure no pure test sees.
     """
     from warlock.service import tilesheets as svc_tilesheets
     from warlock.studio.modes.create.ui import settings_2d
@@ -289,7 +289,6 @@ def test_the_2d_pane_builds_every_tile_layout(app_ctx, imgui_ctx):
     app_ctx.state.form_2d["materials"] = "mossy stone\ncracked earth"
     app_ctx.state.form_2d["inner_terrain"] = "wet grass"
     app_ctx.state.form_2d["outer_terrain"] = "dark water"
-    app_ctx.state.create_advanced = True
     for mode in svc_tilesheets.TILE_MODES:
         app_ctx.state.form_2d["tile_mode"] = mode
         # A 48 px tile is legal for the grid and not for the other two: the
@@ -323,7 +322,6 @@ def test_the_2d_pane_draws_the_pixel_look_on_both_arms(app_ctx, imgui_ctx, tmp_p
     app_ctx.state.form_2d["prompt"] = "a hooded ranger"
     app_ctx.state.form_2d["palette"] = "duo"
     app_ctx.state.form_2d["dither"] = True
-    app_ctx.state.create_advanced = True
     for asset_type, outline in (
         ("tileset_top_down", "none"),
         ("sprite_turnaround", "none"),
@@ -577,7 +575,7 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "mesh"
+    app_ctx.state.create.stage = "mesh"
     app_ctx.rigging_available = True
     app_ctx.state.form_3d["rig"] = True
     job = app_ctx.cache.get(job_id)
@@ -693,7 +691,7 @@ def test_the_inspector_builds_for_every_status(app_ctx, imgui_ctx):
     job_id = _seeded(app_ctx, mesh_report={"verdict": "good", "reasons": []})
     _frame(imgui_ctx, lambda: inspector.draw(app_ctx))
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "mesh"
+    app_ctx.state.create.stage = "mesh"
     _frame(imgui_ctx, lambda: inspector.draw(app_ctx))
     app_ctx.svc.store.set_status(job_id, "error", "it broke")
     app_ctx.cache.invalidate()
@@ -709,7 +707,7 @@ def test_the_candidate_picker_builds_running_and_finished(app_ctx, imgui_ctx):
     from warlock.studio.panes import inspector
 
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "mesh"
+    app_ctx.state.create.stage = "mesh"
     ids = []
     for index in range(2):
         job_id = app_ctx.svc.store.create(
@@ -754,7 +752,7 @@ def test_the_retarget_panel_builds_with_and_without_a_reconstruction(
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "mesh"
+    app_ctx.state.create.stage = "mesh"
     job = app_ctx.cache.get(job_id)
     # No source.glb: there is nothing to rebuild from and the section hides.
     _frame(imgui_ctx, lambda: retarget_panel.draw(app_ctx, job))
@@ -909,23 +907,23 @@ def test_the_overlay_offers_clear_only_where_there_is_something_to_clear(app_ctx
     app_ctx.clear_viewport = lambda: None
     was_mode = app_ctx.state.mode
     # ``create_stages.at`` asks the mode *and* the stage together, deliberately
-    # -- ``create_stage`` is not cleared on a mode change -- so a stage set
+    # -- ``create.stage`` is not cleared on a mode change -- so a stage set
     # without the mode is not "on the Reference stage" at all.
     app_ctx.state.mode = "create"
     try:
-        app_ctx.state.create_stage = "reference"
+        app_ctx.state.create.stage = "reference"
         assert overlay._has_content(app_ctx, app_ctx.viewer) is False
         app_ctx.viewer.gpu = object()
         assert overlay._has_content(app_ctx, app_ctx.viewer) is False, (
             "a mesh is not the Reference stage's canvas"
         )
-        app_ctx.state.create_stage = "mesh"
+        app_ctx.state.create.stage = "mesh"
         assert overlay._has_content(app_ctx, app_ctx.viewer) is True
 
         # And it draws, on both stages, with content present.
         app_ctx.viewer.reference = object()
         for stage in ("reference", "mesh"):
-            app_ctx.state.create_stage = stage
+            app_ctx.state.create.stage = stage
             _frame(imgui_ctx, lambda: overlay.toolbar(app_ctx))
     finally:
         app_ctx.viewer.gpu = None
@@ -2298,7 +2296,7 @@ def test_a_finished_mesh_is_not_offered_paint(app_ctx, imgui_ctx):
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "reference"
+    app_ctx.state.create.stage = "reference"
     assert not inker_mode.can_edit_job(app_ctx, app_ctx.cache.get(job_id))
 
 
@@ -3183,7 +3181,7 @@ def test_the_inspector_builds_its_verdict_section_with_and_without_staged_tags(a
     from warlock.studio.panes import inspector
 
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "mesh"
+    app_ctx.state.create.stage = "mesh"
     job_id = _seeded(app_ctx)
     app_ctx.svc.store.set_stage(job_id, "model")
     app_ctx.cache.invalidate()
@@ -3931,7 +3929,7 @@ def test_the_3d_source_slot_builds_while_a_drag_is_in_flight(app_ctx, imgui_ctx)
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "mesh"
+    app_ctx.state.create.stage = "mesh"
     app_ctx.state.dragging_job = job_id
     _frame(imgui_ctx, lambda: settings_3d.draw(app_ctx))
     app_ctx.state.dragging_job = None
@@ -3972,7 +3970,7 @@ def test_a_card_with_no_thumbnail_builds_its_placeholder(app_ctx, imgui_ctx):
     job_id = _seeded(app_ctx)
     # No thumb.png was written, so every card takes the placeholder path.
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "mesh"
+    app_ctx.state.create.stage = "mesh"
     _frame(imgui_ctx, lambda: library.draw(app_ctx))
     assert "thumb.png" not in (app_ctx.cache.get(job_id).get("files") or [])
 
@@ -3986,7 +3984,7 @@ def test_the_library_builds_in_every_view_and_density(app_ctx, imgui_ctx):
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "mesh"
+    app_ctx.state.create.stage = "mesh"
     for key, _label in SORTS:
         app_ctx.state.filters.sort = key
         for descending in (True, False):
@@ -4087,7 +4085,7 @@ def test_the_3d_form_builds_with_a_custom_budget(app_ctx, imgui_ctx, monkeypatch
     from warlock.studio.modes.create.ui import settings_3d
 
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "mesh"
+    app_ctx.state.create.stage = "mesh"
     _frame(imgui_ctx, lambda: settings_3d.draw(app_ctx))
     monkeypatch.setattr(settings_3d, "PROFILES", [("raw", "Raw"), ("custom", "Custom...")])
     app_ctx.state.form_3d["profile"] = "custom"
@@ -4453,14 +4451,14 @@ def test_the_create_pane_builds_at_every_stage(app_ctx, imgui_ctx):
     app_ctx.state.mode = create_stages.MODE
     app = SimpleNamespace(app_ctx=app_ctx)
     for stage in create_stages.STAGES:
-        app_ctx.state.create_stage = stage
+        app_ctx.state.create.stage = stage
 
         def build():
             main.App._stage_rail(app, app_ctx)
             frame_mod._stage_pane(app_ctx)
 
         _frame(imgui_ctx, build)
-        assert app_ctx.state.create_stage == stage, "the rail moved on its own"
+        assert app_ctx.state.create.stage == stage, "the rail moved on its own"
 
 
 def test_the_inspector_builds_at_every_stage(app_ctx, imgui_ctx):
@@ -4476,7 +4474,7 @@ def test_the_inspector_builds_at_every_stage(app_ctx, imgui_ctx):
     app_ctx.state.mode = create_stages.MODE
     for stage in create_stages.STAGES:
         assert stage in inspector._STAGE_SECTIONS, stage
-        app_ctx.state.create_stage = stage
+        app_ctx.state.create.stage = stage
         _frame(imgui_ctx, lambda: inspector.draw(app_ctx))
 
 
@@ -4491,7 +4489,7 @@ def test_the_create_pane_builds_at_every_stage_with_nothing_selected(app_ctx, im
     app_ctx.state.mode = create_stages.MODE
     app = SimpleNamespace(app_ctx=app_ctx)
     for stage in create_stages.STAGES:
-        app_ctx.state.create_stage = stage
+        app_ctx.state.create.stage = stage
         _frame(
             imgui_ctx,
             lambda: (main.App._stage_rail(app, app_ctx), frame_mod._stage_pane(app_ctx)),
@@ -4801,7 +4799,7 @@ def test_requesting_an_install_ticks_the_rows_and_opens_settings(app_ctx):
     from warlock.studio.panes import model_gate
 
     app_ctx.state.mode = "create"
-    app_ctx.state.create_stage = "reference"
+    app_ctx.state.create.stage = "reference"
     app_ctx.model_picks.add("metric:dinov2")
     model_gate.request_install(app_ctx, ("lora:pixelxl", "control:canny"))
     assert app_ctx.state.mode == "settings"

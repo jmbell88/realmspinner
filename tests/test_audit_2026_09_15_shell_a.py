@@ -145,7 +145,7 @@ def test_the_librarys_details_tab_shows_the_verdict_section_for_a_finished_mesh(
     # Library's inspector: not Create mode, and a finished mesh (the
     # reconstruction stage is spelled "model", never "mesh" -- see
     # create_stages.py's own module docstring).
-    ctx = SimpleNamespace(state=SimpleNamespace(mode="home", create_stage=None))
+    ctx = SimpleNamespace(state=SimpleNamespace(mode="home", create=SimpleNamespace(stage=None)))
     job = {"id": "aaaaaaaaaaaa", "stage": "model", "status": "done"}
 
     inspector._details_tab(ctx, job)

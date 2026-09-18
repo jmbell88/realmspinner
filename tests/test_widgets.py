@@ -62,7 +62,10 @@ def test_the_frame_button_reservation_matches_its_own_width_not_the_tiled_toggle
 
     ctx = SimpleNamespace(
         state=SimpleNamespace(
-            tile_preview=False, wireframe=False, turntable=False, comparing=None
+            create=SimpleNamespace(tile_preview=False),
+            wireframe=False,
+            turntable=False,
+            comparing=None,
         ),
         viewer=SimpleNamespace(has_model=False),
         job=lambda: {},

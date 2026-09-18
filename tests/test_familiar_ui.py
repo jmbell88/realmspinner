@@ -51,8 +51,15 @@ class _FakeCtx:
         doc = doc if doc is not None else bd.ClayDoc()
         tab = clay_mode.ClayTab(doc=doc)
         clay_state = clay_mode.ClayState(docs=[tab], active_uid=tab.uid)
+        from warlock.studio.modes.create.engine.state import CreateState
+
         self.state = SimpleNamespace(
-            clay=clay_state, mode=mode, familiar=None, preview={}, manual=ManualState()
+            clay=clay_state,
+            mode=mode,
+            familiar=None,
+            preview={},
+            manual=ManualState(),
+            create=CreateState(),
         )
         self.settings = SimpleNamespace()
         # T7: ``config.palette_dir`` is all ``_character_options`` needs off

@@ -1012,6 +1012,21 @@ class TourState:
         self.stop()
 
 
+def _new_create_state() -> Any:
+    """Build ``CreateState``, for ``AppState.create``'s ``default_factory``.
+
+    A function rather than the type named directly in the field's annotation,
+    for the same reason ``default_form_2d`` above reaches for
+    ``modes.create.engine.assets`` inside its own body instead of at module
+    scope: ``state.py`` is shell (L4) and a mode's package is L5, so an import
+    of it at the top of this file would be a layering violation
+    ``tests/test_layering.py`` is built to catch, not an oversight it missed.
+    """
+    from .modes.create.engine.state import CreateState
+
+    return CreateState()
+
+
 @dataclass
 class AppState:
     """The whole UI's mutable state."""
@@ -1061,11 +1076,6 @@ class AppState:
     # because the list it belongs to is short today, would be a panel that
     # silently hides half its contents on launch.
     list_filters: dict[str, str] = field(default_factory=dict)
-    # ``(frame, id(form)) -> problems`` for the Reference stage's plan footer
-    # (``recipe.problems_for``). Per-ctx rather than a module global: a
-    # module-level cache keyed on ``id(form)`` alone would let a second ctx's
-    # form -- reusing a GC'd id -- read the first ctx's stale verdict.
-    problems_cache: tuple[tuple[int, int], list[Any]] | None = None
     # Which form control the last refusal named, and what it said (UX.md Phase
     # 3). ``service.errors.ServiceError`` has carried a ``field`` since it was
     # written, documented as "the UI highlights it", and nothing in ``studio/``
@@ -1079,14 +1089,6 @@ class AppState:
     # the pane switch on a remembered name. Not persisted: a refusal describes
     # a submit, and a submit does not survive the session that made it.
     field_errors: dict[str, str] = field(default_factory=dict)
-    #: Why the last Generate press was refused, when the refusal names no
-    #: control. The VRAM door is the one such refusal in ``service.validation``
-    #: and deliberately so -- ``vram.remedies`` offers several answers and
-    #: sometimes an environment variable, which is not a widget -- so it had
-    #: nowhere to go but a fading toast, while the plan block a few pixels away
-    #: went on saying "Ready to generate." A multi-remedy paragraph is not
-    #: something a toast can hold. Cleared by the next accepted submit.
-    submit_refusal: str = ""
     # ``ServiceError.rows`` for the same refusals, and what installing exactly
     # those costs. Carried beside the message rather than parsed back out of
     # it, which is the reason the service field exists at all: the offer under
@@ -1243,37 +1245,7 @@ class AppState:
     reduce_motion: bool = False
     wireframe: bool = False
     turntable: bool = False
-    # Draw a tile repeated in the 2D viewport rather than once. Off by default,
-    # and that is a decision rather than an oversight: every other view of an
-    # asset in this app -- the thumbnail, the exports, the Inker -- shows one
-    # cell, so a viewport that silently showed four would make the texture look
-    # a quarter of its size. What repetition answers that nothing else does is
-    # whether the pattern *reads* as repeating, which is a question the user
-    # asks deliberately; the seam question already has the wrapped view.
-    tile_preview: bool = False
     source_job: str | None = None  # the 2D asset the 3D pane starts from
-    # Where the user is standing in Create mode, one of
-    # ``create_stages.STAGES`` (the UI redesign, wave 5). **Volatile and never
-    # persisted**, which is the same rule ``mode`` follows and for a stronger
-    # reason: a stage is a *derived* position over the selected asset, so a
-    # remembered one would be restored against whatever happens to be selected
-    # next launch and would routinely name a stage that asset has not reached.
-    # Written only by ``create_stages.go`` -- the one switch.
-    create_stage: str = "reference"
-    # The Simple/Advanced disclosure is workspace state, not a creative
-    # setting. It deliberately resets each launch and is never persisted.
-    create_advanced: bool = False
-    # Whether this session has already checked the 2D reference path restored
-    # from settings (the 2026-09-07 Create review, item 5.3a): ``ref_path``
-    # persists like ``ip_adapter``/``control`` now (``settings.VOLATILE``), so
-    # a restart reopens with it still selected -- unless the file moved or was
-    # deleted while Warlock was shut, in which case a live value would fail
-    # silently at submit instead of failing where it broke. One shot rather
-    # than every frame: the file will not appear or vanish while the pane sits
-    # open, so re-``stat``-ing it on every keystroke elsewhere in the form
-    # would be pure cost with nothing new to find. Never persisted itself --
-    # it describes this process's own check, not a preference.
-    reference_path_checked: bool = False
     # Every outstanding failure the banner is showing, oldest first. A list
     # rather than the single ``last_error`` slot it replaces: three writers
     # (a failed doctor check, a dead worker, a worker that never started) all
@@ -1287,6 +1259,27 @@ class AppState:
     # was a coloured dot. Keeping these makes Dismiss "put it away" rather than
     # "forget it" for the session log and support tooling.
     dismissed_errors: list[str] = field(default_factory=list)
+    # Create's own corner of this file (P5 of the restructure): the stage,
+    # the plan-footer cache, the last submit refusal and the tile-preview
+    # toggle -- everything that used to be loose fields here and that nothing
+    # outside Create reads. ``form_2d``/``form_3d``/``source_job`` stay above
+    # rather than move in with the rest: ``review_mode.capture_base`` reads the
+    # live 2D/3D forms to seed a sweep without ever leaving Review, and
+    # ``panes/library.py``'s ``select``/``copy_settings`` write
+    # ``source_job``/``form_2d`` as a side effect of selecting or copying *any*
+    # card, library-wide, not only on the way into Create.
+    #
+    # Built eagerly by :func:`_new_create_state` rather than left ``None`` for
+    # a mode's own ``ensure()`` the way ``inker``/``clay`` below are: Create's
+    # corner holds no editor, no GL and no filesystem handle, so there is
+    # nothing an unopened Create session pays for by having it exist from the
+    # first frame. The factory does its import inside the function rather than
+    # at module scope for the same reason ``default_form_2d`` above does --
+    # ``state.py`` may not import a mode at the top of the file
+    # (``tests/test_layering.py`` pins that a shell module may not reach into
+    # a mode's package at module scope, and ``tests/test_create_engine_imports.py``
+    # would separately catch a module-scope edge back the other way).
+    create: Any = field(default_factory=_new_create_state)
     # Inker mode's open documents and tool settings, built on first use.
     # Typed Any so state.py keeps no import of the editor or of Pillow, and
     # lazy so a session that never draws pays nothing for it.

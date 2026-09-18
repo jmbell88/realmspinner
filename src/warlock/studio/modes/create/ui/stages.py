@@ -189,7 +189,7 @@ def reached(job: Any, rig_meta: Any = None, poses: Any = None) -> str | None:
     **None with no job**, rather than the first stage. An empty Create mode
     had a check beside Reference -- claiming a step was finished on a screen
     where nothing had been generated at all. Standing at a stage and having
-    completed it are different facts; ``state.create_stage`` is the first one.
+    completed it are different facts; ``state.create.stage`` is the first one.
 
     **Not what the rail ticks off against any more** (2026-09-07 Create
     review, item 3.5) -- that is :func:`ticked`, which does not stop at Rig
@@ -391,15 +391,15 @@ def at(state: Any, stage: str) -> bool:
     Two questions, and both halves matter: the panes ask this to decide what to
     draw, and a stage is only the thing being drawn while Create is the mode.
     Without the mode half, the inspector in Poser would grow the mesh stage's
-    quality section because ``create_stage`` still said ``mesh``.
+    quality section because ``state.create.stage`` still said ``mesh``.
     """
-    return state.mode == MODE and state.create_stage == stage
+    return state.mode == MODE and state.create.stage == stage
 
 
 def go(ctx: Any, stage: str, *, select: str | None = None, follow: bool = True) -> None:
     """**The one stage switch.** Every path into Create mode comes through here.
 
-    One function rather than a ``state.create_stage = ...`` at each call site,
+    One function rather than a ``state.create.stage = ...`` at each call site,
     for the reason ``state.set_mode`` is one function: the switch has three
     obligations that are easy to honour in four places and forget in the fifth
     -- it may have to move the selection, it has to leave Esc a way back, and
@@ -452,7 +452,7 @@ def _switch(ctx: Any, stage: str, select: str | None, follow: bool) -> None:
         target = _along_lineage(ctx, stage)
         if target is not None:
             library.select(ctx, target)
-    ctx.state.create_stage = stage
+    ctx.state.create.stage = stage
     state_mod.set_mode(ctx.state, MODE)
 
 
