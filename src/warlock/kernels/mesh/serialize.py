@@ -109,6 +109,21 @@ MAX_DECOMPRESSED_BYTES = 1 << 30
 MAX_DECLARED_MATERIALS = 100_000
 MAX_DECLARED_TEXTURES = 100_000
 
+# The 2026-09-18 audit's clay-01: MAX_DECOMPRESSED_BYTES bounds the archive's
+# stored/decompressed zip bytes and MAX_DECLARED_TEXTURES bounds how many
+# textures a scene may *name*, and ``pixelguard`` caps each individual
+# texture's own pixel count at decode time -- but nothing bounded the *sum*
+# of decoded bytes across every texture one document declares, the way
+# ``gltf.MAX_TOTAL_BYTES`` bounds the same sum for a GLB (H01). A small,
+# highly-compressible ``.wblk`` -- a handful of solid-colour PNGs -- decodes
+# to hundreds of MB to GB from a few hundred KB on disk and passed every
+# existing check, because ``_read_textures`` decoded every declared texture
+# in one pass with no running total. Sized the way ``gltf.MAX_TOTAL_BYTES``
+# is: comfortably above what Clay itself ever writes and well short of
+# exhausting memory. Read from module globals at call time so a test can
+# lower it, the same as MAX_DECOMPRESSED_BYTES above.
+MAX_TOTAL_TEXTURE_BYTES = 768 * (1 << 20)
+
 # The texture slots, in the order ``scene.TEXTURE_SLOTS`` lists them. Mirrored
 # rather than imported because ``clay/`` does not import the GL layer -- and the
 # names are a *file format* here, so pinning them locally is what stops a
@@ -461,6 +476,11 @@ def _read_textures(zf: zipfile.ZipFile, scene: dict[str, Any]) -> list[Any]:
     dropped looks like a deliberately untextured one.
     """
     out = []
+    # The 2026-09-18 audit's clay-01: a running total against
+    # MAX_TOTAL_TEXTURE_BYTES, charged from each image's already-known
+    # ``width``/``height`` -- ``Image.open`` is lazy, so both are available
+    # before the ``convert`` call that actually allocates the decoded bytes.
+    spent = 0
     for entry in scene.get("textures", []):
         name = str(entry.get("file", ""))
         try:
@@ -475,6 +495,12 @@ def _read_textures(zf: zipfile.ZipFile, scene: dict[str, Any]) -> list[Any]:
         # is ``pixelguard``'s now, which is also where the pixel ceiling is
         # asked -- before ``convert``, because that is the call that allocates.
         with pixelguard.opened(io.BytesIO(raw), f"a texture in this clay document ({name})") as im:
+            spent += im.width * im.height * 4
+            if spent > MAX_TOTAL_TEXTURE_BYTES:
+                raise ValueError(
+                    f"this clay document's decoded texture bytes pass the "
+                    f"{MAX_TOTAL_TEXTURE_BYTES:,} byte budget a document may spend"
+                )
             image = im.convert("RGBA")
         out.append((image.width, image.height, image.tobytes()))
     return out

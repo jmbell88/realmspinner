@@ -660,6 +660,30 @@ def test_read_wblk_refuses_a_document_declaring_too_many_textures(monkeypatch) -
         ser.read_wblk(data)
 
 
+def test_read_wblk_refuses_when_decoded_texture_bytes_sum_past_a_document_ceiling(
+    monkeypatch,
+) -> None:
+    """The document-wide twin of ``MAX_DECLARED_TEXTURES`` above: that constant
+    bounds how many textures a scene may *name*, and ``pixelguard`` bounds each
+    one's own pixel count at decode time, but nothing bounded the *sum* of
+    decoded bytes across every texture one document declares -- the way
+    ``gltf.MAX_TOTAL_BYTES`` bounds the same sum for a GLB (H01). A handful of
+    small, highly-compressible PNGs decode to far more RGBA bytes than their
+    stored size, and ``_read_textures`` decoded every one of them in a single
+    pass with no running total, so a small ``.wblk`` could still exhaust
+    memory on the way in. The 2026-09-18 audit's clay-01.
+    """
+    monkeypatch.setattr(ser, "MAX_TOTAL_TEXTURE_BYTES", 8)
+    doc = bd.ClayDoc(
+        objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
+        materials=[gltf.Material(name="m", base_color=_tex())],
+    )
+    data = ser.wblk_bytes(doc)  # one 2x2 texture, 16 decoded bytes, past the 8-byte cap
+
+    with pytest.raises(ValueError, match="decoded texture"):
+        ser.read_wblk(data)
+
+
 def test_a_shared_texture_is_written_once() -> None:
     image = _tex()
     doc = bd.ClayDoc(

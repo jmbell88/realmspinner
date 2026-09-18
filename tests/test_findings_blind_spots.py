@@ -254,6 +254,23 @@ def test_a_picked_element_is_expressed_in_the_mode_that_picked_it():
     assert edges.shape == (1, 2), "an edge is a vertex pair, not an index"
 
 
+# --- studio/modes/clay/ui/panes/outliner.py: _range ----------------------------------------
+
+
+def test_the_outliner_range_helper_is_now_covered_elsewhere():
+    """The 2026-09-18 audit's clay-04: ``_range`` -- the pure function behind
+    Shift+click range selection, including the ``ValueError`` fallback for a
+    deleted anchor -- had no test anywhere in the tree, and this file (the
+    guard for "the decidable half of a pane") did not name it either. The
+    full coverage (ascending pair, descending pair, deleted anchor) lives in
+    ``tests/modes/clay/test_clay_outliner.py``, the dedicated module for this
+    pane; this import is what keeps ``_range`` named here too.
+    """
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+
+    assert callable(clay_outliner._range)
+
+
 # --- studio/modes/clay/ui/_view_drag.py -----------------------------------------------------
 
 

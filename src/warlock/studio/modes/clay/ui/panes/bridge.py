@@ -97,11 +97,20 @@ def _facts(tab: Any) -> None:
 
 def _triangles(mesh: Any) -> int:
     """Counted the way the renderer fans them, so the number matches the
-    exported file rather than the face count the outliner would give."""
-    import numpy as np
+    exported file rather than the face count the outliner would give.
 
-    counts = np.diff(mesh.starts)
-    return int(np.maximum(counts - 2, 0).sum()) if len(counts) else 0
+    Off array *lengths* alone, the way ``viewport_hints.stats()`` derives its
+    own triangle count -- ``corners - 2*faces`` is exactly
+    ``sum(max(n-2, 0))`` over every face's corner count ``n``, because
+    ``validate`` guarantees every face has at least three corners, so the
+    ``max(n-2, 0)`` floor never bites. The 2026-09-18 audit's clay-02 found
+    this scanning the whole face array with ``np.diff``/``np.maximum``/``.sum``
+    on every draw of the Document panel -- ~8 ms per call for a 1,000,000-face
+    object, paid every imgui frame the panel is visible.
+    """
+    faces = max(0, len(mesh.starts) - 1)
+    corners = len(mesh.loops)
+    return max(0, corners - 2 * faces)
 
 
 def _files(ctx: Any, tab: Any) -> None:

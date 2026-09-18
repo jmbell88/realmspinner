@@ -69,10 +69,13 @@ def _body(ctx: Any) -> None:
         widgets.empty_state(icons.LIST, "Empty document", "Add a primitive to start.")
         return
 
-    # Visibility and selection do not change the document's *history*, but
-    # renaming and deleting do -- and a save is encoding the document on a task
-    # thread. The whole panel is disabled rather than half of it: a list where
-    # two of four controls respond is more confusing than one that does not.
+    # The 2026-09-18 audit's clay-03: visibility is one history step per
+    # toggle, same as every other ``set_props`` caller in this pane (rename)
+    # -- there is no exempt control. Only *selection* sits outside history,
+    # for the reason this module's docstring gives. The whole panel is
+    # disabled regardless of which controls would touch history: a save is
+    # encoding the document on a task thread, and a list where some controls
+    # respond and others do not is more confusing than one that does not.
     imgui.begin_disabled(tab.saving)
     # J86. Above the rows and inside the disable, because a search that worked
     # while a save was running would let the user narrow the list to one object
