@@ -32,6 +32,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from warlock import config as config_module
 from warlock import models
 from warlock.config import get_config
 from warlock.kernels.pixel import inpaint
@@ -69,7 +70,7 @@ BOX = (192, 192, 320, 320)
 @pytest.fixture(scope="module")
 def pipe():
     config = get_config()
-    spec = models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+    spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     t2i = Text2Image(spec, config.t2i_model_root)
     if not (t2i.model_dir / "model_index.json").exists():
         pytest.skip(f"{spec.label} weights not downloaded")

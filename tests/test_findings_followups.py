@@ -60,13 +60,9 @@ def test_xray_picks_through_the_surface():
 
 
 def test_the_shortcut_sheet_lists_the_sirens_clipboard():
-    from warlock.studio import main
+    from warlock.studio.shortcuts import shortcut_sections
 
-    sections = dict(main.shortcut_sections()) if callable(
-        getattr(main, "shortcut_sections", None)
-    ) else None
-    if sections is None:
-        pytest.skip("shortcut_sections is not a module-level function")
+    sections = dict(shortcut_sections())
     keys = " ".join(key for key, _what in sections["Sirens"])
     assert "Ctrl+C" in keys and "Ctrl+V" in keys
 

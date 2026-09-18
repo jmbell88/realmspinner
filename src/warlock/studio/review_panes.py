@@ -136,7 +136,7 @@ class ReviewPanes:
 
         from . import layout as layout_mod
         from . import review_mode
-        from .main import _column_boundary, _split_column
+        from .shell.frame import _column_boundary, _split_column
 
         ctx = self.app_ctx
         state = review_mode.ensure(ctx)

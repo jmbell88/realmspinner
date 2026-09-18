@@ -1,15 +1,22 @@
 """Clip library schema v3: per-clip ``duration_ms``, ``provisional`` and
 ``source``, the raised pose-count ceiling, and the direction-name guard.
 
-Before this, per-frame timing lived only in ``pipelines.charsheet.ANIMATIONS``,
-keyed by the five shipped animation names -- so a clip library could never
-carry a clip with any other name and still be timed. v3 moves timing into the
-library itself (``duration_ms`` on every clip) so any clip name can exist, and
-a v2 file (everything shipped before this parser existed) is migrated at read
-time from :data:`cliplib.LEGACY_CLIP_DURATION_MS`, restated here from
-``pipelines.charsheet.ANIMATIONS`` because ``kernels.rig`` (Layer 1) may not
-import ``pipelines`` (Layer 2) at all -- ``tests/test_layering.py``'s own
-rule for it.
+Before this, per-frame timing lived only in ``charsheet.ANIMATIONS`` (then
+``pipelines.charsheet.ANIMATIONS``), keyed by the five shipped animation
+names -- so a clip library could never carry a clip with any other name and
+still be timed. v3 moves timing into the library itself (``duration_ms`` on
+every clip) so any clip name can exist, and a v2 file (everything shipped
+before this parser existed) is migrated at read time from
+:data:`cliplib.LEGACY_CLIP_DURATION_MS`, restated here from
+``charsheet.ANIMATIONS`` rather than imported: when this was written,
+``kernels.rig`` (Layer 1) could not import ``pipelines.charsheet`` (Layer 2)
+at all (``tests/test_layering.py``'s own rule for it). The 2026-09-17
+restructure moved ``charsheet.py`` to ``warlock.kernels.charsheet`` -- a
+kernel wearing a pipelines name, like ``sheet.py`` beside it -- which
+dissolves that specific layer objection (kernels may import sibling
+kernels). Collapsing this restatement into a real import is a follow-on
+consolidation, not something this landing does; the constant stays restated
+and pinned here until it does.
 
 Design decision D2: ``closed`` stays the one fact about looping -- no ``loop``
 field is added alongside it.
@@ -96,14 +103,14 @@ def test_a_frame_time_off_the_animation_timebase_is_refused(bad):
 
 
 def test_the_restated_legacy_frame_times_are_charsheets_legacy_table():
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     expected = {name: duration_ms for name, _frames, _loop, duration_ms in charsheet.ANIMATIONS}
     assert expected == cliplib.LEGACY_CLIP_DURATION_MS
 
 
 def test_the_restated_direction_keys_are_charsheets_sixteen_directions():
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     expected = tuple(name for name, _yaw in charsheet._DIRECTIONS_16)
     assert expected == cliplib.TROUPE_DIRECTION_KEYS

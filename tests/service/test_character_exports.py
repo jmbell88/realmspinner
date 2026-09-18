@@ -22,10 +22,10 @@ import pytest
 from PIL import Image
 
 from warlock import clips
+from warlock.kernels import charsheet
+from warlock.kernels import sheet as sheetlib
 from warlock.kernels.geom3d import glbio
 from warlock.kernels.rig import store
-from warlock.pipelines import charsheet
-from warlock.pipelines import sheet as sheetlib
 from warlock.service import characters as svc_characters
 from warlock.service import derive as svc_derive
 from warlock.service import export as svc_export

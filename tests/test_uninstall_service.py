@@ -13,6 +13,7 @@ import threading
 
 import pytest
 
+from warlock import config as config_module
 from warlock import fetch
 from warlock.service import downloads as svc_downloads
 from warlock.service.errors import Conflict, Failed, Invalid, NotFound
@@ -284,7 +285,6 @@ def test_a_failed_multi_model_rename_rolls_the_whole_selection_back(svc, monkeyp
 def test_removing_the_default_base_model_is_allowed(svc):
     """No special case: it degrades to the friendly refusal every other missing
     checkpoint gets, and a rule the user cannot see would be worse."""
-    from warlock import models
     from warlock.service import jobs as svc_jobs
 
     # Everything sharing sdxl-base-1.0, so the directory actually goes.
@@ -293,7 +293,7 @@ def test_removing_the_default_base_model_is_allowed(svc):
         ["base:sdxl", "base:sdxl_cfg", "base:sdxl_cfg_pag", "base:pixel",
          "base:lightning"],
     )
-    assert models.DEFAULT_BASE_MODEL == "sdxl_cfg"
+    assert config_module.DEFAULT_BASE_MODEL == "sdxl_cfg"
     with pytest.raises(Invalid) as caught:
         svc_jobs.create_job(svc, kind="text", prompt="a rock", output="reference")
     assert "Settings" in caught.value.message

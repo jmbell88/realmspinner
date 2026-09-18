@@ -35,9 +35,9 @@ from warlock.characters import Recipe
 from warlock.characters import family as familylib
 from warlock.characters.amorphous import generate
 from warlock.characters.instantiate import instantiate
+from warlock.kernels import charsheet
 from warlock.kernels.geom3d import gltf
 from warlock.kernels.rig import cliplib, skeleton, templates
-from warlock.pipelines import charsheet
 
 ARCHETYPE = "amorphous"
 SILHOUETTES = sorted(familylib.silhouettes(ARCHETYPE))

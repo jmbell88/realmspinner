@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import main as main_mod
 from warlock.studio import state as state_mod
 from warlock.studio.panes import inspector, library
+from warlock.studio.shell import events as events_mod
 from warlock.studio.state import AppState
 
 
@@ -29,7 +29,7 @@ def _clean():
 
 def _leave(ctx: Any, old: str, new: str) -> None:
     ctx.state.mode = old
-    state_mod.set_mode_leave(lambda was: main_mod._leave_mode_if_needed(ctx, was))
+    state_mod.set_mode_leave(lambda was: events_mod._leave_mode_if_needed(ctx, was))
     assert state_mod.set_mode(ctx.state, new) is True
 
 

@@ -236,8 +236,8 @@ class RigOps:
         sheet delete.
         """
         from . import queue as queue_mod
+        from .kernels import sheet as sheetlib
         from .kernels.rig import poses as rig_poses
-        from .pipelines import sheet as sheetlib
 
         poses = rig_poses.deform_battery(template)
         rig_glb = source_dir / "rig.glb"
@@ -364,7 +364,7 @@ class RigOps:
 
         Like a rig, the output belongs to the mesh and lands in the *source*
         job's directory (``sheets/<sheet_id>.png`` plus its sidecar). The grid
-        and the packing are pure host-side code in ``pipelines/sheet.py``;
+        and the packing are pure host-side code in ``kernels/sheet.py``;
         Blender only ever renders one square transparent frame per cell into a
         scratch directory that goes away either way.
 
@@ -373,7 +373,7 @@ class RigOps:
         a trellis run.
         """
         from . import queue as queue_mod
-        from .pipelines import sheet as sheetlib
+        from .kernels import sheet as sheetlib
 
         job_id = job["id"]
         params = job["params"]
@@ -415,7 +415,7 @@ class RigOps:
         if clip:
             # Rebuilt from the same two poses rather than shipped in params: the
             # host is the single place a grid or a clip is decided (see
-            # pipelines/sheet.py), and storing the expanded frames would be a
+            # kernels/sheet.py), and storing the expanded frames would be a
             # second copy that could disagree with it.
             ends = [
                 await asyncio.to_thread(store.read_pose, source_dir, str(clip[k]))
@@ -619,7 +619,7 @@ class RigOps:
         serving that atlas until its own sidecar exists, which is true of the
         first run and of no other.
         """
-        from .pipelines import sheet as sheetlib
+        from .kernels import sheet as sheetlib
 
         with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
             frames_dir = Path(tmp)

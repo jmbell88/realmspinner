@@ -342,7 +342,7 @@ def test_a_reduced_frame_set_packs_into_an_atlas_the_ceiling_allows(tmp_path):
     """Why this exists at all: a 256-cell Troupe sheet at the 512px render the
     program supersamples from would pack to 4096x16384, and ``check_atlas_size``
     refuses it at 8192. The atlas can only ever exist at the logical size."""
-    from warlock.pipelines import sheet
+    from warlock.kernels import sheet
 
     with pytest.raises(ValueError, match="the limit is 8192"):
         sheet.check_atlas_size(8 * 512, 32 * 512)

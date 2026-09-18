@@ -1,6 +1,6 @@
 """The one owner of the agreement between the two copies of Troupe's table.
 
-``pipelines.charsheet`` decides where a cell is in a rendered character sheet;
+``kernels.charsheet`` decides where a cell is in a rendered character sheet;
 ``studio.troupe.spec`` decides what that cell means to the studio, and the
 Inker handoff built on it. They cannot share code -- ``studio/troupe`` imports
 nothing outward (``test_troupe_imports.py`` pins the empty set), and
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.pipelines import charsheet as cs
+from warlock.kernels import charsheet as cs
 from warlock.studio.troupe import spec as troupe_spec
 
 

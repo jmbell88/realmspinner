@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 
 from warlock import clips
+from warlock.kernels import charsheet as cs
+from warlock.kernels import sheet as sheetlib
 from warlock.kernels.rig import cliplib
-from warlock.pipelines import charsheet as cs
-from warlock.pipelines import sheet as sheetlib
 
 IDENT = [0.0, 0.0, 0.0, 1.0]
 

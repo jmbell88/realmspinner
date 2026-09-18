@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from warlock import config as config_module
 from warlock import models
 
 
@@ -25,7 +26,7 @@ def test_base_and_style_keys_do_not_collide():
 
 
 def test_default_base_model_exists():
-    assert models.DEFAULT_BASE_MODEL in models.BASE_MODELS
+    assert config_module.DEFAULT_BASE_MODEL in models.BASE_MODELS
 
 
 @pytest.mark.parametrize("key", sorted(models.BASE_MODELS))

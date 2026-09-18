@@ -3,7 +3,7 @@
 The preview strip is a *direction* preview -- it cannot pose the mesh, so
 drawing one row per pose would draw the same row N times. The grid the worker
 will actually produce is stated as a summary line instead, and that line is the
-part that has to agree with ``pipelines.sheet.plan``.
+part that has to agree with ``kernels.sheet.plan``.
 """
 
 from __future__ import annotations
@@ -152,7 +152,7 @@ def _preview(ctx: Any, form: dict[str, Any], job: Any) -> None:
     ):
         # The asset's own front (``poser_mode.set_front`` / the viewport
         # toolbar's twin) is added to every yaw here because the queued
-        # render (``pipelines/sheet.py``) adds it to every camera it frames --
+        # render (``kernels/sheet.py``) adds it to every camera it frames --
         # dev/INVARIANTS.md's "a sprite sheet's grid is decided on the host,
         # never in Blender" is exactly the preview/renderer agreement this
         # module already keeps for the frame margin and the yaw-0-on-+Z

@@ -137,12 +137,13 @@ def test_the_stage_rail_ticks_a_set_not_a_single_furthest_key():
 
 def test_the_rig_stage_shows_the_progress_of_a_job_it_started(monkeypatch):
     """The verified bug: the tray's "Working now" row was only ever drawn
-    from ``main._viewport_pane``'s Reference-stage tray, so a remesh or a rig
-    bake started from the Rig stage showed nothing here but the floating
-    card. ``_stage_pane`` now draws the same row before it dispatches to any
-    stage's own panel."""
-    from warlock.studio import generation_workspace, main
+    from ``shell.frame.FrameMixin._viewport_pane``'s Reference-stage tray, so
+    a remesh or a rig bake started from the Rig stage showed nothing here but
+    the floating card. ``_stage_pane`` now draws the same row before it
+    dispatches to any stage's own panel."""
+    from warlock.studio import generation_workspace
     from warlock.studio.panes import stage_rig
+    from warlock.studio.shell import frame
 
     calls: list[object] = []
     monkeypatch.setattr(
@@ -151,7 +152,7 @@ def test_the_rig_stage_shows_the_progress_of_a_job_it_started(monkeypatch):
     monkeypatch.setattr(stage_rig, "draw", lambda ctx: None)
 
     ctx = SimpleNamespace(state=SimpleNamespace(create_stage="rig"))
-    main._stage_pane(ctx)
+    frame._stage_pane(ctx)
 
     assert calls == [ctx], "the Rig stage never asked the tray for its progress row"
 
@@ -160,8 +161,9 @@ def test_the_reference_stage_does_not_draw_the_tray_progress_row_twice(monkeypat
     """Reference already carries the canvas tray and the floating card; a
     third copy from ``_stage_pane`` would put the count back up to three
     instead of trading one restatement for reach on every other stage."""
-    from warlock.studio import generation_workspace, main
+    from warlock.studio import generation_workspace
     from warlock.studio.panes import settings_2d
+    from warlock.studio.shell import frame
 
     calls: list[object] = []
     monkeypatch.setattr(
@@ -170,7 +172,7 @@ def test_the_reference_stage_does_not_draw_the_tray_progress_row_twice(monkeypat
     monkeypatch.setattr(settings_2d, "draw", lambda ctx: None)
 
     ctx = SimpleNamespace(state=SimpleNamespace(create_stage="reference"))
-    main._stage_pane(ctx)
+    frame._stage_pane(ctx)
 
     assert calls == []
 
@@ -179,9 +181,10 @@ def test_the_canvas_tray_no_longer_draws_its_own_working_now_row():
     """The restatement dropped from the Reference stage (2026-09-07 Create
     review, item 5.7): the tray used to call ``_progress`` on the active job
     directly from ``draw``. That call moved out to ``progress_row``, which
-    ``main._stage_pane`` now calls instead -- the pick was forced rather than
-    chosen, since the other two restatements (the settings column's "Queue:
-    ..." line and the floating card) live in panes this change does not own.
+    ``shell.frame.FrameMixin._stage_pane`` now calls instead -- the pick was
+    forced rather than chosen, since the other two restatements (the settings
+    column's "Queue: ..." line and the floating card) live in panes this
+    change does not own.
     """
     import inspect
 

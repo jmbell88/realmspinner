@@ -178,7 +178,7 @@ def _front_yaw(ctx: Any, job: Any, viewer: Any) -> None:
     """Poser's front-of-sheet control, for the meshes Poser cannot open.
 
     Poser only binds a rigged asset's own ``rig.glb`` (:func:`shows_front`'s
-    reason), but ``pipelines/sheet.py`` never asks whether the mesh it is
+    reason), but ``kernels/sheet.py`` never asks whether the mesh it is
     framing carries bones, so an unrigged prop is exactly as sheetable and had
     no route to say which way it faces at all. Same door
     (``service.jobs.set_front_yaw``) and the same task key prefix as Poser's

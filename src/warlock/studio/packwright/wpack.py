@@ -65,7 +65,7 @@ MAX_SOURCE_PIXELS = 16_000_000
 # hundred near-ceiling sources, each individually legal, decodes to hundreds of
 # gigabytes of RGBA before the loop that reads them ever finishes. No atlas
 # this app can pack ever holds more content than the largest atlas it can
-# produce -- ``pipelines.sheet.MAX_ATLAS_PX`` (8192) squared -- which is the
+# produce -- ``kernels.sheet.MAX_ATLAS_PX`` (8192) squared -- which is the
 # same figure ``studio.pixelguard.MAX_DECODE_PIXELS`` is already set to and
 # for the identical reason stated there. The number is written here rather
 # than imported, the same call :data:`MAX_SOURCE_PIXELS` above already makes

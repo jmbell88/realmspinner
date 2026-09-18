@@ -1,7 +1,7 @@
 """Troupe's controller: characters, sheets, the clock, and the way out.
 
 The layer that knows about jobs and task threads; the engine under
-``studio/troupe/`` knows about neither, and ``pipelines/charsheet.py`` knows
+``studio/troupe/`` knows about neither, and ``kernels/charsheet.py`` knows
 about neither *and* about no filesystem. The panes draw, this decides.
 
 **A character is a mesh with a rig and at least one character sheet**, and the
@@ -1150,7 +1150,7 @@ def _layout_request(form: dict[str, Any]) -> dict[str, Any]:
     for one on a v3+ payload), so a form that set a rate and stayed on
     ``"version": 2`` would have the rate silently ignored rather than applied.
     """
-    from ..pipelines import charsheet
+    from ..kernels import charsheet
 
     source = form.get("layout") or {}
     movements = [
@@ -1185,7 +1185,7 @@ def camera_elevation(form: Mapping[str, Any]) -> float | None:
     doing it in the service would mean the door storing a name that a later
     edit of the table could silently re-point at a different angle.
 
-    Read from ``pipelines.charsheet``, which is where the table lives and where
+    Read from ``kernels.charsheet``, which is where the table lives and where
     ``service.troupe_options`` reads it from too -- so the combo the user sees
     and the number the worker renders at come from one home. This module
     already sits above ``pipelines`` (see the module docstring); the *panes*
@@ -1201,7 +1201,7 @@ def camera_elevation(form: Mapping[str, Any]) -> float | None:
     key = str(form.get("camera") or "")
     if not key:
         return None
-    from ..pipelines import charsheet
+    from ..kernels import charsheet
 
     return next(
         (angle for preset, _label, angle in charsheet.CAMERA_PRESETS if preset == key),

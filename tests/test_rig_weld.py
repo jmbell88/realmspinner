@@ -350,8 +350,8 @@ def test_the_battery_plans_a_grid_through_the_one_sheet_planner(tmp_path):
     """Not a second renderer: the QA sheet is the ordinary sheet pipeline with
     a different pose list, which is what keeps one set of camera conventions."""
     from warlock import queue as queue_mod
+    from warlock.kernels import sheet as sheetlib
     from warlock.kernels.rig import poses as rig_poses
-    from warlock.pipelines import sheet as sheetlib
 
     poses = rig_poses.deform_battery("humanoid")
     layout = sheetlib.plan(

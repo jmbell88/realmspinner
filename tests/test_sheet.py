@@ -21,10 +21,10 @@ from PIL import Image
 from warlock import models
 from warlock.config import Config
 from warlock.db import JobStore
+from warlock.kernels import sheet as sheetlib
 from warlock.kernels.rig import blender_spec
 from warlock.kernels.rig import store as rig_store
 from warlock.pipelines import blender_run
-from warlock.pipelines import sheet as sheetlib
 from warlock.queue import Worker
 from warlock.service import Conflict, Invalid, NotFound
 from warlock.service import jobs as svc_jobs

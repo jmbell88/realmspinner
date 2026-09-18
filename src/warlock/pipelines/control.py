@@ -1,6 +1,6 @@
 """Structure hints for ControlNet: pure, deterministic, torch-free.
 
-Same split as pipelines/sheet.py -- everything decidable lives here and is
+Same split as kernels/sheet.py -- everything decidable lives here and is
 testable with a Pillow-drawn fixture and no GPU. cv2 is imported inside the
 functions so this module stays importable without the text2image extra.
 

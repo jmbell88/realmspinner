@@ -249,6 +249,18 @@ def classify(rel: str) -> Layer:
         return Layer(1, "kernel:audio")
     if rel in MANUAL_KERNEL:
         return Layer(1, "kernel:manual")
+    if rel.startswith("kernels/"):
+        # Anything else under kernels/, named or not. P4 wave two added the
+        # first *flat* modules there (``kernels/sheet.py``,
+        # ``kernels/charsheet.py`` -- the layer-1 table sanctions flat
+        # modules, ``palettes.py`` is one), and with only the per-package
+        # prefixes above they fell through to the L4 "shell-default" at the
+        # bottom of this function: a kernel classified as UI, silently, which
+        # is the one direction this pin exists to refuse. A catch-all rather
+        # than another prefix constant, so the next kernel -- package or
+        # module -- is born at the right layer instead of waiting for someone
+        # to notice it was not.
+        return Layer(1, "kernel")
     if rel in WEIGHTS_TOP:
         return Layer(2, "weights")
     if rel.startswith("pipelines/"):
@@ -487,18 +499,33 @@ def _violations() -> list[tuple[Edge, str]]:
 # reach mode code only through `importlib.import_module(f"...")`, which this
 # AST walk cannot see -- see the module docstring.)
 _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.main", "warlock.studio.clay_viewport"),
-    ("warlock.studio.main", "warlock.studio.create_brief"),
-    ("warlock.studio.main", "warlock.studio.mason_viewport"),
-    ("warlock.studio.main", "warlock.studio.poser_viewport"),
-    ("warlock.studio.main", "warlock.studio.review_panes"),
-    # No ``main -> create_rail`` row, though P4 moved Create's stage rail out
-    # of ``widgets.py`` and ``main._stage_rail`` now calls it: that import is
-    # function-scope (``from . import create_rail, create_stages`` inside the
-    # method), and this walk is module-scope only, for the reasons the module
-    # docstring gives. Named here because an entry *was* added on the
-    # reasoning that it would be an edge, and the pin refused it as stale --
-    # which is the pin working.
+    # P4 wave two moved this dispatch one file over without changing its
+    # nature: ``main.py`` (5,971 lines) is the process entry now, and the
+    # ``App`` class is ``shell/app.py``, assembled from fourteen mixins. The
+    # five ``main -> *`` pairs that used to sit here are gone because the
+    # imports are gone from that file, not because the relationship ended --
+    # it is ``shell.app`` naming each mode's pane mixin now, and six of the
+    # ten are *new* edges rather than moved ones, because those workspaces
+    # were inline methods on ``App`` before the split and an inline method is
+    # invisible to an import walk. Which is the honest reading: the coupling
+    # was always there, and making it an import is what made it countable.
+    ("warlock.studio.shell.app", "warlock.studio.clay_viewport"),
+    ("warlock.studio.shell.app", "warlock.studio.inker_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.mason_viewport"),
+    ("warlock.studio.shell.app", "warlock.studio.muse_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.packwright_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.plotter_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.poser_viewport"),
+    ("warlock.studio.shell.app", "warlock.studio.review_panes"),
+    ("warlock.studio.shell.app", "warlock.studio.sirens_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.troupe_workspace"),
+    ("warlock.studio.shell.frame", "warlock.studio.create_brief"),
+    # No ``create_rail`` row, though P4 moved Create's stage rail out of
+    # ``widgets.py`` and ``_stage_rail`` (now in ``shell/frame.py``) calls
+    # it: that import is function-scope, and this walk is module-scope only,
+    # for the reasons the module docstring gives. Named here because an entry
+    # *was* added on the reasoning that it would be an edge, and the pin
+    # refused it as stale -- which is the pin working.
     ("warlock.studio.panes.landing", "warlock.studio.create_stages"),
 })
 
@@ -605,53 +632,22 @@ _P11_P12_LIBRARY_ABSORBS: frozenset[tuple[str, str]] = frozenset({
 # the code) and named here for whoever picks the plan back up. See the P1
 # landing report for the case each one earns.
 #
-# studio/undo.py's layer and studio/manual/{loader,parser}.py's layer used to
-# sit here as open questions -- P3 (2026-09-17) answered both by literally
-# moving the files (undo.py to core/undo.py, loader.py/parser.py to
-# kernels/manual/), so `classify` now maps them to their real layer (0 and 1)
-# directly and every edge that used to name them here is no longer a
-# violation at all. Deleted rather than left, per this file's own second
-# test's rule for a landed phase.
+# This block has emptied twice now, and both times by the same means: the
+# files moved rather than the rule bending. P3 (2026-09-17) answered
+# studio/undo.py's layer and studio/manual/{loader,parser}.py's by moving
+# them (core/undo.py, kernels/manual/), and P4 wave two (2026-09-17)
+# answered the five that were left -- config -> models became a constant
+# living at the layer that actually owns it (which checkpoint the app
+# defaults to is configuration, so DEFAULT_BASE_MODEL is config.py's now);
+# clips.py -> pipelines/{charsheet,sheet} and kernels/pixel/sheetout.py ->
+# pipelines/sheet both dissolved when sheet.py and charsheet.py moved to
+# kernels/, which is where two stdlib-only modules that decide what cell 137
+# depicts always belonged; and pipelines/llama_client.py -> familiar/contract
+# was closed by moving the client beside the thing it is a client of, with
+# one recorded httpx exemption in familiar's own import ban. Each is deleted
+# here rather than struck through, per this file's own second test's rule for
+# a landed phase -- what remains below is what genuinely has no phase.
 _UNRESOLVED: frozenset[tuple[str, str]] = frozenset({
-    # pipelines/llama_client.py is the one _P3_FAMILIAR_MOVES_OUT pair P3
-    # did not actually close. The move fixed the "-> studio/" shape (Familiar
-    # is warlock/familiar/ now, not studio/familiar/), but dev/RESTRUCTURE.md's
-    # own table puts pipelines/ at L2 whose "may import" column is "core,
-    # kernels" -- L3 (warlock/familiar/) is not on it -- so pipelines/
-    # importing familiar/contract stays banned by the plain "may not import a
-    # higher layer" rule, just no longer by the studio-specific one. No phase
-    # says who resolves this (llama_client.py staying in pipelines/ while
-    # needing Familiar's contract module is exactly the "shared code trapped"
-    # shape P3's own intro names, but P3's own bullet list only names the
-    # move, not a fix for the layer number this leaves behind).
-    #
-    # Checked by hand 2026-09-17 before leaving it here, because the obvious
-    # fix is wrong. What ``llama_client`` takes from ``contract`` is only
-    # prompt-sizing data -- ``SIZED_SKILLS``, ``SAMPLING``, ``TRAINED_WINDOW``,
-    # ``output_budget`` -- which reads like kernel material, so "promote
-    # ``contract`` to ``kernels/``" is the tempting answer. It is not available:
-    # ``contract.derive_clay_card`` builds the Clay card from the *live*
-    # ``agent_clay`` tool surface, so ``contract`` depends on layer 5 and is not
-    # pure in the sense ``kernels/`` means. The real candidate is the other
-    # direction -- ``llama_client`` moves into ``warlock/familiar/``, and that
-    # package's httpx ban gains one recorded exemption for it, which keeps the
-    # property the ban is actually for (a training script can import
-    # ``contract`` with no network stack) while putting the client beside the
-    # thing it is a client of. That is a decision, not a move, so it belongs to
-    # whoever runs P4.
-    ("warlock.pipelines.llama_client", "warlock.familiar.contract"),
-    # config.py (core) importing models.DEFAULT_BASE_MODEL (weights) for one
-    # constant; clips.py (kernels/rig) and inker/sheetout.py (kernels/pixel)
-    # each importing a pipelines/ writer directly. dev/RESTRUCTURE.md's own
-    # P3 section names these three explicitly as edges its first draft had no
-    # row for -- "not the trapped-in-studio shape at all... each needs a
-    # call: invert the dependency, or move the constant" -- and P3 has now
-    # come and gone (2026-09-17) without making that call, so this is a
-    # confirmed-still-open gap in the plan, not a newly discovered one.
-    ("warlock.config", "warlock.models"),
-    ("warlock.clips", "warlock.pipelines.charsheet"),
-    ("warlock.clips", "warlock.pipelines.sheet"),
-    ("warlock.kernels.pixel.sheetout", "warlock.pipelines.sheet"),
     # mason -> clay, in the direction Mason's own code says is banned:
     # clay_ops.py's `_align` docstring states "Mason may not import Clay (its
     # own import pin says so, and for a real reason)" while arguing the

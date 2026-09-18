@@ -23,7 +23,7 @@ of two masks is not running a benchmark either. What is left here beyond
 those two readers is the regression half -- the same prompts, the same seeds,
 measured the same way.
 
-The split mirrors pipelines/sheet.py: everything decidable (the suite, the
+The split mirrors kernels/sheet.py: everything decidable (the suite, the
 recipes, the manifest, the grid, the aggregation in ``score.py``) is pure and
 torch-free, and only the three stages that genuinely need a GPU -- running
 jobs, rendering views, and the metrics themselves, which import torch inside

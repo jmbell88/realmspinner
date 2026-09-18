@@ -25,7 +25,7 @@ cross the same GL boundary this module exists to avoid.
 **Registries, not a hand-kept menu.** Every enum a schema declares --
 families, themes, movements, rig templates, sheet templates, cameras,
 colours -- is read fresh off the same registries the human panes read
-(``characters.family``, ``kernels.rig``, ``clips``, ``pipelines.charsheet``,
+(``characters.family``, ``kernels.rig``, ``clips``, ``kernels.charsheet``,
 ``pipelines.pixelize``, ``service.troupe``/``export``/``characters``) every
 time :func:`tools` or a handler runs, through :func:`_enums`. A species or a
 shipped clip added tomorrow needs no edit here. ``size`` is the one
@@ -221,8 +221,9 @@ class _Enums:
 
 def _enums() -> _Enums:
     from ..characters import family as family_mod
+    from ..kernels import charsheet
     from ..kernels.rig import cliplib, templates
-    from ..pipelines import charsheet, pixelize
+    from ..pipelines import pixelize
     from ..service import characters as svc_characters
     from ..service import export as svc_export
     from ..service import troupe as svc_troupe
@@ -265,7 +266,7 @@ def _range_refusal(value: Any, lo: int, hi: int, field: str) -> dict | None:
 
 
 def _camera_elevation(camera: str) -> float:
-    from ..pipelines import charsheet
+    from ..kernels import charsheet
 
     for key, _label, elevation in charsheet.CAMERA_PRESETS:
         if key == camera:
@@ -310,7 +311,7 @@ def tools() -> list[rpc.Tool]:
     """Every tool this surface offers, built fresh from :func:`_enums` --
     see the module docstring. Called once per catalogue build, the same
     cost ``agent_clay.tools`` already accepts for the same reason."""
-    from ..pipelines import charsheet
+    from ..kernels import charsheet
 
     e = _enums()
     id_schema = {"type": "string", "pattern": "^[0-9a-f]{12}$"}
@@ -802,8 +803,9 @@ def call(svc: Any, session: Session, name: str, arguments: dict) -> dict:
 def _h_character_options(svc: Any, session: Session, args: Args) -> dict:
     del session, args
     from ..characters import family as family_mod
+    from ..kernels import charsheet
     from ..kernels.rig import cliplib
-    from ..pipelines import charsheet, pixelize
+    from ..pipelines import pixelize
     from ..service import export as svc_export
     from ..service import palettes
     from ..service import rig as svc_rig
@@ -906,7 +908,7 @@ def _h_character_clips(svc: Any, session: Session, args: Args) -> dict:
 
 
 def _h_character_create(svc: Any, session: Session, args: Args) -> dict:
-    from ..pipelines import charsheet
+    from ..kernels import charsheet
     from ..service import characters as svc_characters
 
     e = _enums()
@@ -1056,7 +1058,7 @@ def _h_character_rig(svc: Any, session: Session, args: Args) -> dict:
 
 
 def _h_character_sheet_create(svc: Any, session: Session, args: Args) -> dict:
-    from ..pipelines import charsheet
+    from ..kernels import charsheet
     from ..service import palettes
     from ..service import rig as svc_rig
     from ..service import troupe as svc_troupe

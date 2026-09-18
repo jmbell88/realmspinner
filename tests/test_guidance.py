@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from warlock import config as config_module
 from warlock import guidance, models
 
 
@@ -138,7 +139,7 @@ def test_form_fields_covers_every_table():
 def test_base_model_defaults_and_is_always_present():
     # The worker must never have to guess a checkpoint, so unlike the optional
     # selections this key is written even when the request omits it.
-    assert guidance.normalize({})["base_model"] == models.DEFAULT_BASE_MODEL
+    assert guidance.normalize({})["base_model"] == config_module.DEFAULT_BASE_MODEL
 
 
 def test_base_model_is_carried_through():

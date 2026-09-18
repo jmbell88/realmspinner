@@ -142,7 +142,8 @@ def test_the_door_waits_out_a_cold_start_plus_a_full_reply():
     """A cold ``ensure_started`` can take ``STARTUP_TIMEOUT`` before the chat
     round trip's own ``CHAT_TIMEOUT`` starts; a loop timeout equal to the chat
     timeout alone gave up on every slow cold start."""
-    from warlock.pipelines import llama, llama_client
+    from warlock.familiar import llama_client
+    from warlock.pipelines import llama
 
     assert svc_familiar.LOOP_TIMEOUT > llama.STARTUP_TIMEOUT + llama_client.CHAT_TIMEOUT
 

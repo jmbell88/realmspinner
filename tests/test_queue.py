@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from warlock import config as config_module
 from warlock import guidance
 from warlock.config import Config
 from warlock.db import JobStore
@@ -646,9 +647,9 @@ async def test_a_coexist_sprite_stage_also_releases_the_image_model(
 
         pipe.unload = _unload
         worker._text2image = pipe
-        worker._t2i_key = models.DEFAULT_BASE_MODEL
+        worker._t2i_key = config_module.DEFAULT_BASE_MODEL
 
-        spec = models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+        spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
         assert spec.residency != models.OFFLOAD, (
             "this test is about the *non*-offload path; pick another base if "
             "the default ever becomes an offloaded one"
@@ -666,7 +667,7 @@ async def test_a_coexist_sprite_stage_also_releases_the_image_model(
         # at the same base.
         assert pipe.loaded is False
         assert worker._text2image is pipe
-        assert worker._t2i_key == models.DEFAULT_BASE_MODEL
+        assert worker._t2i_key == config_module.DEFAULT_BASE_MODEL
     finally:
         worker.store.close()
 
@@ -801,8 +802,8 @@ async def test_a_base_switch_unloads_the_old_pipe_before_the_commit_check(
     klein = _offloaded_key()
     worker = _make_worker(tmp_path)
     try:
-        await worker._acquire_t2i(models.BASE_MODELS[models.DEFAULT_BASE_MODEL],
-                                  models.DEFAULT_BASE_MODEL)
+        await worker._acquire_t2i(models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL],
+                                  config_module.DEFAULT_BASE_MODEL)
         old = worker._text2image
         assert old is not None
         # ``_acquire_t2i`` *constructs* the pipe; the real one loads its
@@ -847,8 +848,8 @@ async def test_a_switch_still_short_after_the_unload_is_refused(
     klein = _offloaded_key()
     worker = _make_worker(tmp_path)
     try:
-        await worker._acquire_t2i(models.BASE_MODELS[models.DEFAULT_BASE_MODEL],
-                                  models.DEFAULT_BASE_MODEL)
+        await worker._acquire_t2i(models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL],
+                                  config_module.DEFAULT_BASE_MODEL)
         old = worker._text2image
         old.loaded = True  # a resident pipe holds weights -- see the test above
         state["free"] = 6.0
@@ -871,8 +872,8 @@ async def test_a_warm_same_key_pipe_is_never_commit_checked(
     state = _commit_scenario(monkeypatch)
     worker = _make_worker(tmp_path)
     try:
-        await worker._acquire_t2i(models.BASE_MODELS[models.DEFAULT_BASE_MODEL],
-                                  models.DEFAULT_BASE_MODEL)
+        await worker._acquire_t2i(models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL],
+                                  config_module.DEFAULT_BASE_MODEL)
         first = worker._text2image
         # As after a real generate: the fake only flips this inside generate(),
         # and "warm" means the weights are already in commit -- an unloaded
@@ -881,7 +882,7 @@ async def test_a_warm_same_key_pipe_is_never_commit_checked(
         state["free"] = 0.0
 
         pipe, _handoff = await worker._acquire_t2i(
-            models.BASE_MODELS[models.DEFAULT_BASE_MODEL], models.DEFAULT_BASE_MODEL
+            models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL], config_module.DEFAULT_BASE_MODEL
         )
         assert pipe is first
         assert first.unload_calls == 0
@@ -901,8 +902,8 @@ async def test_a_retained_unloaded_pipe_still_passes_the_commit_check(
     state = _commit_scenario(monkeypatch)
     worker = _make_worker(tmp_path)
     try:
-        await worker._acquire_t2i(models.BASE_MODELS[models.DEFAULT_BASE_MODEL],
-                                  models.DEFAULT_BASE_MODEL)
+        await worker._acquire_t2i(models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL],
+                                  config_module.DEFAULT_BASE_MODEL)
         pipe = worker._text2image
         pipe.loaded = True  # as a finished generate leaves it
         # _generate's teardown: unload, deliberately *without* clearing the
@@ -913,15 +914,15 @@ async def test_a_retained_unloaded_pipe_still_passes_the_commit_check(
         state["free"] = 0.0
         with pytest.raises(RuntimeError, match="host memory"):
             await worker._acquire_t2i(
-                models.BASE_MODELS[models.DEFAULT_BASE_MODEL],
-                models.DEFAULT_BASE_MODEL,
+                models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL],
+                config_module.DEFAULT_BASE_MODEL,
             )
 
         # With room, the same acquire reuses the retained object -- the check
         # gates the load, it does not evict the identity.
         state["free"] = 40.0
         again, _handoff = await worker._acquire_t2i(
-            models.BASE_MODELS[models.DEFAULT_BASE_MODEL], models.DEFAULT_BASE_MODEL
+            models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL], config_module.DEFAULT_BASE_MODEL
         )
         assert again is pipe
     finally:
@@ -939,8 +940,8 @@ async def test_a_store_generation_bump_reloads_through_the_commit_check(
     _commit_scenario(monkeypatch)
     worker = _make_worker(tmp_path)
     try:
-        await worker._acquire_t2i(models.BASE_MODELS[models.DEFAULT_BASE_MODEL],
-                                  models.DEFAULT_BASE_MODEL)
+        await worker._acquire_t2i(models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL],
+                                  config_module.DEFAULT_BASE_MODEL)
         old = worker._text2image
         old.loaded = True  # a resident pipe holds weights -- see the test above
         fetch.bump_store_generation()
@@ -955,7 +956,7 @@ async def test_a_store_generation_bump_reloads_through_the_commit_check(
         )
 
         pipe, _handoff = await worker._acquire_t2i(
-            models.BASE_MODELS[models.DEFAULT_BASE_MODEL], models.DEFAULT_BASE_MODEL
+            models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL], config_module.DEFAULT_BASE_MODEL
         )
         assert old.unload_calls == 1
         assert pipe is not old, "the rebuilt pipe must be a new object"
@@ -1267,7 +1268,7 @@ async def test_a_resident_sdxl_pipe_is_not_charged_twice_at_dispatch(
     ``_check_resources`` must credit whatever it finds resident, and the
     sibling test below pins that an *image* job gets no such credit."""
     import warlock.queue as queue_mod
-    from warlock import models, vram
+    from warlock import vram
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     monkeypatch.setattr(queue_mod, "vram_gib", lambda: (7.1, 7.52))
@@ -1279,7 +1280,7 @@ async def test_a_resident_sdxl_pipe_is_not_charged_twice_at_dispatch(
     try:
         worker.trellis.running = True
         worker._text2image = SimpleNamespace(loaded=True)
-        worker._t2i_key = models.DEFAULT_BASE_MODEL
+        worker._t2i_key = config_module.DEFAULT_BASE_MODEL
 
         # Pipe resident, free down by what it holds: admitted, because the
         # 7.5 GiB it is holding is credited rather than demanded again.
@@ -1316,7 +1317,7 @@ async def test_check_resources_credits_the_registry_estimate_when_torch_is_impor
     process's own CUDA allocations and the checkpoint lives in the child.
     """
     import warlock.queue as queue_mod
-    from warlock import models, vram
+    from warlock import vram
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     # The near-zero tuple pose2d's CPU-only torch import leaves behind --
@@ -1331,7 +1332,7 @@ async def test_check_resources_credits_the_registry_estimate_when_torch_is_impor
     try:
         worker.trellis.running = True
         worker._text2image = SimpleNamespace(loaded=True)
-        worker._t2i_key = models.DEFAULT_BASE_MODEL
+        worker._t2i_key = config_module.DEFAULT_BASE_MODEL
 
         job = {"kind": "text", "stage": "model", "params": {"resolution": 512}}
         worker._check_resources(job)

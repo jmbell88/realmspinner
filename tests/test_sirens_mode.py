@@ -519,15 +519,16 @@ def test_leaving_sirens_mode_stops_a_sounding_song(monkeypatch):
     ``state.set_mode`` is the one choke point every door -- the rail, the
     palette, Esc -- already goes through, so this proves the real chain end to
     end rather than restating any one link of it: the hook ``state.py``
-    exposes (``set_mode_leave``), the callback ``main.py`` installs through it
-    (``main._leave_sirens_if_needed``), and ``sirens_play.stop``'s own
+    exposes (``set_mode_leave``), the callback ``shell/app.py`` installs
+    through it (``shell.events._leave_sirens_if_needed``), and
+    ``sirens_play.stop``'s own
     withdrawal mechanism (S1, 2026-09-05) -- a bumped ``play_request`` and
     every tab's ``sounding`` cleared, the same two facts
     ``test_the_panic_key_withdraws_a_pattern_audition_still_rendering`` above
     checks for the panic key's own copy of this call.
     """
-    from warlock.studio import main as main_mod
     from warlock.studio import state as state_mod
+    from warlock.studio.shell import events as events_mod
     from warlock.studio.sirens_state import Sounding
 
     ctx = FakeCtx()
@@ -537,7 +538,7 @@ def test_leaving_sirens_mode_stops_a_sounding_song(monkeypatch):
     before = st.play_request
 
     ctx.state.mode = "sirens"
-    state_mod.set_mode_leave(lambda old: main_mod._leave_sirens_if_needed(ctx, old))
+    state_mod.set_mode_leave(lambda old: events_mod._leave_sirens_if_needed(ctx, old))
     try:
         assert state_mod.set_mode(ctx.state, "home") is True
     finally:
@@ -555,8 +556,8 @@ def test_arriving_in_or_staying_within_sirens_does_not_stop_anything(monkeypatch
     """The hook fires on the mode being *left*, not on every switch -- moving
     between two non-Sirens modes, or the same-mode press ``set_mode`` already
     refuses, must not touch a song that was never Sirens' to begin with."""
-    from warlock.studio import main as main_mod
     from warlock.studio import state as state_mod
+    from warlock.studio.shell import events as events_mod
     from warlock.studio.sirens_state import Sounding
 
     ctx = FakeCtx()
@@ -566,7 +567,7 @@ def test_arriving_in_or_staying_within_sirens_does_not_stop_anything(monkeypatch
     before = st.play_request
 
     ctx.state.mode = "clay"
-    state_mod.set_mode_leave(lambda old: main_mod._leave_sirens_if_needed(ctx, old))
+    state_mod.set_mode_leave(lambda old: events_mod._leave_sirens_if_needed(ctx, old))
     try:
         assert state_mod.set_mode(ctx.state, "sirens") is True
         assert state_mod.set_mode(ctx.state, "sirens") is False, "same-mode press: no hook either"

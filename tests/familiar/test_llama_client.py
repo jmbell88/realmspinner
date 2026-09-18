@@ -1,4 +1,4 @@
-"""T5's chat client: ``pipelines/llama_client.py``.
+"""T5's chat client: ``familiar/llama_client.py``.
 
 Everything here runs against ``httpx.MockTransport`` and a fake server object
 duck-typed to ``LlamaServer``'s own ``ensure_started``/``touch``/``key_path``/
@@ -13,8 +13,7 @@ import json
 import httpx
 import pytest
 
-from warlock.familiar import contract
-from warlock.pipelines import llama_client
+from warlock.familiar import contract, llama_client
 
 
 class _FakeServer:

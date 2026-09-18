@@ -147,20 +147,25 @@ def test_the_timeline_strip_is_drawn_unconditionally():
     still document had no layer list at all and every headless test passed,
     because they all call this module's functions directly rather than walking
     the composition. A composition walk is the missing coverage class, and
-    ``tests/test_layout.py`` already pins ``main.py`` by AST the same way.
+    ``tests/test_layout.py`` already pins the shell by AST the same way.
 
     Now that the strip cannot be hidden either, the assertion is stronger: no
     condition anywhere in the workspace may mention the animation or an open
     flag, and the only thing the strip's own branch may ask about is whether
     there is a document at all.
+
+    ``_inker_workspace`` moved out of ``studio/main.py`` in the P4 restructure
+    (``dev/RESTRUCTURE.md``), into its own ``studio/inker_workspace.py`` --
+    one module per mode's inline workspace method -- so this walks that file
+    now rather than the shell's.
     """
     import ast
     import inspect
     from pathlib import Path
 
-    from warlock.studio import main as main_mod
+    from warlock.studio import inker_workspace as inker_workspace_mod
 
-    source = Path(inspect.getfile(main_mod)).read_text(encoding="utf-8")
+    source = Path(inspect.getfile(inker_workspace_mod)).read_text(encoding="utf-8")
     tree = ast.parse(source)
     workspace = next(
         node

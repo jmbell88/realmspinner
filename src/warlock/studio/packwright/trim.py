@@ -1,6 +1,6 @@
 """Where a sprite's alpha actually stops.
 
-One definition of "trim" in the repo, and this is not it -- ``pipelines.sheet.
+One definition of "trim" in the repo, and this is not it -- ``kernels.sheet.
 measure_trim`` is, and has been since sprite sheets got a sidecar. What is here
 is the same answer computed on a numpy array instead of a PIL image, because a
 packer measures hundreds of sprites and decoding each into a PIL image to ask is

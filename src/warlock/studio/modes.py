@@ -307,7 +307,7 @@ MATURITY_NOTE: dict[str, str] = {
 
 #: Registry rows a mode's *primary work* cannot happen without.
 #:
-#: Row keys as literals rather than ``f"base:{models.DEFAULT_BASE_MODEL}"``,
+#: Row keys as literals rather than ``f"base:{config.DEFAULT_BASE_MODEL}"``,
 #: because this module imports :mod:`.icons` and nothing else and must stay
 #: importable without dragging the registry in.
 #: ``tests/test_mode_gate.py`` asserts every key here resolves through

@@ -898,11 +898,11 @@ def recommended_base(plan_: Plan) -> str:
     pays a trellis restart and that cost outweighs the ranking gap between two
     recipes over the same weights.
 
-    Falls back to ``models.DEFAULT_BASE_MODEL`` when nothing fits, rather than
+    Falls back to ``config.DEFAULT_BASE_MODEL`` when nothing fits, rather than
     to nothing: a card that can hold no checkpoint at all has a problem no
     picker can solve, and the caller's job is to show a badge, not to refuse.
     """
-    from . import models
+    from . import config, models
 
     scored = [
         (key, fits(plan_, models.BASE_MODELS[key]))
@@ -913,7 +913,7 @@ def recommended_base(plan_: Plan) -> str:
         for key, verdict in scored:
             if verdict == wanted:
                 return key
-    return models.DEFAULT_BASE_MODEL
+    return config.DEFAULT_BASE_MODEL
 
 
 def _smaller_base(plan_: Plan, params: dict[str, Any]) -> Any | None:

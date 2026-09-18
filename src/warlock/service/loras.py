@@ -20,7 +20,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .. import generation, models
+from .. import config, generation, models
 from ..pipelines import lora_train
 from .core import WarlockService
 from .errors import Invalid, TooLarge
@@ -334,7 +334,7 @@ def train_lora(
                 f"{MAX_IMAGE_PIXELS:,} pixels"
             )
 
-    base_key = str(base_model or models.DEFAULT_BASE_MODEL)
+    base_key = str(base_model or config.DEFAULT_BASE_MODEL)
     spec = models.BASE_MODELS.get(base_key)
     if spec is None:
         raise Invalid(f"unknown base model {base_key!r}", field="base_model")

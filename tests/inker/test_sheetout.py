@@ -17,10 +17,10 @@ import numpy as np
 import pytest
 
 from warlock.kernels import pixel as inker
+from warlock.kernels import sheet as sheetlib
 from warlock.kernels.pixel import sheetout
 from warlock.kernels.pixel.animation import Tag
 from warlock.kernels.pixel.document import Document
-from warlock.pipelines import sheet as sheetlib
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -566,26 +566,35 @@ def test_the_sidecar_carries_the_animation_and_the_real_frame_size():
     assert all(cell["w"] == 4 and cell["h"] == 4 for cell in meta["cells"])
 
 
-# --- the one pipelines reach, which is genuinely about this module -----------
+# --- the one kernels.sheet reach, which is genuinely about this module ------
 #
 # The rest of the package's import pin moved to ``test_inker_imports.py`` on
-# 2026-08-11: it is a fact about ``studio/inker/`` and not about sprite sheets,
-# and living here is how it came to carry three of the seven checks its three
-# sibling package pins carry. What stays is the half whose subject is this file.
+# 2026-08-11: it is a fact about ``studio/inker/`` (now ``kernels/pixel/``, P3
+# of ``dev/RESTRUCTURE.md``) and not about sprite sheets, and living here is
+# how it came to carry three of the seven checks its three sibling package
+# pins carry. What stays is the half whose subject is this file.
+#
+# The reach itself used to be into ``pipelines`` -- ``sheet.py`` lived there
+# until P4 of ``dev/RESTRUCTURE.md`` (2026-09-17) moved it to
+# ``warlock.kernels.sheet``, a sibling kernel rather than a package this
+# module has to justify reaching outside itself for. The check below moved
+# with it: what it still guards is that this is the *only* name sheetout.py
+# reaches for beyond its own package, format authority and nothing else.
 
 
 ENGINE = Path(inker.__file__).parent
 
 
-def test_sheetout_reaches_for_the_format_and_nothing_else_in_pipelines():
-    """``pipelines`` is a large package that runs inside worker and Blender
-    processes. The allowlist above is at module granularity, so this is the
-    half that says *which* module."""
+def test_sheetout_reaches_for_the_format_and_nothing_else_in_kernels():
+    """``kernels`` holds several unrelated engines (``mesh``, ``grid2d``,
+    ``rig``...); the allowlist above is at package granularity, so this is
+    the half that says *which* sibling kernel, and that ``sheet`` is the only
+    name reached from it."""
     tree = ast.parse((ENGINE / "sheetout.py").read_text(encoding="utf-8"))
     reached = {
         alias.name
         for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("pipelines")
+        if isinstance(node, ast.ImportFrom) and node.level == 2 and node.module is None
         for alias in node.names
     }
     assert reached == {"sheet"}
@@ -736,7 +745,7 @@ def test_an_ordinary_export_has_no_arrange_key():
 
 
 def test_arrange_stays_inside_the_animation_block_which_stays_last():
-    """``pipelines.sheet``'s square path is pinned byte-for-byte with the
+    """``kernels.sheet``'s square path is pinned byte-for-byte with the
     animation block last; a new key inside it must not move it, and
     ``sheet.py`` must not need to know the word "arrange" at all."""
     frames = [_frame(10, 10, RED) for _ in range(5)]
@@ -873,7 +882,7 @@ def test_an_ordinary_export_has_no_layout_key():
 
 
 def test_animation_is_still_the_last_key_of_the_sidecar():
-    """``pipelines.sheet``'s square path is pinned byte-for-byte with the
+    """``kernels.sheet``'s square path is pinned byte-for-byte with the
     animation block last; adding a key inside it must not move it."""
     layout = _layout("turnaround")
     frames = [_frame(10, 10, RED) for _ in range(4)]

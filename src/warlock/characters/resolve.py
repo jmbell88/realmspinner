@@ -34,7 +34,7 @@ species adds its aliases here for free, and a theme nobody paints can never be
 resolved to.
 
 Standard library only, plus :mod:`.family`. The camera keys are literals rather
-than an import of ``warlock.pipelines.charsheet`` because this module is on the
+than an import of ``warlock.kernels.charsheet`` because this module is on the
 door's import path and has no arithmetic to do with a preset; the *tests* import
 charsheet and pin every key here against it, which is where a renamed preset is
 caught.

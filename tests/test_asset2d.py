@@ -1,6 +1,6 @@
 """The 2D exports, decided without a model and asserted without a GPU.
 
-Same contract pipelines/sheet.py has: everything about what an icon *is* --
+Same contract kernels/sheet.py has: everything about what an icon *is* --
 where the subject is trimmed to, how much margin it keeps, where the pivot
 sits -- is decided here, so the manifest, the file and the preview can never
 disagree, and the whole thing is testable with a rectangle on a grey field.

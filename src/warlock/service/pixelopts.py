@@ -15,7 +15,7 @@ exists to stop.
 
 Same layer as ``service/troupe``, which is why that module delegates here
 rather than the other way round. It states the rule it is now obeying: its own
-numbers "come from ``pipelines.charsheet`` and ``pipelines.pixelize`` rather
+numbers "come from ``kernels.charsheet`` and ``pipelines.pixelize`` rather
 than being restated ... a second copy here would be one edit away from a form
 that offers a size the renderer refuses". Four more doors restating these four
 refusals is the same hazard one layer up.

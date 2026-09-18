@@ -372,8 +372,12 @@ def test_keyboard_navigation_is_enabled_for_the_whole_app() -> None:
     A test rather than a comment because switching it back off would be a
     one-word change that no other test in the suite notices, and the whole of
     UX-02 rests on it.
+
+    ``setup_window`` -- and the flag it sets here -- moved out of
+    ``studio/main.py`` in the P4 restructure (``dev/RESTRUCTURE.md``), into
+    ``studio/shell/app.py``.
     """
-    source = (SRC / "studio" / "main.py").read_text(encoding="utf-8")
+    source = (SRC / "studio" / "shell" / "app.py").read_text(encoding="utf-8")
     assert "nav_enable_keyboard" in source
 
 

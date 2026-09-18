@@ -23,10 +23,11 @@ from pathlib import Path
 import pytest
 
 from warlock import clips
+from warlock.kernels import charsheet
+from warlock.kernels import sheet as sheetlib
 from warlock.kernels.geom3d import glbio
 from warlock.kernels.rig import blender_spec, cliplib
-from warlock.pipelines import blender_run, charsheet
-from warlock.pipelines import sheet as sheetlib
+from warlock.pipelines import blender_run
 from warlock.service import NotReady, derive, files
 from warlock.studio import artifacts
 

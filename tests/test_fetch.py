@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from warlock import config as config_module
 from warlock import fetch, models
 from warlock.config import Config
 
@@ -391,9 +392,9 @@ def test_the_authoritative_docs_agree_with_the_registry_about_the_default():
     checked instead in ``dev/tests/test_fetch.py``'s twin of this test; this
     one keeps the two that stayed public.
     """
-    assert models.DEFAULT_BASE_MODEL == "sdxl_cfg"
+    assert config_module.DEFAULT_BASE_MODEL == "sdxl_cfg"
     turbo = models.BASE_MODELS["turbo"]
-    default = models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+    default = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     assert turbo.dir_name not in default.dir_name
 
     root = Path(__file__).resolve().parents[1]
@@ -408,7 +409,7 @@ def test_the_authoritative_docs_agree_with_the_registry_about_the_default():
         for claim in claims:
             assert claim not in text, (
                 f"{name} still says {claim!r}; the registry's default is "
-                f"{models.DEFAULT_BASE_MODEL!r} "
+                f"{config_module.DEFAULT_BASE_MODEL!r} "
                 f"(dev/measurements/2026-08-11-default-base-model.md)"
             )
 

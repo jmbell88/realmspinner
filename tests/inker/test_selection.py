@@ -293,7 +293,7 @@ def test_floating_buffer_scale_is_ceilinged_before_the_render_allocates():
 def test_a_full_canvas_selection_is_not_shrunk_by_the_transform_ceiling(monkeypatch):
     """The first cut of the 2026-09-11 audit fix set ``MAX_TRANSFORM_SIDE`` to
     4096 -- below Inker's own canvas ceiling. ``inker_mode.NEW_MAX`` and
-    ``pipelines.sheet.MAX_ATLAS_PX`` are both 8192 (``pixelguard.py``'s
+    ``kernels.sheet.MAX_ATLAS_PX`` are both 8192 (``pixelguard.py``'s
     ``MAX_DECODE_PIXELS`` is built on exactly those two agreeing), so a
     selection lifted off a full-size canvas already has a ``base_size`` up to
     8192 a side. A ceiling at or below that silently shrinks an honest

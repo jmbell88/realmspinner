@@ -71,8 +71,9 @@ def owns_uri(uri: str) -> bool:
 def _vocabulary_json() -> dict[str, Any]:
     from .. import clips as clips_mod
     from ..characters import family as family_mod
+    from ..kernels import charsheet
     from ..kernels.rig import cliplib
-    from ..pipelines import charsheet, pixelize
+    from ..pipelines import pixelize
     from ..service import export as svc_export
     from ..service import troupe as svc_troupe
 

@@ -35,6 +35,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from warlock import config as config_module
 from warlock import fetch, models
 from warlock.config import get_config
 from warlock.pipelines import lora_train
@@ -56,7 +57,7 @@ TRIGGER = "wlktest style"
 def base_dir():
     """The shipped default checkpoint's directory, or a skip that names it."""
     config = get_config()
-    spec = models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+    spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     # ``fetch.base_model_dir`` and not a hand-built path: it is what
     # ``_q_lora`` hands to ``train_spec``, so this trains against the same
     # directory a real job would.
@@ -204,7 +205,7 @@ def test_a_real_pipeline_loads_it(trained, base_dir):
     # text encoder and never reaches the adapter at all. Text2Image passes
     # ``spec.variant``; passing anything else here would be testing a load the
     # app does not do.
-    spec = models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+    spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     pipe = StableDiffusionXLPipeline.from_pretrained(
         base_dir, torch_dtype=torch.float16, use_safetensors=True, variant=spec.variant
     )

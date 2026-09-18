@@ -1,6 +1,6 @@
 """Finished 2D assets from a reference image: icon, sprite, pixel art.
 
-The same split ``pipelines/sheet.py`` makes, and for the same reason.
+The same split ``kernels/sheet.py`` makes, and for the same reason.
 Everything about *what an export is* -- where the subject is trimmed to, how
 much margin it keeps, where the pivot sits, how many colours survive -- is
 decided here against a boolean mask, so the file, the manifest and any preview

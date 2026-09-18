@@ -82,7 +82,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 else:  # pragma: no cover - runtime alias
     PILImage = Any
 
-from . import charsheet
+from ..kernels import charsheet
 
 log = logging.getLogger(__name__)
 

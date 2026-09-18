@@ -25,8 +25,9 @@ import pytest
 from warlock import clips
 from warlock.config import Config
 from warlock.db import JobStore
+from warlock.kernels import charsheet
 from warlock.kernels.rig import store as rig_store
-from warlock.pipelines import blender_run, charsheet, spritesynth
+from warlock.pipelines import blender_run, spritesynth
 from warlock.queue import Worker
 from warlock.service import jobs as svc_jobs
 from warlock.service import troupe as svc_troupe
@@ -987,8 +988,8 @@ async def test_a_front_turns_every_camera_yaw_and_no_direction_name(worker, monk
     """
     import json
 
+    from warlock.kernels import charsheet as cs
     from warlock.kernels.rig import store as rig_store
-    from warlock.pipelines import charsheet as cs
 
     front = 137.0
     calls = _fake_render(monkeypatch)
@@ -1210,8 +1211,8 @@ async def test_a_clipped_first_render_is_reframed_once_and_recorded(worker, monk
     its window, and the answer is one wider render -- not a shrug, and not a
     loop. The first spec carries no ``margin`` at all, so a sheet that frames
     correctly is rendered by exactly the spec this stage has always sent."""
+    from warlock.kernels import sheet as sheetlib
     from warlock.kernels.rig import store as rig_store
-    from warlock.pipelines import sheet as sheetlib
 
     calls = _fake_render(monkeypatch, clips="until_wider")
     job_id, _source, source_dir = await _run_charsheet(worker)
@@ -1265,8 +1266,8 @@ async def test_a_subset_re_render_is_framed_the_way_its_base_sheet_was(worker, m
     """
     import json
 
+    from warlock.kernels import sheet as sheetlib
     from warlock.kernels.rig import store as rig_store
-    from warlock.pipelines import sheet as sheetlib
 
     layout = {
         "version": 2,
@@ -2114,8 +2115,8 @@ async def test_a_sheet_with_the_new_clips_tags_every_run(worker, monkeypatch):
     sidecar's ``animation`` block has to tag every run the layout actually
     named."""
     from warlock import clips
+    from warlock.kernels import charsheet as cs
     from warlock.kernels.rig import store as rig_store
-    from warlock.pipelines import charsheet as cs
 
     _fake_render(monkeypatch)
     layout = cs.resolve_layout(

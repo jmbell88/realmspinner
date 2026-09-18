@@ -28,8 +28,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels import charsheet
 from ...kernels.rig import skeleton
-from ...pipelines import charsheet
 from .. import controls, tokens, troupe_mode, widgets
 from ..tokens import sp
 

@@ -9,10 +9,18 @@ carry that import, even by way of a relative-import chain two hops long (see
 ``tests/_pure_packages.py::_module_roots`` and
 ``tests/familiar/test_familiar_imports.py``).
 
-This package holds -- and, as T3 lands, will hold -- the parts of Familiar
-that need no window, no service door and no network: authoring a training
-card, retrieval over prior sessions, routing an incoming message, and the
-thread/turn bookkeeping around a conversation.
+This package holds the parts of Familiar that need no window and no service
+door: authoring a training card, retrieval over prior sessions, routing an
+incoming message, the thread/turn bookkeeping around a conversation -- and,
+since the 2026-09-17 restructure, :mod:`.llama_client`, the one module here
+that *does* touch the network. It moved down from ``pipelines/`` because it
+needs :mod:`.contract`'s sizing tables and ``contract`` may not be promoted
+the other way (``contract.derive_clay_card`` depends on the live
+``agent_clay`` tool surface, layer 5). Every other module here stays
+importable by a training script with no network stack, which is what
+``tests/familiar/test_familiar_imports.py``'s httpx ban protects; that test
+carries the one recorded exemption ``llama_client.py`` needs to be what it
+is -- a real HTTP client -- without weakening the ban for anything else.
 """
 
 from __future__ import annotations

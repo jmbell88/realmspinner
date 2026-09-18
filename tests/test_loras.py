@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
+from warlock import config as config_module
 from warlock import generation, models, progress, vectors, vram
 from warlock.config import Config
 from warlock.db import JobStore
@@ -369,7 +370,7 @@ def test_the_training_door_copies_the_images_and_queues_a_row(svc, tmp_path, bas
     assert row["kind"] == "lora_train" and row["status"] == "queued"
     assert row["params"]["trigger"] == "cosmos style"
     assert row["params"]["steps"] == 200 and row["params"]["images"] == 4
-    assert row["params"]["base_model"] == models.DEFAULT_BASE_MODEL
+    assert row["params"]["base_model"] == config_module.DEFAULT_BASE_MODEL
     copied = sorted((svc.job_dir(out["id"]) / "train").glob("*.png"))
     assert len(copied) == 4
 
@@ -466,7 +467,7 @@ def test_the_training_door_needs_the_base_weights(svc, tmp_path):
     # text jobs are admitted; take the marker away and the door must refuse.
     from warlock import fetch
 
-    spec = models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+    spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     (fetch.base_model_dir(svc.config, spec) / "model_index.json").unlink()
     with pytest.raises(Invalid) as info:
         svc_loras.train_lora(svc, _images(tmp_path, 3), label="x", trigger="y")

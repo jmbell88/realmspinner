@@ -6,9 +6,34 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .models import DEFAULT_BASE_MODEL as DEFAULT_T2I_MODEL
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# The one blessed base download, and therefore what an unconfigured job runs.
+# Lived in ``models.py`` until the 2026-09-17 restructure: which checkpoint
+# the app defaults to when nobody names one is a configuration decision, not
+# registry data, and leaving it in ``models`` was the one thing that made
+# ``config.py`` -- layer 0, imported by nearly everything -- reach up into
+# ``models`` -- layer 2, the weights registry -- for a single string.
+#
+# Not turbo, and measured rather than preferred: in the 2026-08-09 re-baseline
+# `base_model=turbo` took 1 of 5 -- the weakest checkpoint that produced data --
+# while `base_model=sdxl_cfg` took 3 of 3, the best survival rate of any arm
+# with data. The two rank oppositely on refusals and on quality (both of that
+# run's composition refusals fell on SDXL-family arms at full CFG), and this
+# picks quality: a refusal is a sentence the user can act on, a poor mesh is two
+# minutes of the serial worker spent on something they will discard.
+#
+# It is also the distribution decision. One 7 GiB download of
+# stabilityai/stable-diffusion-xl-base-1.0 is shared by four recipes -- sdxl,
+# sdxl_cfg, pixel, lightning -- so shipping this one entry unlocks the speed
+# recipes for a small LoRA each, and pixel sheets for 0.2 GB more. Recorded in
+# dev/measurements/2026-08-11-default-base-model.md.
+#
+# The key is only meaningful against ``models.BASE_MODELS``, which this module
+# may not import (that would just move the layer violation rather than close
+# it) -- callers that need the full registry entry do
+# ``models.BASE_MODELS[config.DEFAULT_BASE_MODEL]`` themselves.
+DEFAULT_BASE_MODEL = "sdxl_cfg"
 
 
 def source_checkout() -> bool:
@@ -428,7 +453,7 @@ class Config:
     # configurable here on purpose -- they belong to the checkpoint (models.py).
     t2i_model: str = field(
         default_factory=lambda: os.environ.get(
-            "WARLOCK_T2I_MODEL", DEFAULT_T2I_MODEL
+            "WARLOCK_T2I_MODEL", DEFAULT_BASE_MODEL
         )
     )
     # trellis-server.exe's WebP textures declare EXT_texture_webp as required,

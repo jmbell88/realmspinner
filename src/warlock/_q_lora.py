@@ -25,7 +25,7 @@ class LoraOps:
     """Mixed into :class:`~.queue.Worker`."""
 
     async def _lora_train(self: Worker, job: dict[str, Any]) -> None:
-        from . import fetch, generation, models
+        from . import config, fetch, generation, models
         from .pipelines import blender_run, lora_train
 
         job_id = job["id"]
@@ -34,7 +34,7 @@ class LoraOps:
         images = sorted((job_dir / "train").glob("*.png"))
         if not images:
             raise RuntimeError("this job has no training images")
-        base_key = str(params.get("base_model") or models.DEFAULT_BASE_MODEL)
+        base_key = str(params.get("base_model") or config.DEFAULT_BASE_MODEL)
         spec = models.BASE_MODELS[base_key]
         base_dir = fetch.base_model_dir(self.config, spec)
         trigger = str(params.get("trigger") or "")

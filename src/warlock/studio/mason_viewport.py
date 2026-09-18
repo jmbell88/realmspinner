@@ -26,7 +26,7 @@ class MasonViewport:
 
         from . import layout as layout_mod
         from . import mason_mode, skeletons, widgets
-        from .main import _column_boundary
+        from .shell.frame import _column_boundary
 
         ctx = self.app_ctx
         lay = self.layout

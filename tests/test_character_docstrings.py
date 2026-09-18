@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.pipelines import charsheet
+from warlock.kernels import charsheet
 from warlock.service import characters as svc_characters
 
 

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import models
+from . import config, models
 
 
 class GuidanceError(ValueError):
@@ -373,7 +373,7 @@ def normalize(raw: dict[str, Any], *, bg_default: str | None = None) -> dict[str
                 field="size_m",
             )
 
-    base_model = chosen["base_model"] or models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+    base_model = chosen["base_model"] or models.BASE_MODELS[config.DEFAULT_BASE_MODEL]
     style_lora = chosen["style_lora"]
 
     lora_weight = raw.get("lora_weight")
@@ -607,7 +607,7 @@ def catalog(*, bg_default: str | None = None) -> dict[str, Any]:
         "defaults": {
             "platform": DEFAULT_PLATFORM,
             "size_m": DEFAULT_SIZE_M,
-            "base_model": models.DEFAULT_BASE_MODEL,
+            "base_model": config.DEFAULT_BASE_MODEL,
             "lora_weight": models.DEFAULT_LORA_WEIGHT,
             "bg_removal": bg_default or DEFAULT_BG_REMOVAL,
             "negative_prompt": DEFAULT_NEGATIVE_PROMPT,

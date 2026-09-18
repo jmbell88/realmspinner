@@ -4,7 +4,7 @@ Eight outward imports across six modules (the set below, and the 2026-09-07
 audit's packwright-06 is the reason that count is spelled out rather than left
 for a reader to total the set), and every one of them is the same argument:
 reach for the module that *owns* a definition rather than restating it.
-``pipelines.sheet`` owns the atlas ceiling and what "trim" means;
+``kernels.sheet`` owns the atlas ceiling and what "trim" means;
 ``plotter.tsx`` owns the ``.tsx`` format and ``kernels.grid2d.tileset`` the
 type it is written from; ``core.undo`` owns history; ``core.safeio.zipguard``
 owns the bounded zip read four container doors share, this package's own
@@ -40,8 +40,10 @@ OUTWARD_IMPORTS = {
     ("document.py", "warlock.core.undo"),
     # The authority on how big an atlas may be before an engine refuses it,
     # and on where a sprite's alpha stops. Recorded at package granularity, as
-    # ``test_sheetout`` records it; the test below says which module.
-    ("layout.py", "warlock.pipelines"),
+    # ``test_sheetout`` records it; the test below says which module. Used to
+    # be ``warlock.pipelines`` -- P4 of ``dev/RESTRUCTURE.md`` (2026-09-17)
+    # moved ``sheet.py`` to ``warlock.kernels.sheet``, a sibling kernel.
+    ("layout.py", "warlock.kernels"),
     # The one .tsx writer in the repo. A second one is how a published format
     # comes to have two dialects.
     ("tsxout.py", "warlock.kernels.grid2d.tileset"),
@@ -144,15 +146,17 @@ def test_the_docstrings_count_eight_reaches_not_seven_or_four():
     assert "Four outward imports" not in __doc__
 
 
-def test_only_layout_reaches_into_pipelines_and_only_for_the_sheet_module():
-    """``pipelines`` is a large package that runs inside worker and Blender
-    processes. The allowlist above is at module granularity; this says *which*
-    module, the way ``test_sheetout`` does."""
+def test_only_layout_reaches_into_kernels_and_only_for_the_sheet_module():
+    """``kernels`` holds several unrelated engines (``mesh``, ``grid2d``,
+    ``rig``...). The allowlist above is at package granularity; this says
+    *which* sibling kernel module, the way ``test_sheetout`` does. Used to
+    check a reach into ``pipelines`` -- ``sheet.py`` lived there until P4 of
+    ``dev/RESTRUCTURE.md`` (2026-09-17) moved it to ``warlock.kernels.sheet``."""
     reached = {
         alias.name
         for path in _modules()
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("pipelines")
+        if isinstance(node, ast.ImportFrom) and node.level == 3 and node.module == "kernels"
         for alias in node.names
     }
     assert reached == {"sheet"}

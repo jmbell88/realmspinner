@@ -59,7 +59,7 @@ from .validation import (
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..characters.recipe import Recipe
-    from ..pipelines import charsheet
+    from ..kernels import charsheet
     from .core import WarlockService
 
 log = logging.getLogger(__name__)
@@ -225,7 +225,7 @@ def recipe_from_prompt(
     from ..characters.errors import CharacterError
     from ..characters.recipe import DEFAULT_ANIMATIONS, DEFAULT_CAMERA
     from ..clips import clip_timing
-    from ..pipelines import charsheet
+    from ..kernels import charsheet
 
     check_prompt(prompt or None)
     overrides = dict(overrides or {})
@@ -755,8 +755,8 @@ def export_frames(
     """
     from PIL import Image
 
+    from ..kernels import charsheet
     from ..kernels.rig import store
-    from ..pipelines import charsheet
     from . import export as svc_export
 
     check_job_id(job_id)
@@ -1281,9 +1281,9 @@ def sheet_preview_png(
 
     from PIL import Image
 
+    from ..kernels import charsheet
+    from ..kernels import sheet as sheetlib
     from ..kernels.rig import store
-    from ..pipelines import charsheet
-    from ..pipelines import sheet as sheetlib
 
     check_job_id(job_id)
     svc.require_job(job_id)
@@ -1546,7 +1546,7 @@ def _plan(spec: Recipe, clip_library: str, frame_size: int) -> charsheet.LayoutS
     ``Invalid`` path, unchanged.
     """
     from ..clips import clip_timing, expand_clips
-    from ..pipelines import charsheet
+    from ..kernels import charsheet
 
     try:
         timing = clip_timing(clip_library)

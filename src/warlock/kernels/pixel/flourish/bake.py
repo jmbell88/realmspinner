@@ -24,7 +24,7 @@ at 90 degrees with the same spread, the same gravity, the same noise.
 
 This is the module's one outward import: ``pipelines.pixelize`` and
 ``pipelines.pixelsheet`` are the authority on what pixel art means here
-(``sheetout``'s argument about ``pipelines.sheet``, applied to the pixel
+(``sheetout``'s argument about ``kernels.sheet``, applied to the pixel
 pass), and re-deriving an Oklab palette map would be a second one.
 """
 

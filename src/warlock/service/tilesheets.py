@@ -75,7 +75,7 @@ from .validation import (
     random_seed,
 )
 
-#: The base a tile sheet is pinned to. Not ``models.DEFAULT_BASE_MODEL``: this
+#: The base a tile sheet is pinned to. Not ``config.DEFAULT_BASE_MODEL``: this
 #: path wants full CFG so the negative prompt actually steers, and it has to
 #: keep wanting it if the default ever moves. ``sprites.py``'s constant, for
 #: ``sprites.py``'s reason.

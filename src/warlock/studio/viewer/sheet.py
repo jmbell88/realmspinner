@@ -4,7 +4,7 @@ One 64x64 orthographic cell per yaw, composited into a strip. It is a
 *direction* preview, not a sheet: it cannot pose the mesh, so drawing one row
 per pose would draw the same row N times -- the grid the worker will actually
 produce is stated as a summary line instead, and :func:`summary` is the part
-that has to agree with ``pipelines.sheet.plan``.
+that has to agree with ``kernels.sheet.plan``.
 
 The camera math is the browser's, which is Blender's: yaw 0 sits on **+Z**,
 because Blender's -Y front becomes +Z once the GLB is exported Y-up. Get that
@@ -19,8 +19,8 @@ from typing import Any
 
 import numpy as np
 
+from ...kernels import sheet as sheetlib
 from ...kernels.geom3d import math3d as m3
-from ...pipelines import sheet as sheetlib
 from .glctx import Viewport
 
 CELL = 64
@@ -211,7 +211,7 @@ def strip(
 
 
 def summary(rows: int, yaws: int, frame_size: int, clip: bool = False) -> str:
-    """The line under the preview. Must agree with ``pipelines.sheet.plan``."""
+    """The line under the preview. Must agree with ``kernels.sheet.plan``."""
     rows = max(rows, 1)
     text = (
         f"{rows} x {yaws} = {rows * yaws} render cells - "

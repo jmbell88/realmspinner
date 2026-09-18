@@ -13,11 +13,11 @@ import json
 
 import pytest
 
+from warlock.kernels import sheet as sheetlib
 from warlock.kernels.pixel import sheetout
 from warlock.kernels.pixel.document import Document
 from warlock.kernels.pixel.slices import SliceKey
 from warlock.pipelines import pixelsheet
-from warlock.pipelines import sheet as sheetlib
 
 
 def _animated(width: int = 16, height: int = 12, frames: int = 3) -> Document:

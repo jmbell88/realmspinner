@@ -13,14 +13,14 @@ button, a "try again" hint) without parsing ``message`` -- the same idea as
 chat refusal has no control to point at.
 
 ``pipelines.llama.LlamaServer.ensure_started`` and
-``pipelines.llama_client.chat`` both raise plain ``RuntimeError``/``ValueError``
+``familiar.llama_client.chat`` both raise plain ``RuntimeError``/``ValueError``
 with a handful of fixed sentences (see each module's own docstring for the
 exact wording); :func:`_reason_for` classifies them by substring rather than
-by a new exception hierarchy in ``pipelines/`` -- neither module may import
-``service`` (the offline/layering invariant: ``pipelines/`` is reached by a
-training script and by ``queue.py``, neither of which should have to know
-this hierarchy exists), so the door that *does* know about ``ServiceError``
-is the one place the mapping can live.
+by a new exception hierarchy in ``pipelines/``/``familiar/`` -- neither
+module may import ``service`` (the offline/layering invariant: both are
+reached by a training script and by ``queue.py``, neither of which should
+have to know this hierarchy exists), so the door that *does* know about
+``ServiceError`` is the one place the mapping can live.
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ from typing import Any
 import httpx
 
 from .. import models
-from ..familiar import character_plan, contract, doors, retrieval, router
-from ..pipelines import llama, llama_client
+from ..familiar import character_plan, contract, doors, llama_client, retrieval, router
+from ..pipelines import llama
 from . import familiar_log
 from .errors import ServiceError
 

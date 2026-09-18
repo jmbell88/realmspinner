@@ -1,6 +1,6 @@
 """The TexturePacker "JSON (Array)" sidecar.
 
-Deliberately **not** ``pipelines.sheet.sidecar``. That format is Warlock's own,
+Deliberately **not** ``kernels.sheet.sidecar``. That format is Warlock's own,
 it is versioned, and ``sheet`` is its sole writer so ``version: 1`` cannot come
 to mean two subtly different documents -- exactly the rule ``inker.sheetout``
 was written under. What Packwright emits instead is the de-facto interchange

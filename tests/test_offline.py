@@ -149,7 +149,7 @@ def test_vram_reports_from_an_already_loaded_torch(monkeypatch):
     ],
 )
 def test_the_pure_modules_stay_torch_free(module):
-    """Same rule pipelines/prompt.py and pipelines/sheet.py follow: everything
+    """Same rule pipelines/prompt.py and kernels/sheet.py follow: everything
     decidable is importable and testable without the text2image extra. A
     top-level torch import here would cost seconds on every mesh-only job and
     make these modules untestable on a machine without CUDA."""

@@ -987,17 +987,17 @@ def test_toasts_and_dialogs_build(app_ctx, imgui_ctx):
 
 
 def test_the_whole_frame_builds_at_once(app_ctx, imgui_ctx):
-    """The real layout: three panes side by side, as main.py assembles them.
+    """The real layout: three panes side by side, as the shell assembles them.
 
     Through ``layout.pane_child`` for the left sidebar and viewport, and
-    through ``main._right_column`` -- the same function ``App._build_ui``
-    calls -- for the right one, rather than a second hand-copy of its
-    inspector/library split sitting next to the function that exists to
-    prevent exactly that.
+    through ``shell.frame._right_column`` -- the same function
+    ``App._build_ui`` calls -- for the right one, rather than a second
+    hand-copy of its inspector/library split sitting next to the function
+    that exists to prevent exactly that.
     """
     from warlock.studio import layout as layout_mod
-    from warlock.studio import main as main_mod
     from warlock.studio.panes import inspector, library, overlay, settings_2d
+    from warlock.studio.shell import frame as frame_mod
 
     _seeded(app_ctx)
     imgui, renderer = imgui_ctx
@@ -1013,7 +1013,7 @@ def test_the_whole_frame_builds_at_once(app_ctx, imgui_ctx):
         imgui.end_child()
         imgui.same_line()
         lay = layout_mod.Layout(app_ctx.settings)
-        main_mod._right_column(
+        frame_mod._right_column(
             app_ctx, lay, 340.0, inspector_draw=inspector.draw, library_draw=library.draw
         )
 
@@ -1022,9 +1022,9 @@ def test_the_whole_frame_builds_at_once(app_ctx, imgui_ctx):
 
 
 def test_the_right_sidebar_splits_inspector_and_library_by_settings_share(app_ctx, imgui_ctx):
-    """Calls ``main._right_column`` directly -- the same function
+    """Calls ``shell.frame._right_column`` directly -- the same function
     ``App._build_ui`` calls for the right sidebar -- rather than a
-    reimplementation of its arithmetic, so a regression in main.py itself (a
+    reimplementation of its arithmetic, so a regression in the shell itself (a
     hardcoded ratio, or the panes swapped) is caught here rather than only on
     screen.
 
@@ -1036,7 +1036,7 @@ def test_the_right_sidebar_splits_inspector_and_library_by_settings_share(app_ct
     than a pixel.
     """
     from warlock.studio import layout as layout_mod
-    from warlock.studio import main as main_mod
+    from warlock.studio.shell import frame as frame_mod
     from warlock.studio.tokens import sp
 
     imgui, _renderer = imgui_ctx
@@ -1049,7 +1049,7 @@ def test_the_right_sidebar_splits_inspector_and_library_by_settings_share(app_ct
 
     def build():
         avail_before.append(imgui.get_content_region_avail().y)
-        main_mod._right_column(
+        frame_mod._right_column(
             app_ctx,
             lay,
             300.0,
@@ -4440,9 +4440,10 @@ def test_the_create_pane_builds_at_every_stage(app_ctx, imgui_ctx):
     """The merged mode, through the real dispatch: the rail plus whichever
     panel the stage names. Every stage in one test because the whole claim of
     wave 5 is that they are one pane with a breadcrumb -- and through
-    ``main._stage_pane`` rather than a copy of it, so a stage that the rail
-    offers and the dispatch has no branch for fails here."""
+    ``shell.frame._stage_pane`` rather than a copy of it, so a stage that the
+    rail offers and the dispatch has no branch for fails here."""
     from warlock.studio import create_stages, main
+    from warlock.studio.shell import frame as frame_mod
 
     _seeded(app_ctx)
     app_ctx.rigging_available = True
@@ -4453,7 +4454,7 @@ def test_the_create_pane_builds_at_every_stage(app_ctx, imgui_ctx):
 
         def build():
             main.App._stage_rail(app, app_ctx)
-            main._stage_pane(app_ctx)
+            frame_mod._stage_pane(app_ctx)
 
         _frame(imgui_ctx, build)
         assert app_ctx.state.create_stage == stage, "the rail moved on its own"
@@ -4480,13 +4481,17 @@ def test_the_create_pane_builds_at_every_stage_with_nothing_selected(app_ctx, im
     """The empty case, which is the one a first run sees: no selection, and
     four stages of which three are about an asset that does not exist."""
     from warlock.studio import create_stages, main
+    from warlock.studio.shell import frame as frame_mod
 
     app_ctx.state.select(None)
     app_ctx.state.mode = create_stages.MODE
     app = SimpleNamespace(app_ctx=app_ctx)
     for stage in create_stages.STAGES:
         app_ctx.state.create_stage = stage
-        _frame(imgui_ctx, lambda: (main.App._stage_rail(app, app_ctx), main._stage_pane(app_ctx)))
+        _frame(
+            imgui_ctx,
+            lambda: (main.App._stage_rail(app, app_ctx), frame_mod._stage_pane(app_ctx)),
+        )
 
 
 def _stage_items(blocked=()):

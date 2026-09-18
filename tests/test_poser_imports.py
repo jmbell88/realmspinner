@@ -25,10 +25,16 @@ is "Import clip"'s bone-name tables -- the mapping side of converting an
 external animation (Mixamo, Rigify) onto a Warlock template rig -- and it
 exists specifically so that conversion is decidable with no Blender, the same
 argument ``kernels.rig`` already makes for its own half. ``cliptransfer``
-restates its own bounds rather than reaching for ``warlock.pipelines.sheet``,
-for the same reason. All three claim in their own docstrings to be usable
-with no studio at all, and the two subprocess checks at the bottom make that
-claim executable instead of merely stated.
+imports ``warlock.kernels.sheet`` outright since the 2026-09-17 restructure
+moved ``sheet.py`` out of ``pipelines/`` -- it was always a kernel wearing a
+pipelines name, and the ban this file enforces
+(``test_none_of_them_imports_the_queue_or_the_pipelines``) was never about
+kernels, only about the Blender/torch weight ``pipelines/`` carries.
+``cliptransfer`` still restates ``poselib.MAX_ROOT_TRANSLATION``, because
+``poselib`` is a sibling in this same pinned set, not something outside it.
+All three claim in their own docstrings to be usable with no studio at all,
+and the two subprocess checks at the bottom make that claim executable
+instead of merely stated.
 """
 
 from __future__ import annotations
@@ -72,15 +78,17 @@ OUTWARD_IMPORTS = {
     # way :data:`poselib.py`'s row above is.
     "clipmaps.py": {"warlock.kernels.rig"},
     # The pure host math for "Import clip": which bone maps where
-    # (``clipmaps``) and the target template's own rest pose, duration bounds
-    # and clip-name rules (the rig kernel's ``templates``/``cliplib``).
-    # Deliberately not ``warlock.pipelines.sheet`` --
-    # ``test_none_of_them_imports_the_queue_or_the_pipelines`` refuses that
-    # from every module pinned here, so ``sheet.slerp``,
-    # ``sheet.MAX_CLIP_FRAMES`` and ``poselib.MAX_ROOT_TRANSLATION`` are
-    # restated in ``cliptransfer.py`` instead, each pinned back to its
-    # source of truth by a test in ``tests/test_cliptransfer.py``.
-    "cliptransfer.py": {"warlock.kernels.rig", "warlock.clipmaps"},
+    # (``clipmaps``), the target template's own rest pose, duration bounds
+    # and clip-name rules (the rig kernel's ``templates``/``cliplib``), and
+    # -- since the 2026-09-17 restructure moved ``sheet.py`` out of
+    # ``pipelines/`` -- the real ``kernels.sheet.slerp``/``MAX_CLIP_FRAMES``
+    # (``from .kernels import sheet``, resolved coarsely to the package
+    # itself: see ``_outward``'s own docstring). ``poselib.MAX_ROOT_
+    # TRANSLATION`` is still restated in ``cliptransfer.py`` -- ``poselib``
+    # is a sibling in this same pinned set, not something outside it --
+    # pinned back to its source of truth by a test in
+    # ``tests/test_cliptransfer.py``.
+    "cliptransfer.py": {"warlock.kernels.rig", "warlock.kernels", "warlock.clipmaps"},
     # The editor: rotations and mirroring, skeleton structure edits and
     # ``RigError``, all from the rig kernel now, plus matrices and the node
     # graph from the viewer's own.
@@ -206,12 +214,15 @@ def test_the_storage_half_imports_with_no_studio_at_all():
     """``poselib``'s docstring says a stored pose is decidable without the app;
     ``kernels.rig`` (which ``poselib`` now imports) makes the same claim for
     its own half; ``clipmaps``' whole point is that a bone-name mapping is
-    decidable the same way, with no Blender either; ``cliptransfer`` restates
-    its own bounds from ``kernels.rig`` and ``clipmaps`` rather than importing
-    ``warlock.pipelines.sheet`` for them, for the same reason. All these
-    claims, executed -- importing ``poselib``, ``clipmaps`` and
-    ``cliptransfer`` already pulls in every ``kernels.rig`` submodule each of
-    them needs, so there is no separate module to name here for it."""
+    decidable the same way, with no Blender either; ``cliptransfer`` imports
+    ``kernels.rig``, ``clipmaps`` and, since the 2026-09-17 restructure,
+    ``kernels.sheet`` directly (a pure kernel, not the ``pipelines`` weight
+    this test's stubs exist to keep out), and still restates only
+    ``poselib.MAX_ROOT_TRANSLATION``, a sibling in this same pinned set. All
+    these claims, executed -- importing ``poselib``, ``clipmaps`` and
+    ``cliptransfer`` already pulls in every ``kernels.rig``/``kernels.sheet``
+    submodule each of them needs, so there is no separate module to name
+    here for it."""
     proc = _run(
         ("imgui", "imgui_bundle", "moderngl", "pygame", "warlock.studio"),
         "warlock.poselib, warlock.clipmaps, warlock.cliptransfer",

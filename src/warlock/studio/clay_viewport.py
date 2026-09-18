@@ -12,20 +12,38 @@ over tested behaviour.
 The viewport itself is ``ClayView``'s; what is here is the *pane* around it --
 the layout skeleton, the invisible button that takes the mouse, the tab bar,
 the empty state and the two overlays drawn on top.
+
+The P4 restructure (``dev/RESTRUCTURE.md``) added five more methods on the
+same 2026-09-11 hazard's shape: ``_ensure_build_view``, ``_frame_clay_selection``,
+``_capture_clay_thumbnail``, ``_clay_send_to_3d`` and ``_render_clay_reference``
+were still sitting in ``studio/main.py`` when everything else Clay-shaped had
+already moved here, because the split plan flagged them as "measure before
+moving" rather than naming a home. All five are read only from this class's
+own methods (``_ensure_build_view`` from ``_clay_viewport`` and
+``_render_clay_reference``; the rest from nowhere but each other and
+``app_ctx.clay_send_to_3d``'s assignment in ``shell/app.py``), so they came
+here rather than to a shell module. ``_capture_thumbnail_from`` -- the general
+framebuffer-read-and-queue -- did not follow them: ``shell/tasks.py``'s
+``_on_task_done`` calls it directly for Mason's own export as well as for
+Clay's, so it stayed shared shell plumbing; see that module's own docstring.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 class ClayViewport:
     """Clay's pane drawing, mixed into :class:`~.main.App`.
 
     The shell names it reaches are imported *inside* the methods that use them:
-    ``main`` imports this module to build the class, so a module-scope import
-    back would be a cycle. Same shape as ``review_panes``.
+    ``main`` imports :class:`~.shell.app.App` (which assembles this mixin) to
+    build the class, so a module-scope import back would be a cycle. Same
+    shape as ``review_panes``.
     """
 
     def _clay_workspace(self) -> None:
@@ -44,7 +62,7 @@ class ClayViewport:
 
         from . import clay_mode, skeletons, widgets
         from . import layout as layout_mod
-        from .main import _column_boundary
+        from .shell.frame import _column_boundary
 
         ctx = self.app_ctx
         lay = self.layout
@@ -270,3 +288,75 @@ class ClayViewport:
             sp(4),
         )
         draw.add_text((x, y), imgui.get_color_u32(theme.rgba(theme.TEXT)), text)
+
+    def _ensure_build_view(self) -> Any:
+        """Clay's viewport, built on first use -- and mirrored onto the ctx,
+        ``_ensure_poser_viewer``'s way: clay_mode's drag keyboard, the axis
+        views and ``camera_of`` all read ``ctx.clay_view``, and without the
+        mirror every one of them found None forever."""
+        from .clay_view import ClayView
+
+        if self.clay_view is None:
+            self.clay_view = ClayView(self.ctx, self.app_ctx)
+            self.app_ctx.clay_view = self.clay_view
+        return self.clay_view
+
+    def _frame_clay_selection(self) -> None:
+        """F, in Clay. Frames the selection, or the whole document."""
+        from . import clay_mode
+
+        tab = clay_mode.active(self.app_ctx)
+        if tab is not None and self.clay_view is not None:
+            self.clay_view.frame_selection(tab.doc)
+
+    def _capture_clay_thumbnail(self, job_id: str) -> None:
+        """The library card's picture, from Clay's viewport.
+
+        The general capture -- reading the framebuffer and queuing the PNG
+        encode -- is ``shell.tasks.TasksMixin._capture_thumbnail_from``, since
+        ``_on_task_done`` calls it directly for Mason's own export too. This is
+        the one-argument convenience the Clay-only call sites use.
+        """
+        self._capture_thumbnail_from(job_id, self.clay_view)
+
+    def _clay_send_to_3d(self, tab: Any) -> None:
+        """Render the document flat and hand the picture to trellis.
+
+        The render is **synchronous on the frame thread** because it needs the
+        GL context -- one offscreen draw, exactly what ``capture_thumbnail``
+        already is. Only the service call goes to a task thread, which is the
+        shape ``inker_mode.send_to_3d`` already has.
+
+        Flat-shaded, on a plain background, with no grid, no gizmos and no
+        overlays: trellis is being given a *subject*, and a grid line in the
+        picture is a subject too.
+        """
+        from .panes import settings_3d
+
+        ctx = self.app_ctx
+        try:
+            png = self._render_clay_reference(tab)
+        except Exception:
+            log.exception("could not render the build reference")
+            # The remedy is in the log, so say so (E48): the causes are a lost
+            # GL context and a document the renderer choked on, and the message
+            # cannot tell the user which without reading it.
+            ctx.toast("That document could not be rendered.", "error", "log")
+            return
+        settings_3d.upload_bytes(ctx, png)
+
+    def _render_clay_reference(self, tab: Any, size: int = 1024) -> bytes:
+        """One offscreen square draw of the document, as PNG bytes.
+
+        ``frame=False`` because this is the build-to-trellis path: it has
+        always drawn through whatever camera the user was looking through
+        rather than reframing, so the picture trellis reconstructs from is
+        the angle the user chose, not one this call picks for them.
+        ``ClayView.render_png`` reframes by default for the opposite reason
+        -- an agent asking for a picture has no camera of its own -- and
+        letting that default leak into this call would silently change the
+        input to every future reconstruction, which invalidates comparisons
+        against the stored corpora reconstruction quality is measured
+        against (see its own docstring).
+        """
+        return self._ensure_build_view().render_png(tab.doc, size=size, frame=False)

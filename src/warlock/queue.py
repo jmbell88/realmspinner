@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import config as config_module
 from . import errors, fetch, leases, memlog, models, vectors, vram, winjob
 from ._q_generate import GenerateOps
 from ._q_jobs import JobOps
@@ -1538,8 +1539,10 @@ class Worker(
             log.warning("unknown base_model %r; using %s", base_key, self.config.t2i_model)
             base_key = self.config.t2i_model
         if base_key not in models.BASE_MODELS:
-            log.warning("unknown t2i_model %r; using %s", base_key, models.DEFAULT_BASE_MODEL)
-            base_key = models.DEFAULT_BASE_MODEL
+            log.warning(
+                "unknown t2i_model %r; using %s", base_key, config_module.DEFAULT_BASE_MODEL
+            )
+            base_key = config_module.DEFAULT_BASE_MODEL
         return base_key
 
     async def _acquire_t2i(self, spec, base_key: str, cond: Any = _ALWAYS_CONDITIONED):

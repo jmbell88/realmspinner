@@ -13,7 +13,7 @@ import pytest
 
 from warlock.characters import DEFAULT_RECIPE, CharacterError, Recipe
 from warlock.characters import recipe as recipelib
-from warlock.pipelines import charsheet
+from warlock.kernels import charsheet
 
 
 def test_the_default_recipe_is_the_brief():
@@ -164,7 +164,7 @@ def test_a_recipe_carries_no_archetype_of_its_own():
 #
 # ``recipe`` restates the ladders because ``characters`` may not import
 # ``service``. This file is the sole owner of the agreement between the copies,
-# the arrangement ``pipelines.charsheet`` and ``studio.troupe.spec`` already
+# the arrangement ``kernels.charsheet`` and ``studio.troupe.spec`` already
 # have: a change to one is a change to both plus these four assertions.
 
 

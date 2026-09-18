@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio.main import shortcut_sections
+from warlock.studio.shortcuts import shortcut_sections
 
 CHAPTER = Path(__file__).resolve().parents[2] / "docs" / "manual" / "39-shortcuts.md"
 

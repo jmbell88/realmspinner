@@ -33,7 +33,7 @@ def default_form_2d() -> dict[str, Any]:
     not persisted (settings.VOLATILE), so a literal default meant every launch
     opened on the same seed and a first Generate reproduced last week's image.
     """
-    from .. import models
+    from .. import config
     from ..guidance import DEFAULT_NEGATIVE_PROMPT
     from ..service.sprites import DEFAULT_SPRITE_OUTLINE
     from ..service.tilesheets import DEFAULT_MODE as DEFAULT_TILE_MODE
@@ -52,7 +52,7 @@ def default_form_2d() -> dict[str, Any]:
         # the same model guidance.normalize will run.  An empty selection used
         # to draw the registry's first row while silently submitting a
         # different default.
-        "base_model": models.DEFAULT_BASE_MODEL,
+        "base_model": config.DEFAULT_BASE_MODEL,
         "style_lora": "",
         "lora_weight": 0.9,
         "seed": random_seed(),

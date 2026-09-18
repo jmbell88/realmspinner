@@ -460,12 +460,12 @@ def test_the_three_host_scope_popups_draw_under_a_guard():
 
 
 def test_one_rule_routes_the_pointer_into_all_three_viewports():
-    from warlock.studio import main
+    from warlock.studio.shell import frame
 
-    assert main._takes_pointer(None, True) is True
-    assert main._takes_pointer(None, False) is False
-    assert main._takes_pointer(SimpleNamespace(dragging=True), False) is True
-    assert main._takes_pointer(SimpleNamespace(dragging=False), False) is False
+    assert frame._takes_pointer(None, True) is True
+    assert frame._takes_pointer(None, False) is False
+    assert frame._takes_pointer(SimpleNamespace(dragging=True), False) is True
+    assert frame._takes_pointer(SimpleNamespace(dragging=False), False) is False
 
 
 def test_the_persistence_half_clamps_a_width_the_way_the_splitter_does():

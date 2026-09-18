@@ -2,7 +2,7 @@
 legacy five, on every species' library.
 
 Schema v3 (``cliplib.parse_clip_library``, ``service.clips._check_shape``) lets
-a clip library carry any name, not just the five ``pipelines.charsheet.
+a clip library carry any name, not just the five ``kernels.charsheet.
 ANIMATIONS`` table entries a character sheet lays out. This is the first
 library to use that room: ``attack_02``, ``cast``, ``fall``, ``hit`` and
 ``death``, each marked ``provisional`` because a human animator owns the real
@@ -24,9 +24,10 @@ from __future__ import annotations
 
 import pytest
 
+from warlock.kernels import charsheet
+from warlock.kernels import sheet as sheetlib
 from warlock.kernels.rig import cliplib, templates
-from warlock.pipelines import charsheet, spritesynth
-from warlock.pipelines import sheet as sheetlib
+from warlock.pipelines import spritesynth
 from warlock.service import clips as svc_clips
 
 SPECIES = ("humanoid", "quadruped", "bird", "blob")

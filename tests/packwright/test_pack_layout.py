@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.pipelines import sheet as sheetlib
+from warlock.kernels import sheet as sheetlib
 from warlock.studio.packwright import layout as lay
 from warlock.studio.packwright.layout import PackSettings, next_pot
 from warlock.studio.packwright.sources import Sprite

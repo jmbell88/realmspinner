@@ -20,7 +20,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ...pipelines import charsheet
+from ...kernels import charsheet
 from .. import controls, icons, theme, tokens, troupe_mode, widgets
 from ..manual import render as manual_render
 from ..tokens import sp

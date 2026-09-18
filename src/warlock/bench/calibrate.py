@@ -63,7 +63,7 @@ def sweep_cells(yaws: int = DEFAULT_YAWS) -> list[dict[str, Any]]:
     individual PNGs and scored one at a time -- so the guard is measuring a
     constraint this sweep does not have.
     """
-    from ..pipelines import sheet
+    from ..kernels import sheet
 
     return [
         {"index": i, "row": 0, "column": i, "yaw": yaw, "frame": 0, "pose": None, "bones": {}}

@@ -2265,7 +2265,7 @@ def rebuild_frames(ctx: Any) -> None:
     not match its keys, mid-edit) leaves the frames empty and says why, rather
     than raising into a draw.
     """
-    from ..pipelines import sheet as sheetlib
+    from ..kernels import sheet as sheetlib
 
     state = ensure(ctx)
     record = state.open_clip()

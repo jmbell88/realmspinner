@@ -88,7 +88,7 @@ DIRECTION_ORDER = ("front", "left", "right", "back")
 DIRECTION_YAWS = {"front": 0, "left": 90, "right": 270, "back": 180}
 
 #: All eight direction names and their yaws, degrees clockwise from the front
-#: view. The third copy of this table in the repo -- ``pipelines.charsheet``
+#: view. The third copy of this table in the repo -- ``kernels.charsheet``
 #: owns it, ``pipelines.spritesynth`` imports it from there, and this package
 #: may import neither. Same arrangement as :data:`DIRECTION_ORDER` above and
 #: same single owner of the agreement.
@@ -124,7 +124,7 @@ SPRITE_DIRECTIONS: dict[int, tuple[str, ...]] = {
 
 #: How many frames each action carries. ``pipelines.spritesynth.ACTIONS``' table
 #: again, for the reason the direction tables are here twice; the shared five
-#: also have to agree with ``pipelines.charsheet.ANIMATIONS``, which is a
+#: also have to agree with ``kernels.charsheet.ANIMATIONS``, which is a
 #: separate claim owned by ``tests/test_spritesynth.py``.
 ACTION_FRAMES: dict[str, int] = {
     "idle": 4,

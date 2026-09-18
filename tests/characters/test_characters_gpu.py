@@ -48,9 +48,10 @@ from warlock import clips
 from warlock.characters import instantiate as instantiate_mod
 from warlock.characters import recipe as recipe_mod
 from warlock.characters.family import get_family
+from warlock.kernels import charsheet
+from warlock.kernels import sheet as sheetlib
 from warlock.kernels.rig import blender_spec, store
-from warlock.pipelines import charsheet, pixelize, sheetcheck
-from warlock.pipelines import sheet as sheetlib
+from warlock.pipelines import pixelize, sheetcheck
 
 # One species per body plan. The registry has 31 and rigging all of them would
 # be a different test; these four are the four *templates* -- humanoid,

@@ -524,9 +524,12 @@ def test_a_sample_is_encoded_to_wav_once_across_snapshots(monkeypatch):
 
 
 def test_the_settings_flush_waits_for_the_mouse_button_to_come_up():
-    from warlock.studio import main
+    """``frame()`` -- and the guard it wraps this call in -- moved out of
+    ``studio/main.py`` in the P4 restructure, into ``studio/shell/frame.py``.
+    """
+    from warlock.studio.shell import frame
 
-    source = inspect.getsource(main)
+    source = inspect.getsource(frame)
     guarded = "if not imgui.is_any_mouse_down():\n            self.app_ctx.settings.tick()"
     assert guarded in source
     assert source.count("settings.tick()") == 1

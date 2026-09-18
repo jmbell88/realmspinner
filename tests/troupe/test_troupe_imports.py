@@ -7,7 +7,7 @@ worker, and read by somebody who does not have to learn the app to follow it.
 
 Troupe's outward set is *empty* today, deliberately. It owns a frame table and
 a layout; the moment it needs an atlas ceiling or a trim rectangle it reaches
-for ``pipelines.sheet`` the way ``packwright.layout`` does -- and this file is
+for ``kernels.sheet`` the way ``packwright.layout`` does -- and this file is
 where that is written down rather than discovered.
 """
 

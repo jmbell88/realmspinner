@@ -16,7 +16,9 @@ would pass against an empty directory is not a pin, and it is the one failure
 mode none of the assertions below can report on their own.
 
 ``test_sheetout.py`` keeps the one check that is genuinely about *it*: which
-module inside ``pipelines`` its export reaches for.
+name inside ``warlock.kernels`` its export reaches for (``sheet`` -- it used
+to be ``pipelines.sheet`` until P4 of ``dev/RESTRUCTURE.md`` moved that
+module to ``warlock.kernels.sheet``).
 """
 
 from __future__ import annotations
@@ -136,7 +138,7 @@ OUTWARD_IMPORTS = {
     ("ora.py", "warlock.kernels.grid2d"),
     ("ora.py", "warlock.kernels.grid2d.tileset"),
     ("selection.py", "warlock.native"),
-    ("sheetout.py", "warlock.pipelines"),
+    ("sheetout.py", "warlock.kernels.sheet"),
     ("tile_edits.py", "warlock.core.undo"),
     ("tiles.py", "warlock.kernels.grid2d"),
     ("tiles.py", "warlock.kernels.grid2d.tileset"),

@@ -24,7 +24,7 @@ from .validation import (
 
 # The base a pixel-sheet restyle is pinned to, hoisted out of
 # ``create_pixel_sheet`` so the row list below cannot name a different one. Not
-# ``models.DEFAULT_BASE_MODEL``: the restyle wants full CFG and a ControlNet
+# ``config.DEFAULT_BASE_MODEL``: the restyle wants full CFG and a ControlNet
 # specifically, and it has to keep wanting them if the default ever moves again.
 PIXEL_SHEET_BASE_MODEL = "sdxl_cfg"
 
@@ -41,7 +41,7 @@ PIXEL_SHEET_ROWS: tuple[str, ...] = (
 def sheet_options() -> dict[str, Any]:
     """What a sheet request may ask for. One source for the form, as with the
     rig templates -- the UI never hardcodes a frame size."""
-    from ..pipelines import sheet as sheetlib
+    from ..kernels import sheet as sheetlib
 
     return {
         "frame_sizes": list(sheetlib.FRAME_SIZES),
@@ -114,7 +114,7 @@ def create_sheet(
     an unrenderable request should cost the request, not a place in the queue
     and two minutes of EEVEE.
     """
-    from ..pipelines import sheet as sheetlib
+    from ..kernels import sheet as sheetlib
 
     source = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)

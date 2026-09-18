@@ -18,7 +18,7 @@ The vocabulary this module checks against -- the size ladder, the colour ladder,
 the outline and reduce modes -- is **restated here rather than imported**,
 because ``characters`` may not import ``service`` and the pixel ladders live
 behind it. ``tests/characters/test_recipe.py`` owns the agreement between the
-two copies, in the ``pipelines.charsheet`` / ``studio.troupe.spec`` arrangement:
+two copies, in the ``kernels.charsheet`` / ``studio.troupe.spec`` arrangement:
 a change to one is a change to both plus that test.
 """
 
@@ -29,7 +29,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from ..pipelines import charsheet
+from ..kernels import charsheet
 from .errors import CharacterError
 from .family import Family, get_family
 
@@ -51,14 +51,14 @@ __all__ = [
 #: baked asset does.
 VERSION = 1
 
-#: ``pipelines.charsheet.SIZES``, derived rather than restated: the import pin
+#: ``kernels.charsheet.SIZES``, derived rather than restated: the import pin
 #: (``tests/characters/test_characters_imports.py``) already allows this
-#: module to reach ``warlock.pipelines.charsheet`` at module scope, so a second,
+#: module to reach ``warlock.kernels.charsheet`` at module scope, so a second,
 #: hand-typed ladder here would be one edit to ``SIZES`` away from a recipe
 #: offering a size the renderer refuses -- the very drift this module's
 #: docstring warns the *other* three ladders about.
 LOGICAL_SIZES: tuple[int, ...] = charsheet.SIZES
-#: ``pipelines.charsheet.MIN_FRAME_SIZE``/``MAX_FRAME_SIZE``, restated for the
+#: ``kernels.charsheet.MIN_FRAME_SIZE``/``MAX_FRAME_SIZE``, restated for the
 #: same reason ``LOGICAL_SIZES`` is derived rather than hand-typed. Since
 #: master's 8b091e98, the render path underneath a character
 #: (``service.troupe._check_options`` and ``charsheet.plan`` itself) accepts
@@ -73,7 +73,7 @@ COLOR_CHOICES: tuple[int, ...] = (8, 16, 32, 64)
 #: ``pipelines.pixelize.OUTLINE_MODES`` / ``REDUCE_MODES``.
 OUTLINE_MODES: tuple[str, ...] = ("none", "inner", "outer")
 REDUCE_MODES: tuple[str, ...] = ("box", "point")
-#: ``pipelines.charsheet.DIRECTION_PRESETS``' keys.
+#: ``kernels.charsheet.DIRECTION_PRESETS``' keys.
 DIRECTION_CHOICES: tuple[int, ...] = (1, 4, 8, 16)
 
 #: A well-formed clip name -- lowercase letters, digits and underscores, the
@@ -366,7 +366,7 @@ def _check_animations(raw: Any) -> dict[str, int]:
     ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` opens the
     same vocabulary here that ``resolve_layout``'s ``timing`` argument opens
     for Troupe. *Existence* is a fact about the rig, not the request: this
-    module may import no more of ``warlock`` than ``pipelines.charsheet``, so
+    module may import no more of ``warlock`` than ``kernels.charsheet``, so
     it cannot ask a clip library anything, and ``service.characters._plan``
     is what actually resolves the name once it has the archetype's library in
     hand -- a KeyError/ValueError there becomes the existing ``Invalid`` path.

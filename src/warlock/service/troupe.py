@@ -17,7 +17,7 @@ gate between them, and each step is a row the user can keep on its own:
 ``expand_clips`` is re-exported from ``warlock.clips``: the worker needs the
 same function and may not import ``service``, which is why that module exists.
 
-The numbers this module offers come from ``pipelines.charsheet`` and
+The numbers this module offers come from ``kernels.charsheet`` and
 ``pipelines.pixelize`` rather than being restated: those are the modules the
 worker actually plans and reduces with, and a second copy here would be one
 edit away from a form that offers a size the renderer refuses.
@@ -31,8 +31,9 @@ from typing import TYPE_CHECKING, Any
 
 from .. import followups
 from ..clips import clip_timing, expand_clips
+from ..kernels import charsheet
 from ..kernels.rig import cliplib, skeleton, store, templates
-from ..pipelines import charsheet, pixelize, spritesynth
+from ..pipelines import pixelize, spritesynth
 from .errors import Conflict, Invalid, NotFound, invalid_from
 from .sheets import check_sheet_cap
 from .validation import DERIVED_PARAMS, check_job_id, check_vram
@@ -432,7 +433,7 @@ def check_troupe(svc: WarlockService, block: Any) -> dict[str, Any]:
     # caller-supplied one: this door has no rig yet to read a template off of,
     # and ``TROUPE_TEMPLATE`` is the template ``_maybe_queue_rig`` pins the
     # follow-up mesh to.
-    from ..pipelines import sheet as sheetlib
+    from ..kernels import sheet as sheetlib
 
     try:
         records = expand_clips(TROUPE_TEMPLATE, layout)
@@ -481,14 +482,14 @@ def create_charsheet(
     format of its own: "Open in Inker", the library, the exporters and the
     Aseprite writer all already read that pair. What makes it a Troupe sheet is
     the frame table it was laid out on and the ``animation`` block in the
-    sidecar, both of which ``pipelines.charsheet`` owns.
+    sidecar, both of which ``kernels.charsheet`` owns.
 
     ``character`` is the family block a caller may already hold about *who*
     this is -- carried onto the row untouched and *nested*, so
     ``VECTOR_PARAMS`` (an allowlist of flat settings) cannot pick a field of it
     up and quietly turn it into a rerun vector.
     """
-    from ..pipelines import sheet as sheetlib
+    from ..kernels import sheet as sheetlib
 
     check_job_id(job_id)
     source = svc.require_job(job_id)
@@ -1028,7 +1029,7 @@ def _charsheet_spec(
     it has to already be the *value*, never ``None`` -- a present ``None``
     would arrive there as a key that exists and is not a number.
     """
-    from ..pipelines import sheet as sheetlib
+    from ..kernels import sheet as sheetlib
 
     options = _check_options(
         svc,

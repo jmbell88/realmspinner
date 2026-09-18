@@ -6,9 +6,12 @@ the Blender renderer and the sidecar must never disagree about what cell 137
 depicts, and the way to guarantee that is for one testable function to decide.
 
 **The frame table is held twice.** ``studio.troupe.spec`` holds it as the
-studio's answer and this module holds it as the pipeline's, because a
-``pipelines`` module runs inside worker and Blender processes where ``studio``
-is not importable at all, and ``studio/troupe`` imports nothing outward. That is
+studio's answer and this module holds it as the kernel's -- a
+``pipelines``/worker-process module (``spritesynth.py``) and a Blender
+process (``blender_worker.py``) both need it with no ``studio`` importable at
+all, this module's own home (``kernels/``, since the 2026-09-17 restructure
+moved it out of ``pipelines/``) is no more able to reach ``studio`` than
+either of them, and ``studio/troupe`` imports nothing outward. That is
 the ``spritesynth`` / ``inker.animation`` ``DIRECTION_ORDER`` arrangement at its
 second instance, and it takes the same safeguard:
 ``tests/troupe/test_troupe_geometry_agreement.py`` is the **sole owner** of the

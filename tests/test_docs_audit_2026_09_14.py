@@ -324,7 +324,7 @@ def test_viewport_toolbar_control_count_matches_manual_claim():
 
 
 def test_troupe_manual_lists_256_as_a_preset_sprite_size_not_custom_only():
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     assert 256 in charsheet.SIZES
 

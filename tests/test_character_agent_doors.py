@@ -188,7 +188,7 @@ def test_a_prompt_naming_no_species_is_refused_in_offer_sentences_words(svc):
 
 def test_omitted_frames_follow_the_clip_library_at_the_requested_fps(svc):
     from warlock.clips import clip_timing
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     result = svc_characters.recipe_from_prompt(
         svc,
@@ -477,7 +477,7 @@ def test_sheet_preview_crops_one_run_and_stays_under_max_bytes(svc):
 
 
 def charsheet_compass(direction_key: str) -> str:
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     return charsheet.COMPASS_16[direction_key]
 

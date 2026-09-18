@@ -27,9 +27,9 @@ from warlock.characters import DEFAULT_RECIPE, CharacterError, Recipe, families
 from warlock.characters import family as familylib
 from warlock.characters.humanoid import generate
 from warlock.characters.instantiate import instantiate
+from warlock.kernels import charsheet
 from warlock.kernels.geom3d import gltf
 from warlock.kernels.rig import cliplib, skeleton, templates
-from warlock.pipelines import charsheet
 
 SILHOUETTES = sorted(familylib.silhouettes("humanoid"))
 SPECIES = sorted(familylib.families_of("humanoid"))

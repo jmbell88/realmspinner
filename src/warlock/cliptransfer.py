@@ -35,20 +35,30 @@ Mixamo T-pose's arm is not a Warlock A-pose's arm), and ``G(b)`` is the
 shortest arc from the target's own rest direction onto the source's, folded
 in before the source's motion is applied.
 
-**Why this module may not import ``pipelines.sheet``.**
-``tests/test_poser_imports.py`` pins every module here (``poselib``,
-``clipmaps``, and now this one) to import no more of
-``warlock`` than a short, explicit set -- and one of its own generic checks
-(``test_none_of_them_imports_the_queue_or_the_pipelines``) refuses a
+**``sheet.slerp``/``sheet.MAX_CLIP_FRAMES`` are imported, not restated, since
+the 2026-09-17 restructure.** ``tests/test_poser_imports.py`` pins every
+module here (``poselib``, ``clipmaps``, and now this one) to import no more
+of ``warlock`` than a short, explicit set -- and one of its own generic
+checks (``test_none_of_them_imports_the_queue_or_the_pipelines``) refuses a
 ``warlock.pipelines`` import from *any* of them, this module included. That
-is what keeps "Import clip" decidable with no Blender and no torch behind
-it, the same argument the other three modules already make. So
-``sheet.slerp``, ``sheet.MAX_CLIP_FRAMES`` and
-``poselib.MAX_ROOT_TRANSLATION`` are restated below rather than imported --
-each restatement says so, and each is pinned against its source of truth by
-a test in ``tests/test_cliptransfer.py`` so the two cannot drift apart
-silently the way ``cliplib.LEGACY_CLIP_DURATION_MS`` is pinned against
-``pipelines.charsheet.ANIMATIONS``.
+used to make ``warlock.pipelines.sheet`` (this module's old location, before
+the move) unreachable from here, so
+``sheet.slerp`` and ``sheet.MAX_CLIP_FRAMES`` were restated verbatim
+instead -- a duplicate this codebase keeps finding has silently drifted
+(``dev/RESTRUCTURE.md``'s own "constants get restated instead of imported"
+failure shape). ``sheet.py`` moved to ``warlock.kernels.sheet`` because it
+was always a kernel wearing a pipelines name (stdlib plus a lazy Pillow
+import), and the ban above was never about kernels -- it exists to keep
+"Import clip" decidable with no Blender and no torch behind it, which a pure
+kernel does not carry. So the restatement's *reason* is gone, not just its
+cost: this module now does ``from .kernels import sheet`` and the two names
+are the real functions/constant, not a second copy of them.
+``poselib.MAX_ROOT_TRANSLATION`` is a different case -- ``poselib`` is a
+sibling module in this same import-pinned set, not something outside it --
+and stays restated below, pinned against its source of truth by a test in
+``tests/test_cliptransfer.py`` so the two cannot drift apart silently the
+way ``cliplib.LEGACY_CLIP_DURATION_MS`` is pinned against
+``kernels.charsheet.ANIMATIONS``.
 
 Quaternions are XYZW throughout, this package's convention everywhere else.
 """
@@ -62,6 +72,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from . import clipmaps
+from .kernels import sheet
 from .kernels.rig import cliplib, templates
 
 __all__ = [
@@ -91,15 +102,18 @@ class ClipTransferError(ValueError):
         self.field = field
 
 
-# --- restated constants -------------------------------------------------
+# --- constants -------------------------------------------------------
 #
-# See the module docstring: this module's outward ``warlock`` import is
-# pinned to ``{rigging, clipmaps}``, so a constant that would otherwise come
-# from ``pipelines.sheet`` or ``poselib`` is restated here instead, each
-# pinned back to its source by a test in ``tests/test_cliptransfer.py``.
+# See the module docstring: ``MAX_CLIP_FRAMES`` is the real
+# ``kernels.sheet`` constant, not a copy of it, now that ``sheet.py`` is a
+# kernel this module's import pin may reach. ``MAX_ROOT_TRANSLATION`` is
+# still a restatement -- ``poselib`` is a sibling in the same pinned set,
+# not something outside it -- pinned back to its source by a test in
+# ``tests/test_cliptransfer.py``.
 
-#: Restated from ``pipelines.sheet.MAX_CLIP_FRAMES``.
-MAX_CLIP_FRAMES = 32
+#: The real ``kernels.sheet.MAX_CLIP_FRAMES``, bound here so every call site
+#: below keeps its own short name.
+MAX_CLIP_FRAMES = sheet.MAX_CLIP_FRAMES
 
 #: Restated from ``poselib.MAX_ROOT_TRANSLATION``: a root offset past two
 #: character heights is a fat-fingered gizmo drag on the *editor* side and a
@@ -126,7 +140,7 @@ ROOT_TOLERANCE = 0.005
 #: A mapped bone whose basis never strays further than this from identity
 #: across the whole clip is authored as if it were never mapped: omitting it
 #: from every key is exactly what a "delta" pose already means for a bone it
-#: does not name (``pipelines.sheet._blend``'s docstring).
+#: does not name (``kernels.sheet._blend``'s docstring).
 BONE_IDENTITY_DEG = 0.01
 
 _IDENTITY_Q = (0.0, 0.0, 0.0, 1.0)
@@ -138,30 +152,13 @@ _Quat = tuple[float, float, float, float]
 _Vec3 = tuple[float, float, float]
 
 
-# --- restated from pipelines.sheet ---------------------------------------
+# --- kernels.sheet's own slerp, bound to this module's short name --------
 
-
-def _slerp(a: Sequence[float], b: Sequence[float], t: float) -> list[float]:
-    """Shortest-arc spherical interpolation between two XYZW quaternions.
-
-    Restated verbatim from ``pipelines.sheet.slerp`` -- see the module
-    docstring for why this module may not import it.
-    """
-    ax, ay, az, aw = (float(v) for v in a)
-    bx, by, bz, bw = (float(v) for v in b)
-    dot = ax * bx + ay * by + az * bz + aw * bw
-    if dot < 0.0:
-        bx, by, bz, bw, dot = -bx, -by, -bz, -bw, -dot
-    if dot > 0.9995:
-        out = [ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t, aw + (bw - aw) * t]
-    else:
-        theta = math.acos(max(-1.0, min(1.0, dot)))
-        sin_theta = math.sin(theta)
-        wa = math.sin((1.0 - t) * theta) / sin_theta
-        wb = math.sin(t * theta) / sin_theta
-        out = [ax * wa + bx * wb, ay * wa + by * wb, az * wa + bz * wb, aw * wa + bw * wb]
-    norm = sum(v * v for v in out) ** 0.5 or 1.0
-    return [v / norm for v in out]
+#: The real ``kernels.sheet.slerp``, not a copy of it -- see the module
+#: docstring. Bound under this module's own short name because every call
+#: site below (and ``tests/test_cliptransfer.py``'s
+#: ``cliptransfer._slerp``) already spells it this way.
+_slerp = sheet.slerp
 
 
 # --- small quaternion / vector math ---------------------------------------
@@ -543,7 +540,7 @@ def _resample(
 ) -> tuple[list[dict[str, _Quat]], list[_Vec3] | None]:
     """Sample ``frames`` normalized times across ``bones``/``roots``.
 
-    The phase rule is ``pipelines.sheet.resample_clip``'s, restated: a
+    The phase rule is ``kernels.sheet.resample_clip``'s, restated: a
     cycle samples ``i / frames`` (so it never lands a duplicate on the seam)
     and a one-shot samples ``i / (frames - 1)`` (so it lands on both
     endpoints), with every original frame treated as one equal-length

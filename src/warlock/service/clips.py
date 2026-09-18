@@ -40,8 +40,8 @@ import logging
 from typing import Any
 
 from .. import poselib
+from ..kernels import sheet as sheetlib
 from ..kernels.rig import cliplib, templates
-from ..pipelines import sheet as sheetlib
 from .core import WarlockService
 from .errors import Conflict, Failed, Invalid, NotFound, invalid_from
 from .files import _staged_write
@@ -261,7 +261,7 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
                 field="easing",
             )
         # v3: timing moved into the library so any clip name can carry its own
-        # tempo, where it used to live only in ``pipelines.charsheet.ANIMATIONS``
+        # tempo, where it used to live only in ``kernels.charsheet.ANIMATIONS``
         # keyed by the five shipped names. A clip the editor sends is always
         # required to state it -- ``library()`` always hands one back (read
         # through ``cliplib.parse_clip_library``'s v2-to-v3 migration), so a

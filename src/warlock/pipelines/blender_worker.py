@@ -27,8 +27,9 @@ from pathlib import Path
 from typing import Any
 
 from .. import meshreport, poselib
+from ..kernels import sheet
 from ..kernels.rig import poses, skeleton, templates
-from . import blender_run, sheet
+from . import blender_run
 
 
 def progress(frac: float, label: str) -> None:
@@ -582,7 +583,7 @@ def _apply_pose(
 
 # --- sprite-sheet rendering -------------------------------------------------
 #
-# Layout is decided in pipelines/sheet.py and packing happens back on the host;
+# Layout is decided in kernels/sheet.py and packing happens back on the host;
 # this end only renders one square, transparent frame per cell. The split keeps
 # the grid arithmetic testable without Blender and keeps this function to the
 # one thing only Blender can do.
@@ -1287,7 +1288,7 @@ def op_animate(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     ``op_pose``'s sibling one step up: a pose is one set of bone rotations, and
     a clip is a sequence of them under a name an engine can play. The frames
     arrive **already interpolated** -- ``clips.animate_spec`` resolves them
-    through ``pipelines.sheet`` on the host, the same split ``op_sheet`` and
+    through ``kernels.sheet`` on the host, the same split ``op_sheet`` and
     ``fit_template`` take -- so nothing here decides what a walk cycle looks
     like. What only Blender can do is key an armature and write the samplers.
 

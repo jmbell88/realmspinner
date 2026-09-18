@@ -11,7 +11,7 @@ refused at 178.9 M pixels and decoded, with a warning nobody reads, at 178.8 M
 under every byte ceiling in the app, on a task thread.
 
 The arithmetic picks the number. The largest image this app itself produces is
-a packed atlas at ``pipelines.sheet.MAX_ATLAS_PX`` a side -- 8192, so 67.1 M
+a packed atlas at ``kernels.sheet.MAX_ATLAS_PX`` a side -- 8192, so 67.1 M
 pixels -- and the largest canvas Inker will *make* is ``inker_mode.NEW_MAX``
 squared, which is the same 8192. So a ceiling at 8192 squared refuses nothing
 this build can legitimately be handed and closes the whole of Pillow's warning
@@ -39,7 +39,7 @@ from typing import Any
 
 import numpy as np
 
-#: 8192 squared: ``pipelines.sheet.MAX_ATLAS_PX`` and ``inker_mode.NEW_MAX`` are
+#: 8192 squared: ``kernels.sheet.MAX_ATLAS_PX`` and ``inker_mode.NEW_MAX`` are
 #: both 8192, so this is the largest image the app itself will ever produce or
 #: be asked to open. Module-level so a test lowers it rather than building a
 #: 268 MB array, and read at call time for the same reason.

@@ -75,6 +75,9 @@ def _plain(value: Any) -> Any:
 
 
 def _model_fingerprints(config: Any, recipe: Any) -> dict[str, str]:
+    # Aliased: the parameter above is a live ``Config`` instance named
+    # ``config``, and the module import would silently shadow it.
+    from .. import config as config_module
     from .. import models
 
     paths: dict[str, Path | None] = {
@@ -89,7 +92,7 @@ def _model_fingerprints(config: Any, recipe: Any) -> dict[str, str]:
     gltfpack = Path(config.gltfpack_exe)
     if gltfpack.exists():
         paths["gltfpack_exe"] = gltfpack
-    base_key = recipe.guidance.get("base_model") or models.DEFAULT_BASE_MODEL
+    base_key = recipe.guidance.get("base_model") or config_module.DEFAULT_BASE_MODEL
     spec = models.BASE_MODELS.get(base_key)
     if spec is not None:
         paths["base_model"] = config.t2i_model_root / spec.dir_name

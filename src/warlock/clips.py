@@ -6,12 +6,23 @@ of its own: **the worker may not import ``service``**, and the door may not
 reimplement the worker. Both need to turn "the humanoid template's clips" into
 "the expanded pose records the resolved frame table wants", and if either one
 owned it the other would have to grow a second copy that could disagree about
-what a walk is.
+what a walk is. This module is that one expansion, importable by both.
 
-It is not in ``pipelines.charsheet`` because that module is deliberately
-filesystem-free -- it decides what cell 137 depicts and never reads a file to
-do it -- and not in ``kernels.rig`` because that package imports nothing from
-``pipelines`` and this needs ``sheet.interpolate_clip``.
+It is not folded into ``kernels.charsheet`` because that module is
+deliberately filesystem-free -- it decides what cell 137 depicts and never
+reads a file to do it -- while this one reads the shipped/user clip library
+off disk (``kernels.rig.store``) before it can expand anything. It is not
+folded into ``kernels.rig`` either, even though both ``kernels.charsheet``
+and ``kernels.sheet`` are kernels this module could now import directly
+(the 2026-09-17 restructure moved both out of ``pipelines/``, closing what
+used to be a real layering objection): ``kernels.rig`` is the rig's own
+geometry and storage, one layer down from "what a walk looks like when
+rendered", and moving this module's two functions into it would mean the
+rig kernel importing the sheet/charsheet kernels for a job that is really
+about Troupe's frame table, not the rig. Staying a separate module -- the
+same shape ``vectors.py`` already has beside ``queue.py`` -- keeps that
+layer boundary a fact about the directory, not a convention two callers
+have to remember.
 """
 
 from __future__ import annotations
@@ -23,8 +34,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from .kernels import charsheet, sheet
 from .kernels.rig import blender_spec, cliplib, store, templates
-from .pipelines import charsheet, sheet
 
 log = logging.getLogger(__name__)
 

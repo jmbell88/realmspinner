@@ -190,20 +190,35 @@ def test_migration_never_overwrites_a_split_the_user_has_already_moved():
 
 
 def _main_source() -> str:
-    """The shell's drawing, as source. **Two files since 2026-09-04.**
+    """Every file that builds a hand-composed split, as source.
 
-    Review's nine hundred lines of pane drawing moved to
-    ``studio/review_panes.py`` as a mixin on ``App`` (T7 of the 2026-09-02
-    review), and it draws splits and handles like every other workspace -- so a
-    scan of ``main.py`` alone would stop seeing them and this gate would go
-    quietly green over a workspace it no longer reads.
+    **One file since 2026-09-04, now six since the P4 restructure.** Review's
+    nine hundred lines of pane drawing moved to ``studio/review_panes.py`` as
+    a mixin on ``App`` (T7 of the 2026-09-02 review), and it draws splits and
+    handles like every other workspace. The P4 restructure
+    (``dev/RESTRUCTURE.md``) then moved ``_split_column``/``_right_column``
+    themselves out of ``studio/main.py`` into ``studio/shell/frame.py``, and
+    the two workspaces that called them by name (Troupe's and Packwright's)
+    into ``studio/troupe_workspace.py`` and ``studio/packwright_workspace.py``
+    -- along with Inker's own hand-built timeline splitter, in
+    ``studio/inker_workspace.py``. ``main.py`` itself has drawn no split since
+    that move; it stays in this list so a future one landing back on the
+    shell's entry module is not silently invisible to this scan.
     """
+    from warlock.studio import inker_workspace, packwright_workspace, review_panes, troupe_workspace
     from warlock.studio import main as main_mod
-    from warlock.studio import review_panes
+    from warlock.studio.shell import frame
 
     sources = [
         pathlib.Path(module.__file__).read_text(encoding="utf-8")
-        for module in (main_mod, review_panes)
+        for module in (
+            main_mod,
+            review_panes,
+            frame,
+            inker_workspace,
+            troupe_workspace,
+            packwright_workspace,
+        )
     ]
     return "".join(sources)
 

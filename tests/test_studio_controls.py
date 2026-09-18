@@ -275,10 +275,33 @@ def test_the_gallery_shows_the_toolbar_at_three_widths_and_forms_on_both_sides()
 
 
 def test_major_panes_have_roles_and_no_production_pane_child_calls():
+    """No production caller reaches for the raw ``pane_child`` any more.
+
+    The P4 restructure (``dev/RESTRUCTURE.md``) moved every workspace's
+    drawing out of ``studio/main.py`` -- into ``studio/shell/frame.py``, one
+    module per mode for the six inline ``_*_workspace`` methods, and the four
+    pane mixins that were already split out (``clay_viewport.py`` and
+    siblings). ``main.py`` alone would no longer be watching any of that
+    code at all.
+    """
     assert layout.PaneRole.SIDEBAR.value == "sidebar"
     assert layout.PaneRole.INSPECTOR.value == "inspector"
     root = Path(inspect.getfile(layout)).resolve().parent
-    sources = [root / "main.py", *(root / "panes").glob("*.py")]
+    sources = [
+        root / "main.py",
+        *(root / "panes").glob("*.py"),
+        *(root / "shell").glob("*.py"),
+        root / "clay_viewport.py",
+        root / "mason_viewport.py",
+        root / "poser_viewport.py",
+        root / "review_panes.py",
+        root / "inker_workspace.py",
+        root / "plotter_workspace.py",
+        root / "muse_workspace.py",
+        root / "sirens_workspace.py",
+        root / "troupe_workspace.py",
+        root / "packwright_workspace.py",
+    ]
     for path in sources:
         assert ".pane_child(" not in path.read_text(encoding="utf-8"), path.name
 

@@ -1,6 +1,6 @@
 """Where the alpha stops -- and the parity test that justifies a second answer.
 
-``pipelines.sheet.measure_trim`` has been the repo's definition of "trim" since
+``kernels.sheet.measure_trim`` has been the repo's definition of "trim" since
 sprite sheets got a sidecar. This package computes the same thing on a numpy
 array because a packer measures hundreds of sprites and decoding each into a PIL
 image is the wrong price. Without the parity assertion below that is a fork, and
@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.pipelines import sheet as sheetlib
+from warlock.kernels import sheet as sheetlib
 from warlock.studio.packwright import trim
 
 

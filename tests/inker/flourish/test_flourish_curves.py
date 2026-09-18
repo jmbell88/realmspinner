@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from warlock.kernels import sheet
 from warlock.kernels.pixel.flourish import curves
-from warlock.pipelines import sheet
 
 
 def test_the_easing_vocabulary_is_the_clip_easings_plus_hold():

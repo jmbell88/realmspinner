@@ -796,7 +796,7 @@ def render_transform_about(
 #: small reference length into a very large document-space factor.
 #:
 #: The value has to clear Inker's own canvas ceiling, not an arbitrary
-#: "generous" guess: ``inker_mode.NEW_MAX`` and ``pipelines.sheet.MAX_ATLAS_PX``
+#: "generous" guess: ``inker_mode.NEW_MAX`` and ``kernels.sheet.MAX_ATLAS_PX``
 #: are both 8192 (``pixelguard.py``'s ``MAX_DECODE_PIXELS`` is built on exactly
 #: those two agreeing), so a selection lifted off a full-size canvas has a
 #: ``base_size`` up to 8192 a side already. A ceiling at or below that would

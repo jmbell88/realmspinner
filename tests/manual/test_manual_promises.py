@@ -354,7 +354,7 @@ def test_manual_26_does_not_claim_clip_root_offsets_are_refused():
     ``test_sheet.py::test_a_clip_end_with_a_root_offset_is_accepted_and_interpolated``.
     Stale since 2026-08-19, through a 2026-09-04 edit of the same page.
     """
-    from warlock.pipelines import sheet as sheet_pipeline
+    from warlock.kernels import sheet as sheet_pipeline
 
     keys = [
         {"id": "a", "name": "A", "bones": {}, "root_translation": [0.0, 0.0, 0.0]},

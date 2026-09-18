@@ -29,8 +29,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from ..kernels.sheet import SHEET_VERSION
 from .pixel import RGB
-from .sheet import SHEET_VERSION
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from PIL import Image as _ImageModule

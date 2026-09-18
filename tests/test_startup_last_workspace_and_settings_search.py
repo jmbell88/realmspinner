@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 from warlock.studio import main as main_mod
 from warlock.studio.panes import app_settings
+from warlock.studio.shell import events as events_mod
 
 
 class _Settings:
@@ -40,26 +41,26 @@ def test_startup_can_reopen_the_last_workspace_and_defaults_to_home():
     # A fresh install: no "startup_mode" key exists at all. Must read as Home,
     # not crash on a missing key and not require the key to be seeded.
     fresh = _Settings()
-    assert main_mod.initial_mode(fresh, lambda _key: True) == "home"
+    assert events_mod.initial_mode(fresh, lambda _key: True) == "home"
 
     # "Home" chosen explicitly is the same answer as no preference at all.
     home_chosen = _Settings({"startup_mode": "home", "last_workspace": "clay"})
-    assert main_mod.initial_mode(home_chosen, lambda _key: True) == "home"
+    assert events_mod.initial_mode(home_chosen, lambda _key: True) == "home"
 
     # "Last workspace" chosen, and the door is open: reopens exactly that mode.
     remembers = _Settings({"startup_mode": "last", "last_workspace": "clay"})
-    assert main_mod.initial_mode(remembers, lambda _key: True) == "clay"
+    assert events_mod.initial_mode(remembers, lambda _key: True) == "clay"
 
     # "Last workspace" chosen, but that workspace is gated on this machine
     # (missing weights or a pack) -- falls back to Home via the existing
     # refusal (``available`` returning False), not a new one.
     gated = _Settings({"startup_mode": "last", "last_workspace": "create"})
-    assert main_mod.initial_mode(gated, lambda key: key != "create") == "home"
+    assert events_mod.initial_mode(gated, lambda key: key != "create") == "home"
 
     # "Last workspace" chosen, but a settings file written before this
     # existed has nothing under "last_workspace" yet.
     never_remembered = _Settings({"startup_mode": "last"})
-    assert main_mod.initial_mode(never_remembered, lambda _key: True) == "home"
+    assert events_mod.initial_mode(never_remembered, lambda _key: True) == "home"
 
 
 def test_initial_mode_falls_back_to_home_for_a_mode_that_no_longer_exists():
@@ -74,7 +75,7 @@ def test_initial_mode_falls_back_to_home_for_a_mode_that_no_longer_exists():
     retired = _Settings({"startup_mode": "last", "last_workspace": "retired_mode"})
     # ``available`` says yes to everything -- the retired name must still be
     # refused on membership alone, before the gate is ever asked.
-    assert main_mod.initial_mode(retired, lambda _key: True) == "home"
+    assert events_mod.initial_mode(retired, lambda _key: True) == "home"
 
 
 def test_the_last_workspace_is_written_down_as_the_mode_changes():

@@ -759,8 +759,13 @@ def test_a_zoom_rung_cannot_outlive_an_undrawn_canvas() -> None:
     # Once consumed after stepping the ladder, once dropped by the invisible
     # child's branch.
     assert canvas.count("pending_zoom_rung = 0") >= 2
-    main = Path(inker_tools.__file__).resolve().parent.parent / "main.py"
-    assert "pending_zoom_rung = 0" in main.read_text(encoding="utf-8")
+    # ``_inker_workspace`` -- the invisible-centre-pane branch's own drop --
+    # moved out of ``studio/main.py`` in the P4 restructure, into
+    # ``studio/inker_workspace.py``.
+    from warlock.studio import inker_workspace
+
+    workspace = Path(inker_workspace.__file__)
+    assert "pending_zoom_rung = 0" in workspace.read_text(encoding="utf-8")
 
 
 def _function(module, name: str) -> ast.FunctionDef:

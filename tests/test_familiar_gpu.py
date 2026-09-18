@@ -51,8 +51,7 @@ import pytest_asyncio
 
 from warlock import fetch, models, vram
 from warlock.config import get_config
-from warlock.familiar import character_plan, contract, doors, router
-from warlock.pipelines import llama_client
+from warlock.familiar import character_plan, contract, doors, llama_client, router
 from warlock.pipelines.llama import LlamaServer
 from warlock.service import familiar as familiar_service
 from warlock.studio import create_assets, modes

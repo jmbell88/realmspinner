@@ -3,7 +3,7 @@
 A preset is a *name for an elevation*, and the whole risk in offering names is
 that the name and the number stop agreeing -- a combo saying "Isometric" over a
 sheet rendered at 35 degrees is worse than no combo at all. So the table has one
-home, ``pipelines.charsheet.CAMERA_PRESETS``: the door reads it, the form reads
+home, ``kernels.charsheet.CAMERA_PRESETS``: the door reads it, the form reads
 the door, and the worker matches against it when it stamps the sidecar.
 """
 
@@ -13,8 +13,8 @@ import inspect
 from pathlib import Path
 
 from warlock import _q_troupe
-from warlock.pipelines import charsheet
-from warlock.pipelines import sheet as sheetlib
+from warlock.kernels import charsheet
+from warlock.kernels import sheet as sheetlib
 from warlock.service import troupe as svc_troupe
 from warlock.studio.panes import troupe_settings
 

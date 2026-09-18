@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...pipelines.sheet import MAX_ATLAS_PX
+from ...kernels.sheet import MAX_ATLAS_PX
 from .. import controls, icons, packwright_mode, tokens, widgets
 from ..manual import render as manual_render
 from ..packwright.layout import MODES

@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from warlock.pipelines import charsheet
+from warlock.kernels import charsheet
 from warlock.service import troupe as svc_troupe
 from warlock.service.errors import Invalid, NotFound
 

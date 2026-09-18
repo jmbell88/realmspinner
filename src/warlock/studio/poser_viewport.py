@@ -39,8 +39,8 @@ class PoserViewport:
         from imgui_bundle import imgui
 
         from . import layout as layout_mod
-        from .main import _column_boundary
         from .panes import poser_clips, poser_controls, poser_library
+        from .shell.frame import _column_boundary
 
         ctx = self.app_ctx
         left_w = layout_mod.sidebar_width("left")

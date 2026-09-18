@@ -280,7 +280,16 @@ def test_the_six_lists_that_lacked_an_empty_state_have_one():
         "panes/sheet_panel.py",
         "panes/pose_panel.py",
         "manual/render.py",
-        "main.py",  # Review's sweep list
+        # Review's sweep list. This entry named "main.py" until the P4
+        # restructure (``dev/RESTRUCTURE.md``) split every remaining
+        # ``_*_workspace`` method out of it -- and had done since 2026-09-04,
+        # when Review's own nine hundred lines moved to ``review_panes.py``:
+        # the assertion kept passing on an unrelated ``empty_state(`` call in
+        # Create's Pose/Export stages (``_stage_pane``, main.py's at the time),
+        # not on anything about a sweep. That call moved to ``shell/frame.py``
+        # with the rest of ``_stage_pane``, which is what surfaced the stale
+        # name here.
+        "review_panes.py",
     ):
         assert "empty_state(" in (root / relative).read_text(encoding="utf-8"), relative
 

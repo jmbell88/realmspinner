@@ -1,12 +1,24 @@
 """A chat-completions client for Familiar's resident ``llama-server``.
 
-Lives here, next to ``llama.py``, rather than under ``studio/familiar/``,
-because that package's own import pin
-(``tests/familiar/test_familiar_imports.py``) bans ``httpx`` anywhere in it,
-even inside a function body -- ``studio/familiar/`` must stay importable by a
-training script that never touches the network. ``pipelines/`` already
-depends on httpx (``trellis.py``, this module's own sibling), so this is
-where a real HTTP call to the child belongs.
+Moved here from ``pipelines/llama_client.py`` in the 2026-09-17 restructure.
+This module needs :mod:`.contract` (``SIZED_SKILLS``, ``SAMPLING``,
+``TRAINED_WINDOW``, :func:`contract.output_budget`) for its reply-sizing
+logic, and ``contract`` is layer 3 (``contract.derive_clay_card`` builds the
+Clay training card from the *live* ``agent_clay`` tool surface, so the module
+as a whole depends on layer 5) -- so promoting ``contract`` down to a kernel
+so ``pipelines/llama_client.py`` could keep importing it was never available.
+The edge had to close from the other side: this module comes down to sit
+beside what it is a client of.
+
+That leaves one property this package's own import pin
+(``tests/familiar/test_familiar_imports.py``) exists to protect: everything
+else under ``warlock/familiar/`` must stay importable by a training script
+that never touches the network, which is why the pin bans ``httpx`` anywhere
+in the package, even inside a function body. This module is the **one
+recorded exception** to that ban (see ``HTTPX_ALLOWED`` in the test) --
+its entire job is the real HTTP call to the resident child, exactly the
+reason ``pipelines/trellis.py`` depends on httpx too, and there is no way to
+make a network client that does not import a network library.
 
 Two request shapes, chosen by whether *skill* is one of
 :data:`contract.SIZED_SKILLS` -- **not** whether it has a frozen card
@@ -69,7 +81,7 @@ from typing import Any
 
 import httpx
 
-from ..familiar import contract
+from . import contract
 
 #: How long a chat round trip may take before this gives up. Generous:
 #: Familiar runs on whatever GPU is in the machine, `-ngl 999` with no

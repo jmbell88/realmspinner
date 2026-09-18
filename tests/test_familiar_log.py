@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.pipelines import llama_client
+from warlock.familiar import llama_client
 from warlock.service import familiar as svc_familiar
 from warlock.service import familiar_log
 

@@ -797,7 +797,7 @@ def test_every_authored_library_fills_troupes_default_frame_table(key):
     """The layout a user gets without touching anything asks for all five
     animations, so a library carrying only three refuses the default sheet."""
     from warlock import clips
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     records = clips.expand_clips(key)
     assert set(records) == {name for name, *_rest in charsheet.ANIMATIONS}
@@ -2053,7 +2053,7 @@ def test_interpolate_carries_endpoint_root_offsets_through_the_clip():
     vertical bob and a jump's rise are made of, and every consumer downstream
     (``root_offset_world``, ``_sheet_root_offsets``, ``op_sheet``'s per-cell
     ``root_offset``) was already keyed per frame and ready for it."""
-    from warlock.pipelines import sheet as sheetlib
+    from warlock.kernels import sheet as sheetlib
 
     plain = {"id": "a" * 12, "name": "A", "bones": {"hips": [0, 0, 0, 1]}}
     offset = {

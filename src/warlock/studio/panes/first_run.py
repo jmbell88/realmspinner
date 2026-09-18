@@ -16,6 +16,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ... import config as config_module
 from ... import fetch, models, vram
 from .. import controls, theme, tokens, widgets
 from ..tokens import sp
@@ -66,7 +67,7 @@ def snapshot(ctx: Any) -> dict[str, Any]:
     cuda = _check(checks, "CUDA")
     budget = _check(checks, "VRAM budget")
     plan = getattr(ctx.svc, "vram_plan", None)
-    default = models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+    default = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     image_fit = vram.fits(plan, default) if plan is not None else vram.FIT_OK
     # A row that is still checking (``doctor._cuda_check`` before torch has
     # imported) reports ``ok=True`` so the banner stays quiet; here it is

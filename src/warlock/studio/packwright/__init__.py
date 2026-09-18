@@ -3,7 +3,7 @@
 Pure in the way ``studio/inker/``, ``studio/clay/`` and ``studio/plotter/`` are:
 no imgui, no moderngl, no pygame, no ``service``. It reaches outward exactly
 eight times, across six modules: ``document.py`` for :mod:`warlock.core.undo`
-(the shared history engine); ``layout.py`` for :mod:`warlock.pipelines.sheet`
+(the shared history engine); ``layout.py`` for :mod:`warlock.kernels.sheet`
 (the authority on the atlas ceiling and on what "trim" means); ``tsxout.py``
 twice, for :mod:`warlock.kernels.grid2d.tileset` and
 :mod:`warlock.studio.plotter.tsx` (the one ``.tsx`` writer in the repo, and the

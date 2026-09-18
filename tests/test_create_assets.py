@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from warlock import models
+from warlock import config as config_module
 from warlock.studio import create_assets, settings
 from warlock.studio.panes import settings_2d
 from warlock.studio.state import default_form_2d, primary_action
@@ -205,7 +205,7 @@ def test_a_legacy_generation_type_alias_normalises_like_asset_type_does():
 
 
 def test_the_visible_model_default_is_the_model_that_will_run():
-    assert default_form_2d()["base_model"] == models.DEFAULT_BASE_MODEL
+    assert default_form_2d()["base_model"] == config_module.DEFAULT_BASE_MODEL
 
 
 def test_submit_persists_type_and_intent():

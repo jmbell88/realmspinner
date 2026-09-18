@@ -1,16 +1,23 @@
 """An Inker animation as a sprite sheet: one cell per frame.
 
-This is the first module under ``studio/inker/`` that imports outside the
-package, and the exception is deliberate and bounded. ``pipelines.sheet`` is the
-*authority* on the sheet format -- the `Plan`/`Cell` types, the sidecar keys,
-the atlas ceiling -- and a second writer of a versioned public format is how
-``version: 1`` comes to mean two subtly different documents. The invariant the
-package's docstring states is about imgui, moderngl, pygame and the service
-layer, i.e. about staying assertable headlessly; ``sheet`` is stdlib plus a lazy
-Pillow import, so the *purpose* of the rule survives, not only its letter. The
-inverse placement would be worse: putting this in ``pipelines/`` makes
-``pipelines`` depend on ``studio``, and ``pipelines`` modules run inside worker
-and Blender processes.
+This module imports ``kernels.sheet``, a sibling kernel rather than a
+package it would once have had to reach outside itself for. ``kernels.sheet``
+is the *authority* on the sheet format -- the `Plan`/`Cell` types, the
+sidecar keys, the atlas ceiling -- and a second writer of a versioned public
+format is how ``version: 1`` comes to mean two subtly different documents.
+Before the 2026-09-17 restructure this was a real cross-package reach (this
+package was ``studio/inker/`` and ``sheet.py`` lived in ``pipelines/``,
+argued at length in this docstring's own earlier text as "the first module
+under ``studio/inker/`` that imports outside the package" and "the inverse
+placement would be worse"), which is no longer true on either side: this
+module has lived under ``kernels/pixel/`` since P3, and ``sheet.py`` has
+lived beside it under ``kernels/`` since P4 -- both kernels wearing whatever
+name their previous home gave them. What used to need an exception now
+needs none: an ordinary layer-1-to-layer-1 import between two kernels.
+
+It does not go through ``sheet.plan``. That function's job is poses by yaws, and
+its ``FRAME_SIZES`` check would refuse a 300x180 canvas outright -- so the cells
+are built here and the *format* is still emitted there.
 
 It does not go through ``sheet.plan``. That function's job is poses by yaws, and
 its ``FRAME_SIZES`` check would refuse a 300x180 canvas outright -- so the cells
@@ -32,7 +39,7 @@ from typing import Any
 
 import numpy as np
 
-from ...pipelines import sheet as sheetlib
+from .. import sheet as sheetlib
 from .animation import DirectionalLayout
 
 __all__ = [

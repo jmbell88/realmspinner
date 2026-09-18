@@ -34,8 +34,8 @@ from warlock.characters.resolve import (
     resolve,
     vocabulary,
 )
+from warlock.kernels import charsheet
 from warlock.kernels.rig import cliplib
-from warlock.pipelines import charsheet
 
 FAMILIES = family_mod.families()
 VOCAB = vocabulary()

@@ -845,9 +845,11 @@ def test_the_worker_traceback_is_logged_before_it_is_stripped():
 
 
 def test_every_input_free_animation_is_named_in_the_idle_check():
-    from warlock.studio import main as studio_main
+    """``_frame_active`` moved out of ``studio/main.py`` in the P4 restructure
+    (``dev/RESTRUCTURE.md``), into ``studio/shell/frame.py``."""
+    from warlock.studio.shell import frame as frame_mod
 
-    source = Path(studio_main.__file__).read_text(encoding="utf-8")
+    source = Path(frame_mod.__file__).read_text(encoding="utf-8")
     body = source.split("def _frame_active(self)", 1)[1].split("\n    def ", 1)[0]
     for surface in (
         "motion.animating()",       # widget easing

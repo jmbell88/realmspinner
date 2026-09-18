@@ -7,8 +7,9 @@ the module under test makes, so none of this needs Blender, PIL or a worker.
 
 from __future__ import annotations
 
-from warlock.pipelines import charsheet, sheetcheck
-from warlock.pipelines import sheet as sheetlib
+from warlock.kernels import charsheet
+from warlock.kernels import sheet as sheetlib
+from warlock.pipelines import sheetcheck
 
 
 def _plan(frame_size=64):

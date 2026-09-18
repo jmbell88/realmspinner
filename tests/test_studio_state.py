@@ -388,7 +388,7 @@ def test_the_paint_migration_never_overwrites_an_existing_inker_block(tmp_path):
 
 
 def test_ui_scale_round_trips_and_a_junk_value_cannot_brick_the_window(tmp_path):
-    from warlock.studio.main import _ui_scale
+    from warlock.studio.shell.frame import _ui_scale
     from warlock.studio.tokens import UI_SCALE_RANGE
 
     s = settingslib.Settings.load(tmp_path)
@@ -433,7 +433,7 @@ def test_the_zoom_is_five_named_steps_and_a_stored_odd_value_snaps_to_one():
     value is moved onto one of them rather than honoured.
     """
     from warlock.studio import tokens
-    from warlock.studio.main import _ui_scale
+    from warlock.studio.shell.frame import _ui_scale
 
     assert tokens.UI_SCALE_STEPS == (0.5, 0.75, 1.0, 1.25, 1.5)
     # Every step is a value the product clamp will actually honour on an

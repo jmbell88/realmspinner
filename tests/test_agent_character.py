@@ -125,8 +125,9 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
     bound the same ``TROUPE_CUSTOM_SIZE_RANGE`` the door underneath enforces.
     """
     from warlock.characters import family as family_mod
+    from warlock.kernels import charsheet
     from warlock.kernels.rig import cliplib, templates
-    from warlock.pipelines import charsheet, pixelize
+    from warlock.pipelines import pixelize
     from warlock.service import characters as svc_characters
     from warlock.service import export as svc_export
     from warlock.service import troupe as svc_troupe
@@ -239,7 +240,7 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
 def test_a_camera_preset_added_at_runtime_appears_in_the_next_catalogue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     before = ac.tools()
     camera_before = set(
@@ -1016,9 +1017,9 @@ def _real_sheet(
     import numpy as np
     from PIL import Image
 
+    from warlock.kernels import charsheet
+    from warlock.kernels import sheet as sheetlib
     from warlock.kernels.rig import store
-    from warlock.pipelines import charsheet
-    from warlock.pipelines import sheet as sheetlib
 
     job_id = svc.store.create("image", job_name or "a knight", {}, stage="model")
     job_dir = svc.job_dir(job_id)

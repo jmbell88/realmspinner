@@ -279,9 +279,13 @@ def test_begin_frame_clears_the_previous_frames_census(monkeypatch):
 
 
 def test_the_frame_clears_the_census_where_it_clears_the_others():
-    """Beside ``anchors``' clear, so the two are visibly one decision."""
+    """Beside ``anchors``' clear, so the two are visibly one decision.
 
-    source = Path(inspect.getfile(importlib.import_module("warlock.studio.main")))
+    ``_build_ui`` -- and both clears -- moved out of ``studio/main.py`` in the
+    P4 restructure (``dev/RESTRUCTURE.md``), into ``studio/shell/frame.py``.
+    """
+
+    source = Path(inspect.getfile(importlib.import_module("warlock.studio.shell.frame")))
     text = source.read_text(encoding="utf-8")
     assert "probe.begin_frame()" in text
     assert text.index("anchors.begin_frame()") < text.index("probe.begin_frame()")

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from warlock import config as config_module
 from warlock import doctor, fetch, models, vram
 from warlock.service import downloads
 from warlock.studio.panes import app_settings, first_run, model_gate
@@ -80,7 +81,7 @@ def test_the_snapshot_uses_startup_hardware_and_a_deduped_download_plan(
     assert info["total_gib"] == pytest.approx(
         models.ENGINE_MODELS["trellis_gguf"].fetch[0].size_gib
         + models.ENGINE_MODELS["trellis_runtime"].fetch[0].size_gib
-        + models.BASE_MODELS[models.DEFAULT_BASE_MODEL].fetch[0].size_gib
+        + models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL].fetch[0].size_gib
     )
 
 

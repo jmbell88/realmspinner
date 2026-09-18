@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from warlock import config as config_module
 from warlock import models, vram
 from warlock.config import Config
 
@@ -811,7 +812,7 @@ def test_the_recommendation_falls_back_rather_than_returning_nothing():
         vram.fits(tiny, models.BASE_MODELS[k]) == vram.FIT_NO
         for k in vram.RECOMMENDED_BASES
     )
-    assert vram.recommended_base(tiny) == models.DEFAULT_BASE_MODEL
+    assert vram.recommended_base(tiny) == config_module.DEFAULT_BASE_MODEL
 
 
 def test_every_recommended_key_is_a_registry_key():

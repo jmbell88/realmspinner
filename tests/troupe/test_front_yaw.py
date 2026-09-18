@@ -24,8 +24,9 @@ import numpy as np
 import pytest
 
 from warlock import _q_troupe
-from warlock.pipelines import charsheet, sheetcheck
-from warlock.pipelines import sheet as sheetlib
+from warlock.kernels import charsheet
+from warlock.kernels import sheet as sheetlib
+from warlock.pipelines import sheetcheck
 from warlock.service import jobs as svc_jobs
 from warlock.service import sheets as svc_sheets
 from warlock.service import troupe as svc_troupe

@@ -10,8 +10,8 @@ import json
 import pytest
 
 from warlock import clips
+from warlock.kernels import charsheet as cs
 from warlock.kernels.rig import cliplib
-from warlock.pipelines import charsheet as cs
 
 TEMPLATES = ("humanoid", "quadruped", "bird", "blob")
 

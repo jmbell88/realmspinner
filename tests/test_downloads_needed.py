@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 
+from warlock import config as config_module
 from warlock import fetch
 from warlock.service import downloads as svc_downloads
 from warlock.service import sheets as svc_sheets
@@ -118,7 +119,7 @@ def test_a_text_refusal_carries_only_its_own_checkpoint(svc):
     from warlock import models
     from warlock.service import validation
 
-    key = models.DEFAULT_BASE_MODEL
+    key = config_module.DEFAULT_BASE_MODEL
     _unlink_row(svc, f"base:{key}")
     with pytest.raises(Invalid) as caught:
         validation.check_base_model_weights(svc, models.BASE_MODELS[key])

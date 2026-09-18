@@ -3,7 +3,7 @@
 A Troupe sheet opens in Inker (``sheetin.document_from_sheet``) as one track
 whose timeline is the atlas read in cell order -- frame *i* is cell *i* -- and
 one ``Tag`` per ``(animation, direction)`` run, named ``walk_left`` by
-``pipelines.charsheet.animation_block``. Every cell is one canvas of the same
+``kernels.charsheet.animation_block``. Every cell is one canvas of the same
 size, which is the fact this module and ``_doc_sheet`` rest on: a pixel at
 ``(x, y)`` on one cell *means* the same place on every other, so a patch, a
 recolour or a mirror transfers by coordinates alone with nothing to register.

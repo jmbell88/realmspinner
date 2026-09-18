@@ -84,7 +84,7 @@ MAX_CLIP_LIBRARY_POSES = 1024
 MAX_CLIP_KEYS = 64
 
 #: The versions :func:`parse_clip_library` understands. 2 is the shipped shape
-#: (no ``duration_ms``; timing lived in ``pipelines.charsheet.ANIMATIONS``
+#: (no ``duration_ms``; timing lived in ``kernels.charsheet.ANIMATIONS``
 #: instead) and 3 adds it per clip -- see :data:`LEGACY_CLIP_DURATION_MS``.
 #: A file naming any other version is refused the same way a malformed one
 #: always was: ``ValueError`` out of the parser, caught and logged by
@@ -108,8 +108,12 @@ CLIP_DURATION_STEP_MS = 10
 
 #: A v2 clip carries no ``duration_ms`` of its own, so migrating one to v3
 #: needs somewhere to read the time it was actually rendered at. Restated
-#: from ``pipelines.charsheet.ANIMATIONS`` rather than imported, for the same
-#: reason ``MIN_CLIP_DURATION_MS`` above states.
+#: from ``charsheet.ANIMATIONS`` rather than imported: when this was written
+#: ``charsheet`` was ``pipelines.charsheet`` and this module (Layer 1) could
+#: not reach Layer 2 at all. The 2026-09-17 restructure moved ``charsheet``
+#: to ``warlock.kernels.charsheet``, a sibling kernel this module could now
+#: import directly -- collapsing the restatement is a follow-on
+#: consolidation, not done here.
 #: ``tests/test_clip_library_v3.py`` (the legacy-frame-times test) imports
 #: ``charsheet`` itself and pins this dict to ``ANIMATIONS``' own
 #: ``(name, frames, loop, duration_ms)`` rows, so a change to one without the
@@ -128,9 +132,9 @@ LEGACY_CLIP_DURATION_MS: dict[str, int] = {
 #: Once any clip name can exist (not just the shipped five), authoring one
 #: that *looks* like ``<clip>_<direction>`` is a trap the parser refuses
 #: instead of leaving for Inker to silently mis-tag. Restated here from
-#: ``pipelines.charsheet._DIRECTIONS_16`` for this module's import pin (see
-#: ``MIN_CLIP_DURATION_MS`` above); pinned to it by ``tests/test_clip_library_v3.py``
-#: (the restated-direction-keys test).
+#: ``charsheet._DIRECTIONS_16`` for the same now-dissolved reason
+#: ``LEGACY_CLIP_DURATION_MS`` above explains; pinned to it by
+#: ``tests/test_clip_library_v3.py`` (the restated-direction-keys test).
 TROUPE_DIRECTION_KEYS: tuple[str, ...] = (
     "front",
     "front_front_left",

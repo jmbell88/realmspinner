@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from warlock import config as config_module
 from warlock import doctor, fetch
 from warlock.config import Config
 from warlock.service.errors import Invalid
@@ -91,7 +92,7 @@ def test_a_text_job_whose_checkpoint_is_absent_is_refused_with_its_command(svc):
     from warlock import fetch, models
     from warlock.service import jobs as svc_jobs
 
-    spec = models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+    spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     (fetch.base_model_dir(svc.config, spec) / "model_index.json").unlink()
 
     with pytest.raises(Invalid) as caught:
@@ -152,7 +153,7 @@ def test_a_refused_job_leaves_nothing_behind(svc):
     from warlock import fetch, models
     from warlock.service import jobs as svc_jobs
 
-    spec = models.BASE_MODELS[models.DEFAULT_BASE_MODEL]
+    spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     (fetch.base_model_dir(svc.config, spec) / "model_index.json").unlink()
     before = set(svc.config.data_dir.glob("*"))
 

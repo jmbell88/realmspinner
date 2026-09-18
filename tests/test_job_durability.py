@@ -332,8 +332,9 @@ async def test_a_cancel_after_a_character_sheet_is_published_records_it_as_done(
     from PIL import Image
 
     from warlock import queue as queue_mod
-    from warlock.pipelines import charsheet, pixelize, pixelsheet
-    from warlock.pipelines import sheet as sheetlib
+    from warlock.kernels import charsheet
+    from warlock.kernels import sheet as sheetlib
+    from warlock.pipelines import pixelize, pixelsheet
 
     source = worker.store.create("image", "a ranger", {"seed": 1}, stage="model")
     source_dir = worker.config.job_dir(source)

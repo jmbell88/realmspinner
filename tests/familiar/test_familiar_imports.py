@@ -1,4 +1,4 @@
-"""What ``studio/familiar/`` is allowed to reach for, now that the GL-side
+"""What ``warlock/familiar/`` is allowed to reach for, now that the GL-side
 preview/apply mechanics live in ``studio/familiar_preview.py`` instead.
 
 Written the same way ``tests/mason/test_mason_imports.py`` pins its own
@@ -23,6 +23,7 @@ PACKAGE_DIR = Path(familiar.__file__).parent
 #: ``contract.py`` authors a training card offline, ``retrieval.py`` reads
 #: manual chapters already on disk, ``router.py``/``threads.py`` are pure
 #: logic, and none of that needs a window, a job queue or the network.
+#: ``httpx`` has exactly one recorded exception -- see ``HTTPX_ALLOWED``.
 BANNED = frozenset(
     {
         "imgui",
@@ -34,6 +35,18 @@ BANNED = frozenset(
         "httpx",
     }
 )
+
+#: The one module allowed to import ``httpx`` at module scope. Everything
+#: else here has to stay importable by a training script with no network
+#: stack, which is the whole point of banning httpx package-wide -- but
+#: ``llama_client.py`` moved into this package in the 2026-09-17 restructure
+#: (down from ``pipelines/``, because it needs :mod:`contract`'s sizing
+#: tables and ``contract`` may not be promoted the other way: it depends on
+#: the live ``agent_clay`` surface, layer 5) and its entire job is the real
+#: HTTP call to Familiar's resident ``llama-server``. A network client that
+#: cannot import a network library is not a network client, so this is a
+#: named exception rather than a hole in the ban.
+HTTPX_ALLOWED = {"llama_client.py"}
 
 #: Absolute dotted names banned regardless of which root they hang off.
 BANNED_MODULES = frozenset(
@@ -68,8 +81,9 @@ def test_there_are_modules_to_check():
 
 def test_the_familiar_package_imports_no_window_service_or_network():
     """No imgui, moderngl, pygame, ``warlock.service``, ``warlock.queue``,
-    httpx, or the three GL-adjacent studio modules -- at module scope,
-    anywhere under ``studio/familiar/``.
+    or the three GL-adjacent studio modules -- at module scope, anywhere
+    under ``warlock/familiar/``. httpx is the same, except for
+    ``llama_client.py`` (see :data:`HTTPX_ALLOWED`).
 
     A function-body import is allowed *only* for ``warlock.studio.agent_clay``
     in ``contract.py`` (see :data:`LAZY_AGENT_CLAY_ALLOWED`); every other
@@ -77,7 +91,7 @@ def test_the_familiar_package_imports_no_window_service_or_network():
     nothing else here has ``contract.derive_clay_card``'s reason to reach
     that far -- and a lazy import of ``clay_view``, ``httpx`` or the service
     layer would still run GL, the network or a job door from a package this
-    pin claims never does.
+    pin claims never does for every module but the one named exception.
     """
     for path in _modules():
         if path.name == "__init__.py":
@@ -101,6 +115,8 @@ def test_the_familiar_package_imports_no_window_service_or_network():
             at_module_scope = id(node) in module_body_ids
             for name in names:
                 root = name.split(".")[0]
+                if root == "httpx" and path.name in HTTPX_ALLOWED:
+                    continue
                 assert root not in BANNED, f"{path.name} imports banned root {name!r}"
 
                 hit = next(

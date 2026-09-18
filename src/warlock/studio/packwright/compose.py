@@ -57,7 +57,7 @@ def compose(sprites: list[Sprite], layout: Layout) -> np.ndarray:
 
     A frame naming a sprite that is not present raises rather than leaving a
     hole: an atlas with an invisible gap looks like an art problem and sends the
-    user looking in the wrong place -- the rule ``pipelines.sheet.pack`` already
+    user looking in the wrong place -- the rule ``kernels.sheet.pack`` already
     follows for a missing rendered frame.
     """
     by_key = {sprite.key: sprite for sprite in sprites}

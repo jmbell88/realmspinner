@@ -20,7 +20,7 @@ Output is an ordinary sheet -- ``sheets/<id>.png`` plus its sidecar in the
 *source* job's directory -- because "Open in Inker", the library, the exporters
 and the Aseprite writer all already read that pair. What makes it a character
 sheet is the frame table it was laid out on and the ``animation`` block in the
-sidecar, and both of those are ``pipelines.charsheet``'s.
+sidecar, and both of those are ``kernels.charsheet``'s.
 
 **Themed effects composite between the reduction and the pack**, and that
 ordering is the whole point of where the phase sits. The trims, the structural
@@ -74,8 +74,9 @@ class TroupeOps:
 
     async def _charsheet(self: Worker, job: dict[str, Any]) -> None:
         from . import queue as queue_mod
-        from .pipelines import charsheet, pixelize, pixelsheet, sheetcheck
-        from .pipelines import sheet as sheetlib
+        from .kernels import charsheet
+        from .kernels import sheet as sheetlib
+        from .pipelines import pixelize, pixelsheet, sheetcheck
 
         job_id = job["id"]
         params = job["params"]
@@ -711,8 +712,9 @@ class TroupeOps:
         module docstring gives: quantisation is one shared pass and the flames
         have to be in it.
         """
-        from .pipelines import charsheet, pixelize
-        from .pipelines import sheet as sheetlib
+        from .kernels import charsheet
+        from .kernels import sheet as sheetlib
+        from .pipelines import pixelize
 
         with tempfile.TemporaryDirectory(prefix="warlock-charsheet-") as tmp:
             scratch = Path(tmp)
@@ -890,7 +892,7 @@ def _sockets_in_cells(
     The keys arrive as JSON object keys, i.e. strings, because the result
     travels through ``result.json``; they come back as ints.
     """
-    from .pipelines import charsheet
+    from .kernels import charsheet
 
     if not isinstance(result, dict):
         return {}
@@ -928,7 +930,7 @@ def _cells_by_index(troupe_layout: Any) -> dict[int, dict[str, Any]]:
     long. Built here because the frame table is ``charsheet``'s arithmetic and
     a second copy of it would be a second opinion about what cell 137 depicts.
     """
-    from .pipelines import charsheet
+    from .kernels import charsheet
 
     # ``frame_table``'s own guard, restated: the caller holds a resolved
     # ``LayoutSpec`` and ``resolve_layout`` takes a mapping.
@@ -1024,7 +1026,7 @@ def _camera_meta(
     have no front set, and this keeps their sidecar the byte-identical one
     they always published.
     """
-    from .pipelines import charsheet
+    from .kernels import charsheet
 
     elevation = float(elevation)
     preset = next(

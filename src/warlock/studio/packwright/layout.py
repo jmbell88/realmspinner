@@ -40,7 +40,7 @@ texture cannot sample its neighbour; two adjacent sprites each extruding into a
 shared gutter therefore need twice the room. Getting this wrong produces bleed
 that only shows on a GPU with filtering on, at some zoom levels.
 
-``max_size`` is ceilinged by ``pipelines.sheet.MAX_ATLAS_PX`` -- imported, not
+``max_size`` is ceilinged by ``kernels.sheet.MAX_ATLAS_PX`` -- imported, not
 restated -- because "how big may an atlas be before an engine refuses it" is one
 question and it already has an answer here.
 """
@@ -50,7 +50,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from ...pipelines import sheet as sheetlib
+from ...kernels import sheet as sheetlib
 from .maxrects import order, pack
 from .sources import SliceSpec, Sprite
 from .trim import trim_rect

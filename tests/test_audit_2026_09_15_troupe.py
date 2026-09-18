@@ -133,7 +133,7 @@ def _giant_header_png() -> bytes:
     Image.new("RGB", (1, 1), (0, 0, 0)).save(buf, "PNG")
     data = bytearray(buf.getvalue())
     assert data[12:16] == b"IHDR"
-    width = height = 9000  # > pipelines.sheet.MAX_ATLAS_PX (8192)
+    width = height = 9000  # > kernels.sheet.MAX_ATLAS_PX (8192)
     struct.pack_into(">II", data, 16, width, height)
     crc = zlib.crc32(bytes(data[12:29])) & 0xFFFFFFFF
     struct.pack_into(">I", data, 29, crc)

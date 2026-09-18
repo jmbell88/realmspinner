@@ -197,7 +197,7 @@ putting it behind the serial GPU queue would make it wait on a reconstruction. S
 
 ## Sheet planning
 
-A sprite sheet's grid is decided on the host and never in Blender. `pipelines/sheet.py` is pure:
+A sprite sheet's grid is decided on the host and never in Blender. `kernels/sheet.py` is pure:
 `plan()` works out which cells exist, `pack()` composites the rendered frames with Pillow, and
 `sidecar()` writes the JSON. Blender's only job is to render one square transparent PNG per cell
 into a scratch directory.

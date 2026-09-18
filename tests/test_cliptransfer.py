@@ -24,8 +24,8 @@ import re
 import pytest
 
 from warlock import clipmaps, cliptransfer
+from warlock.kernels import sheet
 from warlock.kernels.rig import cliplib, templates
-from warlock.pipelines import sheet
 
 TEMPLATE = templates.get_template("humanoid")
 TARGET_BONES = {b["name"]: b for b in TEMPLATE.bones}
@@ -649,7 +649,16 @@ def test_cliptransfer_report_names_a_duplicate_normalized_source_bone():
     assert report["duplicate_source_names"][normalized] == ["Hips", "mixamorig:Hips"]
 
 
-# --- the restated constants, pinned to their sources ------------------
+# --- bounds shared with kernels.sheet / poselib ------------------------
+#
+# ``MAX_CLIP_FRAMES`` and ``_slerp`` stopped being restated copies in the
+# 2026-09-17 restructure (``sheet.py`` moved to ``warlock.kernels.sheet``,
+# which this import-pinned module may now reach), so the two tests below are
+# now trivially true by construction -- kept anyway as a guard against a
+# future edit rebinding either name to a divergent value.
+# ``MAX_ROOT_TRANSLATION`` is still a genuine restatement (from ``poselib``,
+# a sibling in this same pinned set) and its own test still measures
+# something real.
 
 
 def test_max_clip_frames_matches_sheets_own_ceiling():

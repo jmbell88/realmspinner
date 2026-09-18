@@ -223,7 +223,7 @@ def _charsheet(tmp_path, size: int = 8) -> dict[str, Any]:
     ``charsheet.animation_block`` existed -- cells that carry only an index,
     and no animation at all -- which is why the two doors both have to work.
     """
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     block = charsheet.animation_block()
     columns, rows = 16, 16

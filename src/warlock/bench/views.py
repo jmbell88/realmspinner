@@ -1,6 +1,6 @@
 """Eight views of a finished mesh, rendered for measurement.
 
-Reuses ``pipelines/sheet.py`` directly and deliberately does *not* go through
+Reuses ``kernels/sheet.py`` directly and deliberately does *not* go through
 ``service/sheets.py``. That route queues a job on the serial GPU queue, writes
 into the source job's directory (160 rows of pollution in the user's
 history), enforces a per-job sheet cap that has nothing to do with a
@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..pipelines import sheet
+from ..kernels import sheet
 
 # Which of the eight yaws is meant to be the camera-matched view, as an offset
 # added before Blender sees a cell. Column 0 is by construction the matched

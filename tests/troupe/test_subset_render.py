@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.pipelines import charsheet
-from warlock.pipelines import sheet as sheetlib
+from warlock.kernels import charsheet
+from warlock.kernels import sheet as sheetlib
 
 
 def _runs(n=1):

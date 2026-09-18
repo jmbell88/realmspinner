@@ -107,7 +107,7 @@ def test_the_four_direction_order_is_the_legacy_one_not_the_clockwise_preset():
     sprite draft on disk is front/left/right/back. Same set, different order --
     and taking the preset's order would relabel the back and right rows of
     every stored draft."""
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     preset = tuple(name for name, _yaw in charsheet.DIRECTION_PRESETS[4])
     assert set(preset) == set(ss.SPRITE_DIRECTIONS[4])
@@ -116,7 +116,7 @@ def test_the_four_direction_order_is_the_legacy_one_not_the_clockwise_preset():
 
 
 def test_the_eight_directions_are_charsheets_own_and_not_a_third_copy():
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     assert ss.SPRITE_DIRECTIONS[8] == tuple(
         name for name, _yaw in charsheet.DIRECTION_PRESETS[8]
@@ -134,7 +134,7 @@ def test_the_shared_actions_agree_with_troupes_frame_table():
     adding them to ``charsheet.ANIMATIONS`` would raise a KeyError an hour into
     a job -- and this is the overlap. A walk that is eight frames here and six
     there is a sheet whose two halves disagree about what a cycle is."""
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     troupe = {name: frames for name, frames, _loop, _ms in charsheet.ANIMATIONS}
     shared = set(troupe) & set(ss.ACTION_FRAMES)
@@ -144,7 +144,7 @@ def test_the_shared_actions_agree_with_troupes_frame_table():
 
 
 def test_the_two_extra_actions_are_deliberately_not_troupes():
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     troupe = {name for name, *_rest in charsheet.ANIMATIONS}
     assert set(ss.ACTION_FRAMES) - troupe == {"cast", "hurt"}
@@ -1588,7 +1588,7 @@ def test_the_animation_block_is_charsheets_and_not_a_third_emitter():
     """``sheet.sidecar``'s rule: two writers of this format, and a third should
     extend one rather than appear. The sprite grid is expressed as the
     one-movement Troupe layout it already is."""
-    from warlock.pipelines import charsheet
+    from warlock.kernels import charsheet
 
     geom, doc = _sidecar("idle8")
     block = doc["animation"]

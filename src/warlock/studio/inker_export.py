@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.safeio import atomic
-from ..pipelines import sheet as sheetlib
+from ..kernels import sheet as sheetlib
 from . import dialogs, icons, inker_mode
 from .inker_state import InkerDoc
 

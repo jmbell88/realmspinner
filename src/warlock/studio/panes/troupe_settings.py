@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...kernels import charsheet
 from ...kernels.rig import store
-from ...pipelines import charsheet
 from .. import forms, tokens, troupe_mode, verbs, widgets
 from ..manual import render as manual_render
 from ..tokens import sp

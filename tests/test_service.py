@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from warlock import config as config_module
 from warlock.service import Conflict, Invalid, NotFound, NotReady, TooLarge
 from warlock.service import derive as svc_derive
 from warlock.service import export as svc_export
@@ -936,7 +937,7 @@ def test_a_retexture_refuses_a_non_sdxl_base_at_the_door(svc):
         svc_jobs.retexture_job(svc, job_id, "rusted iron", base_model=klein)
     assert caught.value.field == "base_model"
     # Names what would work, like create_pixel_sheet's refusal does.
-    assert models.DEFAULT_BASE_MODEL in caught.value.message
+    assert config_module.DEFAULT_BASE_MODEL in caught.value.message
     assert not [
         row for row in svc.store.list(limit=50) if row["kind"] == "retexture"
     ], "the refusal must precede the row"

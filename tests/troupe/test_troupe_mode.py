@@ -22,8 +22,8 @@ from types import SimpleNamespace
 import pygame
 import pytest
 
+from warlock.kernels import charsheet
 from warlock.kernels.rig import store
-from warlock.pipelines import charsheet
 from warlock.studio import modes as modes_mod
 from warlock.studio import troupe_mode
 from warlock.studio.troupe import spec as troupe_spec

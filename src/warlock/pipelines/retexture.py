@@ -5,7 +5,7 @@ renders the mesh from a fixed set of directions, the host restyles those
 renders through SDXL img2img, and `op_project` bakes each restyled view back
 into the mesh's own UV atlas *separately*, alongside a weight image saying how
 much that view is entitled to say about each texel. What is left is a weighted
-sum, and it lives here for the reason `pipelines/sheet.py`'s grid does: it is
+sum, and it lives here for the reason `kernels/sheet.py`'s grid does: it is
 decided on the host, it is a pure function, and a second copy of it inside
 Blender would be a second set of conventions to keep in agreement with the
 first.

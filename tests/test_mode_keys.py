@@ -79,10 +79,18 @@ def test_no_digit_is_a_mode_switch(alt, no_mods):
 def test_the_digit_helpers_are_gone_rather_than_left_unused():
     """A helper with no caller is not free (the ``setup()`` lesson): it reads as
     a supported entry point, and the next thing to want a digit map would find
-    one that nothing keeps honest."""
+    one that nothing keeps honest.
+
+    ``_shortcut`` -- the one place a revived digit map would be read from --
+    moved out of ``studio/main.py`` in the P4 restructure, into
+    ``studio/shell/events.py``; checked there too, or this would go on
+    passing regardless of what ``_shortcut`` did.
+    """
+    from warlock.studio.shell import events
+
     for name in ("mode_for_digit", "digit_key_label", "digit_for_mode"):
         assert not hasattr(modes, name)
-    assert "_digit_keys" not in inspect.getsource(main)
+    assert "_digit_keys" not in inspect.getsource(main) + inspect.getsource(events)
 
 
 def test_the_palette_is_checked_before_the_workspace_handlers():
@@ -191,8 +199,19 @@ def test_esc_in_a_work_mode_is_still_the_pane_s(no_mods):
 def test_no_mode_shortcut_is_persisted():
     """``previous_mode``/``mode_observed`` join ``mode`` in never being
     written to settings: a remembered one would have no reader across
-    launches, which is how the two halves drift."""
-    source = inspect.getsource(main)
+    launches, which is how the two halves drift.
+
+    Every ``ctx.settings.set(...)`` call the app makes lives in
+    ``shell/events.py`` (the window size and ``LAST_WORKSPACE_SETTING``) or
+    ``shell/quit.py`` (``_persist``'s own handful) since the P4 restructure
+    moved them out of ``studio/main.py`` -- checking ``main`` alone here would
+    pass vacuously once nothing that writes to settings was left in it, which
+    is not the same claim as "nothing anywhere writes these two keys".
+    """
+    from warlock.studio.shell import events
+    from warlock.studio.shell import quit as quit_mod
+
+    source = inspect.getsource(main) + inspect.getsource(events) + inspect.getsource(quit_mod)
     for name in ("previous_mode", "mode_observed"):
         assert f'settings.set("{name}"' not in source
 

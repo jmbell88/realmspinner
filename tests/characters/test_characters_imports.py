@@ -69,7 +69,7 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
     # The frame table, and only the frame table: what a recipe expands into is
     # ``charsheet``'s arithmetic, and a second copy here would be a second
     # opinion about what cell 137 depicts.
-    "recipe.py": {"warlock.pipelines.charsheet"},
+    "recipe.py": {"warlock.kernels.charsheet"},
     # **Nothing outward at all**, and that is the resolver's whole claim: it
     # turns a sentence into controls with a fixed vocabulary, so it must be
     # decidable with no pipeline, no service and no model behind it. The camera
@@ -149,7 +149,7 @@ def _imports(rel: str) -> list[tuple[str, bool]]:
             else:
                 root = package.rsplit(".", node.level - 1)[0]
                 base = f"{root}.{node.module}" if node.module else root
-            # ``from ..pipelines import charsheet`` names a *module* and
+            # ``from ..kernels import charsheet`` names a *module* and
             # ``from .errors import CharacterError`` names a class, and the AST
             # cannot tell them apart -- so the deepest name that is really a
             # module wins. Without this the pin could only ever say "it imports

@@ -1,6 +1,6 @@
 """Engine snippets: the few lines that load a baked sheet, per engine.
 
-``pipelines.sheet.sidecar`` is engine-neutral on purpose (its docstring says
+``kernels.sheet.sidecar`` is engine-neutral on purpose (its docstring says
 why), so what an engine needs is *derived from* the sidecar here and never
 written into it. Each renderer takes the same small mapping -- what the
 export wrote -- and returns text the user pastes. Pure string work; a test
@@ -13,10 +13,10 @@ from typing import Any
 
 ENGINES = ("pygame-ce", "godot", "unity", "phaser")
 
-# ``pipelines.sheet.MAX_ATLAS_PX``, restated rather than imported: this
+# ``kernels.sheet.MAX_ATLAS_PX``, restated rather than imported: this
 # package's import pin (``tests/inker/flourish/test_flourish_imports.py``)
 # allows ``warlock.pipelines`` only from ``bake.py``, the way ``curves.py``
-# restates the easing table rather than reaching into ``pipelines.sheet`` for
+# restates the easing table rather than reaching into ``kernels.sheet`` for
 # it. The per-tag export (``sheetout.arrange`` with no ``arrange`` chosen,
 # which is the default a Flourish export uses) wraps a strip of frames into
 # more rows once one row would cross this width -- see ``_grid`` below.
