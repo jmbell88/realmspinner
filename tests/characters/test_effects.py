@@ -4,7 +4,7 @@ Everything here is arithmetic: which effect kind a theme declares, which socket
 it hangs on, what seed it renders from, how big it is, where the compositor
 puts it and which of the two planes ends up on top. The half that reads and
 writes PNGs is exercised end to end through the real worker in
-``tests/troupe/test_troupe_chain.py``; splitting them is what keeps the claims
+``tests/modes/troupe/test_troupe_chain.py``; splitting them is what keeps the claims
 above checkable in milliseconds instead of behind a Blender fake.
 """
 

@@ -272,7 +272,7 @@ def test_a_draw_buffer_reaches_the_gpu_without_being_copied_first():
 
 
 def _shell(mode: str = "create"):
-    """``tests/test_mode_keys.py::_app``, which is the smallest thing
+    """``tests/studio/test_mode_keys.py::_app``, which is the smallest thing
     ``_shortcut`` needs to route a key."""
     from types import MethodType
 

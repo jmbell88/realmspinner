@@ -18,7 +18,7 @@ behind.
 Headless, and deliberately narrower than its parent: numpy and nothing else at
 module scope. No imgui, no pygame, no service, and **no scipy** -- the bar is
 that a recipe renders byte-identical frames, and a blur whose kernel comes from
-a dependency can change under a ``uv sync``. ``tests/inker/flourish/
+a dependency can change under a ``uv sync``. ``tests/modes/inker/flourish/
 test_flourish_imports.py`` pins that.
 
 The modules, bottom up:

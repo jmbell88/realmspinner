@@ -96,7 +96,7 @@ def delete_selected(doc: Any) -> list[str]:
     (second run, finding clay-10) found that with three boxes and every face selected, one
     Delete pushed three of those steps and one Ctrl+Z restored one box while
     leaving two empty -- the direct-call twin of clay-01, reachable from
-    ``tests/clay/test_select.py`` and any other caller that reaches this
+    ``tests/modes/clay/test_select.py`` and any other caller that reaches this
     function without going through ``clay_ops.run`` (which already folds
     everything an op pushes, but only for callers that go through it -- see
     the 2026-09-07 audit's clay-02 in ``studio/modes/clay/mode.py``). ``mark``/

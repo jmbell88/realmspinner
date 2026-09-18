@@ -182,7 +182,7 @@ def parse_gpl(text: str) -> tuple[RGB, ...]:
 # readers of one format is a real cost and the accepted one here.
 #
 # What keeps it survivable is that the duplication is pinned rather than
-# trusted: ``tests/inker/test_palette_formats.py`` feeds the same fixture bytes
+# trusted: ``tests/modes/inker/test_palette_formats.py`` feeds the same fixture bytes
 # to both sides and asserts the same colours come back, for every format both
 # can read. Change the tolerance of one of these and that test fails.
 

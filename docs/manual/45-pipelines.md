@@ -116,7 +116,7 @@ just inside, and one wrong cell on a 32-pixel sprite is a visible bite. Palette 
 palette file was chosen, runs afterwards in Oklab, with alpha carried around it untouched.
 
 Everything about that is off by default and byte-identical to the export that existed before it,
-which is what a test in `tests/test_asset2d.py` pins: every asset already on disk was cut by the
+which is what a test in `tests/pipelines/test_asset2d.py` pins: every asset already on disk was cut by the
 crop-then-scale path, and a manifest claiming so is only true while that holds.
 
 ## Blender out of process

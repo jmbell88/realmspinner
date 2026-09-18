@@ -1,6 +1,6 @@
 """What controls a frame actually drew, for a driver that presses them.
 
-``tests/test_studio_smoke.py`` asserts that every pane *builds*. It asserts
+``tests/studio/test_studio_smoke.py`` asserts that every pane *builds*. It asserts
 nothing about whether a control is wired to anything, whether it is reachable,
 or whether pressing it does what its label says --- and
 ``dev/scripts/screenshot_modes.py`` photographs a mode *at rest*. So the failure

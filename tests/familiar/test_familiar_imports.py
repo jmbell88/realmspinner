@@ -1,7 +1,7 @@
 """What ``warlock/familiar/`` is allowed to reach for, now that the GL-side
 preview/apply mechanics live in ``studio/assistant/preview.py`` instead.
 
-Written the same way ``tests/mason/test_mason_imports.py`` pins its own
+Written the same way ``tests/modes/mason/test_mason_imports.py`` pins its own
 package, and for the same reason: the whole claim of a "pure" package is
 worth exactly as much as the imports staying honest, checked by AST rather
 than trusted by eye.

@@ -1,6 +1,6 @@
 """The imgui context the pane tests press controls inside.
 
-It lived at ``tests/inker/`` until 2026-09-05, when a Troupe pane test wanted
+It lived at ``tests/modes/inker/`` until 2026-09-05, when a Troupe pane test wanted
 it too. It sits at the root of ``tests/`` now -- which ``tests/conftest.py``
 already puts on ``sys.path``, so the bare-name import below works from any
 subdirectory -- rather than being copied a second time, for the reason the
@@ -25,7 +25,7 @@ reasons, both learned the hard way:
   and ``test_gpu_lane_selection`` both do ``from conftest import ...`` meaning
   the one at ``tests/``. A second one in this directory wins that name whenever
   it is imported first, which under xdist it sometimes is, and those two
-  modules then fail to *collect*. (``tests/plotter/conftest.py`` had already
+  modules then fail to *collect*. (``tests/modes/plotter/conftest.py`` had already
   made that latent; a third made it fire every run.)
 * Importing a fixture by name into a module whose tests take a ``ui``
   parameter makes every one of those parameters a redefinition, which is fifty

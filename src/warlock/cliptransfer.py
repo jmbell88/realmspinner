@@ -36,7 +36,7 @@ shortest arc from the target's own rest direction onto the source's, folded
 in before the source's motion is applied.
 
 **``sheet.slerp``/``sheet.MAX_CLIP_FRAMES`` are imported, not restated, since
-the 2026-09-17 restructure.** ``tests/test_poser_imports.py`` pins every
+the 2026-09-17 restructure.** ``tests/modes/poser/test_poser_imports.py`` pins every
 module here (``poselib``, ``clipmaps``, and now this one) to import no more
 of ``warlock`` than a short, explicit set -- and one of its own generic
 checks (``test_none_of_them_imports_the_queue_or_the_pipelines``) refuses a

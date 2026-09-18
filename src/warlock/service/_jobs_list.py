@@ -8,7 +8,7 @@ and calls by attribute -- which matters here more than anywhere, because
 ``list_jobs`` runs twice a second over a page of rows, so everything expensive
 in it is either cached or paged: the ceiling on a single read is
 ``MAX_LIST_LIMIT`` and a longer history is reached by paging, never by asking
-for more. It is read through the facade at call time -- ``tests/test_api.py``
+for more. It is read through the facade at call time -- ``tests/service/test_api.py``
 patches it on ``service.jobs``, which is where it has always been patchable,
 and an early-bound copy here would ignore that.
 """
@@ -39,7 +39,7 @@ def list_jobs(
     ``files_cache`` is handed straight to ``attach_files`` and is what makes
     this affordable to call twice a second from the frame loop -- see there.
     """
-    # Through the facade, at call time: ``tests/test_api.py`` patches
+    # Through the facade, at call time: ``tests/service/test_api.py`` patches
     # MAX_LIST_LIMIT on ``service.jobs``, which is where it has always been
     # patchable, and an early-bound copy of the constant here would ignore it.
     from . import jobs as _facade

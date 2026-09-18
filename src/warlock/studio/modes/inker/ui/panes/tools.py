@@ -155,7 +155,7 @@ STAMP_ALIGN_LABELS = (
 #: context bar on 2026-08-31 and a floor that still reserved room for them
 #: would hold 66 px the pane no longer draws into. Spelling the arithmetic is
 #: what stops the constant and the pane drifting apart again, and
-#: ``tests/inker/test_inker_ux.py`` reconstructs it.
+#: ``tests/modes/inker/test_inker_ux.py`` reconstructs it.
 TOOLS_FLOOR = 190.0 - 2 * BUTTON_H - GRID_GAP
 
 #: The colour chips' flags: the mode's shared colour set, plus the two pieces
@@ -450,7 +450,7 @@ def _options(ctx: Any, state: Any, tab: Any) -> None:
     rate, spacing, strength, smoothing, taper, filled, tolerance, contiguous,
     sample, dither -- are one row above the canvas now (``inker_context``), at
     two rows each and ~812 px of column saved. Every one of them is still
-    reachable, and ``tests/inker/test_context_bar.py`` asserts that against
+    reachable, and ``tests/modes/inker/test_context_bar.py`` asserts that against
     ``TOOL_OPTION_DEFAULTS`` rather than leaving it to reading.
 
     What could not go on a row stayed: a *list* (the gradient's stops, the

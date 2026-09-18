@@ -50,7 +50,7 @@ is upstream's, byte for byte, because the point of vendoring is that the code is
 auditable against upstream and a fork that tidied while it was in there is a
 fork nobody can diff.
 
-None of them changes the arithmetic. `tests/test_birefnet_parity.py` compares
+None of them changes the arithmetic. `tests/pipelines/test_birefnet_parity.py` compares
 the mask this produces against one captured through the old remote-code path
 before the switch; it came out **bit-identical**, 0 differing pixels of 65,536.
 

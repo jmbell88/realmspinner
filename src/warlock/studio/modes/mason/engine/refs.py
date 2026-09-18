@@ -154,7 +154,7 @@ class LibraryRef:
 
     ``job_id`` is opaque the same way ``generator`` is: resolving it into
     ``svc.config.job_dir(job_id) / artifact`` is service-layer business this
-    package is not allowed to do (see ``tests/mason/test_mason_imports.py``'s
+    package is not allowed to do (see ``tests/modes/mason/test_mason_imports.py``'s
     ``test_the_engine_never_imports_the_service_layer``), so it goes through
     :class:`GeometrySource` exactly like a primitive does.
 

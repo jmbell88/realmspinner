@@ -418,7 +418,7 @@ def write_glb(model: gltf.Model) -> bytes:
         doc["bufferViews"] = writer.buffer.views
     # Emitted **only when one exists**. Every other mode in this project --
     # Clay, Poser, Troupe -- hands this function a model with neither, and
-    # ``tests/test_glbwrite.py``'s digest pin is what says those files' bytes
+    # ``tests/kernels/geom3d/test_glbwrite.py``'s digest pin is what says those files' bytes
     # did not move when Mason's scene export added these two arrays.
     if model.cameras:
         doc["cameras"] = [_camera(c) for c in model.cameras]

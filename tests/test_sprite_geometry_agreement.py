@@ -3,7 +3,7 @@
 ``pipelines.spritesynth`` decides where a cell is in a generated atlas;
 ``studio.inker.animation.DirectionalLayout`` decides what timeline frame *i*
 means when that atlas is opened for editing. They cannot share code: the inker
-package imports nothing outward (``tests/inker/test_sheetout.py`` pins the
+package imports nothing outward (``tests/modes/inker/test_sheetout.py`` pins the
 exact set), and ``pipelines`` modules run inside worker and Blender processes
 where ``studio`` is not importable at all.
 

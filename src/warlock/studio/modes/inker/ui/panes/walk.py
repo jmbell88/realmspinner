@@ -37,7 +37,7 @@ from . import textures as inker_textures
 #:
 #: Small because the right column had no room for anything larger. Its other
 #: four slots already floor at 804 of the 900 px a sidebar gets at 1600x950
-#: (``tests/test_layouts.py`` asks the arithmetic directly, and counts every
+#: (``tests/studio/test_layouts.py`` asks the arithmetic directly, and counts every
 #: declared slot whether or not its ``when`` would draw it), so 96 is what was
 #: left. It buys the heading, the status line and a row or two, which is the
 #: honest minimum below which this panel stops being usable at all -- and the

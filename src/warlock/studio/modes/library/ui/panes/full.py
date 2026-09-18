@@ -233,7 +233,7 @@ def _row_layout(
     already takes for a wrapped button row, so the interleaving a date
     heading forces on the row below it (the column counter resets, so a
     heading always starts a fresh row rather than landing mid-row) is a plain
-    assertion in ``tests/test_library_browsing.py`` instead of a screenshot.
+    assertion in ``tests/modes/library/test_library_browsing.py`` instead of a screenshot.
     Row-clipping (A1) walks this list rather than the loop in ``_grid``
     itself, because a row entirely off screen is what a cell-granularity skip
     could never express -- cells are packed with ``imgui.same_line()``.

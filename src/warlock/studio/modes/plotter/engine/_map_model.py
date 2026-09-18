@@ -19,7 +19,7 @@ the one method that looks like an exception and is not -- it is what a layer
 The ``Shape`` union lives here too, beside the object that carries one, rather
 than in a module of its own. It is data with no behaviour and exactly one
 consumer, and this package's import set is pinned file by file
-(``tests/plotter/test_plotter_imports.py``): a new module for eight frozen
+(``tests/modes/plotter/test_plotter_imports.py``): a new module for eight frozen
 dataclasses would buy a roster entry and a second place to look for what an
 object is.
 
@@ -599,7 +599,7 @@ def merged_object_values(before: dict[str, Any], values: dict[str, Any]) -> dict
 # sensible default, could not follow them. What keeps the four in step instead
 # is this tuple and the two helpers under it: ``snapshot`` and
 # ``_apply_layer_props`` both work from the same list, and
-# ``tests/plotter/test_scene.py`` asserts all four classes carry it.
+# ``tests/modes/plotter/test_scene.py`` asserts all four classes carry it.
 
 #: The tint that changes nothing, and therefore the default: Tiled's own
 #: ``#ffffffff``. Multiplying by it is the identity in every channel, which is

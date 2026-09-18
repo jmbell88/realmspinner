@@ -18,7 +18,7 @@ pair, the health poll -- and reuses its two free helper functions
 is trellis-specific. A full extraction of the shared port-claim machinery into
 ``pipelines/local_server.py`` (as the original brief for this tranche asked
 for) was left undone to keep this change from touching ``trellis.py`` and
-risking ``tests/test_trellis.py`` -- see the tranche report.
+risking ``tests/pipelines/test_trellis.py`` -- see the tranche report.
 """
 
 from __future__ import annotations

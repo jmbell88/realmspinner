@@ -13,7 +13,7 @@ with nothing on it but choices, and a card explaining the screen sat above a
 screen that now explains itself.
 
 The GL half of Phase 5 -- that a sprite really builds and a backdrop really
-captures -- lives in ``tests/test_studio_smoke.py``, where the context, the
+captures -- lives in ``tests/studio/test_studio_smoke.py``, where the context, the
 renderer and the framebuffer fixtures already are.
 """
 

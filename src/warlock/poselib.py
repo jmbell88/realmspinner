@@ -126,7 +126,7 @@ def clip_dir(config: Any) -> Path:
     Spelled here as well as there because the two callers are different: this
     is the app asking where to write, that is the loader asking where to read,
     and the loader may not import ``config``. They must agree, and
-    ``tests/test_clip_editing.py`` is what asserts they do.
+    ``tests/service/test_clip_editing.py`` is what asserts they do.
     """
     return poser_dir(config) / "clips"
 

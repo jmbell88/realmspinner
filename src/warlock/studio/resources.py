@@ -39,7 +39,7 @@ class Reading:
     sampler rather than measured by it. The frame meter belongs to the frame
     loop, which is the only thing that knows what a frame is, and measuring it
     here would mean reaching for the windowing layer from a module whose
-    freedom from every UI toolkit is pinned by ``tests/test_editor_shell.py``
+    freedom from every UI toolkit is pinned by ``tests/studio/test_editor_shell.py``
     -- which scans this file's whole source for their names, so they are not
     written here even in prose.
     """

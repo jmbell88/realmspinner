@@ -15,7 +15,7 @@ traversal order and this project would have no way to say the export had
 silently changed.
 
 Second, layering. This package may not import ``pipelines``
-(``tests/mason/test_mason_imports.py`` enforces it, the same door it already
+(``tests/modes/mason/test_mason_imports.py`` enforces it, the same door it already
 holds shut against ``clay`` and against ``warlock.service``), so a
 trimesh-based writer would have to live outside this package entirely --
 ``studio/mason_io.py``, most likely -- which puts one of Mason's three
@@ -459,7 +459,7 @@ def _encode_png(image: tuple[int, int, bytes]) -> bytes:
 
     Pillow is imported here and nowhere else in this module -- the same rule
     ``viewer/gltf.py``'s own ``texture()`` follows and
-    ``tests/mason/test_mason_imports.py`` enforces: nothing in this package's
+    ``tests/modes/mason/test_mason_imports.py`` enforces: nothing in this package's
     import list should cost every other test in the directory a Pillow
     import it does not need.
     """

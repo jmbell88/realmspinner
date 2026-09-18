@@ -134,7 +134,7 @@ ordered stop-then-release; a viewport torn down and rebuilt per connection
 would be churn bought for nothing. :func:`_view_for` and :func:`release` stay
 in *this* file rather than moving to ``studio/modes/clay/agent/tools_ops.py`` beside their
 one caller (``_h_render``) because two tests monkeypatch ``_view_for`` on
-``agent_clay`` by name (``tests/test_agent_clay.py``,
+``agent_clay`` by name (``tests/modes/clay/test_agent_clay.py``,
 ``tests/mcp/test_rpc_studio.py``) -- a handler that imported it as a plain
 name from wherever it "really" lived would keep its own, unpatched copy, so
 the fix that keeps the patch working is the same one that keeps the GL
@@ -490,7 +490,7 @@ log = logging.getLogger(__name__)
 # function in this file calls ``_tab``, ``_quat_from_euler_xyz`` or
 # ``_euler_xyz_from_quat`` itself (every caller lives in a handler file and
 # reaches them through ``agent_clay_validate`` directly), but ``agent_host``
-# calls ``agent_clay._tab`` by name and ``tests/test_agent_clay.py`` calls
+# calls ``agent_clay._tab`` by name and ``tests/modes/clay/test_agent_clay.py`` calls
 # ``agent_clay._quat_from_euler_xyz``/``_euler_xyz_from_quat`` by name --
 # both reaching through *this* module because it is the one every external
 # caller and every test already imports. The self-aliasing (``import x as
@@ -519,7 +519,7 @@ and a caller that needs more than this buys should split the program into
 several smaller ``clay_program`` calls rather than have this tool silently
 spread one across an unbounded number of frames.
 
-``tests/test_agent_clay.py`` shrinks this to ``0.0`` with ``monkeypatch.
+``tests/modes/clay/test_agent_clay.py`` shrinks this to ``0.0`` with ``monkeypatch.
 setattr(agent_clay, "PROGRAM_DEADLINE_S", 0.0)`` to exercise the deadline
 refusal without a real 4-second wait -- ``agent_clay_tools_batch._h_program``
 reads this value back through a lazy ``from . import agent_clay`` rather

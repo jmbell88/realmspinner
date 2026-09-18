@@ -14,7 +14,7 @@
 # Every modification below carries a ``WARLOCK:`` comment. There are four, they
 # are all subtractive or explicit-dispatch, and none of them changes the
 # arithmetic: the mask this produces is bit-identical to the remote-code path's,
-# which ``tests/test_birefnet_parity.py`` pins against a golden captured before
+# which ``tests/pipelines/test_birefnet_parity.py`` pins against a golden captured before
 # the switch.
 #
 # Ruff does not lint this file (see ``extend-exclude`` in pyproject): it is

@@ -40,7 +40,7 @@ assert warlock.models.BASE_MODELS, 'the registry is empty'
 # literal here is a number no test can keep in sync: it said 11 against a
 # twelve-mode tree, so this step could only ever fail once anything reached
 # it. The count is asserted where it can be derived from ``modes.MODES``:
-# ``tests/manual/test_docs.py`` and ``tests/test_studio_state.py``.
+# ``tests/manual/test_docs.py`` and ``tests/studio/test_studio_state.py``.
 assert modes.KEYS, 'the rail is empty'
 # The two force-includes, which are exactly what a wheel drops silently: the
 # manual tree and the changelog.

@@ -1,7 +1,7 @@
 """Wall-clock budgets for ABI 9's two kernels and the flood's complexity.
 
 Marked ``perf`` and therefore deselected by the default parallel run, for
-``tests/clay/test_scale.py``'s reason: a wall-clock reading taken while eight
+``tests/modes/clay/test_scale.py``'s reason: a wall-clock reading taken while eight
 workers saturate the cores is a reading about the scheduler. Run them with
 ``uv run pytest -m perf -n 0``.
 

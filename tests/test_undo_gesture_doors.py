@@ -26,9 +26,9 @@ from typing import Any
 
 import pytest
 from imgui_bundle import imgui
-from test_sirens_mode import FakeCtx
-from test_sirens_panes_smoke import _loaded, _no_device  # noqa: F401
-from test_sirens_panes_smoke import frames as frames  # noqa: F401, PLC0414
+from modes.sirens.test_sirens_mode import FakeCtx
+from modes.sirens.test_sirens_panes_smoke import _loaded, _no_device  # noqa: F401
+from modes.sirens.test_sirens_panes_smoke import frames as frames  # noqa: F401, PLC0414
 
 from warlock.core import undo
 from warlock.studio import controls, widgets
@@ -490,8 +490,8 @@ def test_the_plotter_layer_list_opacity_row_drag_is_one_step(monkeypatch, frames
     """M06: ``_opacity_row`` -- the Opacity slider drawn over the layer list
     itself, distinct from ``_layer_table``'s own copy in Properties -- called
     ``doc.set_layer_props`` on every changed frame with no fold at all."""
-    from test_plotter_mode import FakeCtx as PlotterFakeCtx
-    from test_plotter_mode import _tab as _plotter_tab
+    from modes.plotter.test_plotter_mode import FakeCtx as PlotterFakeCtx
+    from modes.plotter.test_plotter_mode import _tab as _plotter_tab
 
     from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 

@@ -160,7 +160,7 @@ class SheetLattice:
 #: only value that means "these forty-seven columns are blob cases in ascending
 #: ``tilemask.BLOB_MASKS`` order". ``pipelines.tileatlas._LAYOUTS``' spelling,
 #: restated here because ``studio`` reads it off a file rather than importing a
-#: pipeline's private table -- and ``tests/test_plotter_mode.py`` pins the pair.
+#: pipeline's private table -- and ``tests/modes/plotter/test_plotter_mode.py`` pins the pair.
 BLOB_LAYOUT = "blob47"
 
 

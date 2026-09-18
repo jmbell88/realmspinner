@@ -64,7 +64,7 @@ _user_clip_errors: dict[str, str] | None = None
 # Mirrors service.clips.MAX_LIBRARY_KEYS/MAX_KEYS -- this module may import no
 # more of ``warlock`` than the rest of ``kernels/rig`` plus ``poselib`` (this
 # file's own docstring, function-scoped below for the reason stated there);
-# ``tests/test_poser_imports.py`` pins the package's own outward reach, so the
+# ``tests/modes/poser/test_poser_imports.py`` pins the package's own outward reach, so the
 # write door's caps cannot be imported here and are restated as their own
 # constants instead. The two must be kept in sync by hand: the 2026-09-11
 # audit (poser-04) found this parser applied neither, so a hand-edited library
@@ -353,7 +353,7 @@ def _load_clip_library(
 #:
 #: **Told, never discovered.** This module is one the host and the worker
 #: share and it has deliberately never depended on the app's configuration --
-#: ``tests/test_poser_imports.py`` pins ``kernels/rig``'s whole outward
+#: ``tests/modes/poser/test_poser_imports.py`` pins ``kernels/rig``'s whole outward
 #: ``warlock`` import set, and reaching for ``config`` here (even inside a
 #: function body) would be a real architectural change dressed up as a
 #: convenience. So the layer that *has* a config sets this:

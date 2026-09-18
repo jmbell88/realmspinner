@@ -18,7 +18,7 @@ internally would mean converting twice per stroke to save one multiply.
 numpy body of ``over`` materialises about eight full-region temporaries and
 ``stack_region`` runs it once per layer, on the frame thread. The numpy bodies
 are never deleted -- they are the fallback on a machine with no compiler and the
-reference ``tests/inker/test_composite_native.py`` measures the kernel against,
+reference ``tests/modes/inker/test_composite_native.py`` measures the kernel against,
 bit for bit. Which path ran is not observable in the result.
 """
 

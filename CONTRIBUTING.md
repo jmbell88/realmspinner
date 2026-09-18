@@ -51,7 +51,7 @@ The ones that most often surprise people:
 - **`service/` is the only business-logic layer.** Panes and tests both call it.
   Refusals raise `service.errors` exceptions carrying a `field`.
 - **`bpy` never runs in the app process**, and every subprocess goes in the
-  `winjob` kill-on-close job. A scan test enforces each: `tests/test_poser_imports.py`
+  `winjob` kill-on-close job. A scan test enforces each: `tests/modes/poser/test_poser_imports.py`
   for the import, `tests/test_vram.py` for the job.
 - **The headless editor packages** (`studio/inker/`, `clay/`, `mason/`,
   `plotter/`, `packwright/`, `sirens/`, `troupe/`, `muse/`) import no imgui,

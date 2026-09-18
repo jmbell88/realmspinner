@@ -260,7 +260,7 @@ def track_path(ctx: Any, job_id: str):
 #: ``muse_io.read_track``, under the name this module used to define.
 #:
 #: The function moved to ``muse_io`` with everything else that touches a take's
-#: file; the alias stays because ``tests/test_muse_mode.py`` patches it by this
+#: file; the alias stays because ``tests/modes/muse/test_muse_mode.py`` patches it by this
 #: name, and a rename that breaks a test's patch point is a rename that hides
 #: what it changed. There is one implementation.
 _read_track = muse_io.read_track
@@ -918,7 +918,7 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
     fighting it.
 
     The rates already agree -- ``synth.SAMPLE_RATE`` is 44100 and the model's
-    own loader resamples anything -- and ``tests/test_muse_bridge.py`` asserts
+    own loader resamples anything -- and ``tests/modes/muse/test_muse_bridge.py`` asserts
     it rather than a comment claiming it.
 
     One door *is* opened, on the Muse side: ``create_music_job`` takes scalars

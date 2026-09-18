@@ -19,7 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from test_review_mode import FakeCtx, _mesh, _scanned  # noqa: F401 -- see shell-05
+from modes.review.test_review_mode import FakeCtx, _mesh, _scanned  # noqa: F401 -- see shell-05
 
 from warlock.core.safeio import zipguard
 from warlock.service import export as svc_export

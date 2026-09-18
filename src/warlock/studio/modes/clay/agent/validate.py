@@ -107,7 +107,7 @@ def fail(message: str, *, changed: bool = False, **extra: Any) -> dict:
     from its own history mark rather than defaulting. Every other refusal in
     this fold validates before it mutates -- the rule
     ``docs/manual/46-extending.md`` states for a new tool -- and
-    ``tests/test_agent_clay.py`` proves it against the document itself, by
+    ``tests/modes/clay/test_agent_clay.py`` proves it against the document itself, by
     walking every handler and checking a ``changed: false`` refusal really
     did leave the history, the dirty flag and the object count alone.
 

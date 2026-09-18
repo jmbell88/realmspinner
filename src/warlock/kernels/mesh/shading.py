@@ -10,7 +10,7 @@ that drifts the first time one of them is edited without the other two.
 docstring for the object-selection plumbing this module has no opinion about.
 
 **The bar for this extraction is byte identity.** Nothing about the maths
-below changed when it moved -- ``tests/clay/test_shading.py`` asserts this
+below changed when it moved -- ``tests/modes/clay/test_shading.py`` asserts this
 function against the pre-extraction inline computation on a sphere, a
 cylinder and a box, and every one of ``_shade_auto``'s own pre-existing
 callers keeps working unchanged because the wrapper still returns the same

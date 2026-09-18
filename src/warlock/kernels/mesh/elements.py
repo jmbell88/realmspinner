@@ -265,7 +265,7 @@ def restrict(mesh: Mesh, sel: ElementSel) -> ElementSel:
     the end of. Until the 2026-09-10 fix that closed this, the docstring here
     said plainly that no such caller existed (the 2026-09-08 audit's clay-09
     finding, which is why the sentence used to be about what this function
-    was *not* wired into) -- a state that ``tests/clay/test_elements.py``'s
+    was *not* wired into) -- a state that ``tests/modes/clay/test_elements.py``'s
     own self-adjusting gate kept honest rather than one this file could drift
     away from unnoticed.
     """

@@ -870,7 +870,7 @@ def _candidates(form: dict[str, Any]) -> None:
             imgui.same_line()
         # Never drawn past the panel edge: three 40 px buttons and two spacings
         # fit inside the 300 px sidebar with room to spare, and the guard in
-        # tests/test_studio_smoke.py measures rather than trusts that.
+        # tests/studio/test_studio_smoke.py measures rather than trusts that.
         if controls.radio_button(f"{count}##candidates", current == count):
             form["candidates"] = count
     widgets.help_marker(

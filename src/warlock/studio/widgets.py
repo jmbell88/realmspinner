@@ -1105,7 +1105,7 @@ def multiline(
     it, and ``same_line`` past the pane edge draws a control nowhere. The
     command bar passes a real width for that reason. It is a parameter here
     rather than a second raw ``input_text_multiline`` at the call site because
-    a raw widget call is one the probe census cannot see (tests/test_probe.py),
+    a raw widget call is one the probe census cannot see (tests/studio/test_probe.py),
     and this one is already counted.
     """
     changed, out = imgui.input_text_multiline(

@@ -36,7 +36,7 @@ door for a download the request would never have opened.
 **The geometry rules are restated, not imported.** ``service/`` may not import
 ``studio/`` and a pipeline is the wrong place to look up a form's ceiling, so
 the tile sizes and the projection list are literals here -- and
-``tests/test_tilesheet_service.py`` and ``tests/test_tileset_service.py`` pin
+``tests/service/test_tilesheet_service.py`` and ``tests/service/test_tileset_service.py`` pin
 each of them to ``pipelines.tilesheet`` and ``pipelines.tileatlas``, so the copy
 cannot drift without a red test saying which one moved. The *seamless* modes'
 own two refusals -- which views tile and which tile sizes divide a 1024px
@@ -109,7 +109,7 @@ MODE_GRID = "grid"
 #: ``materials`` rather than ``grid``, because ``grid`` is the one the
 #: measurement above says does not work; it survives for reruns.
 #: ``pipelines.tileatlas.MODES`` is the first two of these, and
-#: ``tests/test_tileset_service.py`` pins the pair.
+#: ``tests/service/test_tileset_service.py`` pins the pair.
 TILE_MODES: tuple[str, ...] = (MODE_MATERIALS, MODE_TERRAIN, MODE_GRID)
 DEFAULT_MODE = MODE_MATERIALS
 

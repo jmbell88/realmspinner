@@ -41,7 +41,7 @@ COLUMNS = 4
 
 #: ``tool_palette.PRIMITIVE_ICONS`` is the table Clay's Tools pane reads too,
 #: imported rather than copied -- it is pinned bijective against
-#: ``primitives.GENERATORS`` by ``tests/test_clay_wiring.py`` and this pane
+#: ``primitives.GENERATORS`` by ``tests/modes/clay/test_clay_wiring.py`` and this pane
 #: reads it only for its glyphs, never for membership: a primitive this table
 #: has not caught up with still gets ``icons.BOX`` at the draw site below, so
 #: a sixteenth generator gets a

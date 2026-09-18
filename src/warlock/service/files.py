@@ -851,7 +851,7 @@ REFERENCE_2D = (
 # Written out rather than imported from ``pipelines.material.MAP_NAMES``, which
 # is the same call ``config.SETTINGS`` makes: this file is the allowlist and an
 # allowlist assembled from somewhere else is one whose contents can change
-# without this file being edited. ``tests/test_material.py`` asserts the two
+# without this file being edited. ``tests/service/test_material.py`` asserts the two
 # agree in both directions, which is what makes writing them out safe.
 MATERIAL_2D = (
     "material_height.png",

@@ -1804,7 +1804,7 @@ def _register_defaults() -> None:
             # taken a ``region`` argument -- a real, tested second mode, not a
             # variant of the default -- since before this registry existed,
             # and it was tested only by calling that function directly
-            # (``tests/clay/test_ops_topo.py``). ``_element`` forwards every
+            # (``tests/modes/clay/test_ops_topo.py``). ``_element`` forwards every
             # param by name to the mesh op it wraps, so declaring the toggle
             # here is the whole fix: no wrapper function needed, the way
             # ``_place_between`` needs one to turn its own boolean ``fit``

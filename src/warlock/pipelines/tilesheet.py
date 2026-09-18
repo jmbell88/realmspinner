@@ -127,7 +127,7 @@ def normalize_view(view: Any) -> str:
 TILE_SIZES: tuple[int, ...] = (16, 32, 48, 64)
 
 #: ``service.validation.MAX_SEED``, restated rather than imported: a pipeline
-#: may not import the service layer. ``tests/test_tilesheet_pipeline.py`` pins
+#: may not import the service layer. ``tests/pipelines/test_tilesheet_pipeline.py`` pins
 #: the two together, so the copy cannot drift.
 MAX_SEED = 2**31 - 1
 

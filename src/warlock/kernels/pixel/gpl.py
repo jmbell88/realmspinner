@@ -208,7 +208,7 @@ def dumps_jasc(colours: Sequence[RGBA]) -> str:
 #
 # ``pipelines/pixel.py`` has its own copy of both readers, and of
 # :func:`parse_jasc`, because the layering forbids it importing this package
-# and forbids this package importing it. ``tests/inker/test_palette_formats.py``
+# and forbids this package importing it. ``tests/modes/inker/test_palette_formats.py``
 # feeds the same fixture bytes to both and asserts the same colours come back,
 # so the two cannot drift apart quietly -- which is the only thing that makes
 # the duplication survivable.

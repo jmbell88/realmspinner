@@ -626,7 +626,7 @@ def test_cliptransfer_report_names_a_duplicate_normalized_source_bone():
     "Import clip"'s report still carried no trace of it one call frame
     further downstream. Reproduces the same duplicate
     ``test_clip_map_match_does_not_silently_drop_a_duplicate_normalized_source_bone_name``
-    (``tests/test_audit_2026_09_15_poser.py``) does directly against
+    (``tests/modes/poser/test_audit_2026_09_15_poser.py``) does directly against
     ``clipmaps.match``, but through the whole ``transfer`` call."""
     source_bones = _baseline_source_bones()
     # A second raw spelling of "Hips" that the shipped mixamo clip map's

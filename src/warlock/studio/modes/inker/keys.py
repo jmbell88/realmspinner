@@ -131,7 +131,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
         # the second check refused the same presses silently, which is the one
         # thing ``run``'s refusal exists to stop. The set still guards the raw
         # arms in ``_ctrl_key``, which are not ops and have no gate of their
-        # own; ``tests/inker/test_findings_engine.py`` pins the pairing.
+        # own; ``tests/modes/inker/test_findings_engine.py`` pins the pairing.
         inker_ops.run(ctx, op)
         return True
     binding = inker_ops.resolve_binding(chord, context, state.shortcut_overrides)

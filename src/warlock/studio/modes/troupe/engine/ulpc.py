@@ -8,7 +8,7 @@ face. **No ULPC art ships**; the example sheets are CC-BY-SA/GPL and stay out
 of the package and out of any training set.
 
 ``read`` and ``crop`` decode a full sheet against :data:`LAYOUT` and have no
-caller anywhere outside ``tests/troupe/test_ulpc.py`` and this package's own
+caller anywhere outside ``tests/modes/troupe/test_ulpc.py`` and this package's own
 re-export. This docstring used to also claim a second purpose -- a
 user-supplied-art import door, standing in while a character is being built
 -- which the 2026-09-08 audit (finding troupe-03) cut: no pane, service door

@@ -499,7 +499,7 @@ def _grid(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) ->
                     # other order type-errors, and only on the frames that draw
                     # a caret -- which is every frame with a grid on screen, and
                     # which nothing caught until the panes were drawn under a
-                    # test (``tests/test_sirens_panes_smoke.py``).
+                    # test (``tests/modes/sirens/test_sirens_panes_smoke.py``).
                     draw_list.add_rect(
                         (cx + lead - 1, y),
                         (cx + lead + width + 1, y + row_h),

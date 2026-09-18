@@ -3,7 +3,7 @@ its own pipe.
 
 Everything here drives a real :class:`~warlock.studio.agent_host.AgentHost`
 over a real pipe (:mod:`warlock.mcp.pipe`), the same fixture shape
-``tests/test_agent_host.py`` already uses: a background thread calls
+``tests/studio/test_agent_host.py`` already uses: a background thread calls
 ``host.pump()`` the way ``main.py:App.frame`` would, while this thread is
 the "bridge" dialling in with ``pipe.connect``. RPC v1 requests are built by
 hand with ``rpc.encode_request``/``rpc.split_reply`` rather than through
@@ -453,7 +453,7 @@ def test_reading_the_scene_of_a_freshly_connected_session_matches_clay_scene(tmp
 
 class _FakeView:
     """A ``ClayView`` stand-in that returns a real tiny PNG without touching
-    GL -- the same shape ``tests/test_agent_clay.py::_FakeView`` uses, kept
+    GL -- the same shape ``tests/modes/clay/test_agent_clay.py::_FakeView`` uses, kept
     separate here since this module drives a real ``AgentHost`` from a
     background thread rather than calling ``agent_clay.call`` directly."""
 
@@ -722,7 +722,7 @@ def test_catalogue_op_includes_the_character_vocabulary_resource(tmp_path, monke
     catalogue_resources()`` into the same ``resources`` list Clay's own
     static resources already ride on -- proven over a real pipe by
     monkeypatching the character surface's own catalogue function (its real
-    vocabulary resource is ``tests/test_agent_character_resources.py``'s own
+    vocabulary resource is ``tests/studio/test_agent_character_resources.py``'s own
     job to prove)."""
     from warlock.studio import agent_character_resources
 
@@ -764,7 +764,7 @@ def test_a_character_sheet_resource_is_read_over_the_pipe(tmp_path, monkeypatch)
     the service lane's worker pool, and neither the pump thread
     (``_started_host``'s own ``pumper``) nor the listener
     (``"warlock-agent-host"``) may be it. The real charsheet sidecar/atlas
-    format is ``tests/test_agent_character_resources.py``'s own claim to
+    format is ``tests/studio/test_agent_character_resources.py``'s own claim to
     prove, so ``read_dynamic`` itself stays monkeypatched here."""
     from warlock.studio import agent_character_resources
 

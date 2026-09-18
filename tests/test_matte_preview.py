@@ -226,7 +226,7 @@ def test_late_matte_preview_results_landing_after_several_more_switches_do_not_g
     for a session that previews many references. It must not simply prune
     everything but the current job either: a result for a job the user has
     left is still supposed to be cached, just not shown (see
-    ``tests/test_matte_handoff.py::
+    ``tests/service/test_matte_handoff.py::
     test_a_result_for_a_job_the_user_left_is_cached_but_not_shown``) -- so the
     fix is a small bound, not a single slot.
     """

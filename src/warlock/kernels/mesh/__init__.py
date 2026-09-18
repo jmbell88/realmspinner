@@ -11,7 +11,7 @@ about geometry -- what a face is, which way a normal points, what a mirror does
 to winding, what an extrude does to a texture seam -- is assertable headlessly,
 without a window and without a GPU.
 
-That list is pinned by ``tests/clay/test_clay_imports.py``, the way the other
+That list is pinned by ``tests/modes/clay/test_clay_imports.py``, the way the other
 three pure packages pin theirs, so the next outward import is a decision rather
 than a discovery. ``gltf`` in particular is reached for rather than mirrored
 because a Clay material *is* a ``gltf.Material`` -- see :mod:`.document`.

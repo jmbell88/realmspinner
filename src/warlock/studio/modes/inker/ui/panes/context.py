@@ -71,7 +71,7 @@ NIB_LABELS = [
 ]
 INK_LABELS = inker_state.INK_LABELS
 #: One entry per ``brush.STAMP_ALIGN`` member, and pinned against it in
-#: ``tests/inker/test_pattern_fill.py``. It used to read ``free``/``origin``/
+#: ``tests/modes/inker/test_pattern_fill.py``. It used to read ``free``/``origin``/
 #: ``tile`` -- three names, two of which no longer existed anywhere in the
 #: engine, so picking either wrote a value ``StrokeState.__post_init__`` then
 #: snapped back to ``free``: a combo with two settings that did nothing.

@@ -290,7 +290,7 @@ def _shape_record(shape: Shape) -> dict[str, Any]:
     """One object's geometry, as a tagged record: its kind plus its own fields.
 
     Enumerated off the dataclass rather than written out per shape, which is
-    the same choice ``tests/plotter/_semantics._geometry_facts`` makes and right
+    the same choice ``tests/modes/plotter/_semantics._geometry_facts`` makes and right
     for the same reason: the union has eight members and will gain more, and a
     hand-written branch per shape is a field silently dropped per shape. A
     polygon's vertices, a tile object's gid and a text object's dozen styling
@@ -345,7 +345,7 @@ def _layer_entries(
     depth-first pre-order -- a group's entry, then its children, then the
     layer beside it -- which is what :meth:`~._map_layers.LayerOps.walk`
     yields and therefore what ``tile_layers()`` and ``all_layers()`` hand back.
-    ``tests/plotter/test_wmap.py`` pins the two sides against each other.
+    ``tests/modes/plotter/test_wmap.py`` pins the two sides against each other.
     """
     out: list[dict[str, Any]] = []
     for layer in layers:

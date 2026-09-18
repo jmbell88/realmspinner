@@ -3,7 +3,7 @@ picture can become.
 
 ``test_music_format.py``'s model, on the other pipeline: cheap, direct tests
 of the conversion function itself rather than of the service layer that
-derives it lazily (``tests/test_derive_2d.py`` covers that half -- staleness,
+derives it lazily (``tests/service/test_derive_2d.py`` covers that half -- staleness,
 stage gating, the NotReady/Invalid split). None of these needs a ``svc``
 fixture, a job directory, or a GPU; Pillow is already a core dependency, the
 same way ``pipelines/audioout``'s tests need only ``soundfile``.

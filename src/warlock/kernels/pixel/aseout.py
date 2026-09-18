@@ -11,7 +11,7 @@ back with, and this module is what retires it.
 **The writer is the reader's mirror, deliberately and literally.** Every field
 order below is the one :mod:`.asein` consumes, every constant is imported from
 it rather than restated, and the automated gate is a round trip through it --
-``tests/inker/test_aseout.py`` writes a document, reads it back and asserts the
+``tests/modes/inker/test_aseout.py`` writes a document, reads it back and asserts the
 planes, the flags, the palette and the share structure are the same ones. A
 golden binary in the tree would pin these bytes against nothing, since a writer
 and its own golden file can be wrong together forever. What a round trip cannot

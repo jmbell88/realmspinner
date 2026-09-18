@@ -1,6 +1,6 @@
 """A worker that speaks the music protocol without importing torch.
 
-Lets ``tests/test_music_client.py`` exercise the real pipe machinery -- spawn,
+Lets ``tests/pipelines/test_music_client.py`` exercise the real pipe machinery -- spawn,
 marker framing, progress forwarding, cancel, kill -- at subprocess speed and
 with no weights anywhere. It deliberately mirrors ``music_worker``'s *shape* (a
 stdin reader thread, one marked terminal line per request) rather than importing

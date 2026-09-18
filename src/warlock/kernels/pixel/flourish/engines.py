@@ -14,7 +14,7 @@ from typing import Any
 ENGINES = ("pygame-ce", "godot", "unity", "phaser")
 
 # ``kernels.sheet.MAX_ATLAS_PX``, restated rather than imported: this
-# package's import pin (``tests/inker/flourish/test_flourish_imports.py``)
+# package's import pin (``tests/modes/inker/flourish/test_flourish_imports.py``)
 # allows ``warlock.pipelines`` only from ``bake.py``, the way ``curves.py``
 # restates the easing table rather than reaching into ``kernels.sheet`` for
 # it. The per-tag export (``sheetout.arrange`` with no ``arrange`` chosen,

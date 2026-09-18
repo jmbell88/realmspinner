@@ -104,7 +104,7 @@ def _slice_filenames(entries: list[Any]) -> list[str]:
     quietly becoming "walk_2.png" would be a file claiming to be a clip that
     does not exist. Bumping is friendly where a human disambiguates and
     dishonest where a machine does. A third naming helper answers that same
-    question before it picks a side, and ``tests/inker/test_slice_export.py``
+    question before it picks a side, and ``tests/modes/inker/test_slice_export.py``
     pins both halves against each other so neither can drift onto the other's
     policy unnoticed.
     """

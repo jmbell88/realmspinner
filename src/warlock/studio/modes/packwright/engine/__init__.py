@@ -15,7 +15,7 @@ byte-identical copies used to spell); ``sources.py`` for
 four container doors now share, so the ``file_size`` ceiling a ``.wpack``'s own
 directory is checked against is not a fourth private copy of that bound). All
 eight are pinned exactly, and at that granularity, by
-``tests/packwright/test_packwright_imports.py``.
+``tests/modes/packwright/test_packwright_imports.py``.
 
 **The raster editor is deliberately not among them.** A clip's frames are read
 through duck typing: :mod:`.sources` takes *a document* and asks it for frames,

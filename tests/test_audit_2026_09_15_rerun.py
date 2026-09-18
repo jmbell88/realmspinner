@@ -130,7 +130,7 @@ def test_the_create_tray_rerun_button_agrees_with_rerollable():
     (the 2026-09-15 audit, finding create-02).
 
     Source-level, like this card's sibling tests in
-    ``tests/test_generation_workspace.py``: ``_result_card`` is drawn
+    ``tests/modes/create/test_generation_workspace.py``: ``_result_card`` is drawn
     straight into imgui and cannot be exercised headlessly.
     """
     import inspect

@@ -33,7 +33,7 @@ TEMPLATE = "humanoid"
 
 @pytest.fixture(autouse=True)
 def _fresh_clip_cache():
-    """Same isolation ``tests/test_clip_editing.py`` uses: the library caches
+    """Same isolation ``tests/service/test_clip_editing.py`` uses: the library caches
     are module globals filled once, and a test that edits one must not leak
     into the next."""
     cliplib.invalidate_clips()

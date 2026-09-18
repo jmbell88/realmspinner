@@ -367,7 +367,7 @@ def _details_tab(ctx: Any, job: Any) -> None:
     # Gated on the job's own stage instead -- but routed through
     # ``asset_open.route`` rather than calling ``create_stages.stage_for``
     # here directly: this pane's own sibling gate,
-    # ``tests/test_asset_open.py::test_one_module_decides_where_an_asset_opens``,
+    # ``tests/studio/test_asset_open.py::test_one_module_decides_where_an_asset_opens``,
     # bans a second copy of that ternary outside ``asset_open``/
     # ``create_stages`` themselves, since a follow-up row (a retexture, a
     # rig) answers "which stage shows this" differently from "where does this
@@ -1348,7 +1348,7 @@ def _quality(ctx: Any, job: Any) -> None:
         #
         # A second muted line rather than a tooltip on the first: this function
         # is called with ``widgets.muted`` stubbed and no imgui frame at all
-        # (``tests/test_quality_badge.py``), so raw imgui here is an access
+        # (``tests/studio/test_quality_badge.py``), so raw imgui here is an access
         # violation rather than a failure -- and a caveat nobody hovers is a
         # caveat nobody reads anyway.
         caveat = quality.caveat_for(ratio)

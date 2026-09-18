@@ -1,0 +1,539 @@
+"""Section K/M/L: forms, panes and layout.
+
+Most of these are properties of source rather than of pixels -- a hardcoded
+pixel size, a control with no widget, a palette bound at import -- which is
+exactly the class the smoke tests cannot see and a screenshot would not either.
+"""
+
+from __future__ import annotations
+
+import ast
+import inspect
+from pathlib import Path
+
+import pytest
+from _panes import pane_files
+
+from warlock.studio import dialogs as dialogs_mod
+from warlock.studio import layout as layout_mod
+from warlock.studio import theme, tokens
+from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
+from warlock.studio.modes.home.ui.panes import landing
+from warlock.studio.modes.library.ui.panes import library
+from warlock.studio.modes.settings.ui.panes import app_settings
+
+PANES = pane_files()
+
+
+# --- K97: design pixels ------------------------------------------------------
+
+# The files the sweep covered, as paths rather than names relative to a
+# single directory: P5 moved the two Create panes (and, later, Clay's) out of
+# the flat `studio/panes/` this list used to assume, so a name-plus-fixed-root
+# scheme silently stopped scanning them the moment they moved. `dialogs.py`
+# is not a pane (it sits in `studio/` itself) and is named directly; every
+# other entry is looked up by its pre-restructure pane name through
+# `tests._panes.pane_files`, which tracks where a pane lives now.
+#
+# A raw two-number tuple in one of these is a size that stays put while the
+# monitor's scale grows around it.
+SP_SWEPT = (
+    Path(inspect.getfile(dialogs_mod)),
+    PANES["inker_canvas.py"],
+    PANES["inker_bridge.py"],
+    PANES["settings_2d.py"],
+    PANES["settings_3d.py"],
+    PANES["stage_rig.py"],
+    PANES["inker_colors.py"],
+    # Joined 2026-08-19: THUMB and INDENT were used as raw physical pixels, so
+    # thumbnails and group indents stayed put while the monitor scaled.
+    # Sirens' seven panes, joined by the 2026-09-07 audit alongside the label
+    # fix that made them worth scanning: a pane whose control widths were
+    # already right (``grid_width``, ``sp(GRAPH_H)``...) but whose labels were
+    # simply not drawn is exactly the class this scan cannot see and a
+    # screenshot would not either -- so both fixes land together, and the scan
+    # now covers the files the screenshot missed.
+    PANES["sirens_instruments.py"],
+    PANES["sirens_effects.py"],
+    PANES["sirens_envelopes.py"],
+    PANES["sirens_transport.py"],
+    PANES["sirens_orders.py"],
+    PANES["sirens_bridge.py"],
+    PANES["sirens_patterns.py"],
+)
+
+
+def _literal_sizes(path: Path) -> list[tuple[int, str]]:
+    """Every ``(w, h)`` tuple and ``set_next_item_width(n)`` of a bare number.
+
+    Parsed rather than grepped, so a number inside a comment or a docstring --
+    of which these files have many, most of them *about* pixel sizes -- cannot
+    be mistaken for a call site.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Tuple) and len(node.elts) == 2:
+            nums = [e for e in node.elts if isinstance(e, ast.Constant)]
+            if (
+                len(nums) == 2
+                and all(isinstance(e.value, int | float) for e in nums)
+                and any(abs(float(e.value)) >= 16 for e in nums)
+            ):
+                found.append((node.lineno, ast.unparse(node)))
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("set_next_item_width", "same_line")
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, int | float)
+            and abs(float(node.args[0].value)) >= 16
+        ):
+            found.append((node.lineno, ast.unparse(node)))
+    return found
+
+
+@pytest.mark.parametrize("path", SP_SWEPT, ids=lambda p: p.name)
+def test_no_pane_hardcodes_a_pixel_size(path):
+    """K97. ``sp()`` is what keeps a measurement meaning "this wide" on a 150%
+    monitor rather than drifting; a literal 150 px button at 200% scale holds
+    text drawn at 300% and the label runs off the end of it."""
+    assert not _literal_sizes(path), _literal_sizes(path)
+
+
+def test_the_swatch_grid_scales_with_the_display():
+    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+
+    source = inspect.getsource(inker_colors._swatches)
+    assert "sp(SWATCH)" in source
+
+
+# --- K92 / K98: measured rather than guessed ---------------------------------
+
+
+def test_the_2d_form_scrolls_under_a_fixed_plan():
+    """K92, after the brief moved to the command bar.
+
+    Generate itself no longer sits below this column at all -- it is in
+    ``create_brief`` and never scrolls by construction. What stays pinned here
+    is the *statement*: the plan block lists every problem with one-click
+    repairs in it, and a paragraph explaining a disabled button is no use at
+    the bottom of a scrolled column either.
+    """
+    source = inspect.getsource(settings_2d.draw)
+    assert 'begin_child("2d-form"' in source
+    assert source.index("end_child") < source.index("_plan_footer(ctx, form)")
+
+
+def test_generate_is_not_in_the_scrolling_column_at_all():
+    from warlock.studio.modes.create.ui import brief as create_brief
+
+    assert "primary_button" not in inspect.getsource(settings_2d)
+    assert "primary_button" in inspect.getsource(create_brief)
+
+
+def test_the_library_footer_reservation_is_measured():
+    """K98. The two constants were guessed against a bar whose height is a
+    function of the theme, the scale and how many buttons the current *view*
+    draws -- the trash's bulk bar has two where the workshop's has three."""
+    source = inspect.getsource(library.draw)
+    assert "_footer_reserve()" in source
+    assert "_measure_footer" in source
+
+
+def test_a_measured_footer_is_stored_in_design_pixels():
+    """Or a scale change would compound it: the value is measured in physical
+    pixels and handed back out through ``sp``."""
+    assert "tokens.SCALE" in inspect.getsource(library._measure_footer)
+    before = library._footer_px[0]
+    try:
+        library._footer_px[0] = 50.0
+        tokens.set_scale(2.0)
+        assert library._footer_reserve() == pytest.approx(100.0)
+    finally:
+        tokens.set_scale(1.0)
+        library._footer_px[0] = before
+
+
+# --- K94 / K95 / K96: the 3D form's three controls ---------------------------
+
+
+def test_the_one_option_budget_is_not_drawn_at_all():
+    """K94, settled the other way. A combo with a single entry looks broken --
+    but drawing it disabled costs five lines of the densest form in the app to
+    explain its own inertness, and the explanation's own answer is that the
+    *inspector's* retarget control is where a tier gets tried. So while
+    ``PROFILES`` has one entry there is nothing here, and the form key is
+    untouched either way: this stops drawing a control, not sending one."""
+    assert len(settings_3d.PROFILES) == 1
+    source = inspect.getsource(settings_3d._budget)
+    assert "if len(PROFILES) == 1:" in source
+    assert "begin_disabled" not in source
+    # And nothing is left explaining a control that is not on screen.
+    assert "not installed" not in source
+
+
+def test_custom_triangles_finally_has_a_widget():
+    """K95. The field was submitted, validated and recorded with no way to set
+    it -- a form field that existed only for the API."""
+    source = inspect.getsource(settings_3d._budget)
+    assert 'form["profile"] == "custom"' in source
+    assert "custom_triangles" in source
+
+
+def test_the_size_field_is_an_unbounded_drag_that_carries_its_unit():
+    """K96. A slider needs a maximum and there is no largest asset -- a wall
+    section is legitimately 8 m."""
+    assert settings_3d.SIZE_NO_BOUND[0] >= settings_3d.SIZE_NO_BOUND[1]
+    source = inspect.getsource(settings_3d._size)
+    assert "drag_float" in source
+    assert "%.2f m" in source
+    # 0 says what it means rather than showing a measurement of zero metres.
+    assert "unset" in source
+
+
+# --- K99: the atlas ----------------------------------------------------------
+
+
+def test_the_atlas_is_rebuilt_between_frames_and_never_inside_one():
+    """Rebuilding invalidates every ImFont handle, and those are pushed and
+    popped all through ``_build_ui``."""
+    from warlock.studio import fonts, main
+
+    source = inspect.getsource(main.App.frame)
+    assert "fonts.reload" in source
+    assert source.index("fonts.reload") < source.index("imgui.new_frame()")
+    assert "clear_fonts" in inspect.getsource(fonts.reload)
+
+
+def test_the_zoom_asks_for_a_rebake_only_when_the_size_actually_changed():
+    """A rebake per *frame* is a font rebuild sixty times a second.
+
+    This used to be a slider, and a slider's guard is release: without it,
+    every intermediate value dragged through was a settings write and a full
+    atlas rebuild. The control is a combo of named steps now (50/75/100/125/
+    150%), so there are no intermediate values to guard against and
+    ``is_item_deactivated_after_edit`` has nothing to say -- but the frame
+    *after* a pick still redraws with the same value selected, so the guard
+    that remains is the one that matters: the size has to have changed.
+
+    Asserted against the source rather than by drawing, because what is being
+    pinned is that the flag sits *inside* the change branch. A version that
+    raised it unconditionally would draw identically and re-bake the atlas
+    forever, which is exactly the failure a screenshot cannot show.
+    """
+    source = inspect.getsource(app_settings._interface)
+    guard = source.split("if chosen != _scale_key(stored):", 1)[1]
+    assert "fonts_dirty = True" in guard
+    before = source.split("if chosen != _scale_key(stored):", 1)[0]
+    assert "fonts_dirty" not in before, "the atlas is re-baked whether or not the size moved"
+
+
+# --- K100: one configuration table -------------------------------------------
+
+
+def test_the_config_table_is_one_function_drawn_in_two_places():
+    assert "config_table" in inspect.getsource(app_settings._config)
+    # And the data source is still the one doctor prints.
+    assert "effective(" in inspect.getsource(app_settings.config_table)
+
+
+# --- M106: the sidebar -------------------------------------------------------
+
+
+def test_the_sidebar_option_is_three_names_and_the_width_is_module_state():
+    assert set(layout_mod.SIDEBAR_WIDTHS) == {"narrow", "default", "wide"}
+    try:
+        layout_mod.set_sidebar("narrow")
+        assert layout_mod.SIDEBAR_WIDTHS["narrow"] == layout_mod.SIDEBAR_W
+    finally:
+        layout_mod.set_sidebar("default")
+
+
+# --- M107: the Home tiles ----------------------------------------------------
+
+
+def test_the_resume_cursor_wraps():
+    """A short ring of recent work is a menu, where a two-hundred-row list is
+    not -- which is why the library's arrows clamp and these do not."""
+    from types import SimpleNamespace
+
+    from warlock.studio import recents
+
+    settings = _RecentSettings()
+    for index in range(3):
+        recents.remember(settings, "clay", f"f{index}.wblk", when=float(index))
+    ctx = SimpleNamespace(state=SimpleNamespace(home_index=0), settings=settings)
+    landing.move(ctx, -1)
+    assert ctx.state.home_index == len(landing.rows(ctx)) - 1 == 2
+    landing.move(ctx, 1)
+    assert ctx.state.home_index == 0
+
+
+class _RecentSettings:
+    def __init__(self):
+        self.data = {}
+
+    def get(self, key, default=None):
+        return self.data.get(key, default)
+
+    def set(self, key, value):
+        self.data[key] = value
+
+
+def test_home_takes_the_arrows_and_enter():
+    """Library and Profiles are modes now, so there is no sub-view behind which
+    a cursor could move invisibly and then fire on the next Enter -- which is
+    what the ``landing_view == "choose"`` guard here used to be for."""
+    from warlock.studio import main
+
+    source = inspect.getsource(main.App._shortcut)
+    assert "landing_view" not in source
+    assert 'ctx.state.mode == "home"' in source
+    assert "landing.activate" in source
+
+
+# --- M105: the theme hook ----------------------------------------------------
+
+
+def test_every_palette_defines_exactly_the_same_names():
+    """A name missing from one is an AttributeError on the frame somebody
+    switches, in whichever pane happens to read it first."""
+    names = [set(p) for p in tokens.PALETTES.values()]
+    assert all(n == names[0] for n in names)
+    assert frozenset(names[0]) == tokens.COLOUR_NAMES
+
+
+def test_a_palette_name_is_a_live_lookup_and_not_an_import_time_constant():
+    """The reason the switch needed no edit at any of the dozens of
+    ``theme.ACCENT`` call sites -- and the reason a constant would have left
+    every hand-drawn rect on the old colours."""
+    try:
+        dark = theme.ACCENT
+        tokens.set_theme("light")
+        assert dark != theme.ACCENT
+        assert tokens.PALETTES["light"]["ACCENT"] == theme.ACCENT
+    finally:
+        tokens.set_theme("dark")
+
+
+def test_theme_still_raises_for_something_that_is_not_a_colour():
+    with pytest.raises(AttributeError):
+        _ = theme.NOT_A_COLOUR
+
+
+def test_an_unknown_theme_name_falls_back_rather_than_raising():
+    """It comes out of a settings file, and a value written by a build with a
+    third palette must not stop the window opening."""
+    try:
+        assert tokens.set_theme("solarized") == "dark"
+    finally:
+        tokens.set_theme("dark")
+
+
+def test_the_status_map_holds_names_rather_than_resolved_colours():
+    assert set(theme.STATUS_COLORS.values()) <= tokens.COLOUR_NAMES
+    try:
+        tokens.set_theme("light")
+        assert theme.status_color("done") == theme.rgba(tokens.PALETTES["light"]["OK"])
+    finally:
+        tokens.set_theme("dark")
+
+
+def test_the_light_palette_keeps_the_roles_rather_than_inverting_the_numbers():
+    """PANEL is still "the surface a form sits on" and the elevation steps are
+    still steps *away from* the floor -- which on a light ground means darker."""
+    light = tokens.PALETTES["light"]
+
+    def lum(value: int) -> float:
+        return ((value >> 16 & 0xFF) + (value >> 8 & 0xFF) + (value & 0xFF)) / 3
+
+    assert lum(light["PANEL"]) > lum(light["BG"])
+    assert lum(light["ELEV_1"]) > lum(light["ELEV_2"]) > lum(light["EDGE"])
+    assert lum(light["TEXT"]) < lum(light["MUTED"]) < lum(light["BG"])
+
+
+def test_the_pixel_palette_is_warm_and_keeps_darks_elevation_direction():
+    """The pixel-editor register, and the two things that make it one.
+
+    Its *direction* is dark's -- a step away from the floor reads lighter --
+    because it is a dark palette; what separates it from dark is temperature,
+    and nothing else in the suite pins that. A palette that drifted neutral
+    would still pass every contrast bar and every name check while having lost
+    the only reason it exists, so the warmth is asserted where the values are.
+    """
+    pixel = tokens.PALETTES["pixel"]
+
+    def lum(value: int) -> float:
+        return ((value >> 16 & 0xFF) + (value >> 8 & 0xFF) + (value & 0xFF)) / 3
+
+    assert (
+        lum(pixel["BG"])
+        < lum(pixel["PANEL"])
+        < lum(pixel["ELEV_1"])
+        < lum(pixel["ELEV_2"])
+        < lum(pixel["EDGE"])
+    )
+    assert lum(pixel["TEXT"]) > lum(pixel["MUTED"]) > lum(pixel["EDGE"])
+
+    # Warm means red over blue, on the neutral ramp as well as on the accent --
+    # a warm accent over a neutral grey chrome is a different design, and the
+    # one this replaced.
+    for role in ("BG", "PANEL", "ELEV_1", "ELEV_2", "EDGE", "TEXT", "MUTED", "ACCENT"):
+        value = pixel[role]
+        assert (value >> 16 & 0xFF) > (value & 0xFF), role
+
+    # And the accent is amber rather than dark's indigo: the red channel leads.
+    accent = pixel["ACCENT"]
+    assert (accent >> 16 & 0xFF) > (accent >> 8 & 0xFF) > (accent & 0xFF)
+
+
+# --- L104 / K93 --------------------------------------------------------------
+
+
+def test_the_strip_progress_comes_from_the_renderer():
+    """A tally kept by the pane would describe the *previous* run after a
+    cancel-and-restart."""
+    from warlock.studio.viewer_embed import Viewer
+
+    source = inspect.getsource(Viewer.strip_progress.fget)
+    assert "self._strip" in source
+    assert "len(strip.yaws)" in source
+
+
+DENSE_PANES = (
+    "inspector.py",
+    "landing.py",
+    "app_settings.py",
+    "pose_panel.py",
+    "retarget_panel.py",
+    "texture_panel.py",
+    "clay_props.py",  # now modes/clay/ui/panes/props.py -- looked up via PANES
+    "clay_outliner.py",  # now modes/clay/ui/panes/outliner.py
+    "sheet_panel.py",
+)
+
+
+#: The three ways a pane explains a control. ``help_text=`` is the third and
+#: newest: a marker written *after* a full-width control is drawn on a line of
+#: its own, where it reads as the next field's, so ``labeled_combo`` and the
+#: labelled sliders take the text and put the mark beside the name instead.
+#: ``texture_panel`` moved all three of its markers that way and this test --
+#: which greps for the call, not for the behaviour -- failed it for being
+#: better explained than before.
+EXPLAINS = ("help_marker", "set_tooltip", "help_text=", "tooltip=")
+
+
+@pytest.mark.parametrize("name", DENSE_PANES)
+def test_every_dense_pane_explains_at_least_one_of_its_controls(name):
+    """K93, as a floor rather than a count. Seven of these ten had *no*
+    tooltip at all, which is the state worth failing on: a pane whose controls
+    are named but never explained sends the reader to the manual for every one
+    of them."""
+    source = PANES[name].read_text(encoding="utf-8")
+    assert any(token in source for token in EXPLAINS)
+
+
+# --- C2: a label that overruns the fixed column ------------------------------
+
+
+def test_a_form_field_whose_label_overruns_the_column_stacks_instead_of_overlapping():
+    """C2, the 2026-09-07 audit.
+
+    ``Form.field``'s column branch jumped to a fixed ``label_width`` with
+    ``imgui.same_line`` no matter how wide the label it had just drawn was.
+    ``widgets.field_label`` uppercases the text, which routinely makes a label
+    wider than the docstring's own assumption that "a field label is short" --
+    and once it is, the control was placed under the label's own tail instead
+    of beside it. Measuring the drawn group and falling back to the stacked
+    treatment (no ``same_line``, full-width control) for *this field only* is
+    what closes it; every other field's column alignment is untouched.
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from _ui_context import imgui_context
+
+    from warlock.studio import forms
+
+    class _Recorder:
+        """Wraps the real ``same_line`` so the test can tell whether the
+        column branch or the stacked fallback ran, without guessing at pixel
+        positions the real font would produce."""
+
+        def __init__(self, real):
+            self.real = real
+            self.calls = 0
+
+        def __call__(self, *a, **kw):
+            self.calls += 1
+            return self.real(*a, **kw)
+
+    def _run(monkeypatch, label_width_seen: float) -> int:
+        with imgui_context(monkeypatch) as imgui:
+            imgui.new_frame()
+            imgui.set_next_window_size((800.0, 300.0))
+            imgui.begin("probe")
+            try:
+                recorder = _Recorder(imgui.same_line)
+                monkeypatch.setattr(imgui, "same_line", recorder)
+                # The real group's measured width stands in for an uppercased
+                # long label; the fixed column is 120 design px wide.
+                monkeypatch.setattr(
+                    imgui, "get_item_rect_size", lambda: imgui.ImVec2(label_width_seen, 20.0)
+                )
+                with (
+                    forms.Form("probe", available_width=800.0) as form,
+                    form.field("f", "field") as _problem,
+                ):
+                    imgui.button("control")
+                return recorder.calls
+            finally:
+                imgui.end()
+                imgui.end_frame()
+                imgui.render()
+
+    from _pytest.monkeypatch import MonkeyPatch
+
+    mp_long = MonkeyPatch()
+    try:
+        calls_long = _run(mp_long, 300.0)  # wider than the 120 px column
+    finally:
+        mp_long.undo()
+
+    mp_short = MonkeyPatch()
+    try:
+        calls_short = _run(mp_short, 40.0)  # comfortably inside the column
+    finally:
+        mp_short.undo()
+
+    assert calls_long == 0, "a label wider than the column must skip same_line and stack"
+    assert calls_short == 1, "a short label must keep the ordinary same_line column"
+
+
+def test_forms_footer_does_not_bypass_the_divider_door():
+    """Shell-10, the 2026-09-07 audit.
+
+    ``tests/studio/test_studio_controls.py::test_panes_do_not_bypass_the_presentational_control_layer``
+    is the AST guard that refuses a raw ``imgui.separator()`` in a pane, and it
+    scans only ``panes/*.py`` -- ``forms.py`` sits one directory up from there,
+    outside its walk, so ``Form.footer()``'s own bare ``imgui.separator()``
+    call had nothing to catch it. ``widgets.divider()`` is the one door every
+    other rule between two groups goes through (2026-09-05).
+    """
+    from warlock.studio import forms
+
+    source = Path(inspect.getfile(forms)).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    found = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "separator"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "imgui"
+    ]
+    assert not found, f"raw imgui.separator() in forms.py at line(s) {found}"

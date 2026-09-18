@@ -5,7 +5,7 @@ and the inspector's "Take it somewhere" section each grew their own list of
 destinations, one bridge at a time, and stopped agreeing about what was on it
 -- the library offered Poser and the two reopen doors, the inspector did not.
 This file is the table both surfaces are now measured against, modelled on
-``tests/test_inspector_edit_actions.py``: a fake ``ctx``, no imgui, no GL.
+``tests/studio/test_inspector_edit_actions.py``: a fake ``ctx``, no imgui, no GL.
 """
 
 from __future__ import annotations

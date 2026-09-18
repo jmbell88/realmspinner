@@ -376,7 +376,7 @@ class UndoStack:
         The stack holds opaque ``Edit``s and has no idea which of them touch
         pixels; the guarantee comes from ``Document`` calling
         ``commit_floating`` at the top of every mutating method, which
-        ``tests/inker/test_regressions.py`` pins from the outside. A future
+        ``tests/modes/inker/test_regressions.py`` pins from the outside. A future
         caller that revokes a step with pixel writes above it gets a corrupt
         document and no complaint from here.
 

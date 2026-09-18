@@ -8,7 +8,7 @@ sets and per-tile animation. Loading such a file and
 quietly keeping the half we understand would be fine right up to the moment the
 user saved, at which point the other half is gone. So the reader raises
 :class:`~.props.TiledUnsupported`, whose message names the feature and says what to
-do about it, and ``tests/plotter/test_tmx_refusals.py`` has one case per entry.
+do about it, and ``tests/modes/plotter/test_tmx_refusals.py`` has one case per entry.
 
 **Gid payloads are reinterpreted, never re-derived.** A base64 layer is decoded
 straight into little-endian ``uint32`` and reshaped, so the three transform

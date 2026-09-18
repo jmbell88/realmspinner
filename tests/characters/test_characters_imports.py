@@ -1,6 +1,6 @@
 """What ``warlock.characters`` is allowed to reach for, pinned exactly.
 
-The ``tests/test_poser_imports.py`` pin, sixth instance, with the structural
+The ``tests/modes/poser/test_poser_imports.py`` pin, sixth instance, with the structural
 difference that package's docstring anticipates: this one owns a *package with
 subpackages*, so the module list is a glob of the package root plus a glob of
 each archetype subpackage -- and the set of archetype subpackages is itself

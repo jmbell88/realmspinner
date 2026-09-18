@@ -359,7 +359,7 @@ def add_assembly(ctx: Any, doc: Any, key: str) -> list[Any]:
     A capsule limb's *own* result is coarser than that: ``presets.py``'s
     ``LIMB_SEGMENTS``/``LIMB_RINGS`` put a limb's mesh right at the angle
     rule's threshold, so a limb comes back mostly rather than fully smooth --
-    measured in ``tests/clay/test_shading.py``, and a figure-proportions
+    measured in ``tests/modes/clay/test_shading.py``, and a figure-proportions
     question this change is scoped out of touching.
     """
     from ......kernels.mesh import presets, shading

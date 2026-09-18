@@ -66,7 +66,7 @@ def _chat_handler(*, reply: str = "hi", tokens: int = 10):
 async def test_every_request_touches_the_server_so_the_idle_clock_restarts(tmp_path):
     """``touch()`` must fire at least once before and once after the network
     round trip -- without it a live conversation's server is evicted mid-reply
-    (``tests/test_familiar.py::
+    (``tests/familiar/test_familiar.py::
     test_touch_resets_the_idle_clock_so_a_live_conversation_is_not_evicted``
     is the door's own half of this claim; this is the client's)."""
     server = _server(tmp_path)

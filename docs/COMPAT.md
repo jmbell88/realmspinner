@@ -15,11 +15,11 @@ halves cannot catch an error both halves make together. So every positive claim
 below is a claim about this editor until a human with the real app has opened
 one of our exports or authored a fixture for our reader to prove itself
 against. The maintainer tracks the passes that are owed in local development
-notes, and the two fixture inventories — `tests/plotter/fixtures/tiled/FIXTURES.md` and
-`tests/inker/fixtures/aseprite/FIXTURES.md` — name what to author first.
+notes, and the two fixture inventories — `tests/modes/plotter/fixtures/tiled/FIXTURES.md` and
+`tests/modes/inker/fixtures/aseprite/FIXTURES.md` — name what to author first.
 
 **One part is executable and the other is prose, and the difference is
-load-bearing.** `tests/plotter/test_compat_matrix.py` parses the Tiled tables
+load-bearing.** `tests/modes/plotter/test_compat_matrix.py` parses the Tiled tables
 below *as data*: six tests read their rows and check the `refused` ones in both
 directions against every `TiledUnsupported` site in the engine, so a row edited
 carelessly fails the suite. That parser is scoped to this file's Tiled part by
@@ -27,7 +27,7 @@ name — the Aseprite tables use a different state vocabulary and would parse as
 unknown states — so a heading added under `## Plotter ↔ Tiled` joins the gate
 and one added under `## Inker ↔ Aseprite` does not. The Aseprite half has no
 corpus-as-data test of that kind; the fixed-point gate
-`tests/inker/test_aseprite_corpus.py` runs beside it instead.
+`tests/modes/inker/test_aseprite_corpus.py` runs beside it instead.
 
 ## Plotter ↔ Tiled
 
@@ -90,7 +90,7 @@ States mean:
 
 The refused rows are checked in both directions against every
 `TiledUnsupported` site. Positive rows are checked for a real fixture pair by
-`tests/plotter/test_compat_matrix.py`; the corpus then exercises Tiled XML →
+`tests/modes/plotter/test_compat_matrix.py`; the corpus then exercises Tiled XML →
 Plotter → Tiled XML, Tiled XML → Plotter JSON, and `.wmap` round trips.
 
 **A `round-trips` row can still fall back or draw nothing on one input, and
@@ -113,11 +113,11 @@ path runs and is stable across the trip. It proves compatibility with Tiled
 only when the fixture was *authored in Tiled*.
 
 **At present no fixture in the corpus is Tiled-authored** — every map under
-`tests/plotter/fixtures/tiled/` was produced by this editor, so every
+`tests/modes/plotter/fixtures/tiled/` was produced by this editor, so every
 `round-trips` row below is currently a round trip *against ourselves*. That is
 worth having and it is not the claim the word makes on its own, which is why
 it is said once here rather than appended to thirty rows.
-`tests/plotter/fixtures/tiled/FIXTURES.md` labels each fixture and lists what
+`tests/modes/plotter/fixtures/tiled/FIXTURES.md` labels each fixture and lists what
 authoring is owed, and the maintainer tracks the pass itself outside this repo. As Tiled-authored
 fixtures land, this paragraph shrinks to name the rows still waiting.
 
@@ -321,7 +321,7 @@ three fixtures that would settle the first question.
 | a background layer | round-trips | -- | **Divergence #6 is retired** (6.5). A background layer is a flag on the bottom layer, written into the layer chunk's own flags (`0x08`) and into `stack.xml` as `warlock-background`, and read back from both. What it means is that the layer composites opaque -- so erasing on it reveals the colour under the eraser rather than a hole. `Document.matte` remains as the *stand-in* for a document that has no background layer, and converting one folds the matte into the pixels and clears it: the flatten-time overlay becomes a layer every format can store. |
 | the flatten matte (`Document.matte`) | dropped | -- | `.aseprite` has no field for what a flattened export puts behind transparency, so a document saved here and reopened *infers* one with `matte_for`: white if every pixel is opaque, off otherwise. The user's own answer survives only in `.ora`, as `warlock-matte` on the `<image>` root -- and that attribute is the one `warlock-*` attribute written **unconditionally**, because the setting is tri-state (on / off / nobody said) and absence has to keep meaning "infer" for Krita files and for files written before it existed. Sheet imports infer for the same reason. |
 | a reference layer | round-trips | -- | Read since the reader landed (opened hidden, because Aseprite's own export omits one) and **kept as a layer type** since 6.5 rather than folded into `visible`: `Layer.reference` is written into the chunk flags (`0x40`) and into `stack.xml` as `warlock-reference`, and it refuses every tool write through the door the content lock already uses. |
-| Palette-constrained RGB's own palette | dropped | #19 | The chunks *are* written — a file Aseprite opens carries its colour table — but the constraint itself has nowhere to live in the format; see the aseprite → ORA row below for why re-opening it does not bring the constraint back either. Pinned, not fixed: `tests/inker/fixtures/aseprite/palette-constrained-rgb.aseprite` in the corpus. |
+| Palette-constrained RGB's own palette | dropped | #19 | The chunks *are* written — a file Aseprite opens carries its colour table — but the constraint itself has nowhere to live in the format; see the aseprite → ORA row below for why re-opening it does not bring the constraint back either. Pinned, not fixed: `tests/modes/inker/fixtures/aseprite/palette-constrained-rgb.aseprite` in the corpus. |
 | Grayscale storage | normalized | #2 | `(v, v, v, a)` writes as the format's own `(value, alpha)` pair — lossless for every *visible* pixel; see the next row for the one place it is not. |
 | Dead colour under a grayscale pixel's alpha 0 | dropped | #2 | The funnel deliberately leaves whatever colour an eraser stroke exposed alone rather than rewriting it (a no-op write should stay a no-op), so an invisible pixel's RGB is real per-channel data this format's two-channel storage cannot carry — it is written as its own red channel alone and reads back `(v, v, v, 0)`. |
 | A document with no palette of its own | derived, not omitted | #23 | Aseprite writes a colour table into every file it saves and this writer used to omit the chunk entirely when `doc.palette` was empty. It now writes one built from the document's own pixels — every entry a colour actually painted somewhere in the file, ranked by pixel count, capped at 256 and emitted in colour order; a document with no visible pixel gets the single transparent entry. **Nothing is invented**: writing Aseprite's own default table instead would mean reciting thirty-two colours from memory, which is the unmeasured claim this repository refuses to make. Indexed documents are unaffected — there a missing palette is a refusal, never a derivation. |

@@ -3,7 +3,7 @@ pumped in-test -- the one place this tranche proves the whole chain (a real
 MCP client's stdio, through `bridge.py`'s RPC v1 client, to Studio's RPC v1
 server, to `agent_clay.call`) rather than each half on its own.
 
-Modelled on `tests/test_agent_host.py`'s and `tests/test_agent_perf.py`'s own
+Modelled on `tests/studio/test_agent_host.py`'s and `tests/mcp/test_agent_perf.py`'s own
 harness shape: an `AgentHost` started against a throwaway home, a background
 thread draining `pump()` the way `main.py:App.frame` would, and a real pipe
 connection -- except the peer here is a real `warlock mcp` child process

@@ -29,13 +29,13 @@ its face, which looks like a modelling mistake rather than an axis one.
 its core, because the whole clay package's claim is that it is assertable
 headlessly; reaching into ``warlock/templates`` for a JSON file would buy an
 outward dependency (and a file-system read) for a handful of numbers. So the
-head/tail pairs below are a hard-coded copy and ``tests/clay/test_presets.py``
+head/tail pairs below are a hard-coded copy and ``tests/modes/clay/test_presets.py``
 cross-checks every one of them against the real template -- a template edited
 without editing this file is a red test rather than a body that has quietly
 drifted off its skeleton. It also reaches for its siblings ``primitives``,
 ``mesh`` and ``ops`` (the last for :func:`~.ops.align_y`, promoted out of
 this module), and for ``viewer.math3d`` -- outward only as far as
-``tests/clay/test_clay_imports.py`` already lets the rest of the package go --
+``tests/modes/clay/test_clay_imports.py`` already lets the rest of the package go --
 because grounding (below) has to build each part's *real* mesh and place it in
 world space rather than trust a bone midpoint to say where the geometry ends.
 
@@ -756,7 +756,7 @@ def build(key: str) -> tuple[Part, ...]:
     hemisphere's latitude step at exactly the threshold and limbs came back a
     third smooth, so the figures went on reading as beads after the change
     meant to stop them doing so -- see that constant's own comment and
-    ``tests/clay/test_shading.py`` for the measurement.
+    ``tests/modes/clay/test_shading.py`` for the measurement.
     """
     _label, builder = ASSEMBLIES[key]
     parts = builder()

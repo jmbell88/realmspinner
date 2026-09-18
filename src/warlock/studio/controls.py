@@ -541,7 +541,7 @@ def input_vec(
     centres one letter over each box before drawing it.
 
     Drawn with :func:`imgui.dummy` to advance the cursor rather than
-    ``same_line`` -- ``tests/test_studio_smoke.py`` counts overflowing
+    ``same_line`` -- ``tests/studio/test_studio_smoke.py`` counts overflowing
     ``same_line`` calls, and a dummy the width of the field plus one text
     line reserves exactly the row the letters were painted onto.
 
@@ -975,7 +975,7 @@ def combo_native(*args: Any, **kwargs: Any) -> Any:
     :func:`combo`'s name for a second shape. The 2026-09-08 audit's shell-09:
     a combo greyed by hand around a raw ``imgui.combo()`` call got neither the
     shared tooltip-on-hover reason nor a probe census entry, and the raw call
-    was invisible to ``tests/test_probe.py``'s own raw-widget inventory.
+    was invisible to ``tests/studio/test_probe.py``'s own raw-widget inventory.
     """
     return _field_call("combo", *args, **kwargs)
 

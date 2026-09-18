@@ -179,7 +179,7 @@ DIRECTION_COUNTS: tuple[int, ...] = (4, 8)
 #: back and right rows of every stored draft, which is the one failure a grid
 #: table exists to prevent. Eight has no legacy to protect, so it takes the
 #: preset's clockwise sweep verbatim -- and the two are the same *set*, which
-#: ``tests/test_spritesynth.py`` asserts so the divergence stays a re-ordering
+#: ``tests/pipelines/test_spritesynth.py`` asserts so the divergence stays a re-ordering
 #: rather than a second vocabulary.
 SPRITE_DIRECTIONS: dict[int, tuple[str, ...]] = {
     4: DIRECTION_ORDER,
@@ -196,7 +196,7 @@ SPRITE_DIRECTIONS: dict[int, tuple[str, ...]] = {
 #: clip file that ships, so a name it does not carry raises ``KeyError`` in the
 #: Blender stage rather than at the door. ``hurt`` and ``cast`` have no clips,
 #: so they live here and nowhere else. The five names the two tables *share*
-#: must agree on frame counts, and ``tests/test_spritesynth.py`` owns that
+#: must agree on frame counts, and ``tests/pipelines/test_spritesynth.py`` owns that
 #: overlap: a walk that is eight frames here and six frames there is a sheet
 #: whose two halves of the program disagree about what a cycle is.
 ACTIONS: tuple[tuple[str, int], ...] = (

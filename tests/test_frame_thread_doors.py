@@ -25,7 +25,7 @@ The guard here is behavioural where it can be: a ctx whose ``submit`` runs
 the task on a *real worker thread* and joins, with the expensive function
 spied to record which thread it ran on. A regression that moves the decode
 back into the frame-thread half shows up as the test thread's name. The
-Review launch and mesh load are pinned in ``tests/test_review_mode.py``.
+Review launch and mesh load are pinned in ``tests/modes/review/test_review_mode.py``.
 """
 
 from __future__ import annotations
@@ -39,12 +39,12 @@ from typing import Any
 
 import numpy as np
 import pytest
+from modes.clay.test_clay_mode import FakeCtx as ClayCtx
+from modes.clay.test_clay_mode import _tab as clay_tab
+from modes.inker.test_inker_mode import _PaletteCtx
+from modes.sirens.test_sirens_mode import FakeCtx as SirensCtx
+from modes.sirens.test_sirens_mode import _tab as sirens_tab
 from PIL import Image
-from test_clay_mode import FakeCtx as ClayCtx
-from test_clay_mode import _tab as clay_tab
-from test_inker_mode import _PaletteCtx
-from test_sirens_mode import FakeCtx as SirensCtx
-from test_sirens_mode import _tab as sirens_tab
 
 from warlock.kernels import pixel as inker
 from warlock.kernels.mesh import document as clay_document

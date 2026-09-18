@@ -48,7 +48,7 @@ from typing import Any
 #: geometry can still see by the time the lines have become cells) and
 #: ``service.tilesheets`` enforces the lines and the variants (it is the last
 #: place they still exist as lines).  Both read these, and
-#: ``tests/test_tileset_service.py`` pins them against
+#: ``tests/service/test_tileset_service.py`` pins them against
 #: ``tileatlas.MAX_MATERIALS``/``MAX_CELLS`` so three enforcement points cannot
 #: come to disagree about one rule.
 MAX_COLLECTION_LINES = 16

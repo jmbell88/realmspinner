@@ -406,7 +406,7 @@ def _collision_input(
     Written as one dispatch for ``plotter_canvas._object_input``'s reason: the
     interesting rules (which grip wins, what a modifier means, when a step is
     pushed) live in the ordering, and a test that called a helper would assert
-    around them rather than through them. ``tests/plotter/test_tile_collision``
+    around them rather than through them. ``tests/modes/plotter/test_tile_collision``
     drives this with the shared synthetic pointer.
 
     Priority on the press is **handle, then vertex, then body, then empty**.
@@ -1201,7 +1201,7 @@ def _terrain_input(
     Written as a dispatch beside ``_collision_input`` for its reason: the rule
     that matters is which region a press lands on, and a test calling a helper
     would assert around that rather than through it.
-    ``tests/plotter/test_wang_authoring`` drives this with the shared synthetic
+    ``tests/modes/plotter/test_wang_authoring`` drives this with the shared synthetic
     pointer.
 
     No drag session, because there is nothing continuous here: a slot is one of

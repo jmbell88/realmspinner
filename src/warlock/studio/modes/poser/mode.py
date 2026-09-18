@@ -3098,7 +3098,7 @@ def _journal_slot_for(ctx: Any, viewer: Any, key: str) -> Any:
 class _PoseSlot:
     """A pose session as the journal sees it. Marks proxy onto the viewer.
 
-    The 2026-09-16 audit, finding shell-02: ``tests/test_journal.py``'s
+    The 2026-09-16 audit, finding shell-02: ``tests/studio/test_journal.py``'s
     six-class pin walks ``dataclasses.fields()`` to catch a slot that drops
     one of the journal's three bookkeeping names (the 2026-08-18
     ``PlotterDoc.journal_at`` incident that pin exists for), and it structurally

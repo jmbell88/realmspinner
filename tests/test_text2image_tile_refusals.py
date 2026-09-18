@@ -5,7 +5,7 @@ The 2026-09-14 audit (pipelines-07): the tile-requires-SDXL-family refusal ran
 *after* ``self.load(on_state)`` had already paid for a full checkpoint load,
 even though the check depends on nothing ``load`` produces (``self.spec`` is
 set in ``__init__``). Its sibling, the tile+sheet/tilesheet mutual-exclusion
-refusal, was already ahead of ``load`` -- ``tests/test_text2image.py`` pins
+refusal, was already ahead of ``load`` -- ``tests/pipelines/test_text2image.py`` pins
 that one. This file pins the one that moved.
 
 No GPU, no diffusers: this is a pure argument check, so the fixture builds a

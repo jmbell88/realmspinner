@@ -502,7 +502,7 @@ def _trailing(ctx: Any, state: Any, view: Any) -> Any:
 def measure(state: Any, tab: Any) -> float:
     """What the row needs at its **full** tier, in physical pixels.
 
-    For ``tests/test_clay_header.py``, which asks the one question a header can
+    For ``tests/modes/clay/test_clay_header.py``, which asks the one question a header can
     silently get wrong: does it fit at the window the app opens at. A bar that
     plans ICON at 1600x950 is a bar whose every label is a hover away on the
     machine everybody uses.

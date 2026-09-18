@@ -115,7 +115,7 @@ async def test_the_clay_card_refuses_on_the_testing_pin(tmp_path, monkeypatch):
     testing pin) carries an empty ``card_shas`` -- it was never validated
     against any prompt card, Clay's included. Wiring ``ensure_started`` to
     require the Clay card's sha against that empty tuple must refuse before
-    any subprocess spawn, the same way ``tests/test_familiar.py::
+    any subprocess spawn, the same way ``tests/familiar/test_familiar.py::
     test_a_card_sha_mismatch_refuses_to_start`` proves for an arbitrary
     fake sha -- this pins the same refusal for the *real* Clay card, so the
     base pin can never be mistaken for one that speaks Clay."""

@@ -534,7 +534,7 @@ def _floyd_steinberg(out: np.ndarray, table: np.ndarray) -> np.ndarray:
     Python loop: what it costs is not arithmetic but about ten numpy dispatches
     per pixel, measured at ~10 us/px and near enough flat in palette size, so a
     2048-square conversion took about 43 seconds. The loop below is never
-    deleted -- it is the fallback and the thing ``tests/inker/test_dither_native.py``
+    deleted -- it is the fallback and the thing ``tests/modes/inker/test_dither_native.py``
     measures the kernel against, bit for bit.
 
     Serpentine (alternate rows right-to-left) rather than raster order: a

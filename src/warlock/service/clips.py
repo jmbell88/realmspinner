@@ -58,7 +58,7 @@ log = logging.getLogger(__name__)
 #: At the shipped 1- and 2-frame segments the only sample points are t=0 and
 #: t=0.5, and ``ease`` is a smoothstep whose value at 0.5 is exactly 0.5 -- so
 #: ``ease`` and ``linear`` are the *same clip* there, while ``ease_in`` (0.25)
-#: and ``ease_out`` (0.75) do differ. ``tests/test_clip_editing.py`` pins this
+#: and ``ease_out`` (0.75) do differ. ``tests/service/test_clip_editing.py`` pins this
 #: so it is a documented property rather than a surprise.
 EASINGS = sheetlib.EASINGS
 

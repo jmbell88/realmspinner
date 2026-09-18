@@ -125,7 +125,7 @@ SPRITE_DIRECTIONS: dict[int, tuple[str, ...]] = {
 #: How many frames each action carries. ``pipelines.spritesynth.ACTIONS``' table
 #: again, for the reason the direction tables are here twice; the shared five
 #: also have to agree with ``kernels.charsheet.ANIMATIONS``, which is a
-#: separate claim owned by ``tests/test_spritesynth.py``.
+#: separate claim owned by ``tests/pipelines/test_spritesynth.py``.
 ACTION_FRAMES: dict[str, int] = {
     "idle": 4,
     "walk": 8,

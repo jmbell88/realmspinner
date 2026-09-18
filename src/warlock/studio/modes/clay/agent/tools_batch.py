@@ -132,7 +132,7 @@ def _resolve_batch_ref(doc: Any, value: Any, field: str) -> tuple[Any, dict | No
 
     Only a dict of the *exact* shape ``{"$ref": <name>}`` is treated as a
     reference -- one that also carries any other key is refused rather than
-    guessed at (which key wins?), and ``tests/test_agent_clay.py``'s
+    guessed at (which key wins?), and ``tests/modes/clay/test_agent_clay.py``'s
     ``test_a_dict_carrying_ref_beside_another_key_is_refused`` pins that. A
     dict with no ``$ref`` key at all -- an ordinary object argument, or one
     that merely nests a real ``$ref`` somewhere inside it -- is walked key by

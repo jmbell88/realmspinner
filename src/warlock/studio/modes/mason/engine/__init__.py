@@ -11,7 +11,7 @@ with no window and no GPU.
 The outward set is :mod:`warlock.core.undo` -- the history engine the raster
 editor, Clay and Plotter already share -- four modules of the viewer, the
 container-level GLB reader, and the four guard leaves. It is pinned exactly by
-``tests/mason/test_mason_imports.py``, which was written before this package
+``tests/modes/mason/test_mason_imports.py``, which was written before this package
 existed, so the next outward import is a decision rather than a discovery. The
 fourth viewer module is ``glbwrite``, and it arrived with the exporters: there
 is one GLB writer in this project, and a second one living here would be a

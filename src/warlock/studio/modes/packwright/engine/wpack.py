@@ -70,7 +70,7 @@ MAX_SOURCE_PIXELS = 16_000_000
 # for the identical reason stated there. The number is written here rather
 # than imported, the same call :data:`MAX_SOURCE_PIXELS` above already makes
 # about ``service.validation.MAX_IMAGE_PIXELS``: this package's own import
-# pin (``tests/packwright/test_packwright_imports.py``) enumerates its eight
+# pin (``tests/modes/packwright/test_packwright_imports.py``) enumerates its eight
 # outward reaches exactly, and a ninth for one shared constant is a worse
 # trade than one number written twice on purpose. Module-level so a test
 # lowers it rather than decoding anywhere near a document this size.

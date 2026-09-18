@@ -20,7 +20,7 @@ which is worse than not deriving it at all: the albedo tiles, so the failure
 appears only once the material is on a surface, as a hard line in the lighting
 with nothing in the colour to explain it. Every neighbourhood operation below
 is ``np.roll``-based and therefore exactly periodic, and
-``tests/test_material.py`` asserts it by deriving from a shifted albedo and
+``tests/service/test_material.py`` asserts it by deriving from a shifted albedo and
 comparing against the shifted derivation.
 
 Pure in the ``vram.py`` sense: stdlib and numpy, Pillow imported inside the

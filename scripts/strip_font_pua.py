@@ -39,7 +39,7 @@ Idempotent. Run over the vendored faces after any font bump:
 
 No ``--with fonttools`` is needed any more: ``fonttools`` is in the ``dev``
 dependency *group*, which is one of uv's defaults, so a plain ``uv sync``
-already installed it -- the same copy ``tests/test_fonts.py`` reads the cmaps
+already installed it -- the same copy ``tests/studio/test_fonts.py`` reads the cmaps
 with. Nothing under ``src/`` imports it.
 """
 

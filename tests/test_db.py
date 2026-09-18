@@ -372,7 +372,7 @@ def test_count_reports_every_job_not_just_a_page(store):
 #
 # The end-to-end claim -- that a job outside the loaded window is found by its
 # prompt -- is exercised at the ``JobsCache`` level in
-# ``tests/test_library_browsing.py`` (``test_a_job_outside_the_loaded_window_
+# ``tests/modes/library/test_library_browsing.py`` (``test_a_job_outside_the_loaded_window_
 # is_found_by_its_prompt``), which is where the merge into the window happens.
 # ``search_ids`` itself is covered here: what it matches and what it refuses.
 

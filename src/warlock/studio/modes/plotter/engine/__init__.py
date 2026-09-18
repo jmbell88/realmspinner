@@ -7,7 +7,7 @@ therefore assertable headlessly, which is the whole reason the split exists.
 
 The one outward import is :mod:`warlock.core.undo`, the history engine the
 raster editor and Clay already share -- pinned by
-``tests/plotter/test_plotter_imports.py`` along with everything else this
+``tests/modes/plotter/test_plotter_imports.py`` along with everything else this
 package reaches for, so the next outward import is a decision rather than a
 discovery.
 

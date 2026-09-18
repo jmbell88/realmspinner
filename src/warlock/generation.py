@@ -96,7 +96,7 @@ SPRITE_SHEET_KINDS: dict[str, tuple[str, int]] = {
 #: ``asset_workflows`` stopped importing this module; the copy stays because
 #: this file is the request *document* and naming its own vocabulary should not
 #: cost it an import of a planning helper.
-#: ``tests/test_tileset_service.py`` pins the two copies together.
+#: ``tests/service/test_tileset_service.py`` pins the two copies together.
 TILE_MODES = ("collection", "materials", "terrain_transition", "terrain", "path")
 
 

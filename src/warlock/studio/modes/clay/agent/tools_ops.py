@@ -21,7 +21,7 @@ Like ``studio/modes/clay/agent/tools.py``, this file reaches ``fail``/``ok``/``_
 and its own ceilings through ``agent_clay_schema``, never through
 ``studio/modes/clay/agent/dispatch.py`` directly -- with one exception. ``_h_render`` needs
 ``agent_clay._view_for``, which stays in ``studio/modes/clay/agent/dispatch.py`` itself because two
-tests monkeypatch it there by name (``tests/test_agent_clay.py``,
+tests monkeypatch it there by name (``tests/modes/clay/test_agent_clay.py``,
 ``tests/mcp/test_rpc_studio.py``); see :func:`_core` below for why that
 reach is a function-scope import rather than a module-scope one -- the
 identical shape ``studio/modes/clay/agent/dispatch.py``'s own ``_protocol()`` already uses, for a

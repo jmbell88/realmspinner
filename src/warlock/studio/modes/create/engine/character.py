@@ -540,7 +540,7 @@ def recipe_kwargs(form: dict[str, Any], opts: dict[str, Any]) -> dict[str, Any]:
     preset is only a name for an angle, and a recipe carrying a camera whose
     elevation is somebody else's default would be framed at an angle nobody
     picked. Both come from ``troupe_options``, so the pane holds no second copy
-    of the table (``tests/troupe/test_camera_presets.py``).
+    of the table (``tests/modes/troupe/test_camera_presets.py``).
     """
     camera = camera_of(form, opts)
     presets = opts["troupe"]["camera_presets"]

@@ -341,7 +341,7 @@ MIGRATIONS: list[list[str]] = [
     # The literals are literals rather than an f-string over ``vectors``: a
     # shipped migration must mean the same thing forever, and interpolating a
     # constant somebody may later retune would rewrite history retroactively.
-    # ``tests/test_verdicts_db.py`` asserts they still equal ``BINARY_GRADES``,
+    # ``tests/service/test_verdicts_db.py`` asserts they still equal ``BINARY_GRADES``,
     # so a divergence is caught rather than merely forbidden.
     #
     # The ``grade IS NULL`` guards make a partial replay idempotent -- DDL runs

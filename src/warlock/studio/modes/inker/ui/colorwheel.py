@@ -10,7 +10,7 @@ re-uses it every frame until the pane's size or the UI scale changes).
 
 Kept apart from the pane that draws it so the one claim this file makes --
 that a point on the disc and the colour it produces are inverses of each
-other -- can be proven without a window. ``tests/test_colorwheel.py`` is that
+other -- can be proven without a window. ``tests/modes/inker/test_colorwheel.py`` is that
 proof.
 
 **Angle convention.** Hue is the angle of ``(dx, dy)`` around the centre,
@@ -85,7 +85,7 @@ def _hsv_to_rgb_array(hue: np.ndarray, saturation: np.ndarray, value: np.ndarray
     -- long enough to be a visible stall on the one frame that bakes it. The
     formula is copied from ``colorsys`` verbatim (not re-derived) so a pixel
     here and a single :func:`colour_at` call never disagree about the same
-    input; ``tests/test_colorwheel.py`` pins that agreement directly.
+    input; ``tests/modes/inker/test_colorwheel.py`` pins that agreement directly.
 
     ``s == 0`` needs no branch: every one of ``p``, ``q`` and ``t`` reduces to
     ``v`` exactly when ``s`` is 0, so whichever sextant a hue of undefined

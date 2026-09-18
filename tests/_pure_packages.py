@@ -7,9 +7,9 @@ exact form is the real gate; the sibling form is the one a reader believes.
 
 **The sibling form was six hand lists and no two agreed.** Measured on
 2026-09-11 while checking the Mason plan's claim that a new pure package
-"joins the lists": ``tests/clay/test_clay_imports.py`` named ``inker``,
+"joins the lists": ``tests/modes/clay/test_clay_imports.py`` named ``inker``,
 ``plotter`` and ``packwright`` but not ``sirens``, ``muse`` or ``troupe``;
-``tests/sirens`` named five; ``tests/muse`` named six; and ``inker``,
+``tests/modes/sirens`` named five; ``tests/modes/muse`` named six; and ``inker``,
 ``plotter``, ``packwright`` and ``troupe`` had no sibling check at all. Each
 of those lists fails **open** -- a package missing from one is a package that
 one pin will never catch an import of -- which is the ``PUBLISHERS`` shape
@@ -86,7 +86,7 @@ The consequence for every sibling-ban pin that reads :func:`pure_packages`:
 what used to be ``clay`` and ``inker`` are ``mesh`` and ``pixel`` now -- the
 directory name, not a mode's name, because a kernel is named for the domain
 it models rather than for the workspace that happens to be its only caller
-today (``tests/mason/test_mason_imports.py`` still bans one sibling engine
+today (``tests/modes/mason/test_mason_imports.py`` still bans one sibling engine
 from reaching Clay's primitives; it now bans ``warlock.kernels.mesh``, the
 same rule wearing its new name). What remains directly under ``studio/`` is
 the mode-owned set with no kernel of its own yet: ``mason``, ``muse``,

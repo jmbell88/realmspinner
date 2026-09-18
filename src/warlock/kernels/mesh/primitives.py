@@ -2205,7 +2205,7 @@ sheet, and both say so in their own docstrings. Every other generator in
 :data:`GENERATORS` is a topological ball: a closed, two-manifold shell with a
 consistent outward winding, and the registry's sweep tests
 (``test_every_closed_generator_is_wound_outward`` and the each-directed-edge-
-once check in ``tests/clay/test_primitives.py``) assert exactly that over
+once check in ``tests/modes/clay/test_primitives.py``) assert exactly that over
 every generator this set does not name.
 
 It is registry data, not test data, for the same reason :data:`CATEGORIES` is:
@@ -2213,7 +2213,7 @@ a thirteenth generator that is legitimately open -- a ribbon, a fan, anything
 else with a boundary -- has to be able to say so where the shape is defined,
 not by editing a set two directories away that the shape itself never sees.
 Before this constant existed, that set was ``OPEN`` in
-``tests/clay/test_primitives.py`` itself, which is the thing the tests using
+``tests/modes/clay/test_primitives.py`` itself, which is the thing the tests using
 it were supposed to be checking *against*.
 """
 

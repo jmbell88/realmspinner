@@ -14,8 +14,8 @@ and the sixteen-direction names carry underscores of their own
 (``front_front_left``), so a name is parsed by its longest known suffix rather
 than split on the first underscore. The table is a copy of
 ``charsheet._DIRECTIONS_16``'s names, because this package may not import
-``warlock.pipelines`` (``tests/inker/test_inker_imports.py``); the parity test
-in ``tests/inker/test_sheetscope.py`` is what keeps the copy honest.
+``warlock.pipelines`` (``tests/modes/inker/test_inker_imports.py``); the parity test
+in ``tests/modes/inker/test_sheetscope.py`` is what keeps the copy honest.
 
 Pure, index-returning, and it writes nothing. The frames it names are handed
 to ``_doc_sheet.SheetOps``, which is the one door onto the document.

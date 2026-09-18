@@ -198,7 +198,7 @@ STEP_KINDS: dict[str, frozenset[str]] = {
 }
 """Every step kind's own top-level keys, exhaustive -- a key not in this set
 for its kind is refused before anything about its *value* is looked at.
-``tests/test_agent_program.py`` (and a later transcript test) walk this
+``tests/modes/clay/test_agent_program.py`` (and a later transcript test) walk this
 rather than a hand-kept prose list, the same rule ``agent_clay.tools()``
 follows for its own registries."""
 

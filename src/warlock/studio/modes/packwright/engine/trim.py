@@ -6,7 +6,7 @@ is the same answer computed on a numpy array instead of a PIL image, because a
 packer measures hundreds of sprites and decoding each into a PIL image to ask is
 the wrong price for a question numpy answers directly.
 
-The two are pinned against each other by ``tests/packwright/test_trim.py``. That
+The two are pinned against each other by ``tests/modes/packwright/test_trim.py``. That
 parity test is the whole justification for a second implementation existing at
 all: without it this is a fork, and a packer whose idea of the subject differs
 by a pixel from the sidecar's produces atlases that are correct and metadata

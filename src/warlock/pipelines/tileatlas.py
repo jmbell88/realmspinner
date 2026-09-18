@@ -125,7 +125,7 @@ MATERIAL_COLUMNS = 8
 #: may not import the service layer. ``tilesheet.MAX_SEED`` is the same value
 #: restated for the same reason, and this is deliberately a third *copy* rather
 #: than an alias of it: an alias could not drift, but it also could not be
-#: pinned, and ``tests/test_tileatlas.py`` imports all three and asserts them
+#: pinned, and ``tests/pipelines/test_tileatlas.py`` imports all three and asserts them
 #: equal. Three copies with a test over them is the repo's pattern (``tilemask``
 #: against ``studio.tilegrid.blob``, ``service.tilesheets.TILE_SIZES`` against
 #: ``tilesheet.TILE_SIZES``); a chain of aliases is one edit away from being a
@@ -556,7 +556,7 @@ def assemble(tiles: Any, geom: AtlasGeometry) -> Any:
     Cell ``i`` goes at ``(i // columns, i % columns)`` -- reading order, which
     for ``materials`` is the order the user typed and for ``terrain`` is
     ascending ``tilemask.BLOB_MASKS``. The same arithmetic serves both, which is
-    what lets ``tests/test_tileatlas.py`` pin one row of this against
+    what lets ``tests/pipelines/test_tileatlas.py`` pin one row of this against
     :func:`tilemask.blob_atlas` byte for byte instead of trusting that two
     layouts agree.
 
@@ -725,7 +725,7 @@ def atlas_sidecar(
     Every value is a plain builtin, coerced here rather than at the call site:
     this is ``json.dumps``-ed *after* the atlas is on disk, and a numpy scalar
     that survived would fail the write with the artifact already published and no
-    marker to say so. ``tests/test_tileatlas.py`` round-trips it.
+    marker to say so. ``tests/pipelines/test_tileatlas.py`` round-trips it.
     """
     if geom.mode not in MODES:
         raise ValueError(f"unknown mode {geom.mode!r}; this module builds {', '.join(MODES)}")

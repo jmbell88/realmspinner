@@ -414,7 +414,7 @@ def _default_camera() -> tuple[str, float]:
     Not two literals here. ``charsheet.CAMERA_PRESETS`` is the table the pane
     offers from, the door validates against and the Blender worker frames the
     ortho window with, and
-    ``tests/troupe/test_camera_presets.py::test_the_form_and_the_door_read_one_preset_table``
+    ``tests/modes/troupe/test_camera_presets.py::test_the_form_and_the_door_read_one_preset_table``
     scans the whole package for a second module spelling the default key --
     which is exactly how this file's first draft was caught. A preset whose
     angle is edited in one place and copied in another is a form offering a

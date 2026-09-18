@@ -759,7 +759,7 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     payload = {"objects": rows, "changed": any(r["changed"] for r in rows)}
     # The single-uid shape (``uid``/``generator``/``params`` at the top
     # level, no ``objects`` list) predates the plural form, and
-    # ``tests/test_agent_clay.py`` -- among them
+    # ``tests/modes/clay/test_agent_clay.py`` -- among them
     # ``test_set_params_clamps_and_reports_the_clamped_value_back`` and
     # ``test_a_profile_param_survives_the_whole_agent_door`` -- reads
     # ``payload["params"]``/``payload["uid"]`` directly, as does whatever

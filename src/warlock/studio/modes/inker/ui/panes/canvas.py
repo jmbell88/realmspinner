@@ -2440,7 +2440,7 @@ def _grid(
 # sized ``page * zoom``, whose size depends on the zoom and whose scroll
 # position then feeds back into it. Worse, ``get_scroll_x/y`` would become a
 # second source of truth beside ``view.pan``, mirrored both ways every frame --
-# the exact failure ``tests/inker/test_duplicate_view.py`` names as its reason
+# the exact failure ``tests/modes/inker/test_duplicate_view.py`` names as its reason
 # for the view having no setter. And imgui clamps scroll to ``[0, max]`` where
 # this pane's rule is Aseprite's half-a-pane padding, which differs everywhere
 # it matters.

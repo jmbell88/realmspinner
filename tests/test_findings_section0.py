@@ -166,7 +166,7 @@ def test_a_gesture_that_folds_nothing_still_closes():
 
 def test_ctrl_z_during_a_live_clay_drag_is_swallowed(svc):
     import pygame
-    from test_clay_mode import FakeCtx, _FakeDrag, _tab
+    from modes.clay.test_clay_mode import FakeCtx, _FakeDrag, _tab
 
     from warlock.studio.modes.clay import mode as clay_mode
 
@@ -188,7 +188,7 @@ def test_ctrl_z_during_a_live_clay_drag_is_swallowed(svc):
 
 
 def test_selecting_another_key_asks_before_discarding_an_edit():
-    from test_poser_mode import _clip_ctx, _turned
+    from modes.poser.test_poser_mode import _clip_ctx, _turned
 
     from warlock.studio.modes.poser import mode as poser_mode
 
@@ -204,7 +204,7 @@ def test_selecting_another_key_asks_before_discarding_an_edit():
 
 
 def test_scrubbing_over_an_unsaved_pose_refuses_in_words():
-    from test_poser_mode import _clip_ctx, _turned
+    from modes.poser.test_poser_mode import _clip_ctx, _turned
 
     from warlock.studio.modes.poser import mode as poser_mode
 
@@ -218,7 +218,7 @@ def test_scrubbing_over_an_unsaved_pose_refuses_in_words():
 
 
 def test_edits_made_while_a_clip_save_is_writing_survive_the_landing(monkeypatch):
-    from test_poser_mode import _clip_ctx
+    from modes.poser.test_poser_mode import _clip_ctx
 
     from warlock.service import clips as svc_clips
     from warlock.studio.modes.poser import mode as poser_mode
@@ -251,7 +251,7 @@ def test_edits_made_while_a_clip_save_is_writing_survive_the_landing(monkeypatch
 
 
 def test_delete_and_copy_apply_the_wand_mask():
-    from test_plotter_mode import FakeCtx, _tab
+    from modes.plotter.test_plotter_mode import FakeCtx, _tab
 
     from warlock.kernels.grid2d import gid
     from warlock.studio.modes.plotter import mode as plotter_mode
@@ -272,7 +272,7 @@ def test_delete_and_copy_apply_the_wand_mask():
 
 
 def test_select_all_drops_the_wand_mask():
-    from test_plotter_mode import FakeCtx, _key, _tab
+    from modes.plotter.test_plotter_mode import FakeCtx, _key, _tab
 
     from warlock.studio.modes.plotter import mode as plotter_mode
 

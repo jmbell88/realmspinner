@@ -25,7 +25,7 @@ a cell wrongly kept is one the user re-takes in a click, and a cell wrongly
 taken is work that is gone.
 
 No outward imports. This package may not reach for ``warlock.pipelines`` (see
-``tests/inker/test_inker_imports.py``), and nothing here needs to: a digest is
+``tests/modes/inker/test_inker_imports.py``), and nothing here needs to: a digest is
 ``hashlib`` over an array, and a verdict is three string comparisons.
 """
 

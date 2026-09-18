@@ -17,7 +17,7 @@ a module whose own rule is "knows nothing about Clay" what Clay's own
 argument shapes are. The one exception is an argument's *own name* --
 ``agent_clay.call`` now refuses a key a tool's schema does not declare in
 ``properties`` before any handler runs (see that module's docstring and
-``tests/test_agent_clay.py``'s unknown-argument section) -- but everything
+``tests/modes/clay/test_agent_clay.py``'s unknown-argument section) -- but everything
 about a *value* is still the handler's own job, exactly as it always was.
 
 **This file is what stands in for the validator that was never built.** It
@@ -104,7 +104,7 @@ property, routed to by :data:`_PROPERTY_OVERRIDES`:
   baseline where they are.
 * ``clay_reference_add``'s ``file`` is only read on the ``job_id`` branch,
   never alongside ``png_base64`` (the main baseline's choice) --
-  :func:`_b_reference_add_job` mirrors ``tests/test_agent_clay.py``'s own
+  :func:`_b_reference_add_job` mirrors ``tests/modes/clay/test_agent_clay.py``'s own
   ``test_reference_add_from_a_library_job_reads_its_input_png`` fixture to
   give ``job_id`` and ``file`` both a baseline that actually reads them.
 * ``clay_set_params``'s ``uids`` is never read alongside the main
@@ -118,7 +118,7 @@ property, routed to by :data:`_PROPERTY_OVERRIDES`:
 this module's own docstring asks for rather than a silent skip:
 
 * ``clay_render`` needs a real moderngl context to build its private
-  viewport. ``tests/test_agent_clay.py``'s ``_install_fake_view`` (imported
+  viewport. ``tests/modes/clay/test_agent_clay.py``'s ``_install_fake_view`` (imported
   from there rather than copied -- see the note below) swaps in a fake
   ``ClayView`` that returns a real tiny PNG with no GL at all, which is
   enough to reach every argument-validation refusal in ``_h_render`` --
@@ -212,7 +212,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from test_agent_clay import _Ctx, _install_fake_view, _payload  # see module docstring
+from modes.clay.test_agent_clay import _Ctx, _install_fake_view, _payload  # see module docstring
 
 from warlock.kernels.mesh import presets
 from warlock.studio.modes.clay import mode as clay_mode
@@ -1003,7 +1003,7 @@ def _b_reference_add_job(
     plain :func:`_b_reference_add` baseline), it is never looked at, so a
     violation of its own shape would not be refused for what this file is
     nominally testing. Routed to by ``_REFERENCE_ADD_BASELINES``, mirroring
-    ``tests/test_agent_clay.py``'s own
+    ``tests/modes/clay/test_agent_clay.py``'s own
     ``test_reference_add_from_a_library_job_reads_its_input_png`` fixture."""
     del monkeypatch
     ctx, session, _uid1, _uid2 = _new_world(svc=svc)

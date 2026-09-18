@@ -143,7 +143,7 @@ def _rigged_assets(ctx: Any, state: Any) -> None:
 
 def _pick(ctx: Any, asset: dict[str, Any]) -> None:
     """One row's click. Named rather than inlined so it is callable with no
-    imgui frame at all -- ``tests/test_poser_mode.py``'s own idiom for a
+    imgui frame at all -- ``tests/modes/poser/test_poser_mode.py``'s own idiom for a
     pane's click, proving the row a click reaches, not merely that the
     button exists.
 

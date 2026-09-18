@@ -13,7 +13,7 @@ mention in the help text; a fourth added with only two of the three would
 opening the app.
 
 Parsed with ``ast`` rather than imported and executed, the same precedent
-``tests/test_studio_logging.py`` already sets with
+``tests/studio/test_studio_logging.py`` already sets with
 ``ast.parse(inspect.getsource(cli.main))``: running ``cli.main`` for real
 opens a window or spawns the app's own subcommands, neither of which belongs
 in a unit test, and a hand-maintained list of "the subcommands" in this file

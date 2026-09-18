@@ -497,7 +497,7 @@ def derive_music_job(
     check_seed("seed", seed)
 
     # The task block, built and bounded one task at a time. Each refusal names
-    # the control that fixes it, which is what ``tests/test_jobs_music.py``'s
+    # the control that fixes it, which is what ``tests/service/test_jobs_music.py``'s
     # parametrised table is over.
     block: dict[str, Any] = {"task": task, "parent_duration": parent_duration}
     duration = parent_duration

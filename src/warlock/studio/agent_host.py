@@ -158,7 +158,7 @@ log = logging.getLogger(__name__)
 TRANSCRIPT_ENV = "WARLOCK_AGENT_TRANSCRIPT"
 """Names a file every completed tool call is appended to, in
 ``agent_transcript``'s format -- tier two of the Clay agent benchmark
-(``tests/test_agent_transcripts.py``'s module docstring names the tiers).
+(``tests/modes/clay/test_agent_transcripts.py``'s module docstring names the tiers).
 Unset by default, so recording costs nothing for the ordinary case of an
 agent session nobody is trying to capture. Read fresh on every call rather
 than cached at :meth:`AgentHost.start`, so ``dev/scripts/agent_bench.py``'s
@@ -548,7 +548,7 @@ def _transport_tools() -> list[Any]:
 
     This cannot live in ``agent_clay._HANDLERS`` the way every Clay verb
     does. ``agent_clay.tools()`` is pinned to exactly ``_HANDLERS``'s keys
-    (``tests/test_agent_clay.py::
+    (``tests/modes/clay/test_agent_clay.py::
     test_every_handler_has_a_tool_and_every_tool_has_a_handler``), and every
     ``_HANDLERS`` entry is a frame-thread job queued and run through
     :meth:`AgentHost._run_on_frame_job` -- the one thing ``warlock_status``

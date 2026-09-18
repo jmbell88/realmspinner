@@ -277,7 +277,7 @@ PURPOSE: dict[str, str] = {key: purpose for key, _label, _icon, purpose in MODES
 # standing, because a chip whose sentence names what is already there teaches
 # the reader to ignore the chip. The absences it named in turn -- no manual
 # chapter, no guided tour, four of a cell's five columns taking no keyboard
-# (closed 2026-08-27, ``tests/test_sirens_keys.py``), and finally a block
+# (closed 2026-08-27, ``tests/modes/sirens/test_sirens_keys.py``), and finally a block
 # selection that could be transposed and cleared but not copied, cut or pasted
 # -- are all closed; the last by ``sirens_mode.copy_selection`` / ``cut_selection``
 # / ``paste`` on Ctrl+C/X/V, through the document's one ``set_cells`` door. A
@@ -310,7 +310,7 @@ MATURITY_NOTE: dict[str, str] = {
 #: Row keys as literals rather than ``f"base:{config.DEFAULT_BASE_MODEL}"``,
 #: because this module imports :mod:`.icons` and nothing else and must stay
 #: importable without dragging the registry in.
-#: ``tests/test_mode_gate.py`` asserts every key here resolves through
+#: ``tests/studio/test_mode_gate.py`` asserts every key here resolves through
 #: ``fetch.find``, so a renamed model breaks a test rather than silently
 #: ungating a mode.
 #:

@@ -268,7 +268,7 @@ class ClayDoc:
         revision in the one moment an agent is most likely to be recovering
         from a mistake and checking whether it actually worked. See
         ``test_an_undo_restores_the_stamp_the_mesh_had_before`` in
-        ``tests/clay/test_document.py``, pinned so nobody "fixes" this into a
+        ``tests/modes/clay/test_document.py``, pinned so nobody "fixes" this into a
         counter.
         """
         obj = self.by_uid(uid)

@@ -84,7 +84,7 @@ def pytest_configure(config):
     # environment before the first test imports ``warlock.studio.guard``. A pane
     # that raises must keep failing its test rather than quietly becoming a
     # placeholder -- see ``studio/guard.py``'s note on why that matters to
-    # ``dev/scripts/exercise_mode`` too. ``tests/test_pane_guard.py`` opts back out.
+    # ``dev/scripts/exercise_mode`` too. ``tests/studio/test_pane_guard.py`` opts back out.
     os.environ["WARLOCK_UI_STRICT"] = "1"
     global _GPU_LANE
 
@@ -476,10 +476,10 @@ def svc(tmp_path, monkeypatch):
     # fill in milliseconds. With that fixed, leaving this pointed at
     # PROJECT_ROOT/models means any 2D export in the suite does a real ~12 s
     # BiRefNet inference per image on a machine that happens to have the
-    # weights -- tests/test_derive_2d.py alone burned 4624 CPU-seconds -- and,
+    # weights -- tests/service/test_derive_2d.py alone burned 4624 CPU-seconds -- and,
     # worse, produces a *different matte* there than on one that does not.
     # Empty here; a test that wants the model writes the files or patches
-    # matting.available, which tests/test_inspector_exports.py already does.
+    # matting.available, which tests/studio/test_inspector_exports.py already does.
     monkeypatch.setenv("WARLOCK_T2I_ROOT", str(tmp_path / "t2i-models"))
     # And the bench directory, for the fourth time -- but this one is not about
     # a test reading the machine's state, it is about a test *writing* over it.
@@ -501,7 +501,7 @@ def svc(tmp_path, monkeypatch):
     # And the palette directory, for the fifth and last time. Its default is now
     # under the *user's home* rather than the checkout, so a suite that left it
     # unset would read whatever palettes the developer happens to own -- and
-    # tests/test_panes_mtime_guard.py works around precisely that today.
+    # tests/studio/test_panes_mtime_guard.py works around precisely that today.
     monkeypatch.setenv("WARLOCK_PALETTE_DIR", str(tmp_path / "palettes"))
     monkeypatch.setattr(config_mod, "_config", None)
     config = get_config()
@@ -996,7 +996,7 @@ def installed_recipes(monkeypatch):
 # ``inker_gestures`` pieces T7 split off it on 2026-09-04. It is *one* surface,
 # so a test faking imgui's mouse is faking it for the whole press/drag/release
 # path rather than for whichever file the arm it exercises happens to live in.
-# This lives here rather than in ``tests/inker/conftest.py`` because a second
+# This lives here rather than in ``tests/modes/inker/conftest.py`` because a second
 # ``conftest`` module shadows this one for the four test files that do
 # ``from conftest import ...``.
 

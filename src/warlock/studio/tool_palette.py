@@ -44,7 +44,7 @@ from .tokens import sp
 #
 # One icon per generator in the registry. Strict at test time, graceful at
 # runtime -- the same pair Clay's ``_sections`` states for ``CATEGORIES``:
-# ``tests/test_clay_wiring.py`` holds this table *bijective* against
+# ``tests/modes/clay/test_clay_wiring.py`` holds this table *bijective* against
 # ``primitives.GENERATORS``, so a sixteenth shape is a red test here rather
 # than a glyph nobody chose, while ``PRIMITIVE_ICONS.get(name, icons.BOX)``
 # at the draw site still gives that shape a button on the day it is written.

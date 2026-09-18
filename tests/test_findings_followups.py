@@ -29,7 +29,7 @@ def test_every_recent_kind_has_an_opener_with_an_open_path():
 def test_play_refuses_a_stale_buffer(monkeypatch):
     """The docstring and INVARIANTS said so; the code played the old bar."""
     import numpy as np
-    from test_sirens_mode import FakeCtx, _tab
+    from modes.sirens.test_sirens_mode import FakeCtx, _tab
 
     from warlock.studio.modes.sirens import audio as sirens_audio
     from warlock.studio.modes.sirens import mode as sirens_mode
@@ -217,7 +217,7 @@ def test_a_tmj_keeps_a_stored_zero_opacity_and_origin():
 
 
 def _sirens():
-    from test_sirens_mode import FakeCtx, _tab
+    from modes.sirens.test_sirens_mode import FakeCtx, _tab
 
     from warlock.studio.modes.sirens import mode as sirens_mode
 

@@ -106,7 +106,7 @@ def satisfied(ctx: Any, name: str, arg: str | None) -> bool:
     """Whether the condition ``name`` holds right now.
 
     Every name in ``tour.steps.CONDITIONS`` must be answered here, and nothing
-    else may be; ``tests/tour/test_tour_conditions.py`` asserts both directions.
+    else may be; ``tests/studio/tour/test_tour_conditions.py`` asserts both directions.
     An unknown name reads as "never satisfied", which on a point-and-wait step
     is indistinguishable from the app being broken -- so it is a test failure
     rather than something to discover at runtime.
@@ -163,7 +163,7 @@ def _count(arg: str | None) -> int | None:
 
     A missing arg is still zero -- an absent threshold is a step with nothing
     to wait for, which is different from a threshold nobody can read.
-    ``tests/tour`` gates the authored ones statically, so this path is the
+    ``tests/studio/tour`` gates the authored ones statically, so this path is the
     runtime backstop rather than the guard.
     """
     if arg is None or arg == "":

@@ -166,7 +166,7 @@ def test_manual_clay_chapter_does_not_claim_one_undo_step_per_object_for_element
     multi-object gesture into a single history step instead
     (``history.mark()`` / ``history.collapse_since(mark)``), which is exactly
     what its own docstring and
-    ``tests/test_clay_history.py::test_a_multiobject_element_drag_is_one_undo_step``
+    ``tests/modes/clay/test_clay_history.py::test_a_multiobject_element_drag_is_one_undo_step``
     both pin (three dragged objects, ``len(doc.history) == depth + 1``). A
     reader who follows the manual expects one Ctrl+Z per object; one Ctrl+Z
     already restores all of them.
@@ -215,6 +215,6 @@ def test_manual_clay_chapter_does_not_claim_one_undo_step_per_object_for_element
         "element-mode gizmo drag across several objects is undone one "
         f"object at a time, but _commit_element_drag folds it into "
         f"{steps_per_drag} undo step regardless of how many objects it "
-        "touched -- see tests/test_clay_history.py::"
+        "touched -- see tests/modes/clay/test_clay_history.py::"
         "test_a_multiobject_element_drag_is_one_undo_step"
     )

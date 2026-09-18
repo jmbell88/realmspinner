@@ -13,7 +13,7 @@ Create -- moving either would put a non-Create reader through a mode's
 private state, which is the one thing this fold exists to prevent.
 
 No ``dataclasses``/``typing`` import is declared in
-``tests/test_create_engine_imports.py``'s ``OUTWARD_IMPORTS`` because both
+``tests/modes/create/test_create_engine_imports.py``'s ``OUTWARD_IMPORTS`` because both
 are stdlib and already filtered by that test's own ``_UNINTERESTING`` set --
 this module reaches for nothing else, so it needs no entry there at all.
 """

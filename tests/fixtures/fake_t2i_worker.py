@@ -1,6 +1,6 @@
 """A worker that speaks the t2i protocol without importing torch.
 
-Lets ``tests/test_t2i_client.py`` exercise the real pipe machinery -- spawn,
+Lets ``tests/pipelines/test_t2i_client.py`` exercise the real pipe machinery -- spawn,
 marker framing, progress forwarding, cancel, kill -- at subprocess speed and
 with no weights anywhere. It deliberately mirrors ``text2image_worker``'s
 *shape* (a stdin reader thread, one marked terminal line per request) rather

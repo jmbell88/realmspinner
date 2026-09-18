@@ -9,7 +9,7 @@ nowhere on screen it was said: a wrong-column keystroke is a silent no-op, so
 the app's answer to "why did nothing happen" was nothing at all.
 
 Pure -- strings and nothing else, no imgui and no ``service`` -- which is what
-lets ``tests/test_sirens_hints.py`` ask the question a screenshot cannot: does
+lets ``tests/modes/sirens/test_sirens_hints.py`` ask the question a screenshot cannot: does
 every key this line names exist. A hint naming a binding nothing implements is
 worse than no hint, because it is read as a promise.
 

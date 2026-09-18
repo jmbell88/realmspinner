@@ -2,7 +2,7 @@
 
 The ``inker``/``clay``/``plotter``/``packwright`` rule, fifth instance -- no
 imgui, no moderngl, **no pygame** and no ``service`` anywhere under here, pinned
-by ``tests/sirens/test_sirens_imports.py``. The reason is sharper for this
+by ``tests/modes/sirens/test_sirens_imports.py``. The reason is sharper for this
 package than for the other four: the thing it produces is *audio*, and the one
 piece of the app that needs a sound card is playback. Keeping the device out of
 the engine is what lets a machine with no audio hardware at all -- CI, a

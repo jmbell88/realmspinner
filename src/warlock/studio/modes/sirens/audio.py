@@ -2,7 +2,7 @@
 
 Kept apart from everything else in Sirens deliberately, and the split is the
 whole reason the mode is testable. ``studio/sirens/`` is import-pinned against
-pygame (``tests/sirens/test_sirens_imports.py``) so that a machine with no
+pygame (``tests/modes/sirens/test_sirens_imports.py``) so that a machine with no
 sound hardware can still open a song, edit it, render it and export a WAV; that
 promise is only worth anything if the *mode* degrades the same way, and it can
 only degrade cleanly if there is exactly one door to fail at. This is it.

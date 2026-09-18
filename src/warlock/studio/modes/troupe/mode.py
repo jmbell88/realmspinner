@@ -758,7 +758,7 @@ def cell_index(ctx: Any) -> int | None:
 
     Through ``spec.cells()`` rather than arithmetic over the animation lengths:
     that table is the studio's copy of the frame table and
-    ``tests/troupe/test_troupe_geometry_agreement.py`` is the sole owner of its
+    ``tests/modes/troupe/test_troupe_geometry_agreement.py`` is the sole owner of its
     agreement with the pipeline's. A second piece of arithmetic here would be a
     third copy nothing owns.
     """

@@ -167,7 +167,7 @@ def _descale_row(ctx: Any, tab: Any, *, refused: bool = False) -> bool:
 #: The two dialogs' imgui ids, which are also their **titles**:
 #: ``begin_popup_modal`` draws a title bar and "inker-resize" is not a title.
 #: The request keys the menu writes into ``pending_dialog`` stay what they were
-#: -- ``CONVERT_POPUP``'s precedent, and ``tests/inker/test_inker_ops.py`` pins
+#: -- ``CONVERT_POPUP``'s precedent, and ``tests/modes/inker/test_inker_ops.py`` pins
 #: ``inker-resize`` as the id one menu row asks for.
 SCALE_DIALOG = "Image size"
 CANVAS_DIALOG = "Canvas size"

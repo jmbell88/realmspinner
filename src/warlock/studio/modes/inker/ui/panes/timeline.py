@@ -2013,7 +2013,7 @@ def _cell_menu(
 #: The cel-wise range verbs, as ``(label, run, needs_square)``.
 #:
 #: A table rather than nine hand-written menu items, for the reason
-#: ``tests/inker/test_ui_tables.py`` exists: every one of these is a pane
+#: ``tests/modes/inker/test_ui_tables.py`` exists: every one of these is a pane
 #: offering something the engine implements, and a list the tests can walk is
 #: the only way to assert the two agree in both directions. ``needs_square``
 #: is the *pane's* copy of the engine's refusal -- greyed here so the user is

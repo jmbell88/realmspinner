@@ -150,7 +150,7 @@ def mirror_world(obj: Obj, axis: int, offset: float) -> Obj:
       local axis, loop reversal and all -- which is exactly the ``S @
       F(local)`` factor above.
 
-    Checked numerically in ``tests/clay/test_ops.py`` against reflecting a
+    Checked numerically in ``tests/modes/clay/test_ops.py`` against reflecting a
     rotated, non-uniformly-scaled object's own world-space vertices directly,
     because every part of this is invisible in the viewport when it is
     subtly wrong.
@@ -308,7 +308,7 @@ def local_direction(obj: Obj, world_dir: Iterable[float]) -> np.ndarray:
     entry equal), which is why the bug is invisible on every primitive this
     package ships un-stretched and only shows up on a scaled one -- see
     ``test_local_direction_accounts_for_a_non_uniform_scale_not_just_the_
-    rotation`` in ``tests/clay/test_ops.py``, which writes the wrong version
+    rotation`` in ``tests/modes/clay/test_ops.py``, which writes the wrong version
     first specifically because it passes on a uniform scale and only fails on
     the box that is stretched.
 

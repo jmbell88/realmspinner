@@ -33,7 +33,7 @@ columns, and pins the two byte-for-byte.
 
 **The eight bit constants and the 47-case collapse are restated here, not
 imported.** ``studio.tilegrid.blob`` owns them for the editor;
-``tests/tilegrid/test_tilegrid_imports.py`` pins that package as a leaf, and no
+``tests/kernels/grid2d/test_tilegrid_imports.py`` pins that package as a leaf, and no
 module under ``pipelines/`` imports ``studio`` -- a pipeline runs inside worker
 and Blender processes where ``studio`` is not importable at all. So this is the
 restate-and-pin pattern the repo already uses twice (``tilesheet.MAX_SEED``

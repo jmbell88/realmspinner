@@ -60,7 +60,7 @@ CANVAS = 512
 #: denoised distorted, and squashed back by ``fit_back``. A square selection is
 #: the one shape that escapes it, and it is what this box is.
 #:
-#: The frame choice is pinned properly in ``tests/test_conditioning.py``
+#: The frame choice is pinned properly in ``tests/pipelines/test_conditioning.py``
 #: (``_init_frame``), in the fast lane and at several aspects, which is the
 #: right home for it: it is a pure decision made before any pipeline is called
 #: and it needs no card. Do not read the tests below as covering aspect.

@@ -9,7 +9,7 @@ tiny child process on a machine with no GPU and no window, exactly like
 `doctor` and `sweep`". Nothing has ever checked that this stays true; this is
 what does.
 
-Modelled closely on ``tests/sirens/test_sirens_imports.py`` (itself the
+Modelled closely on ``tests/modes/sirens/test_sirens_imports.py`` (itself the
 "fifth instance" of this pin) -- same ``ast.walk``-based scan, same shape of
 tests. The one thing that matters more here than it did there: the forbidden
 direction for this package is the app reaching back down into it becoming the
@@ -67,7 +67,7 @@ def _outward(path: Path, *, package: str = PACKAGE) -> set[str]:
     ``ast.walk``, not ``tree.body``: see the module docstring for why a scan
     that only looked at top-level statements would miss exactly the case that
     matters here. Relative imports at level 1 (``from . import sibling``) are
-    left out on purpose, the same way ``tests/sirens/test_sirens_imports.py``
+    left out on purpose, the same way ``tests/modes/sirens/test_sirens_imports.py``
     leaves them out -- a sibling within the same package has not gone
     anywhere, and counting it would drown the real question ("did this leave
     the package?") in noise from imports that never do.

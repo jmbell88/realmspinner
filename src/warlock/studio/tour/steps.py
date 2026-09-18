@@ -8,7 +8,7 @@ The waiting condition is a *named predicate plus an argument*, never a callable.
 A closure would have to reach into live app state, which would drag imgui and
 ``service`` into this module and cost it the headless tests that are the reason
 it is separate. Instead the drawing half builds one small snapshot per frame and
-answers the name. ``tests/tour/test_tour_conditions.py`` asserts the two
+answers the name. ``tests/studio/tour/test_tour_conditions.py`` asserts the two
 vocabularies match in both directions, so a step waiting on a name nobody
 evaluates fails the suite rather than hanging the tour.
 """

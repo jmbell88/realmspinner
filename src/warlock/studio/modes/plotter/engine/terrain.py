@@ -63,7 +63,7 @@ RANK_VOID: int = -1
 #: darkened -- deliberately plain and deliberately legible at 16 pixels.
 #:
 #: Nothing in the app reads it since the procedural generator that filled a
-#: tileset from it was deleted on 2026-08-18; ``tests/plotter/_terrainset.py``
+#: tileset from it was deleted on 2026-08-18; ``tests/modes/plotter/_terrainset.py``
 #: is its only caller now. Kept here rather than moved into the tests because
 #: the precedence order is a *statement about this module* -- ``rank_field``
 #: and the outlining below are what make "later wins" mean anything -- and a

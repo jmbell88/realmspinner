@@ -183,7 +183,7 @@ def test_bounded_png_hands_a_picture_under_the_ceiling_back_unchanged():
 
 def _outward(path: Path) -> set[str]:
     """Names this module reaches for outside itself, one hop deep. Modelled on
-    ``tests/sirens/test_sirens_imports.py``'s helper of the same name, which
+    ``tests/modes/sirens/test_sirens_imports.py``'s helper of the same name, which
     is the existing precedent in this codebase for pinning a headless
     package's outward imports by walking its own AST rather than trusting an
     import to fail loudly if it ever grew a GL dependency."""

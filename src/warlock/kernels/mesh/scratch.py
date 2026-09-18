@@ -62,7 +62,7 @@ palette. Shrinking the real document's palette before those meshes have
 landed asks ``remove_material`` to refuse a slot the document's own faces
 still point at -- exactly the refusal it exists to raise, firing on a state
 this transplant is one step from making true. See :func:`transplant`'s own
-docstring for the fix, and ``tests/clay/test_scratch.py::
+docstring for the fix, and ``tests/modes/clay/test_scratch.py::
 test_transplant_with_material_removal_keeps_face_indices_right`` for the
 regression.
 """

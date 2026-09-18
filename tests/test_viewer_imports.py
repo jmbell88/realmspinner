@@ -1,6 +1,6 @@
 """What ``studio/viewer/`` is allowed to reach for, pinned across the package.
 
-The ``tests/inker/test_sheetout.py`` pin, applied to the one package that did
+The ``tests/modes/inker/test_sheetout.py`` pin, applied to the one package that did
 not already have it. ``viewer/__init__.py``'s own docstring claims "Nothing
 here imports imgui or pygame" for the whole package -- the split
 ``viewer_embed`` exists to draw a panel around -- but the 2026-09-07 audit,

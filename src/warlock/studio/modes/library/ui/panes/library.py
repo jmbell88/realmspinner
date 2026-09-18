@@ -2202,7 +2202,7 @@ def _convert_rows(
     """``formats`` split into rows of at most :data:`_CONVERT_COLUMNS`, in order.
 
     Pure, so the picker's layout is a plain assertion in
-    ``tests/test_library_browsing.py`` rather than a screenshot -- the same
+    ``tests/modes/library/test_library_browsing.py`` rather than a screenshot -- the same
     split this file's other Convert tests already take.
     """
     return tuple(

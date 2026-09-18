@@ -484,7 +484,7 @@ constraint by constraint, discovered from the schemas themselves rather than a h
 what to check.
 
 One more thing a new tool can trip, and it is easier to understand before than after.
-`tests/test_agent_transcripts.py` replays a recorded sequence of tool calls against a real document, and
+`tests/modes/clay/test_agent_transcripts.py` replays a recorded sequence of tool calls against a real document, and
 because object uids are never reused for the life of a process, a recorded uid has to be rewritten to
 whatever the replaying process issued instead. It finds the arguments to rewrite by name, derived from the
 schemas rather than listed — and the whole surface has exactly two such names today, `uid` and `uids`, which
@@ -529,7 +529,7 @@ picture a client has to see as an image, which is not a shape a batch's own resu
 may be deliberately one-shot, an action nothing should ever want folded silently into somebody
 else's block-out. Or it may move or fold the history itself, as `clay_undo`, `clay_redo`,
 `clay_batch` and `clay_program` do, which inside another fold would leave no coherent head to
-roll back to. And `tests/test_agent_clay.py` gates the other list: every handler has to
+roll back to. And `tests/modes/clay/test_agent_clay.py` gates the other list: every handler has to
 appear in either the tools that need a tab already open or the tools a session can run without one,
 and a handler that answers to neither fails the suite instead of quietly falling through — you cannot
 add a tool without deciding which kind it is. Two families push no undo step at all: the reference
@@ -645,7 +645,7 @@ is the order it went in.
 and `PURPOSE` and the rail's drawing order are derived from it, so they need no edit. `RAIL_GROUPS`
 decides which of the three sections the new rung joins — where an asset begins, the creative
 workspaces, or the footer — and `MODES` is asserted to be its flattening, so the two move together.
-If a section's size changes, the comment stating that size is read as data by `tests/test_modes.py`
+If a section's size changes, the comment stating that size is read as data by `tests/studio/test_modes.py`
 and changes with it.
 
 **The partition.** `WORK_MODES`, `WORKSPACE_MODES` and `main._SINGLE_PANE_MODES` must partition the
@@ -679,7 +679,7 @@ maintainer's own internal invariants ledger, all three of which are read off `mo
 test rather than kept in step by hand.
 
 The one geometry check worth running early is
-`tests/test_studio_smoke.py::test_the_rail_fits_the_resize_floor_at_every_scale`. It asserts the
+`tests/studio/test_studio_smoke.py::test_the_rail_fits_the_resize_floor_at_every_scale`. It asserts the
 rail's row-height ladder still fits every mode inside the resize floor at every DPI scale, and a
 mode that fails it has made an *existing* mode unreachable by four physical pixels — which no
 membership check would ever see.

@@ -542,7 +542,7 @@ def status_bits(state: Any, tab: Any) -> list[str]:
     gid: a gid is an artefact of how the map packs its tilesets together, and
     the number the tile is called in the atlas is the one a person can act on.
 
-    A function so ``tests/plotter/test_status_bits.py`` can read the line
+    A function so ``tests/modes/plotter/test_status_bits.py`` can read the line
     without a window, and so the reordering is a list comparison rather than a
     screenshot.
     """

@@ -1,5 +1,5 @@
 """The one definition of a Clay agent transcript -- read by tier one's replay
-(``tests/test_agent_transcripts.py``) and written by tier two's recorder
+(``tests/modes/clay/test_agent_transcripts.py``) and written by tier two's recorder
 (``studio/agent_host.py``, gated on ``WARLOCK_AGENT_TRANSCRIPT``).
 
 Before this module existed, tier one defined all four of the functions below
@@ -13,7 +13,7 @@ replay failure that named the wrong cause. So the rules live here, once, in
 than redefines them -- the same hand-kept-duplicate drift CLAUDE.md already
 refuses everywhere else in this codebase.
 
-See ``tests/test_agent_transcripts.py``'s own module docstring for the
+See ``tests/modes/clay/test_agent_transcripts.py``'s own module docstring for the
 format itself (one JSON object per line, ``tool``/``arguments``/``ok``/
 ``made``, plus ``error`` on a refusal) and the reasoning behind every field
 in it -- that specification did not move, only the functions that implement
@@ -61,7 +61,7 @@ def uid_keys() -> frozenset[str]:
     actually name a uid. Filtering on the substring "uid" rather than a
     hand-picked pair is what makes this a gate rather than a guess: a future
     tool's ``target_uid`` shows up here with no edit needed in this function,
-    and ``tests/test_agent_transcripts.py::
+    and ``tests/modes/clay/test_agent_transcripts.py::
     test_the_uid_bearing_argument_names_are_exactly_uid_and_uids`` is what
     turns a *new* name showing up here into a loud failure instead of a
     silent miss in :func:`remap`.
@@ -80,7 +80,7 @@ a future tool naming a uid some other way (a hypothetical ``target_uid``)
 changes *this* set with no edit here, so both functions below pick it up
 automatically rather than silently skipping it. The literal
 ``{"uid", "uids"}`` appears exactly once in this codebase, in
-``tests/test_agent_transcripts.py``, as today's pinned expectation -- a
+``tests/modes/clay/test_agent_transcripts.py``, as today's pinned expectation -- a
 human's claim about what the derivation should equal, not the derivation
 itself."""
 
@@ -108,7 +108,7 @@ def produced_uids(result: dict) -> list[int]:
     creates an object.
 
     One rule, used on both sides of the transcript format: tier one's replay
-    (``tests/test_agent_transcripts.py::_replay``) and tier two's recorder
+    (``tests/modes/clay/test_agent_transcripts.py::_replay``) and tier two's recorder
     (``studio/agent_host.py``), so the two cannot disagree about what
     "produced" means.
 
@@ -117,7 +117,7 @@ def produced_uids(result: dict) -> list[int]:
     *noticed* here -- membership is checked before the singular/plural shape
     is -- even though extracting it correctly would still need this
     function's own edit to say whether it reads like ``uid`` or ``uids``;
-    the derivation gate test in ``tests/test_agent_transcripts.py`` is what
+    the derivation gate test in ``tests/modes/clay/test_agent_transcripts.py`` is what
     turns that "silently extracts nothing for the new key" gap into a loud,
     immediate failure instead of a shape this function would otherwise have
     to guess at.
@@ -153,7 +153,7 @@ class UnmappedUidError(ValueError):
     ``assert`` statement, so that flag would not remove it) but would still
     read, to any other caller, as "this module's own internal assumption
     broke" rather than "the input handed to it was bad" -- the distinction
-    ``src/`` code is expected to keep. ``tests/test_agent_transcripts.py``
+    ``src/`` code is expected to keep. ``tests/modes/clay/test_agent_transcripts.py``
     catches this and re-raises it as the ``AssertionError`` its own replay
     loop has always raised, so the test-visible failure message is unchanged.
     """
@@ -252,7 +252,7 @@ def refusal_text(result: dict) -> str:
 def record(path: Path, tool: str, arguments: dict, result: dict) -> None:
     """Append one call to the transcript at *path*, in tier one's own line
     format -- the same shape :func:`remap`/:func:`produced_uids` above and
-    ``tests/test_agent_transcripts.py``'s loader already agree on, so a file
+    ``tests/modes/clay/test_agent_transcripts.py``'s loader already agree on, so a file
     this writes is a file tier one can replay with no translation step.
 
     **Append-only and line-oriented, on purpose.** Every call is one

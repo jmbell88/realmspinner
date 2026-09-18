@@ -15,7 +15,7 @@ running composite as its input and hands back the new running composite --
 the distortion -- and so is never blended at all.
 
 Deterministic by construction: the only inputs are the recipe, the frame number
-and the direction, and every primitive is stateless. ``tests/inker/flourish/
+and the direction, and every primitive is stateless. ``tests/modes/inker/flourish/
 test_render.py`` pins the bytes.
 """
 

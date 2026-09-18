@@ -440,8 +440,8 @@ def test_troupe_is_the_mode_marked_experimental():
 
     **Sirens left the list on 2026-09-02.** Its reason was narrowed at every
     landing rather than left standing: the columns that took no keys closed on
-    2026-08-27 (``tests/test_sirens_keys.py``) and the block clipboard -- copy,
-    cut and paste on Ctrl+C/X/V -- closed last (``tests/test_sirens_clipboard.py``).
+    2026-08-27 (``tests/modes/sirens/test_sirens_keys.py``) and the block clipboard -- copy,
+    cut and paste on Ctrl+C/X/V -- closed last (``tests/modes/sirens/test_sirens_clipboard.py``).
     Asserting the exact dict rather than membership is the point -- a mode
     joining or leaving this list is a claim about the app that should have to
     be written down twice.

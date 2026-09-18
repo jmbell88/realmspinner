@@ -113,7 +113,7 @@ def resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
     # ``getattr`` rather than ``ctx.state``: the frame thread's ``ctx`` always
     # carries an ``AppState`` to hang the memo on, but several note helpers
     # (``recipe_structure_note`` and friends, exercised headlessly by
-    # tests/test_settings_2d_notes.py and tests/test_generation_tiers.py) call
+    # tests/modes/create/test_settings_2d_notes.py and tests/test_generation_tiers.py) call
     # this with a bare ``SimpleNamespace(svc=..., guidance=...)`` that has no
     # ``.state`` at all. A headless caller with nothing to memoise onto just
     # gets the pre-fix behaviour -- resolve every call -- rather than an

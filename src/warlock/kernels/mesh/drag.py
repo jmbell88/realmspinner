@@ -227,7 +227,7 @@ def _min_distance(positions: np.ndarray, anchors: np.ndarray) -> np.ndarray:
     reference broadcast in the tests -- only ``allclose``, with the selected
     vertices asserted at exactly distance 0 regardless.
 
-    Lazy ``scipy`` import: this package's rule (`tests/clay/test_clay_imports.py`)
+    Lazy ``scipy`` import: this package's rule (`tests/modes/clay/test_clay_imports.py`)
     is that a whole second numerics stack does not sit behind every Clay
     module that imports ``drag`` for an unrelated question.
     """

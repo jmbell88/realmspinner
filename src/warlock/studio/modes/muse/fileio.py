@@ -17,7 +17,7 @@ of thing that gets "simplified" back into a bug, so it is also in
 ``dev/INVARIANTS.md``.
 
 **Importing ``wavout`` from here is the existing pattern, not an exception.**
-``tests/sirens/test_sirens_imports.py`` pins what files *inside* that package
+``tests/modes/sirens/test_sirens_imports.py`` pins what files *inside* that package
 import, and ``sirens_io.export_plan`` already does ``from .sirens import
 wavout`` from a ``studio/`` module. It is a RIFF encoder misfiled under
 ``sirens/`` because Sirens was its first caller; if a third one ever appears it

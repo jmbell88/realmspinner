@@ -14,7 +14,7 @@ moved it out of ``pipelines/``) is no more able to reach ``studio`` than
 either of them, and ``studio/troupe`` imports nothing outward. That is
 the ``spritesynth`` / ``inker.animation`` ``DIRECTION_ORDER`` arrangement at its
 second instance, and it takes the same safeguard:
-``tests/troupe/test_troupe_geometry_agreement.py`` is the **sole owner** of the
+``tests/modes/troupe/test_troupe_geometry_agreement.py`` is the **sole owner** of the
 agreement between the two copies. A change to one is a change to both plus that
 test, or a Troupe sheet and the editor that opens it come to mean different
 things by ``walk_left``.
@@ -94,7 +94,7 @@ RENDER_SIZE = 512
 
 #: **Task G, 2026-09-12: the custom sprite size's actual range.** ``SIZES`` is
 #: the ladder of presets a form offers and stays the ladder the tests pin
-#: (``tests/troupe/test_troupe_geometry_agreement.py`` ties
+#: (``tests/modes/troupe/test_troupe_geometry_agreement.py`` ties
 #: ``studio.troupe.spec`` to it); these two are the wider question ``plan``
 #: itself answers, matching ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE`` -- see
 #: that constant's comment for why 8 and 256 are the floor and ceiling.
@@ -698,7 +698,7 @@ def subset_indices(
 
     Expanded from ``spans`` rather than from arithmetic of its own, so this
     answer and ``sheetscope.runs``' Inker-side answer come from the two copies
-    ``tests/troupe/test_troupe_geometry_agreement.py`` already owns rather than
+    ``tests/modes/troupe/test_troupe_geometry_agreement.py`` already owns rather than
     from a third nothing owns.
     """
     resolved = layout if isinstance(layout, LayoutSpec) else resolve_layout(layout)

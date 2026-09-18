@@ -1285,7 +1285,7 @@ def test_rigging_stays_importable_with_no_bpy_anywhere():
         assert not re.search(r"^\s*(import bpy|from bpy)", source, re.MULTILINE), host_file
     # And transitively, which the scan cannot see. In a subprocess rather than
     # by reloading in-process: reloading these modules mints new function
-    # objects and breaks the identity tests/test_viewer_pose.py asserts about
+    # objects and breaks the identity tests/studio/test_viewer_pose.py asserts about
     # ``mirror_quaternion``. ``sys.modules['bpy'] = None`` makes any attempt to
     # import it raise, so a hidden import fails loudly instead of succeeding on
     # a machine that happens to have Blender. Each submodule is imported by

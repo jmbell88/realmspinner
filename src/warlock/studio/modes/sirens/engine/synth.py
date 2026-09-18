@@ -45,7 +45,7 @@ effects (``Bxx`` ``Cxx`` ``Dxx``) are events rather than states and are unchange
 
 Same document, same bytes, on every machine and every numpy version this build
 supports. That is what makes a re-export reproducible and it is what
-``tests/sirens/test_synth.py`` asserts. It is also why the decimation filter in
+``tests/modes/sirens/test_synth.py`` asserts. It is also why the decimation filter in
 :mod:`.voices` is written out by hand rather than taken from ``scipy.signal``.
 """
 

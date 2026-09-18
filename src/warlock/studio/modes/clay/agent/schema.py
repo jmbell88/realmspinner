@@ -23,7 +23,7 @@ enforces against the identical value -- two readers of one number, never a
 schema-side copy that could drift from the handler's own ceiling. Contrast
 ``agent_clay.PROGRAM_DEADLINE_S`` and ``agent_clay._view_for``, which stay in
 ``studio/modes/clay/agent/dispatch.py`` itself even though a handler here reads them too: both are
-monkeypatched directly on ``agent_clay`` by name in ``tests/test_agent_clay.py``
+monkeypatched directly on ``agent_clay`` by name in ``tests/modes/clay/test_agent_clay.py``
 and ``tests/mcp/test_rpc_studio.py`` (``PROGRAM_DEADLINE_S`` to shrink a
 program's deadline to zero for a timeout test, ``_view_for`` to fake a
 viewport with no GL context), which only works if the patched name is read
@@ -86,7 +86,7 @@ starting with ``clay_add_mesh`` would be refused while the code was happily
 running it. That is the hand-kept-copy-of-another-table drift this file
 already refuses to write for its generator, op and query enums; the
 description now interpolates this tuple instead of restating it, and
-``tests/test_agent_clay.py`` pins it against the same ``_MINTS_A_TAB`` list
+``tests/modes/clay/test_agent_clay.py`` pins it against the same ``_MINTS_A_TAB`` list
 that keeps every tool classified.
 
 The three prose refusals that also name these three (``agent_clay._tab``'s two
@@ -136,7 +136,7 @@ spread one across an unbounded number of frames.
 Defined here, in the schema module, but read by
 ``agent_clay_tools_batch._h_program`` through ``agent_clay.PROGRAM_DEADLINE_S``
 -- qualified, at call time -- rather than imported by name: two of this
-file's own tests (``tests/test_agent_clay.py``) monkeypatch it on
+file's own tests (``tests/modes/clay/test_agent_clay.py``) monkeypatch it on
 ``agent_clay`` itself to shrink a program's deadline for a timeout test, and
 that only works if every reader looks it up through the same name at call
 time. See ``studio/modes/clay/agent/dispatch.py``'s own module docstring for the constant's actual

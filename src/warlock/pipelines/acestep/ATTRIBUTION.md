@@ -161,7 +161,7 @@ import site rather than here.
    if it is ever wanted, belongs in a derived artifact beside `track.wav`
    rather than in the format the rest of the app has to read.
 
-   `tests/test_music_format.py` pins all of this without weights or a card,
+   `tests/pipelines/test_music_format.py` pins all of this without weights or a card,
    including a source scan asserting the marker count matches this document.
 
 6. **The extend reattach concatenates the right pad tensor on the right time

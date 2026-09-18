@@ -195,7 +195,7 @@ def default_form_2d() -> dict[str, Any]:
         # creature that has no fire.
         "character_theme": "none",
         # Empty means the door's default preset. Deliberately *not* the preset
-        # key spelled out: ``tests/troupe/test_camera_presets.py`` pins the
+        # key spelled out: ``tests/modes/troupe/test_camera_presets.py`` pins the
         # default camera key to exactly two homes in the package
         # (``charsheet.py`` and ``characters/resolve.py``), because an angle
         # copied into a third module is a form offering a framing nothing
@@ -1277,7 +1277,7 @@ class AppState:
     # at module scope for the same reason ``default_form_2d`` above does --
     # ``state.py`` may not import a mode at the top of the file
     # (``tests/test_layering.py`` pins that a shell module may not reach into
-    # a mode's package at module scope, and ``tests/test_create_engine_imports.py``
+    # a mode's package at module scope, and ``tests/modes/create/test_create_engine_imports.py``
     # would separately catch a module-scope edge back the other way).
     create: Any = field(default_factory=_new_create_state)
     # Inker mode's open documents and tool settings, built on first use.

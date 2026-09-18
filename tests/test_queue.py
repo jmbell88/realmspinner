@@ -3190,7 +3190,7 @@ async def test_the_prompt_preview_mirror_agrees_with_the_worker_and_the_pipeline
     ref_composed = worker.store.get(ref_id)["params"]["composed_prompt"]
     assert {tile_composed, ref_composed} == set(worker._text2image.prompts)
     # The template half is what generate() applies to the string the worker
-    # handed it; tests/test_tiling.py pins that it applies exactly these two.
+    # handed it; tests/pipelines/test_tiling.py pins that it applies exactly these two.
     assert prompt_lib.build("cobblestone", params, tile=True) == (
         prompt_lib.TILE_TEMPLATE.format(prompt=tile_composed)
     )
