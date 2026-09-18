@@ -1,6 +1,6 @@
 """Mason's controller: opening, saving, exporting, guarding and keys.
 
-Stage E gives Mason a document, so this module is what ``clay_mode.py`` is to
+Stage E gives Mason a document, so this module is what ``studio/modes/clay/mode.py`` is to
 Clay -- everything here is *about* scenes rather than geometry. The engine
 under ``mason/`` has no idea a job or a task thread exists; this is the layer
 that knows about both, and the panes draw against it.

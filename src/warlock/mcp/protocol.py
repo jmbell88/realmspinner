@@ -13,7 +13,7 @@ it before Studio spoke only RPC v1. It is gone: `dev/INVARIANTS.md`'s agent
 paragraph is now "Studio speaks only RPC v1; the bridge is the only MCP
 server", and `warlock.studio` importing this module at all is a pinned
 regression (`tests/mcp/test_mcp_imports.py`). Nothing here knows Clay
-exists; `studio/agent_clay.py` and `studio/agent_host.py` own that, and now
+exists; `studio/modes/clay/agent/dispatch.py` and `studio/agent_host.py` own that, and now
 reach `Tool`/`ok`/`fail`/`text`/`image_png`/`MAX_FRAME` through `rpc.py`
 directly rather than through this module.
 

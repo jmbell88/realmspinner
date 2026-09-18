@@ -7,8 +7,8 @@ exist in the shipped UI. Removed rather than kept on the chance a future card
 wants it; a card that does can rebuild the record from the undo stack it
 would need anyway.
 
-No sibling test module exists in ``tests/clay/`` for ``clay_ops.py``,
-``clay_mode.py`` or ``clay_state.py`` (all three live directly under
+No sibling test module exists in ``tests/clay/`` for ``studio/modes/clay/ops.py``,
+``studio/modes/clay/mode.py`` or ``studio/modes/clay/state.py`` (all three live directly under
 ``studio/``, not under ``studio/clay/``, and their usual homes --
 ``tests/test_clay_ops.py``, ``tests/test_clay_mode.py`` -- sit outside this
 fix's allowed test directory), so this is a new file.
@@ -24,7 +24,9 @@ import pytest
 
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio import clay_mode, clay_ops, clay_state
+from warlock.studio.modes.clay import mode as clay_mode
+from warlock.studio.modes.clay import ops as clay_ops
+from warlock.studio.modes.clay import state as clay_state
 
 
 @pytest.fixture(autouse=True)

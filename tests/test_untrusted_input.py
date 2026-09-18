@@ -824,7 +824,7 @@ def test_clay_refuses_a_document_past_its_own_ceiling(tmp_path, monkeypatch):
     """Clay had no size ceiling anywhere, though the number has existed since
     the format did -- applied at the upload and at neither door a user reaches."""
     from warlock.service.errors import TooLarge
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     path = tmp_path / "big.wblk"
     path.write_bytes(b"x" * 4096)

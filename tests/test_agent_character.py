@@ -338,7 +338,8 @@ def test_no_handler_takes_a_ctx() -> None:
 
 
 def test_no_character_tool_shares_a_name_with_a_clay_or_transport_tool() -> None:
-    from warlock.studio import agent_clay, agent_host
+    from warlock.studio import agent_host
+    from warlock.studio.modes.clay.agent import dispatch as agent_clay
 
     clay_names = {t.name for t in agent_clay.tools()} | {agent_host.STATUS_TOOL}
     character_names = {t.name for t in ac.tools()}
@@ -346,12 +347,12 @@ def test_no_character_tool_shares_a_name_with_a_clay_or_transport_tool() -> None
 
 
 def test_every_recovery_a_character_refusal_names_is_in_agent_clays_vocabulary() -> None:
-    """``agent_clay.RECOVERY`` is read by parsing ``agent_clay.py``'s own
+    """``agent_clay.RECOVERY`` is read by parsing ``studio/modes/clay/agent/dispatch.py``'s own
     source rather than importing the module, per this tranche's own rule --
     ``agent_character`` must never import ``agent_clay`` (it pulls GL), and
     a test for this module should not need to either."""
     agent_clay_path = (
-        Path(ac.__file__).resolve().parent / "agent_clay.py"
+        Path(ac.__file__).resolve().parent / "modes/clay/agent/dispatch.py"
     )
     source = agent_clay_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -362,7 +363,7 @@ def test_every_recovery_a_character_refusal_names_is_in_agent_clays_vocabulary()
         ):
             recovery_words = set(ast.literal_eval(node.value.args[0]))
             break
-    assert recovery_words, "could not find RECOVERY in agent_clay.py"
+    assert recovery_words, "could not find RECOVERY in studio/modes/clay/agent/dispatch.py"
 
     used: set[str] = set()
     for match in re.finditer(r'recovery\s*=\s*"([a-z_]+)"', Path(ac.__file__).read_text("utf-8")):

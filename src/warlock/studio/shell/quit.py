@@ -12,7 +12,7 @@ version of the same fact ``_quit_summary`` states in full sentences when a
 quit is actually asked for.
 
 The shell names this module reaches are imported *inside* the methods that use
-them, ``clay_viewport.py``'s own rule restated: ``main`` imports
+them, ``studio/modes/clay/ui/viewport.py``'s own rule restated: ``main`` imports
 :class:`~.app.App` (which assembles this mixin) to build the class, so a
 module-scope import back would be a cycle.
 """
@@ -187,7 +187,6 @@ class QuitMixin:
         dismiss, after the user has already said they are not quitting.
         """
         from .. import (
-            clay_mode,
             inker_mode,
             mason_mode,
             packwright_mode,
@@ -195,6 +194,7 @@ class QuitMixin:
             poser_mode,
             sirens_mode,
         )
+        from ..modes.clay import mode as clay_mode
         from ..panes import pose_panel
 
         ctx = self.app_ctx
@@ -314,7 +314,7 @@ class QuitMixin:
         agent_host = getattr(self, "agent_host", None)
         if agent_host is not None:
             _step("stop agent host", agent_host.stop)
-        from .. import agent_clay
+        from ..modes.clay.agent import dispatch as agent_clay
 
         _step("release agent view", agent_clay.release)
         if self.imgui_renderer is not None:

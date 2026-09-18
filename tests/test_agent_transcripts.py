@@ -2,7 +2,7 @@
 Lines sequence of tool calls -- against a real ``ClayDoc`` through the real
 ``agent_clay.call`` door, and assert what came out. See the tranche-5 plan for
 the split: tier one (here) runs unattended in the suite with no model
-involved; tier two is ``studio/agent_transcript.py``'s recorder (called from
+involved; tier two is ``studio/modes/clay/agent/transcript.py``'s recorder (called from
 ``studio/agent_host.py``) plus ``dev/scripts/agent_bench.py``'s ``--serve``
 driver, which together produce a transcript from an actual agent's own
 trajectory over a real MCP connection -- something this file cannot do and
@@ -73,7 +73,7 @@ through untouched rather than mistaking it for one; only the batch handler
 itself ever learns ``$ref`` exists, exactly as that commit's own docstring
 says.
 
-**These four functions moved to ``warlock.studio.agent_transcript``.**
+**These four functions moved to ``warlock.studio.modes.clay.agent.transcript``.**
 Tier two's recorder needs exactly the same two rules -- which argument names
 carry a uid, and which uids a result surfaced -- and a second, private copy
 of them here would be the hand-kept-duplicate drift CLAUDE.md refuses
@@ -166,7 +166,9 @@ from test_agent_clay import _Ctx  # see module docstring -- shared rather than d
 from warlock.kernels.mesh import diagnose as clay_diagnose
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import serialize
-from warlock.studio import agent_clay, agent_transcript, clay_mode
+from warlock.studio.modes.clay import mode as clay_mode
+from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from warlock.studio.modes.clay.agent import transcript as agent_transcript
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_transcripts"
 
@@ -208,7 +210,7 @@ def test_every_program_step_kinds_uid_bearing_keys_are_within_uid_and_uids() -> 
     pins -- so the compiler and the transcript tooling cannot quietly
     disagree about what counts as a reference.
     """
-    from warlock.studio import agent_program as ap
+    from warlock.studio.modes.clay.agent import program as ap
 
     assert set(ap.UID_BEARING_KEYS) <= set(ap.STEP_KINDS)
     for kind, keys in ap.UID_BEARING_KEYS.items():

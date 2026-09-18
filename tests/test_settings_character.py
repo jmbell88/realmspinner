@@ -34,8 +34,8 @@ from warlock.characters.recipe import Recipe
 from warlock.studio.modes.create.engine import assets as create_assets
 from warlock.studio.modes.create.engine import character as character_engine
 from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui import settings_2d, settings_character
 from warlock.studio.modes.create.ui import workspace as generation_workspace
+from warlock.studio.modes.create.ui.panes import settings_2d, settings_character
 from warlock.studio.state import AppState
 
 # --- the harness --------------------------------------------------------------

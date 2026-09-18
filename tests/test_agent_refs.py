@@ -1,4 +1,4 @@
-"""``agent_refs.py`` is the headless half of reference-image handling for an
+"""``studio/modes/clay/agent/refs.py`` is the headless half of reference-image handling for an
 MCP-driven Clay session: pure Pillow over bytes, no display anywhere near it.
 Every test here builds its inputs with ``PIL.Image.new`` and a ``BytesIO``
 rather than a fixture file, for the same reason the module itself takes bytes
@@ -19,7 +19,7 @@ import pytest
 from PIL import Image
 
 from warlock.service import files
-from warlock.studio import agent_refs
+from warlock.studio.modes.clay.agent import refs as agent_refs
 
 
 def _png(size, mode="RGB", color=(255, 0, 0)):
@@ -201,5 +201,5 @@ def test_nothing_here_needs_a_display():
     banned = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL"}
     path = Path(agent_refs.__file__)
     roots = {name.split(".")[0] for name in _outward(path)}
-    assert not (roots & banned), f"agent_refs.py imports {roots & banned}"
+    assert not (roots & banned), f"studio/modes/clay/agent/refs.py imports {roots & banned}"
     assert not any(name.endswith("agent_clay") for name in _outward(path))

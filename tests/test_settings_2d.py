@@ -23,7 +23,7 @@ import inspect
 
 from warlock import models
 from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui import settings_2d
+from warlock.studio.modes.create.ui.panes import settings_2d
 from warlock.studio.state import default_form_2d
 
 #: The four fields ``guidance._number`` (src/warlock/guidance.py:299-313,

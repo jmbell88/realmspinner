@@ -1,6 +1,6 @@
 """Clay: the X-ray toggle's tooltip claims a chord that did nothing.
 
-The 2026-09-07 audit's clay-08. ``panes/clay_header.py``'s X-ray button has
+The 2026-09-07 audit's clay-08. ``studio/modes/clay/ui/header.py``'s X-ray button has
 advertised "(Alt+Z)" in its tooltip since the button was added, but nothing in
 ``clay_mode.handle_key`` bound it -- Alt+Z reached the handler, matched no
 branch, and was consumed anyway (the mode's own rule: a key is swallowed
@@ -18,8 +18,8 @@ import pytest
 
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio import clay_mode
-from warlock.studio.panes import clay_header
+from warlock.studio.modes.clay import mode as clay_mode
+from warlock.studio.modes.clay.ui.panes import header as clay_header
 
 
 class FakeCtx:

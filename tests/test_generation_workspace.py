@@ -157,7 +157,7 @@ def test_the_keeper_pill_is_not_the_ranker():
 
 
 def _model_form(prompt):
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     form = default_form_2d()
     form["asset_type"] = form["generation_type"] = "3d_model"

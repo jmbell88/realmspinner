@@ -182,7 +182,7 @@ def test_manual_clay_chapter_does_not_claim_one_undo_step_per_object_for_element
     from warlock.kernels.mesh import document as bd
     from warlock.kernels.mesh import elements as el
     from warlock.kernels.mesh import primitives as bp
-    from warlock.studio._view_drag import DragOps, _ElementDrag
+    from warlock.studio.modes.clay.ui._view_drag import DragOps, _ElementDrag
 
     doc = bd.ClayDoc()
     uids = [

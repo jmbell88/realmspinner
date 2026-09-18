@@ -1,5 +1,5 @@
 """Warlock's character pipeline, over MCP -- the agent tool surface beside
-Clay's (``agent_clay.py``).
+Clay's (``studio/modes/clay/agent/dispatch.py``).
 
 **Inbound only.** Every handler here runs a door already used by a human
 pane (``service.characters``/``service.troupe``/``service.rig`` and their

@@ -21,7 +21,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from warlock.mcp import pipe, protocol, rpc
-from warlock.studio import agent_clay, agent_host
+from warlock.studio import agent_host
+from warlock.studio.modes.clay.agent import dispatch as agent_clay
 
 WAIT = 5.0
 
@@ -535,7 +536,7 @@ def test_scene_resource_matches_the_clay_scene_tool_after_adding_a_primitive(tmp
 
 def test_generators_and_operations_resources_derive_from_the_live_registries(tmp_path) -> None:
     from warlock.kernels.mesh import primitives as bp
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     host, stop_pumping, pumper = _started_host(tmp_path)
     try:
@@ -651,8 +652,9 @@ def test_every_tool_name_a_prompt_mentions_is_a_real_tool(tmp_path) -> None:
     longer exists."""
     import re
 
-    from warlock.studio import agent_character, agent_clay
+    from warlock.studio import agent_character
     from warlock.studio import agent_host as ah
+    from warlock.studio.modes.clay.agent import dispatch as agent_clay
 
     real_tools = (
         {t.name for t in agent_clay.tools()}

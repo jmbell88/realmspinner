@@ -21,7 +21,7 @@ from warlock.kernels.mesh import mesh as bm
 from warlock.kernels.mesh import ops_boolean
 from warlock.kernels.mesh import primitives as bp
 from warlock.kernels.mesh.elements import OpError
-from warlock.studio import clay_ops
+from warlock.studio.modes.clay import ops as clay_ops
 
 from .topo_asserts import assert_closed
 

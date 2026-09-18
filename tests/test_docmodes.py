@@ -255,7 +255,8 @@ def test_one_question_covers_however_many_are_dirty():
 def test_every_mode_reaches_for_the_shared_helpers():
     """The point of the module. A fourth copy that happens to agree today is
     the drift this replaced."""
-    from warlock.studio import clay_mode, inker_mode, inker_state, plotter_io, plotter_state
+    from warlock.studio import inker_mode, inker_state, plotter_io, plotter_state
+    from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.panes import inker_textures, packwright_textures, plotter_textures
 
     assert clay_mode._start is docmodes.start_save
@@ -366,6 +367,13 @@ def _modules_calling_docmodes_close_tab() -> set[str]:
     than hand-listed, so a future mode that grows a document tab enrols
     itself here the same way it enrols in ``_pure_packages``.
 
+    Returned as the full dotted path *relative to* ``warlock.studio``
+    (``"mason_mode"``, but ``"modes.clay.mode"`` for Clay since P5 folded it
+    into a mode package) rather than the bare file stem: a bare stem worked
+    while every caller was a flat ``studio/<mode>_mode.py``, but Clay's is now
+    ``studio/modes/clay/mode.py`` -- stem ``"mode"`` -- which collided with
+    nothing usable and made the caller drop out of every check below it.
+
     2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
     ``studio/`` on purpose -- ``docmodes.close_tab`` is L4 shell API, and the
     ``*_mode.py`` callers it exists to find are the mode-UI half that P3 left
@@ -392,7 +400,8 @@ def _modules_calling_docmodes_close_tab() -> set[str]:
                 and isinstance(node.func.value, ast.Name)
                 and node.func.value.id == "docmodes"
             ):
-                modules.add(path.stem)
+                rel = path.relative_to(studio_dir).with_suffix("")
+                modules.add(".".join(rel.parts))
                 break
     return modules
 
@@ -416,8 +425,10 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
     # Sanity floor: at least the six modes known to have document tabs today
     # (Clay, Mason, Plotter, Packwright, Sirens, Inker) must have been found --
     # a walk that silently found nothing would pass the loop below for free.
+    # Clay's is the dotted mode-package path (P5); the rest are still the flat
+    # `studio/<mode>_mode.py` shape.
     expected_at_least = {
-        "clay_mode",
+        "modes.clay.mode",
         "mason_mode",
         "plotter_mode",
         "packwright_mode",
@@ -429,7 +440,15 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
     checked = 0
     for module_name in caller_modules:
         module = importlib.import_module(f"warlock.studio.{module_name}")
-        prefix = module_name.split("_")[0]
+        # The mode key a caller's own *State class should derive to: the mode
+        # package's own name for a nested caller (`modes.clay.mode` -> "clay"),
+        # or the first underscore-joined word for the flat `<mode>_mode.py`
+        # shape every other caller still has (`mason_mode` -> "mason").
+        prefix = (
+            module_name.split(".")[1]
+            if module_name.startswith("modes.")
+            else module_name.split("_")[0]
+        )
         state_name = f"{prefix.capitalize()}State"
         state_cls = getattr(module, state_name, None)
         if state_cls is None:
@@ -445,7 +464,7 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
 def test_clay_titles_a_tab_by_stem_on_purpose():
     """Deliberately *not* shared: a Clay tab is named for the document rather
     than for the file it came from."""
-    from warlock.studio import clay_state
+    from warlock.studio.modes.clay import state as clay_state
 
     assert clay_state.title_for is not docmodes.title_for
     assert clay_state.title_for(Path("D:/x/hero.wblk")) == "hero"

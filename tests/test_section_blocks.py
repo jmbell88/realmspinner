@@ -394,7 +394,9 @@ def test_the_sidebars_the_report_named_still_ask_for_blocks():
     import ast
     import inspect
 
-    from warlock.studio.panes import clay_outliner, clay_props, clay_tools
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
 
     # ``plotter_tools`` was the fourth. It is a toolbar now rather than a
     # sidebar -- a strip over the canvas with no headings to group -- so it

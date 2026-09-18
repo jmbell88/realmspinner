@@ -2,7 +2,7 @@
 
 Four operations that are entirely about the *document* -- which objects or
 elements are selected, and what happens to them -- and that had come to live in
-``studio/clay_mode.py``, the mode layer, because that is where the keyboard
+``studio/modes/clay/mode.py``, the mode layer, because that is where the keyboard
 shortcuts firing them are. The ops registry then had to import the mode layer to
 reach them, and the mode layer imports the registry: a cycle between a
 UI-shaped module and a headless one, held together by both sides importing the
@@ -99,7 +99,7 @@ def delete_selected(doc: Any) -> list[str]:
     ``tests/clay/test_select.py`` and any other caller that reaches this
     function without going through ``clay_ops.run`` (which already folds
     everything an op pushes, but only for callers that go through it -- see
-    the 2026-09-07 audit's clay-02 in ``clay_mode.py``). ``mark``/
+    the 2026-09-07 audit's clay-02 in ``studio/modes/clay/mode.py``). ``mark``/
     ``collapse_since`` is the primitive built for exactly this composed-op
     shape (its own docstring in ``studio/undo.py`` names "delete these eight
     rows"), and it already folds nothing into nothing: a single touched

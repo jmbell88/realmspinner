@@ -1,4 +1,4 @@
-"""What Clay's agent tool surface (``studio/agent_clay.py``) promises to hold.
+"""What Clay's agent tool surface (``studio/modes/clay/agent/dispatch.py``) promises to hold.
 
 Four claims are pinned here, each stated in that module's own docstring.
 
@@ -120,8 +120,10 @@ from warlock.kernels.geom3d import math3d as m3
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import presets, serialize
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio import agent_clay, clay_mode, clay_ops
-from warlock.studio.panes import clay_tools as pane_clay_tools
+from warlock.studio.modes.clay import mode as clay_mode
+from warlock.studio.modes.clay import ops as clay_ops
+from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from warlock.studio.modes.clay.ui.panes import tools as pane_clay_tools
 
 # --- a ctx double, no imgui, no GL, no pygame --------------------------------
 
@@ -634,7 +636,7 @@ def test_a_batch_refuses_at_the_entry_with_a_bad_argument_and_keeps_what_ran() -
 # validates *before* it resolves the session's tab -- ``clay_add_primitive``,
 # ``clay_add_figure`` and ``clay_batch`` check their own arguments first,
 # every other handler here calls ``_tab`` before touching ``args`` at all.
-# See ``agent_clay.py``'s source for that ordering; getting it backwards here
+# See ``studio/modes/clay/agent/dispatch.py``'s source for that ordering; getting it backwards here
 # would test argument validation instead of the blast-radius gate.
 _NEEDS_A_TAB = [
     ("clay_scene", {}),
@@ -2784,7 +2786,7 @@ def test_the_compiler_never_emits_a_batch_excluded_tool() -> None:
     being nested is moot if the compiler could still emit one of the other
     excluded names -- it cannot: every kind it compiles maps to a fixed,
     small set of tools, none of them in that set."""
-    from warlock.studio import agent_program as ap
+    from warlock.studio.modes.clay.agent import program as ap
 
     compiled = ap.compile_program(
         {
@@ -2952,7 +2954,7 @@ def test_a_dry_run_with_live_steps_still_leaves_the_scene_unchanged() -> None:
 
 
 def test_an_unknown_fact_inside_assert_is_refused_at_compile_time_with_a_path() -> None:
-    from warlock.studio import agent_program as ap
+    from warlock.studio.modes.clay.agent import program as ap
 
     err = None
     try:
@@ -3004,7 +3006,7 @@ def test_facts_read_lo_hi_size_center_count_and_exists_off_known_boxes() -> None
 
 
 def test_an_unknown_id_inside_assert_is_refused_at_compile_time_with_a_path() -> None:
-    from warlock.studio import agent_program as ap
+    from warlock.studio.modes.clay.agent import program as ap
 
     err = None
     try:
@@ -3677,7 +3679,7 @@ def test_clay_render_compare_returns_the_picture_even_if_silhouette_measurement_
 
 def test_clay_op_inset_refuses_until_the_agent_switches_to_face_mode_and_then_runs() -> None:
     """The headline capability this change adds. Before it, nothing in
-    ``agent_clay.py`` ever called ``doc.set_element_mode`` or
+    ``studio/modes/clay/agent/dispatch.py`` ever called ``doc.set_element_mode`` or
     ``doc.set_element_sel``, so ``clay_op`` refused ``inset``/``bevel``/
     ``extrude`` unconditionally, forever -- an agent could place and boolean
     shapes but could never touch a single face. Fails today at the second

@@ -266,7 +266,7 @@ def _clay(ctx: Any, job: Any) -> Exit | None:
     mesh = _mesh_for(ctx, job)
     if mesh is None:
         return None
-    from . import clay_mode
+    from .modes.clay import mode as clay_mode
     from .panes import inspector
 
     hint = "Opens the authored document when there is one, else the mesh."

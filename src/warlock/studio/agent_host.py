@@ -148,15 +148,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import (
-    agent_character,
-    agent_character_resources,
-    agent_clay,
-    agent_prompts,
-    agent_resources,
-    agent_transcript,
-)
+from . import agent_character, agent_character_resources, agent_prompts, agent_resources
 from . import tasks as tasks_mod
+from .modes.clay.agent import dispatch as agent_clay
+from .modes.clay.agent import transcript as agent_transcript
 
 log = logging.getLogger(__name__)
 

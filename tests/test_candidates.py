@@ -668,7 +668,7 @@ def test_the_count_rides_the_matte_preview_into_the_promotion(svc):
     captures the form as it stood at the press. The count is part of that
     capture, or Accept would submit a number the user has since changed."""
     from warlock.studio import matte_preview
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
     from warlock.studio.state import DEFAULT_FORM_3D
 
     source = _reference(svc)

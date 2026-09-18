@@ -24,7 +24,8 @@ from PIL import Image
 from warlock.kernels.geom3d import math3d as m3
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio import _view_drag, clay_view
+from warlock.studio.modes.clay.ui import _view_drag
+from warlock.studio.modes.clay.ui import view as clay_view
 from warlock.studio.viewer.camera import Camera
 
 
@@ -898,7 +899,7 @@ def test_a_gizmo_drag_reports_axis_space_and_amount_in_the_hud(view) -> None:
     ``_key_kind`` alone (what the pane used to do) would report nothing at all
     for the drag a mouse-driven modeller actually runs most of the time.
     """
-    from warlock.studio import clay_hints
+    from warlock.studio import viewport_hints as clay_hints
 
     doc = _doc(count=1)
     obj = doc.objects[0]
@@ -1960,7 +1961,7 @@ def test_keys_typed_during_a_camera_orbit_are_not_swallowed_by_the_drag_handler(
     ``dragging`` property, true for *any* live grab (orbit, pan, marquee,
     gizmo, keydrag), which shadowed ``DragOps.dragging`` (true only for a
     live transform: "gizmo"/"keydrag"). Every bare-key gate in
-    ``clay_mode.py`` reads ``view.dragging`` expecting the narrow meaning --
+    ``studio/modes/clay/mode.py`` reads ``view.dragging`` expecting the narrow meaning --
     "is a transform under way, so this key belongs to it" -- and got the
     broad one instead, so a plain ``1``/``2``/``3`` mode switch (or any other
     tool key) typed while the user was merely orbiting the camera was routed
@@ -1977,7 +1978,8 @@ def test_clay_view_dragging_is_dragops_dragging_not_a_shadowing_property() -> No
     """The class itself must not own a ``dragging`` of its own -- a mixin's
     property loses to one defined directly on the subclass, so any override
     here silently replaces ``DragOps.dragging`` for every caller, including
-    ``clay_mode.py``'s key gates and ``_view_drag.py``'s own ``drag_key`` /
+    ``studio/modes/clay/mode.py``'s key gates and
+    ``studio/modes/clay/ui/_view_drag.py``'s own ``drag_key`` /
     ``cancel_drag``, which call ``self.dragging`` believing they get their own
     module's definition."""
     assert clay_view.ClayView.dragging is _view_drag.DragOps.dragging

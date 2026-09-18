@@ -29,7 +29,7 @@ from _ui_context import imgui_context
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import mesh as bm
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio.panes import clay_props
+from warlock.studio.modes.clay.ui.panes import props as clay_props
 
 
 @pytest.fixture
@@ -104,13 +104,13 @@ def test_both_generator_rebuild_doors_go_through_clay_regen() -> None:
     object being placed, not an existing one being rebuilt) are untouched by
     this rule and deliberately outside the two functions this test inspects.
     """
-    import warlock.studio.agent_clay_tools as agent_clay_tools_mod
-    import warlock.studio.panes.clay_props as clay_props_mod
+    import warlock.studio.modes.clay.agent.tools as agent_clay_tools_mod
+    import warlock.studio.modes.clay.ui.panes.props as clay_props_mod
 
-    # ``_h_set_params`` lives in ``agent_clay_tools.py`` since the P4
-    # restructure split it out of ``agent_clay.py`` (dev/RESTRUCTURE.md) --
+    # ``_h_set_params`` lives in ``studio/modes/clay/agent/tools.py`` since the P4
+    # restructure split it out of ``studio/modes/clay/agent/dispatch.py`` (dev/RESTRUCTURE.md) --
     # ``agent_clay`` only imports it now to build its own ``_HANDLERS``
-    # table, so parsing ``agent_clay.py``'s own source would no longer find
+    # table, so parsing ``studio/modes/clay/agent/dispatch.py``'s own source would no longer find
     # a ``FunctionDef`` for it at all.
     doors = {
         agent_clay_tools_mod: "_h_set_params",

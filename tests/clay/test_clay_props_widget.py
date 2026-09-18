@@ -29,7 +29,7 @@ from __future__ import annotations
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio.panes import clay_props
+from warlock.studio.modes.clay.ui.panes import props as clay_props
 
 
 @pytest.fixture

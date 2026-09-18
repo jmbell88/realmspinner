@@ -285,13 +285,8 @@ def test_request_quit_no_longer_nests_its_guards_by_hand():
 
 
 def test_the_quit_chain_stops_at_the_first_cancel():
-    from warlock.studio import (
-        clay_mode,
-        inker_mode,
-        packwright_mode,
-        plotter_mode,
-        poser_mode,
-    )
+    from warlock.studio import inker_mode, packwright_mode, plotter_mode, poser_mode
+    from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.panes import pose_panel
 
     quit_calls: list[str] = []
@@ -508,7 +503,7 @@ def test_the_confirm_modal_binds_enter_and_escape_and_focuses_confirm():
 # from the dispatcher's side, which is the only side that can see it.
 
 _WORKSPACE_ARMS = {
-    "clay": "clay_mode",
+    "clay": "modes.clay.mode",
     "poser": "poser_mode",
     "review": "review_mode",
     "inker": "inker_mode",
@@ -561,8 +556,8 @@ def test_a_workspace_mode_never_falls_through_to_the_shared_block(mode, monkeypa
     for target, name in (
         ("warlock.studio.panes.library.delete_asset", "delete_asset"),
         ("warlock.studio.panes.library.select_relative", "select_relative"),
-        ("warlock.studio.modes.create.ui.settings_2d.generate", "generate"),
-        ("warlock.studio.modes.create.ui.settings_3d.promote", "promote"),
+        ("warlock.studio.modes.create.ui.panes.settings_2d.generate", "generate"),
+        ("warlock.studio.modes.create.ui.panes.settings_3d.promote", "promote"),
     ):
         monkeypatch.setattr(target, (lambda n: lambda *a, **k: fired.append(n))(name))
 

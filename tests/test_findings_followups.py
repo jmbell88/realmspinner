@@ -52,7 +52,7 @@ def test_play_refuses_a_stale_buffer(monkeypatch):
 def test_xray_picks_through_the_surface():
     """Three places say a click in X-ray picks through the surface; the pick
     always passed the surface depth."""
-    from warlock.studio import _view_pick
+    from warlock.studio.modes.clay.ui import _view_pick
 
     source = inspect.getsource(_view_pick)
     assert 'xray = getattr(self, "xray", False)' in source

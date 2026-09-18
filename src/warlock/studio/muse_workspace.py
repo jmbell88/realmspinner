@@ -17,7 +17,7 @@ would have raised a ``NameError`` on the first frame Muse ever drew. Fixed by
 adding the import this method always needed, not by changing what it does.
 
 The shell names this module reaches are imported *inside* the method that
-uses them, the same rule ``clay_viewport.py`` states: ``main`` imports
+uses them, the same rule ``studio/modes/clay/ui/viewport.py`` states: ``main`` imports
 :class:`~.shell.app.App` (which assembles this mixin) to build the class, so a
 module-scope import back would be a cycle.
 """

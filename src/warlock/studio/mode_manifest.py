@@ -95,7 +95,7 @@ class ModeManifest:
 #: replaces; see each one's docstring for which shape that is.
 DOC_MODES: tuple[ModeManifest, ...] = (
     ModeManifest("inker", "inker_mode", "inker", "Export PNG", "inker_mode"),
-    ModeManifest("clay", "clay_mode", "clay", verbs.EXPORT_TO_LIBRARY, "clay_mode"),
+    ModeManifest("clay", "modes.clay.mode", "clay", verbs.EXPORT_TO_LIBRARY, "modes.clay.mode"),
     ModeManifest("mason", "mason_mode", "mason", "Export .glb + manifest", "mason_mode"),
     ModeManifest("plotter", "plotter_mode", "plotter", "Export .tmx", "plotter_mode"),
     ModeManifest(

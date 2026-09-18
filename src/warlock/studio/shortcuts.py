@@ -89,8 +89,8 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
         ],
     )
     from . import inker_state
-    from .clay_mode import TOOL_KEYS as CLAY_KEYS
     from .inker_mode import ALT_TOOL_CHORDS
+    from .modes.clay.mode import TOOL_KEYS as CLAY_KEYS
 
     table(
         "Clay",

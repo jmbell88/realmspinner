@@ -2,7 +2,7 @@
 agent's edits before they touch the document the user is looking at.
 
 **Why a clone rather than a dry-run flag threaded through every op.** Clay's
-tool surface (``agent_clay.py``) already runs a person's whole vocabulary --
+tool surface (``studio/modes/clay/agent/dispatch.py``) already runs a person's whole vocabulary --
 booleans, element ops, figure presets -- against a real ``ClayDoc``, and none
 of it was written to ask "what would this do" without doing it. Cloning the
 document and running the same tools against the clone costs one shallow copy

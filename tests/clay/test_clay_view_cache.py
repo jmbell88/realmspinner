@@ -1,7 +1,7 @@
 """Clay's viewport render cache: the document has to be pinned, not just its id.
 
 The 2026-09-07 audit's clay-09. ``ClayView.draw``'s frame-skip key
-(``clay_view.py``) carried ``id(doc)`` with nothing holding a reference to
+(``studio/modes/clay/ui/view.py``) carried ``id(doc)`` with nothing holding a reference to
 *that* document -- unlike every other identity-keyed cache in the class
 (``_screens``, ``_world_cache``), which already pin the object an id in their
 key names, for the reason both of their own comments state: an id is only

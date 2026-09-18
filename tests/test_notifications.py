@@ -184,7 +184,7 @@ def test_a_drop_says_so_where_it_landed():
     ``widgets._OPEN_REQUESTS``. Asserting it here is what kept it alive.
     """
     from warlock.studio import main
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     source = inspect.getsource(main.App._on_drop)
     assert '_flash_drop("2d-ref")' in source

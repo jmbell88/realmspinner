@@ -19,6 +19,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from _panes import pane_files
+
 STUDIO_ROOT = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
 
 # icons.py is the rulebook, not a pane: its own docstring is required to
@@ -215,6 +217,6 @@ def test_clay_outliners_show_all_uses_eye_not_eye_off():
     """"Show all" un-hides everything; drawing it with EYE_OFF said the
     opposite of what the button does. "Solo", right above it, correctly
     uses EYE for the same reason this one now does."""
-    source = (STUDIO_ROOT / "panes" / "clay_outliner.py").read_text(encoding="utf-8")
+    source = pane_files()["clay_outliner.py"].read_text(encoding="utf-8")
     assert '{icons.EYE} Show all##clayshowall' in source
     assert '{icons.EYE_OFF} Show all##clayshowall' not in source

@@ -22,7 +22,7 @@ from _ui_context import imgui_context
 
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio.panes import clay_props
+from warlock.studio.modes.clay.ui.panes import props as clay_props
 
 
 @pytest.fixture

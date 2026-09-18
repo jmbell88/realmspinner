@@ -161,8 +161,8 @@ def test_the_reference_stage_does_not_draw_the_tray_progress_row_twice(monkeypat
     """Reference already carries the canvas tray and the floating card; a
     third copy from ``_stage_pane`` would put the count back up to three
     instead of trading one restatement for reach on every other stage."""
-    from warlock.studio.modes.create.ui import settings_2d
     from warlock.studio.modes.create.ui import workspace as generation_workspace
+    from warlock.studio.modes.create.ui.panes import settings_2d
     from warlock.studio.shell import frame
 
     calls: list[object] = []

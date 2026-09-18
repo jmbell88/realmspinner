@@ -1,0 +1,2001 @@
+"""One registry of everything Clay can *do*, and no imgui anywhere in it.
+
+Three surfaces invoke Clay's operations -- the right-mouse context menu, the
+buttons in the tools pane, and ``clay_mode.handle_key`` -- and before this
+module they each had their own list. Three lists means three answers to "is
+Extrude available in vertex mode", and the interesting one is always the one
+nobody updated: a key that fires an op the menu greys out, or a menu row for an
+op the key path never learned about.
+
+So there is one list. :data:`OPS` is the whole of what is invocable, each entry
+carrying the modes it applies to, whether it is enabled right now, the key that
+fires it and how it groups in the menu. The menu renders it, the pane renders a
+subset of it, and the key handler looks up by key -- and none of them decides
+anything.
+
+**Nothing here imports imgui**, which is what keeps the registry testable: an
+``Op``'s ``enabled`` predicate is a function of a document, so "Fill Hole is
+greyed out with a face selected" is a plain assertion rather than a screenshot.
+The pane layer (``studio/modes/clay/ui/menu.py``) is the only thing that knows a popup
+exists.
+
+**An op that changes geometry freezes the object's generator.** A box whose
+faces have been extruded is no longer describable by "box, size 1" -- the
+properties panel would offer a size field that silently discards the edit the
+moment it was touched. The freeze is ``Document.set_mesh``'s, not any op's:
+saying "``run`` clears it in one place, for every op" was not true of ``run``
+at all -- only ``run_mesh_op`` and Smooth did it, while Delete, Bake Transform
+and Mirror went straight to ``set_mesh`` and kept a generator that would
+rebuild over them. Putting it where the geometry actually changes is what
+makes the sentence true for ops that do not exist yet.
+
+**A refusal is a toast, not an exception.** Every op raises
+:class:`~.clay.elements.OpError` with a sentence naming what it refused and what
+to do instead; :func:`run` catches exactly that, shows it and records no edit.
+Anything else propagates, because an ``IndexError`` out of a topology op is a
+bug and swallowing it would leave a half-built mesh on screen with no clue why.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field, replace
+from typing import Any
+
+import numpy as np
+
+from ....kernels.mesh import shading as _shading
+
+__all__ = [
+    "OPS",
+    "Op",
+    "Param",
+    "by_key",
+    "defaults_for",
+    "menu",
+    "reason_for",
+    "register",
+    "run",
+    "run_mesh_op",
+    "run_object_op",
+]
+
+# The element modes an op can appear in. "object" is the fourth and is not an
+# element mode; ops that name it are the object-level ones (duplicate, bake,
+# mirror) that were previously hardcoded in the tools pane.
+ALL_MODES: tuple[str, ...] = ("object", "vertex", "edge", "face")
+ELEMENT_MODES: tuple[str, ...] = ("vertex", "edge", "face")
+
+
+@dataclass(frozen=True)
+class Param:
+    """One number an op takes, and everything a widget needs to offer it.
+
+    Described rather than drawn so the pane builds every popup from one loop.
+    ``warn`` is shown under the field -- Catmull-Clark at two levels multiplies
+    a mesh by sixteen, and a user who finds that out by waiting is a user who
+    lost their document to the undo budget.
+
+    **``boolean`` and ``choices`` are widget kinds, not storage kinds.** The
+    four ops that reached for a number on 2026-09-10 because this dataclass had
+    no other shape -- ``place-between``'s ``fit`` ("fit to gap (0=off,
+    1=on)") and ``array-radial``/``mirror-copy``'s ``axis`` ("axis (0=X,
+    1=Y, 2=Z)") -- are the tell: the *label* was doing the widget's job because
+    the field couldn't. ``default`` stays a ``float`` and :func:`run` still
+    clamps to ``low``/``high`` regardless of which of the three this is, so a
+    checkbox writes 0.0/1.0 and a combo writes its index -- exactly what the
+    bare int field they replaced already wrote, and why converting an op to
+    either costs nothing beyond this dataclass and the pane's drawing loop.
+
+    They are mutually exclusive -- one field is a toggle or a named set of
+    options, never both -- and each pins its own range so nothing downstream
+    has to ask "which kind is this and what do its bounds mean": a boolean is
+    always 0..1, and a choice's ``high`` is always ``len(choices) - 1``, the
+    same bound :func:`run` was already going to clamp it to. An earlier
+    comment on ``place-between`` called ``axis`` a precedent for the checkbox
+    it wanted; that was wrong about ``axis`` -- three values are a choice, not
+    a toggle -- which is why this is two kinds and not one.
+    """
+
+    name: str
+    label: str
+    default: float
+    step: float = 0.01
+    low: float = 0.0
+    high: float = 1e6
+    integer: bool = False
+    boolean: bool = False
+    choices: tuple[str, ...] = ()
+    warn: str = ""
+
+    def __post_init__(self) -> None:
+        if self.boolean and self.choices:
+            raise ValueError(
+                f"Param {self.name!r}: cannot be both boolean and a choice"
+            )
+        if self.boolean and (self.low, self.high) != (0.0, 1.0):
+            raise ValueError(f"Param {self.name!r}: a boolean's range must be 0..1")
+        if self.choices and (self.low, self.high) != (0.0, float(len(self.choices) - 1)):
+            raise ValueError(
+                f"Param {self.name!r}: a choice's low/high must span its "
+                f"choices (0..{len(self.choices) - 1})"
+            )
+
+    @property
+    def stores_int(self) -> bool:
+        """Whether :func:`run` should hand the op a whole number.
+
+        ``integer``, ``boolean`` and ``choices`` all narrow to one under the
+        hood -- a checkbox writes 0/1, a combo writes its index -- so this is
+        the one place that answers "is this param whole", rather than every
+        caller re-deriving the same ``or`` and one of them eventually missing
+        a kind.
+        """
+        return self.integer or self.boolean or bool(self.choices)
+
+
+@dataclass(frozen=True)
+class Op:
+    """One invocable operation.
+
+    ``run(ctx, doc)`` does the work and is free to push whatever steps it needs;
+    ``enabled(doc)`` answers whether it can right now, and is what greys the
+    menu row and disables the button. ``key`` is the shortcut *label* as well as
+    the binding, so the menu and the shortcuts sheet cannot disagree about it.
+    """
+
+    name: str
+    label: str
+    modes: tuple[str, ...]
+    run: Callable[..., Any]
+    enabled: Callable[[Any], bool] = lambda doc: True
+    key: str = ""
+    separator_before: bool = False
+    params: tuple[Param, ...] = field(default=())
+    """The numbers the pane pops a dialog for, or empty for a bare action."""
+    hint: str = ""
+    """One sentence under the dialog's title, about the op rather than a field.
+
+    ``Param.warn`` is about a *number* -- what two levels of Catmull-Clark will
+    do to a mesh -- and belongs under the field it qualifies. This is about the
+    op: what it is for, and when the op next to it is the one you meant. Only
+    the parameterised ops can show it, because only they open a dialog, which
+    is the right restriction: a bare action gives no moment to read anything.
+    """
+    reason: Callable[[Any], str] = lambda doc: ""
+    """Why ``enabled(doc)`` is refused right now, or ``""`` when it is not.
+
+    The 2026-09-06 audit's clay-07: every refused op greyed out in the context
+    menu, the tools pane and the Delete button with nothing anywhere naming the
+    gate that refused it -- ``hint`` describes what an op *does*, not why it is
+    currently unavailable. Called only through :func:`reason_for`, which is the
+    one place that decides *whether* to call it, so a ``reason`` never needs to
+    re-check ``enabled`` itself and cannot disagree with it about that.
+    """
+
+
+OPS: list[Op] = []
+
+
+def register(op: Op) -> Op:
+    """Add an op to the registry, refusing a duplicate name."""
+    if any(existing.name == op.name for existing in OPS):
+        raise ValueError(f"an op named {op.name!r} is already registered")
+    OPS.append(op)
+    return op
+
+
+def menu(mode: str) -> list[Op]:
+    """Every op that applies in *mode*, in registration order."""
+    return [op for op in OPS if mode in op.modes]
+
+
+def by_key(mode: str, key: str) -> Op | None:
+    """The op *key* fires in *mode*, or ``None``."""
+    for op in menu(mode):
+        if op.key and op.key == key:
+            return op
+    return None
+
+
+def get(name: str) -> Op:
+    for op in OPS:
+        if op.name == name:
+            return op
+    raise KeyError(f"no op named {name!r}")
+
+
+def reason_for(op: Op, doc: Any) -> str:
+    """Why *op* is greyed for *doc* right now, or ``""`` when it is not.
+
+    Gated on ``op.enabled`` rather than trusting ``op.reason`` to also answer
+    "whether": the sentence a caller draws must never disagree with the
+    predicate that actually decides the row, which is exactly the drift the
+    2026-09-06 audit's clay-07 finding warns against -- a reason is only ever
+    consulted once ``enabled(doc)`` has already said no.
+    """
+    if op.enabled(doc):
+        return ""
+    return op.reason(doc)
+
+
+# --- running ----------------------------------------------------------------
+
+
+def toast(ctx: Any, message: str) -> None:
+    """A refusal, shown. ``Ctx.toast(text, level)`` is the whole API.
+
+    It used to reach for a ``ctx.toasts`` attribute that the real ``Ctx`` has
+    never had, so every refusal this module raises -- "can't delete the last
+    object", every per-object one -- was raised, caught, formatted and thrown
+    away in the running app, and only the test doubles ever saw one.
+    """
+    ctx.toast(message, "error")
+
+
+def defaults_for(op: Op) -> dict[str, float]:
+    """The op's parameters at their defaults, as a fresh dict."""
+    return {param.name: param.default for param in op.params}
+
+
+def format_for(param: Param) -> str:
+    """The printf format ``input_float`` should draw this parameter with.
+
+    imgui's own default is ``"%.3f"``, and both weld distances in this registry
+    default to 1e-4 -- so the field read ``0.000``, the step arrows moved it by
+    an amount no digit shown could express, and the number a user typed came
+    back as a different one. A control whose value cannot be read is not a
+    control.
+
+    **Derived from the parameter rather than declared on it.** A ``format``
+    field would be one more thing to remember, and the next sub-millimetre
+    parameter would arrive without it and land in exactly the same hole; the
+    step and the default already say what precision the number is kept at.
+    Widened only downwards, so every parameter that was legible at three
+    decimals still reads exactly as it did.
+    """
+    scale = min(abs(param.step) or 1.0, abs(param.default) or 1.0)
+    decimals = 3
+    while decimals < 9 and scale < 10.0**-decimals:
+        decimals += 1
+    return f"%.{decimals}f"
+
+
+def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
+    """Invoke an op, turning a refusal into a toast. -> whether it ran.
+
+    Missing parameters fall back to their declared defaults, so a caller that
+    has no remembered values -- the key path, a test -- gets the same result the
+    popup would have produced with the fields untouched.
+
+    **Declared parameters are clamped here.** The popup clamps its live fields
+    too (``studio/modes/clay/ui/menu.py``), but that is a UX affordance on one surface --
+    the key path, the tools pane and every test call arrive with whatever the
+    caller had remembered, and a subdivision at ``levels=99`` is not a refusal
+    an op should have to write for itself. ``run`` is the choke point all three
+    surfaces funnel through, so the range a ``Param`` declares is enforced once,
+    where it cannot be bypassed.
+    """
+    from ....kernels.mesh.elements import OpError
+
+    if not op.enabled(doc):
+        return False
+    values = defaults_for(op) | params
+    for param in op.params:
+        value = min(max(float(values[param.name]), param.low), param.high)
+        values[param.name] = int(value) if param.stores_int else value
+    head = doc.history.head
+    mark = doc.history.mark()
+    try:
+        result = op.run(ctx, doc, **values)
+    except OpError as error:
+        toast(ctx, str(error))
+        doc.history.collapse_since(mark)
+        return False
+    # An op that refuses *per object* -- ``run_mesh_op`` toasts and carries on
+    # to the next one -- says so by returning False rather than by raising, so
+    # a caller still learns that nothing happened.
+    if result is False:
+        doc.history.collapse_since(mark)
+        return False
+    _one_step(doc, op, mark, head)
+    return True
+
+
+def _one_step(doc: Any, op: Op, mark: int, head: int) -> None:
+    """Fold everything the op pushed into a single, named step.
+
+    **One press, one Ctrl+Z.** An op is free to push whatever steps it needs and
+    most push one, but the composed ones do not: Mirror pushed a transform and a
+    mesh change, and ``run_mesh_op`` pushes one ``set_mesh`` *per object*, so
+    extruding faces across three objects cost three presses to undo -- a
+    gesture the user made once. ``collapse_since`` is the primitive that was
+    built for exactly this and had one caller.
+
+    Then the name. A fold reads as "compound" in the history panel, which says
+    nothing about what is being undone; the op knows what it was, and
+    ``Op.label`` is already the word on the button. The trailing ellipsis of a
+    parameterised op's label goes -- "Bevel..." is an invitation to a dialog,
+    and this is a record of something that happened.
+
+    ``head`` is the stack's head **before the op ran**, and it has to be taken
+    by the caller rather than read here: read at the top of this function it is
+    already the post-op head, so the guard below only fired when the *collapse*
+    had pushed -- which is to say a multi-object op got its name and a
+    single-object one silently kept "mesh". Serials rather than a depth
+    comparison, because the byte budget can evict an older step while this one
+    is pushed and leave the two counts equal.
+    """
+
+    history = getattr(doc, "history", None)
+    if history is None:  # pragma: no cover - every document has one
+        return
+    history.collapse_since(mark)
+    top = history.top
+    # Only when the op actually pushed something: a select-all or a frame
+    # changes no document, and labelling the *previous* step with this op's
+    # name would be a lie in the one place a user goes to read what happened.
+    if top is not None and history.head != head:
+        top.label = op.label.rstrip(".")
+
+
+def run_mesh_op(
+    ctx: Any, doc: Any, func: Callable[..., Any], /, **params: Any
+) -> bool:
+    """Apply a ``(mesh, sel) -> (mesh, sel)`` op to every object with a selection.
+
+    The loop, the refusal handling and the generator freeze all live here, so an
+    op is registered by naming its function rather than by writing this out
+    again -- and a refusal on one object does not abandon the others, which is
+    what a user selecting faces across two objects means by pressing the button
+    once.
+    """
+    from ....kernels.mesh.elements import OpError
+
+    ran = False
+    for uid in list(doc.element_sel):
+        try:
+            obj = doc.by_uid(uid)
+        except KeyError:
+            continue
+        try:
+            mesh, sel = func(obj.mesh, doc.element_sel_of(uid), **params)
+        except OpError as error:
+            toast(ctx, str(error))
+            continue
+        doc.set_mesh(uid, mesh, select=sel)
+        ran = True
+    return ran
+
+
+def run_object_op(
+    ctx: Any, doc: Any, func: Callable[[Any, Any], Any], /, *, uids: Iterable[int] | None = None
+) -> bool:
+    """Apply ``func(doc, obj)`` to every selected object. -> whether any ran.
+
+    ``run_mesh_op``'s sibling for the object-level ops, and it exists for the
+    same reason: seven ops here wrote out the same four lines -- snapshot the
+    selection, look each uid up, tolerate one that has gone, toast a refusal and
+    carry on -- and only two of them wrote out all four. The ones that skipped
+    the ``KeyError`` guard crash on an object deleted between the snapshot and
+    the loop; the ones that skipped the ``OpError`` catch abandon the rest of
+    the selection when one object refuses.
+
+    The snapshot is taken before anything runs because ``doc.selection`` is live
+    and several of these ops change it.
+    """
+    from ....kernels.mesh.elements import OpError
+
+    ran = False
+    for uid in list(doc.selection if uids is None else uids):
+        try:
+            obj = doc.by_uid(uid)
+        except KeyError:
+            continue
+        try:
+            func(doc, obj)
+        except OpError as error:
+            toast(ctx, str(error))
+            continue
+        ran = True
+    return ran
+
+
+# --- predicates -------------------------------------------------------------
+
+
+def has_objects(doc: Any) -> bool:
+    return bool(doc.selection)
+
+
+def any_object(doc: Any) -> bool:
+    """Whether the *document* holds an object, selected or not.
+
+    For the one op that means "tidy the shading" and says so: ``_shade_auto``
+    falls back to every object when nothing is selected, and gating it on
+    ``has_objects`` made that fallback unreachable -- a comment describing a
+    branch nothing could take.
+    """
+
+    return bool(getattr(doc, "objects", ()))
+
+
+def has_elements(doc: Any) -> bool:
+    return bool(doc.element_sel)
+
+
+def has_two_visible(doc: Any) -> bool:
+    """Two selected objects the user can actually see. Merge's predicate, and
+    the only one that has to look past ``selection`` at what is in it."""
+    return sum(1 for obj in doc.objects if obj.uid in doc.selection and obj.visible) >= 2
+
+
+def has_three_selected(doc: Any) -> bool:
+    """Exactly three -- Place Between's own gate.
+
+    Not "at least three": the op reads two of the selection as anchors and
+    moves the third, so a fourth selected object has no role to play, and
+    silently ignoring it is worse than refusing outright and saying how many
+    are selected -- the way ``_has_two_visible_reason`` already does for
+    Merge/Union.
+    """
+    return len(doc.selection) == 3
+
+
+def has_three_or_more_selected(doc: Any) -> bool:
+    """Distribute's own gate -- at least three, not exactly three.
+
+    Unlike Place Between, which reads two of the selection as fixed anchors
+    and a third to move, Distribute treats every selected object as one item
+    in a row: a fourth, fifth or sixtieth selected object is one more item to
+    space, never a role the op runs out of. Two items have a single gap
+    between them and nothing to distribute it against -- there is no "even"
+    or "uneven" with one interval -- so the floor is three, but nothing above
+    it is refused.
+    """
+    return len(doc.selection) >= 3
+
+
+def in_mode(*modes: str) -> Callable[[Any], bool]:
+    def check(doc: Any) -> bool:
+        return doc.element_mode in modes and bool(doc.element_sel)
+
+    return check
+
+
+# --- reasons ------------------------------------------------------------
+#
+# One function per predicate above, each naming the gate that predicate
+# checks rather than restating the app's general "nothing selected" toast.
+# clay-07 (2026-09-06 audit): none of these existed, so Merge Objects, Bridge
+# Loops and every element op greyed out with nothing anywhere saying why --
+# ``op.hint`` was the only sentence attached to a disabled row, and it
+# describes what the op does rather than why it is refused. Each of these
+# answers only the "why"; :func:`reason_for` is what decides whether to ask.
+
+
+def _has_objects_reason(doc: Any) -> str:
+    return "" if has_objects(doc) else "Select an object first."
+
+
+def _any_object_reason(doc: Any) -> str:
+    return "" if any_object(doc) else "This document has no objects yet."
+
+
+def _has_elements_reason(doc: Any) -> str:
+    return "" if has_elements(doc) else "Select something in the viewport first."
+
+
+def _shade_enabled(doc: Any) -> bool:
+    """Shade Smooth/Flat's own gate, because the op is registered for two modes
+    that mean different things by "the selection".
+
+    The 2026-09-08 audit's clay-06: the row was gated on ``has_objects`` alone,
+    which is an *object*-selection predicate, even though ``_shade``'s body
+    reads ``doc.element_sel`` in face mode -- so an object selected with no
+    faces picked drew a live, enabled button that ran an empty loop: no
+    ``set_shading`` call, no history step, no toast. Grading the same thing the
+    op body reads, mode for mode, is what keeps the two from disagreeing.
+    """
+    if doc.element_mode == "object":
+        return has_objects(doc)
+    return has_elements(doc)
+
+
+def _shade_reason(doc: Any) -> str:
+    if doc.element_mode == "object":
+        return _has_objects_reason(doc)
+    return _has_elements_reason(doc)
+
+
+def _has_two_visible_reason(doc: Any) -> str:
+    # The manual's own wording for this gate (docs/manual/30-clay.md, "Merging
+    # objects"): "greys out unless two visible objects are selected".
+    return "" if has_two_visible(doc) else "Select two visible objects first."
+
+
+def _has_three_selected_reason(doc: Any) -> str:
+    n = len(doc.selection)
+    return (
+        ""
+        if n == 3
+        else f"Select exactly three objects first (two anchors, then the one to "
+        f"place) -- {n} selected now."
+    )
+
+
+def _selection_reason(doc: Any) -> str:
+    return "" if doc.selection else "Select an object first."
+
+
+def _has_three_or_more_selected_reason(doc: Any) -> str:
+    n = len(doc.selection)
+    return "" if n >= 3 else f"Select at least three objects first -- {n} selected now."
+
+
+def _in_mode_reason(*modes: str) -> Callable[[Any], str]:
+    """A reason matching :func:`in_mode`'s own two gates, in the same order --
+    the mode first, then the selection -- so the sentence shown can never
+    disagree with the row it is explaining."""
+
+    label = " or ".join(modes)
+
+    def reason(doc: Any) -> str:
+        if doc.element_mode not in modes:
+            return f"Switch to {label} mode first."
+        if not doc.element_sel:
+            return "Select something first."
+        return ""
+
+    return reason
+
+
+# --- the object-level ops (moved out of the tools pane) ---------------------
+
+
+def _element(dotted: str) -> Callable[..., None]:
+    """Register a ``kernels.mesh.ops_*`` function as an op, resolved lazily by
+    name.
+
+    Lazy so importing the registry does not drag every topology module in at
+    startup, and by name so the table below reads as a list of ops rather than a
+    list of imports.
+
+    The package is named absolutely since 2026-09-17: the mesh engine used to
+    be ``studio/clay/``, a relative hop from here, and is ``warlock.kernels.mesh``
+    now that it is a kernel every layer may reach rather than one mode's
+    private package.
+    """
+    module, func = dotted.rsplit(".", 1)
+
+    def call(ctx: Any, doc: Any, **params: Any) -> bool:
+        import importlib
+
+        target = getattr(importlib.import_module(f"warlock.kernels.mesh.{module}"), func)
+        return run_mesh_op(ctx, doc, target, **params)
+
+    return call
+
+
+def _dissolve(ctx: Any, doc: Any, **_: Any) -> None:
+    """Dissolve, dispatched on the mode -- one menu row rather than three.
+
+    "Dissolve" means the same thing to a user in every mode (get rid of this,
+    and heal what it separated); it is only the implementation that differs, so
+    splitting it into three rows would be exposing the implementation.
+    """
+    from ....kernels.mesh import ops_dissolve
+
+    which = {
+        "vertex": ops_dissolve.dissolve_verts,
+        "edge": ops_dissolve.dissolve_edges,
+        "face": ops_dissolve.dissolve_faces,
+    }.get(doc.element_mode)
+    if which is not None:
+        run_mesh_op(ctx, doc, which)
+
+
+def _extrude(ctx: Any, doc: Any, **params: Any) -> bool:
+    """Extrude, dispatched on the mode -- one row and one key, as Dissolve is.
+
+    "Extrude" means the same thing in all three modes (pull this out and wall in
+    the gap it leaves) and only the implementation differs, so three rows would
+    be exposing the implementation. The vertex branch is the one that is not a
+    simple rename: a mesh stores no wire edges, so it extrudes the *border*
+    edges the selection implies -- see ``ops_topo.extrude_verts``.
+    """
+    from ....kernels.mesh import ops_topo
+
+    which = {
+        "vertex": ops_topo.extrude_verts,
+        "edge": ops_topo.extrude_edges,
+        "face": ops_topo.extrude_faces,
+    }.get(doc.element_mode)
+    return which is not None and run_mesh_op(ctx, doc, which, **params)
+
+
+def _smooth(ctx: Any, doc: Any, levels: float = 1.0, **_: Any) -> None:
+    """Catmull-Clark over every selected object, whatever the mode.
+
+    It ignores the element selection deliberately -- a smoothing subdivision
+    moves the original vertices, and moving only some of them tears the surface
+    along the edge of the selection. See ``ops_subdiv.catmull_clark``.
+    """
+    from ....kernels.mesh import elements as el
+    from ....kernels.mesh import ops_subdiv
+
+    def one(doc: Any, obj: Any) -> None:
+        mesh, sel = ops_subdiv.catmull_clark(obj.mesh, el.empty(), levels=int(levels))
+        doc.set_mesh(obj.uid, mesh, select=sel)
+
+    run_object_op(ctx, doc, one)
+
+
+def _duplicate(ctx: Any, doc: Any, **_: Any) -> None:
+    from ....kernels.mesh import selection
+
+    del ctx
+    selection.duplicate_selected(doc)
+
+
+def _bake(ctx: Any, doc: Any, **_: Any) -> None:
+    """Fold each selected object's transform into its geometry.
+
+    Two ``doc`` calls -- ``set_mesh`` then ``set_transform`` -- because the mesh
+    and the transform are separate edits in this document's vocabulary and each
+    op should push its own kind of change rather than reach for a bake-shaped
+    special case. But ``run``'s ``_one_step`` folds everything an op pushes into
+    one history entry (the module docstring's "one press, one Ctrl+Z"), and
+    that applies here exactly as it does to every other op: **a bake is one
+    compound undo step**, and an earlier version of this docstring claimed the
+    opposite -- that undoing a bake took a second press -- which was stale the
+    day it was written (clay-11, 2026-09-06 audit): ``test_clay_ops.py``'s own
+    ``test_every_op_that_changes_geometry_freezes_it`` already runs a bake
+    through ``clay_ops.run`` and would have caught the fold landing as two
+    steps rather than one.
+    """
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    def one(doc: Any, obj: Any) -> None:
+        baked = clay_ops_geom.bake_transform(obj)
+        doc.set_mesh(obj.uid, baked.mesh)
+        doc.set_transform(
+            obj.uid,
+            translation=baked.translation,
+            rotation=baked.rotation,
+            scale=baked.scale,
+        )
+
+    run_object_op(ctx, doc, one)
+
+
+def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
+    """Merge every selected object into the topmost one in the outliner.
+
+    Document order rather than "the one clicked last": ``doc.selection`` is a
+    set and carries no order at all, so a target read out of it would be
+    whichever object the hash happened to put first -- and the name, transform
+    and material default that the merge keeps are the *target's*, which makes
+    that an arbitrary answer to a question the user can see the answer to.
+
+    The geometry is ``clay.ops.join``'s and the bookkeeping is
+    ``ClayDoc.join_objects``'s, which is this module's usual boundary; the one
+    thing that happens here is the selection afterwards, and it is deliberately
+    the survivor rather than nothing -- the user has one shape now and the
+    gizmo should be on it.
+
+    **Visible objects only**, matching ``visible=False``'s documented meaning
+    that an object does not render, does not export and cannot be picked. A
+    merge is the one op where absorbing an unseen object is not merely odd but
+    invisible in its result too: the geometry arrives inside the survivor, which
+    *is* shown. ``_select_all`` no longer hands over hidden objects, so this is
+    the second half -- an object hidden after it was selected.
+    """
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    mesh = clay_ops_geom.join([doc.by_uid(uid) for uid in uids], eps=float(weld))
+    doc.join_objects(uids[0], mesh, uids[1:])
+    # clay-08 (2026-09-08 audit): the absorbed objects leave ``doc.objects``
+    # here, and their manifold-check cache entries would otherwise outlive
+    # them -- see ``_forget_manifold``.
+    _forget_manifold(ctx, uids[1:])
+    doc.select([uids[0]])
+
+
+def _union(ctx: Any, doc: Any, **_: Any) -> None:
+    """Boolean-union every selected object into the topmost one.
+
+    ``_join``'s shape exactly -- topmost visible as the target, the geometry
+    from ``clay.ops_boolean``, the bookkeeping from ``ClayDoc.join_objects``,
+    the survivor left selected -- and every one of those reasons carries over
+    unchanged. What is different is only which function computes the mesh, and
+    that a refusal is possible: a union is defined over closed solids, so
+    ``ops_boolean.union`` raises :class:`OpError` where ``ops.join`` cannot.
+    That is caught where every other element-op refusal is, in ``run``.
+
+    In-process and synchronous, unlike a mesh pipeline: manifold is CPU and
+    fast at the scale Clay authors at, and handing this to ``TaskRunner`` would
+    mean a document edit landing from another thread.
+    """
+    from ....kernels.mesh import ops_boolean
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    mesh = ops_boolean.union([doc.by_uid(uid) for uid in uids])
+    doc.join_objects(uids[0], mesh, uids[1:])
+    # clay-08 (2026-09-08 audit): see ``_join``'s identical comment -- the
+    # absorbed objects' manifold-check cache entries would otherwise outlive
+    # them.
+    _forget_manifold(ctx, uids[1:])
+    doc.select([uids[0]])
+
+
+def _difference(ctx: Any, doc: Any, **_: Any) -> None:
+    """Boolean-subtract every other selected object from the topmost one.
+
+    ``_union``'s shape exactly -- topmost visible as the target, the survivor
+    left selected, ``_forget_manifold`` for whatever it absorbed -- and every
+    one of those reasons carries over unchanged. What is different is only
+    which ``ops_boolean`` function computes the mesh, and that here **order
+    matters**: the target is also the minuend, so "select the block before the
+    holes you want cut into it" is the one thing a user has to know that Union
+    does not ask them to. See ``ops_boolean.KINDS`` for why.
+
+    The 2026-09-11 audit's clay-04: ``ops_boolean`` has implemented and tested
+    all three booleans since the module was written, and an MCP agent could
+    already reach all three through ``studio/modes/clay/agent/dispatch.py``'s own ``clay_boolean``
+    tool -- only the registry, which the menu, the tools pane and the keyboard
+    all read, offered a human just this one's sibling.
+    """
+    from ....kernels.mesh import ops_boolean
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    mesh = ops_boolean.difference([doc.by_uid(uid) for uid in uids])
+    doc.join_objects(uids[0], mesh, uids[1:])
+    _forget_manifold(ctx, uids[1:])
+    doc.select([uids[0]])
+
+
+def _intersection(ctx: Any, doc: Any, **_: Any) -> None:
+    """Boolean-intersect every selected object into the topmost one.
+
+    ``_union``'s shape exactly, and order-free the way Union is: which object
+    is selected first changes nothing about the answer, only which survives
+    as the target. See ``_difference``'s docstring for the finding this and
+    it both close.
+    """
+    from ....kernels.mesh import ops_boolean
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    mesh = ops_boolean.intersection([doc.by_uid(uid) for uid in uids])
+    doc.join_objects(uids[0], mesh, uids[1:])
+    _forget_manifold(ctx, uids[1:])
+    doc.select([uids[0]])
+
+
+def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> None:
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.set_mesh(obj.uid, clay_ops_geom.mirror(obj, axis).mesh)
+
+    run_object_op(ctx, doc, one)
+
+
+MAX_ARRAY_COUNT = 200
+"""The most instances one Array Linear/Array Radial call may ask for at once.
+
+Every copy shares its source mesh (``clay.ops.duplicate``'s own property,
+carried through unchanged by ``translated`` and ``rotated_about_origin``), so
+this is not a mesh-memory ceiling the way ``primitives.MAX_SUBDIVISIONS`` is.
+What it actually bounds is the outliner (one more row per instance) and the
+document itself (one more ``Obj`` -- a uid, a name, three small transform
+arrays -- recorded in the undo step and written to the ``.wblk`` on every
+save). 200 sits comfortably above the module's own working example ("sixty
+fence posts is one upload") with headroom for a first guess at the count
+field before the outliner starts to drag. It is a **soft** guard rather than
+a real bound: arraying an array multiplies rather than adds, so two presses
+each near the ceiling already exceed it -- nothing here can stop that, only
+the count any *one* press may ask for.
+"""
+
+
+def _array_linear(
+    ctx: Any, doc: Any, count: float = 3.0, x: float = 1.0, y: float = 0.0, z: float = 0.0, **_: Any
+) -> bool:
+    """Copy the whole selection ``count - 1`` times, each further along one step.
+
+    Whole-selection, not per-object: "array these three things five times" is
+    what the words mean, and copying each object independently would
+    interleave three arrays into one mess instead of moving the group as one.
+
+    Modelled closely on ``clay.selection.duplicate_selected``: the same
+    growing ``taken`` list, so many copies made in one press do not collide
+    names with each other, and the same one ``add_objects`` call rather than
+    one ``add_object`` per copy, for the identical reason that function
+    gives -- and it applies with more force here, since one array can make
+    far more than the handful ``duplicate_selected`` ever did. Each copy is
+    ``ops.duplicate`` plus ``ops.translated``, and neither touches the mesh,
+    so every copy shares the source's -- an array of sixty fence posts is one
+    GPU upload, not sixty.
+    """
+    from ....kernels.mesh import document as bd
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    del ctx
+    n = int(count)
+    if n <= 1:
+        return False
+    originals = list(doc.selection)
+    taken = [obj.name for obj in doc.objects]
+    made: list[Any] = []
+    for k in range(1, n):
+        offset = (x * k, y * k, z * k)
+        for uid in originals:
+            copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
+            taken.append(copy.name)
+            made.append(clay_ops_geom.translated(copy, offset))
+    doc.add_objects(made)
+    # Originals and copies both, not just the newest generation: arraying an
+    # array is a normal thing to want, and it only compounds if the group
+    # stays whole.
+    doc.select(originals + [obj.uid for obj in made])
+    return bool(made)
+
+
+def _closes_a_ring(angle: float) -> bool:
+    """Whether *angle* degrees of sweep is a whole number of full turns, so
+    the arc closes back on itself and has no far end distinct from its start.
+
+    Compared with a tolerance rather than ``== 0``: this is read off a widget
+    that stores a float, and ``360.0`` typed by a user or clamped by ``run``
+    is not guaranteed to survive as bit-identical to the ``360.0`` this
+    compares against.
+    """
+    remainder = abs(float(angle)) % 360.0
+    return remainder < 1e-6 or remainder > 360.0 - 1e-6
+
+
+def _array_radial(
+    ctx: Any, doc: Any, count: float = 3.0, angle: float = 360.0, axis: float = 1.0, **_: Any
+) -> bool:
+    """Copy the whole selection ``count - 1`` times, spun about the *world*
+    origin around ``axis`` and spread evenly over ``angle`` degrees.
+
+    The world origin, not the object's own centre, because a single spoke
+    rotated about an axis through itself overlaps its own copies rather than
+    fanning out into a wheel -- the reviewer's own phrase for this op was
+    "eight spokes around a hub". A hub that is not at the origin is reached
+    by arraying at the origin and moving the whole result, not by a third
+    number this op does not take: ``clay_ops.Param`` is scalar, and a centre
+    is a point.
+
+    ``t = k * angle / divisor`` for copy ``k``, and what decides *divisor* is
+    whether the arc **closes**, which ``_closes_a_ring`` answers -- not
+    whether ``count`` changes, since ``angle / count`` and ``angle /
+    (count - 1)`` are *both* functions of ``count`` and both reposition every
+    existing copy when it changes; that is not the property that tells the
+    two cases apart.
+
+    * A full turn (360, 720, a negative multiple...) has no last position
+      distinct from its first, so dividing by ``count - 1`` puts copy
+      ``n - 1`` exactly back on the original -- a "radial array of two" draws
+      one spoke on top of another with nothing on screen to say a second one
+      exists. Dividing by ``count`` instead spaces every copy, the original
+      included, evenly around the whole circle: a full-turn array of four
+      lands 90 degrees apart with nothing doubled.
+    * An open arc has a real far end, and a user who asks for 180 degrees
+      means the copies *reach* 180. Dividing by ``count`` falls short of
+      that, more so as the count shrinks -- four copies over 90 degrees would
+      land at 22.5, 45 and 67.5, nothing at 90 -- so an open arc divides by
+      ``count - 1``, which is exactly what a straight line of evenly spaced
+      points between two fixed ends means. At ``count == 2`` that divisor is
+      1, so the one copy lands at ``angle`` exactly.
+
+    Shares ``_array_linear``'s shape entirely otherwise -- the ``taken`` list,
+    the one ``add_objects`` call, the whole selection left selected after.
+    What is different is the per-copy step (``rotated_about_origin`` rather
+    than ``translated``), and that is what keeps every copy a live parametric
+    shape rather than a frozen one: a rotation about the origin is a
+    transform change, and the mesh is never touched.
+    """
+    from ....kernels.mesh import document as bd
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    del ctx
+    n = int(count)
+    a = int(axis)
+    if n <= 1:
+        return False
+    divisor = n if _closes_a_ring(angle) else n - 1
+    originals = list(doc.selection)
+    taken = [obj.name for obj in doc.objects]
+    made: list[Any] = []
+    for k in range(1, n):
+        degrees = k * angle / divisor
+        for uid in originals:
+            copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
+            taken.append(copy.name)
+            made.append(clay_ops_geom.rotated_about_origin(copy, a, degrees))
+    doc.add_objects(made)
+    doc.select(originals + [obj.uid for obj in made])
+    return bool(made)
+
+
+def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_: Any) -> bool:
+    """Duplicate the selection and reflect each copy across a *world* plane.
+
+    Where **Mirror X/Y/Z** (:func:`mirror`) replace an object with its own
+    reflection about a plane through its own origin, this makes a *second*
+    object, reflected about a plane the caller places anywhere in world
+    space -- what mirroring a limb across a body's centre-line means, and
+    something the per-object mirror cannot do at all. The manual's Mirror
+    X/Y/Z paragraph says which is which.
+
+    **The copy is frozen**, exactly as Mirror X/Y/Z's own result is (the
+    module docstring's negative-scale rule, obeyed here because the mesh
+    comes from ``ops.mirror_world``, which calls ``ops.mirror`` rather than
+    negating a scale component). That freeze is normally ``Document.set_mesh``'s
+    job, but a fresh insert through ``add_objects`` never calls it -- there is
+    no prior mesh to compare identity against -- so it is done by hand here,
+    on the object before it is inserted. Left un-frozen, the properties panel
+    would still offer the source generator's size field, and touching it
+    would rebuild a pristine, unmirrored primitive over the copy.
+    """
+    from ....kernels.mesh import document as bd
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    del ctx
+    taken = [obj.name for obj in doc.objects]
+    originals = list(doc.selection)
+    made: list[Any] = []
+    for uid in originals:
+        copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
+        taken.append(copy.name)
+        mirrored = clay_ops_geom.mirror_world(copy, int(axis), offset)
+        made.append(replace(mirrored, generator=None, params={}))
+    doc.add_objects(made)
+    # Originals *and* copies, exactly as both arrays leave them, and for the
+    # same reason: mirroring a mirror is a normal thing to want. Leaving the
+    # copies unselected made "mirror across X, then mirror the pair across Z"
+    # -- four table legs from one -- silently produce three, because the
+    # second press saw only the original and re-mirrored it over a leg that
+    # was already there (found by the furniture author, 2026-09-12).
+    doc.select(originals + [obj.uid for obj in made])
+    return bool(made)
+
+
+def _place_between(ctx: Any, doc: Any, fit: float = 1.0, **_: Any) -> bool:
+    """Move the newcomer onto the line between the other two selected objects.
+
+    **Which two are anchors, and which one moves, both come from document
+    order** -- ``doc.selection`` is a set and carries none, the same reason
+    ``_join``/``_union`` read their own target out of ``doc.objects`` rather
+    than out of the selection directly. The first two selected objects in
+    that order are the anchors; the third is the one placed.
+
+    **The anchors' own ``translation``, not their bounding-box centre.** That
+    is the point the gizmo sits on and the number the TRS panel shows, so
+    "between these two" means the same thing here as it does to a user
+    looking at the panel -- a box's own centre can disagree with it the
+    moment the object has been scaled or its mesh is not centred on the
+    origin it was authored at.
+
+    **The mover is the *last* in document order, which is the opposite of
+    what ``_join``/``_union`` keep, and deliberately.** Those two keep the
+    *incumbent*: a merge or a union absorbs newcomers into whichever object
+    was already sitting there, so the survivor is the topmost (earliest)
+    selected object. Here the newcomer is the one that has a role to play --
+    you place two hubs first, and only then add a strut between them -- so
+    the object this moves is whichever was selected last into the group, and
+    a freshly added object sorts last in document order. The two ops read the
+    same document order for the same reason (an unordered set needs a
+    tiebreaker a user can see) and disagree about which end of it matters
+    because they are answering different questions: "which of these survives"
+    against "which of these is the newcomer".
+    """
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    del ctx
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
+    anchor_a, anchor_b, mover = uids[0], uids[1], uids[2]
+    a = doc.by_uid(anchor_a).translation
+    b = doc.by_uid(anchor_b).translation
+    placed = clay_ops_geom.place_between(doc.by_uid(mover), a, b, fit=bool(fit))
+    return doc.set_transform(
+        mover,
+        translation=placed.translation,
+        rotation=placed.rotation,
+        scale=placed.scale,
+    )
+
+
+def _world_boxes(doc: Any, uids: Iterable[int]) -> dict[int, tuple[np.ndarray, np.ndarray]]:
+    """``{uid: world_box}`` for every *uid* whose mesh is not empty.
+
+    Shared by :func:`_align`, :func:`_distribute` and :func:`_drop_to_ground`,
+    which all hand ``mason.ops``' box arithmetic the same ``Boxes`` mapping
+    ``scene.world_bounds`` already builds for Mason's own selection -- see
+    that module's docstring for why the three take world boxes rather than a
+    ``GeometrySource``. An object whose mesh has no vertices reports no box
+    (``ops.world_box`` returns ``None``) and is left out rather than degrading
+    every other object's math with a phantom point at the origin.
+    """
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    out: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for uid in uids:
+        box = clay_ops_geom.world_box(doc.by_uid(uid))
+        if box is not None:
+            out[uid] = box
+    return out
+
+
+def _apply_deltas(doc: Any, deltas: dict[int, np.ndarray]) -> bool:
+    """Add each world-space delta to its object's own translation. -> whether
+    any object actually moved.
+
+    One call per object rather than one ``set_transform`` per axis: ``run``'s
+    own ``_one_step`` folds however many of these land into the single undo
+    step its docstring promises, exactly as ``_bake``'s two-call-per-object
+    fold already does, so a multi-object Align or Distribute is one Ctrl+Z
+    whatever it moved.
+    """
+    ran = False
+    for uid, delta in deltas.items():
+        translation = np.asarray(doc.by_uid(uid).translation, dtype="f8") + delta
+        if doc.set_transform(uid, translation=translation):
+            ran = True
+    return ran
+
+
+_ALIGN_MODES = ("min", "centre", "max")
+
+
+def _align(ctx: Any, doc: Any, axis: float = 0.0, mode: float = 1.0, **_: Any) -> bool:
+    """Line up every selected object's *world box* -- its visible edge or
+    middle, not its pivot -- along one axis.
+
+    The arithmetic is ``mason.ops.align``'s: Mason's placement math takes
+    plain world boxes rather than a ``GeometrySource``, which is exactly the
+    shape Clay's own ``ops.world_box`` already answers per object, so this is
+    an import rather than a second copy. Mason may not import Clay (its own
+    import pin says so, and for a real reason -- a scene links to a library
+    asset by job id and must not resolve one itself), but nothing bars a
+    plain ``studio/`` module reaching into Mason's pure package the way
+    ``mason_view.py`` already does for the human-driven version of this same
+    op; see that module's ``from .mason import ops as mops``.
+    """
+    from ...mason import ops as mason_ops
+
+    del ctx
+    boxes = _world_boxes(doc, doc.selection)
+    deltas = mason_ops.align(boxes, int(axis), _ALIGN_MODES[int(mode)])
+    return _apply_deltas(doc, deltas)
+
+
+def _distribute(ctx: Any, doc: Any, axis: float = 0.0, **_: Any) -> bool:
+    """Space every selected object's world box evenly along one axis, the two
+    extreme objects held fixed. See :func:`_align`'s docstring for why the
+    box arithmetic is imported from ``mason.ops`` rather than duplicated.
+    """
+    from ...mason import ops as mason_ops
+
+    del ctx
+    boxes = _world_boxes(doc, doc.selection)
+    deltas = mason_ops.distribute(boxes, int(axis))
+    return _apply_deltas(doc, deltas)
+
+
+def _drop_to_ground(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Rest each selected object's own world-box *bottom* on ``y=0``.
+
+    Per object, not per group: unlike Align and Distribute, there is no
+    shared axis to agree on, so a box sitting three metres above the floor and
+    one already resting on it both land correctly in the same call. The flat
+    ground plane at ``y=0`` is this op's whole contract -- ``mason.ops.
+    drop_to_ground`` also takes a ``Terrain`` for Mason's own version, which
+    this row has no use for and does not pass.
+    """
+    from ...mason import ops as mason_ops
+
+    del ctx
+    boxes = _world_boxes(doc, doc.selection)
+    deltas = mason_ops.drop_to_ground(boxes, ground=0.0)
+    return _apply_deltas(doc, deltas)
+
+
+def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> None:
+    """Snap every selected object's translation onto a grid of *step* metres,
+    each axis independently -- ``ops.snap_translation``'s own rounding
+    (half away from zero, so the grid stays symmetric about the origin).
+    """
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    def one(doc: Any, obj: Any) -> None:
+        snapped = clay_ops_geom.snap_translation(obj.translation, step)
+        doc.set_transform(obj.uid, translation=snapped)
+
+    run_object_op(ctx, doc, one)
+
+
+def _forget_manifold(ctx: Any, uids: Iterable[int]) -> None:
+    """Drop cached "mesh check" entries for objects that just left the document.
+
+    The 2026-09-08 audit's clay-08: ``ClayState.manifold`` -- the per-object
+    "last mesh check" cache the properties panel fills in (``clay_props``'s
+    ``_diagnostics``) -- was only ever pruned when a tab *closed*
+    (``clay_mode.close_tab``'s ``release``). Deleting, merging or unioning an
+    object away mid-session left its entry keyed on the now-orphaned uid,
+    pinning the whole ``Mesh`` (positions/loops/starts arrays) it measured
+    alive, unreachable, for the rest of the tab's life. This is that same pop,
+    at every other site an object leaves ``doc.objects``.
+
+    Reached through ``ctx.state.clay`` with ``getattr`` at each hop, the way
+    ``_frame`` above reaches ``ctx.clay_view``: this keeps the module callable
+    with the bare toast-only ``ctx`` double the rest of this file's tests use,
+    which has neither attribute.
+    """
+    state = getattr(ctx, "state", None)
+    clay_state = getattr(state, "clay", None) if state is not None else None
+    manifold = getattr(clay_state, "manifold", None)
+    if manifold is None:
+        return
+    for uid in uids:
+        manifold.pop(uid, None)
+
+
+def _delete(ctx: Any, doc: Any, **_: Any) -> None:
+    from ....kernels.mesh import selection
+
+    before = {obj.uid for obj in doc.objects}
+    for message in selection.delete_selected(doc):
+        toast(ctx, message)
+    _forget_manifold(ctx, before - {obj.uid for obj in doc.objects})
+
+
+def _unwrap(ctx: Any, doc: Any, **_: Any) -> None:
+    """Give every selected object a fresh box projection.
+
+    Whole objects rather than the selected faces, and that is the decision:
+    unwrapping half a mesh leaves the other half's coordinates from whenever
+    they were last computed, so the two islands are at different texel
+    densities and a checker map says so immediately. Per-face unwrapping is a
+    real feature and it needs a seam tool first.
+
+    It does **not** freeze the generator. UVs are not geometry -- the positions,
+    the topology and the parameters are all untouched -- so a box that has been
+    unwrapped is still describable as "box, size 1", and re-editing the size
+    correctly rebuilds it with the generator's own canonical coordinates.
+    """
+    from ....kernels.mesh import uv as uv_mod
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.set_mesh(obj.uid, uv_mod.box_unwrap(obj.mesh), keep_generator=True)
+
+    run_object_op(ctx, doc, one)
+
+
+def _shade(smooth: bool) -> Callable[..., None]:
+    """Set the shading flag on the selected faces, or on whole objects.
+
+    Both modes, because both readings are real: in face mode a user means
+    "these faces", and in object mode they mean "this whole shape". The flag is
+    per face either way -- there is no object-level shading setting that would
+    have to be kept in agreement with it.
+    """
+
+    def run(ctx: Any, doc: Any, **_: Any) -> None:
+        if doc.element_mode == "object":
+            run_object_op(ctx, doc, lambda doc, obj: doc.set_shading(obj.uid, None, smooth))
+            return
+        from ....kernels.mesh import elements as el
+
+        del ctx
+        for uid in list(doc.element_sel):
+            faces = el.convert(doc.by_uid(uid).mesh, doc.element_sel_of(uid), "face")
+            doc.set_shading(uid, faces.faces, smooth)
+
+    return run
+
+
+def _shade_auto(ctx: Any, doc: Any, angle: float = _shading.DEFAULT_ANGLE, **_: Any) -> None:
+    """Smooth every face whose *every* neighbour agrees with it to within *angle*.
+
+    Delegates to :func:`clay.shading.auto_smooth`, which is the specification
+    -- see its docstring for the full rule and for why a capped cylinder comes
+    out entirely flat on purpose. What is left here, after the 2026-09-06
+    audit's organic-shapes extraction, is only the object-selection plumbing:
+    which objects to run over, and folding an unchanged one into no edit at
+    all rather than a no-op history step.
+    """
+
+    def one(doc: Any, obj: Any) -> None:
+        mesh = obj.mesh
+        smoothed = _shading.auto_smooth(mesh, angle)
+        if smoothed is mesh:
+            return
+        # One step per object, and only for an object this changed: going
+        # through ``set_shading`` first and then writing the array would push
+        # two, and a Ctrl+Z would land halfway.
+        doc.set_mesh(obj.uid, smoothed, keep_generator=True)
+
+    # The whole document when nothing is selected: this is the one op here that
+    # means "tidy the shading", and a user with no selection means all of it.
+    # Reachable since 2026-09-03 -- the op was gated on ``has_objects``, which
+    # requires a selection, so this branch was a comment describing something
+    # nothing could take.
+    run_object_op(
+        ctx, doc, one, uids=list(doc.selection) or [entry.uid for entry in doc.objects]
+    )
+
+
+def _frame(ctx: Any, doc: Any, **_: Any) -> None:
+    view = getattr(ctx, "clay_view", None)
+    if view is not None:
+        view.frame_selection(doc)
+
+
+def _select_all(ctx: Any, doc: Any, **_: Any) -> None:
+    from ....kernels.mesh import selection
+
+    del ctx
+    selection.select_all(doc)
+
+
+def _select_none(ctx: Any, doc: Any, **_: Any) -> None:
+    del ctx
+    doc.clear_element_sel()
+
+
+def _invert(ctx: Any, doc: Any, **_: Any) -> None:
+    from ....kernels.mesh import selection
+
+    del ctx
+    selection.invert(doc)
+
+
+def _selection_op(verb: Any) -> Any:
+    """Wrap a ``clay.select`` verb as an op that writes the element selection.
+
+    One wrapper for five verbs, because every one of them is the same three
+    steps -- read what is selected on each object, ask the engine, write the
+    answer back -- and five copies of that is five places for the "write it
+    back only when it changed" rule to be forgotten.
+
+    Per object, and **only the objects that already have a selection**: growing
+    a selection on the object you are working on must not quietly select
+    something on the one behind it.
+    """
+
+    def run(ctx: Any, doc: Any, **params: Any) -> bool:
+
+        del ctx
+        mode = doc.element_mode
+        ran = False
+        for uid in list(doc.element_sel):
+            try:
+                obj = doc.by_uid(uid)
+            except KeyError:
+                continue
+            sel = doc.element_sel_of(uid)
+            wanted = verb(obj.mesh, sel, mode, **params)
+            if wanted is None or wanted.same_as(sel):
+                continue
+            doc.set_element_sel(uid, wanted)
+            ran = True
+        # ``False`` rather than a refusal: the selection is what it already was,
+        # and ``run`` turns that into "nothing happened" without a toast. A verb
+        # that found nothing new is not an error, it is an answer.
+        return ran
+
+    return run
+
+
+def _verb_linked(mesh: Any, sel: Any, mode: str) -> Any:
+    from ....kernels.mesh import select as bsel
+
+    verts = bsel.verts_of(mesh, sel, mode)
+    if not len(verts):
+        return None
+    return bsel.sel_from_verts(mesh, bsel.linked(mesh, verts), mode)
+
+
+def _verb_grow(mesh: Any, sel: Any, mode: str) -> Any:
+    from ....kernels.mesh import select as bsel
+
+    verts = bsel.verts_of(mesh, sel, mode)
+    if not len(verts):
+        return None
+    return bsel.sel_from_verts(mesh, bsel.grow(mesh, verts), mode)
+
+
+def _verb_shrink(mesh: Any, sel: Any, mode: str) -> Any:
+    from ....kernels.mesh import select as bsel
+
+    verts = bsel.verts_of(mesh, sel, mode)
+    if not len(verts):
+        return None
+    return bsel.sel_from_verts(mesh, bsel.shrink(mesh, verts), mode)
+
+
+def _verb_boundary(mesh: Any, sel: Any, mode: str) -> Any:
+    from ....kernels.mesh import elements as el
+    from ....kernels.mesh import select as bsel
+
+    del sel
+    pairs = bsel.boundary(mesh)
+    if not len(pairs):
+        return None
+    # Reported in the mode's own currency: the border is a set of edges, and in
+    # vertex mode what a user means by "select the boundary" is its vertices.
+    if mode == "edge":
+        return el.ElementSel(edges=pairs)
+    if mode == "vertex":
+        return el.ElementSel(verts=np.unique(pairs.reshape(-1)))
+    return None
+
+
+# ``_verts_of`` and ``_sel_from_verts`` used to live here, reaching into
+# ``elements._face_corner_mask`` -- a private of another module -- from one
+# level too high up. The 2026-09-10 groundwork pass moved both, unchanged, down
+# into ``clay.select`` as the public ``verts_of``/``sel_from_verts``: see that
+# module for the functions and their docstrings, and the three ``_verb_*``
+# wrappers above for the only callers.
+
+
+def _register_defaults() -> None:
+    """Build the registry once, at import.
+
+    A function rather than module-level statements so the tests can assert the
+    registry is *complete* by calling it on a fresh list, and so a duplicate
+    import cannot register everything twice.
+    """
+    if OPS:
+        return
+
+    register(
+        Op(
+            name="select-all",
+            label="Select All",
+            modes=ELEMENT_MODES,
+            run=_select_all,
+            key="Ctrl+A",
+        )
+    )
+    register(
+        Op(
+            name="select-none",
+            label="Select None",
+            modes=ELEMENT_MODES,
+            run=_select_none,
+            enabled=has_elements,
+            reason=_has_elements_reason,
+            key="Esc",
+        )
+    )
+    register(
+        Op(
+            name="select-invert",
+            label="Invert Selection",
+            modes=ELEMENT_MODES,
+            run=_invert,
+            key="Ctrl+Shift+I",
+        )
+    )
+    register(
+        Op(
+            name="select-linked",
+            label="Select Linked",
+            modes=ELEMENT_MODES,
+            run=_selection_op(_verb_linked),
+            enabled=has_elements,
+            reason=_has_elements_reason,
+            key="L",
+            hint="Everything joined to what is selected. Two shapes welded into "
+            "one mesh are separable again by it.",
+        )
+    )
+    register(
+        Op(
+            name="select-more",
+            label="Select More",
+            modes=ELEMENT_MODES,
+            run=_selection_op(_verb_grow),
+            enabled=has_elements,
+            reason=_has_elements_reason,
+            key="Ctrl+=",
+        )
+    )
+    register(
+        Op(
+            name="select-less",
+            label="Select Less",
+            modes=ELEMENT_MODES,
+            run=_selection_op(_verb_shrink),
+            enabled=has_elements,
+            reason=_has_elements_reason,
+            key="Ctrl+-",
+            hint="Peels the border off the selection, leaving its middle.",
+        )
+    )
+    register(
+        Op(
+            name="select-boundary",
+            label="Select Boundary",
+            # Vertex and edge only: a hole's border is a run of edges, and there
+            # is no face on the open side of one to select.
+            modes=("vertex", "edge"),
+            run=_selection_op(_verb_boundary),
+            key="",
+            hint="Every open edge -- the border of every hole, which is what "
+            "Fill Hole is about to close.",
+        )
+    )
+
+    register(
+        Op(
+            name="duplicate",
+            label="Duplicate",
+            modes=("object",),
+            run=_duplicate,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            key="Ctrl+J",
+            separator_before=True,
+        )
+    )
+    for smooth, label in ((True, "Shade Smooth"), (False, "Shade Flat")):
+        register(
+            Op(
+                name=f"shade-{'smooth' if smooth else 'flat'}",
+                label=label,
+                modes=("object", "face"),
+                run=_shade(smooth),
+                # clay-06 (2026-09-08 audit): ``has_objects`` graded object
+                # mode's own question in face mode too, where the op body
+                # reads the *element* selection -- see ``_shade_enabled``.
+                enabled=_shade_enabled,
+                reason=_shade_reason,
+                separator_before=smooth,
+            )
+        )
+    register(
+        Op(
+            name="shade-auto",
+            label="Shade Auto...",
+            modes=("object",),
+            run=_shade_auto,
+            # ``any_object``, not ``has_objects``: this op's own fallback is
+            # "the whole document when nothing is selected", and the tighter
+            # gate made that unreachable.
+            enabled=any_object,
+            reason=_any_object_reason,
+            params=(
+                Param(
+                    "angle",
+                    "sharp above (deg)",
+                    _shading.DEFAULT_ANGLE,
+                    5.0,
+                    low=0.0,
+                    high=180.0,
+                    warn="0 makes everything flat; 180 makes everything smooth.",
+                ),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="unwrap",
+            label="Box Unwrap",
+            modes=("object",),
+            run=_unwrap,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+        )
+    )
+    register(
+        Op(
+            name="bake",
+            label="Bake Transform",
+            modes=("object",),
+            run=_bake,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+        )
+    )
+    register(
+        Op(
+            name="join",
+            label="Merge Objects...",
+            modes=("object",),
+            run=_join,
+            # Two, not one: merging a single object is the identity, and an
+            # enabled button that does nothing is worse than a greyed one.
+            # Counted over the *visible* selection for that same reason, since
+            # that is what ``_join`` will actually merge -- a row enabled by an
+            # object the merge then skips is the greyed one's problem again.
+            enabled=has_two_visible,
+            reason=_has_two_visible_reason,
+            key="Ctrl+M",
+            # The pointer at its counterpart, here rather than in the menu: this
+            # dialog is the one moment the user has committed to "make these one
+            # object" and can still choose which meaning of it they wanted, and
+            # the moment the weld's cost -- the walls it is about to bury inside
+            # the result -- has not been paid yet.
+            hint=(
+                "Welds the shapes and keeps the surfaces inside the overlap. For "
+                "shapes that interpenetrate, Union Objects... (Ctrl+Shift+M) cuts "
+                "those away instead -- at the cost of the UVs and the n-gons."
+            ),
+            params=(
+                Param(
+                    "weld",
+                    "weld distance (m)",
+                    1e-4,
+                    1e-4,
+                    low=0.0,
+                    warn="0 keeps the shapes as separate shells inside one object.",
+                ),
+            ),
+        )
+    )
+    # Beside *Merge Objects...*, never instead of it. The two answer different
+    # questions and the manual says which is which: a merge welds and keeps the
+    # geometry inside the overlap, a union removes it -- and pays for that with
+    # the UVs and the n-gons, which is exactly why the weld cannot simply be
+    # retired in its favour. Same predicate, because "fewer than two visible" is
+    # the identity for both.
+    #
+    # And the same key, shifted. Union spent its first release in the context
+    # menu with no binding at all while the weld beside it held the merge key, so of
+    # the pair the discoverable one was the one that leaves the interior walls
+    # in -- users found *Merge*, got z-fighting inside the overlap, and had no
+    # reason to suspect the other row existed. Shift is the right modifier for
+    # it under the rule Ctrl+Shift+Z and Ctrl+Shift+I already follow here: the
+    # same question, answered the other way.
+    register(
+        Op(
+            name="union",
+            label="Union Objects...",
+            modes=("object",),
+            run=_union,
+            enabled=has_two_visible,
+            reason=_has_two_visible_reason,
+            key="Ctrl+Shift+M",
+        )
+    )
+    # Difference and Intersection: the rest of ``ops_boolean.KINDS``, closing
+    # the 2026-09-11 audit's clay-04. Same predicate as Union -- "fewer than
+    # two visible" refuses all three identically -- and the same shape of run
+    # function, copied rather than shared, for the reason ``_union``'s own
+    # docstring gives: only the ``ops_boolean`` call differs.
+    #
+    # **No key chord.** Every other bound op in this file fires from the
+    # keyboard through one of two paths: ``clay_mode._registry_key`` reads
+    # ``Op.key`` generically, but only for the *element* modes (vertex/edge/
+    # face); every object-mode chord this registry owns today (Ctrl+M,
+    # Ctrl+Shift+M, Ctrl+J, Ctrl+=/-) is instead hand-dispatched, one ``elif``
+    # per letter, inside ``clay_mode._ctrl_key``. A ``key=`` string here would
+    # only ever be display text -- the menu row and the shortcuts sheet would
+    # both claim a binding this file cannot make live, which is worse than
+    # having none. Wiring a real chord needs an edit to ``_ctrl_key`` itself,
+    # a file this registry's own ownership slice does not extend to; a menu
+    # row and a tools-pane button already reach every registered op with no
+    # further wiring (``studio/modes/clay/ui/menu.py``'s ``_rows`` and
+    # ``studio/modes/clay/ui/tools.py``'s ``_actions`` both iterate ``clay_ops.menu``),
+    # so that is the complete fix and the one taken here -- and it is why
+    # ``docs/manual/39-shortcuts.md``, gated bidirectionally against the
+    # keyboard table, needs no new line for either op.
+    register(
+        Op(
+            name="difference",
+            label="Difference Objects...",
+            modes=("object",),
+            run=_difference,
+            enabled=has_two_visible,
+            reason=_has_two_visible_reason,
+            hint="Cuts every other selected object out of the first (topmost) "
+            "one -- a countersink, a doorway punched through a wall. Order "
+            "matters here, unlike Union or Intersect: select the block before "
+            "the holes you mean to cut into it. Costs the same UVs and "
+            "n-gons Union does.",
+        )
+    )
+    register(
+        Op(
+            name="intersection",
+            label="Intersect Objects...",
+            modes=("object",),
+            run=_intersection,
+            enabled=has_two_visible,
+            reason=_has_two_visible_reason,
+            hint="Keeps only the volume every selected object shares, and "
+            "discards the rest -- carving one shape with the overlap of "
+            "several others. Costs the same UVs and n-gons Union does.",
+        )
+    )
+    for axis, label in enumerate(("X", "Y", "Z")):
+        register(
+            Op(
+                name=f"mirror-{label.lower()}",
+                label=f"Mirror {label}",
+                modes=("object",),
+                run=(lambda a: lambda ctx, doc, **kw: mirror(ctx, doc, a, **kw))(axis),
+                enabled=has_objects,
+                reason=_has_objects_reason,
+                separator_before=axis == 0,
+            )
+        )
+
+    register(
+        Op(
+            name="array-linear",
+            label="Array Linear...",
+            modes=("object",),
+            run=_array_linear,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Copies the whole selection, each further along one step. "
+            "A negative step runs the array backwards along that axis.",
+            params=(
+                Param("count", "count", 3.0, 1.0, low=1.0, high=MAX_ARRAY_COUNT, integer=True),
+                Param("x", "x step (m)", 1.0, 0.1, low=-1e6),
+                Param("y", "y step (m)", 0.0, 0.1, low=-1e6),
+                Param("z", "z step (m)", 0.0, 0.1, low=-1e6),
+            ),
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="array-radial",
+            label="Array Radial...",
+            modes=("object",),
+            run=_array_radial,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Spins copies of the selection around the world origin, not "
+            "the object's own centre -- put the hub at the origin and one "
+            "spoke beside it, and reach a hub elsewhere by arraying here and "
+            "moving the whole group.",
+            params=(
+                Param("count", "count", 3.0, 1.0, low=1.0, high=MAX_ARRAY_COUNT, integer=True),
+                Param("angle", "sweep (deg)", 360.0, 5.0, low=-1e6),
+                # One combo rather than three axis-named ops (mirror-x/y/z's
+                # shape): mirror takes no other numbers, so the axis *is* the
+                # whole op and three rows cost nothing; this op already has
+                # two more numbers, and three near-identical dialogs is the
+                # worse trade. A three-way choice, not a boolean -- see the
+                # ``Param`` dataclass's own docstring for the defect this
+                # once shared with ``place-between``'s ``fit``.
+                Param("axis", "axis", 1.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="mirror-copy",
+            label="Mirror Copy...",
+            modes=("object",),
+            run=_mirror_copy,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Duplicates the selection and reflects the copies across a "
+            "world plane, rather than replacing the object about its own "
+            "centre the way Mirror X/Y/Z does -- this is mirroring a limb "
+            "across a body's centre-line.",
+            params=(
+                Param("axis", "axis", 0.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
+                Param("offset", "plane at (m)", 0.0, 0.1, low=-1e6),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="place-between",
+            label="Place Between...",
+            modes=("object",),
+            run=_place_between,
+            enabled=has_three_selected,
+            reason=_has_three_selected_reason,
+            hint="Select two anchors and the object to place between them. "
+            "Document order decides which moves, not click order: the two "
+            "anchors are the earliest-added of the three, and the newest "
+            "one is carried to their midpoint and turned to face the line "
+            "between them. 'Fit' also stretches it along its own Y so it "
+            "spans the gap exactly.",
+            params=(Param("fit", "fit to gap", 1.0, 1.0, low=0.0, high=1.0, boolean=True),),
+        )
+    )
+    register(
+        Op(
+            name="align",
+            label="Align...",
+            modes=("object",),
+            run=_align,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Lines up every selected object's world box -- its visible "
+            "edge or middle, not its pivot -- along one axis. Two boxes of "
+            "different sizes sharing a translation do not share a centre.",
+            params=(
+                Param("axis", "axis", 0.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
+                Param(
+                    "mode", "align to", 1.0, 1.0, low=0.0, high=2.0,
+                    choices=("Min", "Centre", "Max"),
+                ),
+            ),
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="distribute",
+            label="Distribute...",
+            modes=("object",),
+            run=_distribute,
+            enabled=has_three_or_more_selected,
+            reason=_has_three_or_more_selected_reason,
+            hint="Spaces the selection evenly along one axis, equal gap for "
+            "equal gap between neighbouring boxes -- the two extreme objects "
+            "stay exactly where they were.",
+            params=(Param("axis", "axis", 0.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),),
+        )
+    )
+    register(
+        Op(
+            name="drop-to-ground",
+            label="Drop to Ground",
+            modes=("object",),
+            run=_drop_to_ground,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Rests each selected object's own world-box bottom on y=0, "
+            "not its pivot -- a barrel authored with its pivot at the middle "
+            "no longer floats half its height in the air.",
+        )
+    )
+    register(
+        Op(
+            name="snap-to-grid",
+            label="Snap to Grid...",
+            modes=("object",),
+            run=_snap_to_grid,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Snaps every selected object's translation onto a grid of "
+            "the given step, one axis at a time.",
+            params=(Param("step", "grid step (m)", 1.0, 0.1, low=0.0),),
+        )
+    )
+
+    register(
+        Op(
+            name="extrude",
+            label="Extrude",
+            modes=ELEMENT_MODES,
+            run=_extrude,
+            enabled=has_elements,
+            reason=_has_elements_reason,
+            key="E",
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="bridge",
+            label="Bridge Loops",
+            modes=("edge",),
+            run=_element("ops_topo.bridge_edges"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+        )
+    )
+    register(
+        Op(
+            name="inset",
+            label="Inset Faces...",
+            modes=("face",),
+            run=_element("ops_topo.inset_faces"),
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+            # The 2026-09-11 audit's clay-08: ``ops_topo.inset_faces`` has
+            # taken a ``region`` argument -- a real, tested second mode, not a
+            # variant of the default -- since before this registry existed,
+            # and it was tested only by calling that function directly
+            # (``tests/clay/test_ops_topo.py``). ``_element`` forwards every
+            # param by name to the mesh op it wraps, so declaring the toggle
+            # here is the whole fix: no wrapper function needed, the way
+            # ``_place_between`` needs one to turn its own boolean ``fit``
+            # into a real ``bool`` before calling ``place_between`` -- a
+            # keyword-only ``bool`` parameter reads a clamped 0/1 ``int`` as
+            # truthy/falsy with no cast required.
+            hint="Per-face (default) insets every selected face on its own, "
+            "so two touching faces get a doubled edge between them where "
+            "they meet. 'Region' insets the outline of the whole selected "
+            "block instead, with one shared ring and no seam down the "
+            "middle -- a documented approximation on a block that is not "
+            "flat, rather than a true offset.",
+            params=(
+                Param("thickness", "thickness (m)", 0.1, 0.01),
+                Param("depth", "depth (m)", 0.0, 0.01, low=-1e6),
+                Param(
+                    "region",
+                    "treat selection as one region",
+                    0.0,
+                    1.0,
+                    low=0.0,
+                    high=1.0,
+                    boolean=True,
+                ),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="bevel",
+            label="Bevel Edges...",
+            modes=("edge",),
+            run=_element("ops_bevel.bevel_edges"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            params=(Param("width", "width (m)", 0.05, 0.01),),
+        )
+    )
+    register(
+        Op(
+            name="loop-cut",
+            label="Loop Cut...",
+            modes=("edge",),
+            run=_element("ops_bevel.loop_cut"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            params=(Param("t", "position", 0.5, 0.05, low=0.0, high=1.0),),
+        )
+    )
+    register(
+        Op(
+            name="dissolve",
+            label="Dissolve",
+            modes=ELEMENT_MODES,
+            run=_dissolve,
+            enabled=has_elements,
+            reason=_has_elements_reason,
+            separator_before=True,
+        )
+    )
+    # Deliberately a second name for ``dissolve`` in face mode rather than a
+    # second implementation. ``ops_dissolve.dissolve_faces`` has always merged a
+    # connected block of faces into one n-gon; what it lacked was a name anyone
+    # would look for. "Dissolve" is the modelling word and stays, because it is
+    # what the vertex and edge modes do too and splitting it would be exposing
+    # the implementation -- but a user who wants to merge two faces searches for
+    # "merge", finds nothing, and concludes the editor cannot do it.
+    #
+    # Registering it (rather than adding a button) is what gets it into all
+    # three surfaces at once: the Clay menu, the tools pane and the bare-letter
+    # keys all read this table.
+    register(
+        Op(
+            name="merge_faces",
+            label="Merge Faces",
+            modes=("face",),
+            run=_element("ops_dissolve.dissolve_faces"),
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+        )
+    )
+    register(
+        Op(
+            name="collapse",
+            label="Collapse",
+            modes=("edge", "face"),
+            run=_element("ops_topo.collapse"),
+            enabled=in_mode("edge", "face"),
+            reason=_in_mode_reason("edge", "face"),
+        )
+    )
+    register(
+        Op(
+            name="weld",
+            label="Weld...",
+            modes=("vertex",),
+            run=_element("ops_topo.weld"),
+            enabled=in_mode("vertex"),
+            reason=_in_mode_reason("vertex"),
+            params=(Param("eps", "distance (m)", 1e-4, 1e-4, low=1e-9),),
+        )
+    )
+    register(
+        Op(
+            name="fill-hole",
+            label="Fill Hole",
+            modes=("edge",),
+            run=_element("ops_topo.fill_hole"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+        )
+    )
+    register(
+        Op(
+            name="flip",
+            label="Flip Normals",
+            modes=("face",),
+            run=_element("ops_topo.flip_normals"),
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="subdivide",
+            label="Subdivide",
+            modes=("face",),
+            run=_element("ops_subdiv.subdivide"),
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+        )
+    )
+    register(
+        Op(
+            name="smooth",
+            # **The algorithm's name is a hint, not a label.** "Smooth
+            # (Catmull-Clark)..." was the longest string in the actions grid by
+            # a wide margin, and a grid sized to fit it is a grid one column
+            # wide -- thirteen full-width buttons stacked down a 300 dp
+            # sidebar. Sized to anything narrower, imgui drew it straight past
+            # its frame and the child clipped the closing bracket off. Nobody
+            # picks this op *because* it is Catmull-Clark; they pick it because
+            # they want the shape rounded, and the surface that answers "which
+            # smoothing is this" is the tooltip, which every op in this grid
+            # already carries and this one had left empty.
+            label="Smooth...",
+            hint=(
+                "Rounds the shape by subdividing it (Catmull-Clark), so the "
+                "silhouette moves. 'Subdivide' splits the same faces without "
+                "changing it, and 'Shade Smooth' changes no geometry at all."
+            ),
+            modes=ALL_MODES,
+            run=_smooth,
+            enabled=lambda doc: bool(doc.selection),
+            reason=_selection_reason,
+            params=(
+                Param(
+                    "levels",
+                    "levels",
+                    1.0,
+                    1.0,
+                    low=1.0,
+                    high=4.0,
+                    integer=True,
+                    warn="Each level multiplies the face count by four.",
+                ),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="frame",
+            label="Frame Selection",
+            modes=ALL_MODES,
+            run=_frame,
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="delete",
+            label="Delete",
+            modes=ALL_MODES,
+            run=_delete,
+            enabled=lambda doc: bool(doc.selection),
+            reason=_selection_reason,
+            key="Del",
+            separator_before=True,
+        )
+    )
+
+
+_register_defaults()

@@ -169,9 +169,9 @@ def test_the_engine_never_reaches_a_window_transitively():
     instead: see the module docstring of
     ``tests/test_create_engine_imports.py`` and this repo's restructure
     notes for how that was checked (``test_a_ui_module_does_reach_a_window``
-    below runs the identical helper against ``modes/create/ui/settings_2d.py``
-    and asserts it *does* find one, which is the proof this check is not
-    vacuous).
+    below runs the identical helper against
+    ``modes/create/ui/panes/settings_2d.py`` and asserts it *does* find one,
+    which is the proof this check is not vacuous).
     """
     for path in _modules():
         roots = _module_roots(path)
@@ -185,7 +185,7 @@ def test_a_ui_module_does_reach_a_window():
     would be trivially passing for the wrong reason -- a pin that cannot fail
     is not a pin.
     """
-    ui_settings_2d = ENGINE.parent / "ui" / "settings_2d.py"
+    ui_settings_2d = ENGINE.parent / "ui" / "panes" / "settings_2d.py"
     assert ui_settings_2d.is_file()
     roots = _module_roots(ui_settings_2d)
     assert "imgui_bundle" in roots or "imgui" in roots, (

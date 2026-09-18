@@ -27,6 +27,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from _panes import pane_files
+
 # Only ``controls.*`` calls: ``form_ui.combo``/``form_ui.field`` pass a field
 # *key* as their first argument, not a label (Form's own idiom, pass 2's
 # territory), and would otherwise false-positive here.
@@ -39,10 +41,13 @@ _RAW_LABELLED = re.compile(
 #: Every deviation the inventory found, per file, and what replaced it.
 #: ``None`` in place of a set means "every offender in this file was fixed";
 #: kept as explicit files (not a glob) so a fifteenth pane silently added to
-#: the ownership list is not assumed clean.
+#: the ownership list is not assumed clean. Named by pre-restructure pane
+#: filename and resolved through ``tests._panes.pane_files`` below -- P5
+#: moved Clay's three and Create's two settings panes out of the flat
+#: ``studio/panes/`` a bare-name/``../`` lookup used to assume.
 _OWNED_FILES = (
-    "../modes/create/ui/settings_2d.py",
-    "../modes/create/ui/settings_3d.py",
+    "settings_2d.py",
+    "settings_3d.py",
     "clay_props.py",
     "clay_header.py",
     "clay_menu.py",
@@ -62,7 +67,7 @@ _OWNED_FILES = (
 #: ``controls.*`` call, and why. Everything else the inventory named must have
 #: moved its name onto a ``field_label`` line above.
 _ALLOW: dict[str, set[str]] = {
-    "../modes/create/ui/settings_2d.py": {
+    "settings_2d.py": {
         # Checkboxes whose label reads as a sentence ("this list keeps one
         # style", "this pass erases the seam", "start from this image") are
         # switches, not name+value fields -- the judgement call this pass's
@@ -72,7 +77,7 @@ _ALLOW: dict[str, set[str]] = {
         "Erase the seam",
         "Start from this image (img2img)",
     },
-    "../modes/create/ui/settings_3d.py": {
+    "settings_3d.py": {
         "Rig when the mesh lands",  # sentence checkbox
     },
     "clay_props.py": {
@@ -148,12 +153,6 @@ _ALLOW: dict[str, set[str]] = {
 }
 
 
-def _panes_root() -> Path:
-    from warlock.studio import panes
-
-    return Path(panes.__file__).parent
-
-
 def test_every_owned_pane_puts_the_label_above_the_control():
     """The inventory's own claim, file by file: no ``controls.*`` call left in
     any owned pane draws a visible label beside itself unless that exact
@@ -167,9 +166,9 @@ def test_every_owned_pane_puts_the_label_above_the_control():
     their fixes and match nothing after, because each fix's id starts with
     ``##``.
     """
-    root = _panes_root()
+    panes = pane_files()
     for name in _OWNED_FILES:
-        source = (root / name).read_text(encoding="utf-8")
+        source = panes[name].read_text(encoding="utf-8")
         found = {m.group(2) for m in _RAW_LABELLED.finditer(source)}
         allowed = _ALLOW.get(name, set())
         unexpected = found - allowed
@@ -187,7 +186,7 @@ def test_settings_2d_sub_fields_each_get_their_own_name_line():
     Style LoRA), so each gets one small-caps name line of its own rather than
     an indented half-line -- the same shape ``field_label`` already draws for
     every full field in this pane."""
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     source = Path(settings_2d.__file__).read_text(encoding="utf-8")
     for ident in ("##Strength##ip", "##Strength##init", "##Strength##cn", "##Until##cn"):
@@ -261,7 +260,7 @@ def test_clay_props_generator_params_are_each_named():
     generator and none per param, so every checkbox/input in it read as a bare
     box. Each param now gets its own name line, and ``_widget``'s id keeps the
     old ``##gen{key}`` suffix that undo/patch call sites are keyed on."""
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     source = Path(clay_props.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label(key.replace("_", " "))' in source
@@ -278,7 +277,7 @@ def _clay_props_scratch_reverted() -> str:
     to produce it (the working tree has four other agents editing it right
     now).
     """
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     source = Path(clay_props.__file__).read_text(encoding="utf-8")
     source = source.replace(
@@ -307,7 +306,7 @@ def test_settings_3d_size_keeps_its_unit_and_gets_a_label():
     """"Size" moved to a field_label; the unit stays in the drag's own printf
     format (K96's reason for a drag over a slider), not duplicated into the
     label."""
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
 
     source = Path(settings_3d.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label("Size")' in source
@@ -319,7 +318,7 @@ def test_settings_3d_size_keeps_its_unit_and_gets_a_label():
 
 def test_clay_header_popover_units_stay_in_the_label():
     """"grid (m)"/"angle (deg)"/"radius (m)" keep their units, moved above."""
-    from warlock.studio.panes import clay_header
+    from warlock.studio.modes.clay.ui.panes import header as clay_header
 
     source = Path(clay_header.__file__).read_text(encoding="utf-8")
     for label, hidden in (
@@ -335,7 +334,7 @@ def test_clay_menu_op_params_are_each_labelled():
     """The generic op-param popup loop names each field above its box, one
     ``field_label`` per iteration -- so a five-param op reads as five named
     fields, not five bare boxes under the op's own title."""
-    from warlock.studio.panes import clay_menu
+    from warlock.studio.modes.clay.ui.panes import menu as clay_menu
 
     source = Path(clay_menu.__file__).read_text(encoding="utf-8")
     body = source[source.index("def params_popup") :]

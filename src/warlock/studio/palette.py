@@ -146,8 +146,8 @@ def _go(key: str) -> Callable[[Any], None]:
 
 
 def _generate(ctx: Any) -> None:
-    from .modes.create.ui import settings_2d, settings_3d
     from .modes.create.ui import stages as create_stages
+    from .modes.create.ui.panes import settings_2d, settings_3d
 
     if create_stages.at(ctx.state, "reference"):
         settings_2d.generate(ctx, ctx.state.form_2d)
@@ -427,7 +427,7 @@ def commands(ctx: Any) -> list[Command]:
         inker_mode.new_document(ctx, 1024, 1024)
 
     def new_clay(ctx: Any) -> None:
-        from . import clay_mode
+        from .modes.clay import mode as clay_mode
 
         clay_mode.new_document(ctx)
 

@@ -833,7 +833,7 @@ def test_every_real_provider_is_registered_by_ensure():
     "module,cls",
     [
         ("warlock.studio.inker_state", "InkerDoc"),
-        ("warlock.studio.clay_state", "ClayTab"),
+        ("warlock.studio.modes.clay.state", "ClayTab"),
         ("warlock.studio.plotter_state", "PlotterDoc"),
         ("warlock.studio.packwright_state", "PackTab"),
         ("warlock.studio.sirens_state", "SongTab"),

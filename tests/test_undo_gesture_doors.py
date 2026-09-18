@@ -32,9 +32,9 @@ from test_sirens_panes_smoke import frames as frames  # noqa: F401, PLC0414
 
 from warlock.core import undo
 from warlock.studio import controls, sirens_mode, widgets
+from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+from warlock.studio.modes.clay.ui.panes import props as clay_props
 from warlock.studio.panes import (
-    clay_outliner,
-    clay_props,
     inker_colors,
     inker_picker,
     inker_timeline,

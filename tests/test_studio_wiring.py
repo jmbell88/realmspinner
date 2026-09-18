@@ -23,7 +23,6 @@ from typing import Any
 import pytest
 
 from warlock.studio import (
-    clay_mode,
     dialogs,
     filetypes,
     fonts,
@@ -43,6 +42,7 @@ from warlock.studio import (
     viewer_embed,
 )
 from warlock.studio import state as state_mod
+from warlock.studio.modes.clay import mode as clay_mode
 from warlock.studio.state import AppState, Filters
 
 

@@ -168,7 +168,7 @@ def test_ctrl_z_during_a_live_clay_drag_is_swallowed(svc):
     import pygame
     from test_clay_mode import FakeCtx, _FakeDrag, _tab
 
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
@@ -338,7 +338,7 @@ def test_a_backward_jump_ends_the_body_and_loops_rather_than_rendering_forever()
 def test_a_refused_generate_keeps_the_seed_and_the_history(svc):
     from test_ux_silent_refusals import _Ctx
 
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
     from warlock.studio.state import default_form_2d
 
     ctx = _Ctx()

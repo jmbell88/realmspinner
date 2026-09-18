@@ -23,7 +23,7 @@ import inspect
 
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio.panes import clay_props
+from warlock.studio.modes.clay.ui.panes import props as clay_props
 
 
 def _fold_precedes(source: str, field_marker: str, write_marker: str) -> None:

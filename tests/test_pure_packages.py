@@ -36,10 +36,10 @@ def test_a_relative_import_of_a_gl_module_is_not_counted_pure(tmp_path: Path):
     (studio / "__init__.py").write_text("", encoding="utf-8")
 
     # A leaf that is a window at module scope -- the same shape as the real
-    # ``clay_view.py`` (``import moderngl``).
+    # ``studio/modes/clay/ui/view.py`` (``import moderngl``).
     (studio / "gl_leaf.py").write_text("import moderngl\n", encoding="utf-8")
     # A studio-level module reaching the window only through a relative
-    # import -- the same shape as the real ``agent_clay.py``.
+    # import -- the same shape as the real ``studio/modes/clay/agent/dispatch.py``.
     (studio / "bridge.py").write_text("from .gl_leaf import Thing\n", encoding="utf-8")
 
     # The package under test: reaches ``bridge`` (and so the window) only

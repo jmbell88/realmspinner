@@ -19,7 +19,7 @@ shell module reads.
 Those constants and helpers are not re-exports of something that moved
 elsewhere: they were always defined here, and every shell module that needs
 one reaches back for it with a local import inside the function that uses
-it (``from ..main import VIEWER_KEY``), the same way ``clay_viewport.py``
+it (``from ..main import VIEWER_KEY``), the same way ``studio/modes/clay/ui/viewport.py``
 already reached into this file for ``TARGET_FPS`` since 2026-09-04, long
 before this split existed. Importing :class:`~.shell.app.App` here, so
 ``run()`` can build one, is that same kind of use rather than a shim: it is

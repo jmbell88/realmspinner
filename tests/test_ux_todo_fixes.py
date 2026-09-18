@@ -23,6 +23,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _panes import pane_files
 
 from warlock.studio import plotter_mode
 from warlock.studio.state import TOAST_LEVELS
@@ -199,40 +200,50 @@ def test_no_module_cites_a_retired_plan_file():
 
 # --- a greyed button says why, in the places that were swept -----------------
 
-#: The files the ``reason=`` sweep covered. A named list rather than "all of
-#: ``studio/``", and the difference is the point: ``disabled_button`` grew the
-#: parameter with ~90 call sites already written, so a repo-wide assertion
-#: would be a migration disguised as a test and would fail on the first commit.
-#: These are the surfaces where a greyed button is the *whole* interaction --
-#: the four document bridges, the panels whose one job is a submit, and the two
-#: settings panes -- and a new one added here has to explain itself.
+#: The panes the ``reason=`` sweep covered, named by their pre-restructure
+#: filename and resolved through ``tests._panes.pane_files`` -- a named list
+#: rather than "all of ``studio/``", and the difference is the point:
+#: ``disabled_button`` grew the parameter with ~90 call sites already
+#: written, so a repo-wide assertion would be a migration disguised as a test
+#: and would fail on the first commit. These are the surfaces where a greyed
+#: button is the *whole* interaction -- the four document bridges, the panels
+#: whose one job is a submit, and the two settings panes -- and a new one
+#: added here has to explain itself.
+#:
+#: A literal relative path here (P5's first cut at this list) went stale the
+#: moment Clay's bridge and Create's two settings panes moved under
+#: ``ui/panes/`` -- three of thirteen entries silently stopped being read at
+#: all, since ``STUDIO / rel`` just pointed at nothing and the surrounding
+#: test never noticed a moved pane, only a missing one it already expected to
+#: check for. Looking each one up by name instead survives the next move.
+_PANES = pane_files()
 REASON_SWEPT = (
-    "panes/clay_bridge.py",
-    "panes/inker_bridge.py",
+    _PANES["clay_bridge.py"],
+    _PANES["inker_bridge.py"],
     # Added in the Inker UX pass: this pane holds thirteen buttons that can
     # grey out and every one of them was silent about it, which is worse here
     # than on a bridge -- "Grow", "Shrink", "Border", "Feather" and "Crop to
     # selection" all grey out for the *same* reason, and a user meeting five
     # dead buttons at once has no way to learn it is one cause.
-    "panes/inker_tools.py",
-    "panes/inker_colors.py",
-    "panes/packwright_bridge.py",
+    _PANES["inker_tools.py"],
+    _PANES["inker_colors.py"],
+    _PANES["packwright_bridge.py"],
     # Added with W0.2's Repack button: this pane is the sole owner of
     # ``PackSettings`` and its one button greys out on two distinct causes.
-    "panes/packwright_settings.py",
-    "panes/plotter_bridge.py",
+    _PANES["packwright_settings.py"],
+    _PANES["plotter_bridge.py"],
     # Added ahead of Wave 3, which rewrites all three: a pane joining the
     # sweep after it is rewritten gets the ratchet checked against the new
     # code, which is the half of it that was never going to be wrong.
-    "panes/plotter_tileset.py",
-    "panes/plotter_layers.py",
-    "panes/plotter_tools.py",
-    "panes/candidates_panel.py",
-    "panes/retarget_panel.py",
-    "panes/sheet_panel.py",
-    "panes/sprite_panel.py",
-    "modes/create/ui/settings_2d.py",
-    "modes/create/ui/settings_3d.py",
+    _PANES["plotter_tileset.py"],
+    _PANES["plotter_layers.py"],
+    _PANES["plotter_tools.py"],
+    _PANES["candidates_panel.py"],
+    _PANES["retarget_panel.py"],
+    _PANES["sheet_panel.py"],
+    _PANES["sprite_panel.py"],
+    _PANES["settings_2d.py"],
+    _PANES["settings_3d.py"],
     # Added by the 2026-09-05 audit, finding create-09: the library pose
     # "Apply" button was the one disabled_button in the seven Create stage
     # panes with no reason=, greying out with no explanation while its own
@@ -240,7 +251,7 @@ REASON_SWEPT = (
     # one. stage_rig.py, remesh_panel.py and texture_panel.py have the same
     # gap and are left out of this list deliberately: other work is in
     # flight on those files.
-    "panes/pose_panel.py",
+    _PANES["pose_panel.py"],
 )
 
 
@@ -273,9 +284,9 @@ def test_a_greyed_button_on_a_swept_surface_says_why():
     it yes. ``disabled_button`` has taken a ``reason`` since the parameter was
     added; what it did not have was call sites passing one."""
     offenders = [
-        f"{rel}:{n}"
-        for rel in REASON_SWEPT
-        for n in _unexplained_disabled_buttons(STUDIO / rel)
+        f"{path.name}:{n}"
+        for path in REASON_SWEPT
+        for n in _unexplained_disabled_buttons(path)
     ]
     assert offenders == []
 
@@ -288,7 +299,7 @@ def test_the_library_pose_apply_button_says_why_it_is_greyed():
     button a few lines below in the same file, which does pass one. Scoped to
     this one file rather than relying only on the ``REASON_SWEPT`` sweep
     above, so this claim keeps its own name and stays provable on its own."""
-    offenders = list(_unexplained_disabled_buttons(STUDIO / "panes/pose_panel.py"))
+    offenders = list(_unexplained_disabled_buttons(_PANES["pose_panel.py"]))
     assert offenders == []
 
 
@@ -296,7 +307,7 @@ def test_the_sweep_list_names_files_that_exist():
     """A guard on the guard: a renamed pane would otherwise drop out of the
     sweep silently, which is the shrink ``test_external_doc_links`` warns
     about in its own domain."""
-    missing = [rel for rel in REASON_SWEPT if not (STUDIO / rel).exists()]
+    missing = [path for path in REASON_SWEPT if not path.exists()]
     assert missing == []
 
 
@@ -485,19 +496,19 @@ def test_clay_state_close_has_a_caller():
     """``ClayState.close`` existed, closed to the neighbour, and nothing ever
     called it: Clay could open documents and never shut one, so a dirty-quit
     prompt asked about documents the user had no way to see."""
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     assert hasattr(clay_mode, "close_tab")
-    text = (STUDIO / "clay_mode.py").read_text(encoding="utf-8")
+    text = (STUDIO / "modes/clay/mode.py").read_text(encoding="utf-8")
     # The body moved to ``docmodes.close_tab`` on 2026-09-05 (every mode had
     # copied it); what Clay keeps is the call and its own release.
     assert "docmodes.close_tab(ctx, state, uid, release)" in text
     assert "state.close(uid)" in (STUDIO / "docmodes.py").read_text(encoding="utf-8")
     # And both routes to it: the tab bar's x and Ctrl+W. The bar is drawn by
     # the *shell* rather than by a pane, because the shell owns Clay's centre
-    # pane -- in ``clay_viewport.py`` since 2026-09-04, when it moved out of
+    # pane -- in ``studio/modes/clay/ui/viewport.py`` since 2026-09-04, when it moved out of
     # ``main`` as a mixin (T7 of the 2026-09-02 review).
-    assert "close_tab" in (STUDIO / "clay_viewport.py").read_text(encoding="utf-8")
+    assert "close_tab" in (STUDIO / "modes/clay/ui/viewport.py").read_text(encoding="utf-8")
     assert 'name == "w"' in text
 
 
@@ -532,7 +543,8 @@ def test_clays_frame_key_lives_with_clays_other_keys():
     -- the one Clay binding that did not live with the others."""
     import inspect
 
-    from warlock.studio import clay_mode, main
+    from warlock.studio import main
+    from warlock.studio.modes.clay import mode as clay_mode
 
     assert "frame_pending" in inspect.getsource(clay_mode.handle_key)
     shortcut = inspect.getsource(main.App._shortcut)

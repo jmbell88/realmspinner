@@ -11,7 +11,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio import clay_hints, clay_ops, clay_state
+from warlock.studio import viewport_hints as clay_hints
+from warlock.studio.modes.clay import ops as clay_ops
+from warlock.studio.modes.clay import state as clay_state
 from warlock.studio.viewer.camera import Camera
 
 SIZE = 84.0
@@ -182,7 +184,7 @@ def test_keys_named_does_not_read_english_as_a_binding():
 def test_every_key_the_line_names_is_a_key_the_mode_listens_to():
     """The parity that matters: a hint naming a binding nothing implements is
     worse than no hint, because it is read as a promise."""
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     letters = set()
     for mode in clay_ops.ALL_MODES:

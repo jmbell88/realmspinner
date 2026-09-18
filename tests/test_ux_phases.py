@@ -13,7 +13,7 @@ from __future__ import annotations
 import inspect
 
 from warlock.studio import focus, theme, tokens, widgets
-from warlock.studio.modes.create.ui import settings_2d
+from warlock.studio.modes.create.ui.panes import settings_2d
 from warlock.studio.state import AppState
 
 
@@ -92,7 +92,7 @@ def test_every_floating_surface_draws_the_one_shadow():
 def test_workflow_modals_use_the_same_overlay_recipe():
     """Generation and document setup must not fall outside dialog chrome."""
     from warlock.studio import dialogs
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
     from warlock.studio.panes import plotter_canvas
 
     owners = (
@@ -163,13 +163,8 @@ def test_no_tool_palette_hand_rolls_its_selection():
     makes "which tool is armed" a fact an audit can *see* rather than a colour
     a human has to notice in a screenshot.
     """
-    from warlock.studio.panes import (
-        clay_tools,
-        inker_bridge,
-        inker_menu,
-        inker_tools,
-        plotter_tools,
-    )
+    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from warlock.studio.panes import inker_bridge, inker_menu, inker_tools, plotter_tools
 
     for module in (inker_tools, clay_tools, plotter_tools, inker_bridge, inker_menu):
         source = inspect.getsource(module)
@@ -313,7 +308,7 @@ def test_the_service_still_names_the_controls_the_panes_ring():
                 named.add(line.split('field="', 1)[1].split('"', 1)[0])
     panes = inspect.getsource(settings_2d) + inspect.getsource(
         __import__(
-            "warlock.studio.modes.create.ui.settings_3d", fromlist=["settings_3d"]
+            "warlock.studio.modes.create.ui.panes.settings_3d", fromlist=["settings_3d"]
         )
     )
     for key in ("prompt", "base_model", "count", "bg_removal", "profile"):
@@ -437,7 +432,7 @@ def test_tab_is_read_from_imgui_rather_than_from_the_event_loop():
 
 def test_both_generate_panes_carry_a_ring_that_ends_on_the_button():
     from warlock.studio.modes.create.ui import brief as create_brief
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
 
     # Create's Generate moved to the command bar with the rest of the brief,
     # so the ring that ends on it is the bar's ring now.
@@ -485,7 +480,7 @@ def test_the_confirms_that_stay_are_the_irreversible_ones():
 def test_the_mesh_resolution_control_keeps_its_real_name():
     """The 2D "detail brief" retired with the taxonomy; the 3D pane's control
     keeps the name that says what it does."""
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
 
     three_d = _code(settings_3d.draw)
     assert '"Mesh resolution"' in three_d

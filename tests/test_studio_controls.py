@@ -7,6 +7,7 @@ import inspect
 from pathlib import Path
 
 import pytest
+from _panes import pane_files
 from _ui_context import imgui_context
 
 from warlock.studio import (
@@ -280,7 +281,7 @@ def test_major_panes_have_roles_and_no_production_pane_child_calls():
     The P4 restructure (``dev/RESTRUCTURE.md``) moved every workspace's
     drawing out of ``studio/main.py`` -- into ``studio/shell/frame.py``, one
     module per mode for the six inline ``_*_workspace`` methods, and the four
-    pane mixins that were already split out (``clay_viewport.py`` and
+    pane mixins that were already split out (``studio/modes/clay/ui/viewport.py`` and
     siblings). ``main.py`` alone would no longer be watching any of that
     code at all.
     """
@@ -292,7 +293,7 @@ def test_major_panes_have_roles_and_no_production_pane_child_calls():
         *(root / "panes").glob("*.py"),
         *(root / "modes").rglob("*.py"),
         *(root / "shell").glob("*.py"),
-        root / "clay_viewport.py",
+        root / "modes/clay/ui/viewport.py",
         root / "mason_viewport.py",
         root / "poser_viewport.py",
         root / "review_panes.py",
@@ -331,9 +332,15 @@ FORBIDDEN = {
 
 
 def test_panes_do_not_bypass_the_presentational_control_layer():
-    pane_dir = Path(inspect.getfile(overlay)).resolve().parent
+    """Swept through ``tests._panes.pane_files`` rather than a single
+    ``glob("*.py")`` over ``overlay``'s own directory: that glob only ever
+    saw the flat ``studio/panes/`` (already one directory short of
+    ``forms.py``, per ``tests/test_forms_and_layout.py``'s own note on this
+    rule's sibling), and it silently stopped seeing Clay's seven panes the
+    moment P5 moved them into ``modes/clay/ui/panes/``.
+    """
     found: list[str] = []
-    for path in pane_dir.glob("*.py"):
+    for name, path in pane_files().items():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
@@ -347,7 +354,7 @@ def test_panes_do_not_bypass_the_presentational_control_layer():
                     or node.func.attr.startswith(("input_", "drag_", "slider_"))
                 )
             ):
-                found.append(f"{path.name}:{node.lineno}:{node.func.attr}")
+                found.append(f"{name}:{node.lineno}:{node.func.attr}")
     assert not found, found
 
 

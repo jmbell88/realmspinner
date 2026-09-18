@@ -50,13 +50,13 @@ def test_the_ceiling_is_read_at_call_time():
     assert "ceiling" in signature.parameters
 
 
-# --- studio/_view_cache.py ----------------------------------------------------
+# --- studio/modes/clay/ui/_view_cache.py ----------------------------------------------------
 
 
 def test_the_gpu_cache_key_moves_with_the_mesh_and_not_with_the_transform():
     """The transform is a uniform, not a buffer: moving an object must not
     rebuild it, and editing its mesh must."""
-    from warlock.studio import _view_cache
+    from warlock.studio.modes.clay.ui import _view_cache
 
     material = object()
     doc = SimpleNamespace(materials=[material])
@@ -77,7 +77,7 @@ def test_a_replaced_material_changes_the_cache_key():
     """``set_material`` replaces the entry object, which is why the key is
     identity rather than value -- hashing five floats per entry per frame would
     learn the same thing."""
-    from warlock.studio import _view_cache
+    from warlock.studio.modes.clay.ui import _view_cache
 
     doc = SimpleNamespace(materials=[object(), object()])
     before = _view_cache._materials_key(doc)
@@ -85,13 +85,13 @@ def test_a_replaced_material_changes_the_cache_key():
     assert _view_cache._materials_key(doc) != before
 
 
-# --- studio/_view_overlay.py --------------------------------------------------
+# --- studio/modes/clay/ui/_view_overlay.py --------------------------------------------------
 
 
 def test_the_fill_bias_pulls_toward_the_eye_and_leaves_no_gl_state():
     """``glPolygonOffset`` is the textbook answer and is deliberately not used:
     it is global state that would leak into the gizmo pass."""
-    from warlock.studio import _view_overlay
+    from warlock.studio.modes.clay.ui import _view_overlay
 
     matrix = _view_overlay._toward_eye(np.array([0.0, 0.0, 10.0]))
 
@@ -101,7 +101,7 @@ def test_the_fill_bias_pulls_toward_the_eye_and_leaves_no_gl_state():
 
 
 def test_a_face_outline_is_the_border_and_nothing_else():
-    from warlock.studio import _view_overlay
+    from warlock.studio.modes.clay.ui import _view_overlay
 
     mesh = SimpleNamespace(
         starts=np.array([0, 4], dtype="i8"),
@@ -230,13 +230,13 @@ def test_a_packed_item_row_is_its_own_function():
     assert "ListClipper" in inspect.getsource(packwright_items.draw)
 
 
-# --- studio/_view_pick.py -----------------------------------------------------
+# --- studio/modes/clay/ui/_view_pick.py -----------------------------------------------------
 
 
 def test_a_picked_element_is_expressed_in_the_mode_that_picked_it():
     """The one place a hit index becomes a selection, and nothing named it."""
     from warlock.kernels.mesh.primitives import box
-    from warlock.studio.clay_view import ClayView
+    from warlock.studio.modes.clay.ui.view import ClayView
 
     mesh = box()
     obj = SimpleNamespace(uid=7, mesh=mesh)
@@ -253,14 +253,14 @@ def test_a_picked_element_is_expressed_in_the_mode_that_picked_it():
     assert edges.shape == (1, 2), "an edge is a vertex pair, not an index"
 
 
-# --- studio/_view_drag.py -----------------------------------------------------
+# --- studio/modes/clay/ui/_view_drag.py -----------------------------------------------------
 
 
 def test_a_cancelled_drag_puts_the_overlays_back_on_the_mesh():
     """Esc restored the objects and left the selection overlay's VBO at the
     previewed positions -- the cancel looked half-applied and stayed that way
     until something else rebuilt the overlay."""
-    from warlock.studio.clay_view import ClayView
+    from warlock.studio.modes.clay.ui.view import ClayView
 
     written: list[object] = []
     positions = object()

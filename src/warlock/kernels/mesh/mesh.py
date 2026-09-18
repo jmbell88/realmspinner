@@ -161,7 +161,7 @@ def from_faces(
     generators there funnels through it so the offsets are computed once, in
     one place, rather than six times with six chances to leave ``starts`` one
     short, and that reasoning applies with more force to
-    ``agent_clay.py``'s ``clay_add_mesh`` -- the one door an agent hands a
+    ``studio/modes/clay/agent/dispatch.py``'s ``clay_add_mesh`` -- the one door an agent hands a
     mesh through directly rather than naming a recipe -- which has exactly
     the same assembly to do from exactly this shape of input.
 

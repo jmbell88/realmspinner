@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from warlock.studio import agent_clay
+from warlock.studio.modes.clay.agent import dispatch as agent_clay
 
 
 class _Ctx:

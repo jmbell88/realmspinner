@@ -251,7 +251,7 @@ def test_the_unwrap_op_keeps_the_generator():
     nothing about its geometry changed, so editing the size must still
     rebuild it rather than being refused as a frozen mesh."""
     from warlock.kernels.mesh import document as bd
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(
@@ -266,7 +266,7 @@ def test_the_unwrap_op_keeps_the_generator():
 
 def test_the_unwrap_op_is_one_undo_step_per_object():
     from warlock.kernels.mesh import document as bd
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=_bare(prim.box())))

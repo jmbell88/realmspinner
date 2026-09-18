@@ -23,7 +23,7 @@ transitively at module scope** -- this module has to be importable by
 ``pipelines/llama.py`` (which runs on the asyncio loop thread, nowhere near a
 GL context) and by a training script that must never touch the GPU or the
 app's own config while a training run owns the machine. The one exception is
-``warlock.studio.agent_clay`` itself, imported lazily inside
+``warlock.studio.modes.clay.agent.dispatch`` itself, imported lazily inside
 :func:`derive_clay_card`'s body -- that registry is what the live half of
 this contract is *of*, and nothing else here needs it.
 """
@@ -434,7 +434,7 @@ def derive_clay_card() -> str:
     asyncio loop thread, a training script that must never touch the GPU),
     and ``agent_clay`` is the one thing here that is not true of.
     """
-    from warlock.studio import agent_clay
+    from warlock.studio.modes.clay.agent import dispatch as agent_clay
 
     tool_map = {t.name: t for t in agent_clay.tools()}
     instructions = agent_clay.instructions()

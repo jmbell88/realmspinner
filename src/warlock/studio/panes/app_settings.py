@@ -33,7 +33,7 @@ from ...service import library as svc_library
 from .. import app_ctx, controls, dialogs, forms, icons, theme, tokens, widgets
 from .. import layouts as layouts_mod
 from ..manual import render as manual_render
-from ..modes.create.ui import settings_3d
+from ..modes.create.ui.panes import settings_3d
 from ..tokens import sp
 
 #: How wide the settings column is allowed to grow, in design pixels.

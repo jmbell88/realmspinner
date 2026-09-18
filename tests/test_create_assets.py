@@ -10,7 +10,7 @@ from warlock import config as config_module
 from warlock.studio import settings
 from warlock.studio.modes.create.engine import assets as create_assets
 from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui import settings_2d
+from warlock.studio.modes.create.ui.panes import settings_2d
 from warlock.studio.state import default_form_2d, primary_action
 
 

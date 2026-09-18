@@ -24,7 +24,7 @@ import ast
 from pathlib import Path
 
 from warlock.studio import _view_frame
-from warlock.studio.clay_view import ClayView
+from warlock.studio.modes.clay.ui.view import ClayView
 
 #: Every import ``_view_frame`` is allowed to make, as ``(module, name)`` --
 #: ``name`` is ``None`` for a plain ``import x``. Both package-relative entries
@@ -86,7 +86,21 @@ def test_no_mode_module_is_named_anywhere_in_the_leaf():
         line for line in source.splitlines() if not line.lstrip().startswith("#")
     )
     body = code.split('"""', 2)[-1]  # past the module docstring
-    for mode in ("clay_state", "clay_view", "clay_mode", "inker", "plotter", "mason_"):
+    # "modes.clay"/"modes/clay" joined the list when P5 folded Clay into a mode
+    # package: after that move, a stray ``from .modes.clay import state`` names
+    # Clay exactly as much as the old flat ``clay_state`` import did, and the
+    # bare-name bans above would not catch it -- this dotted/path form is now
+    # the only way a within-package reference into Clay's home can be spelled.
+    for mode in (
+        "clay_state",
+        "clay_view",
+        "clay_mode",
+        "modes.clay",
+        "modes/clay",
+        "inker",
+        "plotter",
+        "mason_",
+    ):
         assert mode not in body, f"_view_frame names {mode}, which makes it that mode's"
 
 

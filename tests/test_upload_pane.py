@@ -13,7 +13,7 @@ import pytest
 
 from warlock.service.errors import Invalid, TooLarge
 from warlock.service.validation import MAX_UPLOAD_BYTES
-from warlock.studio.modes.create.ui import settings_3d
+from warlock.studio.modes.create.ui.panes import settings_3d
 from warlock.studio.state import DEFAULT_FORM_3D
 
 
@@ -152,7 +152,7 @@ class _Ctx2D:
 def test_the_reference_is_read_off_the_frame_thread(tmp_path, monkeypatch, installed_recipes):
     """Same rule as the 3D upload: picking a 20 MB reference must not freeze
     the window for as long as the disk takes."""
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     seen = {}
     monkeypatch.setattr(
@@ -173,7 +173,7 @@ def test_the_reference_is_read_off_the_frame_thread(tmp_path, monkeypatch, insta
 
 
 def test_an_unreadable_reference_becomes_a_readable_error(tmp_path, installed_recipes):
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     ctx = _Ctx2D(prompt="a barrel", ref_path=str(tmp_path / "gone.png"))
     settings_2d.generate(ctx, ctx.state.form_2d)
@@ -185,7 +185,7 @@ def test_an_unreadable_reference_becomes_a_readable_error(tmp_path, installed_re
 def test_no_reference_means_no_reference_kwarg(tmp_path, monkeypatch, installed_recipes):
     """The unconditioned submit must be exactly what it was before any of this
     existed -- create_job is never handed reference=None to interpret."""
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     seen = {}
     monkeypatch.setattr(

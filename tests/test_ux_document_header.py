@@ -12,13 +12,8 @@ from __future__ import annotations
 import inspect
 
 from warlock.studio import controls, widgets
-from warlock.studio.panes import (
-    clay_bridge,
-    inker_generate,
-    packwright_bridge,
-    plotter_bridge,
-    sirens_bridge,
-)
+from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+from warlock.studio.panes import inker_generate, packwright_bridge, plotter_bridge, sirens_bridge
 
 BRIDGES = (clay_bridge, inker_generate, packwright_bridge, plotter_bridge, sirens_bridge)
 

@@ -17,7 +17,7 @@ from warlock import guidance as guidancelib
 from warlock.studio import problems
 from warlock.studio import settings as settings_mod
 from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui import settings_2d
+from warlock.studio.modes.create.ui.panes import settings_2d
 from warlock.studio.state import MAX_HISTORY, AppState, default_form_2d
 
 

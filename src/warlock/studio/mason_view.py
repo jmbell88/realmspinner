@@ -2,7 +2,7 @@
 
 A **sibling** to :class:`~.clay_view.ClayView` rather than a subclass. Element
 modes, the vertex marquee, proportional editing and the whole of
-``_view_drag.py`` are Clay's mouse map -- a modeller's -- and a scene editor
+``studio/modes/clay/ui/_view_drag.py`` are Clay's mouse map -- a modeller's -- and a scene editor
 does not want them. What the two genuinely share is frame plumbing, and that
 already lives in :mod:`._view_frame` (``FrameOps``): the release-before-forget
 pair, the redraw decision, ``_local``, ``_mods``, the four-pixel right-button

@@ -1,7 +1,7 @@
 """Poser mode's controller: authoring reusable poses against a skeleton template,
 or against one real rigged asset's own mesh.
 
-The ``clay_mode.py`` pattern -- state and logic here, drawing in ``main.py``
+The ``studio/modes/clay/mode.py`` pattern -- state and logic here, drawing in ``main.py``
 and the two panes, no imgui anywhere under this import -- so everything about
 what a session holds is assertable without a GL context.
 
@@ -835,7 +835,7 @@ def set_front(ctx: Any) -> None:
     ``service.jobs.set_front_yaw``.
 
     Reads ``camera._goal_theta``, not ``theta`` -- ``CameraState.read_from``'s
-    idiom (``clay_state.py:84``), copied rather than restated: the camera is
+    idiom (``studio/modes/clay/state.py:84``), copied rather than restated: the camera is
     damped toward a goal it has not reached yet, so a press mid-glide would
     record the frame the button happened to interrupt, not the direction the
     user actually pointed the camera at.
@@ -1910,7 +1910,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
     # cannot come to disagree about which number is the front. Until
     # 2026-09-05 this copy tested the bare digit: 1, 3, 7 and 5 snapped the
     # camera here and did nothing in Clay without Ctrl.
-    from . import clay_mode
+    from .modes.clay import mode as clay_mode
 
     name = pygame.key.name(event.key).lower()
     ctrl = bool(event.mod & pygame.KMOD_CTRL)

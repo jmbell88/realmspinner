@@ -11,7 +11,7 @@ from __future__ import annotations
 import inspect
 import re
 
-from warlock.studio import clay_viewport
+from warlock.studio.modes.clay.ui import viewport as clay_viewport
 from warlock.studio.panes import (
     inker_canvas,
     inspector,

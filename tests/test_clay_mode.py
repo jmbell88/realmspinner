@@ -18,7 +18,8 @@ import pytest
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import elements as el
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio import clay_mode, clay_state
+from warlock.studio.modes.clay import mode as clay_mode
+from warlock.studio.modes.clay import state as clay_state
 
 
 class FakeCtx:
@@ -561,7 +562,7 @@ def test_export_to_library_button_names_why_it_is_disabled() -> None:
     document and a bool, so it is assertable without imgui -- panes cannot be
     driven headlessly, but the reason a button greys with now can be.
     """
-    from warlock.studio.panes import clay_bridge
+    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -1035,7 +1036,7 @@ def test_a_stored_check_is_stale_the_moment_the_mesh_is_replaced() -> None:
 
 def test_clicking_a_finding_selects_exactly_its_elements_in_its_own_mode() -> None:
     from warlock.kernels.mesh import diagnose
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=_stray_vertex_box()))
@@ -1061,7 +1062,7 @@ def test_a_finding_click_pushes_no_undo_step() -> None:
     because the user looked at a hole.
     """
     from warlock.kernels.mesh import diagnose
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=_stray_vertex_box()))
@@ -1079,7 +1080,7 @@ def test_deleting_a_checked_object_drops_its_manifold_cache_entry() -> None:
     unreachable, for the rest of the tab's life.
     """
     from warlock.kernels.mesh import diagnose
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     keep = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -1101,7 +1102,7 @@ def test_merging_an_absorbed_object_drops_its_manifold_cache_entry() -> None:
     ``doc.objects`` (the ones a merge or a union absorbs), outside a tab
     close, and the same cache leak applies."""
     from warlock.kernels.mesh import diagnose
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     target = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -1132,8 +1133,8 @@ def test_outliner_trash_button_drops_the_deleted_objects_manifold_cache_entry() 
     with one object rather than the whole selection.
     """
     from warlock.kernels.mesh import diagnose
-    from warlock.studio import clay_mode
-    from warlock.studio.panes import clay_outliner
+    from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
 
     doc = bd.ClayDoc()
     keep = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -1380,7 +1381,7 @@ def test_g_and_s_start_a_keyboard_drag(svc) -> None:
 
     import pygame
 
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     started: list[str] = []
     ctx = FakeCtx(svc)
@@ -1401,7 +1402,7 @@ def test_a_keyboard_drag_is_refused_while_the_document_is_saving(svc) -> None:
 
     import pygame
 
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     started: list[str] = []
     ctx = FakeCtx(svc)
@@ -1424,7 +1425,7 @@ def test_the_registry_keeps_a_letter_a_drag_would_otherwise_take(svc) -> None:
     rather than starting a drag."""
     import inspect
 
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     source = inspect.getsource(clay_mode.handle_key)
     assert source.index("_registry_key(") < source.index("_keyboard_drag(")
@@ -1447,7 +1448,7 @@ def test_a_bare_1_typed_during_a_camera_orbit_still_switches_element_mode(
     """
     import pygame
 
-    from warlock.studio import clay_view
+    from warlock.studio.modes.clay.ui import view as clay_view
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
@@ -1468,7 +1469,7 @@ def test_ctrl_z_is_not_blocked_during_a_camera_orbit(svc, gl) -> None:
     a live drag" for as long as the user was merely orbiting the camera."""
     import pygame
 
-    from warlock.studio import clay_view
+    from warlock.studio.modes.clay.ui import view as clay_view
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
@@ -1550,7 +1551,7 @@ def test_framing_a_small_document_does_not_shrink_the_grid(gl) -> None:
     prop's footprint the moment you pressed it."""
     from warlock.kernels.mesh import document as bd
     from warlock.kernels.mesh import primitives as bp
-    from warlock.studio import clay_view
+    from warlock.studio.modes.clay.ui import view as clay_view
 
     view = clay_view.ClayView(gl, None)
     try:

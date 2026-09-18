@@ -17,7 +17,7 @@ from warlock.kernels.mesh import elements as el
 from warlock.kernels.mesh import glbimport, serialize
 from warlock.kernels.mesh import mesh as bm
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio import clay_ops
+from warlock.studio.modes.clay import ops as clay_ops
 
 
 class _Toasts:

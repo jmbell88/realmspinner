@@ -39,7 +39,7 @@ the same reason stated there plus one this repo already writes down twice.
 specifically so the module keeps importing with no imgui/moderngl/pygame in
 the process, and its own docstring names that as the reason; ``poser_mode.py``
 imports ``clay_mode`` and ``troupe_mode`` the same way, inside functions, and
-says so ("the ``clay_mode.py`` pattern -- state and logic here, drawing in
+says so ("the ``studio/modes/clay/mode.py`` pattern -- state and logic here, drawing in
 ``main.py``"). A lazy, function-scope import is this codebase's accepted way
 to reach across a boundary rarely and by name -- treating it the same as a
 module-scope import would fail two patterns the code is deliberately, visibly
@@ -125,22 +125,9 @@ STRAY_MODE_FILES: dict[str, str] = {
     # The actual Settings-mode pane -- not studio/settings.py, which is the
     # persisted-JSON engine (imported by every mode, not Settings-owned).
     "studio/panes/app_settings.py": "settings",
-    # CLAUDE.md: "studio/agent_clay.py is the Clay tool surface"; P5's Clay
-    # bullet folds it and agent_program.py into modes/clay/agent/ together.
-    "studio/agent_clay.py": "clay",
-    "studio/agent_program.py": "clay",
-    # P4 split ``agent_clay.py`` (5,939 lines) into a dispatch module plus
-    # five siblings. None of them match the ``clay_*``/``*_mode`` naming
-    # convention either, for the same reason the two entries above do not,
-    # so they enrol here by hand rather than silently defaulting to L4 --
-    # which would have turned their ordinary reaches into ``clay_ops``,
-    # ``clay_mode``, ``agent_program`` and ``panes/clay_tools`` into eight
-    # phantom "shell may not import a mode" violations.
-    "studio/agent_clay_schema.py": "clay",
-    "studio/agent_clay_validate.py": "clay",
-    "studio/agent_clay_tools.py": "clay",
-    "studio/agent_clay_tools_ops.py": "clay",
-    "studio/agent_clay_tools_batch.py": "clay",
+    # ``agent_clay.py`` (and its five P4 siblings) and ``agent_program.py``
+    # sat here until P5 moved them to ``studio/modes/clay/agent/``, where the
+    # path itself says Clay.
 }
 
 CORE_TOP = frozenset({
@@ -199,8 +186,9 @@ SHELL_NAMED = frozenset({
     # CORE_NESTED_PREFIX above); it is not renamed to a shell file here.
 })
 VIEWPORT_NAMED = frozenset({
-    "studio/_view_bounds.py", "studio/_view_cache.py", "studio/_view_drag.py",
-    "studio/_view_frame.py", "studio/_view_overlay.py", "studio/_view_pick.py",
+    # The leaf every document viewport shares. Its five ``_view_*`` siblings
+    # key on Clay's objects and moved to ``modes/clay/ui/`` in P5.
+    "studio/_view_frame.py",
     "studio/_viewer_pose.py",
 })
 #: Familiar's UI half -- P5 landed: "Familiar is a pane, not a mode -- keep it
@@ -514,7 +502,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     # were inline methods on ``App`` before the split and an inline method is
     # invisible to an import walk. Which is the honest reading: the coupling
     # was always there, and making it an import is what made it countable.
-    ("warlock.studio.shell.app", "warlock.studio.clay_viewport"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.clay.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.inker_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.mason_viewport"),
     ("warlock.studio.shell.app", "warlock.studio.muse_workspace"),
@@ -573,26 +561,27 @@ _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP: frozenset[tuple[str, str]] = frozenset({
 # studio/assistant/ (its Clay-preview and Create-doors reach), and Inker's
 # `PaintView` (inker_state.py:858-1476) promoting to shell/paintview.py,
 # named explicitly as "already imported by Plotter and Packwright". Create's
-# own UI fold (create_brief/create_stages/generation_workspace/settings_*
-# into modes/create/ui/) and the Clay agent fold (agent_clay.py/
-# agent_program.py into modes/clay/agent/, taking agent_host.py's and
-# agent_transcript.py's reach into agent_clay.py with them) are the other two
-# pilot-four bullets, and cover the remaining pairs below.
+# own UI fold (landed: modes/create/) and the Clay fold (landed:
+# modes/clay/{ui,agent}/) are the other two pilot-four bullets; what is left
+# of them below is the shell and Familiar still naming a mode directly.
 _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
     # Familiar UI -> Clay / Create
-    ("warlock.studio.assistant.preview", "warlock.studio.agent_clay"),
-    ("warlock.studio.assistant.preview", "warlock.studio.clay_mode"),
-    ("warlock.studio.assistant.preview", "warlock.studio.clay_state"),
+    ("warlock.studio.assistant.preview", "warlock.studio.modes.clay.agent.dispatch"),
+    ("warlock.studio.assistant.preview", "warlock.studio.modes.clay.mode"),
+    ("warlock.studio.assistant.preview", "warlock.studio.modes.clay.state"),
     # Clay agent fold
-    ("warlock.studio.agent_host", "warlock.studio.agent_clay"),
-    ("warlock.studio.agent_transcript", "warlock.studio.agent_clay"),
+    # The MCP listener is shell and names Clay's surface and its transcript
+    # recorder. The transcript edge is not new: ``agent_transcript.py`` sat
+    # flat in ``studio/`` with no mode prefix, so it classified as shell and
+    # the reach was invisible until P5 put it under ``modes/clay/agent/``.
+    ("warlock.studio.agent_host", "warlock.studio.modes.clay.agent.dispatch"),
+    ("warlock.studio.agent_host", "warlock.studio.modes.clay.agent.transcript"),
     # Create UI fold
     ("warlock.studio.asset_exits", "warlock.studio.modes.create.ui.stages"),
-    ("warlock.studio.modes.create.ui.workspace", "warlock.studio.modes.create.engine.assets"),
     ("warlock.studio.panes.inspector", "warlock.studio.modes.create.ui.stages"),
     # Create's recipe engine lifting out of panes/settings_*.py means Settings
     # can import the engine module directly instead of a pane object.
-    ("warlock.studio.panes.app_settings", "warlock.studio.modes.create.ui.settings_3d"),
+    ("warlock.studio.panes.app_settings", "warlock.studio.modes.create.ui.panes.settings_3d"),
     # PaintView promotion (inker_state.py -> shell/paintview.py)
     ("warlock.studio.packwright_state", "warlock.studio.inker_state"),
     ("warlock.studio.panes.packwright_preview", "warlock.studio.inker_state"),
@@ -654,14 +643,14 @@ _P11_P12_LIBRARY_ABSORBS: frozenset[tuple[str, str]] = frozenset({
 # a landed phase -- what remains below is what genuinely has no phase.
 _UNRESOLVED: frozenset[tuple[str, str]] = frozenset({
     # mason -> clay, in the direction Mason's own code says is banned:
-    # clay_ops.py's `_align` docstring states "Mason may not import Clay (its
+    # studio/modes/clay/ops.py's `_align` docstring states "Mason may not import Clay (its
     # own import pin says so, and for a real reason)" while arguing the
     # *reverse* direction is fine -- but tests/mason/test_mason_imports.py
     # only guards the headless studio/mason/ engine package (`pure_packages`
     # is scoped to directories, and panes/ is excluded from it everywhere),
     # so studio/panes/mason_palette.py reaching into Clay's own tool-palette
     # pane is invisible to every existing pin. Not named by any phase.
-    ("warlock.studio.panes.mason_palette", "warlock.studio.panes.clay_tools"),
+    ("warlock.studio.panes.mason_palette", "warlock.studio.modes.clay.ui.panes.tools"),
 })
 
 EXCEPTIONS: frozenset[tuple[str, str]] = (
@@ -707,20 +696,31 @@ def test_no_undocumented_layering_violations() -> None:
 
 
 def test_exceptions_has_no_stale_entries() -> None:
-    """Every pair in EXCEPTIONS is still a real edge in the tree.
+    """Every pair in EXCEPTIONS is still a real edge *and still a violation*.
 
     A pair that stops matching a real import is a phase that already landed
     -- delete the entry rather than leave it; a shrinking EXCEPTIONS is the
     restructure's own progress made visible in a diff.
+
+    Asking only "is the import still there" was not enough. P5 moved Create's
+    workspace and its asset table into one package, so
+    ``create.ui.workspace -> create.engine.assets`` became a mode importing
+    itself -- a legal edge -- and its waiver stayed green because the import
+    had not gone anywhere. A waiver for an edge the rules allow is a phase
+    that landed without anyone deleting its entry.
     """
-    stale = sorted(pair for pair in EXCEPTIONS if pair not in _EDGE_PAIRS)
+    violating = {(edge.importer, edge.imported) for edge, _reason in _violations()}
+    stale = sorted(pair for pair in EXCEPTIONS if pair not in violating)
     if not stale:
         return
-    lines = [f"{imp} -> {tgt}" for imp, tgt in stale]
+    lines = [
+        f"{imp} -> {tgt}" + ("" if (imp, tgt) in _EDGE_PAIRS else "  (import gone)")
+        for imp, tgt in stale
+    ]
     raise AssertionError(
         f"{len(stale)} stale EXCEPTIONS entry(ies) in tests/test_layering.py -- "
-        "the import is gone, so delete the entry (the phase that removed it "
-        "already landed):\n" + "\n".join(lines)
+        "the import is gone or no longer breaks a rule, so delete the entry "
+        "(the phase that removed it already landed):\n" + "\n".join(lines)
     )
 
 

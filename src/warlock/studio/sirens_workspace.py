@@ -7,7 +7,7 @@ the line it stood on in ``studio/main.py`` before the P4 restructure moved
 each of the six inline ``_*_workspace`` methods to a module of its own.
 
 The shell names this module reaches are imported *inside* the method that
-uses them, the same rule ``clay_viewport.py`` states: ``main`` imports
+uses them, the same rule ``studio/modes/clay/ui/viewport.py`` states: ``main`` imports
 :class:`~.shell.app.App` (which assembles this mixin) to build the class, so a
 module-scope import back would be a cycle.
 """

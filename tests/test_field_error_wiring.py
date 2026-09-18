@@ -22,8 +22,15 @@ import re
 from pathlib import Path
 
 import pytest
+from _panes import pane_files
 
 from warlock.studio import forms
+
+#: Every pane's source file, keyed by its pre-restructure filename -- the
+#: three ``modes/create/ui/settings_*.py`` entries below moved under
+#: ``ui/panes/`` in P5, and this registry is what keeps ``_source`` finding
+#: them without a literal path that goes stale on the next mode's move.
+_PANES = pane_files()
 
 #: The panes whose forms carry fields a refusal can name. Each entry is the
 #: module path and the ``forms.Form`` id it opens.
@@ -42,6 +49,16 @@ FIELD_FORMS = (
 
 
 def _source(rel: str) -> str:
+    """Read a studio module's source by its path relative to ``studio/``.
+
+    Resolved through the pane registry first when ``rel`` names a pane, so a
+    pane that moves (as Create's three ``settings_*.py`` did in P5, into
+    ``ui/panes/``) is still found by its old relative path here instead of
+    silently reading nothing.
+    """
+    name = Path(rel).name
+    if name in _PANES:
+        return _PANES[name].read_text(encoding="utf-8")
     from warlock import studio
 
     return (Path(studio.__file__).parent / rel).read_text(encoding="utf-8")
@@ -410,7 +427,7 @@ def test_changing_the_rig_stage_skeleton_clears_its_field_error_ring():
     """
     import inspect
 
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
     from warlock.studio.panes import stage_rig
 
     field_src = inspect.getsource(stage_rig.skeleton_field)

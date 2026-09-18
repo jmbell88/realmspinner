@@ -199,13 +199,13 @@ def test_the_first_run_overlay_builds_and_dismisses(app_ctx, imgui_ctx, monkeypa
 
 
 def test_the_2d_pane_builds_with_an_empty_form(app_ctx, imgui_ctx):
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     _frame(imgui_ctx, lambda: settings_2d.draw(app_ctx))
 
 
 def test_the_2d_pane_builds_with_advanced_open_and_a_lora_chosen(app_ctx, imgui_ctx):
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["style_lora"] = "render3d"
     app_ctx.state.form_2d["prompt"] = "a barrel"
@@ -219,7 +219,7 @@ def test_the_2d_pane_builds_every_output_kind(app_ctx, imgui_ctx):
     swap the count radios for a bare seed field. Drawn rather than reasoned
     about because the failure this catches is a layout one: ``same_line`` past
     the content edge puts a control nowhere, and no pure test sees it."""
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "mossy dungeon"
     for asset_type in ("model_3d", "seamless_tile", "tileset_top_down"):
@@ -236,7 +236,7 @@ def test_the_2d_pane_builds_the_character_column_and_its_refusal(app_ctx, imgui_
     reasoned about for this test's own reason -- the failures here are layout
     ones, and no pure test sees a control put nowhere.
     """
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["asset_type"] = "character"
     for prompt in ("an attacking fire ogre, 3/4 top down", "a manticore", ""):
@@ -248,7 +248,7 @@ def test_the_2d_pane_builds_both_arms_of_the_sheet_output(app_ctx, imgui_ctx):
     """The two arms draw different controls off the same form dict, and the
     sprite arm's are the ones a stale tile-arm value can reach."""
     from warlock.service import tilesheets as svc_tilesheets
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "a hooded ranger"
     # Every view the service offers, off the service's own list rather than a
@@ -282,7 +282,7 @@ def test_the_2d_pane_builds_every_tile_layout(app_ctx, imgui_ctx):
     own menu is the failure no pure test sees.
     """
     from warlock.service import tilesheets as svc_tilesheets
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "mossy dungeon"
     app_ctx.state.form_2d["asset_type"] = "tileset"
@@ -307,7 +307,7 @@ def test_the_2d_pane_draws_the_pixel_look_on_both_arms(app_ctx, imgui_ctx, tmp_p
     never been drawn. Both arms, because only one of them draws the outline row
     and only one of them lists palettes through ``sprite_palettes``.
     """
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
     from warlock.studio.panes import inspector
 
     directory = tmp_path / "smoke-palettes"
@@ -337,7 +337,7 @@ def test_the_sheet_output_pins_the_count_to_one(app_ctx, imgui_ctx):
     """Both doors refuse a batch, so the radios are not drawn -- and the value
     is persisted, so a 4 left over from the Object output has to be written
     back rather than merely ignored."""
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "mossy dungeon"
     app_ctx.state.form_2d["count"] = 4
@@ -347,7 +347,7 @@ def test_the_sheet_output_pins_the_count_to_one(app_ctx, imgui_ctx):
 
 
 def test_the_3d_pane_builds_with_and_without_rigging(app_ctx, imgui_ctx):
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
 
     _frame(imgui_ctx, lambda: settings_3d.draw(app_ctx))
     app_ctx.rigging_available = True
@@ -493,7 +493,7 @@ def test_an_evidence_hint_stays_inside_the_pane(app_ctx, imgui_ctx, pane, param,
     from warlock.studio import widgets
     from warlock.studio.tokens import sp
 
-    module = importlib.import_module(f"warlock.studio.modes.create.ui.{pane}")
+    module = importlib.import_module(f"warlock.studio.modes.create.ui.panes.{pane}")
     _seed_findings(app_ctx, param, value)
     (app_ctx.state.form_2d if pane == "settings_2d" else app_ctx.state.form_3d)[param] = value
     # The base-model combo -- and so the hint attached to it -- is an Advanced
@@ -552,14 +552,14 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     import traceback
 
     from warlock.studio import layout as layout_mod
-    from warlock.studio.modes.create.ui import settings_2d, settings_3d
+    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
     from warlock.studio.panes import (
         app_settings,
         candidates_panel,
-        clay_bridge,
-        clay_outliner,
-        clay_props,
-        clay_tools,
         inker_colors,
         inker_generate,
         inker_menu,
@@ -994,7 +994,7 @@ def test_the_whole_frame_builds_at_once(app_ctx, imgui_ctx):
     that exists to prevent exactly that.
     """
     from warlock.studio import layout as layout_mod
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
     from warlock.studio.panes import inspector, library, overlay
     from warlock.studio.shell import frame as frame_mod
 
@@ -1746,7 +1746,7 @@ def test_the_bulk_deletes_left_the_library_footer_for_settings(app_ctx, imgui_ct
 def test_the_2d_pane_builds_with_a_reference_chosen(app_ctx, imgui_ctx):
     """The conditioning group is hidden until ref_path is set, so the empty-form
     smoke test never reaches it."""
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     form = app_ctx.state.form_2d
     form["prompt"] = "a barrel"
@@ -1783,7 +1783,7 @@ def test_a_non_sdxl_base_disables_the_style_lora_control_and_says_why(app_ctx, i
     whatever Automatic resolves to on whoever's machine runs it.
     """
     from warlock.studio.modes.create.engine import recipe as create_recipe
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     form = app_ctx.state.form_2d
     form["prompt"] = "a barrel"
@@ -2460,7 +2460,7 @@ def _clay_tab(app_ctx, *, objects: int = 2):
     """A Clay document with objects in it, adopted as the active tab."""
     from warlock.kernels.mesh import document as bd
     from warlock.kernels.mesh import primitives as bp
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     doc = bd.ClayDoc()
     for i in range(objects):
@@ -2478,13 +2478,11 @@ def _clay_tab(app_ctx, *, objects: int = 2):
 
 def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
     """Every one of them has to survive the state the mode opens in."""
-    from warlock.studio.panes import (
-        clay_bridge,
-        clay_header,
-        clay_outliner,
-        clay_props,
-        clay_tools,
-    )
+    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from warlock.studio.modes.clay.ui.panes import header as clay_header
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
 
     # ``clay_header`` is the strip over the viewport rather than a sidebar
     # pane, and it walks with them for the reason they walk: an unbalanced
@@ -2494,13 +2492,11 @@ def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
 
 
 def test_the_clay_panes_build_with_a_document_and_a_selection(app_ctx, imgui_ctx):
-    from warlock.studio.panes import (
-        clay_bridge,
-        clay_header,
-        clay_outliner,
-        clay_props,
-        clay_tools,
-    )
+    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from warlock.studio.modes.clay.ui.panes import header as clay_header
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
@@ -2515,13 +2511,11 @@ def test_the_clay_panes_build_while_a_save_is_in_flight(app_ctx, imgui_ctx):
     """``saving`` puts every mutating control inside ``begin_disabled``, and an
     unbalanced disable stack is exactly the class of mistake this file exists
     to catch."""
-    from warlock.studio.panes import (
-        clay_bridge,
-        clay_header,
-        clay_outliner,
-        clay_props,
-        clay_tools,
-    )
+    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from warlock.studio.modes.clay.ui.panes import header as clay_header
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
@@ -2539,8 +2533,9 @@ def test_the_clay_context_menu_and_its_parameter_popup_build(app_ctx, imgui_ctx)
     range, the stale-name recovery and the saving gate."""
     from types import SimpleNamespace
 
-    from warlock.studio import clay_mode, clay_ops
-    from warlock.studio.panes import clay_menu
+    from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.clay import ops as clay_ops
+    from warlock.studio.modes.clay.ui.panes import menu as clay_menu
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
@@ -2582,8 +2577,8 @@ def test_the_op_params_popup_draws_a_checkbox_and_a_combo(app_ctx, imgui_ctx):
     round-trip test in ``tests/test_clay_ops.py``."""
     from types import SimpleNamespace
 
-    from warlock.studio import clay_mode
-    from warlock.studio.panes import clay_menu
+    from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.clay.ui.panes import menu as clay_menu
 
     tab = _clay_tab(app_ctx, objects=3)
     tab.doc.select([obj.uid for obj in tab.doc.objects])
@@ -2601,7 +2596,7 @@ def test_the_clay_properties_pane_builds_for_a_frozen_object(app_ctx, imgui_ctx)
     """Phase 2's state: no generator, so the panel shows counts instead of
     parameters. Unreachable from the UI today and drawn here anyway, because it
     is one line away from being reachable."""
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     tab = _clay_tab(app_ctx, objects=1)
     obj = tab.doc.objects[0]
@@ -2615,7 +2610,7 @@ def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx)
     has to have a widget -- a float, an int and a tuple today."""
     from warlock.kernels.mesh import document as bd
     from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     tab = _clay_tab(app_ctx, objects=0)
     for name, (defaults, build) in bp.GENERATORS.items():
@@ -2632,8 +2627,8 @@ def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx)
 
 
 def test_the_clay_outliner_builds_with_a_rename_in_flight(app_ctx, imgui_ctx):
-    from warlock.studio import clay_mode
-    from warlock.studio.panes import clay_outliner
+    from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
 
     tab = _clay_tab(app_ctx)
     clay_mode.ensure(app_ctx).renaming = tab.doc.objects[0].uid
@@ -2653,7 +2648,7 @@ def test_the_clay_properties_pane_enumerates_a_generator_it_has_never_seen(
     """
     from warlock.kernels.mesh import document as bd
     from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     def wedge(width: float = 2.0, steps: int = 3, footprint=(1.0, 1.0)):
         return bp.box(size=(width, 1.0, 1.0))
@@ -2694,7 +2689,8 @@ def test_the_clay_viewport_draws_through_the_real_imgui_backend(app_ctx, imgui_c
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import clay_view, widgets
+    from warlock.studio import widgets
+    from warlock.studio.modes.clay.ui import view as clay_view
 
     tab = _clay_tab(app_ctx)
     view = clay_view.ClayView(gl, app_ctx)
@@ -2718,8 +2714,9 @@ def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, mon
     ``overlay.centred_empty`` every other empty viewport in the app uses.
     """
     from warlock.kernels.mesh import document as bd
-    from warlock.studio import clay_mode, widgets
+    from warlock.studio import widgets
     from warlock.studio.main import App
+    from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.panes import overlay
 
     app = App(app_ctx.runtime)
@@ -2756,7 +2753,7 @@ def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, mon
 def test_a_built_document_renders_the_flat_reference_trellis_is_given(app_ctx, gl):
     """No grid, no gizmos, no overlays, on a plain background: trellis is being
     handed a subject, and a grid line in the picture is a subject too."""
-    from warlock.studio import clay_view
+    from warlock.studio.modes.clay.ui import view as clay_view
     from warlock.studio.viewer import capture, glctx
 
     tab = _clay_tab(app_ctx)
@@ -3171,7 +3168,7 @@ def test_the_review_pane_builds_a_findings_table(app_ctx, imgui_ctx):
 def test_the_2d_pane_builds_with_stale_vector_preset_settings(app_ctx, imgui_ctx):
     # The vector-preset save mechanism retired with the taxonomy; a
     # studio_settings.json still carrying old entries must not break the pane.
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.settings.set("vector_presets", {"chests": {"genre": "fantasy", "platform": "pc"}})
     _frame(imgui_ctx, lambda: settings_2d.draw(app_ctx))
@@ -3774,7 +3771,7 @@ def test_editing_a_big_mesh_in_clay_still_asks_first(app_ctx):
     every reconstruction -- which is the feature, not a nuisance. Raising the
     threshold past what the pipeline produces would delete it while leaving it
     in the file."""
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     assert clay_mode.SLOW_TRIANGLES == 200_000
     asked: list = []
@@ -3925,7 +3922,7 @@ def test_the_3d_source_slot_builds_while_a_drag_is_in_flight(app_ctx, imgui_ctx)
     """The outline is drawn from the group's rect, which only exists after
     ``end_group`` -- a frame with a drag in flight is the one that exercises
     it."""
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
@@ -4082,7 +4079,7 @@ def test_the_home_resume_rows_build_with_the_keyboard_cursor_on_each(app_ctx, im
 def test_the_3d_form_builds_with_a_custom_budget(app_ctx, imgui_ctx, monkeypatch):
     """K94/K95: the disabled single-option path *and* the custom-triangles
     widget, which the shipped tier list never reaches."""
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
 
     app_ctx.state.mode = "create"
     app_ctx.state.create.stage = "mesh"
@@ -6204,8 +6201,9 @@ CLAY_CENTRE_AT_DEFAULT = 835.0
 
 def _clay_header_tiers(imgui, avail: float) -> list[str]:
     """The tier ``toolbar`` would choose for each header entry at ``avail`` px."""
-    from warlock.studio import clay_state, toolbar
-    from warlock.studio.panes import clay_header
+    from warlock.studio import toolbar
+    from warlock.studio.modes.clay import state as clay_state
+    from warlock.studio.modes.clay.ui.panes import header as clay_header
 
     state = clay_state.ClayState()
     items = clay_header._items(state)
@@ -6271,7 +6269,7 @@ def test_the_clay_hud_draws_its_widget_and_its_line(app_ctx, imgui_ctx):
     the widget needs a live viewport to read a camera off."""
     from types import SimpleNamespace
 
-    from warlock.studio.panes import clay_hud
+    from warlock.studio.modes.clay.ui.panes import hud as clay_hud
     from warlock.studio.viewer.camera import Camera
 
     tab = _clay_tab(app_ctx)
@@ -6500,8 +6498,8 @@ def test_the_clay_stats_overlay_draws_when_it_is_asked_for(app_ctx, imgui_ctx):
     the pane walk reaches, because the overlay draws nothing at all unless it
     has been switched on."""
     from warlock.kernels.mesh import elements as el
-    from warlock.studio import clay_mode
-    from warlock.studio.panes import clay_hud
+    from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.clay.ui.panes import hud as clay_hud
 
     tab = _clay_tab(app_ctx)
     state = clay_mode.ensure(app_ctx)
@@ -6532,8 +6530,8 @@ def test_the_clay_stats_overlay_draws_when_it_is_asked_for(app_ctx, imgui_ctx):
 def test_the_clay_header_shading_pill_and_xray_render(app_ctx, imgui_ctx):
     """Each shading mode and the X-ray switch, which the walk draws only in
     whatever state the header happens to open in."""
-    from warlock.studio import clay_mode
-    from warlock.studio.panes import clay_header
+    from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.clay.ui.panes import header as clay_header
 
     imgui, _renderer = imgui_ctx
     _clay_tab(app_ctx)

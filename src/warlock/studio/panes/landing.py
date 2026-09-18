@@ -1245,7 +1245,7 @@ def start_clay(ctx: Any) -> None:
     document is minted only when there are none -- opening one over existing
     work would break the keeps-whatever-was-open contract.
     """
-    from .. import clay_mode
+    from ..modes.clay import mode as clay_mode
 
     set_mode(ctx.state, "clay")
     if not clay_mode.ensure(ctx).docs:

@@ -49,16 +49,9 @@ from test_sirens_mode import _tab as sirens_tab
 from warlock.kernels import pixel as inker
 from warlock.kernels.mesh import document as clay_document
 from warlock.kernels.mesh import serialize as clay_serialize
-from warlock.studio import (
-    clay_mode,
-    inker_mode,
-    muse_io,
-    muse_mode,
-    muse_state,
-    packwright_io,
-    troupe_mode,
-)
+from warlock.studio import inker_mode, muse_io, muse_mode, muse_state, packwright_io, troupe_mode
 from warlock.studio.inker_state import InkerDoc
+from warlock.studio.modes.clay import mode as clay_mode
 from warlock.studio.packwright import wpack
 from warlock.studio.packwright.document import PackDoc
 from warlock.studio.packwright.sources import Sprite

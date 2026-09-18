@@ -22,7 +22,7 @@ about a *value* is still the handler's own job, exactly as it always was.
 
 **This file is what stands in for the validator that was never built.** It
 does not hand-list which constraints exist -- that would be the exact drift
-class ``agent_clay.py``'s own module docstring warns about for a hand-kept
+class ``studio/modes/clay/agent/dispatch.py``'s own module docstring warns about for a hand-kept
 second copy of something a real structure already owns. Instead it walks
 :func:`agent_clay.tools`'s own schemas, discovers every declared constraint
 from them, and for each one synthesises a call that satisfies everything
@@ -132,7 +132,7 @@ this module's own docstring asks for rather than a silent skip:
   unknown top-level key happens in :func:`agent_clay.call` before any
   handler runs, real service or not.
 * An op's own declared parameter *bounds* (``Param.low``/``Param.high`` in
-  ``clay_ops.py``) are not part of the JSON schema at all -- ``clay_op``'s
+  ``studio/modes/clay/ops.py``) are not part of the JSON schema at all -- ``clay_op``'s
   schema only declares ``params`` an object of numbers, with no per-key
   range, so there is no declared range constraint here to check. What the
   schema *does* declare (each value is a number) is exercised through
@@ -200,7 +200,7 @@ not actually enforce, fixed rather than the test being weakened to match:
   inside ``base64.b64decode`` -- three bare exceptions, all caught only by
   ``call()``'s generic backstop.
 
-See ``src/warlock/studio/agent_clay.py``'s own module docstring for the
+See ``src/warlock/studio/modes/clay/agent/dispatch.py``'s own module docstring for the
 paragraph this file is cited from, and the same commit's diff for each fix.
 """
 
@@ -215,7 +215,8 @@ import pytest
 from test_agent_clay import _Ctx, _install_fake_view, _payload  # see module docstring
 
 from warlock.kernels.mesh import presets
-from warlock.studio import agent_clay, clay_mode
+from warlock.studio.modes.clay import mode as clay_mode
+from warlock.studio.modes.clay.agent import dispatch as agent_clay
 
 Args = dict[str, Any]
 BaselineFactory = Callable[..., tuple[Any, agent_clay.Session, Args]]
@@ -376,7 +377,7 @@ def _violate_max_items(schema: dict) -> list:
 def _violate_anyof(schema: dict) -> Any:
     """A value shaped like none of *schema*'s alternatives -- picked by JSON
     type, since every ``anyOf`` in this file's schemas distinguishes its
-    branches by ``type`` alone (see ``agent_clay.py``'s own three ``anyOf``
+    branches by ``type`` alone (see ``studio/modes/clay/agent/dispatch.py``'s own three ``anyOf``
     sites: a param value is a number or an array of numbers, a view is a
     string or an object)."""
     alt_types = {alt.get("type") for alt in schema["anyOf"]}

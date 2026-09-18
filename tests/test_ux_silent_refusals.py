@@ -15,7 +15,7 @@ import pytest
 
 from warlock.studio import problems
 from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui import settings_2d, settings_3d
+from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
 from warlock.studio.state import default_form_2d
 
 

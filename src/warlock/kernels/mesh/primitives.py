@@ -87,7 +87,7 @@ of a generator's own parameters, with nothing about *placement* smuggled into
 the shape itself. It used to also be the reason nothing here looked smooth --
 there was no shading tool to hand a curved primitive over to, so faceted
 geometry was the only honest default available. That reason expired the day
-Shade Smooth, Shade Flat and auto-smooth-by-angle shipped (``clay_ops.py``),
+Shade Smooth, Shade Flat and auto-smooth-by-angle shipped (``studio/modes/clay/ops.py``),
 and on 2026-09-06 the user decided what replaces it: **organic shapes insert
 smooth-shaded.** The decision belongs at *insertion*, not here -- a generator
 is called every time a parameter field is edited, and a generator that decided
@@ -126,7 +126,7 @@ MIN_RINGS = 2
 # of these counts had a floor and no ceiling, so ``clamp_params("cylinder",
 # {"segments": 50_000_000})`` was accepted unchanged and the generator itself
 # had not returned after 30 s -- the pygame frame thread stalls inside
-# ``panes/clay_props.py``'s draw-time rebuild, and the agent surface's
+# ``studio/modes/clay/ui/props.py``'s draw-time rebuild, and the agent surface's
 # ``_h_add_primitive``/``_h_set_params`` pass a number through with no refusal
 # in between. Each ceiling is picked so that the *pair* of counts a two-count
 # generator multiplies together (``torus``'s segments*sides, ``uv_sphere`` and
@@ -611,7 +611,7 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
 
 
 # ``_mesh`` is ``mesh.from_faces`` (imported above under this name) --
-# promoted there so ``agent_clay.py``'s ``clay_add_mesh`` can build a CSR
+# promoted there so ``studio/modes/clay/agent/dispatch.py``'s ``clay_add_mesh`` can build a CSR
 # mesh from agent-supplied corner loops without a second copy of this exact
 # assembly. Kept under the original name here rather than renamed at each of
 # the fifteen call sites below, which cost nothing to leave alone; see

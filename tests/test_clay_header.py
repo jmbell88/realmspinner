@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio import clay_ops, clay_state, toolbar
-from warlock.studio.panes import clay_header, clay_tools
+from warlock.studio import toolbar
+from warlock.studio.modes.clay import ops as clay_ops
+from warlock.studio.modes.clay import state as clay_state
+from warlock.studio.modes.clay.ui.panes import header as clay_header
+from warlock.studio.modes.clay.ui.panes import tools as clay_tools
 
 # --- the tables ---------------------------------------------------------------
 

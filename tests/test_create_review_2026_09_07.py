@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from warlock.service import matte as svc_matte
 from warlock.studio import matte_preview
 from warlock.studio.modes.create.engine import mesh as create_mesh
-from warlock.studio.modes.create.ui import settings_3d
+from warlock.studio.modes.create.ui.panes import settings_3d
 from warlock.studio.panes import sheet_panel, stage_rig
 from warlock.studio.state import DEFAULT_FORM_3D, AppState
 

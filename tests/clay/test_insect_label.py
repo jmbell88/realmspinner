@@ -22,8 +22,11 @@ CLAY_TOOLS_PATH = (
     / "src"
     / "warlock"
     / "studio"
+    / "modes"
+    / "clay"
+    / "ui"
     / "panes"
-    / "clay_tools.py"
+    / "tools.py"
 )
 
 

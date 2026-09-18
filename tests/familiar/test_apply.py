@@ -18,8 +18,8 @@ from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
 from warlock.kernels.mesh import scratch as clay_scratch
 from warlock.kernels.mesh import serialize
-from warlock.studio import clay_mode
 from warlock.studio.assistant import preview as familiar_preview
+from warlock.studio.modes.clay import mode as clay_mode
 
 
 class _FakeCtx:

@@ -72,7 +72,7 @@ def _operations_json() -> dict[str, Any]:
     """``clay_ops.OPS``, as JSON: for each op, the modes it applies to and
     its params' metadata. Derived, never hand-listed -- see the module
     docstring."""
-    from . import clay_ops
+    from .modes.clay import ops as clay_ops
 
     return {
         op.name: {
@@ -90,7 +90,7 @@ def read_static(uri: str) -> tuple[str, bytes] | None:
     one of the three static ones. Safe on the listener thread: touches no
     document, no ``ClayState``, no GL."""
     if uri == CONVENTIONS_URI:
-        from . import agent_clay
+        from .modes.clay.agent import dispatch as agent_clay
 
         return "text/markdown", agent_clay.instructions().encode("utf-8")
     if uri == GENERATORS_URI:
@@ -113,7 +113,7 @@ def read_dynamic(ctx: Any, session: Any, uri: str) -> tuple[str, bytes] | None:
     ``clay_scene`` itself gives an agent that asks the tool with nothing to
     describe."""
     if uri == SCENE_URI:
-        from . import agent_clay
+        from .modes.clay.agent import dispatch as agent_clay
 
         result = agent_clay.call(ctx, session, "clay_scene", {})
         if result.get("isError"):

@@ -1020,7 +1020,7 @@ def test_shading_that_changes_nothing_pushes_no_step() -> None:
 
 def test_auto_shading_smooths_a_closed_curved_surface() -> None:
     """A sphere's bands are 22 degrees apart, well inside the threshold."""
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(
@@ -1032,7 +1032,7 @@ def test_auto_shading_smooths_a_closed_curved_surface() -> None:
 
 
 def test_auto_shading_leaves_a_box_flat() -> None:
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))
@@ -1051,7 +1051,7 @@ def test_a_capped_cylinder_comes_out_flat_and_that_is_the_right_answer() -> None
     very edge the caps define -- Blender avoids this with per-edge split
     normals, which is a different mesh format.
     """
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="C", mesh=bp.cylinder(segments=24)))
@@ -1061,7 +1061,7 @@ def test_a_capped_cylinder_comes_out_flat_and_that_is_the_right_answer() -> None
 
 
 def test_auto_shading_at_a_wide_angle_smooths_everything() -> None:
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))

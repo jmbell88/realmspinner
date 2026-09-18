@@ -436,7 +436,7 @@ def _generate(
     relied on to catch either, since that column is itself a ``layout`` pane a
     person can collapse (the 2026-09-07 Create review, item 5.9).
     """
-    from . import settings_2d
+    from .panes import settings_2d
 
     with focus.item(ctx.state, FOCUS_PANE, "generate") as focused:
         pressed = widgets.primary_button(
@@ -514,7 +514,7 @@ def _reset(ctx: Any, *, compact: bool) -> None:
     applied here through ``controls.button`` directly so the GHOST role
     survives the swap, which ``icon_button``'s own paint does not offer.
     """
-    from . import settings_2d
+    from .panes import settings_2d
 
     label = icons.UNDO if compact else "Reset..."
     if controls.button(

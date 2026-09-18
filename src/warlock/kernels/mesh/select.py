@@ -346,7 +346,7 @@ def mirror_pairs(mesh: Mesh, axis: int = 0, eps: float = 1e-4) -> dict[int, int]
 
 # --- currency conversion --------------------------------------------------
 #
-# Moved down from ``clay_ops.py`` (the 2026-09-10 groundwork pass): both
+# Moved down from ``studio/modes/clay/ops.py`` (the 2026-09-10 groundwork pass): both
 # functions were already pure ``(mesh, sel, mode)`` -> currency conversions
 # with no opinion about a document, a toast or a key binding, which is
 # everything that belongs in this module and nothing that belonged one level
@@ -498,7 +498,7 @@ def faces_in_bounds(
 
 # --- QUERIES: the fourth derived registry -------------------------------------
 #
-# ``OPS`` (``clay_ops.py``) is invocable verbs and the agent's derived tool
+# ``OPS`` (``studio/modes/clay/ops.py``) is invocable verbs and the agent's derived tool
 # list is built from it, never hand-listed -- an invariant, test-gated in both
 # directions. A query is a different shape from a verb: it does not *change*
 # the selection in place, it *answers* one from a seed or a set of parameters
@@ -508,7 +508,7 @@ def faces_in_bounds(
 # already on screen -- has no natural place for. Writing that vocabulary out by
 # hand in the agent surface would be a *fifth* place to remember it exists (the
 # menu, the tools pane, the key handler and ``OPS`` already being four ways
-# ``clay_ops.py`` used to answer "is X available", before this registry
+# ``studio/modes/clay/ops.py`` used to answer "is X available", before this registry
 # collapsed them to one) -- so it lives here, next to the verbs it is built
 # from, and the agent surface derives its tool list from :data:`QUERIES` the
 # same way it already derives one from ``primitives.GENERATORS``,
@@ -521,7 +521,7 @@ def faces_in_bounds(
 # set from an agent yet, which is a wiring gap the agent surface closes later,
 # not a reason to open a second door for a verb that already has one. A
 # ``QUERIES`` entry named ``linked`` would be exactly the drift this codebase's
-# "one list, not three" rule (see ``clay_ops.py``'s own module docstring)
+# "one list, not three" rule (see ``studio/modes/clay/ops.py``'s own module docstring)
 # exists to prevent, one file over.
 #
 # Every entry here is seeded or parametric -- it takes something an agent

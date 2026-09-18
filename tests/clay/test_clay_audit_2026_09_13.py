@@ -55,7 +55,7 @@ def test_face_mode_pick_reaches_an_occluded_object_under_xray():
     back to ``hit.face if hit.uid == obj.uid else None``, which only ever
     named the *nearest* object's face, exactly like it would with X-ray off.
     """
-    from warlock.studio import _view_pick
+    from warlock.studio.modes.clay.ui import _view_pick
 
     near = _obj("Near", translation=(0.0, 0.0, 1.0))
     far = _obj("Far", translation=(0.0, 0.0, -1.0))
@@ -155,11 +155,11 @@ def test_output_schema_comment_lists_every_tool_that_declares_one():
     unfixed comment text directly.
 
     The "# --- output schemas" banner and its comment block moved to
-    ``agent_clay_schema.py`` in the P4 restructure (``dev/RESTRUCTURE.md``);
+    ``studio/modes/clay/agent/schema.py`` in the P4 restructure (``dev/RESTRUCTURE.md``);
     this test moved with it rather than reading ``agent_clay`` itself, which
     no longer carries that banner at all.
     """
-    from warlock.studio import agent_clay_schema
+    from warlock.studio.modes.clay.agent import schema as agent_clay_schema
 
     source = inspect.getsource(agent_clay_schema)
     # The dashes are part of the needle on purpose: the module docstring

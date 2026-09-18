@@ -19,12 +19,12 @@ export too (``self._capture_thumbnail_from(done.result["job_id"],
 self.mason_view)``), so the function is shared shell plumbing between two
 mode mixins, not Clay's alone. ``_capture_clay_thumbnail``, the one-argument
 convenience that always draws from ``self.clay_view``, stayed with Clay in
-``clay_viewport.py`` instead, and calls this one across the mixin boundary --
+``studio/modes/clay/ui/viewport.py`` instead, and calls this one across the mixin boundary --
 which works precisely because both are methods of the one assembled
 :class:`~.app.App`.
 
 The shell names this module reaches are imported *inside* the methods that use
-them, ``clay_viewport.py``'s own rule restated: ``main`` imports
+them, ``studio/modes/clay/ui/viewport.py``'s own rule restated: ``main`` imports
 :class:`~.app.App` (which assembles this mixin) to build the class, so a
 module-scope import back would be a cycle -- and not only a stylistic one
 here: ``main.py`` imports :mod:`shell.app` at its own module top so that
@@ -169,7 +169,7 @@ class TasksMixin:
 
                     inker_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("clay-"):
-                    from .. import clay_mode
+                    from ..modes.clay import mode as clay_mode
 
                     clay_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("plotter-"):
@@ -487,7 +487,7 @@ class TasksMixin:
             ctx.toast("Model removed." if key.startswith("remove:") else "Download finished.")
             return
         if key == "upload" and done.result is not None:
-            from ..modes.create.ui import settings_3d
+            from ..modes.create.ui.panes import settings_3d
 
             settings_3d.upload(ctx, Path(done.result))
             return
@@ -512,7 +512,7 @@ class TasksMixin:
             familiar_ui.on_task_done(ctx, done)
             return
         if key.startswith("clay-"):
-            from .. import clay_mode
+            from ..modes.clay import mode as clay_mode
 
             clay_mode.on_task_done(ctx, done)
             if isinstance(done.result, dict) and done.result.get("exported"):
@@ -1009,8 +1009,8 @@ class TasksMixin:
         ``create_stages.go`` rather than a bare ``select``: it is the one stage
         switch, and it is what moves the selection along with the stage.
         """
-        from ..modes.create.ui import settings_character
         from ..modes.create.ui import stages as create_stages
+        from ..modes.create.ui.panes import settings_character
 
         ctx = self.app_ctx
         job_id = str(result.get("id") or "")

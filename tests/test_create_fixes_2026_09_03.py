@@ -18,7 +18,7 @@ from warlock.guidance import DEFAULT_NEGATIVE_PROMPT
 from warlock.studio import state as state_mod
 from warlock.studio.modes.create.engine import mesh as create_mesh
 from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui import settings_3d
+from warlock.studio.modes.create.ui.panes import settings_3d
 
 
 def test_the_form_starts_with_the_default_negative_prompt_visible():

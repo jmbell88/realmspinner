@@ -2,7 +2,7 @@
 
 ``clay_ops.run`` is the one place that folds whatever an op pushes into a
 single undo step and names it -- every surface is supposed to funnel through
-it (``clay_ops.py``'s own module docstring). Two did not:
+it (``studio/modes/clay/ops.py``'s own module docstring). Two did not:
 
 * the Delete **key** called ``clay.selection.delete_selected`` directly, so a
   face selection spanning two objects (each ``set_mesh`` call is its own
@@ -28,7 +28,8 @@ import pytest
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import elements as el
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio import clay_mode, clay_ops
+from warlock.studio.modes.clay import mode as clay_mode
+from warlock.studio.modes.clay import ops as clay_ops
 
 
 class FakeCtx:
@@ -159,7 +160,7 @@ def test_ctrl_j_duplicate_is_named_and_one_undo_step_not_object_add() -> None:
 
 def test_duplicate_selection_helper_routes_through_the_op_registry() -> None:
     """``clay_mode._duplicate_selection`` is what the outliner's context menu
-    calls by name (``panes/clay_outliner.py``); fixing it here is what fixes
+    calls by name (``studio/modes/clay/ui/outliner.py``); fixing it here is what fixes
     that row without touching a file this fix does not own."""
     ctx = FakeCtx()
     doc = _doc_with_two_selected_objects()

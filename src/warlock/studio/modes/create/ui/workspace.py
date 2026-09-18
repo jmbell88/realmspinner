@@ -449,7 +449,7 @@ def _half_width() -> float:
 
 
 def _make_3d(ctx: Any, job: dict[str, Any]) -> None:
-    from . import settings_3d
+    from .panes import settings_3d
 
     ctx.state.source_job = str(job["id"])
     settings_3d.promote(ctx, job, ctx.state.form_3d)

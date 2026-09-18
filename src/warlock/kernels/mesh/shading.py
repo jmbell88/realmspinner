@@ -32,7 +32,7 @@ DEFAULT_ANGLE = 30.0
 
 One constant rather than two literals: before this extraction, ``30.0`` was
 written once as ``_shade_auto``'s own default and again as the ``Param``'s
-default in ``clay_ops.py``'s registration of the "Shade Auto..." op, and
+default in ``studio/modes/clay/ops.py``'s registration of the "Shade Auto..." op, and
 nothing tied the two together. Both now read this name.
 """
 

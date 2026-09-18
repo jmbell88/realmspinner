@@ -12,7 +12,7 @@ from __future__ import annotations
 import inspect
 import re
 
-from warlock.studio.modes.create.ui import settings_3d
+from warlock.studio.modes.create.ui.panes import settings_3d
 
 
 def test_make_3d_button_states_a_reason_when_disabled_and_shows_ctrl_enter_only_when_live():

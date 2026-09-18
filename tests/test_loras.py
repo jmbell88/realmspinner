@@ -29,7 +29,7 @@ from warlock.service import loras as svc_loras
 from warlock.service import verdicts as svc_verdicts
 from warlock.service.errors import Invalid
 from warlock.service.validation import DERIVED_PARAMS
-from warlock.studio.modes.create.ui import settings_2d
+from warlock.studio.modes.create.ui.panes import settings_2d
 from warlock.studio.panes import app_settings
 
 # --- the pure module -----------------------------------------------------------------

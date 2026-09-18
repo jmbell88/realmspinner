@@ -114,7 +114,7 @@ def test_shade_auto_can_actually_reach_its_whole_document_branch():
     fallback its own comment describes could never be taken."""
     from types import SimpleNamespace
 
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     empty = SimpleNamespace(selection=set(), objects=[])
     unselected = SimpleNamespace(selection=set(), objects=[SimpleNamespace(uid=1)])
@@ -132,7 +132,7 @@ def test_select_more_uses_the_one_definition_of_a_selected_face():
     as a Python loop over every face -- a second spelling of the rule those
     verbs rest on being inverses of each other.
 
-    ``_sel_from_verts`` moved from ``clay_ops.py`` down into ``clay.select``
+    ``_sel_from_verts`` moved from ``studio/modes/clay/ops.py`` down into ``clay.select``
     as the public ``sel_from_verts`` in the 2026-09-10 groundwork pass; this
     test moved with it rather than dying with the private name it inspected.
     """

@@ -53,9 +53,9 @@ BANNED_MODULES = frozenset(
     {
         "warlock.service",
         "warlock.queue",
-        "warlock.studio.agent_clay",
-        "warlock.studio.clay_mode",
-        "warlock.studio.clay_view",
+        "warlock.studio.modes.clay.agent.dispatch",
+        "warlock.studio.modes.clay.mode",
+        "warlock.studio.modes.clay.ui.view",
     }
 )
 
@@ -85,7 +85,7 @@ def test_the_familiar_package_imports_no_window_service_or_network():
     under ``warlock/familiar/``. httpx is the same, except for
     ``llama_client.py`` (see :data:`HTTPX_ALLOWED`).
 
-    A function-body import is allowed *only* for ``warlock.studio.agent_clay``
+    A function-body import is allowed *only* for ``warlock.studio.modes.clay.agent.dispatch``
     in ``contract.py`` (see :data:`LAZY_AGENT_CLAY_ALLOWED`); every other
     banned name is refused wherever it appears, module scope or not, because
     nothing else here has ``contract.derive_clay_card``'s reason to reach
@@ -125,7 +125,10 @@ def test_the_familiar_package_imports_no_window_service_or_network():
                 )
                 if hit is None:
                     continue
-                if hit == "warlock.studio.agent_clay" and path.name in LAZY_AGENT_CLAY_ALLOWED:
+                if (
+                    hit == "warlock.studio.modes.clay.agent.dispatch"
+                    and path.name in LAZY_AGENT_CLAY_ALLOWED
+                ):
                     assert not at_module_scope, (
                         f"{path.name} imports {name!r} at module scope -- "
                         "agent_clay is only allowed lazily, inside a function body"

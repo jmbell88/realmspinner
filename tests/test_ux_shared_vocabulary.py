@@ -13,8 +13,8 @@ import inspect
 import re
 
 from warlock.studio import icons, inker_ops, modes, state, verbs
+from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
 from warlock.studio.panes import (
-    clay_bridge,
     inker_context,
     inspector,
     library,

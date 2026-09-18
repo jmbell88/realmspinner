@@ -1,7 +1,7 @@
 """The shell: the window, the frame loop, and everything wired together.
 
 The P4 split of the former ``src/warlock/studio/main.py`` (5,971 lines) into
-one module per concern, following the mixin idiom ``clay_viewport.py`` and
+one module per concern, following the mixin idiom ``studio/modes/clay/ui/viewport.py`` and
 ``review_panes.py`` already established for a body of drawing that belongs to
 the shell -- ``self`` in every method here is the assembled
 :class:`~.app.App`, and every method's body is unchanged from the line it was
@@ -39,7 +39,7 @@ lock, session-marker bookkeeping -- and imports :class:`App` from here to
 build one; every constant and cross-cutting helper (``_step``, ``_background``,
 the task-key constants, the startup-geometry functions) that more than one
 shell module needs stays defined there, the same way ``TARGET_FPS`` already
-crossed a module boundary into ``clay_viewport.py`` before this split existed.
+crossed a module boundary into ``studio/modes/clay/ui/viewport.py`` before this split existed.
 """
 
 from __future__ import annotations

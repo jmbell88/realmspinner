@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from warlock import guidance, models
 from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui import settings_2d
+from warlock.studio.modes.create.ui.panes import settings_2d
 
 
 def _ctx():
@@ -425,7 +425,7 @@ def test_every_mesh_setting_that_evidence_exists_for_shows_it():
     from pathlib import Path
 
     from warlock import vectors
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
 
     source = Path(settings_3d.__file__).read_text(encoding="utf-8")
     # ``_hint`` also draws the best-value offer now (findings v5, "actionable

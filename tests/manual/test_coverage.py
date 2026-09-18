@@ -12,9 +12,11 @@ the reason. A new pane fails this until it is either wired or listed.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-PANES = Path(__file__).resolve().parents[2] / "src/warlock/studio/panes"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _panes import pane_files  # noqa: E402
 
 # Panes with no (?), and why. Each is chrome rather than a documented section:
 # there is no heading to hang the button beside, and the manual describes what
@@ -126,8 +128,8 @@ NO_HELP_BUTTON = {
 
 def test_every_pane_either_has_a_help_button_or_is_listed():
     missing = {
-        path.stem
-        for path in PANES.glob("*.py")
+        name[:-3]
+        for name, path in pane_files().items()
         if "help_button" not in path.read_text(encoding="utf-8")
     }
     assert missing == NO_HELP_BUTTON, (
@@ -138,5 +140,5 @@ def test_every_pane_either_has_a_help_button_or_is_listed():
 
 def test_the_exemptions_all_exist():
     """A stale exemption is how this test quietly stops covering something."""
-    stems = {path.stem for path in PANES.glob("*.py")}
+    stems = {name[:-3] for name in pane_files()}
     assert stems >= NO_HELP_BUTTON

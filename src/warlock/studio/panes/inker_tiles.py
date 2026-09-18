@@ -103,7 +103,7 @@ def draw(ctx: Any) -> None:
 
 #: Why every button here is out while the document is being written. The same
 #: sentence ``inker_export.BUSY_WHY`` and ``clay_header._SAVING`` carry, said
-#: again rather than imported -- ``clay_menu``'s own comment on ``clay_ops.py``
+#: again rather than imported -- ``clay_menu``'s own comment on ``studio/modes/clay/ops.py``
 #: names all three copies. The 2026-09-15 audit (inker-11) deleted this
 #: constant's fourth copy, ``inker_bridge._busy_why``, which had gone dead
 #: (its docstring described six buttons the module's own head says stopped

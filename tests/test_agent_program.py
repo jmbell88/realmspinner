@@ -1,4 +1,4 @@
-"""``agent_program.py``: the ``clay_program`` compiler.
+"""``studio/modes/clay/agent/program.py``: the ``clay_program`` compiler.
 
 No document, no session, no MCP host anywhere in this file -- the module
 under test never touches one, and neither does this suite. Every check here
@@ -32,8 +32,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio import agent_clay
-from warlock.studio import agent_program as ap
+from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from warlock.studio.modes.clay.agent import program as ap
 
 
 def compile_ok(program: dict, **kwargs) -> ap.Compiled:
@@ -1282,7 +1282,7 @@ class TestImportsStayPure:
 
     @staticmethod
     def _outward_module_names() -> set[str]:
-        import warlock.studio.agent_program as mod
+        import warlock.studio.modes.clay.agent.program as mod
 
         path = Path(mod.__file__)
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -1324,7 +1324,7 @@ class TestImportsStayPure:
         names = self._outward_module_names()
         internal = {name for name in names if name.startswith("warlock")}
         assert internal == {
-            "warlock.studio.clay_ops",
+            "warlock.studio.modes.clay.ops",
             "warlock.kernels.mesh.presets",
             "warlock.kernels.mesh.primitives",
         }
@@ -1332,4 +1332,4 @@ class TestImportsStayPure:
     def test_module_imports_with_no_optional_dependency_present(self):
         import importlib
 
-        importlib.reload(importlib.import_module("warlock.studio.agent_program"))
+        importlib.reload(importlib.import_module("warlock.studio.modes.clay.agent.program"))

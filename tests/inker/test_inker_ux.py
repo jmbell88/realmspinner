@@ -13,6 +13,7 @@ import ast
 from pathlib import Path
 
 import pytest
+from _panes import pane_files
 
 from warlock.studio import inker_mode, inker_state, layout, theme, tokens
 from warlock.studio.panes import (
@@ -23,13 +24,25 @@ from warlock.studio.panes import (
 )
 
 STUDIO = Path(inker_tools.__file__).resolve().parent.parent
-#: Every pane-drawing module: ``panes/`` plus each mode's own ``ui/`` package.
-#: ``panes/*.py`` alone was the whole set until P5 of the restructure moved
-#: Create's three settings columns to ``modes/create/ui/`` -- and both sweeps
-#: below lost six cases without a single test going red.
-PANES = sorted(
-    [*(STUDIO / "panes").glob("*.py"), *(STUDIO / "modes").glob("*/ui/*.py")]
-)
+#: Every pane-drawing module, via ``tests._panes.pane_files``. ``panes/*.py``
+#: alone was the whole set until Create became a mode package and put three
+#: settings columns under ``modes/create/ui/`` (a bare ``modes/*/ui/*.py``
+#: glob briefly stood in for the helper here); P5 then nested Create's three
+#: one level deeper, under ``ui/panes/``, and moved Clay's own seven panes out
+#: of ``studio/panes/`` into ``modes/clay/ui/panes/`` -- a glob anchored on
+#: either directory shape loses one side or the other. It also would have
+#: started sweeping ``modes/clay/ui/view.py``/``viewport.py`` and the
+#: ``_view_*.py`` mixins, which are not panes and never were swept before
+#: P5 (they lived outside ``studio/panes/`` even when they were flat
+#: ``studio/clay_view.py`` etc.) -- the registry excludes them the same way.
+
+#: The reverse of the registry -- a path's own pre-restructure pane name,
+#: for parametrize ids and offender messages that used to read ``path.name``
+#: when every pane's on-disk basename still was that name. Clay's are bare
+#: (``props.py``) on disk now; looking the old name back up keeps
+#: ``clay_props.py:12`` legible instead of the ambiguous ``props.py:12``.
+_PANE_NAMES = {path: name for name, path in pane_files().items()}
+PANES = sorted(_PANE_NAMES, key=lambda p: _PANE_NAMES[p])
 
 #: The controls that draw at the full width of the content region. imgui puts a
 #: slider's or a combo's own label *outside* the widget, to its right, so at
@@ -96,7 +109,7 @@ def _orphaned_markers(path: Path) -> list[int]:
     return found
 
 
-@pytest.mark.parametrize("path", PANES, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", PANES, ids=lambda p: _PANE_NAMES[p])
 def test_no_help_marker_is_left_on_a_line_of_its_own(path: Path) -> None:
     """A marker after a full-width control goes *on the label*, via ``help_text``.
 
@@ -105,7 +118,7 @@ def test_no_help_marker_is_left_on_a_line_of_its_own(path: Path) -> None:
     sitting directly above the word "opacity", which is where a reader takes it
     to belong. Brush had the same thing between NIB and HARDNESS.
     """
-    offenders = [f"{path.name}:{line}" for line in _orphaned_markers(path)]
+    offenders = [f"{_PANE_NAMES[path]}:{line}" for line in _orphaned_markers(path)]
     assert offenders == []
 
 
@@ -162,14 +175,14 @@ def _markers_after_full_width_buttons(path: Path) -> list[int]:
     return found
 
 
-@pytest.mark.parametrize("path", SWEPT, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", SWEPT, ids=lambda p: _PANE_NAMES[p])
 def test_no_marker_orphans_after_a_full_width_button(path: Path) -> None:
     """The bridge pane's Animate/Save/Make 3D/import rows all had one: the
     button took the whole line, ``same_line_or_wrap`` -- correctly -- refused
     to draw past it, and the glyph landed on the next control's row where it
     read as that one's. The help is the button's own ``tooltip=`` now."""
     offenders = [
-        f"{path.name}:{line}" for line in _markers_after_full_width_buttons(path)
+        f"{_PANE_NAMES[path]}:{line}" for line in _markers_after_full_width_buttons(path)
     ]
     assert offenders == []
 
@@ -201,7 +214,7 @@ def _named_combos(path: Path) -> list[int]:
     return found
 
 
-@pytest.mark.parametrize("path", PANES, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", PANES, ids=lambda p: _PANE_NAMES[p])
 def test_a_visible_combo_name_goes_through_labeled_combo(path: Path) -> None:
     """``widgets.combo``'s own docstring states this rule; five sites broke it.
 
@@ -212,7 +225,7 @@ def test_a_visible_combo_name_goes_through_labeled_combo(path: Path) -> None:
     reading "linear" and "none". The rule was written down and not enforced,
     which is why it drifted back; this is the enforcement.
     """
-    offenders = [f"{path.name}:{line}" for line in _named_combos(path)]
+    offenders = [f"{_PANE_NAMES[path]}:{line}" for line in _named_combos(path)]
     assert offenders == []
 
 

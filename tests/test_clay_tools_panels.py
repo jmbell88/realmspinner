@@ -19,8 +19,10 @@ import pytest
 from _ui_context import imgui_context
 
 from warlock.kernels.mesh import document as bd
-from warlock.studio import clay_mode, clay_ops, icons, probe, theme, tokens, widgets
-from warlock.studio.panes import clay_tools
+from warlock.studio import icons, probe, theme, tokens, widgets
+from warlock.studio.modes.clay import mode as clay_mode
+from warlock.studio.modes.clay import ops as clay_ops
+from warlock.studio.modes.clay.ui.panes import tools as clay_tools
 
 
 class FakeCtx:
@@ -317,7 +319,7 @@ def test_the_op_params_apply_button_names_why_it_is_greyed_while_saving():
     control mid-save is told why; the parameterised-op popup's Apply button
     did not, breaking the pattern for the one dialog most likely to be open
     when a save starts (Bevel/Inset/Weld all park a value there)."""
-    from warlock.studio.panes import clay_menu
+    from warlock.studio.modes.clay.ui.panes import menu as clay_menu
 
     source = inspect.getsource(clay_menu.params_popup)
     start = source.index('f"Apply')

@@ -690,7 +690,7 @@ def _world_min_y(part: Part) -> float:
     The 2026-09-06 audit's clay-08 finding is exactly that gap going
     unmeasured. ``GENERATORS[part.generator]`` is a ``(defaults, builder)``
     pair, so the defaults are splatted under the part's own params first, the
-    same way ``panes/clay_tools.py`` builds the object the user ends up with.
+    same way ``studio/modes/clay/ui/tools.py`` builds the object the user ends up with.
     """
     defaults, make = GENERATORS[part.generator]
     local = make(**{**defaults, **part.params})

@@ -12,27 +12,37 @@ import inspect
 from pathlib import Path
 
 import pytest
+from _panes import pane_files
 
+from warlock.studio import dialogs as dialogs_mod
 from warlock.studio import layout as layout_mod
 from warlock.studio import theme, tokens
-from warlock.studio.modes.create.ui import settings_2d, settings_3d
+from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
 from warlock.studio.panes import app_settings, landing, library
 
-PANES = Path(inspect.getfile(library)).resolve().parent
+PANES = pane_files()
 
 
 # --- K97: design pixels ------------------------------------------------------
 
-# The files the sweep covered. A raw two-number tuple in one of these is a size
-# that stays put while the monitor's scale grows around it.
+# The files the sweep covered, as paths rather than names relative to a
+# single directory: P5 moved the two Create panes (and, later, Clay's) out of
+# the flat `studio/panes/` this list used to assume, so a name-plus-fixed-root
+# scheme silently stopped scanning them the moment they moved. `dialogs.py`
+# is not a pane (it sits in `studio/` itself) and is named directly; every
+# other entry is looked up by its pre-restructure pane name through
+# `tests._panes.pane_files`, which tracks where a pane lives now.
+#
+# A raw two-number tuple in one of these is a size that stays put while the
+# monitor's scale grows around it.
 SP_SWEPT = (
-    "../dialogs.py",
-    "inker_canvas.py",
-    "inker_bridge.py",
-    "../modes/create/ui/settings_2d.py",
-    "../modes/create/ui/settings_3d.py",
-    "stage_rig.py",
-    "inker_colors.py",
+    Path(inspect.getfile(dialogs_mod)),
+    PANES["inker_canvas.py"],
+    PANES["inker_bridge.py"],
+    PANES["settings_2d.py"],
+    PANES["settings_3d.py"],
+    PANES["stage_rig.py"],
+    PANES["inker_colors.py"],
     # Joined 2026-08-19: THUMB and INDENT were used as raw physical pixels, so
     # thumbnails and group indents stayed put while the monitor scaled.
     # Sirens' seven panes, joined by the 2026-09-07 audit alongside the label
@@ -41,13 +51,13 @@ SP_SWEPT = (
     # simply not drawn is exactly the class this scan cannot see and a
     # screenshot would not either -- so both fixes land together, and the scan
     # now covers the files the screenshot missed.
-    "sirens_instruments.py",
-    "sirens_effects.py",
-    "sirens_envelopes.py",
-    "sirens_transport.py",
-    "sirens_orders.py",
-    "sirens_bridge.py",
-    "sirens_patterns.py",
+    PANES["sirens_instruments.py"],
+    PANES["sirens_effects.py"],
+    PANES["sirens_envelopes.py"],
+    PANES["sirens_transport.py"],
+    PANES["sirens_orders.py"],
+    PANES["sirens_bridge.py"],
+    PANES["sirens_patterns.py"],
 )
 
 
@@ -82,12 +92,11 @@ def _literal_sizes(path: Path) -> list[tuple[int, str]]:
     return found
 
 
-@pytest.mark.parametrize("name", SP_SWEPT)
-def test_no_pane_hardcodes_a_pixel_size(name):
+@pytest.mark.parametrize("path", SP_SWEPT, ids=lambda p: p.name)
+def test_no_pane_hardcodes_a_pixel_size(path):
     """K97. ``sp()`` is what keeps a measurement meaning "this wide" on a 150%
     monitor rather than drifting; a literal 150 px button at 200% scale holds
     text drawn at 300% and the label runs off the end of it."""
-    path = (PANES / name).resolve()
     assert not _literal_sizes(path), _literal_sizes(path)
 
 
@@ -398,8 +407,8 @@ DENSE_PANES = (
     "pose_panel.py",
     "retarget_panel.py",
     "texture_panel.py",
-    "clay_props.py",
-    "clay_outliner.py",
+    "clay_props.py",  # now modes/clay/ui/panes/props.py -- looked up via PANES
+    "clay_outliner.py",  # now modes/clay/ui/panes/outliner.py
     "sheet_panel.py",
 )
 
@@ -420,7 +429,7 @@ def test_every_dense_pane_explains_at_least_one_of_its_controls(name):
     tooltip at all, which is the state worth failing on: a pane whose controls
     are named but never explained sends the reader to the manual for every one
     of them."""
-    source = (PANES / name).read_text(encoding="utf-8")
+    source = PANES[name].read_text(encoding="utf-8")
     assert any(token in source for token in EXPLAINS)
 
 

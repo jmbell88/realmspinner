@@ -9,7 +9,7 @@ tasks,quit}.py``.
 Six module-level layout helpers travel with :meth:`FrameMixin._build_ui`
 rather than staying behind in ``main.py``: ``_split_column``, ``_right_column``
 and ``_column_boundary`` are read by every workspace module (the six
-``<mode>_workspace.py`` files, plus ``clay_viewport.py``, ``mason_viewport.py``,
+``<mode>_workspace.py`` files, plus ``studio/modes/clay/ui/viewport.py``, ``mason_viewport.py``,
 ``poser_viewport.py`` and ``review_panes.py``) and not only by this one, so
 "only it uses them" was the split plan's guess rather than a fact about the
 code -- every one of those callers now reaches this module by name
@@ -27,7 +27,7 @@ gives a ``<mode>_workspace.py``; that split is P5's, not this one's).
 
 The shell names this module reaches -- ``main``'s constants and the two
 teardown/paint helpers every shell module shares -- are imported *inside* the
-methods and module functions that use them, ``clay_viewport.py``'s own rule
+methods and module functions that use them, ``studio/modes/clay/ui/viewport.py``'s own rule
 restated: ``main`` imports :class:`~.app.App` (which assembles this mixin) to
 build the class it re-exports as ``warlock.studio.main.App``, so a module-scope
 import back from here would be a cycle.
@@ -195,8 +195,8 @@ def _stage_pane(ctx: Any) -> None:
     from imgui_bundle import imgui
 
     from .. import icons, widgets
-    from ..modes.create.ui import settings_2d, settings_3d
     from ..modes.create.ui import workspace as generation_workspace
+    from ..modes.create.ui.panes import settings_2d, settings_3d
     from ..panes import inspector, pose_panel, stage_rig
 
     stage = ctx.state.create.stage
@@ -1136,7 +1136,7 @@ class FrameMixin:
         which is why this is not inline in either.
         """
         from .. import widgets
-        from ..modes.create.ui import settings_3d
+        from ..modes.create.ui.panes import settings_3d
         from ..panes import first_run, overlay, palette, troupe_send
 
         ctx = self.app_ctx

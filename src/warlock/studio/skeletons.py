@@ -363,7 +363,10 @@ def clay(ctx: Any) -> dict[str, Column]:
     Plotter's is; see :func:`plotter` for why no migration is owed.
     """
 
-    from .panes import clay_bridge, clay_outliner, clay_props, clay_tools
+    from .modes.clay.ui.panes import bridge as clay_bridge
+    from .modes.clay.ui.panes import outliner as clay_outliner
+    from .modes.clay.ui.panes import props as clay_props
+    from .modes.clay.ui.panes import tools as clay_tools
 
     left = Column(
         "left",

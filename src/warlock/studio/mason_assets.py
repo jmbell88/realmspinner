@@ -245,7 +245,7 @@ class AssetSource:
             # explicit one -- a bare generator mesh has none, so 0 (the
             # fallback material) is fine. Reusing ``to_primitives`` rather
             # than writing a second Mesh -> Primitive conversion is the point
-            # (see the module docstring and ``_view_cache.py``'s ``_build``).
+            # (see the module docstring and ``studio/modes/clay/ui/_view_cache.py``'s ``_build``).
             obj = Obj(uid=0, name="", mesh=mesh)
             prims = bd.to_primitives(obj, ())
         except Exception:

@@ -145,7 +145,7 @@ def _clay_props_ctx(monkeypatch, selection: set[str]):
     is drawn rather than about the frame surviving -- the smoke suite owns
     that half.
     """
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     drawn: list[tuple[str, str]] = []
     doc = SimpleNamespace(
@@ -182,7 +182,7 @@ def test_clay_still_says_nothing_selected_when_nothing_is(monkeypatch):
 def test_the_multi_selection_refusal_itself_is_unchanged(monkeypatch):
     """Only the sentence changed: ``_selected`` still refuses to edit one of
     many, which is the whole reason the branch exists."""
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     doc = SimpleNamespace(selection={"a", "b"}, by_uid=lambda uid: "an object")
     assert clay_props._selected(doc) is None
@@ -343,7 +343,7 @@ def test_settings_draws_no_bare_imgui_text_as_a_name_column():
 
 def _modal_sources() -> dict[str, str]:
     from warlock.studio import dialogs
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
     from warlock.studio.panes import plotter_canvas
 
     return {

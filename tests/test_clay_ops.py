@@ -22,7 +22,7 @@ from warlock.kernels.mesh import mesh as bm
 from warlock.kernels.mesh import ops as clay_ops_geom
 from warlock.kernels.mesh import ops_topo
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio import clay_ops
+from warlock.studio.modes.clay import ops as clay_ops
 
 
 class _Toasts:
@@ -116,7 +116,7 @@ def test_the_registry_imports_no_gui() -> None:
     import importlib
     from pathlib import Path
 
-    source = importlib.import_module("warlock.studio.clay_ops").__file__
+    source = importlib.import_module("warlock.studio.modes.clay.ops").__file__
     assert source is not None
     tree = ast.parse(Path(source).read_text(encoding="utf-8"))
     imported = set()
@@ -374,7 +374,7 @@ def test_inset_faces_region_mode_is_reachable_through_the_op_registry() -> None:
     calling ``inset_faces`` directly (``tests/clay/test_ops_topo.py``); the
     registered "inset" ``Op`` declared just ``thickness``/``depth``, so the
     mode was unreachable from the menu, the tools pane, the keyboard, and
-    (since ``agent_clay.py`` derives its tool schema from the same
+    (since ``studio/modes/clay/agent/dispatch.py`` derives its tool schema from the same
     ``Op.params``) the agent surface too.
     """
     inset = clay_ops.get("inset")
@@ -855,7 +855,7 @@ def test_shade_smooth_in_face_mode_with_no_face_selection_is_refused_not_silent(
 
     ``doc.selection`` can be non-empty in face mode with no face picked: the
     outliner selects an object by calling ``doc.select`` directly
-    (``panes/clay_outliner.py``), which does not touch ``element_sel`` the way
+    (``studio/modes/clay/ui/outliner.py``), which does not touch ``element_sel`` the way
     picking a face does. Before the fix that left ``has_objects`` reading True
     here, so the row drew enabled, the click ran an empty loop over
     ``doc.element_sel``, and nothing happened -- no ``set_shading`` call, no
@@ -1212,7 +1212,7 @@ def test_every_op_hint_names_a_binding_that_exists() -> None:
 # --- difference and intersection (2026-09-11 audit's clay-04) ---------------
 #
 # ``clay.ops_boolean`` implements and tests three booleans (``KINDS``), and an
-# MCP agent could already reach all three through ``agent_clay.py``'s own
+# MCP agent could already reach all three through ``studio/modes/clay/agent/dispatch.py``'s own
 # ``clay_boolean`` tool -- but the registry only ever offered ``union``, so a
 # human had no menu row, no button and no key chord for Difference or
 # Intersection anywhere in the app. A correspondence test rather than a name

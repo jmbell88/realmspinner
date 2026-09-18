@@ -27,12 +27,20 @@ import inspect
 from pathlib import Path
 
 import pytest
+from _panes import pane_files
 
 from warlock.service.errors import Invalid
 from warlock.service.validation import MAX_SEED, check_seed
 
 
 def _source(rel: str) -> str:
+    """Read a studio module's source relative to ``studio/``, resolved
+    through the pane registry first: P5 moved ``settings_3d.py`` under
+    ``modes/create/ui/panes/``, and a bare literal path here would go stale
+    the same way it did in ``tests/test_field_error_wiring.py``."""
+    name = Path(rel).name
+    if name in pane_files():
+        return pane_files()[name].read_text(encoding="utf-8")
     from warlock import studio
 
     return (Path(studio.__file__).parent / rel).read_text(encoding="utf-8")
@@ -64,7 +72,7 @@ def test_a_malformed_seed_from_a_settings_file_still_rings_the_seed_control():
     seed row must ring their own control and clear the ring on edit, the same
     contract every other refusable control on these panes already keeps
     (``tests/test_field_error_wiring.py``)."""
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     seed_row_src = inspect.getsource(settings_2d._seed_row)
     assert 'field_error(ctx.state, "seed")' in seed_row_src, (

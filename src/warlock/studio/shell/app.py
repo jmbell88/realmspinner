@@ -6,7 +6,7 @@ six inline ``_*_workspace`` methods; this is the module that assembles the
 whole of it. :class:`App` is built from fourteen mixins: the four that
 already lived beside ``main.py`` (``ClayViewport``, ``MasonViewport``,
 ``PoserViewport``, ``ReviewPanes``, each "this repository's idiom for a body
-of drawing that belongs to the shell", per ``clay_viewport.py``'s own module
+of drawing that belongs to the shell", per ``studio/modes/clay/ui/viewport.py``'s own module
 docstring); :class:`FrameMixin`, :class:`TasksMixin`, :class:`EventsMixin` and
 :class:`QuitMixin`, which ``shell/frame.py``, ``shell/tasks.py``,
 ``shell/events.py`` and ``shell/quit.py`` define; and the six workspace
@@ -23,7 +23,7 @@ beside the class whose setup phases raise it, not beside the process entry
 that only re-shows it in a dialog.
 
 The shell names this module reaches are imported *inside* the methods that use
-them, ``clay_viewport.py``'s own rule restated: ``main`` imports :class:`App`
+them, ``studio/modes/clay/ui/viewport.py``'s own rule restated: ``main`` imports :class:`App`
 from here to build one, so a module-scope import back to ``main`` would be a
 cycle. The mixins themselves, and the four pane classes wave one already
 split out, are the one exception -- assembling the class needs them at
@@ -40,9 +40,9 @@ from typing import Any
 
 from .. import fps as fps_mod
 from .. import resources
-from ..clay_viewport import ClayViewport
 from ..inker_workspace import InkerWorkspace
 from ..mason_viewport import MasonViewport
+from ..modes.clay.ui.viewport import ClayViewport
 from ..muse_workspace import MuseWorkspace
 from ..packwright_workspace import PackwrightWorkspace
 from ..plotter_workspace import PlotterWorkspace

@@ -318,7 +318,7 @@ def test_the_tour_anchors_moved_with_the_controls():
     assert 'anchors.mark("create/prompt")' in source
     assert 'anchors.mark("create/generate")' in source
 
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     pane = inspect.getsource(settings_2d)
     assert 'anchors.mark("create/prompt")' not in pane
@@ -533,7 +533,7 @@ def test_reset_is_censused_against_the_bars_own_pane(frames, monkeypatch):
 def test_reset_no_longer_draws_from_the_settings_column():
     """The other half of the move: ``settings_2d`` must hold no copy of it --
     one owner per control, per ``CLAUDE.md``."""
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     source = inspect.getsource(settings_2d)
     assert "_reset_row" not in source

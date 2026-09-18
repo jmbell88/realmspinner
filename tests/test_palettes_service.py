@@ -151,7 +151,7 @@ def test_the_2d_form_draws_that_helper_rather_than_a_list_of_its_own(svc, paldir
     """
     from types import SimpleNamespace
 
-    from warlock.studio.modes.create.ui import settings_2d
+    from warlock.studio.modes.create.ui.panes import settings_2d
 
     (paldir / "duo.hex").write_text("#1a1c2c\n#f4f4f4\n")
 

@@ -989,7 +989,7 @@ def test_both_remesh_call_sites_go_through_the_one_predicate():
 def test_the_properties_pane_never_lists_a_generator_by_name():
     """The registry is data precisely so the pane is not a chain of names."""
     from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.panes import clay_props
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
 
     source = inspect.getsource(clay_props)
     for name in bp.GENERATORS:
@@ -1000,7 +1000,10 @@ def test_every_clay_pane_gates_its_controls_on_saving():
     """The rule Inker had to learn: a save encodes the live document on a task
     thread, so a control that restructures it mid-encode writes a file
     describing a document that never existed."""
-    from warlock.studio.panes import clay_bridge, clay_outliner, clay_props, clay_tools
+    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
 
     for pane in (clay_tools, clay_props, clay_outliner, clay_bridge):
         source = inspect.getsource(pane)
@@ -1010,7 +1013,7 @@ def test_every_clay_pane_gates_its_controls_on_saving():
 def test_the_bridge_offers_both_output_paths_and_they_are_different_calls():
     """Two genuinely different things: the exact geometry, or a picture trellis
     reinterprets. A bridge that wired both to one call would look complete."""
-    from warlock.studio.panes import clay_bridge
+    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
 
     source = inspect.getsource(clay_bridge)
     assert "export_asset" in source
@@ -1025,8 +1028,8 @@ def test_the_tools_pane_mirrors_through_ops_rather_than_negating_a_scale():
     pane stopped keeping its own list of what Clay can do; the guard followed
     it, because the invariant is about the *op* rather than about the button.
     """
-    from warlock.studio import clay_ops
-    from warlock.studio.panes import clay_tools
+    from warlock.studio.modes.clay import ops as clay_ops
+    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
 
     source = inspect.getsource(clay_ops)
     assert "clay_ops_geom.mirror" in source
@@ -1037,7 +1040,7 @@ def test_the_tools_pane_mirrors_through_ops_rather_than_negating_a_scale():
 def test_the_outliner_addresses_every_row_by_uid():
     """An index stops naming the thing it named the moment anything moves, and
     the outliner is the thing that moves them."""
-    from warlock.studio.panes import clay_outliner
+    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
 
     tree = ast.parse(inspect.getsource(clay_outliner))
     calls = [
@@ -1140,8 +1143,8 @@ def test_the_send_to_3d_render_carries_no_grid_gizmo_or_overlay():
     default is ``"unlit"``, and ``"unlit"``'s own row in that table is
     ``flat: True``.
     """
-    from warlock.studio import clay_view
-    from warlock.studio.clay_view import ClayView
+    from warlock.studio.modes.clay.ui import view as clay_view
+    from warlock.studio.modes.clay.ui.view import ClayView
 
     assert inspect.signature(ClayView.render_png).parameters["grid"].default is False
     assert inspect.signature(ClayView.render_png).parameters["shading"].default == "unlit"
@@ -1173,7 +1176,7 @@ def test_the_send_to_3d_render_happens_on_the_frame_thread():
     assert "submit" not in source
     assert "upload_bytes" in source
     assert "submit" in inspect.getsource(
-        __import__("warlock.studio.modes.create.ui.settings_3d", fromlist=["x"]).upload_bytes
+        __import__("warlock.studio.modes.create.ui.panes.settings_3d", fromlist=["x"]).upload_bytes
     )
 
 
@@ -1185,7 +1188,7 @@ def test_both_upload_paths_read_the_same_form():
     lives in ``modes/create/engine/mesh.py`` now; both of ``settings_3d.py``'s
     upload paths still call it, as ``create_mesh.upload_kwargs``.
     """
-    from warlock.studio.modes.create.ui import settings_3d
+    from warlock.studio.modes.create.ui.panes import settings_3d
 
     assert len(_calls_to(settings_3d, "upload_kwargs")) == 2
 

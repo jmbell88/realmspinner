@@ -13,7 +13,7 @@ network round trip goes through ``ctx.submit`` under one of two keys
 (``service.familiar.chat_reply``/``clay_build``) on a ``TaskRunner`` worker
 thread; the frame thread only ever reads :class:`FamiliarUIState` and calls
 :func:`on_task_done` when a result lands, the same shape every other mode's
-``ctx.submit``/``on_task_done`` pair already uses (``clay_mode.py``'s module
+``ctx.submit``/``on_task_done`` pair already uses (``studio/modes/clay/mode.py``'s module
 docstring states the rule this module follows). Landing a build that came
 back with calls is itself two more of these round trips, not one inline
 computation: :data:`LAND_KEY` carries the ``clay_batch`` run itself off the
@@ -237,7 +237,7 @@ def _capture_scene(ctx: Any, tab_uid: str) -> dict[str, Any] | None:
     if not tab_uid:
         return None
     from ...familiar import contract
-    from .. import agent_clay
+    from ..modes.clay.agent import dispatch as agent_clay
 
     ghost = _pending_ghost(ctx, tab_uid)
     if ghost is not None:
@@ -785,7 +785,7 @@ def _submit_build_preview(
     Both are carried into :data:`LAND_KEY`'s own tag so the second phase can
     use them too.
     """
-    from .. import clay_mode
+    from ..modes.clay import mode as clay_mode
     from . import preview as familiar_preview
 
     state = clay_mode.ensure(ctx)
@@ -840,7 +840,7 @@ def _land_build_preview(ctx: Any, ui: FamiliarUIState, done: Any) -> None:
     question the submit side already asked, since the tab or the ghost being
     refined can have moved again while the batch ran."""
     from ...kernels.mesh import scratch as clay_scratch
-    from .. import clay_mode
+    from ..modes.clay import mode as clay_mode
 
     ui.thinking = ""
     tag = done.tag if isinstance(done.tag, dict) else {}

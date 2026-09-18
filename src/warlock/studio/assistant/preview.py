@@ -10,8 +10,8 @@ imports ``agent_clay``, which reaches ``clay_view`` (``moderngl``) and
 ``panes.clay_tools`` (``imgui_bundle``) -- exactly the kind of window import
 that package must never carry, even two relative hops away
 (``tests/_pure_packages.py::_module_roots`` now resolves relative imports
-precisely so a chain like that cannot hide). ``agent_clay.py`` and the other
-studio-level modules (``clay_mode.py``, ``clay_view.py``) already sit
+precisely so a chain like that cannot hide). ``studio/modes/clay/agent/dispatch.py`` and the other
+studio-level modules (``studio/modes/clay/mode.py``, ``studio/modes/clay/ui/view.py``) already sit
 alongside imgui/moderngl imports without being under a "pure" package, so
 this is that same shelf, not a new one.
 
@@ -62,7 +62,7 @@ that module. :class:`ScratchCtx` instead carries its *own*, private
 ``clay_mode.ensure(ctx)`` and ``_tab(ctx, session)`` do exactly what they
 always do and land on a document nothing else can see.
 
-**No ``svc``, no ``cache``, no ``viewer``.** Read ``agent_clay.py``'s own
+**No ``svc``, no ``cache``, no ``viewer``.** Read ``studio/modes/clay/agent/dispatch.py``'s own
 module docstring: every handler that would need one of those three is a tool
 this module refuses before the door (see :data:`PREVIEW_EXCLUDED`) --
 ``clay_export`` mints a Library job through ``ctx.svc`` and invalidates
@@ -89,8 +89,9 @@ from typing import Any
 
 from ...kernels.mesh import document as bd
 from ...kernels.mesh import scratch as clay_scratch
-from .. import agent_clay, clay_mode
-from ..clay_state import ClayState, ClayTab
+from ..modes.clay import mode as clay_mode
+from ..modes.clay.agent import dispatch as agent_clay
+from ..modes.clay.state import ClayState, ClayTab
 
 #: Tools a scratch run refuses before ``agent_clay.call`` is ever reached.
 #:

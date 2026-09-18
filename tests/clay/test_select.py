@@ -443,7 +443,7 @@ def test_the_query_registry_does_not_duplicate_a_verb_that_is_already_an_op():
     and already in the agent's derived ``clay_op`` enum -- dead only because no
     element mode can be set from an agent yet, not a hole for ``QUERIES`` to
     fill a second time."""
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     banned = {"all", "none", "invert", "linked", "more", "less", "boundary"}
     op_verbs = {

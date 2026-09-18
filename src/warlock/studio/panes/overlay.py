@@ -644,7 +644,7 @@ def _clay_box(ctx: Any) -> None:
     ``primitives.GENERATORS`` cannot leave this button pointing at nothing.
     """
     from ...kernels.mesh import primitives as bp
-    from . import clay_tools
+    from ..modes.clay.ui.panes import tools as clay_tools
 
     tab = ctx.state.clay.active if getattr(ctx.state, "clay", None) else None
     if tab is None:

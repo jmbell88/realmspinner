@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import inspect
 import re
-from pathlib import Path
 
 import pytest
 
@@ -89,7 +88,8 @@ def test_alt_drag_orbits_in_the_pose_viewer_as_it_does_in_clay(monkeypatch):
 
 
 def test_the_axis_view_keys_are_one_function_both_viewports_call():
-    from warlock.studio import clay_mode, poser_mode
+    from warlock.studio import poser_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     assert "clay_mode.axis_view_key(" in inspect.getsource(poser_mode.handle_key)
     assert "axis_view_key(" in inspect.getsource(clay_mode)
@@ -117,14 +117,8 @@ def test_find_path_folds_case_in_every_mode(tmp_path):
     two tabs in four of the five modes; Plotter alone normcased."""
     from types import SimpleNamespace
 
-    from warlock.studio import (
-        clay_state,
-        docmodes,
-        inker_state,
-        packwright_state,
-        plotter_state,
-        sirens_state,
-    )
+    from warlock.studio import docmodes, inker_state, packwright_state, plotter_state, sirens_state
+    from warlock.studio.modes.clay import state as clay_state
 
     for module in (clay_state, inker_state, packwright_state, plotter_state, sirens_state):
         source = inspect.getsource(module)
@@ -147,14 +141,8 @@ def test_closing_a_tab_mid_save_is_refused_out_loud_in_every_mode():
     serialise task reads the live document on a task thread."""
     from types import SimpleNamespace
 
-    from warlock.studio import (
-        clay_mode,
-        docmodes,
-        inker_mode,
-        packwright_mode,
-        plotter_mode,
-        sirens_mode,
-    )
+    from warlock.studio import docmodes, inker_mode, packwright_mode, plotter_mode, sirens_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     for module in (clay_mode, inker_mode, packwright_mode, plotter_mode, sirens_mode):
         assert "docmodes.close_tab(ctx, state," in inspect.getsource(module), module.__name__
@@ -209,7 +197,8 @@ def test_the_file_export_prints_the_chord_the_mode_binds():
 
 
 def test_sirens_binds_the_file_export_and_clay_no_longer_aliases_it():
-    from warlock.studio import clay_mode, sirens_keys
+    from warlock.studio import sirens_keys
+    from warlock.studio.modes.clay import mode as clay_mode
 
     assert 'name == "e" and shift' in inspect.getsource(sirens_keys._ctrl_key)
     assert 'name == "e" and not shift' in inspect.getsource(clay_mode._ctrl_key)
@@ -230,14 +219,8 @@ def test_a_crash_copy_that_will_not_reopen_warns_the_same_way_in_every_mode():
     """Inker let the exception through, Clay raised an error, three warned."""
     from types import SimpleNamespace
 
-    from warlock.studio import (
-        clay_mode,
-        inker_mode,
-        journal,
-        packwright_mode,
-        plotter_mode,
-        sirens_mode,
-    )
+    from warlock.studio import inker_mode, journal, packwright_mode, plotter_mode, sirens_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     for module in (clay_mode, inker_mode, packwright_mode, plotter_mode, sirens_mode):
         assert "journal.adopt_failed(ctx," in inspect.getsource(module), module.__name__
@@ -249,7 +232,8 @@ def test_a_crash_copy_that_will_not_reopen_warns_the_same_way_in_every_mode():
 def test_a_refusal_outside_inker_is_coalesced_and_carries_its_remedy():
     from types import SimpleNamespace
 
-    from warlock.studio import clay_mode, docmodes, plotter_mode
+    from warlock.studio import docmodes, plotter_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     calls: list = []
     ctx = SimpleNamespace(toast_once=lambda *a: calls.append(a))
@@ -272,14 +256,8 @@ def test_export_waits_for_a_save_in_every_document_mode():
     task thread was still serialising."""
     from types import SimpleNamespace
 
-    from warlock.studio import (
-        clay_mode,
-        docmodes,
-        inker_keys,
-        packwright_mode,
-        plotter_mode,
-        sirens_keys,
-    )
+    from warlock.studio import docmodes, inker_keys, packwright_mode, plotter_mode, sirens_keys
+    from warlock.studio.modes.clay import mode as clay_mode
 
     for module in (clay_mode, inker_keys, packwright_mode, plotter_mode, sirens_keys):
         assert "e" in module._MUTATING_CTRL, module.__name__
@@ -296,10 +274,13 @@ def test_export_waits_for_a_save_in_every_document_mode():
 
 
 def _pane_sources() -> dict[str, str]:
-    from warlock.studio import panes
+    """P5 moved Clay's panes out of the flat ``studio/panes/`` this used to
+    glob; ``tests._panes.pane_files`` keys every pane by its pre-restructure
+    name (``"clay_bridge.py"``, ...) regardless of which directory it lives
+    in now, so a sweep built on it keeps seeing a pane after it moves."""
+    from _panes import pane_files
 
-    root = Path(panes.__file__).parent
-    return {path.name: path.read_text(encoding="utf-8") for path in root.glob("*.py")}
+    return {name: path.read_text(encoding="utf-8") for name, path in pane_files().items()}
 
 
 def test_every_transport_is_the_one_helper():
@@ -475,9 +456,6 @@ def test_rename_is_a_double_click_in_every_list_that_renames():
 
 def test_the_five_modes_share_one_tab_bar_save_label_and_recents():
     from warlock.studio import (
-        clay_mode,
-        clay_state,
-        clay_viewport,
         docmodes,
         inker_mode,
         inker_state,
@@ -491,6 +469,9 @@ def test_the_five_modes_share_one_tab_bar_save_label_and_recents():
         sirens_mode,
         sirens_state,
     )
+    from warlock.studio.modes.clay import mode as clay_mode
+    from warlock.studio.modes.clay import state as clay_state
+    from warlock.studio.modes.clay.ui import viewport as clay_viewport
     from warlock.studio.panes import (
         inker_canvas,
         packwright_preview,

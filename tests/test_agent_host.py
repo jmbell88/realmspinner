@@ -100,8 +100,10 @@ from types import SimpleNamespace
 import pytest
 
 from warlock.mcp import pipe, rpc
-from warlock.studio import agent_character, agent_clay, agent_host, agent_transcript
+from warlock.studio import agent_character, agent_host
 from warlock.studio import tasks as tasks_mod
+from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from warlock.studio.modes.clay.agent import transcript as agent_transcript
 
 #: A generous but bounded ceiling for anything that talks over the real pipe
 #: in this file -- comfortably under pytest's 120 s default and comfortably
@@ -2621,7 +2623,7 @@ def test_switching_the_agent_server_off_never_drops_familiar_jobs(tmp_path) -> N
             assert release.wait(WAIT), "release never came"
             return {"content": [], "isError": False}
 
-        import warlock.studio.agent_clay as agent_clay_mod
+        import warlock.studio.modes.clay.agent.dispatch as agent_clay_mod
 
         original_call = agent_clay_mod.call
         agent_clay_mod.call = slow

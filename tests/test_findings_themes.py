@@ -67,7 +67,7 @@ def test_clay_greys_a_refused_op_with_the_gate_that_refused_it():
     the same way ``plotter_menu._layer_reason`` and
     ``inker_mode._no_document_reason`` are above."""
     from warlock.kernels.mesh import document as bd
-    from warlock.studio import clay_ops
+    from warlock.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     join = clay_ops.get("join")
@@ -483,16 +483,23 @@ def test_the_persistence_half_clamps_a_width_the_way_the_splitter_does():
 
 def test_no_pane_imports_the_frame_loop():
     """``modal_open`` and the version string both lived in ``main``, so the
-    tour and Home imported the shell for one helper each."""
-    from pathlib import Path
+    tour and Home imported the shell for one helper each.
 
-    import warlock.studio
+    Swept through ``tests._panes.pane_files`` rather than a bare
+    ``studio/panes/`` glob, so a pane that P5 (or the next mode fold) moves
+    under ``modes/<mode>/ui/panes/`` stays covered -- a plain relative-import
+    depth check (``from \\.+main import``) rather than the flat pane's own
+    ``from ..main import``, since a pane four packages deeper needs that many
+    more leading dots to reach the same module.
+    """
+    import re
 
-    panes = Path(warlock.studio.__file__).parent / "panes"
+    from _panes import pane_files
+
     offenders = [
-        path.name
-        for path in panes.glob("*.py")
-        if "from ..main import" in path.read_text(encoding="utf-8")
+        name
+        for name, path in pane_files().items()
+        if re.search(r"from \.+main import", path.read_text(encoding="utf-8"))
     ]
     assert offenders == []
 
@@ -696,7 +703,7 @@ def test_no_pane_paints_a_toggle_knob_with_a_literal():
     import inspect
 
     from warlock.studio import controls, widgets
-    from warlock.studio.panes import clay_hud
+    from warlock.studio.modes.clay.ui.panes import hud as clay_hud
 
     for module in (controls, widgets, clay_hud):
         assert "0xFFFFFF" not in inspect.getsource(module)

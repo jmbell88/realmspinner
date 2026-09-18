@@ -20,8 +20,9 @@ from warlock.familiar import retrieval
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import primitives as bp
 from warlock.service import familiar as svc_familiar
-from warlock.studio import clay_mode, docmodes
+from warlock.studio import docmodes
 from warlock.studio.assistant import ui as familiar_ui
+from warlock.studio.modes.clay import mode as clay_mode
 from warlock.studio.state import ManualState
 from warlock.studio.tasks import Done
 

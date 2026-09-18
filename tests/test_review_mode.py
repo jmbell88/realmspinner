@@ -188,7 +188,7 @@ def test_the_three_categories_still_partition_the_modes():
 
 
 def test_review_mode_imports_no_imgui():
-    """The clay_mode.py rule: state and logic here, drawing in main.py, so
+    """The studio/modes/clay/mode.py rule: state and logic here, drawing in main.py, so
     every one of these tests runs without a GL context."""
     source = Path(review_mode.__file__).read_text("utf-8")
     assert "import imgui" not in source

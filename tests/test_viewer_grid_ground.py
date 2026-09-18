@@ -195,7 +195,7 @@ def test_camera_far_is_clamped_to_at_least_the_grid_size_plus_distance(gl):
     ``ClayView.draw`` applies every frame."""
     from warlock.kernels.mesh import document as bd
     from warlock.kernels.mesh import primitives as bp
-    from warlock.studio import clay_view
+    from warlock.studio.modes.clay.ui import view as clay_view
 
     view = clay_view.ClayView(gl, None)
     try:
@@ -216,7 +216,7 @@ def test_render_png_restores_the_live_grid_span_and_divisions(gl):
     the identity ``Grid.set_span`` rebuilds on."""
     from warlock.kernels.mesh import document as bd
     from warlock.kernels.mesh import primitives as bp
-    from warlock.studio import clay_view
+    from warlock.studio.modes.clay.ui import view as clay_view
 
     view = clay_view.ClayView(gl, None)
     try:

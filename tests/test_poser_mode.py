@@ -1709,7 +1709,7 @@ def test_poser_has_clays_view_keys_under_the_same_ctrl(svc):
     2026-09-05 consistency pass: one chord, both viewports."""
     import pygame
 
-    from warlock.studio import clay_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     ctx = FakeCtx(svc)
     viewer = ctx.poser_viewer = _bound_viewer()

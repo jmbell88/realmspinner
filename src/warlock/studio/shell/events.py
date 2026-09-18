@@ -20,7 +20,7 @@ plan naming them for this module: neither is read by anything below, only by
 there instead -- see that module's own docstring for the same note.
 
 The shell names this module reaches are imported *inside* the methods that use
-them, ``clay_viewport.py``'s own rule restated: ``main`` imports
+them, ``studio/modes/clay/ui/viewport.py``'s own rule restated: ``main`` imports
 :class:`~.app.App` (which assembles this mixin) to build the class, so a
 module-scope import back from here would be a cycle.
 """
@@ -227,7 +227,7 @@ class EventsMixin:
         mid-orbit does not drop it -- which is exactly what ``_grab`` is for in
         the asset viewer.
         """
-        from .. import clay_mode
+        from ..modes.clay import mode as clay_mode
         from .frame import _takes_pointer
 
         tab = clay_mode.active(self.app_ctx)
@@ -551,7 +551,7 @@ class EventsMixin:
                     library.delete_asset(ctx, ctx.state.selected)
             return
         if ctx.state.mode == "clay":
-            from .. import clay_mode
+            from ..modes.clay import mode as clay_mode
 
             # First refusal, and unconditional for the reason Inker's is:
             # handle_key returns False with no document open, and letting that
@@ -673,8 +673,8 @@ class EventsMixin:
         if docmodes.pose_undo_key(self.viewer, event):
             return
         if event.key == pygame.K_RETURN and mods & pygame.KMOD_CTRL:
-            from ..modes.create.ui import settings_2d, settings_3d
             from ..modes.create.ui import stages as create_stages
+            from ..modes.create.ui.panes import settings_2d, settings_3d
 
             if create_stages.at(ctx.state, "reference"):
                 settings_2d.generate(ctx, ctx.state.form_2d)
@@ -778,8 +778,8 @@ class EventsMixin:
 
     def _on_drop(self, path: Path) -> None:
         from ..main import DROP_REFUSALS, DROPPABLE_IMAGES
-        from ..modes.create.ui import settings_3d
         from ..modes.create.ui import stages as create_stages
+        from ..modes.create.ui.panes import settings_3d
 
         ctx = self.app_ctx
         if ctx.state.mode == "inker":
@@ -788,7 +788,8 @@ class EventsMixin:
             inker_mode.open_path(ctx, path)
             return
         if ctx.state.mode == "clay":
-            from .. import clay_mode, clay_state
+            from ..modes.clay import mode as clay_mode
+            from ..modes.clay import state as clay_state
 
             if path.suffix.lower() == clay_state.WBLK_SUFFIX:
                 clay_mode.open_path(ctx, path)

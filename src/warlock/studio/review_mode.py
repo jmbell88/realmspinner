@@ -1,6 +1,6 @@
 """Review mode's controller: launching sweeps, and the verdict loop over them.
 
-The ``clay_mode.py`` pattern -- state and logic here, drawing in ``main.py``,
+The ``studio/modes/clay/mode.py`` pattern -- state and logic here, drawing in ``main.py``,
 no imgui anywhere under this import -- so the part that is easy to get wrong is
 assertable without a GL context.
 

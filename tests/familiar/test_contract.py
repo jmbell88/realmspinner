@@ -40,7 +40,7 @@ def test_the_frozen_clay_card_names_only_tools_the_live_door_accepts():
     card's own tool schemas mention must still exist on the live tool's
     schema -- a live registry is allowed to grow past what an old, frozen
     card describes, never to drop something that card still promises."""
-    from warlock.studio import agent_clay
+    from warlock.studio.modes.clay.agent import dispatch as agent_clay
 
     live_tools = {t.name: t for t in agent_clay.tools()}
     allowed = contract.allowed_calls("clay")

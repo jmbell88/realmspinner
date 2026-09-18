@@ -265,7 +265,7 @@ def test_adjusting_joints_rejects_a_partial_skeleton(svc, assets):
 #
 # Today the UI hides the Rig button when ``rig_templates``' own probe says bpy
 # is absent, so the only paths that reach ``create_rig``/``adjust_joints`` on
-# such a host are the MCP agent surface (``studio/agent_clay.py``, derived
+# such a host are the MCP agent surface (``studio/modes/clay/agent/dispatch.py``, derived
 # from a tool surface that has no notion of this greying) and a stale frame.
 # Both used to queue a job that could only die in
 # ``pipelines/blender_worker.py`` with exit code 3 minutes later, instead of

@@ -31,9 +31,9 @@ from imgui_bundle import imgui
 from ...kernels.mesh import primitives as bp
 from .. import controls, icons, mason_mode, mason_state, tool_palette, widgets
 from ..manual import render as manual_render
+from ..modes.clay.ui.panes.tools import PRIMITIVE_ICONS
 from ..tokens import sp
 from . import library, thumbs
-from .clay_tools import PRIMITIVE_ICONS
 
 COLUMNS = 4
 

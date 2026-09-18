@@ -27,7 +27,7 @@ import numpy as np
 from warlock.kernels.mesh import document as bd
 from warlock.kernels.mesh import elements as el
 from warlock.kernels.mesh import primitives as bp
-from warlock.studio._view_drag import DragOps, _ElementDrag
+from warlock.studio.modes.clay.ui._view_drag import DragOps, _ElementDrag
 
 
 class _FakeGPU:

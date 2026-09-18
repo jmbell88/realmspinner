@@ -1416,7 +1416,7 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
 
         inker_mode.open_job_reference(ctx, job)
     elif action == "clay":
-        from .. import clay_mode
+        from ..modes.clay import mode as clay_mode
 
         clay_mode.edit_asset_in_clay(ctx, job)
     elif action == "plotter":

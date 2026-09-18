@@ -8,7 +8,8 @@ it by then.
 
 from __future__ import annotations
 
-from warlock.studio import clay_ops, dialogs, inker_ops
+from warlock.studio import dialogs, inker_ops
+from warlock.studio.modes.clay import ops as clay_ops
 
 #: Every one-line ``"Export ..."`` string literal in a module. A label is one
 #: line by construction, so the newline excludes the docstrings that open with
@@ -87,14 +88,8 @@ def test_every_close_without_saving_goes_through_the_one_helper():
     Inker over [Close]."""
     from pathlib import Path
 
-    from warlock.studio import (
-        clay_mode,
-        docmodes,
-        inker_mode,
-        packwright_mode,
-        plotter_mode,
-        sirens_mode,
-    )
+    from warlock.studio import docmodes, inker_mode, packwright_mode, plotter_mode, sirens_mode
+    from warlock.studio.modes.clay import mode as clay_mode
 
     # The question moved into ``docmodes.close_tab`` on 2026-09-05, so the
     # five modes ask it by calling that and none spells it out any more.

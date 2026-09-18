@@ -147,7 +147,7 @@ def test_model_combo_resolves_the_recipe_through_the_memo_not_directly():
     so the pane function can be driven headlessly, same as this module's
     other tests drive ``_resolved_recipe`` directly.
     """
-    from warlock.studio.modes.create.ui import settings_2d as mod
+    from warlock.studio.modes.create.ui.panes import settings_2d as mod
 
     form = default_form_2d()
     create_assets.sync_legacy_fields(form)
