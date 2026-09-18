@@ -92,8 +92,10 @@ MODE_KEYS: frozenset[str] = frozenset(modes.KEYS)
 STRAY_MODE_FILES: dict[str, str] = {
     # RESTRUCTURE.md's "Mode-specific code is trapped in shared places" list,
     # verified by reading each file. ``ants.py`` and ``colorwheel.py`` left
-    # this table in P5 for ``modes/inker/ui/``.
-    "studio/layout_edit.py": "plotter",
+    # this table in P5 for ``modes/inker/ui/``. ``layout_edit.py`` sat here as
+    # Plotter's until P6, and was wrong: it edits the dock layout of every
+    # mode (``shell/events.py`` and ``shell/frame.py`` drive it; Plotter's
+    # menu is only its third caller), so it is shell.
     # Three files RESTRUCTURE.md's list named as mode-owned and this file
     # copied over, all three wrong -- checked by reading them, P4,
     # 2026-09-17. Each is now left to the L4 "shell-default" fall-through,
