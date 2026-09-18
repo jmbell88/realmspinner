@@ -1111,6 +1111,7 @@ def test_the_settings_pane_offers_the_repack_r_already_did() -> None:
     """``R`` set ``pack_dirty`` inline and nothing on screen said so. The
     button and the key are one verb now, not two that happen to agree."""
     from _panes import pane_files
+
     from warlock.studio.modes.packwright import mode as mode
 
     assert hasattr(mode, "request_repack")
