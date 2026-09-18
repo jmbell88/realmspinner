@@ -15,9 +15,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import controls, icons, packwright_mode, theme, tokens, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
+from ..... import controls, icons, theme, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as packwright_mode
 
 
 def draw(ctx: Any) -> None:

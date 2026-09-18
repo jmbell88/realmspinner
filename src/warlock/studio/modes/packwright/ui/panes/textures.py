@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import docmodes
+from ..... import docmodes
 
 PREFIX = "packwright_tex:"
 

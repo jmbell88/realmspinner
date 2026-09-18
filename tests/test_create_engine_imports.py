@@ -217,7 +217,7 @@ def test_the_engine_never_imports_a_sibling_mode():
         "warlock.studio.mason",
         "warlock.studio.inker",
         "warlock.studio.plotter",
-        "warlock.studio.packwright",
+        "warlock.studio.modes.packwright.engine",
         "warlock.studio.modes.sirens.engine",
         "warlock.studio.modes.sirens.mode",
         "warlock.studio.modes.muse.mode",

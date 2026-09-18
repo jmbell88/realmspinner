@@ -462,7 +462,7 @@ def _plotter_add(ctx: Any, job: Any) -> Exit | None:
 def _packwright_reopen(ctx: Any, job: Any) -> Exit | None:
     if _params(job).get("authored") != "packwright":
         return None
-    from . import packwright_mode
+    from .modes.packwright import mode as packwright_mode
 
     def door(ctx: Any, job: Any) -> None:
         packwright_mode.edit_asset_in_packwright(ctx, job)
@@ -473,7 +473,7 @@ def _packwright_reopen(ctx: Any, job: Any) -> Exit | None:
 
 
 def _packwright_add(ctx: Any, job: Any) -> Exit | None:
-    from . import packwright_mode
+    from .modes.packwright import mode as packwright_mode
 
     label = verbs.add_to("packwright", "as an atlas source")
     hint = "Use the generated grid as an atlas source."

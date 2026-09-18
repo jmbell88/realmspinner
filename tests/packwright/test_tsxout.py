@@ -11,10 +11,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.packwright import tsxout
-from warlock.studio.packwright.compose import compose
-from warlock.studio.packwright.layout import PackSettings, layout
-from warlock.studio.packwright.sources import Sprite
+from warlock.studio.modes.packwright.engine import tsxout
+from warlock.studio.modes.packwright.engine.compose import compose
+from warlock.studio.modes.packwright.engine.layout import PackSettings, layout
+from warlock.studio.modes.packwright.engine.sources import Sprite
 from warlock.studio.plotter import tsx as tsxmod
 
 

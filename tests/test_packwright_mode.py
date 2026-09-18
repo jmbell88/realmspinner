@@ -17,9 +17,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio import packwright_mode
-from warlock.studio.packwright import wpack
-from warlock.studio.packwright.sources import Sprite
+from warlock.studio.modes.packwright import mode as packwright_mode
+from warlock.studio.modes.packwright.engine import wpack
+from warlock.studio.modes.packwright.engine.sources import Sprite
 
 
 class FakeCtx:
@@ -342,7 +342,7 @@ def test_a_batch_add_that_trips_the_document_ceiling_refuses_instead_of_raising(
     ``main.py``'s generic task-landing handler, which toasted "That did not
     finish landing: packwright-add:..." and left the sprite that landed
     *before* the trip with ``pack_dirty`` still unset."""
-    from warlock.studio.packwright import wpack
+    from warlock.studio.modes.packwright.engine import wpack
 
     monkeypatch.setattr(wpack, "MAX_SOURCE_PIXELS", 10)
     ctx = FakeCtx()
@@ -608,7 +608,7 @@ def test_closing_a_packwright_tab_forgets_its_remembered_column_count():
     ``close_tab``'s own release callback already calls for the texture cache
     keyed the same way. Every atlas tab ever given an explicit column count
     used to leave one entry behind for the life of the process."""
-    from warlock.studio.panes import packwright_settings
+    from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -978,7 +978,7 @@ def test_dropping_several_files_adds_every_one(tmp_path):
     # The key is ``sources.file_key`` since 2026-09-04: the stem plus a digest
     # of where the file came from. It was ``str(path)``, which wrote the
     # author's directory layout into the shared ``.wpack``.
-    from warlock.studio.packwright.sources import file_key
+    from warlock.studio.modes.packwright.engine.sources import file_key
 
     assert [s.key for s in tab.doc.sprites()] == [file_key(p) for p in paths]
     assert not any(str(tmp_path) in s.key for s in tab.doc.sprites())
@@ -1100,28 +1100,21 @@ def test_no_pane_promises_a_pack_button_that_does_not_exist() -> None:
     -- run from the centre pane's pump -- and the only manual trigger was a
     bare ``R`` nothing on screen mentioned. An instruction naming a control
     that has never existed is worse than no instruction at all."""
-    import pathlib
+    from _panes import pane_files
 
-    from warlock.studio import panes
-
-    root = pathlib.Path(panes.__file__).parent
     for name in ("packwright_bridge.py", "packwright_items.py"):
-        source = (root / name).read_text(encoding="utf-8")
+        source = pane_files()[name].read_text(encoding="utf-8")
         assert "press Pack" not in source, name
 
 
 def test_the_settings_pane_offers_the_repack_r_already_did() -> None:
     """``R`` set ``pack_dirty`` inline and nothing on screen said so. The
     button and the key are one verb now, not two that happen to agree."""
-    import pathlib
-
-    from warlock.studio import packwright_mode as mode
-    from warlock.studio import panes
+    from _panes import pane_files
+    from warlock.studio.modes.packwright import mode as mode
 
     assert hasattr(mode, "request_repack")
-    source = (pathlib.Path(panes.__file__).parent / "packwright_settings.py").read_text(
-        encoding="utf-8"
-    )
+    source = pane_files()["packwright_settings.py"].read_text(encoding="utf-8")
     assert "Repack now" in source
     assert "packwright_mode.request_repack(" in source
 
@@ -1142,7 +1135,7 @@ def test_columns_offer_automatic_instead_of_a_magic_zero(monkeypatch):
     from _ui_context import imgui_context
 
     from warlock.studio import probe, widgets
-    from warlock.studio.panes import packwright_settings
+    from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
 
     with imgui_context(monkeypatch) as ui:
         ctx = FakeCtx()

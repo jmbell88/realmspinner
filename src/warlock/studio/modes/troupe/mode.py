@@ -1589,7 +1589,7 @@ def open_in_inker(ctx: Any) -> bool:
 def add_to_packwright(ctx: Any) -> bool:
     """The other way out, and the other existing bridge -- one sheet's cells
     into an atlas beside everything else being packed."""
-    from ... import packwright_mode
+    from ..packwright import mode as packwright_mode
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):

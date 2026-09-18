@@ -240,7 +240,7 @@ def test_linear_subdivide_shares_the_budget(monkeypatch):
 
 
 def _sprite(key: str):
-    from warlock.studio.packwright.sources import Sprite
+    from warlock.studio.modes.packwright.engine.sources import Sprite
 
     return Sprite(key=key, name=key, pixels=np.zeros((2, 2, 4), np.uint8))
 
@@ -248,7 +248,7 @@ def _sprite(key: str):
 def test_packwright_refuses_a_sprite_past_the_pack_ceiling(monkeypatch):
     """``MAX_SPRITES`` was asked at pack time, of a document that had already
     accepted them -- so the only way past a full pack was to delete some."""
-    from warlock.studio.packwright import document as pd
+    from warlock.studio.modes.packwright.engine import document as pd
 
     monkeypatch.setattr(pd, "MAX_SPRITES", 3)
     doc = pd.PackDoc()

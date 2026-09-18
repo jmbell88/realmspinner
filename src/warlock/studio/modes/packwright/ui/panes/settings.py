@@ -15,11 +15,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...kernels.sheet import MAX_ATLAS_PX
-from .. import controls, icons, packwright_mode, tokens, widgets
-from ..manual import render as manual_render
-from ..packwright.layout import MODES
-from ..tokens import sp
+from ......kernels.sheet import MAX_ATLAS_PX
+from ..... import controls, icons, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as packwright_mode
+from ...engine.layout import MODES
 
 SIZES = (256, 512, 1024, 2048, 4096, 8192)
 

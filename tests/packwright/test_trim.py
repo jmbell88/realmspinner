@@ -15,7 +15,7 @@ import pytest
 from PIL import Image
 
 from warlock.kernels import sheet as sheetlib
-from warlock.studio.packwright import trim
+from warlock.studio.modes.packwright.engine import trim
 
 
 def _blank(w: int = 12, h: int = 9) -> np.ndarray:

@@ -33,15 +33,13 @@ class PackwrightWorkspace:
         """
         from imgui_bundle import imgui
 
-        from . import layout as layout_mod
-        from .panes import (
-            packwright_bridge,
-            packwright_items,
-            packwright_preview,
-            packwright_settings,
-            packwright_sources,
-        )
-        from .shell.frame import _column_boundary, _split_column
+        from .... import layout as layout_mod
+        from ....shell.frame import _column_boundary, _split_column
+        from .panes import bridge as packwright_bridge
+        from .panes import items as packwright_items
+        from .panes import preview as packwright_preview
+        from .panes import settings as packwright_settings
+        from .panes import sources as packwright_sources
 
         ctx = self.app_ctx
         lay = self.layout

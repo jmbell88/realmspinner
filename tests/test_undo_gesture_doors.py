@@ -37,19 +37,15 @@ from warlock.studio.modes.clay.ui.panes import props as clay_props
 from warlock.studio.modes.inker.ui.panes import colors as inker_colors
 from warlock.studio.modes.inker.ui.panes import picker as inker_picker
 from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
+from warlock.studio.modes.packwright.ui.panes import sources as packwright_sources
 from warlock.studio.modes.sirens import mode as sirens_mode
 from warlock.studio.modes.sirens.ui.panes import effects as sirens_effects
 from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
 from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
 from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
 from warlock.studio.modes.sirens.ui.panes import transport as sirens_transport
-from warlock.studio.panes import (
-    mason_props,
-    packwright_settings,
-    packwright_sources,
-    plotter_layers,
-    plotter_tileset_editor,
-)
+from warlock.studio.panes import mason_props, plotter_layers, plotter_tileset_editor
 
 
 @dataclass

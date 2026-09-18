@@ -598,7 +598,7 @@ class EventsMixin:
             plotter_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "packwright":
-            from .. import packwright_mode
+            from ..modes.packwright import mode as packwright_mode
 
             # Unconditional for the reason the four above are: handle_key
             # returns False for every key it does not bind, and letting that
@@ -831,7 +831,8 @@ class EventsMixin:
                 )
             return
         if ctx.state.mode == "packwright":
-            from .. import packwright_mode, packwright_state
+            from ..modes.packwright import mode as packwright_mode
+            from ..modes.packwright import state as packwright_state
 
             suffix = path.suffix.lower()
             if suffix == packwright_state.WPACK_SUFFIX:

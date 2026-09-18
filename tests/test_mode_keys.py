@@ -285,9 +285,10 @@ def test_request_quit_no_longer_nests_its_guards_by_hand():
 
 
 def test_the_quit_chain_stops_at_the_first_cancel():
-    from warlock.studio import packwright_mode, plotter_mode
+    from warlock.studio import plotter_mode
     from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.packwright import mode as packwright_mode
     from warlock.studio.modes.poser import mode as poser_mode
     from warlock.studio.panes import pose_panel
 
@@ -463,7 +464,7 @@ def test_modal_open_sees_the_packwright_tileset_popup():
     import named -- still reached the app while the popup had the user's
     attention: the UX-08 shape ``modal_open``'s own docstring names the matte
     preview for."""
-    from warlock.studio.packwright_state import PackwrightState
+    from warlock.studio.modes.packwright.state import PackwrightState
 
     ctx = SimpleNamespace(
         confirms=dialogs.ConfirmQueue(),
@@ -510,7 +511,7 @@ _WORKSPACE_ARMS = {
     "review": "modes.review.mode",
     "inker": "modes.inker.mode",
     "plotter": "plotter_mode",
-    "packwright": "packwright_mode",
+    "packwright": "modes.packwright.mode",
     "troupe": "modes.troupe.mode",
     "muse": "modes.muse.mode",
     "sirens": "modes.sirens.mode",

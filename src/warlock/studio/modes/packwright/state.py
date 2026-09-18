@@ -28,8 +28,8 @@ from typing import Any
 
 import numpy as np
 
-from . import docmodes
-from .shell.paintview import PaintView
+from ... import docmodes
+from ...shell.paintview import PaintView
 
 WPACK_SUFFIX = ".wpack"
 

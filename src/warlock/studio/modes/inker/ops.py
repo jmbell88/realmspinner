@@ -1068,7 +1068,7 @@ register(
 
 
 def _packwright(ctx: Any, tab: Any) -> Any:
-    from ... import packwright_mode
+    from ..packwright import mode as packwright_mode
 
     return packwright_mode.add_inker_document(ctx, tab)
 

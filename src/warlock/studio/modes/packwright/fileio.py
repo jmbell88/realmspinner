@@ -30,9 +30,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..core.safeio import atomic, sizeguard
-from . import dialogs, docmodes, filetypes, packwright_state
-from .packwright_state import PackTab, active, ensure
+from ....core.safeio import atomic, sizeguard
+from ... import dialogs, docmodes, filetypes
+from . import state as packwright_state
+from .state import PackTab, active, ensure
 
 WPACK_FILTER = ["Warlock atlas (*.wpack)", "*.wpack"]
 # Label *and* patterns from ``filetypes``, which is the whole point: the label
@@ -70,7 +71,7 @@ def _within_ceiling(path: Path) -> Path:
     classifier. ``read_wpack``'s own decompressed-bytes ceiling is the second
     door, on what the archive claims rather than on what it weighs.
     """
-    from ..service.files import MAX_PACK_SOURCE_BYTES
+    from ....service.files import MAX_PACK_SOURCE_BYTES
 
     return sizeguard.within_ceiling(path, MAX_PACK_SOURCE_BYTES)
 
@@ -83,8 +84,8 @@ def _load(path: Path) -> dict[str, Any]:
     subject in front of a user who pressed Open. ``invalid_from`` puts one there
     and keeps the detail, which is the only part that says which file and why.
     """
-    from ..service.errors import invalid_from
-    from .packwright import wpack
+    from ....service.errors import invalid_from
+    from .engine import wpack
 
     path = _within_ceiling(Path(path))
     try:
@@ -147,7 +148,7 @@ def _write(files: dict[Path, bytes]) -> None:
 
 
 def save_to(ctx: Any, tab: PackTab, path: Path) -> None:
-    from .packwright import wpack
+    from .engine import wpack
 
     path = Path(path)
     head = tab.doc.history.head
@@ -170,7 +171,7 @@ def save(ctx: Any, tab: PackTab | None = None) -> None:
 
 
 def save_as(ctx: Any, tab: PackTab | None = None) -> None:
-    from .packwright import wpack
+    from .engine import wpack
 
     tab = tab or active(ctx)
     if tab is None or tab.saving:
@@ -227,8 +228,8 @@ def export_files(ctx: Any, tab: PackTab | None = None) -> None:
     refused up front instead, before the PNG or JSON are touched, naming the
     stale file and what to do about it.
     """
-    from .packwright import compose as composelib
-    from .packwright import texturepacker, tsxout
+    from .engine import compose as composelib
+    from .engine import texturepacker, tsxout
 
     tab = tab or active(ctx)
     if tab is None or tab.saving:
@@ -250,7 +251,7 @@ def export_files(ctx: Any, tab: PackTab | None = None) -> None:
     stem = Path(tab.title).stem or "atlas"
 
     def run() -> dict[str, Any] | None:
-        from ..service.errors import Invalid, invalid_from
+        from ....service.errors import Invalid, invalid_from
 
         path = dialogs.save_file("Export the atlas", f"{stem}.png", PNG_FILTER)
         if path is None:
@@ -304,8 +305,8 @@ def export_files(ctx: Any, tab: PackTab | None = None) -> None:
 
 def export_library(ctx: Any, tab: PackTab | None = None) -> None:
     """Mint an ordinary asset from the atlas, with ``pack.wpack`` beside it."""
-    from .packwright import compose as composelib
-    from .packwright import wpack
+    from .engine import compose as composelib
+    from .engine import wpack
 
     tab = tab or active(ctx)
     if tab is None or tab.saving:
@@ -334,8 +335,8 @@ def export_library(ctx: Any, tab: PackTab | None = None) -> None:
     title = tab.title
 
     def run() -> dict[str, Any]:
-        from ..service import files as svc_files
-        from ..service import jobs as svc_jobs
+        from ....service import files as svc_files
+        from ....service import jobs as svc_jobs
 
         png = composelib.png_bytes(atlas)
         source = wpack.snapshot_bytes(snap)
@@ -358,14 +359,14 @@ def edit_asset_in_packwright(ctx: Any, job: Any) -> None:
     log-pointer, which is the wrong answer to a question with a plain one. The
     other is the file being unreadable, which is ``_load``'s clause again.
     """
-    from ..service.errors import Invalid, invalid_from
+    from ....service.errors import Invalid, invalid_from
 
     job_id = job["id"] if isinstance(job, dict) else str(job)
     ensure(ctx)
 
     def run() -> dict[str, Any]:
-        from ..service import files as svc_files
-        from .packwright import wpack
+        from ....service import files as svc_files
+        from .engine import wpack
 
         path = Path(svc_files.packwright_source_path(ctx.svc, job_id))
         if not path.exists():

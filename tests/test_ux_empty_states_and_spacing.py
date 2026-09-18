@@ -13,8 +13,9 @@ import re
 
 from warlock.studio.modes.clay.ui import viewport as clay_viewport
 from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
 from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
-from warlock.studio.panes import inspector, packwright_preview, plotter_canvas
+from warlock.studio.panes import inspector, plotter_canvas
 
 EMPTY_SCREENS = (clay_viewport, inker_canvas, packwright_preview, plotter_canvas, sirens_patterns)
 

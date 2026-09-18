@@ -43,7 +43,7 @@ FILTERED = (
     # Packwright's *items* pane is deliberately not here -- it is a result list
     # -- and neither is Troupe's cast, which is below list_filter's own
     # self-hiding threshold.
-    "panes/packwright_sources.py",
+    "modes/packwright/ui/panes/sources.py",
     # Plotter's tileset tab strip (W4.4). The one filtered list whose rows are
     # *tabs*: the count passed to ``no_matches`` deliberately excludes the set
     # in hand, which is never filtered out, so a query matching nothing still

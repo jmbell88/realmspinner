@@ -27,8 +27,6 @@ from warlock.studio import (
     filetypes,
     fonts,
     main,
-    packwright_io,
-    packwright_mode,
     palette,
     plotter_io,
     plotter_mode,
@@ -40,6 +38,8 @@ from warlock.studio import (
 from warlock.studio import state as state_mod
 from warlock.studio.modes.clay import mode as clay_mode
 from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.packwright import fileio as packwright_io
+from warlock.studio.modes.packwright import mode as packwright_mode
 from warlock.studio.modes.review import mode as review_mode
 from warlock.studio.modes.sirens import fileio as sirens_io
 from warlock.studio.modes.sirens import mode as sirens_mode

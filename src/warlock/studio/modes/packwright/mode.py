@@ -28,7 +28,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from . import dialogs, docmodes, journal, packwright_io, packwright_state
+from ... import dialogs, docmodes, journal
+from ...state import set_mode
+from . import fileio as packwright_io
+from . import state as packwright_state
 
 # ``ensure`` and ``active`` live in :mod:`.packwright_state` -- they touch
 # nothing but ``ctx.state.packwright`` -- and the file layer lives in
@@ -37,7 +40,7 @@ from . import dialogs, docmodes, journal, packwright_io, packwright_state
 # ``packwright_mode.save(ctx)``: a wrapper would be a second object where the
 # callers reach for one, and a wiring test parametrizes over ``IMAGE_FILTER``
 # by identity besides.
-from .packwright_io import (  # noqa: F401
+from .fileio import (  # noqa: F401
     IMAGE_FILTER,
     PNG_FILTER,
     WPACK_FILTER,
@@ -53,13 +56,12 @@ from .packwright_io import (  # noqa: F401
     save_as,
     save_to,
 )
-from .packwright_state import (  # noqa: F401
+from .state import (  # noqa: F401
     PackTab,
     PackwrightState,
     active,
     ensure,
 )
-from .state import set_mode
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +97,7 @@ def adopt(ctx: Any, doc: Any, *, path: Path | None = None, title: str | None = N
 
 
 def new_document(ctx: Any) -> PackTab:
-    from .packwright.document import PackDoc
+    from .engine.document import PackDoc
 
     return adopt(ctx, PackDoc(), title="Untitled")
 
@@ -111,7 +113,7 @@ def ask_add_sources(ctx: Any) -> None:
         return
     uid = tab.uid
 
-    from .packwright.sources import file_key
+    from .engine.sources import file_key
 
     def run() -> dict[str, Any] | None:
         path = dialogs.open_file("Add an image", IMAGE_FILTER)
@@ -167,8 +169,8 @@ def add_rendered_sheet(ctx: Any, job_id: str, sheet_id: str, *, pixel: bool = Fa
         import numpy as np
         from PIL import Image
 
-        from ..service import sheets as svc_sheets
-        from .modes.inker.mode import sheet_grid
+        from ....service import sheets as svc_sheets
+        from ..inker.mode import sheet_grid
 
         if pixel:
             record = svc_sheets.get_pixel_sheet(ctx.svc, job_id, sheet_id)
@@ -212,7 +214,7 @@ def import_tileset(ctx: Any) -> bool:
     rather than from whatever is active; this now does the same, from
     ``PackwrightState.tileset_import_uid``.
     """
-    from .packwright.sources import dedup_tiles, sprites_from_tileset
+    from .engine.sources import dedup_tiles, sprites_from_tileset
 
     state = ensure(ctx)
     if state.tileset_import is None:
@@ -280,8 +282,8 @@ def request_tileset_preview(
     computation for the *current* key is already in flight the key-derived
     task key makes the resubmit a no-op the runner refuses.
     """
-    from .packwright.layout import MAX_SPRITES
-    from .packwright.sources import dedup_tiles, sprites_from_tileset, tileset_occupancy
+    from .engine.layout import MAX_SPRITES
+    from .engine.sources import dedup_tiles, sprites_from_tileset, tileset_occupancy
 
     key = tileset_preview_key(
         pixels, state.tileset_cell, state.tileset_dedup, state.tileset_dedup_flips
@@ -338,7 +340,7 @@ def add_source_paths(ctx: Any, paths: list[Path]) -> None:
         # ``add_job_source``'s rule.
         tab = new_document(ctx)
         set_mode(ctx.state, "packwright")
-    from .packwright.sources import file_key
+    from .engine.sources import file_key
 
     wanted = [Path(p) for p in paths]
     uid = tab.uid
@@ -378,7 +380,7 @@ def add_job_source(ctx: Any, job: Any) -> None:
     uid = tab.uid
 
     def run() -> dict[str, Any]:
-        from ..service import files as svc_files
+        from ....service import files as svc_files
 
         path = svc_files.job_dir_file(ctx.svc, job_id, "input.png")
         return {"sprites": [(f"job:{job_id}", str(name), _decode(Path(path)))], "uid": uid}
@@ -398,7 +400,7 @@ def add_inker_document(ctx: Any, inker_tab: Any) -> None:
     doing to the same dicts. That is the ``inker.sheetout`` split, and this is
     the same boundary in a different mode.
     """
-    from .packwright.sources import sprites_from_document
+    from .engine.sources import sprites_from_document
 
     tab = active(ctx)
     if tab is None:
@@ -607,8 +609,8 @@ def request_pack(ctx: Any, tab: PackTab | None = None) -> None:
         tab.layout, tab.atlas, tab.pack_dirty, tab.pack_error = None, None, False, ""
         return
 
-    from .packwright import compose as composelib
-    from .packwright import layout as laylib
+    from .engine import compose as composelib
+    from .engine import layout as laylib
 
     # The snapshot: frozen sprites and a frozen settings object, so the task
     # reads nothing the frame thread can be writing.
@@ -617,7 +619,7 @@ def request_pack(ctx: Any, tab: PackTab | None = None) -> None:
     uid = tab.uid
 
     def run() -> dict[str, Any]:
-        from ..service.errors import invalid_from
+        from ....service.errors import invalid_from
 
         try:
             result = laylib.layout(sprites, settings)
@@ -761,7 +763,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # an add landing while a pack was in flight used to clear it here --
         # the preview then read "not packing" about a pack still running.
         if isinstance(result, dict):
-            from .packwright.sources import sprite_from_image
+            from .engine.sources import sprite_from_image
 
             sprites = [
                 sprite_from_image(pixels, key=key_, name=display)
@@ -845,7 +847,9 @@ def close_tab(ctx: Any, uid: str) -> None:
     state = ensure(ctx)
 
     def release(_tab: PackTab) -> None:
-        from .panes import packwright_settings, packwright_sources, packwright_textures
+        from .ui.panes import settings as packwright_settings
+        from .ui.panes import sources as packwright_sources
+        from .ui.panes import textures as packwright_textures
 
         packwright_textures.release_doc(ctx, uid)
         # The 2026-09-08 audit (finding packwright-03): ``_last_columns`` is a
@@ -872,7 +876,7 @@ def close_tab(ctx: Any, uid: str) -> None:
 
 
 def release_all(ctx: Any) -> None:
-    from .panes import packwright_textures
+    from .ui.panes import textures as packwright_textures
 
     packwright_textures.release_all(ctx)
 
@@ -1025,7 +1029,7 @@ def _journal_slots(ctx: Any) -> list[Any]:
 
 
 def _journal_encode(tab: Any) -> bytes:
-    from .packwright import wpack
+    from .engine import wpack
 
     return wpack.wpack_bytes(tab.doc)
 
@@ -1058,7 +1062,7 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any] | None:
     one sentence every provider says (``journal.adopt_failed``), where a raise
     here would arrive as an *error* toast no other mode's copy raises.
     """
-    from .packwright import wpack
+    from .engine import wpack
 
     try:
         doc = wpack.read_wpack(packwright_io._within_ceiling(Path(path)).read_bytes())

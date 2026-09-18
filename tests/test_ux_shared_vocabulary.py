@@ -17,12 +17,12 @@ from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
 from warlock.studio.modes.inker import ops as inker_ops
 from warlock.studio.modes.inker.ui.panes import context as inker_context
 from warlock.studio.modes.muse.ui.panes import results as muse_results
+from warlock.studio.modes.packwright.ui.panes import bridge as packwright_bridge
 from warlock.studio.modes.troupe.ui.panes import bridge as troupe_bridge
 from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
 from warlock.studio.panes import (
     inspector,
     library,
-    packwright_bridge,
     plotter_layers,
     plotter_menu,
     sheet_panel,

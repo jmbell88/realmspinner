@@ -772,8 +772,8 @@ def _handoffs(ctx: Any, job_id: str, sheet_id: str, *, pixel: bool = False) -> N
     one, and Packwright's tileset popup already asks for a cell size. Neither
     button carries a new algorithm -- both are wiring.
     """
-    from .. import packwright_mode
     from ..modes.inker import mode as inker_mode
+    from ..modes.packwright import mode as packwright_mode
 
     suffix = "pixel" if pixel else "render"
     if controls.small_button(f"{verbs.open_in('inker')}##ink-{suffix}"):

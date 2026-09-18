@@ -347,7 +347,7 @@ def test_packwright_cell_pair_matches_inker_bridges_fixed_shape():
     same line; moved above, to agree with ``inker_bridge._pair``'s fix landing
     the same day (that file is owned by another agent -- not asserted here,
     only that this file's own half of the agreement is done)."""
-    from warlock.studio.panes import packwright_sources
+    from warlock.studio.modes.packwright.ui.panes import sources as packwright_sources
 
     source = Path(packwright_sources.__file__).read_text(encoding="utf-8")
     body = source[source.index("def _cell_pair") : source.index("def _tileset_popup")]

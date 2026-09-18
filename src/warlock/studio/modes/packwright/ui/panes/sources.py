@@ -15,9 +15,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import controls, docmodes, icons, packwright_mode, tokens, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
+from ..... import controls, docmodes, icons, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as packwright_mode
 
 
 def draw(ctx: Any) -> None:
@@ -122,7 +123,7 @@ def _occupancy_for(pixels: Any, tile: tuple[int, int]) -> Any:
     own output, cached until either input moves. Returns ``None`` for a cell
     size ``tileset_occupancy`` refuses (below 1 x 1)."""
     global _slice_grid_cache
-    from ..packwright.sources import tileset_occupancy
+    from ...engine.sources import tileset_occupancy
 
     cell = (int(tile[0]), int(tile[1]))
     key = (id(pixels), cell)
@@ -243,8 +244,8 @@ def _slice_preview(ctx: Any, pixels: Any, tile: tuple[int, int]) -> None:
     """
     from imgui_bundle import imgui
 
-    from .. import theme
-    from ..tokens import sp
+    from ..... import theme
+    from .....tokens import sp
 
     grid = _occupancy_for(pixels, tile)
     if grid is None or grid.shape[0] == 0 or grid.shape[1] == 0:
@@ -312,7 +313,7 @@ def _cell_pair(value: tuple[int, int]) -> tuple[int, int]:
     day so the two stay in agreement)."""
     from imgui_bundle import imgui
 
-    from ..tokens import sp
+    from .....tokens import sp
 
     widgets.field_label("tile size")
     imgui.set_next_item_width(sp(70))
@@ -326,9 +327,9 @@ def _cell_pair(value: tuple[int, int]) -> tuple[int, int]:
 def _tileset_popup(ctx: Any, state: Any) -> None:
     from imgui_bundle import imgui
 
-    from .. import theme
-    from ..packwright.layout import MAX_SPRITES
-    from ..tokens import sp
+    from ..... import theme
+    from .....tokens import sp
+    from ...engine.layout import MAX_SPRITES
 
     if not imgui.begin_popup(TILESET_POPUP):
         # imgui closes a popup on a click outside, and the sheet is a megabyte
@@ -445,7 +446,7 @@ def _pivot_row(ctx: Any, tab: Any, source: Any) -> None:
     """
     from imgui_bundle import imgui
 
-    from ..tokens import sp
+    from .....tokens import sp
 
     sprite = source.sprite
     pivot = sprite.meta.pivot

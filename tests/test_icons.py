@@ -177,7 +177,10 @@ def test_no_pane_draws_a_raw_unicode_checkmark():
 _CONVERTED_TO_DOWNLOAD = (
     (pane_files()["inker_tiles.py"], '{icons.DOWNLOAD} Export tileset...'),
     (STUDIO_ROOT / "component_gallery.py", 'icon=icons.DOWNLOAD'),
-    (STUDIO_ROOT / "panes" / "packwright_bridge.py", '{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}'),
+    (
+        STUDIO_ROOT / "modes/packwright/ui/panes/bridge.py",
+        '{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}',
+    ),
     (STUDIO_ROOT / "panes" / "plotter_bridge.py", '{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}'),
 )
 

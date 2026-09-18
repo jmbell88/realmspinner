@@ -100,10 +100,10 @@ DOC_MODES: tuple[ModeManifest, ...] = (
     ModeManifest("plotter", "plotter_mode", "plotter", "Export .tmx", "plotter_mode"),
     ModeManifest(
         "packwright",
-        "packwright_mode",
+        "modes.packwright.mode",
         "packwright",
         "Export atlas + JSON",
-        "packwright_mode",
+        "modes.packwright.mode",
     ),
     # Named for the folder rather than for a file: this is the one export in
     # the app that writes a family (song.wav, stems/, sfx/) into a directory

@@ -23,10 +23,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import packwright
+from warlock.studio.modes.packwright import engine as packwright
 
 ENGINE = Path(packwright.__file__).parent
-PACKAGE = "warlock.studio.packwright"
+PACKAGE = "warlock.studio.modes.packwright.engine"
 
 OUTWARD_IMPORTS = {
     # The shared bounded zip reader. One rule for four container doors, and a
@@ -156,7 +156,9 @@ def test_only_layout_reaches_into_kernels_and_only_for_the_sheet_module():
         alias.name
         for path in _modules()
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.ImportFrom) and node.level == 3 and node.module == "kernels"
+        # Any depth: the engine moved from studio/packwright/ (three dots to
+        # warlock) to studio/modes/packwright/engine/ (five) in P6.
+        if isinstance(node, ast.ImportFrom) and node.level > 0 and node.module == "kernels"
         for alias in node.names
     }
     assert reached == {"sheet"}
@@ -178,7 +180,7 @@ def test_pillow_is_never_imported_at_module_scope():
 
 
 def test_every_module_imports():
-    from warlock.studio.packwright import (  # noqa: F401
+    from warlock.studio.modes.packwright.engine import (  # noqa: F401
         compose,
         document,
         layout,

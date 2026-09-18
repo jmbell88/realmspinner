@@ -718,7 +718,7 @@ def _sirens_new(ctx: Any) -> None:
 
 
 def _packwright_add(ctx: Any) -> None:
-    from .. import packwright_mode
+    from ..modes.packwright import mode as packwright_mode
 
     packwright_mode.ask_add_sources(ctx)
 

@@ -123,7 +123,7 @@ def test_manual_chapter_12_places_the_count_control_in_the_command_bar():
 
 
 def test_manual_add_to_packwright_from_troupe_describes_the_tileset_popup_step():
-    packwright_mode = (STUDIO / "packwright_mode.py").read_text(encoding="utf-8")
+    packwright_mode = (STUDIO / "modes/packwright/mode.py").read_text(encoding="utf-8")
     assert "def add_rendered_sheet(" in packwright_mode
     assert "tileset_import" in packwright_mode
 

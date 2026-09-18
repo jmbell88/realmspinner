@@ -9,7 +9,7 @@ interesting next to the settings that produce it. (The basename is
 
 The grid's geometry is the load-bearing part. It is spelled as Tiled's margin
 and spacing -- outer border and gutter both one ``padding`` -- because that is
-what lets :mod:`~warlock.studio.packwright.tsxout` hand the numbers straight to
+what lets :mod:`~warlock.studio.modes.packwright.engine.tsxout` hand the numbers straight to
 ``tilegrid.tileset.Tileset`` instead of approximating them.
 """
 
@@ -19,9 +19,9 @@ import numpy as np
 import pytest
 
 from warlock.kernels import sheet as sheetlib
-from warlock.studio.packwright import layout as lay
-from warlock.studio.packwright.layout import PackSettings, next_pot
-from warlock.studio.packwright.sources import Sprite
+from warlock.studio.modes.packwright.engine import layout as lay
+from warlock.studio.modes.packwright.engine.layout import PackSettings, next_pot
+from warlock.studio.modes.packwright.engine.sources import Sprite
 
 
 def _sprite(key: str, w: int, h: int, *, blank: bool = False) -> Sprite:

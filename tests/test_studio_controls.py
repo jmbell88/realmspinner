@@ -301,7 +301,7 @@ def test_major_panes_have_roles_and_no_production_pane_child_calls():
         root / "modes/muse/ui/workspace.py",
         root / "modes/sirens/ui/workspace.py",
         root / "modes/troupe/ui/workspace.py",
-        root / "packwright_workspace.py",
+        root / "modes/packwright/ui/workspace.py",
     ]
     for path in sources:
         assert ".pane_child(" not in path.read_text(encoding="utf-8"), path.name

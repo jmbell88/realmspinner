@@ -260,7 +260,8 @@ def test_every_mode_reaches_for_the_shared_helpers():
     from warlock.studio.modes.inker import mode as inker_mode
     from warlock.studio.modes.inker import state as inker_state
     from warlock.studio.modes.inker.ui.panes import textures as inker_textures
-    from warlock.studio.panes import packwright_textures, plotter_textures
+    from warlock.studio.modes.packwright.ui.panes import textures as packwright_textures
+    from warlock.studio.panes import plotter_textures
 
     assert clay_mode._start is docmodes.start_save
     assert inker_mode._start is docmodes.start_save
@@ -434,7 +435,7 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
         "modes.clay.mode",
         "mason_mode",
         "plotter_mode",
-        "packwright_mode",
+        "modes.packwright.mode",
         "modes.sirens.mode",
         "modes.inker.mode",
     }

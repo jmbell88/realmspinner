@@ -505,7 +505,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.shell.app", "warlock.studio.modes.inker.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.mason_viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.muse.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.packwright_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.packwright.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.plotter_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.modes.poser.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.review.ui.workspace"),
@@ -536,9 +536,9 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
 # texture caches, which P3 and P7 already fix" (RESTRUCTURE.md's own words).
 # Packwright's atlas writers reuse Plotter's PNG/TSX writers directly today.
 _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.packwright.compose", "warlock.studio.plotter.pngio"),
-    ("warlock.studio.packwright.tsxout", "warlock.studio.plotter.tsx"),
-    ("warlock.studio.packwright.wpack", "warlock.studio.plotter.pngio"),
+    ("warlock.studio.modes.packwright.engine.compose", "warlock.studio.plotter.pngio"),
+    ("warlock.studio.modes.packwright.engine.tsxout", "warlock.studio.plotter.tsx"),
+    ("warlock.studio.modes.packwright.engine.wpack", "warlock.studio.plotter.pngio"),
 })
 
 # P4 -- the god-file split. The group this comment used to head is empty and

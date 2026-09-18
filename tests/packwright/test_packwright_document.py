@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.packwright.document import PackDoc
-from warlock.studio.packwright.sources import Sprite
+from warlock.studio.modes.packwright.engine.document import PackDoc
+from warlock.studio.modes.packwright.engine.sources import Sprite
 
 
 def test_a_document_with_a_source_past_max_source_pixels_is_refused_at_add_not_only_on_reopen(
@@ -30,7 +30,7 @@ def test_a_document_with_a_source_past_max_source_pixels_is_refused_at_add_not_o
     breaks the reopenable-exports contract (INVARIANTS:215) with no help from
     a hand-edited file at all.
     """
-    from warlock.studio.packwright import wpack
+    from warlock.studio.modes.packwright.engine import wpack
 
     # The audit's own numbers: one hair past the real ceiling, refused right
     # here rather than written first.
@@ -64,7 +64,7 @@ def test_a_document_of_many_near_ceiling_sprites_is_refused_before_the_aggregate
     had no ceiling on their total at all. Exercised at a monkeypatched
     document budget so this proves refusal without allocating anywhere near
     the real one (8192 squared)."""
-    from warlock.studio.packwright import wpack
+    from warlock.studio.modes.packwright.engine import wpack
 
     monkeypatch.setattr(wpack, "MAX_DOCUMENT_PIXELS", 100)
     doc = PackDoc()

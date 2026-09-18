@@ -15,8 +15,11 @@ from pathlib import Path
 import pytest
 from test_packwright_mode import FakeCtx, _Done, _pack, _tab
 
-from warlock.studio import docmodes, packwright_io, packwright_mode, packwright_state
-from warlock.studio.packwright import wpack
+from warlock.studio import docmodes
+from warlock.studio.modes.packwright import fileio as packwright_io
+from warlock.studio.modes.packwright import mode as packwright_mode
+from warlock.studio.modes.packwright import state as packwright_state
+from warlock.studio.modes.packwright.engine import wpack
 
 
 def test_the_mode_re_exports_the_io_layer():
@@ -92,7 +95,7 @@ def test_an_export_that_cannot_encode_writes_nothing(tmp_path, monkeypatch):
     this passes: the PNG used to be on disk on top of the previous export by the
     time the sidecar raised."""
     from warlock.studio import dialogs
-    from warlock.studio.packwright import texturepacker
+    from warlock.studio.modes.packwright.engine import texturepacker
 
     ctx = FakeCtx()
     tab = _tab(ctx)

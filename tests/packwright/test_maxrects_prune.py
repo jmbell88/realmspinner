@@ -17,9 +17,16 @@ from __future__ import annotations
 import random
 from bisect import bisect_right
 
-from warlock.studio.packwright import maxrects
-from warlock.studio.packwright.layout import next_pot
-from warlock.studio.packwright.maxrects import Placement, Rect, _contains, _fits, _score, _split
+from warlock.studio.modes.packwright.engine import maxrects
+from warlock.studio.modes.packwright.engine.layout import next_pot
+from warlock.studio.modes.packwright.engine.maxrects import (
+    Placement,
+    Rect,
+    _contains,
+    _fits,
+    _score,
+    _split,
+)
 
 
 def _reference(free: list[Rect]) -> list[Rect]:

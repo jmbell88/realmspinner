@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..plotter.pngio import png_bytes as png_bytes  # noqa: PLC0414
+from ....plotter.pngio import png_bytes as png_bytes  # noqa: PLC0414
 from .layout import Frame, Layout
 from .sources import Sprite
 

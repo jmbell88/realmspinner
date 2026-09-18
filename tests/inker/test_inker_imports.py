@@ -168,7 +168,7 @@ LAZY_ONLY = {"PIL"}
 SIBLING_PACKAGES = (
     "warlock.kernels.mesh",
     "warlock.studio.plotter",
-    "warlock.studio.packwright",
+    "warlock.studio.modes.packwright.engine",
 )
 
 

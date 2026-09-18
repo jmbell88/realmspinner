@@ -35,7 +35,8 @@ def _pane_sources() -> dict[str, str]:
 def test_no_pane_answers_an_empty_viewport_with_a_muted_sentence():
     """Packwright's preview said "Add a sprite to see the atlas." in muted
     body text where the other nine viewports drew the icon-title-hint form."""
-    from warlock.studio.panes import overlay, packwright_preview
+    from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
+    from warlock.studio.panes import overlay
 
     source = inspect.getsource(packwright_preview)
     assert "Add a sprite to see the atlas." not in source
@@ -116,7 +117,7 @@ def test_action_for_binds_the_ctx_and_is_none_where_there_is_nothing_to_do():
 
 def test_the_packwright_button_opens_the_picker_that_exists():
     """``ask_add_image`` does not exist; ``ask_add_sources`` is the picker."""
-    from warlock.studio import packwright_mode
+    from warlock.studio.modes.packwright import mode as packwright_mode
     from warlock.studio.panes import overlay
 
     assert callable(packwright_mode.ask_add_sources)

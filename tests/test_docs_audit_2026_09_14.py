@@ -185,7 +185,7 @@ def test_manual_style_lora_sdxl_only_claim_does_not_contradict_the_flux2_entry()
 
 
 def test_manual_packwright_chapter_names_the_document_wide_pixel_ceiling():
-    from warlock.studio.packwright import wpack
+    from warlock.studio.modes.packwright.engine import wpack
 
     width = int(round(wpack.MAX_DOCUMENT_PIXELS**0.5))
     assert width * width == wpack.MAX_DOCUMENT_PIXELS

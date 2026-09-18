@@ -49,18 +49,18 @@ from test_sirens_mode import _tab as sirens_tab
 from warlock.kernels import pixel as inker
 from warlock.kernels.mesh import document as clay_document
 from warlock.kernels.mesh import serialize as clay_serialize
-from warlock.studio import packwright_io
 from warlock.studio.modes.clay import mode as clay_mode
 from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.modes.inker.state import InkerDoc
 from warlock.studio.modes.muse import fileio as muse_io
 from warlock.studio.modes.muse import mode as muse_mode
 from warlock.studio.modes.muse import state as muse_state
+from warlock.studio.modes.packwright import fileio as packwright_io
+from warlock.studio.modes.packwright.engine import wpack
+from warlock.studio.modes.packwright.engine.document import PackDoc
+from warlock.studio.modes.packwright.engine.sources import Sprite
 from warlock.studio.modes.sirens.engine import wsng
 from warlock.studio.modes.troupe import mode as troupe_mode
-from warlock.studio.packwright import wpack
-from warlock.studio.packwright.document import PackDoc
-from warlock.studio.packwright.sources import Sprite
 from warlock.studio.viewer_embed import Viewer
 
 WORKER = "warlock-task-test"
@@ -476,7 +476,7 @@ def test_packwright_crash_recovery_reads_on_a_task_and_adopts_on_landing():
     from ``draw``. Clay's and Inker's providers already deferred; this one is
     now the same shape.
     """
-    from warlock.studio import packwright_mode
+    from warlock.studio.modes.packwright import mode as packwright_mode
 
     adopt = inspect.getsource(packwright_mode._journal_adopt)
     assert "submit" in adopt, "the recovery read must be handed to a task"

@@ -16,10 +16,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .. import docmodes, icons, packwright_mode, theme, widgets
-from ..shell import paintview
-from ..tokens import sp
-from . import overlay, packwright_textures
+from ..... import docmodes, icons, theme, widgets
+from .....panes import overlay
+from .....shell import paintview
+from .....tokens import sp
+from ... import mode as packwright_mode
+from . import textures as packwright_textures
 
 #: This pane's square, in design pixels. ``widgets.CHECKER``'s value, named
 #: here because the preview has always had one and a call site that spelled
@@ -216,7 +218,7 @@ def _pivot_mark(draw_list: Any, view: Any, origin, frame: Any, colour: int) -> N
 def _events(state: Any, tab: Any, origin, hovered: bool, region) -> None:
     from imgui_bundle import imgui
 
-    from .. import imgui_backend
+    from ..... import imgui_backend
 
     io = imgui.get_io()
     view = tab.view

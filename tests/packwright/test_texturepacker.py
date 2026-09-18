@@ -16,9 +16,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.studio.packwright import texturepacker
-from warlock.studio.packwright.layout import PackSettings, layout
-from warlock.studio.packwright.sources import Sprite
+from warlock.studio.modes.packwright.engine import texturepacker
+from warlock.studio.modes.packwright.engine.layout import PackSettings, layout
+from warlock.studio.modes.packwright.engine.sources import Sprite
 
 
 def _sprite(key: str, w: int, h: int, *, mark=None) -> Sprite:

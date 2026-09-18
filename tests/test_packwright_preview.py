@@ -1,6 +1,6 @@
 """The preview pane's shrink-to-fit note.
 
-Pure-function tests: :func:`~warlock.studio.panes.packwright_preview._area_note`
+Pure-function tests: :func:`~warlock.studio.modes.packwright.ui.panes.preview._area_note`
 has no imgui in it precisely so it can be checked here rather than only through
 the smoke suite that draws it -- the ``compose.py``/``layout.py`` split applied
 to a pane.
@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from test_packwright_mode import FakeCtx, _pack, _tab
 
-from warlock.studio.panes import packwright_preview
+from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
 
 
 def test_a_sparse_tileset_import_shrinks_at_default_settings():
     """The manual's promise, measured: a mostly-empty source sheet -- an 8x8
     grid of 32x32 tiles with only 10 kept -- re-packs into a visibly smaller
     atlas at the defaults (grid, power-of-two, padding 2, trim on)."""
-    from warlock.studio.packwright.sources import sprites_from_tileset
+    from warlock.studio.modes.packwright.engine.sources import sprites_from_tileset
 
     ctx = FakeCtx()
     tab = _tab(ctx, sources=0)  # a fresh document: PackSettings() defaults

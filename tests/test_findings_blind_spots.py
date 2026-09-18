@@ -225,7 +225,7 @@ def test_a_packed_item_row_is_its_own_function():
     something to name."""
     import inspect
 
-    from warlock.studio.panes import packwright_items
+    from warlock.studio.modes.packwright.ui.panes import items as packwright_items
 
     assert callable(packwright_items._item_row)
     assert "ListClipper" in inspect.getsource(packwright_items.draw)

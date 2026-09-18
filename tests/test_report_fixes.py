@@ -103,7 +103,7 @@ def test_every_container_door_reads_through_the_bounded_reader():
     doors = [
         Path("src/warlock/kernels/pixel/ora.py"),
         Path("src/warlock/kernels/mesh/serialize.py"),
-        Path("src/warlock/studio/packwright/wpack.py"),
+        Path("src/warlock/studio/modes/packwright/engine/wpack.py"),
         Path("src/warlock/studio/plotter/wmap.py"),
     ]
     for door in doors:

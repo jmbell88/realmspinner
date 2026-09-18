@@ -4304,18 +4304,16 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
 def test_packwright_builds_empty_and_with_an_atlas(app_ctx, imgui_ctx):
     from imgui_bundle import imgui
 
-    from warlock.studio import packwright_mode
-    from warlock.studio.packwright import compose as composelib
-    from warlock.studio.packwright import layout as laylib
-    from warlock.studio.packwright.sources import Sprite
-    from warlock.studio.panes import (
-        packwright_bridge,
-        packwright_items,
-        packwright_preview,
-        packwright_settings,
-        packwright_sources,
-        packwright_textures,
-    )
+    from warlock.studio.modes.packwright import mode as packwright_mode
+    from warlock.studio.modes.packwright.engine import compose as composelib
+    from warlock.studio.modes.packwright.engine import layout as laylib
+    from warlock.studio.modes.packwright.engine.sources import Sprite
+    from warlock.studio.modes.packwright.ui.panes import bridge as packwright_bridge
+    from warlock.studio.modes.packwright.ui.panes import items as packwright_items
+    from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
+    from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
+    from warlock.studio.modes.packwright.ui.panes import sources as packwright_sources
+    from warlock.studio.modes.packwright.ui.panes import textures as packwright_textures
     from warlock.studio.tokens import sp
 
     app_ctx.state.mode = "packwright"

@@ -177,7 +177,7 @@ class TasksMixin:
 
                     plotter_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("packwright-"):
-                    from .. import packwright_mode
+                    from ..modes.packwright import mode as packwright_mode
 
                     # Same rule, plus one of its own: a failed *pack* has
                     # to clear ``packing`` and record why, or the items
@@ -557,7 +557,7 @@ class TasksMixin:
                 self._capture_clay_thumbnail(done.result["job_id"])
             return
         if key.startswith("packwright-"):
-            from .. import packwright_mode
+            from ..modes.packwright import mode as packwright_mode
 
             packwright_mode.on_task_done(ctx, done)
             if isinstance(done.result, dict) and done.result.get("exported_asset"):

@@ -437,7 +437,7 @@ def commands(ctx: Any) -> list[Command]:
         mason_mode.new_document(ctx)
 
     def new_atlas(ctx: Any) -> None:
-        from . import packwright_mode
+        from .modes.packwright import mode as packwright_mode
 
         packwright_mode.new_document(ctx)
 

@@ -1275,7 +1275,7 @@ def start_plotter(ctx: Any) -> None:
 
 
 def start_packwright(ctx: Any) -> None:
-    from .. import packwright_mode
+    from ..modes.packwright import mode as packwright_mode
 
     set_mode(ctx.state, "packwright")
     if not packwright_mode.ensure(ctx).docs:

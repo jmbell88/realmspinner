@@ -13,7 +13,7 @@
   when ``set_layer_props`` had just pushed a real undo step for the changed
   source, contradicting the function's own "one compound step" docstring for
   a caller that gates a toast or a re-render on the return value.
-- packwright-02 (`src/warlock/studio/packwright_mode.py`): the second-landing
+- packwright-02 (`src/warlock/studio/modes/packwright/mode.py`): the second-landing
   refusal for a tile-sheet import checked ``tileset_import_open``, which only
   the pane's own draw sets. Two landings inside one poll batch -- both
   processed before a frame is ever drawn -- both saw it ``False`` and the
@@ -169,7 +169,7 @@ def test_two_tileset_landings_in_the_same_poll_batch_do_not_silently_swap_the_pa
     """
     from test_packwright_mode import FakeCtx, _Done
 
-    from warlock.studio import packwright_mode
+    from warlock.studio.modes.packwright import mode as packwright_mode
 
     ctx = FakeCtx()
     tab = packwright_mode.new_document(ctx)

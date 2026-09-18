@@ -674,8 +674,9 @@ def modal_open(ctx: Any) -> bool:
     """
     from . import matte_preview
     from .modes.muse import mode as muse_mode
+    from .modes.packwright.ui.panes import sources as packwright_sources
     from .modes.troupe.ui.panes import send as troupe_send
-    from .panes import first_run, packwright_sources
+    from .panes import first_run
 
     return (
         ctx.confirms.pending is not None

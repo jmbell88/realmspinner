@@ -16,8 +16,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.studio import packwright_mode
 from warlock.studio.modes.inker import mode as inker_mode
+from warlock.studio.modes.packwright import mode as packwright_mode
 
 
 class _Ctx:

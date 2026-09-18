@@ -18,9 +18,9 @@ import zipfile
 import numpy as np
 import pytest
 
-from warlock.studio.packwright import wpack
-from warlock.studio.packwright.document import PackDoc
-from warlock.studio.packwright.sources import Sprite
+from warlock.studio.modes.packwright.engine import wpack
+from warlock.studio.modes.packwright.engine.document import PackDoc
+from warlock.studio.modes.packwright.engine.sources import Sprite
 
 
 def _sprite(key: str, w: int = 8, h: int = 6) -> Sprite:
@@ -465,7 +465,7 @@ def test_more_sources_than_one_atlas_will_take_are_refused(monkeypatch):
     """Asked off the manifest, before any of them is decoded: a file listing a
     million sources is a million PNG decodes ahead of the refusal that was
     always going to come out of the packer anyway."""
-    from warlock.studio.packwright import layout as lay
+    from warlock.studio.modes.packwright.engine import layout as lay
 
     data = wpack.wpack_bytes(_doc(4))
     monkeypatch.setattr(lay, "MAX_SPRITES", 2)

@@ -149,7 +149,7 @@ def test_a_sprite_key_carries_no_directory(tmp_path):
     """It was ``str(path)``, written into the ``.wpack`` -- so a shared atlas
     document carried the author's directory layout, and the same file added on
     two machines was two sprites."""
-    from warlock.studio.packwright.sources import file_key
+    from warlock.studio.modes.packwright.engine.sources import file_key
 
     one = tmp_path / "barrel.png"
     other = tmp_path / "sub" / "barrel.png"
@@ -166,7 +166,7 @@ def test_a_sprite_key_carries_no_directory(tmp_path):
 
 def test_a_quoted_boolean_in_a_hand_edited_manifest_is_read_as_written():
     """``bool("false")`` is True, and this file is hand-editable."""
-    from warlock.studio.packwright.wpack import _json_bool
+    from warlock.studio.modes.packwright.engine.wpack import _json_bool
 
     assert _json_bool("false", True) is False
     assert _json_bool("true", False) is True
@@ -178,7 +178,7 @@ def test_a_quoted_boolean_in_a_hand_edited_manifest_is_read_as_written():
 def test_the_size_search_can_reach_a_limit_that_is_not_a_power_of_two():
     """The doubling walked past a 1500px ceiling, so a set that fits in 1500
     square was refused as "does not fit in a 1500px atlas"."""
-    from warlock.studio.packwright.layout import _candidate_sizes
+    from warlock.studio.modes.packwright.engine.layout import _candidate_sizes
 
     sizes = _candidate_sizes(area=1_600_000, floor_w=200, floor_h=200, limit=1500)
 
@@ -189,8 +189,8 @@ def test_the_size_search_can_reach_a_limit_that_is_not_a_power_of_two():
 def test_a_pivot_can_be_set_cleared_and_undone():
     """It was modelled end to end and could only be *set* by importing an Inker
     document that already carried one."""
-    from warlock.studio.packwright.document import PackDoc
-    from warlock.studio.packwright.sources import Sprite
+    from warlock.studio.modes.packwright.engine.document import PackDoc
+    from warlock.studio.modes.packwright.engine.sources import Sprite
 
     doc = PackDoc()
     pixels = np.zeros((8, 8, 4), dtype=np.uint8)

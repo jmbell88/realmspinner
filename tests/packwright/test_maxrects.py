@@ -15,8 +15,8 @@ import random
 
 import pytest
 
-from warlock.studio.packwright import maxrects
-from warlock.studio.packwright.maxrects import Rect, order, pack
+from warlock.studio.modes.packwright.engine import maxrects
+from warlock.studio.modes.packwright.engine.maxrects import Rect, order, pack
 
 
 def _items(sizes):

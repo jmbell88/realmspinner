@@ -23,10 +23,10 @@ import json
 import numpy as np
 import pytest
 
-from warlock.studio.packwright import texturepacker, wpack
-from warlock.studio.packwright.document import PackDoc
-from warlock.studio.packwright.layout import PackSettings, layout
-from warlock.studio.packwright.sources import (
+from warlock.studio.modes.packwright.engine import texturepacker, wpack
+from warlock.studio.modes.packwright.engine.document import PackDoc
+from warlock.studio.modes.packwright.engine.layout import PackSettings, layout
+from warlock.studio.modes.packwright.engine.sources import (
     EMPTY_META,
     SliceSpec,
     Sprite,
@@ -284,7 +284,8 @@ def test_the_coverage_line_is_not_recomputed_between_packs():
     for the same shape by the 2026-09-07 audit's packwright-07. Proven by
     counting how many times the underlying sequence is actually iterated:
     each helper must touch it once per pack, not once per frame drawn."""
-    from warlock.studio.panes import packwright_items, packwright_preview
+    from warlock.studio.modes.packwright.ui.panes import items as packwright_items
+    from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
 
     class _CountingList(list):
         def __init__(self, *args) -> None:

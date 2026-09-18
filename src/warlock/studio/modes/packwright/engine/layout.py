@@ -50,7 +50,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from ...kernels import sheet as sheetlib
+from .....kernels import sheet as sheetlib
 from .maxrects import order, pack
 from .sources import SliceSpec, Sprite
 from .trim import trim_rect

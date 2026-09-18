@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from warlock.studio import packwright_mode
+from warlock.studio.modes.packwright import mode as packwright_mode
 
 
 class _Settings:
@@ -275,7 +275,7 @@ def test_the_popup_preview_and_the_import_agree_on_the_dropped_count():
     """The popup-promise contract ``tileset_occupancy`` already enforces for
     emptiness, applied to the dedup the popup now also promises: both sides run
     the same ``dedup_tiles`` call over the same sprites."""
-    from warlock.studio.packwright.sources import dedup_tiles, sprites_from_tileset
+    from warlock.studio.modes.packwright.engine.sources import dedup_tiles, sprites_from_tileset
 
     ctx = FakeCtx()
     tab = _park_dups(ctx, _dup_sheet())

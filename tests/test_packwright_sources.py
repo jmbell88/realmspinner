@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio.panes import packwright_sources
+from warlock.studio.modes.packwright.ui.panes import sources as packwright_sources
 
 
 def test_renaming_a_packwright_source_is_one_undo_step_not_one_per_keystroke():
