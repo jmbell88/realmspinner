@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -473,3 +474,80 @@ def test_clay_titles_a_tab_by_stem_on_purpose():
 
     assert clay_state.title_for is not docmodes.title_for
     assert clay_state.title_for(Path("D:/x/hero.wblk")) == "hero"
+
+
+# -- DocTabs: one tab list for every document mode (restructure P7) ----------
+
+
+def test_doc_tabs_hooks_fire_on_arrival_and_close_with_the_right_arguments():
+    from dataclasses import dataclass, field
+
+    @dataclass
+    class _Tabs(docmodes.DocTabs):
+        log: list = field(default_factory=list)
+
+        def _switched(self, previous):
+            self.log.append(("switched", previous, self.active_uid))
+
+        def _closed(self, was_active):
+            self.log.append(("closed", was_active, self.active_uid))
+
+    tabs = _Tabs()
+    a = SimpleNamespace(uid="a", dirty=False, path=None)
+    b = SimpleNamespace(uid="b", dirty=True, path=None)
+    tabs.add(a)
+    tabs.add(b)
+    tabs.activate("b")  # already in front: no arrival
+    tabs.activate("a")
+    tabs.close("b")  # a background tab: not arriving anywhere
+    tabs.close("a")
+    assert tabs.log == [
+        ("switched", "", "a"),
+        ("switched", "a", "b"),
+        ("switched", "b", "a"),
+        ("closed", False, "a"),
+        ("closed", True, ""),
+    ]
+
+
+def test_closing_the_front_tab_lands_on_its_neighbour_not_the_first():
+    tabs = docmodes.DocTabs()
+    for uid in "abc":
+        tabs.add(SimpleNamespace(uid=uid, dirty=False, path=None))
+    tabs.activate("b")
+    tabs.close("b")
+    assert tabs.active_uid == "c"
+    tabs.cycle(1)
+    assert tabs.active_uid == "a"
+
+
+def test_every_document_mode_inherits_the_one_tab_list():
+    """Six modes carried the list methods byte for byte and drifted in what
+    each did on arrival. Each state is a ``DocTabs`` now; a mode that shadows
+    a list method rather than a hook fails here by name. Sirens' ``activate``
+    is the one recorded override: it stops the other song first (S6).
+    Poser journals a pose viewer rather than a tab list, so it is not here."""
+    from warlock.studio.mode_manifest import DOC_MODES, module_of
+
+    allowed = {("sirens", "activate")}
+    names = ("active", "any_dirty", "add", "get", "close", "activate", "cycle", "find_path")
+    seen = set()
+    tabbed = [entry for entry in DOC_MODES if entry.key in docmodes.DOC_MODES]
+    for entry in tabbed:
+        package = module_of(entry).__name__.rsplit(".", 1)[0]
+        state_module = importlib.import_module(f"{package}.state")
+        classes = [
+            c
+            for c in vars(state_module).values()
+            if isinstance(c, type) and c.__module__ == state_module.__name__
+            and c.__name__.endswith("State")
+        ]
+        assert len(classes) == 1, (entry.key, classes)
+        state_cls = classes[0]
+        assert issubclass(state_cls, docmodes.DocTabs), entry.key
+        for name in names:
+            if (entry.key, name) in allowed:
+                continue
+            assert name not in vars(state_cls), f"{entry.key} overrides DocTabs.{name}"
+        seen.add(entry.key)
+    assert seen == set(docmodes.DOC_MODES)

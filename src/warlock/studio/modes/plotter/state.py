@@ -329,7 +329,7 @@ _uids = itertools.count(1)
 
 
 @dataclass
-class PlotterDoc:
+class PlotterDoc(docmodes.DocTab):
     """One tab.
 
     ``uid`` is stable and never reused, because imgui identifies a tab by its
@@ -337,9 +337,6 @@ class PlotterDoc:
     would move a tab's identity every time a Save As renamed it.
     """
 
-    doc: Any
-    title: str = "Untitled"
-    path: Path | None = None
     # "wmap" | "tmx" | "tmj" -- what Ctrl+S writes. A map imported from Tiled
     # saves back to Tiled rather than silently becoming a ``.wmap`` the user
     # cannot open in the tool they came from.
@@ -372,8 +369,6 @@ class PlotterDoc:
     #: dropped with the tab.
     collapsed_rows: set[int] = field(default_factory=set)
     view: PaintView = field(default_factory=PaintView)
-    saved_head: int = 0
-    saving: bool = False
 
     #: What the Tiled reader fell back on or dropped, as
     #: ``plotter.tmx.ImportWarning`` rows, set once on open and never mutated
@@ -383,49 +378,9 @@ class PlotterDoc:
     #: durable record, this is only what the pane shows next to the import.
     import_warnings: list[Any] = field(default_factory=list)
 
-    # Crash-safety, owned by :mod:`studio.journal` (UX-05). Inker's three
-    # fields, verbatim, because they are the same three questions: which file
-    # this tab owns under the autosave directory (minted on the first copy, so
-    # an untouched tab litters nothing), the history position that copy
-    # captured (an undo back to it is not a new edit), and the debounce.
-    journal_name: str = ""
-    journal_head: int | None = None
-    journal_at: float = 0.0
-
-    @property
-    def busy(self) -> bool:
-        """Whether the document may be restructured right now.
-
-        One question with one answer behind it today, spelled as a property
-        anyway for the reason ``InkerDoc.busy`` is: a second reason can then be
-        added in one place rather than in nine panes that each remember to
-        ``or`` a new flag in.
-        """
-        return self.saving
-
-    @property
-    def dirty(self) -> bool:
-        return self.doc.dirty
-
-    @property
-    def label(self) -> str:
-        return docmodes.tab_label(self)
-
-    def mark_saved(self, head: int | None = None) -> None:
-        """Record which history position is now on disk.
-
-        The head is captured when the *encode* starts, not when it finishes: an
-        edit made while the file was being written is genuinely not in it.
-        """
-        self.doc.mark_saved(head)
-        self.saved_head = self.doc.saved_head
-        self.saving = False
-
 
 @dataclass
-class PlotterState:
-    docs: list[PlotterDoc] = field(default_factory=list)
-    active_uid: str = ""
+class PlotterState(docmodes.DocTabs[PlotterDoc]):
 
     # Tool settings: app-level, shared across documents on purpose.
     tool: str = "stamp"
@@ -693,59 +648,23 @@ class PlotterState:
 
     # -- documents ---------------------------------------------------------
 
-    @property
-    def active(self) -> PlotterDoc | None:
-        for doc in self.docs:
-            if doc.uid == self.active_uid:
-                return doc
-        return self.docs[-1] if self.docs else None
-
-    @property
-    def any_dirty(self) -> bool:
-        return any(doc.dirty for doc in self.docs)
-
-    def add(self, doc: PlotterDoc) -> PlotterDoc:
-        self.docs.append(doc)
-        self.active_uid = doc.uid
+    def _switched(self, previous: str) -> None:
+        # Arriving at a different document -- by ``add`` as much as by
+        # ``activate`` -- leaves the palette index and the object selection
+        # naming things the new map does not have.
         self.clear_drag()
-        # Through the same reset ``activate`` does, and for the same reason:
-        # arriving at a different document leaves the palette index and the
-        # object selection naming things the new map does not have. Adding a
-        # tab *is* arriving at one.
         self._forget_document_state()
-        return doc
 
-    def get(self, uid: str) -> PlotterDoc | None:
-        for doc in self.docs:
-            if doc.uid == uid:
-                return doc
-        return None
-
-    def close(self, uid: str) -> bool:
-        doc = self.get(uid)
-        if doc is None:
-            return False
-        index = self.docs.index(doc)
-        self.docs.remove(doc)
-        if self.active_uid == uid:
-            # The neighbour, not the first: closing a tab should leave you next
-            # to where you were rather than at the far end of the bar.
-            self.active_uid = self.docs[min(index, len(self.docs) - 1)].uid if self.docs else ""
-            # ``add`` and ``activate`` both call this and ``close`` did not, so
-            # closing the front tab carried the brush, the palette index, the
-            # terrain and the object selection onto the neighbour -- all of
-            # them naming things the map you land on does not have. Only when
-            # the *active* tab went: closing a background tab is not arriving
-            # anywhere.
+    def _closed(self, was_active: bool) -> None:
+        # ``add`` and ``activate`` both forgot the document state and
+        # ``close`` did not, so closing the front tab carried the brush, the
+        # palette index, the terrain and the object selection onto the
+        # neighbour -- all of them naming things the map you land on does not
+        # have. Only when the *active* tab went: closing a background tab is
+        # not arriving anywhere.
+        if was_active:
             self._forget_document_state()
         self.clear_drag()
-        return True
-
-    def activate(self, uid: str) -> None:
-        if uid != self.active_uid:
-            self.active_uid = uid
-            self.clear_drag()
-            self._forget_document_state()
 
     def _forget_document_state(self) -> None:
         """Drop everything that names a *particular* document's contents.
@@ -779,18 +698,6 @@ class PlotterState:
         # map's first layer would open with a text field on it.
         self.renaming_layer = 0
 
-    def cycle(self, step: int = 1) -> None:
-        if len(self.docs) < 2:
-            return
-        current = self.active
-        index = self.docs.index(current) if current in self.docs else 0
-        self.activate(self.docs[(index + step) % len(self.docs)].uid)
-
-    def find_path(self, path: Path) -> PlotterDoc | None:
-        """``docmodes.find_path``: the case-folding body written here first
-        (``Level.WMAP`` and ``level.wmap`` forked into two tabs) and shared
-        with every mode since 2026-09-05."""
-        return docmodes.find_path(self.docs, path)
 
     # -- drag ---------------------------------------------------------------
 

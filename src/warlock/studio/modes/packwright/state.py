@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -37,25 +36,11 @@ _uids = itertools.count(1)
 
 
 @dataclass
-class PackTab:
-    """One tab."""
+class PackTab(docmodes.DocTab):
+    """One tab (``docmodes.DocTab`` holds the shared fields)."""
 
-    doc: Any
-    title: str = "Untitled"
-    path: Path | None = None
     uid: str = field(default_factory=lambda: f"pw{next(_uids)}")
     view: PaintView = field(default_factory=PaintView)
-    saved_head: int = 0
-    saving: bool = False
-
-    # Crash-safety, owned by :mod:`studio.journal` (UX-05). Inker's three
-    # fields, verbatim, because they are the same three questions: which file
-    # this tab owns under the autosave directory (minted on the first copy, so
-    # an untouched tab litters nothing), the history position that copy
-    # captured (an undo back to it is not a new edit), and the debounce.
-    journal_name: str = ""
-    journal_head: int | None = None
-    journal_at: float = 0.0
 
     # The last successful pack. ``layout`` is what the items pane lists and the
     # preview outlines; ``atlas`` is what it draws.
@@ -77,10 +62,6 @@ class PackTab:
     pack_error: str = ""
 
     @property
-    def busy(self) -> bool:
-        return self.saving
-
-    @property
     def pack_stale_why(self) -> str:
         """Why the atlas on screen is not the one this document describes.
 
@@ -98,19 +79,6 @@ class PackTab:
             "The last pack failed, so this is the atlas from before it: "
             f"{self.pack_error}"
         )
-
-    @property
-    def dirty(self) -> bool:
-        return self.doc.dirty
-
-    @property
-    def label(self) -> str:
-        return docmodes.tab_label(self)
-
-    def mark_saved(self, head: int | None = None) -> None:
-        self.doc.mark_saved(head)
-        self.saved_head = self.doc.saved_head
-        self.saving = False
 
     def adopt_pack(self, layout: Any, atlas: np.ndarray) -> None:
         """Take a finished pack. The one place ``pack_generation`` moves.
@@ -139,9 +107,7 @@ class PackTab:
 
 
 @dataclass
-class PackwrightState:
-    docs: list[PackTab] = field(default_factory=list)
-    active_uid: str = ""
+class PackwrightState(docmodes.DocTabs[PackTab]):
 
     # Which source row is selected, by uid. View state, shared between the
     # sources list, the items list and the preview's highlight -- one answer to
@@ -187,56 +153,12 @@ class PackwrightState:
     tileset_preview_key: tuple[Any, ...] | None = None
     tileset_preview: tuple[int, int, int, int, int] = (0, 0, 0, 0, 0)
 
-    @property
-    def active(self) -> PackTab | None:
-        for doc in self.docs:
-            if doc.uid == self.active_uid:
-                return doc
-        return self.docs[-1] if self.docs else None
-
-    @property
-    def any_dirty(self) -> bool:
-        return any(doc.dirty for doc in self.docs)
-
-    def add(self, doc: PackTab) -> PackTab:
-        self.docs.append(doc)
-        self.active_uid = doc.uid
+    def _switched(self, previous: str) -> None:
+        # The selection names a source of the *previous* document.
         self.selected = None
-        return doc
 
-    def get(self, uid: str) -> PackTab | None:
-        for doc in self.docs:
-            if doc.uid == uid:
-                return doc
-        return None
-
-    def close(self, uid: str) -> bool:
-        doc = self.get(uid)
-        if doc is None:
-            return False
-        index = self.docs.index(doc)
-        self.docs.remove(doc)
-        if self.active_uid == uid:
-            self.active_uid = self.docs[min(index, len(self.docs) - 1)].uid if self.docs else ""
+    def _closed(self, was_active: bool) -> None:
         self.selected = None
-        return True
-
-    def activate(self, uid: str) -> None:
-        if uid != self.active_uid:
-            self.active_uid = uid
-            # The selection names a source of the *previous* document.
-            self.selected = None
-
-    def cycle(self, step: int = 1) -> None:
-        if len(self.docs) < 2:
-            return
-        current = self.active
-        index = self.docs.index(current) if current in self.docs else 0
-        self.activate(self.docs[(index + step) % len(self.docs)].uid)
-
-    def find_path(self, path: Path) -> PackTab | None:
-        """``docmodes.find_path``: the one case-folding body every mode shares."""
-        return docmodes.find_path(self.docs, path)
 
 
 

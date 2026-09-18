@@ -126,9 +126,17 @@ def test_find_path_folds_case_in_every_mode(tmp_path):
     from warlock.studio.modes.plotter import state as plotter_state
     from warlock.studio.modes.sirens import state as sirens_state
 
-    for module in (clay_state, inker_state, packwright_state, plotter_state, sirens_state):
-        source = inspect.getsource(module)
-        assert "docmodes.find_path(self.docs, path)" in source, module.__name__
+    # Inherited, not delegated: since P7 every mode's state is a
+    # ``docmodes.DocTabs`` and none may shadow the one case-folding body.
+    for state_cls in (
+        clay_state.ClayState,
+        inker_state.InkerState,
+        packwright_state.PackwrightState,
+        plotter_state.PlotterState,
+        sirens_state.SirensState,
+    ):
+        assert issubclass(state_cls, docmodes.DocTabs), state_cls.__name__
+        assert state_cls.find_path is docmodes.DocTabs.find_path, state_cls.__name__
 
     real = tmp_path / "level.wblk"
     real.write_bytes(b"")
@@ -503,8 +511,14 @@ def test_the_five_modes_share_one_tab_bar_save_label_and_recents():
         assert "begin_tab_bar" not in source, module.__name__
     for module in (clay_mode, plotter_io, packwright_io, sirens_io):
         assert "docmodes.save(" in inspect.getsource(module.save), module.__name__
-    for module in (clay_state, inker_state, plotter_state, packwright_state, sirens_state):
-        assert "docmodes.tab_label(self)" in inspect.getsource(module), module.__name__
+    for tab_cls in (
+        clay_state.ClayTab,
+        inker_state.InkerDoc,
+        plotter_state.PlotterDoc,
+        packwright_state.PackTab,
+        sirens_state.SongTab,
+    ):
+        assert tab_cls.label is docmodes.DocTab.label, tab_cls.__name__
     for module in (inker_mode, clay_mode, plotter_mode, packwright_mode, sirens_mode):
         source = inspect.getsource(module)
         assert "docmodes.recents_for(" in source, module.__name__

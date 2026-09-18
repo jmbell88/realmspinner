@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -90,6 +90,163 @@ class CameraView:
         camera.phi = camera._goal_phi = self.pitch
         camera.distance = camera._goal_distance = self.distance
         camera.set_target(self.target)
+
+
+@dataclass
+class DocTab:
+    """One open document: the fields and answers every mode's tab shares.
+
+    ``uid`` is stable and never reused, because imgui identifies a tab by its
+    label: a title alone would make two documents called "Untitled" the same
+    tab, and would move a tab's identity every time a Save As renamed it. Each
+    mode redeclares it with its own prefix and counter (``bd``, ``ms``, ...),
+    which keeps its place in the field order.
+
+    **This is the document-owns-the-head flavour** (Plotter, Packwright,
+    Sirens): the document records which history position is on disk, and the
+    tab mirrors it so :func:`mark_recovered` can reach both. Clay, Mason and
+    Inker keep the head on the tab instead -- :class:`HistoryTab`. Six copies
+    of these fields and the three answers below existed before 2026-09-18.
+    """
+
+    doc: Any
+    title: str = "Untitled"
+    path: Path | None = None
+    uid: str = ""
+    saved_head: int = 0
+    saving: bool = False
+    # Crash-safety, owned by :mod:`studio.journal` (UX-05): which file this tab
+    # owns under the autosave directory (minted on the first copy, so an
+    # untouched tab litters nothing), the history position that copy captured
+    # (an undo back to it is not a new edit), and the debounce.
+    journal_name: str = ""
+    journal_head: int | None = None
+    journal_at: float = 0.0
+
+    @property
+    def busy(self) -> bool:
+        """Whether the document may be restructured right now. A property
+        rather than ``saving`` so a second reason (Inker's playback) is added
+        in one place rather than in every pane that asks."""
+        return self.saving
+
+    @property
+    def dirty(self) -> bool:
+        return self.doc.dirty
+
+    @property
+    def label(self) -> str:
+        return tab_label(self)
+
+    def mark_saved(self, head: int | None = None) -> None:
+        """Record which history position is now on disk.
+
+        The head is captured when the *encode* starts, not when it finishes: an
+        edit made while the file was being written is genuinely not in it, and
+        clearing a flag here would call it saved.
+        """
+        self.doc.mark_saved(head)
+        self.saved_head = self.doc.saved_head
+        self.saving = False
+
+
+@dataclass
+class HistoryTab(DocTab):
+    """A tab that holds its own saved head (Clay, Mason, Inker).
+
+    Dirty is a *comparison*, not a flag, so undoing back to the saved state
+    correctly stops being dirty -- which the document's revision cannot
+    express, because it counts changes and an undo is one.
+    """
+
+    @property
+    def dirty(self) -> bool:
+        return self.doc.history.head != self.saved_head
+
+    def mark_saved(self, head: int | None = None) -> None:
+        self.saved_head = self.doc.history.head if head is None else head
+        self.saving = False
+
+
+@dataclass
+class DocTabs[T]:
+    """A mode's open documents and which one is in front.
+
+    Six modes carried ``active``/``add``/``get``/``close``/``activate``/
+    ``cycle`` byte for byte except for what each does on *arriving* at a
+    document -- and that part is where they drifted: Plotter's ``add`` and
+    ``activate`` forgot the old map's palette state and its ``close`` did not,
+    and Clay's ``activate`` settled a live drag while its ``add`` did not until
+    the 2026-09-16 audit. One body now, with the per-mode part in two hooks, so the next mode
+    cannot get the list right and the arrival wrong.
+    """
+
+    docs: list[T] = field(default_factory=list)
+    active_uid: str = ""
+
+    @property
+    def active(self) -> T | None:
+        for doc in self.docs:
+            if doc.uid == self.active_uid:
+                return doc
+        return self.docs[-1] if self.docs else None
+
+    @property
+    def any_dirty(self) -> bool:
+        return any(doc.dirty for doc in self.docs)
+
+    def add(self, tab: T) -> T:
+        # Adding a tab *is* arriving at one, so it goes through the same hook
+        # ``activate`` does.
+        previous = self.active_uid
+        self.docs.append(tab)
+        self.active_uid = tab.uid
+        self._switched(previous)
+        return tab
+
+    def get(self, uid: str) -> T | None:
+        for doc in self.docs:
+            if doc.uid == uid:
+                return doc
+        return None
+
+    def close(self, uid: str) -> bool:
+        tab = self.get(uid)
+        if tab is None:
+            return False
+        index = self.docs.index(tab)
+        self.docs.remove(tab)
+        was_active = self.active_uid == uid
+        if was_active:
+            # The neighbour, not the first: closing a tab should leave you next
+            # to where you were rather than at the far end of the bar.
+            self.active_uid = self.docs[min(index, len(self.docs) - 1)].uid if self.docs else ""
+        self._closed(was_active)
+        return True
+
+    def activate(self, uid: str) -> None:
+        if uid != self.active_uid:
+            previous = self.active_uid
+            self.active_uid = uid
+            self._switched(previous)
+
+    def cycle(self, step: int = 1) -> None:
+        if len(self.docs) < 2:
+            return
+        current = self.active
+        index = self.docs.index(current) if current in self.docs else 0
+        self.activate(self.docs[(index + step) % len(self.docs)].uid)
+
+    def find_path(self, path: Path) -> T | None:
+        return find_path(self.docs, path)
+
+    def _switched(self, previous: str) -> None:
+        """``active_uid`` just moved off ``previous`` (``""`` for none), by
+        ``add`` or ``activate``. Drop what names the document being left."""
+
+    def _closed(self, was_active: bool) -> None:
+        """A tab was removed; ``was_active`` says whether the front one was,
+        in which case ``active_uid`` already names its neighbour."""
 
 
 def start_save(ctx: Any, tab: Any, key: str, run: Any) -> None:

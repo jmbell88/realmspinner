@@ -27,7 +27,6 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from ... import docmodes
 
@@ -102,64 +101,21 @@ def title_for(path: Path | None) -> str:
 
 
 @dataclass
-class MasonTab:
-    """One open scene.
+class MasonTab(docmodes.HistoryTab):
+    """One open scene (``docmodes.DocTab`` holds the shared fields)."""
 
-    ``uid`` is stable and never reused, because imgui identifies a tab by its
-    label: a title alone would make two scenes called "Untitled" the same
-    tab, and would move a tab's identity every time a Save As renamed it.
-    """
-
-    doc: Any
-    title: str = "Untitled"
-    path: Path | None = None
     uid: str = field(default_factory=lambda: f"ms{next(_uids)}")
     view: docmodes.CameraView = field(default_factory=docmodes.CameraView)
-    # The history position the file on disk was written from. Dirty is a
-    # *comparison*, not a flag, so undoing back to the saved state correctly
-    # stops being dirty -- which the document's revision cannot express,
-    # because it counts changes and an undo is one.
-    saved_head: int = 0
-    saving: bool = False
-
-    # Crash-safety, owned by :mod:`studio.journal`. Clay's three fields,
-    # verbatim, because they are the same three questions: which file this tab
-    # owns under the autosave directory (minted on the first copy, so an
-    # untouched tab litters nothing), the history position that copy
-    # captured (an undo back to it is not a new edit), and the debounce.
-    journal_name: str = ""
-    journal_head: int | None = None
-    journal_at: float = 0.0
     # The asset this scene was last exported to, if any. Not a link in the
     # raster editor's sense: a built export is a *snapshot*, and editing the
     # document afterwards does not change what is already on disk.
     job_id: str = ""
 
-    @property
-    def dirty(self) -> bool:
-        return self.doc.history.head != self.saved_head
-
-    @property
-    def label(self) -> str:
-        return docmodes.tab_label(self)
-
-    def mark_saved(self, head: int | None = None) -> None:
-        """Record which history position is now on disk.
-
-        Captured when the *encode* starts, not when it finishes: an edit made
-        while the file was being written is genuinely not in it, and clearing
-        a flag here would call it saved.
-        """
-        self.saved_head = self.doc.history.head if head is None else head
-        self.saving = False
-
 
 @dataclass
-class MasonState:
+class MasonState(docmodes.DocTabs[MasonTab]):
     """Everything Mason remembers across frames."""
 
-    docs: list[MasonTab] = field(default_factory=list)
-    active_uid: str = ""
     #: ``F`` has been pressed and the viewport has not framed yet.
     #:
     #: A flag rather than a call, ``ClayState.frame_pending``'s pattern
@@ -265,51 +221,3 @@ class MasonState:
     # camera and the picking state the viewport already owns.
 
     # -- documents ---------------------------------------------------------
-
-    @property
-    def active(self) -> MasonTab | None:
-        for doc in self.docs:
-            if doc.uid == self.active_uid:
-                return doc
-        return self.docs[-1] if self.docs else None
-
-    @property
-    def any_dirty(self) -> bool:
-        return any(doc.dirty for doc in self.docs)
-
-    def add(self, tab: MasonTab) -> MasonTab:
-        self.docs.append(tab)
-        self.active_uid = tab.uid
-        return tab
-
-    def get(self, uid: str) -> MasonTab | None:
-        for doc in self.docs:
-            if doc.uid == uid:
-                return doc
-        return None
-
-    def close(self, uid: str) -> bool:
-        tab = self.get(uid)
-        if tab is None:
-            return False
-        index = self.docs.index(tab)
-        self.docs.remove(tab)
-        if self.active_uid == uid:
-            # The neighbour, not the first: closing a tab should leave you
-            # next to where you were rather than at the far end of the bar.
-            self.active_uid = self.docs[min(index, len(self.docs) - 1)].uid if self.docs else ""
-        return True
-
-    def activate(self, uid: str) -> None:
-        self.active_uid = uid
-
-    def cycle(self, step: int = 1) -> None:
-        if len(self.docs) < 2:
-            return
-        current = self.active
-        index = self.docs.index(current) if current in self.docs else 0
-        self.activate(self.docs[(index + step) % len(self.docs)].uid)
-
-    def find_path(self, path: Path) -> MasonTab | None:
-        """``docmodes.find_path``: the one case-folding body every mode shares."""
-        return docmodes.find_path(self.docs, path)

@@ -795,7 +795,7 @@ _uids = itertools.count(1)
 
 
 @dataclass
-class InkerDoc:
+class InkerDoc(docmodes.HistoryTab):
     """One tab.
 
     ``uid`` is stable and never reused, because imgui identifies a tab by its
@@ -803,9 +803,6 @@ class InkerDoc:
     and would move a tab's identity every time it was renamed by a Save As.
     """
 
-    doc: Any
-    title: str = "Untitled"
-    path: Path | None = None
     file_format: str = "png"  # ora | png | aseprite
     uid: str = field(default_factory=lambda: f"pd{next(_uids)}")
     #: **The views onto this document, and the truth about them.** One until
@@ -834,12 +831,6 @@ class InkerDoc:
     #: does not -- and a split pane draws *both* views in one frame, so without
     #: it the second pane would render its picture at the first pane's zoom.
     active_view: int | None = None
-    # The history position the file on disk was written from. Dirty is a
-    # *comparison*, not a flag, so undoing back to the saved state correctly
-    # stops being dirty -- which the document's revision cannot express,
-    # because it counts changes and an undo is one.
-    saved_head: int = 0
-    saving: bool = False
     # ``doc.history.trimmed`` as of the last time the user was told about it.
     # The history drops its oldest steps when they get too big to hold (see
     # ``studio.undo.UNDO_HARD_BYTES``), and a rotate on a large document can
@@ -866,21 +857,6 @@ class InkerDoc:
     # it, and it lives here rather than in ``advance`` because that function is
     # pure and the leg has to survive between ticks.
     play_forward: bool = True
-
-    # Crash-safety, owned by :mod:`studio.journal` (UX-05). ``journal_name`` is
-    # the file this tab owns under the autosave directory and is minted once,
-    # on the first copy: naming it eagerly would litter the directory with
-    # entries for tabs nobody ever edited. ``journal_head`` is the history
-    # position the last one captured, so an idle document is not rewritten
-    # every two minutes -- the same comparison ``dirty`` is, against a
-    # different mark. ``journal_at`` is the debounce.
-    #
-    # Named for the journal rather than for Inker, because they are the three
-    # fields *every* document mode now carries: the mechanism Inker proved was
-    # right and the whole of what was wrong was that it lived in one mode.
-    journal_name: str = ""
-    journal_head: int | None = None
-    journal_at: float = 0.0
 
     # Which axes this tab is drawn -- and painted -- wrapped on; one of
     # ``inker.tiling.TILED_AXES``. **Per tab and never in the file**: whether
@@ -1036,10 +1012,6 @@ class InkerDoc:
         return self.saving or self.playing
 
     @property
-    def dirty(self) -> bool:
-        return self.doc.history.head != self.saved_head
-
-    @property
     def frame_uid(self) -> int | None:
         """The frame the playhead is on, or None on a still document.
 
@@ -1054,20 +1026,6 @@ class InkerDoc:
     @property
     def linked(self) -> bool:
         return bool(self.job_id)
-
-    @property
-    def label(self) -> str:
-        return docmodes.tab_label(self)
-
-    def mark_saved(self, head: int | None = None) -> None:
-        """Record which history position is now on disk.
-
-        Captured when the *encode* starts, not when it finishes: an edit made
-        while the file was being written is genuinely not in it, and clearing a
-        flag here would call it saved.
-        """
-        self.saved_head = self.doc.history.head if head is None else head
-        self.saving = False
 
 
 # The same answer in three of the four modes; Clay's is on ``stem`` on purpose.
@@ -1136,9 +1094,7 @@ class Tip:
 
 
 @dataclass
-class InkerState:
-    docs: list[InkerDoc] = field(default_factory=list)
-    active_uid: str = ""
+class InkerState(docmodes.DocTabs[InkerDoc]):
     #: The most recent status-bar tip, or None; see :class:`Tip`. Not
     #: persisted and not per document -- it is about the gesture just made.
     tip: Tip | None = None
@@ -2041,52 +1997,15 @@ class InkerState:
 
     # -- documents ---------------------------------------------------------
 
-    @property
-    def active(self) -> InkerDoc | None:
-        for doc in self.docs:
-            if doc.uid == self.active_uid:
-                return doc
-        return self.docs[-1] if self.docs else None
-
-    @property
-    def any_dirty(self) -> bool:
-        return any(doc.dirty for doc in self.docs)
-
-    def add(self, doc: InkerDoc) -> InkerDoc:
-        self.docs.append(doc)
-        self.active_uid = doc.uid
+    def _switched(self, previous: str) -> None:
         self._settle_transform()
         self.clear_drag()
         self.forget_held_keys()
-        return doc
 
-    def get(self, uid: str) -> InkerDoc | None:
-        for doc in self.docs:
-            if doc.uid == uid:
-                return doc
-        return None
-
-    def close(self, uid: str) -> bool:
-        doc = self.get(uid)
-        if doc is None:
-            return False
-        index = self.docs.index(doc)
-        self.docs.remove(doc)
-        if self.active_uid == uid:
-            # The neighbour, not the first: closing a tab should leave you next
-            # to where you were rather than at the far end of the bar.
-            self.active_uid = self.docs[min(index, len(self.docs) - 1)].uid if self.docs else ""
+    def _closed(self, was_active: bool) -> None:
         self._settle_transform()
         self.clear_drag()
         self.forget_held_keys()
-        return True
-
-    def activate(self, uid: str) -> None:
-        if uid != self.active_uid:
-            self.active_uid = uid
-            self._settle_transform()
-            self.clear_drag()
-            self.forget_held_keys()
 
     def _settle_transform(self) -> None:
         """Cancel an open free transform the moment its owner stops being the
@@ -2109,17 +2028,6 @@ class InkerState:
         self.transform_uid = ""
         self.transform_ref = None
         self.transform_grab = ""
-
-    def cycle(self, step: int = 1) -> None:
-        if len(self.docs) < 2:
-            return
-        current = self.active
-        index = self.docs.index(current) if current in self.docs else 0
-        self.activate(self.docs[(index + step) % len(self.docs)].uid)
-
-    def find_path(self, path: Path) -> InkerDoc | None:
-        """``docmodes.find_path``: the one case-folding body every mode shares."""
-        return docmodes.find_path(self.docs, path)
 
     def find_job(self, job_id: str) -> InkerDoc | None:
         for doc in self.docs:

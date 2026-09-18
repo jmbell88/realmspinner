@@ -39,7 +39,6 @@ from __future__ import annotations
 import bisect
 import itertools
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -155,24 +154,10 @@ class Sounding:
 
 
 @dataclass
-class SongTab:
+class SongTab(docmodes.DocTab):
     """One tab: a song, where it came from, and the audio it last rendered to."""
 
-    doc: Any
-    title: str = "Untitled"
-    path: Path | None = None
     uid: str = field(default_factory=lambda: f"sg{next(_uids)}")
-    saved_head: int = 0
-    saving: bool = False
-
-    # Crash-safety, owned by :mod:`studio.journal` (UX-05). Inker's three
-    # fields, verbatim, because they are the same three questions: which file
-    # this tab owns under the autosave directory (minted on the first copy, so
-    # an untouched tab litters nothing), the history position that copy
-    # captured (an undo back to it is not a new edit), and the debounce.
-    journal_name: str = ""
-    journal_head: int | None = None
-    journal_at: float = 0.0
 
     # The last successful render: ``int16`` ``(n, 2)`` at ``synth.SAMPLE_RATE``,
     # and the loop points the song asked for, in samples. Both ``None`` until a
@@ -219,18 +204,6 @@ class SongTab:
     # say so rather than showing a dead Play button that looks like a bug.
     render_error: str = ""
 
-    @property
-    def busy(self) -> bool:
-        return self.saving
-
-    @property
-    def dirty(self) -> bool:
-        return self.doc.dirty
-
-    @property
-    def label(self) -> str:
-        return docmodes.tab_label(self)
-
     def mark_at(self, seconds: float, rate: int) -> tuple[int, int, int] | None:
         """Which ``(order index, pattern uid, row)`` is sounding at ``seconds``.
 
@@ -241,11 +214,6 @@ class SongTab:
         """
         one = self.sounding
         return None if one is None else one.mark_at(seconds, rate)
-
-    def mark_saved(self, head: int | None = None) -> None:
-        self.doc.mark_saved(head)
-        self.saved_head = self.doc.saved_head
-        self.saving = False
 
     def adopt_render(
         self,
@@ -272,9 +240,7 @@ class SongTab:
 
 
 @dataclass
-class SirensState:
-    docs: list[SongTab] = field(default_factory=list)
-    active_uid: str = ""
+class SirensState(docmodes.DocTabs[SongTab]):
 
     # --- the caret ------------------------------------------------------------
     #
@@ -403,40 +369,6 @@ class SirensState:
     #: between the ones the mouse happened to be over on a frame boundary.
     env_step: int = -1
 
-    @property
-    def active(self) -> SongTab | None:
-        for doc in self.docs:
-            if doc.uid == self.active_uid:
-                return doc
-        return self.docs[-1] if self.docs else None
-
-    @property
-    def any_dirty(self) -> bool:
-        return any(doc.dirty for doc in self.docs)
-
-    def add(self, doc: SongTab) -> SongTab:
-        self.docs.append(doc)
-        self.active_uid = doc.uid
-        self._reset_caret(doc)
-        return doc
-
-    def get(self, uid: str) -> SongTab | None:
-        for doc in self.docs:
-            if doc.uid == uid:
-                return doc
-        return None
-
-    def close(self, uid: str) -> bool:
-        doc = self.get(uid)
-        if doc is None:
-            return False
-        index = self.docs.index(doc)
-        self.docs.remove(doc)
-        if self.active_uid == uid:
-            self.active_uid = self.docs[min(index, len(self.docs) - 1)].uid if self.docs else ""
-            self._reset_caret(self.active)
-        return True
-
     def activate(self, uid: str) -> None:
         if uid != self.active_uid:
             # **The other song stops (S6, 2026-09-05).** There is one mixer
@@ -452,21 +384,16 @@ class SirensState:
             self.play_request += 1
             for tab in self.docs:
                 tab.sounding = None
-            self.active_uid = uid
-            # The caret names a row of the *previous* song's pattern, and a
-            # selection anchored in it. Both are meaningless here.
+        super().activate(uid)
+
+    def _switched(self, previous: str) -> None:
+        # The caret names a row of the *previous* song's pattern, and a
+        # selection anchored in it. Both are meaningless here.
+        self._reset_caret(self.active)
+
+    def _closed(self, was_active: bool) -> None:
+        if was_active:
             self._reset_caret(self.active)
-
-    def cycle(self, step: int = 1) -> None:
-        if len(self.docs) < 2:
-            return
-        current = self.active
-        index = self.docs.index(current) if current in self.docs else 0
-        self.activate(self.docs[(index + step) % len(self.docs)].uid)
-
-    def find_path(self, path: Path) -> SongTab | None:
-        """``docmodes.find_path``: the one case-folding body every mode shares."""
-        return docmodes.find_path(self.docs, path)
 
     def _reset_caret(self, tab: SongTab | None) -> None:
         """Put the caret at the top of the tab's first pattern.

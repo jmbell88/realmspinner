@@ -62,56 +62,15 @@ CameraView = docmodes.CameraView
 
 
 @dataclass
-class ClayTab:
-    """One open document.
+class ClayTab(docmodes.HistoryTab):
+    """One open document (``docmodes.DocTab`` holds the shared fields)."""
 
-    ``uid`` is stable and never reused, because imgui identifies a tab by its
-    label: a title alone would make two documents called "Untitled" the same
-    tab, and would move a tab's identity every time a Save As renamed it.
-    """
-
-    doc: Any
-    title: str = "Untitled"
-    path: Path | None = None
     uid: str = field(default_factory=lambda: f"bd{next(_uids)}")
     view: CameraView = field(default_factory=CameraView)
-    # The history position the file on disk was written from. Dirty is a
-    # *comparison*, not a flag, so undoing back to the saved state correctly
-    # stops being dirty -- which the document's revision cannot express,
-    # because it counts changes and an undo is one.
-    saved_head: int = 0
-    saving: bool = False
-
-    # Crash-safety, owned by :mod:`studio.journal` (UX-05). Inker's three
-    # fields, verbatim, because they are the same three questions: which file
-    # this tab owns under the autosave directory (minted on the first copy, so
-    # an untouched tab litters nothing), the history position that copy
-    # captured (an undo back to it is not a new edit), and the debounce.
-    journal_name: str = ""
-    journal_head: int | None = None
-    journal_at: float = 0.0
     # The asset this document was last exported to, if any. Not a link in the
     # raster editor's sense: a built asset is a *snapshot*, and editing the
     # document afterwards does not change the mesh already on disk.
     job_id: str = ""
-
-    @property
-    def dirty(self) -> bool:
-        return self.doc.history.head != self.saved_head
-
-    @property
-    def label(self) -> str:
-        return docmodes.tab_label(self)
-
-    def mark_saved(self, head: int | None = None) -> None:
-        """Record which history position is now on disk.
-
-        Captured when the *encode* starts, not when it finishes: an edit made
-        while the file was being written is genuinely not in it, and clearing a
-        flag here would call it saved.
-        """
-        self.saved_head = self.doc.history.head if head is None else head
-        self.saving = False
 
 
 def title_for(path: Path | None) -> str:
@@ -124,11 +83,9 @@ def title_for(path: Path | None) -> str:
 
 
 @dataclass
-class ClayState:
+class ClayState(docmodes.DocTabs[ClayTab]):
     """Everything Clay remembers across frames."""
 
-    docs: list[ClayTab] = field(default_factory=list)
-    active_uid: str = ""
     #: ``F`` has been pressed and the viewport has not framed yet.
     #:
     #: A flag rather than a call, the house pattern (``plotter_state``'s
@@ -289,72 +246,23 @@ class ClayState:
 
     # -- documents ---------------------------------------------------------
 
-    @property
-    def active(self) -> ClayTab | None:
-        for doc in self.docs:
-            if doc.uid == self.active_uid:
-                return doc
-        return self.docs[-1] if self.docs else None
-
-    @property
-    def any_dirty(self) -> bool:
-        return any(doc.dirty for doc in self.docs)
-
-    def add(self, tab: ClayTab) -> ClayTab:
+    def _switched(self, previous: str) -> None:
         # ``activate`` was fixed to settle a live drag on the tab it leaves
-        # before moving ``active_uid`` (2026-09-15 audit, clay-01); ``add``
-        # moves ``active_uid`` exactly the same way and was left out, so
-        # creating, opening, importing or auto-recovering a document mid-drag
-        # (New/Open have no drag gate in the UI at all, and the async adopt
-        # paths are inherently decoupled from whatever drag is live when
-        # their result lands) left the old tab's TRS mutated in place with no
-        # history step behind it -- unrevertable (2026-09-16 audit). Guarded
-        # the same way ``activate`` is: a fresh ``ClayState`` has no
-        # ``settle_drag`` yet, and the very first ``add()`` has no
-        # ``active_uid`` to settle.
-        if self.settle_drag is not None and self.active_uid:
-            self.settle_drag(self.active_uid)
-        self.docs.append(tab)
-        self.active_uid = tab.uid
+        # (2026-09-15 audit, clay-01); ``add`` moves ``active_uid`` exactly the
+        # same way and was left out, so creating, opening, importing or
+        # auto-recovering a document mid-drag (New/Open have no drag gate in
+        # the UI at all, and the async adopt paths are inherently decoupled
+        # from whatever drag is live when their result lands) left the old
+        # tab's TRS mutated in place with no history step behind it --
+        # unrevertable (2026-09-16 audit). One hook for both now. A fresh
+        # ``ClayState`` has no ``settle_drag`` yet, and the very first
+        # ``add()`` has no previous tab to settle.
+        if self.settle_drag is not None and previous:
+            self.settle_drag(previous)
         self.clear_drag()
-        return tab
 
-    def get(self, uid: str) -> ClayTab | None:
-        for doc in self.docs:
-            if doc.uid == uid:
-                return doc
-        return None
-
-    def close(self, uid: str) -> bool:
-        tab = self.get(uid)
-        if tab is None:
-            return False
-        index = self.docs.index(tab)
-        self.docs.remove(tab)
-        if self.active_uid == uid:
-            # The neighbour, not the first: closing a tab should leave you next
-            # to where you were rather than at the far end of the bar.
-            self.active_uid = self.docs[min(index, len(self.docs) - 1)].uid if self.docs else ""
+    def _closed(self, was_active: bool) -> None:
         self.clear_drag()
-        return True
-
-    def activate(self, uid: str) -> None:
-        if uid != self.active_uid:
-            if self.settle_drag is not None:
-                self.settle_drag(self.active_uid)
-            self.active_uid = uid
-            self.clear_drag()
-
-    def cycle(self, step: int = 1) -> None:
-        if len(self.docs) < 2:
-            return
-        current = self.active
-        index = self.docs.index(current) if current in self.docs else 0
-        self.activate(self.docs[(index + step) % len(self.docs)].uid)
-
-    def find_path(self, path: Path) -> ClayTab | None:
-        """``docmodes.find_path``: the one case-folding body every mode shares."""
-        return docmodes.find_path(self.docs, path)
 
     # -- drag ---------------------------------------------------------------
 
