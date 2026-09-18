@@ -137,9 +137,13 @@ def _add(ctx: Any, state: Any, tab: Any) -> None:
     try:
         one = tab.doc.add_oneshot(rows=NEW_ROWS)
     except ValueError as exc:
-        # ``MAX_ONESHOTS``, which is the only way this refuses. Framed rather
-        # than swallowed: the ceiling is reachable by working, and a button that
-        # silently stops adding is worse than one that says why.
+        # sirens-03 (2026-09-18 audit, second run): this used to say
+        # ``MAX_ONESHOTS`` is "the only way this refuses" -- but
+        # ``add_oneshot`` also makes a pattern of its own for the effect
+        # (``document.py``'s ``add_oneshot``), and that inner ``add_pattern``
+        # call can itself raise at ``MAX_PATTERNS`` first. Framed rather than
+        # swallowed either way: both ceilings are reachable by working, and a
+        # button that silently stops adding is worse than one that says why.
         ctx.toast(f"That sound effect was not added: {exc}", "error")
         return
     _select(ctx, state, one)

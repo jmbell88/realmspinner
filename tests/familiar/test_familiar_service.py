@@ -241,6 +241,29 @@ def test_an_httpx_transport_timeout_is_a_familiar_refusal_not_an_unmapped_except
     assert excinfo.value.reason == "unhealthy"
 
 
+def test_a_key_file_deleted_mid_request_is_a_familiar_refusal_not_an_unclassified_oserror(
+    monkeypatch,
+):
+    """familiar-01 (2026-09-18 audit, second run): a chat racing
+    ``LlamaServer.stop()`` can land between ``llama_client._headers`` reading
+    the key file and ``pipelines.llama._release_key_file`` unlinking it --
+    a raw ``FileNotFoundError`` (an ``OSError``), which ``_call``'s except
+    clauses (``TimeoutError``, ``ValueError``, ``httpx.HTTPError``,
+    ``RuntimeError``) did not name, so it used to escape unclassified
+    instead of the "did not answer in time" refusal every other
+    stopped-server failure produces."""
+
+    async def fake_chat(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    with pytest.raises(FamiliarRefusal) as excinfo:
+        svc_familiar.chat_reply(_FakeSvc(), "hello")
+
+    assert excinfo.value.reason == "unhealthy"
+
+
 def test_an_unparseable_reply_is_a_parse_refusal(monkeypatch):
     """A reply with no fenced ``{"calls": [...]}}`` JSON must surface as a
     ``FamiliarRefusal`` with reason ``"parse"`` -- ``contract.parse_calls``'s

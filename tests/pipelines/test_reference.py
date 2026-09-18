@@ -227,6 +227,39 @@ def test_prepare_disabled_is_a_byte_exact_copy(tmp_path):
     assert not list(tmp_path.glob(".*tmp*"))
 
 
+def test_overlapping_reference_prepare_calls_do_not_share_a_temp_name(
+    monkeypatch, tmp_path,
+):
+    """The 2026-09-18 audit, finding pipelines-01.
+
+    The staging name used to be ``f".{dest.name}.tmp"``, fixed and shared by
+    every concurrent caller of the same ``dest`` -- a rerun racing the call
+    it is rerunning. Two overlapping ``prepare`` calls used to stage into
+    the identical dotfile; failing this against the unfixed code means the
+    two captured temp paths below are equal.
+    """
+    src = tmp_path / "ref.png"
+    _subject().save(src)
+    dest = tmp_path / "reference.png"
+
+    seen: list = []
+    import shutil as shutil_mod
+
+    real_copyfile = shutil_mod.copyfile
+
+    def _spy_copyfile(s, d):
+        seen.append(d)
+        return real_copyfile(s, d)
+
+    monkeypatch.setattr(reference.shutil, "copyfile", _spy_copyfile)
+
+    reference.prepare(src, dest, enabled=False)
+    reference.prepare(src, dest, enabled=False)
+
+    assert len(seen) == 2
+    assert seen[0] != seen[1]
+
+
 def test_prepare_is_idempotent(tmp_path):
     src = tmp_path / "ref.png"
     _subject(box=(20, 20, 60, 60)).save(src)

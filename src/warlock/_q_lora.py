@@ -78,6 +78,13 @@ class LoraOps:
         )
         if self._cancel is not None and self._cancel.event.is_set():
             return
+        # The 2026-09-18 audit, finding service-01: this used to decide
+        # success from ``weights.exists()`` alone, so a trainer run that
+        # reported ``ok: False`` (pipelines-01's contract -- exit 0, staged
+        # ``{"ok": False, "error": ...}``) still registered as a usable style
+        # whenever partial adapter bytes had already landed on disk.
+        if not result.get("ok"):
+            raise RuntimeError(result.get("error") or "training failed")
         weights = Path(result.get("weights") or (out_dir / lora_train.WEIGHTS_NAME))
         if not weights.exists():
             raise RuntimeError("the trainer reported success but wrote no adapter")

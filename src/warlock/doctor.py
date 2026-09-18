@@ -638,12 +638,23 @@ def _gltfpack_check(config: Config) -> Check:
     # L01, ``_exe_check``'s fix: a directory named like the binary passed
     # ``.exists()`` and read as "not found" either way.
     path = config.gltfpack_exe
-    ok = path.is_file()
-    if ok:
+    is_file = path.is_file()
+    # The 2026-09-18 audit, finding pipelines-02: this row checked
+    # ``is_file()`` alone, unlike ``_exe_check`` beside it (M04's zero-byte
+    # downgrade) -- a killed download or a killed unpack leaves a zero-byte
+    # binary that passed as "OK" and then failed to run with no row naming
+    # why.
+    if is_file and path.stat().st_size == 0:
+        ok = False
+        detail = f"{path} is 0 bytes and will not run -- meshes ship at full reconstruction density"
+    elif is_file:
+        ok = True
         detail = str(path)
     elif path.exists():
+        ok = False
         detail = f"{path} exists but is not a file -- meshes ship at full reconstruction density"
     else:
+        ok = False
         detail = f"not found at {path} -- meshes ship at full reconstruction density"
     return Check("gltfpack (mesh optimizer)", ok, detail, fatal=False)
 

@@ -442,6 +442,25 @@ def test_gltfpack_check_reports_a_directory_distinctly_from_a_missing_file(
     assert "exists but is not a file" in check.detail
 
 
+def test_gltfpack_check_reports_a_zero_byte_binary_as_broken(tmp_path, monkeypatch):
+    """The 2026-09-18 audit, finding pipelines-02.
+
+    ``_gltfpack_check`` used to report OK on ``is_file()`` alone, unlike
+    ``_exe_check`` beside it (M04's zero-byte downgrade) -- a killed download
+    or unpack leaves a zero-byte binary that this row read as healthy.
+    """
+    from warlock import doctor
+    from warlock.config import Config
+
+    exe = tmp_path / "gltfpack.exe"
+    exe.write_bytes(b"")
+    monkeypatch.setenv("WARLOCK_GLTFPACK", str(exe))
+    monkeypatch.setenv("WARLOCK_DATA_DIR", str(tmp_path))
+    check = doctor._gltfpack_check(Config())
+    assert check.ok is False
+    assert "0 bytes" in check.detail
+
+
 def test_ip_adapter_row_checks_the_vision_encoder_too(tmp_path):
     """Weights without the encoder load fine and fail at the first call, which
     is not a failure a user can read back to a missing download."""

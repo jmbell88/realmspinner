@@ -33,6 +33,16 @@ def test_a_colour_before_a_kind_word_repaints_only_that_kind():
     assert _layer(rec, "core", "Core").params == _layer(before, "core", "Core").params
 
 
+def test_a_colour_word_that_recognises_smoke_reports_it_has_no_colour_rather_than_no_words_known():
+    """The 2026-09-18 audit (inker-06): ``_COLOUR_SLOTS`` had no entry for
+    ``smoke``, the one coloured primitive with none -- "green smoke" fell
+    through identically to a genuinely unknown word and reported "No words I
+    know", even though both "green" and "smoke" are recognised."""
+    rec, notes = keywords.apply(_fireball(), "green smoke")
+    assert any("smoke has no colour" in n for n in notes)
+    assert not any("No words I know" in n for n in notes)
+
+
 def test_more_and_no_change_counts_and_visibility():
     before = _fireball()
     rec, notes = keywords.apply(before, "more sparks, no smoke")

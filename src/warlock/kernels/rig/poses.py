@@ -212,7 +212,16 @@ def _load_pose_library(
             space = str(raw.get("space") or "node")
             rows = []
             for i, pose in enumerate(raw["poses"]):
-                row = {"name": str(pose["name"]), "bones": pose["bones"]}
+                # The 2026-09-18 audit's second-run poser-01: this stored
+                # ``pose["bones"]`` verbatim, contradicting this function's
+                # own docstring and the read-door rule ``cliplib.
+                # parse_clip_library`` follows for the identically shaped
+                # case -- a malformed shipped quaternion (a NaN, a non-unit
+                # norm past repair, a non-numeric value) reached
+                # ``blender_worker._apply_pose`` unchecked. ``validate_bones``
+                # raises inside this file's own per-file ``try``, so one bad
+                # pose costs that pose's file, not the app.
+                row = {"name": str(pose["name"]), "bones": validate_bones(pose["bones"])}
                 if space != "node":
                     row["space"] = space
                 if with_ids:

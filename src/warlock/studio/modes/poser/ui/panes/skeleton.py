@@ -187,7 +187,12 @@ def _limb_row(ctx: Any, state: Any, viewer: Any, selected: str | None) -> None:
         return
     keys = {row["key"] for row in presets}
     if state.limb_preset not in keys:
-        state.limb_preset = next(iter(keys))
+        # The 2026-09-18 audit's second-run poser-03: ``next(iter(keys))`` on
+        # a *set* is hash order, not the first row ``presets`` actually
+        # lists -- so the pre-selected preset silently disagreed with what
+        # the combo box draws first. ``presets[0]`` is the row the panel
+        # itself puts on top.
+        state.limb_preset = presets[0]["key"]
     state.limb_preset = widgets.labeled_combo(
         "Preset",
         state.limb_preset,

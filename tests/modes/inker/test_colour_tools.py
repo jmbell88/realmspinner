@@ -64,6 +64,25 @@ def test_a_channel_weight_of_zero_leaves_that_channel_alone():
     assert int(out[0, 0, 2]) == 128
 
 
+def test_curves_gives_the_same_tone_shift_at_any_alpha():
+    """The 2026-09-18 audit (inker-02): curves evaluated the tone curve on
+    premultiplied colour, so a translucent pixel got a different, alpha-
+    dependent tone shift than its opaque twin -- every soft brush edge and
+    feathered selection was wrong under Curves. A midtones push must land
+    the same RGB result whatever the alpha."""
+
+    opaque = _flat((200, 200, 200, 255))
+    translucent = _flat((200, 200, 200, 128))
+    out_opaque = filters.curves(opaque, midtones=0.8)
+    out_translucent = filters.curves(translucent, midtones=0.8)
+    assert tuple(int(c) for c in out_opaque[0, 0, :3]) == tuple(
+        int(c) for c in out_translucent[0, 0, :3]
+    )
+    # Alpha itself must be untouched -- curves is a colour filter.
+    assert int(out_opaque[0, 0, 3]) == 255
+    assert int(out_translucent[0, 0, 3]) == 128
+
+
 # --- the convolution --------------------------------------------------------
 
 

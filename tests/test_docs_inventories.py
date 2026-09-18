@@ -266,3 +266,27 @@ def test_contributing_md_offline_bullet_names_every_network_worker():
         f"CONTRIBUTING.md never names {missing} as network-reaching workers -- "
         "the same undercount docs-04 and docs-05 fixed in CLAUDE.md and README"
     )
+
+
+def test_before_you_begin_install_command_lists_all_four_extras():
+    """The 2026-09-18 audit, finding docs-01 (second run).
+
+    Chapter 01's install command and its "the three extras" sentence dated
+    from before ``music`` existed as an optional-dependency group; a new
+    reader following it verbatim gets no Muse and nothing here says why.
+    Derived from ``pyproject.toml``'s own ``[project.optional-dependencies]``
+    keys rather than a second hand list, the same rule this module's other
+    tests already follow.
+    """
+    import tomllib
+
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extras = set(pyproject["project"]["optional-dependencies"])
+    assert extras == {"text2image", "music", "studio", "rig"}
+
+    chapter = (ROOT / "docs" / "manual" / "01-before-you-begin.md").read_text(
+        encoding="utf-8"
+    )
+    missing = [f"--extra {name}" for name in extras if f"--extra {name}" not in chapter]
+    assert not missing, f"chapter 01's install command never passes {missing} (docs-01)"
+    assert "three extras" not in chapter

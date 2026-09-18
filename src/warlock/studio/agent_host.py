@@ -1965,7 +1965,15 @@ class AgentHost:
                 job.event.set()
             state = job.state
         if state == DROPPED:
-            op.state, op.job, op.delivered = DROPPED, None, True
+            # the 2026-09-18 audit, finding agents-01: a cancelled task-mode
+            # operation never set `fetched`, so `_protected` (a job that
+            # finished but was never fetched survives eviction) kept every
+            # cancel alive forever -- sixteen of them saturated a connection
+            # and the seventeenth call was refused. A dropped job never ran,
+            # so there is no terminal result a client could still fetch;
+            # mark it fetched and drop its args the same way a real fetch
+            # would, so `_protected`/`mint` treat it like any other retired op.
+            op.state, op.job, op.delivered, op.fetched, op.args = DROPPED, None, True, True, None
         return rpc.encode_reply({"operation_id": operation_id, "status": TASK_STATUS[state]})
 
     def _toast(self, text: str) -> None:

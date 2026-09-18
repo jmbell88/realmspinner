@@ -148,7 +148,7 @@ def test_an_audio2audio_derive_with_count_above_one_is_refused_at_the_door(
     """
     with pytest.raises(Invalid) as caught:
         door.derive_music_job(svc, parent, task="audio2audio", count=4)
-    assert caught.value.field == "count"
+    assert caught.value.field == "derive_count"
 
     # One is still fine -- the refusal is about the multiplied request, not
     # the task itself.

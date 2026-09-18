@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from warlock.core.safeio import pixelguard
 from warlock.kernels import pixel as inker
 from warlock.kernels.pixel.flourish import bake as B
 from warlock.kernels.pixel.flourish import keyframes, presets
@@ -336,3 +337,26 @@ def test_a_failed_job_ends_the_restyle_with_a_warning(tmp_path):
     inker_flourish.poll_restyle(ctx, state, now=1.0)
     assert state.flourish_restyle_pending is None
     assert ctx.toasts[-1][1] == "warn"
+
+
+# -- pixelguard doors --------------------------------------------------------------------------
+
+
+def test_flourish_decode_texture_refuses_an_oversized_input_png(tmp_path, monkeypatch):
+    """The 2026-09-18 audit (inker-04): ``decode_texture`` opened the picked
+    file with a bare ``Image.open``, bypassing ``pixelguard`` -- one of the
+    two loaders the module docstring's door count did not yet include. A
+    picture past the ceiling must be refused, not decoded."""
+    monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 8 * 8 - 1)
+    path = tmp_path / "texture.png"
+    Image.new("RGBA", (8, 8), (10, 20, 30, 255)).save(path)
+    assert inker_flourish.decode_texture({}, path) is None
+
+
+def test_decode_restyle_refuses_an_oversized_anchor_png(tmp_path, monkeypatch):
+    """The second of the two loaders inker-04 found."""
+    monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 8 * 8 - 1)
+    path = tmp_path / "anchor.png"
+    Image.new("RGBA", (8, 8), (10, 20, 30, 255)).save(path)
+    rec = dataclasses.replace(presets.load("sword_impact"), width=8, height=8, supersample=1)
+    assert inker_flourish.decode_restyle({"span": [0, 0]}, {0: path}, rec, (8, 8)) is None

@@ -160,6 +160,19 @@ def _call(
     except RuntimeError as exc:
         error = FamiliarRefusal(str(exc), reason=_reason_for(str(exc)))
         raise error from exc
+    except OSError as exc:
+        # familiar-01 (2026-09-18 audit, second run): a chat racing
+        # LlamaServer.stop() can land between _headers reading the key file
+        # (llama_client.py's _headers, called synchronously inside chat())
+        # and pipelines.llama._release_key_file unlinking it -- a raw
+        # FileNotFoundError, which is an OSError, not a TimeoutError,
+        # ValueError, httpx.HTTPError or RuntimeError, so it used to escape
+        # this door unclassified. The stopped server is simply not
+        # answering anymore, the same story as an unhealthy llama-server.
+        error = FamiliarRefusal(
+            "Familiar did not answer in time -- try again.", reason="unhealthy"
+        )
+        raise error from exc
     finally:
         # dev-only (WARLOCK_FAMILIAR_LOG, familiar_log.py's own docstring):
         # one record per model round trip regardless of which of the above

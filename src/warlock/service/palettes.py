@@ -55,8 +55,16 @@ def available(config: Config) -> list[str]:
     directory = Path(config.palette_dir)
     if not directory.is_dir():
         return []
+    # The 2026-09-18 audit, finding service-02: a directory named like a
+    # palette file (e.g. ``foo.hex/``) used to pass this suffix filter and
+    # then get refused by ``_path`` as "unknown palette" the moment a caller
+    # tried to load it -- ``is_file`` is what ``_path`` itself checks.
     return sorted(
-        {p.stem for p in directory.iterdir() if p.suffix.lower() in SUFFIXES}
+        {
+            p.stem
+            for p in directory.iterdir()
+            if p.suffix.lower() in SUFFIXES and p.is_file()
+        }
     )
 
 

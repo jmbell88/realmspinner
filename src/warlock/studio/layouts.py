@@ -275,14 +275,20 @@ class Library:
         ``layout.Layout.set_sidebar_width`` for why replacing the per-workspace
         overrides is the intended reading of a global preference rather than a
         loss.
+
+        Clears every *readable* saved layout, not only the active one: this is
+        a global preference, and a layout the user is not currently viewing
+        would otherwise keep stale per-workspace widths that reappear the
+        moment they switch back to it (the 2026-09-18 audit, shell-02, second
+        run -- the first pass over this method only cleared ``self.current()``).
         """
 
         self._width_seed = clamp_panel(value)
-        layout = self.current()
-        if not layout.readable:
-            return
-        for arrangement in layout.workspaces.values():
-            arrangement.widths.clear()
+        for layout in self.layouts.values():
+            if not layout.readable:
+                continue
+            for arrangement in layout.workspaces.values():
+                arrangement.widths.clear()
         self.save()
 
     def reset_sizes(self) -> None:

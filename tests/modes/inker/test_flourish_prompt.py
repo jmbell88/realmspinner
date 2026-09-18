@@ -112,6 +112,28 @@ def test_presence_is_config_json_plus_safetensors(tmp_path):
     assert inker_flourish.text_model_dir(None) is None
 
 
+def test_text_model_available_is_not_reprobed_on_every_inspector_frame(tmp_path, monkeypatch):
+    """The 2026-09-18 audit (inker-03): unmemoised, this rglob'd the model
+    directory and probed for torch/transformers on every imgui frame the
+    Flourish inspector stayed open. A second call with the same config must
+    not touch the filesystem again."""
+    config = _model_dir(tmp_path)
+    inker_flourish.reset_text_model_available_cache()
+    calls = []
+    real_present = inker_flourish.text_model_present
+
+    def counting_present(cfg):
+        calls.append(cfg)
+        return real_present(cfg)
+
+    monkeypatch.setattr(inker_flourish, "text_model_present", counting_present)
+    inker_flourish.text_model_available(config)
+    inker_flourish.text_model_available(config)
+    inker_flourish.text_model_available(config)
+    assert len(calls) == 1
+    inker_flourish.reset_text_model_available_cache()
+
+
 def test_with_a_model_the_answer_is_clamped_through_the_same_funnel(tmp_path, monkeypatch):
     config = _model_dir(tmp_path)
     ctx, tab, group = _scene(config)

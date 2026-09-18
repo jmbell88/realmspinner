@@ -742,13 +742,16 @@ def decode_texture(
     the matting model where the machine has one, black-keyed otherwise."""
     from PIL import Image
 
+    from ....core.safeio import pixelguard
     from ....pipelines import matting
 
+    # The 2026-09-18 audit (inker-04): this used a bare ``Image.open``, one of
+    # the two loaders in this file ``pixelguard``'s own docstring did not yet
+    # count among its doors -- an untrusted PNG dropped on the texture picker
+    # allocated before any size check ran.
     try:
-        with Image.open(image_path) as im:
-            im.load()
-            picture = im.convert("RGBA")
-    except OSError:
+        picture = Image.fromarray(pixelguard.decode_rgba(image_path, "a Flourish texture"), "RGBA")
+    except (OSError, ValueError):
         return None
     picture.thumbnail((TEXTURE_MAX_PX, TEXTURE_MAX_PX), Image.Resampling.LANCZOS)
     pixels = np.asarray(picture, dtype=np.uint8).copy()
@@ -835,14 +838,45 @@ def text_model_present(config: Any) -> bool:
     return any(p.is_file() for p in base.rglob("*.safetensors"))
 
 
+#: :func:`text_model_available`'s memo, keyed on the resolved model directory.
+#: The 2026-09-18 audit (inker-03): the Flourish inspector's "model"/"keywords"
+#: indicator called this, unmemoised, on every imgui frame the inspector
+#: stayed open -- an ``rglob`` of the model directory plus two
+#: ``importlib.util.find_spec`` calls, repeated dozens of times a second for
+#: no reason, the same shape as ``_popup_names_cached`` (inker-11,
+#: 2026-09-11) fixed in ``ui/panes/flourish.py``. Module state rather than a
+#: field on ``InkerState`` for the same reason as that fix: the cache is
+#: about this directory, not about any one document.
+_TEXT_MODEL_AVAILABLE: dict[str, bool] = {}
+
+
+def reset_text_model_available_cache() -> None:
+    """Drop the memo. Call after anything that could change the answer:
+    weights fetched or removed, ``t2i_model_root`` edited in Settings."""
+    _TEXT_MODEL_AVAILABLE.clear()
+
+
 def text_model_available(config: Any) -> bool:
     """Weights on disk *and* the packages to run them, checked before any torch
-    import -- ``tests/test_offline.py``'s ordering rule."""
-    if not text_model_present(config):
-        return False
-    import importlib.util
+    import -- ``tests/test_offline.py``'s ordering rule.
 
-    return all(importlib.util.find_spec(name) is not None for name in ("torch", "transformers"))
+    Memoised per resolved model directory; call
+    :func:`reset_text_model_available_cache` when the answer could have
+    changed."""
+    key = str(text_model_dir(config))
+    cached = _TEXT_MODEL_AVAILABLE.get(key)
+    if cached is not None:
+        return cached
+    if not text_model_present(config):
+        result = False
+    else:
+        import importlib.util
+
+        result = all(
+            importlib.util.find_spec(name) is not None for name in ("torch", "transformers")
+        )
+    _TEXT_MODEL_AVAILABLE[key] = result
+    return result
 
 
 def can_prompt(state: Any, tab: Any) -> bool:
@@ -1172,17 +1206,19 @@ def decode_restyle(
     """Task thread: read every anchor, key it out, interpolate the span."""
     from PIL import Image
 
+    from ....core.safeio import pixelguard
     from ....kernels.pixel.flourish import keyframes
 
     if recipe is None or size is None:
         return None
     anchors: dict[int, np.ndarray] = {}
     for index, path in paths.items():
+        # The 2026-09-18 audit (inker-04): the second of the two bare
+        # ``Image.open`` loaders in this file, same gap as ``decode_texture``.
         try:
-            with Image.open(path) as im:
-                im.load()
-                picture = im.convert("RGBA").resize(size, Image.Resampling.LANCZOS)
-        except OSError:
+            pixels = pixelguard.decode_rgba(path, "a Flourish restyle anchor")
+            picture = Image.fromarray(pixels, "RGBA").resize(size, Image.Resampling.LANCZOS)
+        except (OSError, ValueError):
             return None
         pixels = np.asarray(picture, dtype=np.uint8).copy()
         if not (pixels[..., 3] < 255).any():

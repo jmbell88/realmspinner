@@ -32,14 +32,14 @@ Pure and torch-free: cv2/numpy/Pillow imported inside functions.
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import os
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from ..core.safeio import atomic
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from PIL import Image as _ImageModule
@@ -659,10 +659,15 @@ def prepare(
     from PIL import Image
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(f".{dest.name}.tmp")
 
-    try:
-        report = None
+    # The 2026-09-18 audit, finding pipelines-01: the staging name used to be
+    # ``f".{dest.name}.tmp"``, the fixed-name pattern M03/service-02 already
+    # fixed elsewhere -- two overlapping ``prepare`` calls for the same
+    # ``dest`` (a rerun racing the call it is rerunning) staged into the same
+    # dotfile, so one call's cleanup could unlink the other's still-live temp
+    # out from under it. ``atomic.staged`` tokens the name per call.
+    report = None
+    with atomic.staged(dest) as tmp:
         if enabled:
             try:
                 with Image.open(src) as im:
@@ -677,9 +682,4 @@ def prepare(
         if report is None:
             shutil.copyfile(src, tmp)
             report = measure_file(src)
-
-        os.replace(tmp, dest)
-    finally:
-        with contextlib.suppress(OSError):
-            tmp.unlink(missing_ok=True)
     return report

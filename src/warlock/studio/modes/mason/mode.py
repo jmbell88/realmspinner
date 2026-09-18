@@ -1098,13 +1098,23 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
     if name == "mason-open":
         if isinstance(result, dict):
-            adopt(
-                ctx,
-                result["doc"],
-                path=Path(result["path"]),
-                title=result.get("title"),
-                view=result.get("view"),
-            )
+            # The 2026-09-18 audit (second run, finding mason-02) found this
+            # arm adopting unconditionally while ``open_path`` (drag-drop and
+            # recents) already checked ``find_path`` -- Clay hit the identical
+            # gap in its own dialog arm on 2026-09-12 (clay-02) and fixed it
+            # the same way. Two tabs over one path race on save; whichever
+            # writes last silently discards the other's edits.
+            existing = state.find_path(Path(result["path"]))
+            if existing is not None:
+                state.activate(existing.uid)
+            else:
+                adopt(
+                    ctx,
+                    result["doc"],
+                    path=Path(result["path"]),
+                    title=result.get("title"),
+                    view=result.get("view"),
+                )
             _enter_mason(ctx)
         return
 

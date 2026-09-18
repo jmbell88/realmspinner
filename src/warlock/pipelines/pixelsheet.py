@@ -232,6 +232,12 @@ def quantize_shared(atlas: PILImage, colors: int) -> tuple[PILImage, list[str]]:
 
     from . import pixel as pixelmod
 
+    # The 2026-09-18 audit (inker-05): an unchecked ``colors`` reached
+    # ``Image.quantize`` verbatim, so a bad value (0, negative, or past
+    # Pillow's own 256-entry palette) surfaced as Pillow's own exception
+    # rather than a refusal this app names.
+    if not (1 <= int(colors) <= 256):
+        raise ValueError(f"a palette must have 1 to 256 colours, not {colors}")
     rgba = np.asarray(atlas.convert("RGBA"))
     opaque = rgba[:, :, 3] >= pixelmod.ALPHA_THRESHOLD
     if not opaque.any():

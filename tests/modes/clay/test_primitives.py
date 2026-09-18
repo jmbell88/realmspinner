@@ -1060,6 +1060,27 @@ def test_a_clamped_generator_value_is_stored_as_the_value_that_was_built() -> No
     assert list(from_raw.starts) == list(from_clamped.starts)
 
 
+def test_clamp_params_mirrors_archs_own_thickness_clamp() -> None:
+    """The 2026-09-18 audit's second-run clay-01: ``clamp_params`` mirrors
+    torus's tube-vs-radius clamp and column's base/capital clamp, both the
+    clay-04/clay-05 class of "the panel stores what the generator actually
+    built" -- but had no branch for ``arch``'s own
+    ``t = min(max(abs(t), r_out*0.02), r_out*0.9)``. A thickness past the
+    arch's own half-width went into a saved document unclamped, disagreeing
+    with the wall ``arch`` actually built.
+    """
+    raw = {"width": 1.0, "height": 1.0, "depth": 0.5, "thickness": 100.0, "segments": 12}
+    clamped = bp.clamp_params("arch", raw)
+    r_out = abs(clamped["width"]) * 0.5
+    assert clamped["thickness"] <= r_out * 0.9 + 1e-9
+    # Not cosmetic: building from the clamped numbers must be the same mesh
+    # ``arch`` already silently builds from the raw ones.
+    from_raw = bp.arch(**raw)
+    from_clamped = bp.arch(**clamped)
+    assert np.array_equal(from_raw.positions, from_clamped.positions)
+    assert list(from_raw.starts) == list(from_clamped.starts)
+
+
 # --- clamp_params: the 2026-09-11 audit's clay-01, a ceiling for every count ---
 #
 # Every one of segments/sides/rings/divisions/sections had a floor and no

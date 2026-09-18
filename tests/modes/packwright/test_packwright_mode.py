@@ -477,6 +477,28 @@ def test_removing_the_selected_source_clears_the_selection():
     assert state.selected is None
 
 
+def test_ask_open_focuses_an_already_open_atlas_instead_of_forking_a_second_tab(tmp_path):
+    """The 2026-09-18 audit (second run, finding packwright-01):
+    ``packwright-open`` adopted unconditionally while ``fileio.open_path``
+    already guards -- the identical gap Clay closed in its own dialog arm on
+    2026-09-12 (clay-02). Two tabs over one path race on save."""
+    from warlock.studio.modes.packwright.engine.document import PackDoc
+
+    ctx = FakeCtx()
+    path = tmp_path / "atlas.wpack"
+    path.write_bytes(b"")
+    existing = _tab(ctx)
+    existing.path = path
+
+    packwright_mode.on_task_done(
+        ctx, _Done("packwright-open", {"doc": PackDoc(), "path": str(path), "title": "Atlas"})
+    )
+
+    state = packwright_mode.ensure(ctx)
+    assert len(state.docs) == 1
+    assert state.active is existing
+
+
 # --- saving -------------------------------------------------------------------
 
 

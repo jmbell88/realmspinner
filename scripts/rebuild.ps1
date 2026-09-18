@@ -160,10 +160,12 @@ if (-not $SkipInstaller) {
         throw "iscc.exe was not found at $Iscc"
     }
     # The fresh-checkout case the native step used to cover by building
-    # unconditionally. /vendor/ is gitignored and all three runtime directories
-    # are pinned, so a checkout that has never been provisioned fails inside
-    # installer\build.ps1's first verify_runtime -- twenty minutes of nothing.
-    # Said here instead, in a second, and with what to do about it.
+    # unconditionally. /vendor/ is gitignored and both runtime directories
+    # (runtime-manifest.json's roots: gltfpack, warlockc -- trellis left this
+    # payload on 2026-09-10) are pinned, so a checkout that has never been
+    # provisioned fails inside installer\build.ps1's first verify_runtime --
+    # twenty minutes of nothing. Said here instead, in a second, and with
+    # what to do about it.
     if (-not $Native) {
         $Dll = Join-Path $Root "vendor\warlockc\warlockc.dll"
         if (-not (Test-Path -LiteralPath $Dll -PathType Leaf)) {

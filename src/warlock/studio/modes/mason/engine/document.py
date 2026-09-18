@@ -231,7 +231,7 @@ class MasonDoc:
 
     # -- structure -------------------------------------------------------------
 
-    def _check_max_placed(self, adding: int) -> None:
+    def _check_max_placed(self, adding: int, *, base: int | None = None) -> None:
         """Refuse growing past :data:`sc.MAX_PLACED` **before** anything is
         attached. The 2026-09-14 audit's mason-01 found this gap in what is
         now :meth:`add_nodes` alone; the 2026-09-15 audit's mason-01 (left
@@ -247,8 +247,20 @@ class MasonDoc:
         ``add_node``, so K placements into an N-node document cost O(K*N);
         the live count kept in step by :meth:`_attach_node`/:meth:`_detach_node`
         makes this O(1).
+
+        ``base`` overrides :attr:`_node_count` as the starting total. The
+        2026-09-18 audit's second-run mason-01 found :meth:`define_prefab`
+        calling nothing here at all: templates live in ``self.prefabs``, not
+        ``roots``, so they never touched ``_node_count``, while
+        ``serialize.read_wscn`` counts scene roots *and* every template's
+        nodes against the very same :data:`sc.MAX_PLACED` ceiling (imported
+        there as ``MAX_NODES``). A document built past that combined total
+        through guarded calls alone would save clean and then refuse to ever
+        reopen. ``define_prefab`` passes ``base=`` the roots plus every
+        *other* prefab's size, so the writer refuses at the same total the
+        reader will.
         """
-        current = self._node_count
+        current = self._node_count if base is None else base
         if current + adding > sc.MAX_PLACED:
             raise ValueError(
                 f"adding {adding} node(s) would bring this document to "
@@ -518,6 +530,18 @@ class MasonDoc:
             )
         template = nd.copy_subtree(node, fresh_uids=False)
         before = self.prefabs.get(name)
+        # Charge this template against the same MAX_PLACED ceiling
+        # ``read_wscn`` will check it against on reopen (roots plus every
+        # template) -- see :meth:`_check_max_placed`'s ``base`` paragraph.
+        # ``name``'s own previous template, if any, is excluded: replacing a
+        # prefab with a same-sized (or smaller) redefinition must never
+        # refuse just because it is briefly counted twice.
+        other_prefabs = sum(
+            len(list(nd.walk([tmpl]))) for other, tmpl in self.prefabs.items() if other != name
+        )
+        self._check_max_placed(
+            len(list(nd.walk([template]))), base=self._node_count + other_prefabs
+        )
         self.history.push(ed.PrefabEdit(name, before, template))
         self._apply_prefab(name, template)
         self.touch()

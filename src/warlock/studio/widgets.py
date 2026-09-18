@@ -938,13 +938,27 @@ def history_block(
     """
     doc = tab.doc
     width = grid_width(2)
+    # The 2026-09-18 audit (second run, finding shell-06) found Undo, Redo
+    # and the history popover enabled while ``tab.busy`` -- packwright/mode
+    # and sirens/edit each hit it from their own pane, and the keyboard path
+    # was already refused by ``docmodes.blocked_while_writing``, so a click
+    # here could mutate history under an in-flight save while Ctrl+Z/Y could
+    # not. ``getattr(tab, "busy", ...)`` mirrors ``blocked_while_writing``'s
+    # own fallback for a tab with no ``busy`` property.
+    busy = bool(getattr(tab, "busy", getattr(tab, "saving", False)))
     if disabled_button(
-        f"{icons.UNDO} Undo##{key}-undo", doc.history.can_undo, (width, 0), reason=_UNDO_WHY
+        f"{icons.UNDO} Undo##{key}-undo",
+        doc.history.can_undo and not busy,
+        (width, 0),
+        reason=DOCUMENT_SAVING_WHY if busy else _UNDO_WHY,
     ):
         undo()
     imgui.same_line()
     if disabled_button(
-        f"{icons.REDO} Redo##{key}-redo", doc.history.can_redo, (width, 0), reason=_REDO_WHY
+        f"{icons.REDO} Redo##{key}-redo",
+        doc.history.can_redo and not busy,
+        (width, 0),
+        reason=DOCUMENT_SAVING_WHY if busy else _REDO_WHY,
     ):
         redo()
     count = f"{len(doc.history)} step(s)"
@@ -952,11 +966,29 @@ def history_block(
         muted(count)
         return
     popup = f"{key}-undo-history"
-    if controls.button(
+    # The gate above swapped this ``controls.button`` for ``disabled_button``
+    # unconditionally, which is more than the finding asked for: the smoke
+    # suite's click driver (``tests/studio/test_studio_smoke.py``) presses
+    # ``controls.button`` and does not know about ``disabled_button``, so
+    # ``test_the_undo_history_popover_lists_the_stack_and_jumps`` stopped
+    # finding this control to click at all. Keep the plain button for the
+    # common, not-busy case and reserve ``disabled_button`` for the one case
+    # that actually needs a reason shown.
+    clicked = False
+    if busy:
+        clicked = disabled_button(
+            f"{count}##{key}-history",
+            False,
+            (-1, 0),
+            reason=DOCUMENT_SAVING_WHY,
+        )
+    elif controls.button(
         f"{count}##{key}-history",
         (-1, 0),
         tooltip="Every step, with the head marked. Click one to go there.",
     ):
+        clicked = True
+    if clicked:
         imgui.open_popup(popup)
     history_popup(popup, tab, step, key=key, opened=opened)
 

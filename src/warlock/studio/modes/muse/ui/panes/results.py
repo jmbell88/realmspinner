@@ -380,7 +380,12 @@ def derive_popup(ctx: Any) -> None:
             _max_count(),
             help_text="Several cheap candidates to choose between, as on the bar.",
         )
-        widgets.field_error(ctx.state, "count")
+        # muse-02 (2026-09-18 audit, second run): this popup's "How many" used
+        # to share field key "count" with the brief's "Takes" slider, so a
+        # refused derive rang the brief's control -- not open, since this
+        # popup is. ``derive_music_job`` now raises ``field="derive_count"``
+        # for this door specifically.
+        widgets.field_error(ctx.state, "derive_count")
 
     if controls.button("Queue it", role=controls.ButtonRole.PRIMARY) and muse_mode.derive(ctx):
         imgui.close_current_popup()

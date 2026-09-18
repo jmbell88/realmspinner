@@ -818,12 +818,14 @@ def curves(
     leaves that channel exactly as it was, which is what makes the control a
     *target* rather than a second amount.
     """
-    rgb, alpha = _premultiplied(pixels)
-    # ``_premultiplied`` hands back **0..255** premultiplied colour, which is
-    # what every other filter here works in; a curve is defined over 0..1, so
-    # it is scaled at the door and back at the end rather than the table being
-    # rewritten in a second unit.
-    rgb = rgb / 255.0
+    # The 2026-09-18 audit (inker-02): this used ``_premultiplied``/``_straight``,
+    # so a translucent pixel's colour was scaled by its own alpha before the
+    # curve ran -- a soft brush edge or feathered selection got a different
+    # tone shift than an opaque pixel of the same colour, and a low-alpha
+    # midtone push clipped straight to white. Curves is a colour filter like
+    # ``brightness_contrast``/``levels``/``hue_saturation`` above it, none of
+    # which touch alpha; it now matches them and works on straight colour.
+    rgb = _rgb(pixels) / 255.0
     x = np.linspace(0.0, 1.0, 256, dtype=np.float32)
     # A quadratic bump per handle, peaking where that handle lives, so the
     # curve is smooth, passes through 0 and 1 unchanged, and cannot fold back
@@ -845,7 +847,7 @@ def curves(
             continue
         mapped = np.interp(rgb[..., channel], x, table).astype(np.float32)
         out[..., channel] = rgb[..., channel] + (mapped - rgb[..., channel]) * weight
-    return _straight(np.clip(out, 0.0, 1.0) * 255.0, alpha, pixels)
+    return _rejoin(pixels, np.clip(out, 0.0, 1.0) * 255.0)
 
 
 def convolve(

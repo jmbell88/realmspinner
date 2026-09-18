@@ -258,3 +258,25 @@ def test_the_status_group_never_runs_past_the_menu_bar_edge(monkeypatch):
         f"status group runs past the content region edge: last item ends at "
         f"{rects[-1][1]}, content region ends at {content_max_x}"
     )
+
+
+def test_the_generate_command_does_not_spawn_a_stray_menu_root_outside_create():
+    """The 2026-09-18 audit, shell-03 (second run). ``generate`` (Generate /
+    Make 3D) is enabled only in Create (``palette._in_generate_mode``) and had
+    no ``_COMMAND_PATHS`` entry, so ``_command_specs``' contextual branch
+    caught it in every other mode that branch reaches and spawned a stray
+    one-item disabled menu root named after that mode."""
+    from warlock.studio import menus
+
+    modes_outside_create = (
+        "clay", "mason", "poser", "troupe", "plotter", "packwright", "muse", "sirens", "review",
+    )
+    for mode in modes_outside_create:
+        rows = menus.specs(_ctx(mode), evaluate=False)
+        row = next((r for r in rows if r.identity == "command:generate"), None)
+        assert row is not None, f"generate is missing from the menu bar in {mode}"
+        assert row.path == ("File",)
+        assert not any(r.path[0] not in menus.ROOTS for r in rows), (
+            f"a stray menu root should not exist in {mode}, got paths "
+            f"{sorted({r.path for r in rows if r.path[0] not in menus.ROOTS})}"
+        )

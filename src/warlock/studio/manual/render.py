@@ -524,7 +524,7 @@ def _draw_image(ctx: Any, block: parser.Image) -> None:
     texture = None
     if cache is not None:
         texture = cache.get(
-            f"manual:{block.path}", path, max_side=IMAGE_MAX_SIDE
+            f"manual:{block.path}", path, max_side=IMAGE_MAX_SIDE, background=True
         )
     if texture is None:
         widgets.muted_wrapped(block.alt)

@@ -265,3 +265,31 @@ def test_the_export_stage_body_knows_how_to_draw_readiness():
 
     source = inspect.getsource(inspector._stage_body)
     assert '"_readiness": lambda: _readiness(ctx, job)' in source
+
+
+# --- the size row -----------------------------------------------------------
+
+
+def test_size_row_survives_a_non_numeric_size_m():
+    """The 2026-09-18 audit, finding create-02: ``params["size_m"]`` is a
+    recorded input (``vectors.VECTOR_PARAMS``), not a validated one, and
+    ``float(size_m)`` used to run unguarded -- so a hand-edited or
+    otherwise-mangled row raised a ``ValueError`` straight out of a function
+    ``panes/inspector.py`` calls on the frame thread, on every Export-stage
+    frame.
+    """
+    row = readiness._size_row(_report(), {"size_m": "not-a-number"}, None)
+    assert row.state == "attention"
+
+    row = readiness._size_row(_report(), {"size_m": object()}, None)
+    assert row.state == "attention"
+
+    row = readiness._size_row(_report(), {"size_m": None}, None)
+    assert row.state == "attention"  # the "no target size" branch, unchanged
+
+
+def test_size_row_still_reads_a_numeric_size_m():
+    row = readiness._size_row(_report(achieved_size_m=1.0), {"size_m": 1.0}, None)
+    assert row.state == "ok"
+    row = readiness._size_row(_report(achieved_size_m=1.0), {"size_m": "1.0"}, None)
+    assert row.state == "ok"

@@ -203,3 +203,38 @@ async def test_a_loop_take_with_no_late_cancel_still_commits_normally(tmp_path, 
 
     assert cancel.committed is True
     assert job_id in worker.store.saved
+
+
+# --- muse-02: the derive popup's own field key -------------------------------
+
+
+def test_derive_count_refusal_does_not_ring_the_brief_takes_control(svc, monkeypatch):
+    """muse-02 (2026-09-18 audit, second run).
+
+    The derive popup's "How many" (``modes/muse/ui/panes/results.py``) and
+    the top brief's "Takes" (``modes/muse/ui/brief.py``) both read and clear
+    field key ``"count"``. ``derive_music_job``'s own ``count`` checks used to
+    raise under that same key, so a refused derive rang the brief's Takes
+    slider -- a control that is not even open, since the derive popup is.
+
+    Fails against the unfixed code: ``caught.value.field == "count"``.
+    """
+    from warlock import fetch
+    from warlock.service import _jobs_music as door
+    from warlock.service.errors import Invalid
+
+    monkeypatch.setattr(door, "check_weights", lambda svc, kind, params: None)
+    monkeypatch.setattr(door, "check_vram", lambda svc, kind, stage, params: None)
+    monkeypatch.setattr(fetch, "present", lambda config, kind, spec: True)
+    made = door.create_music_job(svc, prompt="dark ambient, dungeon", duration=60.0)
+    job_id = made["id"]
+    (svc.config.job_dir(job_id) / "track.wav").write_bytes(_wav(60.0))
+    svc.store.set_status(job_id, "done")
+
+    with pytest.raises(Invalid) as caught:
+        door.derive_music_job(svc, job_id, task="retake", count=0)
+
+    assert caught.value.field == "derive_count"
+    assert caught.value.field != "count", (
+        "a derive refusal must not carry the brief's own field key"
+    )

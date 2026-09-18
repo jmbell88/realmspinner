@@ -35,7 +35,7 @@ def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
 
 def test_the_frozen_clay_card_names_only_tools_the_live_door_accepts():
     """``allowed_calls('clay')`` (parsed from the frozen card's own
-    ``clay_batch`` schema line) must be a subset of what the live
+    ``- <name>: ...`` description lines) must be a subset of what the live
     ``agent_clay`` door actually names today, and every property the frozen
     card's own tool schemas mention must still exist on the live tool's
     schema -- a live registry is allowed to grow past what an old, frozen
@@ -63,6 +63,39 @@ def test_the_frozen_clay_card_names_only_tools_the_live_door_accepts():
             f"{name}: frozen card's schema names propert{'y' if len(missing) == 1 else 'ies'} "
             f"{missing} that the live tool's schema no longer has"
         )
+
+
+def test_allowed_calls_names_only_tools_the_card_actually_describes():
+    """familiar-02 (2026-09-18 audit, second run): ``allowed_calls`` used to
+    parse ``clay_batch``'s own printed schema line -- the *live*
+    ``agent_clay.clay_batch`` tool's ``name`` enum, twenty entries, dumped
+    into the card unfiltered by ``derive_clay_card`` -- rather than the
+    thirteen tools (``contract.KEEP_TOOLS``) the frozen card actually
+    describes with a summary and a schema. A model trained on this card has
+    never read a description for the other seven (``clay_element_mode``,
+    ``clay_elements``, ``clay_reference_add``, ``clay_reference_list``,
+    ``clay_reference_remove``, ``clay_select_by``, ``clay_select_elements``),
+    so the old ``allowed_calls`` let a ``clay_batch`` entry name one of them
+    straight past familiar-05's guard in ``service/familiar.py``. Both
+    checks: none of those seven undescribed names comes back, and the whole
+    result is a subset of ``KEEP_TOOLS`` -- the card must never describe a
+    tool KEEP_TOOLS itself does not name."""
+    allowed = contract.allowed_calls("clay")
+    undescribed = {
+        "clay_element_mode",
+        "clay_elements",
+        "clay_reference_add",
+        "clay_reference_list",
+        "clay_reference_remove",
+        "clay_select_by",
+        "clay_select_elements",
+    }
+    assert not (allowed & undescribed), (
+        f"allowed_calls named tools the card never describes: {allowed & undescribed}"
+    )
+    assert allowed <= set(contract.KEEP_TOOLS), (
+        f"allowed_calls named tools outside KEEP_TOOLS: {allowed - set(contract.KEEP_TOOLS)}"
+    )
 
 
 # ``test_derive_clay_card_reproduces_the_dataset_manifest_tools_sha`` and

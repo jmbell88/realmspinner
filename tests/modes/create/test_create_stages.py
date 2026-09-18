@@ -23,7 +23,10 @@ def job(**kwargs):
         "files": ["model.glb", "input.png"],
         "prompt": "a barrel",
         "parent_id": None,
-        "created_at": "2026-01-01T00:00:00",
+        # A real ``float`` epoch, matching ``created_at REAL NOT NULL`` --
+        # the 2026-09-18 audit, finding create-03, found two readers here
+        # comparing it as a string instead.
+        "created_at": 1767225600.0,  # 2026-01-01T00:00:00Z
     }
     return {**base, **kwargs}
 
@@ -367,9 +370,32 @@ def test_walking_forward_follows_the_promotion_edge():
 
 def test_the_newest_promotion_wins():
     ref = job(id="aaaaaaaaaaaa", stage="reference", files=["input.png"])
-    old = job(id="bbbbbbbbbbbb", parent_id="aaaaaaaaaaaa", created_at="2026-01-01T00:00:00")
-    new = job(id="cccccccccccc", parent_id="aaaaaaaaaaaa", created_at="2026-02-01T00:00:00")
+    old = job(id="bbbbbbbbbbbb", parent_id="aaaaaaaaaaaa", created_at=1767225600.0)
+    new = job(id="cccccccccccc", parent_id="aaaaaaaaaaaa", created_at=1769904000.0)
     ctx = FakeCtx([ref, old, new], selected="aaaaaaaaaaaa")
+    create_stages.go(ctx, "mesh")
+    assert ctx.state.selected == "cccccccccccc"
+
+
+def test_the_newest_promotion_wins_numerically_not_lexically():
+    """The 2026-09-18 audit, finding create-03: comparing ``created_at`` as a
+    string picks the lexically-greatest value, which disagrees with the
+    numerically-newest one once the digit count differs --
+    ``str(3_000_000_000.0) == "3000000000.0"`` sorts *ahead* of
+    ``str(20_000_000_000.0) == "20000000000.0"`` lexically (leading '3' beats
+    '2'), even though the second is the later timestamp.
+    """
+    ref = job(id="aaaaaaaaaaaa", stage="reference", files=["input.png"])
+    older_but_lexically_bigger = job(
+        id="bbbbbbbbbbbb", parent_id="aaaaaaaaaaaa", created_at=3_000_000_000.0
+    )
+    newer_but_lexically_smaller = job(
+        id="cccccccccccc", parent_id="aaaaaaaaaaaa", created_at=20_000_000_000.0
+    )
+    ctx = FakeCtx(
+        [ref, older_but_lexically_bigger, newer_but_lexically_smaller],
+        selected="aaaaaaaaaaaa",
+    )
     create_stages.go(ctx, "mesh")
     assert ctx.state.selected == "cccccccccccc"
 
@@ -447,9 +473,26 @@ def test_a_parent_that_has_scrolled_out_of_the_window_is_no_link():
 
 def test_a_reference_lists_its_meshes_newest_first():
     ref = job(id="aaaaaaaaaaaa", stage="reference", files=["input.png"])
-    old = job(id="bbbbbbbbbbbb", parent_id="aaaaaaaaaaaa", created_at="2026-01-01T00:00:00")
-    new = job(id="cccccccccccc", parent_id="aaaaaaaaaaaa", created_at="2026-02-01T00:00:00")
+    old = job(id="bbbbbbbbbbbb", parent_id="aaaaaaaaaaaa", created_at=1767225600.0)
+    new = job(id="cccccccccccc", parent_id="aaaaaaaaaaaa", created_at=1769904000.0)
     ctx = FakeCtx([ref, old, new])
+    assert [row["id"] for row in create_stages.promotions(ctx, ref)] == [
+        "cccccccccccc",
+        "bbbbbbbbbbbb",
+    ]
+
+
+def test_a_reference_lists_its_meshes_newest_first_numerically_not_lexically():
+    """The 2026-09-18 audit, finding create-03: the same lexical-vs-numeric
+    bug, on ``promotions``' sort key rather than ``_along_lineage``'s."""
+    ref = job(id="aaaaaaaaaaaa", stage="reference", files=["input.png"])
+    older_but_lexically_bigger = job(
+        id="bbbbbbbbbbbb", parent_id="aaaaaaaaaaaa", created_at=3_000_000_000.0
+    )
+    newer_but_lexically_smaller = job(
+        id="cccccccccccc", parent_id="aaaaaaaaaaaa", created_at=20_000_000_000.0
+    )
+    ctx = FakeCtx([ref, older_but_lexically_bigger, newer_but_lexically_smaller])
     assert [row["id"] for row in create_stages.promotions(ctx, ref)] == [
         "cccccccccccc",
         "bbbbbbbbbbbb",

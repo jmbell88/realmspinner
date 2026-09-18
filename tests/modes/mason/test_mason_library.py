@@ -29,6 +29,8 @@ from warlock.studio.modes.mason import mode as mason_mode
 from warlock.studio.modes.mason.engine import document as md
 from warlock.studio.modes.mason.engine import nodes as nd
 from warlock.studio.modes.mason.engine import refs as mason_refs
+from warlock.studio.modes.mason.engine import scene as mason_scene
+from warlock.studio.modes.mason.engine import serialize as mason_ser
 
 
 class _Cache:
@@ -321,3 +323,70 @@ def test_the_exported_card_is_photographed_from_mason_s_own_viewport(svc):
     done = _Done("mason-library:ms-x", {"job_id": job_id, "exported_asset": True})
     main_mod.App._on_task_done(app, done)
     assert app.captured == [(job_id, "mason-viewport")]
+
+
+# --- the 2026-09-18 audit's second-run mason-01: writer and reader must agree ---
+
+
+def _light(name: str) -> nd.LightNode:
+    return nd.LightNode(uid=nd.new_uid(), name=name, kind="point")
+
+
+def test_define_prefab_refuses_a_template_that_would_push_roots_plus_prefabs_past_max_placed(
+    monkeypatch,
+):
+    """``define_prefab`` used to charge nothing against ``MAX_PLACED`` at all
+    -- its own comment at :func:`~warlock.studio.modes.mason.engine.document.
+    MasonDoc.define_prefab`'s call site said so -- while
+    ``serialize.read_wscn`` counts scene roots *and* every template's nodes
+    against that same shared ceiling. A document built through guarded calls
+    alone (this one: three roots, then ``define_prefab``) could save clean
+    and then permanently refuse to reopen. The fix charges the template here,
+    against roots plus every *other* prefab, so the writer refuses at the
+    same total the reader would -- before anything is written, not after.
+    """
+    monkeypatch.setattr(mason_scene, "MAX_PLACED", 5)
+    doc = md.MasonDoc(roots=[_light("A"), _light("B"), _light("C")])
+    assert doc._node_count == 3
+    # A 3-node template: 3 roots + 3 template nodes = 6, past the ceiling of 5.
+    template_source = nd.GroupNode(
+        uid=nd.new_uid(), name="Big", children=[_light("D"), _light("E")]
+    )
+    with pytest.raises(ValueError, match="MAX_PLACED"):
+        doc.define_prefab("big", template_source)
+    assert doc.prefabs == {}
+
+
+def test_a_document_with_several_large_named_prefabs_can_reopen_after_it_saves_successfully(
+    monkeypatch,
+):
+    """The full round trip the finding describes: build a document whose
+    roots plus prefab templates stay within ``MAX_PLACED`` (through
+    ``define_prefab``'s new pre-flight check, which the previous test proves
+    fires), save it, and reopen it. Before the fix, nothing stopped
+    ``define_prefab`` from building a document whose combined total
+    ``read_wscn`` would refuse -- this proves a document built entirely
+    through the guarded API always reopens.
+    """
+    monkeypatch.setattr(mason_scene, "MAX_PLACED", 10)
+    doc = md.MasonDoc(roots=[_light("A"), _light("B")])
+    doc.define_prefab(
+        "one", nd.GroupNode(uid=nd.new_uid(), name="One", children=[_light("D"), _light("E")])
+    )
+    doc.define_prefab(
+        "two", nd.GroupNode(uid=nd.new_uid(), name="Two", children=[_light("F"), _light("G")])
+    )
+    # roots(2) + template "one"(3) + template "two"(3) = 8, within the ceiling
+    # of 10 -- and a ninth or tenth node would still fit, an eleventh would not.
+    with pytest.raises(ValueError, match="MAX_PLACED"):
+        doc.define_prefab(
+            "three",
+            nd.GroupNode(
+                uid=nd.new_uid(), name="Three", children=[_light("H"), _light("I"), _light("J")]
+            ),
+        )
+
+    data = mason_ser.wscn_bytes(doc)
+    reopened = mason_ser.read_wscn(data)
+    assert set(reopened.prefabs) == {"one", "two"}
+    assert len(list(nd.walk(reopened.roots))) == 2

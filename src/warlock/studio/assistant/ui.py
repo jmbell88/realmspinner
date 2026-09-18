@@ -835,6 +835,14 @@ def _submit_build_preview(
         # ``ui.thinking`` is left as this branch found it (``on_task_done``
         # already cleared it to "" before calling here), so nothing is stuck
         # "thinking" over a build that was simply never submitted.
+        #
+        # familiar-03 (2026-09-18 audit, second run): this used to be a bare
+        # `return` -- with the pane collapsed there was no transcript turn
+        # and no toast, unlike every other way a Familiar build ends (see
+        # `_say`'s own docstring: "Every way a Familiar build ends says so
+        # in the transcript"). One line via `_say`, same as the staleness
+        # refusal just above in this same function.
+        _say(ctx, thread_key, "Another build is still landing -- try again in a moment.")
         return
     ui.thinking = "build"
 

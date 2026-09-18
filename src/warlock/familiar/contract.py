@@ -460,32 +460,42 @@ def derived_card_sha() -> str:
     return hashlib.sha256(derive_clay_card().encode("utf-8")).hexdigest()
 
 
+_CARD_TOOL_LINE = re.compile(r"^- (\w+):")
+
+
 @functools.cache
 def allowed_calls(skill: str) -> frozenset[str]:
-    """The tool names *skill*'s frozen card actually lets a ``clay_batch``
-    entry name -- parsed from the card's own ``clay_batch`` schema line
-    (the ``"name":{"enum":[...]}`` JSON Schema enum), not from whatever
-    ``agent_clay.tools()`` publishes live today. The frozen card is what a
-    running model was actually trained to see; the live registry can grow a
-    fourteenth tool tomorrow and this must not silently start accepting a
-    call name the model has never read a schema for.
+    """The tool names *skill*'s frozen card actually *describes* -- one
+    ``- <name>: <summary>`` line per tool in the "Tools:" section -- not
+    ``clay_batch``'s own schema enum.
+
+    The 2026-09-18 audit (familiar-02, second run): the previous
+    implementation parsed the ``"name":{"enum":[...]}}`` JSON Schema enum
+    off ``clay_batch``'s printed schema line instead. That enum is
+    ``agent_clay``'s *live* ``clay_batch`` tool definition, dumped into the
+    card verbatim by :func:`derive_clay_card` with no filtering against
+    ``KEEP_TOOLS`` -- twenty names, where the card only ever describes
+    thirteen (``KEEP_TOOLS``'s own count). A model trained on this frozen
+    card has read a summary and a schema for thirteen tools; it has never
+    seen one for the other seven (``clay_element_mode``, ``clay_elements``,
+    ``clay_reference_add``, ``clay_reference_list``, ``clay_reference_
+    remove``, ``clay_select_by``, ``clay_select_elements``), so
+    ``allowed_calls`` accepting them let familiar-05's own guard
+    (``service/familiar.py``) wave through a ``clay_batch`` entry naming a
+    tool the card never taught. Parsing the description lines instead keys
+    this off what the model actually read.
 
     Cached per skill: the card file does not change under a running
     process."""
     card = load_card(skill)
-    lines = card.splitlines()
-    for i, line in enumerate(lines):
-        if line.strip().startswith("- clay_batch:"):
-            schema_line = lines[i + 1].strip()
-            break
-    else:
-        raise ValueError(f"{skill!r} card has no clay_batch tool line")
-    prefix = "schema:"
-    if not schema_line.startswith(prefix):
-        raise ValueError(f"{skill!r} card's clay_batch line has no schema: {schema_line!r}")
-    schema = json.loads(schema_line[len(prefix) :].strip())
-    enum = schema["properties"]["calls"]["items"]["properties"]["name"]["enum"]
-    return frozenset(enum)
+    names = frozenset(
+        match.group(1)
+        for line in card.splitlines()
+        if (match := _CARD_TOOL_LINE.match(line.strip())) is not None
+    )
+    if not names:
+        raise ValueError(f"{skill!r} card has no described tool lines")
+    return names
 
 
 _SCENE_ROW_KEYS: tuple[str, ...] = (

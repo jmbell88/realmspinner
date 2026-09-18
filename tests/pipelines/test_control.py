@@ -74,3 +74,42 @@ def test_write_hint_lands_atomically_with_provenance(tmp_path):
     assert 0.0 < meta["edge_fraction"] < 1.0
     with Image.open(dest) as im:
         assert im.size == (512, 512)
+
+
+def test_overlapping_write_hint_calls_do_not_share_a_temp_name(monkeypatch, tmp_path):
+    """The 2026-09-18 audit, finding pipelines-01.
+
+    The staging name used to be ``f".{dest.name}.tmp"``, fixed and shared by
+    every concurrent caller of the same ``dest``. Failing this against the
+    unfixed code means the two captured temp paths below are equal.
+    """
+    src = tmp_path / "ref.png"
+    _square().save(src)
+    dest = tmp_path / "control.png"
+
+    seen: list = []
+    from warlock.core.safeio import atomic
+
+    real_staged = atomic.staged
+
+    def _spy_staged(path):
+        cm = real_staged(path)
+        tmp = cm.__enter__()
+        seen.append(tmp)
+
+        class _Ctx:
+            def __enter__(self):
+                return tmp
+
+            def __exit__(self, *exc):
+                return cm.__exit__(*exc)
+
+        return _Ctx()
+
+    monkeypatch.setattr(control.atomic, "staged", _spy_staged)
+
+    control.write_hint(src, dest, kind="canny", size=512)
+    control.write_hint(src, dest, kind="canny", size=512)
+
+    assert len(seen) == 2
+    assert seen[0] != seen[1]

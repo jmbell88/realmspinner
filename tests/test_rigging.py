@@ -629,6 +629,23 @@ def test_an_oversized_pose_library_file_is_skipped_not_fully_read(tmp_path, monk
     assert poses._load_pose_library(tmp_path) == {}
 
 
+def test_preset_poses_refuses_a_malformed_shipped_quaternion(tmp_path):
+    """The 2026-09-18 audit's second-run poser-01: ``_load_pose_library``
+    stored ``pose["bones"]`` verbatim, never through ``validate_bones`` --
+    contradicting this module's own docstring and the read-door rule
+    ``cliplib.parse_clip_library`` already follows for the identically
+    shaped case. A malformed shipped quaternion (here, a NaN) used to reach
+    ``blender_worker._apply_pose`` unchecked; now the per-file ``try`` this
+    loader already wraps every file in costs that one file, not the app.
+    """
+    (tmp_path / "poses").mkdir()
+    (tmp_path / "poses" / "broken.json").write_text(
+        json.dumps({"poses": [{"name": "x", "bones": {"root": [0.0, 0.0, 0.0, float("nan")]}}]}),
+        encoding="utf-8",
+    )
+    assert poses._load_pose_library(tmp_path / "poses") == {}
+
+
 def test_an_oversized_clip_library_file_is_skipped_not_fully_read(tmp_path, monkeypatch):
     """poser-03: same gap, the one directory of the three that is genuinely
     user-editable (cliplib.user_clip_dir's own docstring)."""

@@ -1454,6 +1454,7 @@ def op_clip_sample(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     except re.error as exc:
         return {"ok": False, "error": f"a clip map's strip pattern does not compile: {exc}"}
     max_frames = int(spec.get("max_frames") or 900)
+    max_actions = int(spec.get("max_actions") or 64)
 
     progress(0.05, "Loading animation")
     _reset_scene(bpy)
@@ -1502,6 +1503,23 @@ def op_clip_sample(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     scene = bpy.context.scene
     fps = scene.render.fps / scene.render.fps_base
     actions = list(bpy.data.actions)
+    # The 2026-09-18 audit, finding poser-02: nothing bounded how many
+    # actions a source FBX/GLB may carry, so a file with hundreds of baked
+    # actions sampled every one of them -- frame by frame, each an
+    # ``animation_data.action`` reassignment and a ``scene.frame_set`` walk --
+    # before the host ever saw a result to refuse. Refused by name here,
+    # before the sampling loop starts, rather than left to the host's
+    # ``analyse`` (S127's family of doors), which can only count actions
+    # after Blender has already reported them.
+    if len(actions) > max_actions:
+        return {
+            "ok": False,
+            "error": (
+                f"{source.name} carries {len(actions)} actions, over the "
+                f"{max_actions}-action import limit"
+            ),
+            "field": "source",
+        }
     sampled_actions: list[dict[str, Any]] = []
     skipped: list[str] = []
     for index, action in enumerate(actions):

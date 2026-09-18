@@ -1179,3 +1179,70 @@ def test_an_export_that_wrote_nothing_says_so(ctx):
     })()
     muse_mode.on_task_done(ctx, done)
     assert ctx.toasts and ctx.toasts[-1][1] == "warn"
+
+
+# --- muse-01 (2026-09-18 audit, second run): loop-point export -----------------
+
+
+def test_export_with_points_refuses_a_region_that_rounds_to_zero_width_samples(
+    tmp_path, monkeypatch
+):
+    """``export_with_points`` checked ``_has_region`` (seconds) but not, like
+    ``export_loop``'s muse-03 fix, the region in *samples*. A region under one
+    sample wide at the take's rate passed here and reached
+    ``wavout._smpl``, whose ``end = max(start, end - 1)`` clamp silently
+    turned it into a one-sample loop with no word said about why.
+
+    Fails against the unfixed code: the picker opens and ``ctx.toasts`` is
+    empty afterwards.
+    """
+    import numpy as np
+
+    from warlock.studio.modes.muse.engine import waveform
+
+    rate = 44100
+    pcm = np.zeros((int(10.0 * rate), 2), dtype=np.int16)
+    one = muse_state.Player(
+        job="a", pcm=pcm, rate=rate, env=waveform.peaks(pcm), duration=10.0
+    )
+    one.loop_start = 2.0
+    one.loop_end = 2.0 + (1.0 / rate) / 2.0
+    one.xfade_ms = 0.0
+
+    picker_calls: list[Any] = []
+    monkeypatch.setattr(
+        muse_io.dialogs,
+        "save_file",
+        lambda *a, **k: picker_calls.append(1) or (tmp_path / "track.wav"),
+    )
+
+    ctx = FakeCtx(tmp_path)
+    muse_io.export_with_points(ctx, one)
+
+    assert not picker_calls, "the picker must not open for a region with no usable body"
+    assert ctx.toasts, "a region that cannot be exported must say so"
+    assert not (tmp_path / "track.wav").exists()
+
+
+def test_export_with_points_still_writes_an_ordinary_region(tmp_path, monkeypatch):
+    """The fix's other half: a real region must not be caught by the new
+    guard."""
+    import numpy as np
+
+    from warlock.studio.modes.muse.engine import waveform
+
+    rate = 44100
+    pcm = np.zeros((int(10.0 * rate), 2), dtype=np.int16)
+    one = muse_state.Player(
+        job="a", pcm=pcm, rate=rate, env=waveform.peaks(pcm), duration=10.0
+    )
+    one.loop_start, one.loop_end = 2.0, 8.0
+    one.xfade_ms = 0.0
+    out = tmp_path / "track.wav"
+    monkeypatch.setattr(muse_io.dialogs, "save_file", lambda *a, **k: out)
+
+    ctx = FakeCtx(tmp_path)
+    muse_io.export_with_points(ctx, one)
+
+    assert out.exists()
+    assert not ctx.toasts

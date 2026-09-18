@@ -273,18 +273,41 @@ class _Ctx:
         return self._root
 
 
+def _await_manifest(ctx, job_id, timeout=2.0):
+    """Call ``_manifest`` until its background read for ``job_id`` has landed.
+
+    The 2026-09-18 audit, finding shell-05: the read now runs off the frame
+    thread, so the first call after a file changes can answer with whatever
+    was cached before (or None, the first time) while the real read is still
+    in flight. Every test that wants the *settled* answer polls through this
+    rather than trusting a single call, the same way a real frame loop would
+    get there over several frames.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    result = inspector._manifest(ctx, job_id)
+    while (
+        any(key[0] == job_id for key in inspector._manifest_inflight)
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.005)
+        result = inspector._manifest(ctx, job_id)
+    return result
+
+
 def test_a_missing_manifest_is_not_an_error(tmp_path):
     assert inspector._manifest(_Ctx(tmp_path), "abc123abc123") is None
 
 
 def test_a_mangled_manifest_is_not_an_error(tmp_path):
     (tmp_path / "manifest.json").write_text("{not json", encoding="utf-8")
-    assert inspector._manifest(_Ctx(tmp_path), "abc123abc123") is None
+    assert _await_manifest(_Ctx(tmp_path), "abc123abc123") is None
 
 
 def test_a_manifest_that_is_not_an_object_is_not_an_error(tmp_path):
     (tmp_path / "manifest.json").write_text("[1, 2, 3]", encoding="utf-8")
-    assert inspector._manifest(_Ctx(tmp_path), "abc123abc123") is None
+    assert _await_manifest(_Ctx(tmp_path), "abc123abc123") is None
 
 
 def _settled(monkeypatch, path):
@@ -312,7 +335,7 @@ def test_an_unreadable_manifest_is_not_re_read_every_frame(tmp_path, monkeypatch
     path.write_text("{not json", encoding="utf-8")
     ctx = _Ctx(tmp_path)
     _settled(monkeypatch, path)
-    assert inspector._manifest(ctx, "abc123abc123") is None
+    assert _await_manifest(ctx, "abc123abc123") is None
     assert ctx.state.manifest == (("abc123abc123", path.stat().st_mtime_ns), None)
 
 
@@ -323,7 +346,7 @@ def test_a_manifest_written_a_moment_ago_is_not_cached_at_all(tmp_path):
     path.write_text(json.dumps({"artifacts": {"icon.png": {}}}), encoding="utf-8")
     ctx = _Ctx(tmp_path)
 
-    assert inspector._manifest(ctx, "abc123abc123") is not None
+    assert _await_manifest(ctx, "abc123abc123") is not None
     assert ctx.state.manifest is None
 
 
@@ -336,7 +359,7 @@ def test_the_manifest_is_parsed_once_per_version_not_once_per_frame(tmp_path, mo
     # Identity, not equality: a second parse would produce an equal dict, and
     # parsing a file sixty times a second is exactly what the cache exists to
     # stop.
-    first = inspector._manifest(ctx, "abc123abc123")
+    first = _await_manifest(ctx, "abc123abc123")
     for _ in range(4):
         assert inspector._manifest(ctx, "abc123abc123") is first
 
@@ -345,14 +368,43 @@ def test_a_rewritten_manifest_is_re_read(tmp_path):
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps({"artifacts": {"icon.png": {}}}), encoding="utf-8")
     ctx = _Ctx(tmp_path)
-    assert list(inspector._manifest(ctx, "abc123abc123")["artifacts"]) == ["icon.png"]
+    assert list(_await_manifest(ctx, "abc123abc123")["artifacts"]) == ["icon.png"]
     # A derivation running on the TaskRunner rewrites it under an open tab.
     # The mtime is forced rather than trusted: two writes inside one clock tick
     # would make the test assert the filesystem's resolution, not the cache.
     later = path.stat().st_mtime_ns + 10**9
     path.write_text(json.dumps({"artifacts": {"sprite.png": {}}}), encoding="utf-8")
     os.utime(path, ns=(later, later))
-    assert list(inspector._manifest(ctx, "abc123abc123")["artifacts"]) == ["sprite.png"]
+    assert list(_await_manifest(ctx, "abc123abc123")["artifacts"]) == ["sprite.png"]
+
+
+def test_inspector_manifest_read_runs_off_the_frame_thread(tmp_path, monkeypatch):
+    """The 2026-09-18 audit, finding shell-05: ``_manifest`` used to read and
+    parse ``manifest.json`` synchronously inside ``draw()``. A submit-and-
+    return call must come back immediately even while the read is artificially
+    slowed down, proving the read is not happening inline."""
+    import time
+
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps({"artifacts": {"icon.png": {}}}), encoding="utf-8")
+    ctx = _Ctx(tmp_path)
+
+    real_read = inspector._read_manifest_file
+
+    def _slow_read(p):
+        time.sleep(0.2)
+        return real_read(p)
+
+    monkeypatch.setattr(inspector, "_read_manifest_file", _slow_read)
+
+    started = time.perf_counter()
+    first = inspector._manifest(ctx, "abc123abc123")
+    elapsed = time.perf_counter() - started
+
+    assert first is None  # not landed yet -- no cache to answer from either
+    assert elapsed < 0.1  # nowhere near the 0.2s the fake read takes
+
+    assert _await_manifest(ctx, "abc123abc123") is not None
 
 
 # -- what the notes under the grid actually say ----------------------------

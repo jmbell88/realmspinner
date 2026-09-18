@@ -32,6 +32,7 @@ from ...engine import document as D
 _BUSY_WHY = "This song is being written; the buttons come back when it lands."
 _ROW_WHY = "This entry is already at the end it would move to."
 _FULL_WHY = f"A song holds {D.MAX_PATTERNS} patterns."
+_ORDER_FULL_WHY = f"A song's order holds {D.MAX_ORDER} steps."
 
 
 def pattern_room(doc: Any, editable: bool) -> tuple[bool, str]:
@@ -83,6 +84,15 @@ def add_to_order_reason(effect: str, doc: Any, editable: bool) -> str:
         )
     if not doc.patterns:
         return "There is no pattern to add yet."
+    # sirens-02 (2026-09-18 audit, second run): ``set_order`` used to clip
+    # silently to ``MAX_ORDER`` rather than raise -- every sibling ceiling in
+    # ``document.py`` (patterns, channels, oneshots, samples) already raises
+    # by name, and this pane's own ``_FULL_WHY`` above already greys "Add a
+    # pattern" the same way. At 256 entries this button stayed live and
+    # calling it silently did nothing; it now raises a ``ValueError`` its
+    # caller does not catch, so it must be greyed here first.
+    if len(doc.order) >= D.MAX_ORDER:
+        return _ORDER_FULL_WHY
     return ""
 
 

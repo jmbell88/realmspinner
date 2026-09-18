@@ -1222,3 +1222,25 @@ def test_layouts_share_clamp_matches_layout_share_min_and_max(monkeypatch):
     library = layouts.Library(settings)
     library.set_share("clay", "clay-tools", 0.05)
     assert library.share("clay", "clay-tools") == pytest.approx(0.10)
+
+
+def test_set_width_seed_clears_widths_in_every_saved_layout_not_only_the_active_one():
+    """The 2026-09-18 audit, shell-02 (second run): ``set_width_seed`` iterated
+    only ``self.current().workspaces``, so a saved layout the user was not
+    currently viewing kept its stale per-workspace widths -- though
+    ``Layout.set_sidebar_width`` calls this "a global preference", not a
+    per-layout one. Duplicating a layout and setting the width while on the
+    *other* one reproduces it: only the active layout's widths cleared."""
+
+    settings = _Settings()
+    library = layouts.Library(settings)
+    library.set_width("inker", "left", 300.0)
+    library.duplicate("default", "mine")
+    library.set_active("mine")
+    library.set_width("inker", "left", 250.0)
+
+    library.set_active("default")
+    library.set_width_seed(200.0)
+
+    assert "left" not in library.layouts["default"].workspaces["inker"].widths
+    assert "left" not in library.layouts["mine"].workspaces["inker"].widths

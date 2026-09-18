@@ -490,10 +490,15 @@ def derive_music_job(
 
     data, parent_duration = _parent_audio(svc, job_id)
 
+    # muse-02 (2026-09-18 audit, second run): this door's "How many" and the
+    # brief's "Takes" used to both ring under ``field="count"``, so a derive
+    # refused here lit the *brief's* Takes control -- which was not even open,
+    # since the derive popup was. ``derive_count`` is this door's own key, kept
+    # nowhere else.
     if not isinstance(count, int) or isinstance(count, bool):
-        raise Invalid("count must be a whole number", field="count")
+        raise Invalid("count must be a whole number", field="derive_count")
     if not 1 <= count <= MAX_COUNT:
-        raise Invalid(f"count must be between 1 and {MAX_COUNT}", field="count")
+        raise Invalid(f"count must be between 1 and {MAX_COUNT}", field="derive_count")
     check_seed("seed", seed)
 
     # The task block, built and bounded one task at a time. Each refusal names
@@ -640,7 +645,7 @@ def derive_music_job(
             raise Invalid(
                 "an audio2audio derivation has no seed that count can vary --"
                 " ask for one take at a time",
-                field="count",
+                field="derive_count",
             )
         # The step count is the *parent's*, because a derivation inherits its
         # recipe; the reference door checks its own.

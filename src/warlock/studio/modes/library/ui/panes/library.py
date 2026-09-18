@@ -2047,6 +2047,29 @@ def _run_export(
         ctx.state._library_export = None
 
 
+def popup_open(ctx: Any) -> bool:
+    """Whether the export-selection or convert popup owns the keyboard.
+
+    Both are real ``imgui.begin_popup_modal`` surfaces (``_draw_export_popup``,
+    ``_draw_convert_popup``), parked on ``ctx.state._library_export``/
+    ``_library_convert`` while the task that owns them has no imgui context of
+    its own to open a popup from. ``dialogs.modal_open`` asked seven other
+    surfaces but not these two, so Ctrl+K, a mode key and Ctrl+Enter reached
+    the app while the user was mid-decision on a Library export -- the
+    2026-09-18 audit, shell-01, second run of UX-08.
+
+    Tolerant of a partial ``ctx`` (``getattr``, not attribute access), the
+    same reason ``matte_preview.is_open`` and ``muse_mode.derive_popup_open``
+    are: ``modal_open`` asks this on every key press for a caller that may
+    never have built Library state.
+    """
+    state = getattr(ctx, "state", None)
+    return bool(
+        getattr(state, "_library_export", None) is not None
+        or getattr(state, "_library_convert", None) is not None
+    )
+
+
 def _draw_export_popup(ctx: Any) -> None:
     """The plan modal, drawn at the top of :func:`draw` every frame -- the
     task that owns it is not inside any imgui context, so it cannot open its

@@ -52,6 +52,13 @@ SOURCE_EXTENSIONS = (".fbx", ".glb", ".gltf")
 #: an unrelated video dragged onto the same control.
 MAX_SOURCE_BYTES = 200 * 1024 * 1024
 
+#: The 2026-09-18 audit, finding poser-02: nothing bounded how many actions a
+#: source FBX/GLB may carry before ``op_clip_sample`` sampled every one of
+#: them, frame by frame, with no ceiling to refuse by. A Mixamo export or a
+#: hand-authored rig with a runaway action library is well past this before
+#: it stops looking like an honest import.
+MAX_ACTIONS = 64
+
 #: Where a sampled-and-converted preview's scratch result file goes. A sibling
 #: of ``poser/previews/`` and ``poser/clips/`` (see ``poselib``'s path
 #: functions) for the same reason: beside the job directories, never inside
@@ -120,14 +127,34 @@ def analyse(
     directory.mkdir(parents=True, exist_ok=True)
     result_path = directory / f".{store.new_id()}.clip_sample.json"
     try:
-        spec = blender_spec.clip_sample_spec(source, key, result_path)
+        spec = blender_spec.clip_sample_spec(source, key, result_path, max_actions=MAX_ACTIONS)
         try:
             payload = blender_run.run_worker(spec, timeout=svc.config.pose_timeout)
         except blender_run.BlenderError as exc:
             log.error("sampling %s for %s failed: %s", source, key, exc)
             raise Failed("That file could not be read by Blender") from exc
         if not payload.get("ok", False):
-            raise Failed(str(payload.get("error") or "That file could not be read by Blender"))
+            message = str(payload.get("error") or "That file could not be read by Blender")
+            # The 2026-09-18 audit, finding poser-02: ``op_clip_sample``
+            # refuses an over-``MAX_ACTIONS`` source by name, before it
+            # samples anything, and carries the field the refusal is about
+            # (``"source"``) the same way this door's own ``Invalid``s do --
+            # a ``Failed`` here would tell the user "retry", which does
+            # nothing for a file that will always have too many actions.
+            field = payload.get("field")
+            if isinstance(field, str):
+                raise Invalid(message, field=field)
+            raise Failed(message)
+        # Belt and braces over the worker's own refusal: an older cached
+        # worker module (or a spec built without ``max_actions``) has no
+        # ceiling of its own, so the count is re-checked here too, once
+        # Blender has reported it -- the host cannot know it any sooner.
+        if len(payload.get("actions") or ()) > MAX_ACTIONS:
+            raise Invalid(
+                f'"{source.name}" carries too many actions to import '
+                f"({len(payload.get('actions') or ())}, over {MAX_ACTIONS})",
+                field="source",
+            )
         try:
             converted = cliptransfer.transfer(
                 payload,

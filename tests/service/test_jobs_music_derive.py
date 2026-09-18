@@ -217,9 +217,9 @@ def test_an_edit_takes_the_new_words_as_the_rows_prompt(svc, parent):
     "kwargs,field",
     [
         ({"task": "remix"}, "task"),
-        ({"task": "retake", "count": 0}, "count"),
-        ({"task": "retake", "count": door.MAX_COUNT + 1}, "count"),
-        ({"task": "retake", "count": 1.5}, "count"),
+        ({"task": "retake", "count": 0}, "derive_count"),
+        ({"task": "retake", "count": door.MAX_COUNT + 1}, "derive_count"),
+        ({"task": "retake", "count": 1.5}, "derive_count"),
         ({"task": "retake", "seed": -1}, "seed"),
         ({"task": "retake", "seed": True}, "seed"),
         ({"task": "retake", "seed": 1.5}, "seed"),

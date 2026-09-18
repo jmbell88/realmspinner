@@ -337,6 +337,34 @@ def test_starting_the_agent_server_never_writes_the_catalogue_snapshot_on_the_fr
         host.stop()
 
 
+def test_agent_host_start_does_not_block_the_frame_thread(tmp_path) -> None:
+    """shell-08 (2026-09-18 audit, second run): ``AgentHost.start()`` runs
+    ``pipe.Server.start()`` -- ``write_token`` (stage, ``os.chmod``,
+    ``os.replace``), ``_clear_stale_socket`` and ``mpconn.Listener(...)`` --
+    inline on whichever thread calls it, always the frame thread for both
+    real callers (the Settings switch and ``shell/app.py``'s
+    ``setup_context``). Unlike agents-06's catalogue-snapshot write next to
+    it in this same method (~75ms, moved off-thread already, see the test
+    above), this is not a stall worth a second lane: 20 back-to-back
+    ``pipe.Server.start()``/``close()`` cycles on a throwaway home measured
+    well under a millisecond each, an order of magnitude below a single
+    frame's ~16ms budget, so this stays inline -- the fix is measuring and
+    recording that, not moving it. This test is the measurement kept honest:
+    a regression that makes ``start()`` slow (a network home, a slower
+    stale-socket sweep) fails it rather than silently costing a frame."""
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    t0 = time.perf_counter()
+    try:
+        assert host.start() is True, f"start() failed: {host.failure}"
+    finally:
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        host.stop()
+    assert elapsed_ms < 50.0, (
+        f"AgentHost.start() took {elapsed_ms:.1f}ms on the calling thread -- "
+        "shell-08 measured ~1ms; anything near a frame budget belongs off-thread"
+    )
+
+
 def test_stop_unblocks_a_listener_with_no_client_ever_connected(tmp_path) -> None:
     """The Settings toggle's actual failure mode: switch the feature on, never
     connect a bridge, switch it off, then back on.
@@ -1846,6 +1874,32 @@ def test_a_working_task_survives_eviction_even_when_every_remembered_operation_i
     assert isinstance(refusal["error"].get("message"), str) and refusal["error"]["message"]
     assert calls.get(oldest_id) is not None, "the oldest still-working operation must survive"
     assert len(calls._ops) == agent_host.MAX_REMEMBERED_CALLS
+
+
+def test_a_cancelled_tasks_operation_does_not_permanently_saturate_the_connection() -> None:
+    """agents-01 (2026-09-18 audit, second run): `_cancel_task` set `DROPPED`
+    but never `fetched`, and `_protected` keeps any task-mode op with
+    `not fetched` forever -- so a cancelled call, which will never be
+    fetched by a `status` poll (there is no result to fetch), stayed
+    protected for the life of the connection. Sixteen cancels filled
+    `MAX_REMEMBERED_CALLS` with permanently-protected tombstones and the
+    17th task-mode call came back refused as `saturated`, forever, even
+    though nothing was actually working. Cancelling must retire the slot
+    the same way a fetched result does."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    for i in range(agent_host.MAX_REMEMBERED_CALLS):
+        header = host._call_task(session, calls, "clay_scene", {"tag": i})
+        host._cancel_task(calls, header["operation_id"])
+
+    assert calls.saturated() is False, (
+        "cancelled operations must not permanently saturate the store"
+    )
+
+    reply = host._call_task(session, calls, "clay_scene", {"tag": "one-more"})
+    assert "operation_id" in reply, "a 17th task-mode call must mint, not refuse"
 
 
 def test_a_task_mode_warlock_status_call_is_exempt_from_the_saturation_refusal() -> None:

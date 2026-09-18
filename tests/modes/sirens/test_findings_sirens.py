@@ -27,6 +27,7 @@ as pure functions beside it (``sirens_patterns.first_channel``,
 from __future__ import annotations
 
 import ast
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -717,6 +718,77 @@ def test_reused_patterns_are_counted_in_the_order_list():
     assert counts[solo] == 1
 
 
+def test_set_order_refuses_past_max_order_instead_of_truncating():
+    """sirens-02 (2026-09-18 audit, second run).
+
+    Every sibling ceiling in ``document.py`` (``MAX_PATTERNS``,
+    ``MAX_CHANNELS``, ``MAX_ONESHOTS``, ``MAX_SAMPLES``) raises a
+    ``ValueError`` by name. ``set_order`` instead clipped silently to
+    ``[:MAX_ORDER]``, so an order past 256 entries looked accepted with no
+    word said about why the extra steps never appear.
+
+    Fails against the unfixed code: no exception is raised and
+    ``len(doc.order) == D.MAX_ORDER`` with the request silently truncated.
+    """
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    doc = tab.doc
+    verse = doc.patterns[0].uid
+
+    with pytest.raises(ValueError, match="order"):
+        doc.set_order([verse] * (D.MAX_ORDER + 1))
+
+
+def test_add_to_order_reason_greys_the_button_at_max_order():
+    """sirens-02's other half: ``add_to_order_reason`` must grey the button
+    before ``set_order`` ever gets a chance to raise, the same way
+    ``pattern_room`` already greys "Add a pattern" at ``MAX_PATTERNS``."""
+    from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    doc = tab.doc
+    verse = doc.patterns[0].uid
+    assert doc.set_order([verse] * D.MAX_ORDER)
+    assert len(doc.order) == D.MAX_ORDER
+
+    reason = sirens_orders.add_to_order_reason("", doc, True)
+    assert reason, "the button must be greyed once the order is full"
+
+
+def test_effects_add_reason_names_both_ceilings_the_refusal_can_hit():
+    """sirens-03 (2026-09-18 audit, second run).
+
+    ``_add``'s comment said ``MAX_ONESHOTS`` "is the only way this refuses" --
+    but ``add_oneshot`` (``document.py``) also makes a pattern of its own for
+    the effect, and that inner ``add_pattern`` call raises at ``MAX_PATTERNS``
+    first when a song is already full of patterns. Both ceilings are
+    reachable by working; the comment must say so.
+
+    Behaviourally: filling a song to ``MAX_PATTERNS`` and then adding an
+    effect must still raise (and be caught) -- proving the second ceiling is
+    live, not merely a source comment claim.
+    """
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    doc = tab.doc
+    while len(doc.patterns) < D.MAX_PATTERNS:
+        doc.add_pattern()
+    assert len(doc.patterns) == D.MAX_PATTERNS
+
+    with pytest.raises(ValueError, match="patterns"):
+        doc.add_oneshot()
+
+    source = inspect.getsource(
+        __import__(
+            "warlock.studio.modes.sirens.ui.panes.effects", fromlist=["_add"]
+        )._add
+    )
+    assert "MAX_PATTERNS" in source, (
+        "the comment must name both ceilings this refusal can hit, not only MAX_ONESHOTS"
+    )
+
+
 def test_an_effect_can_be_picked_by_name():
     """W1.11: the fx-cell right-click popup's own verb. ``choose_effect`` is
     what a click on one of ``synth.EFFECT_NAMES``' rows does -- point the
@@ -942,8 +1014,12 @@ class _FakeOrderDoc:
     real document (and the pattern list it insists on keeping non-empty) is
     more setup than the claim needs."""
 
-    def __init__(self, patterns: list[Any]) -> None:
+    def __init__(self, patterns: list[Any], order: list[int] | None = None) -> None:
         self.patterns = patterns
+        # sirens-02 (2026-09-18 audit, second run): add_to_order_reason now
+        # also reads doc.order (the MAX_ORDER check), which this stand-in
+        # did not carry before that check existed.
+        self.order = order if order is not None else []
 
 
 def test_add_to_order_reason_names_the_state_that_is_actually_true():

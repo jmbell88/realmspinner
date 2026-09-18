@@ -25,7 +25,7 @@ task threads while the frame thread runs.
 ``Image.open`` reads a header and ``convert`` is the call that allocates, so a
 ceiling consulted after it has been paid rather than applied.
 
-A shared leaf for ``zipguard``'s reason. Eleven doors across four engines and
+A shared leaf for ``zipguard``'s reason. Thirteen doors across four engines and
 the mode layer decode an image out of an untrusted container -- ``.ora``,
 ``.wmap``, ``.wblk``, ``.tmx``, ``.tsx``, a bare PNG the user picked -- and a
 bound that eleven call sites have to remember is a bound that holds at ten.

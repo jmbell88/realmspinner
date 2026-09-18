@@ -607,6 +607,15 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
             out["base"], out["capital"] = b * shrink, c * shrink
     if generator == "sweep" and "taper" in out:
         out["taper"] = max(abs(float(out["taper"])), MIN_TAPER)
+    if generator == "arch" and "thickness" in out and "width" in out:
+        # The 2026-09-18 audit's second-run clay-01: this function mirrors
+        # torus's, column's and sweep's own self-clamps so a stored param
+        # never disagrees with the wall the generator actually built (the
+        # clay-05/clay-04 class of defect), but arch's own thickness clamp
+        # at :func:`arch` (``t = min(max(abs(t), r_out*0.02), r_out*0.9)``)
+        # had no mirror here at all.
+        r_out = abs(float(out["width"])) * 0.5
+        out["thickness"] = min(max(abs(float(out["thickness"])), r_out * 0.02), r_out * 0.9)
     return out
 
 

@@ -13,6 +13,51 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 
+def test_the_undo_and_redo_buttons_grey_while_the_document_is_saving(monkeypatch):
+    """The 2026-09-18 audit (second run, finding shell-06), seen from both
+    packwright/mode and sirens/edit: ``history_block`` gated Undo, Redo and
+    the history popover button on ``can_undo``/``can_redo`` alone, so a click
+    could mutate history under an in-flight save while
+    ``docmodes.blocked_while_writing`` already refused the same edit's
+    keyboard chord (Ctrl+Z/Y). One door -- ``history_block`` -- so every
+    bridge pane that draws this pair inherits the guard."""
+    from warlock.studio import widgets
+
+    calls: list[tuple[str, bool, str]] = []
+
+    def fake_disabled_button(label, enabled, size=(0, 0), *, reason="", tooltip=""):
+        calls.append((label, enabled, reason))
+        return False
+
+    monkeypatch.setattr(widgets, "disabled_button", fake_disabled_button)
+    monkeypatch.setattr(widgets.imgui, "same_line", lambda *a, **k: None)
+    monkeypatch.setattr(widgets, "muted", lambda *a, **k: None)
+    monkeypatch.setattr(widgets, "grid_width", lambda *a, **k: 100.0)
+
+    class _History:
+        can_undo = True
+        can_redo = True
+
+        def __len__(self):
+            return 3
+
+    tab = SimpleNamespace(doc=SimpleNamespace(history=_History()), busy=True)
+
+    widgets.history_block(
+        ctx=None,
+        tab=tab,
+        key="test",
+        undo=lambda: None,
+        redo=lambda: None,
+    )
+
+    by_label = {label: (enabled, reason) for label, enabled, reason in calls}
+    undo_label = next(label for label in by_label if "Undo" in label)
+    redo_label = next(label for label in by_label if "Redo" in label)
+    assert by_label[undo_label] == (False, widgets.DOCUMENT_SAVING_WHY)
+    assert by_label[redo_label] == (False, widgets.DOCUMENT_SAVING_WHY)
+
+
 def test_the_frame_button_reservation_matches_its_own_width_not_the_tiled_toggle(
     monkeypatch,
 ):

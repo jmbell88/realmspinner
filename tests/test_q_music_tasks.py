@@ -134,6 +134,37 @@ def test_a_retake_forwards_its_stored_retake_seed_to_the_sampler():
     }
 
 
+@pytest.mark.parametrize(
+    "params",
+    [
+        {
+            "task": "extend",
+            "extend_left": 5.0,
+            "extend_right": 10.0,
+            "parent_duration": 60.0,
+        },
+        {"task": "loop", "repaint_start": 26.0, "repaint_end": 34.0},
+        {
+            "task": "edit",
+            "edit_prompt": "bright strings",
+            "edit_lyrics": "la",
+        },
+    ],
+)
+def test_extend_repaint_edit_forward_their_stored_retake_seed(params):
+    """muse-03 (2026-09-18 audit, second run).
+
+    service-02 (2026-09-15 audit) added the ``retake_seed`` -> ``retake_seeds``
+    forward that every non-retake, non-audio2audio branch shares (the block
+    right before ``if task == "extend":`` in ``_q_music.py``), but no test
+    ever passed ``retake_seed`` through this function for extend, repaint/loop
+    or edit -- only the sibling ``retake`` branch had one. A regression here
+    would have shipped silently.
+    """
+    out = q._task_kwargs({**params, "retake_seed": 555}, _dir())
+    assert out["retake_seeds"] == [555]
+
+
 def test_an_extend_is_encoded_as_a_negative_repaint_window():
     """Upstream's spelling: the head pad runs from -left to 0 and the tail from
     the parent's duration to duration+right."""

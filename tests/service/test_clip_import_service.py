@@ -192,6 +192,32 @@ def test_a_worker_sentence_reaches_the_caller(svc, monkeypatch, tmp_path):
         clip_import.analyse(svc, TEMPLATE, str(source))
 
 
+def test_analyse_refuses_a_source_file_with_too_many_actions(svc, monkeypatch, tmp_path):
+    """The 2026-09-18 audit, finding poser-02.
+
+    Nothing bounded how many actions a source file may carry before Blender
+    sampled every one of them; ``op_clip_sample`` now refuses by name before
+    sampling, and this door raises it as an ``Invalid`` naming the field
+    rather than the generic ``Failed`` a worker-shaped error used to become.
+    """
+    _ok_blender(monkeypatch)
+    calls = _fake_run_worker(
+        monkeypatch,
+        {
+            "ok": False,
+            "error": "big.fbx carries 200 actions, over the 64-action import limit",
+            "field": "source",
+        },
+    )
+    source = _write_source(tmp_path)
+
+    with pytest.raises(Invalid, match="200 actions") as excinfo:
+        clip_import.analyse(svc, TEMPLATE, str(source))
+    assert excinfo.value.field == "source"
+    # The spec sent to the worker carries the ceiling the worker enforces.
+    assert calls[0]["max_actions"] == clip_import.MAX_ACTIONS
+
+
 def test_the_result_file_is_removed_even_when_transfer_fails(svc, monkeypatch, tmp_path):
     _ok_blender(monkeypatch)
     _fake_run_worker(monkeypatch, _canned_payload())

@@ -285,7 +285,12 @@ def armature_spec(template_key: str, out_glb: Path, result_dir: Path) -> dict[st
 
 
 def clip_sample_spec(
-    source: Path, template: str, result_path: Path, *, max_frames: int = 900
+    source: Path,
+    template: str,
+    result_path: Path,
+    *,
+    max_frames: int = 900,
+    max_actions: int = 64,
 ) -> dict[str, Any]:
     """The worker spec for "Import clip": sampling an external animation's
     world bone transforms so a later, Blender-free step can convert them onto
@@ -326,6 +331,10 @@ def clip_sample_spec(
         "candidates": sorted(candidates),
         "strip": sorted(strips),
         "max_frames": int(max_frames),
+        # The 2026-09-18 audit, finding poser-02: nothing bounded how many
+        # actions a source FBX/GLB may carry before ``op_clip_sample`` sampled
+        # every one of them, frame by frame, with no ceiling to refuse by.
+        "max_actions": int(max_actions),
         "result_path": str(result_path),
     }
 

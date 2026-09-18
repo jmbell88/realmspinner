@@ -658,7 +658,14 @@ class SongDoc:
         an edit type of its own would be four classes that reverse to the same
         thing.
         """
-        after = tuple(int(one) for one in order)[:MAX_ORDER]
+        after = tuple(int(one) for one in order)
+        # sirens-02 (2026-09-18 audit, second run): every sibling ceiling in
+        # this module (``MAX_PATTERNS``, ``MAX_CHANNELS``, ``MAX_ONESHOTS``,
+        # ``MAX_SAMPLES``) raises by name; this one silently clipped to
+        # ``MAX_ORDER`` instead, so an insert past 256 entries looked accepted
+        # -- the order simply stopped growing, with no word said about why.
+        if len(after) > MAX_ORDER:
+            raise ValueError(f"a song's order holds {MAX_ORDER} steps")
         known = {one.uid for one in self.patterns}
         unknown = [one for one in after if one not in known]
         if unknown:

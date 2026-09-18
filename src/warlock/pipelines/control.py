@@ -12,10 +12,10 @@ same operator.
 
 from __future__ import annotations
 
-import contextlib
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from ..core.safeio import atomic
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from PIL import Image as _ImageModule
@@ -134,13 +134,12 @@ def write_hint(
         im.load()
         out = hint(kind, im, size=size, low=low, high=high)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(f".{dest.name}.tmp")
-    try:
+    # The 2026-09-18 audit, finding pipelines-01: the staging name used to be
+    # ``f".{dest.name}.tmp"``, fixed and shared by every concurrent caller of
+    # this ``dest`` -- the same M03/service-02 hazard ``atomic.staged``
+    # already closes elsewhere in this codebase.
+    with atomic.staged(dest) as tmp:
         out.save(tmp, format="PNG")
-        os.replace(tmp, dest)
-    finally:
-        with contextlib.suppress(OSError):
-            tmp.unlink(missing_ok=True)
     return {
         "kind": kind,
         "low": low,

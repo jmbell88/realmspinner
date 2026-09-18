@@ -1784,6 +1784,41 @@ def _manifest_summary(manifest: Any) -> None:
         widgets.muted(" - ".join(bits))
 
 
+def _read_manifest_file(path: Any) -> dict[str, Any] | None:
+    """The parse half of :func:`_manifest`, off the frame thread.
+
+    No imgui, no ``ctx`` -- only the file. Kept apart from ``_manifest`` so it
+    can run inside :func:`concurrent.futures.Executor.submit` without dragging
+    the frame-thread caching logic along with it.
+    """
+    import json
+
+    try:
+        manifest = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+#: Reads in flight, keyed the same as the cache itself. Frame thread only for
+#: reads and writes of the dict; the futures' *work* runs off it. A private
+#: pool rather than ``ctx.tasks``: the 2026-09-18 audit (shell-05) found this
+#: read blocking the frame on every manifest.json write, and ``TaskRunner``'s
+#: keys are drained exactly once, by ``App.frame``'s own dispatch -- a pane
+#: polling it here would race that dispatch for the same completed future.
+_manifest_pool: Any = None
+_manifest_inflight: dict[tuple[str, int], Any] = {}
+
+
+def _manifest_executor() -> Any:
+    global _manifest_pool
+    if _manifest_pool is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _manifest_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="warlock-manifest")
+    return _manifest_pool
+
+
 def _manifest(ctx: Any, job_id: str) -> dict[str, Any] | None:
     """The job's parsed manifest.json, or None if there isn't a readable one.
 
@@ -1806,9 +1841,14 @@ def _manifest(ctx: Any, job_id: str) -> dict[str, Any] | None:
     that can land inside the stamped mtime's own 15.6 ms tick, and an unguarded
     stamp keeps matching it forever -- so the export tab would go on describing
     the artifacts of the derivation before last.
-    """
-    import json
 
+    The read and parse themselves run off the frame thread (the 2026-09-18
+    audit, finding shell-05: this used to run synchronously inside ``draw()``
+    on every mtime change). A new mtime submits a read and keeps answering
+    with whatever was cached before -- stale by at most the read's own
+    duration, never blank -- and adopts the fresh parse, discarding the stale
+    one, the first frame it lands.
+    """
     path = ctx.job_dir(job_id) / "manifest.json"
     mtime = stamps.stamp_ns(path)
     if mtime is None:
@@ -1817,12 +1857,21 @@ def _manifest(ctx: Any, job_id: str) -> dict[str, Any] | None:
     cached = ctx.state.manifest
     if cached is not None and cached[0] == key:
         return cached[1]
-    try:
-        manifest = json.loads(path.read_text("utf-8"))
-    except (OSError, ValueError):
-        manifest = None
-    if not isinstance(manifest, dict):
-        manifest = None
-    if stamps.storable(mtime):
-        ctx.state.manifest = (key, manifest)
-    return manifest
+    future = _manifest_inflight.get(key)
+    if future is None:
+        # Stale reads for an earlier mtime of the same job are of no more use
+        # than the stale cache entry they would otherwise sit beside forever.
+        for stale_key in [k for k in _manifest_inflight if k[0] == job_id]:
+            del _manifest_inflight[stale_key]
+        future = _manifest_executor().submit(_read_manifest_file, path)
+        _manifest_inflight[key] = future
+    elif future.done():
+        del _manifest_inflight[key]
+        manifest = future.result()
+        if stamps.storable(mtime):
+            ctx.state.manifest = (key, manifest)
+        return manifest
+    # Still in flight, or a submit just went out this frame: answer with
+    # whatever the cache held before this mtime changed rather than None, so
+    # a fast derivation does not flash the panel empty for one frame.
+    return cached[1] if cached is not None else None

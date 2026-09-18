@@ -342,12 +342,21 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
     if name == "sirens-open":
         if isinstance(result, dict):
-            adopt(
-                ctx,
-                result["doc"],
-                path=Path(result["path"]) if result.get("path") else None,
-                title=result.get("title"),
-            )
+            # The 2026-09-18 audit (second run, finding sirens-01) found this
+            # arm adopting unconditionally while ``open_path`` already guards
+            # with "Focus rather than fork: two tabs over one path would race
+            # on save" -- the same gap Clay closed on 2026-09-12 (clay-02).
+            path = Path(result["path"]) if result.get("path") else None
+            existing = state.find_path(path) if path is not None else None
+            if existing is not None:
+                state.activate(existing.uid)
+            else:
+                adopt(
+                    ctx,
+                    result["doc"],
+                    path=path,
+                    title=result.get("title"),
+                )
             set_mode(ctx.state, "sirens")
         return
 

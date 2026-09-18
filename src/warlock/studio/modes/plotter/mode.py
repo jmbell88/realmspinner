@@ -299,14 +299,22 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
     if name == "plotter-open":
         if isinstance(result, dict):
-            adopt(
-                ctx,
-                result["doc"],
-                path=Path(result["path"]) if result.get("path") else None,
-                title=result.get("title"),
-                file_format=result.get("format"),
-                import_warnings=result.get("import_warnings"),
-            )
+            # The 2026-09-18 audit (second run, finding plotter-01) found
+            # this arm adopting unconditionally while ``fileio.open_path``
+            # already guards -- the gap Clay closed on 2026-09-12 (clay-02).
+            path = Path(result["path"]) if result.get("path") else None
+            existing = state.find_path(path) if path is not None else None
+            if existing is not None:
+                state.activate(existing.uid)
+            else:
+                adopt(
+                    ctx,
+                    result["doc"],
+                    path=path,
+                    title=result.get("title"),
+                    file_format=result.get("format"),
+                    import_warnings=result.get("import_warnings"),
+                )
             set_mode(ctx.state, "plotter")
         return
 

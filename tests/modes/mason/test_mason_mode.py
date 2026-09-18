@@ -87,6 +87,31 @@ def _save(ctx: FakeCtx, tab: mason_state.MasonTab, path: Path) -> None:
     mason_mode.on_task_done(ctx, _Done(f"mason-save:{tab.uid}", ctx.result))
 
 
+def test_ask_open_focuses_an_already_open_scene_instead_of_forking_a_second_tab(
+    tmp_path,
+):
+    """The 2026-09-18 audit (second run, finding mason-02): the ``mason-open``
+    arm called ``adopt`` unconditionally, while ``open_path`` (drag-drop and
+    recents) already checked ``state.find_path`` -- Clay closed the identical
+    gap in its own dialog arm on 2026-09-12 (clay-02). Two tabs over one path
+    race on save; whichever writes last silently discards the other's edits."""
+    ctx = FakeCtx()
+    path = tmp_path / "scene.wscn"
+    path.write_bytes(b"")
+    existing = _tab(ctx)
+    existing.path = path
+
+    doc = md.MasonDoc()
+    doc.add_node(nd.GroupNode(uid=nd.new_uid(), name="Group"))
+    mason_mode.on_task_done(
+        ctx, _Done("mason-open", {"doc": doc, "path": str(path), "title": "Scene"})
+    )
+
+    state = mason_mode.ensure(ctx)
+    assert len(state.docs) == 1
+    assert state.active is existing
+
+
 @pytest.fixture(autouse=True)
 def _no_pygame_display(monkeypatch):
     import pygame

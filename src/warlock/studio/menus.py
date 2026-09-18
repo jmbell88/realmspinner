@@ -44,6 +44,12 @@ _COMMAND_PATHS: dict[str, tuple[str, ...]] = {
     # a New that is not in the File menu reads as the mode not having one, and
     # falls into the contextual per-mode menu instead.
     "new-song": ("File",),
+    # ``generate`` is enabled only in Create (``_in_generate_mode``), so with
+    # no path here it fell into the contextual per-mode branch and spawned a
+    # stray one-item disabled menu root, named after whichever mode was
+    # active, in every one of the other nine modes that branch reaches (the
+    # 2026-09-18 audit, shell-03, second run).
+    "generate": ("File",),
     "save": ("File",),
     "save-as": ("File",),
     "export": ("File",),

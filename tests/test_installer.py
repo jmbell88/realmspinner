@@ -47,6 +47,26 @@ def test_runtime_manifest_covers_every_shipped_vendor_file_once() -> None:
     assert all(re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) for entry in payload["files"])
 
 
+def test_installer_docs_agree_on_the_staged_runtime_directory_count() -> None:
+    """The 2026-09-18 audit, finding pipelines-03.
+
+    ``installer/README.md`` and ``scripts/rebuild.ps1`` used to say "three
+    native runtime directories"; ``runtime-manifest.json``'s own ``roots``
+    have staged only two since trellis left this payload on 2026-09-10.
+    """
+    payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    count = len(payload["roots"])
+
+    readme = (INSTALLER / "README.md").read_text(encoding="utf-8")
+    rebuild = (ROOT / "scripts" / "rebuild.ps1").read_text(encoding="utf-8")
+
+    assert "three native runtime directories" not in readme
+    assert "three runtime directories" not in rebuild
+    assert re.search(r"\btwo native runtime directories\b", readme)
+    assert re.search(r"\bboth runtime directories\b", rebuild)
+    assert count == 2
+
+
 def test_runtime_manifest_no_longer_pins_the_downloadable_trellis_engine() -> None:
     """The engine (trellis-server.exe, ggml, the CUDA DLLs) stopped being a
     staged installer payload on 2026-09-10 -- it is a Settings -> Models

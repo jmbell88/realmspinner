@@ -12,8 +12,10 @@ version that was built. It leaves `warlockc.dll` alone unless asked with
 change -- see the pin note below.
 
 The staged application contains the locked Python runtime and dependencies,
-`src\warlock`, the manual, and the three native runtime directories under
-`vendor`. Model weights remain first-run downloads under the user's Warlock
+`src\warlock`, the manual, and the two native runtime directories under
+`vendor` (`gltfpack`, `warlockc` -- trellis left this payload on 2026-09-10,
+when the engine became a download; see `runtime-manifest.json`'s `roots`).
+Model weights remain first-run downloads under the user's Warlock
 home. The project is GPL-3.0-or-later: `LICENSE` is shown as the wizard's
 first page (`LicenseFile=`) and staged into the install root alongside
 `THIRD-PARTY-NOTICES.md`, which also goes beside `vendor\` because MIT and

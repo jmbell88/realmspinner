@@ -310,6 +310,14 @@ def export_with_points(ctx: Any, player: Any) -> None:
     thread -- it is a field check, not a computation -- but the WAV encode of
     the whole take moves into ``_save``'s task for the same reason
     :func:`export_loop`'s does.
+
+    **muse-01 (2026-09-18 audit, second run).** ``_has_region`` only checks
+    the region in *seconds*, same as :func:`export_loop`'s muse-03 gap: a
+    region that rounds to zero samples at the take's rate passed here and
+    reached :func:`wavout._smpl`, which clamped ``end = max(start, end-1)``
+    silently and wrote a one-sample loop with no word said about why.
+    Checked in samples, before the picker opens, with :func:`export_loop`'s
+    wording rather than a second sentence for the same shape of mistake.
     """
     if not _has_region(ctx, player):
         return
@@ -322,8 +330,13 @@ def export_with_points(ctx: Any, player: Any) -> None:
         )
         return
     rate = int(player.rate)
+    start = int(player.loop_start * rate)
+    end = int(player.loop_end * rate)
+    if end <= start:
+        ctx.toast("That region is too short to export -- widen it.", "warn")
+        return
     pcm = player.pcm
-    loop = (int(player.loop_start * rate), int(player.loop_end * rate))
+    loop = (start, end)
     _save(ctx, lambda: _wav(pcm, rate, loop=loop), "track.wav", "Export the track")
 
 

@@ -695,6 +695,34 @@ def test_a_routed_build_in_clay_lands_as_a_ghost_preview():
     assert ctx.clay_view.previewed is not None
 
 
+def test_a_build_that_cannot_land_because_another_is_still_landing_says_so_in_the_transcript():
+    """familiar-03 (2026-09-18 audit, second run): ``_submit_build_preview``
+    used to bare-``return`` when ``ctx.submit(LAND_KEY, ...)`` refused
+    because another build was already landing on the same key -- with the
+    pane collapsed that left no transcript turn and no toast, unlike every
+    other way a Familiar build ends (the staleness refusal a few lines
+    above it in the same function already calls ``_say``)."""
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    calls = _canned_calls()
+    ui = familiar_ui.ensure(ctx)
+    thread_key = ("clay", ctx.tab.uid)
+
+    # Occupy LAND_KEY first, simulating CHAT_KEY and BUILD_KEY both landing
+    # a build in the same frame (the docstring's own "rarely" case).
+    ctx._pending[familiar_ui.LAND_KEY] = (lambda: None, (), {}, {})
+
+    familiar_ui._submit_build_preview(
+        ctx, ui, ctx.tab.uid, calls, thread_key=thread_key,
+    )
+
+    turns = ctx.familiar_threads.get(thread_key)
+    assert turns, "a refused build-preview submit must still say so in the transcript"
+    assert turns[-1].role == "familiar"
+    assert turns[-1].text
+    assert ctx.toasts, "a refused build-preview submit must still toast"
+
+
 # --- T8: navigate/create routes land as an acted-out door -------------
 
 

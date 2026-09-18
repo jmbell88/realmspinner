@@ -967,6 +967,15 @@ def _done_flourish_restyle(ctx: Any, state: Any, done: Any) -> None:
 def _done_open(ctx: Any, state: Any, done: Any) -> None:
     result = done.result
     if isinstance(result, dict):
+        # The 2026-09-18 audit (second run, finding inker-01) found this arm
+        # adopting unconditionally while ``opening.open_path`` already
+        # guards -- the gap Clay closed on 2026-09-12 (clay-02).
+        path = result.get("path")
+        existing = state.find_path(Path(path)) if path else None
+        if existing is not None:
+            state.activate(existing.uid)
+            set_mode(ctx.state, "inker")
+            return
         _adopt(
             ctx,
             state,

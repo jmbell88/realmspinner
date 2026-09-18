@@ -172,6 +172,30 @@ class _ManifestCtx:
         return self._root
 
 
+def _await_manifest(ctx, job_id, timeout=2.0):
+    """Poll ``_manifest`` until its background read for ``job_id`` has landed.
+
+    The 2026-09-18 audit, finding shell-05: the read and parse now run off
+    the frame thread (a private pool in ``panes/inspector.py``), so the first
+    call after a file changes can answer with whatever was cached before (or
+    None, the first time) while the real read is still in flight. This polls
+    the way a real frame loop gets there over several frames -- it does not
+    touch the mtime/clock machinery those tests exist to exercise, only the
+    number of calls needed to observe the *settled* answer.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    result = inspector._manifest(ctx, job_id)
+    while (
+        any(key[0] == job_id for key in inspector._manifest_inflight)
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.005)
+        result = inspector._manifest(ctx, job_id)
+    return result
+
+
 def test_a_manifest_rewritten_inside_the_mtime_tick_is_still_read(tmp_path, monkeypatch):
     """"A derivation running on the TaskRunner rewrites the manifest underneath
     it" is exactly a write that can land inside the stamped mtime's own tick,
@@ -182,11 +206,14 @@ def test_a_manifest_rewritten_inside_the_mtime_tick_is_still_read(tmp_path, monk
     ctx = _ManifestCtx(tmp_path)
     _frozen(monkeypatch, path)
 
-    assert list(inspector._manifest(ctx, "abc123abc123")["artifacts"]) == ["icon.png"]
+    assert list(_await_manifest(ctx, "abc123abc123")["artifacts"]) == ["icon.png"]
 
     path.write_text(json.dumps({"artifacts": {"sprite.png": {}}}), encoding="utf-8")
 
-    assert list(inspector._manifest(ctx, "abc123abc123")["artifacts"]) == ["sprite.png"]
+    # Still frozen at (the now-current) mtime -- the racy window itself, not
+    # a settled read -- so this must still see the rewrite rather than a
+    # cached "icon.png" answer left over from the unstorable first read.
+    assert list(_await_manifest(ctx, "abc123abc123")["artifacts"]) == ["sprite.png"]
 
 
 def test_a_manifest_written_a_moment_ago_is_not_remembered(tmp_path, monkeypatch):
@@ -195,7 +222,7 @@ def test_a_manifest_written_a_moment_ago_is_not_remembered(tmp_path, monkeypatch
     ctx = _ManifestCtx(tmp_path)
     _frozen(monkeypatch, path)
 
-    assert inspector._manifest(ctx, "abc123abc123") is not None
+    assert _await_manifest(ctx, "abc123abc123") is not None
     assert ctx.state.manifest is None
 
 

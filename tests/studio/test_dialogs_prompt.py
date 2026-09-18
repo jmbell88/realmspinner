@@ -198,3 +198,31 @@ def test_a_blank_name_says_why_rather_than_doing_nothing(monkeypatch):
     assert saved == [], "a blank name is still refused"
     assert not fake.closed, "and the modal still stays open"
     assert "Name required." in fake.notes, "but it now says so"
+
+
+def test_modal_open_is_true_while_the_library_export_or_convert_popup_is_up():
+    """The 2026-09-18 audit, shell-01 (second run): Library's export-selection
+    and convert popups are real ``imgui.begin_popup_modal`` surfaces, parked
+    on ``ctx.state._library_export``/``_library_convert`` because the task
+    that owns them has no imgui context of its own to open a popup from --
+    but ``modal_open`` never asked about them, so Ctrl+K, a mode key and
+    Ctrl+Enter reached the app while the user was mid-decision on what to do
+    with an export, the same UX-08 shape the matte preview, the Muse derive
+    popup and the Packwright tileset popup were each added for."""
+    from types import SimpleNamespace
+
+    ctx = SimpleNamespace(
+        confirms=dialogs.ConfirmQueue(),
+        prompts=dialogs.PromptQueue(),
+        state=SimpleNamespace(_library_export=None, _library_convert=None),
+    )
+    assert dialogs.modal_open(ctx) is False
+
+    ctx.state._library_export = object()
+    assert dialogs.modal_open(ctx) is True
+
+    ctx.state._library_export = None
+    assert dialogs.modal_open(ctx) is False
+
+    ctx.state._library_convert = object()
+    assert dialogs.modal_open(ctx) is True

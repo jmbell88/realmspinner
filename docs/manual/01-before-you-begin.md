@@ -35,12 +35,12 @@ exactly how much further down.
 Today Warlock runs from a source checkout:
 
 ```powershell
-uv sync --extra studio --extra text2image --extra rig
+uv sync --extra studio --extra text2image --extra rig --extra music
 ```
 
-The three extras are separable and each buys a different capability — `studio` is the window and its
-renderer, `text2image` is text-to-3D, `rig` is rigging, posing and character sheets. A bare
-`uv sync` prunes all three, so pass them.
+The four extras are separable and each buys a different capability — `studio` is the window and its
+renderer, `text2image` is text-to-3D, `rig` is rigging, posing and character sheets, `music` is Muse's
+ACE-Step generation. A bare `uv sync` prunes all four, so pass them.
 [Python dependencies](40-installation.md#python-dependencies) explains what skipping each one costs.
 
 One thing that is not a Python package: the reconstruction engine is a native binary. In a source

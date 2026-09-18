@@ -138,6 +138,34 @@ def test_a_file_already_open_is_found_rather_than_opened_twice():
     assert state.find_path(Path("/tmp/z.ora")) is None
 
 
+def test_ask_open_focuses_an_already_open_drawing_instead_of_forking_a_second_tab(
+    tmp_path,
+):
+    """The 2026-09-18 audit (second run, finding inker-01): ``_done_open``
+    adopted unconditionally while ``opening.open_path`` already guarded with
+    ``find_path`` -- Clay closed the identical gap in its own dialog arm on
+    2026-09-12 (clay-02). Two tabs over one path race on save, and whichever
+    writes last silently discards the other's edits."""
+    from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.state import AppState
+
+    ctx = _ImportCtx()
+    ctx.state = AppState()
+    state = inker_mode.ensure(ctx)
+    path = tmp_path / "sketch.ora"
+    path.write_bytes(b"")
+    existing = inker_mode._adopt(ctx, state, inker.Document.blank(8, 8), path=path)
+
+    doc = inker.Document.blank(8, 8)
+    inker_mode.on_task_done(
+        ctx, _Done("inker-open", {"doc": doc, "path": str(path), "title": "sketch"})
+    )
+
+    assert len(state.docs) == 1
+    assert state.active is existing
+    assert ctx.state.mode == "inker"
+
+
 def test_a_linked_document_is_found_by_its_job():
     tab = _tab()
     tab.job_id = "abc123"

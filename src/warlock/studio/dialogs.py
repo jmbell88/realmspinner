@@ -662,6 +662,15 @@ def modal_open(ctx: Any) -> bool:
     Import/Cancel pair are just as much a question with the user's attention
     as the other six, and every global chord reached the app while it was up.
 
+    Library's export-selection and convert popups are the eighth and ninth,
+    added for the 2026-09-18 audit's second run (shell-01): both are real
+    ``imgui.begin_popup_modal`` surfaces (``modes/library/ui/panes/library
+    ._draw_export_popup``/``_draw_convert_popup``), parked on
+    ``ctx.state._library_export``/``_library_convert``, and were missing from
+    this list the same way the derive popup and the tileset popup were --
+    every global chord reached the app while the user was mid-decision on
+    what to do with a Library export.
+
     A module function with ``App._modal_open`` delegating to it, because the
     guided tour needs the same question and is deliberately *not* one of the
     answers: ``panes/tour.py`` suspends its scrim while a modal is up, and a
@@ -673,6 +682,7 @@ def modal_open(ctx: Any) -> bool:
     on the shell. This module already owns two of the four answers.
     """
     from . import matte_preview
+    from .modes.library.ui.panes import library as library_panes
     from .modes.muse import mode as muse_mode
     from .modes.packwright.ui.panes import sources as packwright_sources
     from .modes.troupe.ui.panes import send as troupe_send
@@ -686,4 +696,5 @@ def modal_open(ctx: Any) -> bool:
         or troupe_send.is_open(ctx)
         or muse_mode.derive_popup_open(ctx)
         or packwright_sources.tileset_popup_open(ctx)
+        or library_panes.popup_open(ctx)
     )

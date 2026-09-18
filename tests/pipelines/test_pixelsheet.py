@@ -185,6 +185,16 @@ def test_an_empty_atlas_says_so_rather_than_quantizing_nothing():
         pixelsheet.quantize_shared(Image.new("RGBA", (32, 32), (0, 0, 0, 0)), 8)
 
 
+def test_quantize_shared_refuses_a_non_positive_colour_count():
+    """The 2026-09-18 audit (inker-05): an unchecked ``colors`` reached
+    ``Image.quantize`` verbatim, so a bad value surfaced as Pillow's own
+    error rather than a refusal this app names."""
+    atlas = Image.new("RGBA", (8, 8), (10, 20, 30, 255))
+    for bad in (0, -1, 257):
+        with pytest.raises(ValueError, match="1 to 256"):
+            pixelsheet.quantize_shared(atlas, bad)
+
+
 # --- where a palette comes from -------------------------------------------------
 
 

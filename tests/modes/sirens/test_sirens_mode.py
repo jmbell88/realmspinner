@@ -624,6 +624,27 @@ def test_a_failed_save_unlocks_the_tab():
     assert not tab.saving
 
 
+def test_ask_open_focuses_an_already_open_song_instead_of_forking_a_second_tab(tmp_path):
+    """The 2026-09-18 audit (second run, finding sirens-01): ``sirens-open``
+    adopted unconditionally while ``open_path`` already guards with "Focus
+    rather than fork: two tabs over one path would race on save" -- the
+    identical gap Clay closed in its own dialog arm on 2026-09-12 (clay-02)."""
+    ctx = FakeCtx()
+    path = tmp_path / "song.wsng"
+    path.write_bytes(b"")
+    existing = _tab(ctx)
+    existing.path = path
+
+    doc = D.new_song()
+    sirens_mode.on_task_done(
+        ctx, _Done("sirens-open", {"doc": doc, "path": str(path), "title": "Song"})
+    )
+
+    state = sirens_mode.ensure(ctx)
+    assert len(state.docs) == 1
+    assert state.active is existing
+
+
 def test_an_open_that_failed_drops_the_path_off_the_recent_list():
     ctx = FakeCtx()
     sirens_mode.ensure(ctx)

@@ -42,6 +42,16 @@ def test_listing_is_by_stem_sorted_and_covers_every_format(svc, paldir):
     assert palettes.available(svc.config) == ["aaa", "mmm", "nnn", "zzz"]
 
 
+def test_available_excludes_a_directory_named_like_a_palette_file(svc, paldir):
+    # The 2026-09-18 audit, finding service-02: ``available`` filtered only
+    # on suffix, so a directory at ``foo.hex/`` listed as a ready palette and
+    # then ``_path`` refused it as "unknown palette" the moment a caller
+    # tried to load it.
+    (paldir / "foo.hex").mkdir()
+    (paldir / "real.hex").write_text("#000000\n")
+    assert palettes.available(svc.config) == ["real"]
+
+
 def test_load_returns_colours_and_a_content_digest(svc, paldir):
     (paldir / "duo.hex").write_text("#1a1c2c\n#f4f4f4\n")
     name, colors, digest = palettes.load(svc.config, "duo")

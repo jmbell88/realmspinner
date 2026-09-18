@@ -484,3 +484,41 @@ def test_skeleton_payload_matches_service_rig_edit_skeletons_shape(skel):
     assert payload["root"] == "hip"
     assert payload["bones"] == skel.draft
     assert payload["bones"] is not skel.draft  # a copy, not a live alias
+
+
+# --- Add-limb preset default (ui/panes/skeleton.py) -------------------------
+
+
+def test_limb_row_defaults_to_the_first_listed_preset_not_an_arbitrary_one(monkeypatch):
+    """The 2026-09-18 audit's second-run poser-03: the fallback for an
+    unknown/unset ``state.limb_preset`` was ``next(iter(keys))`` over a *set*
+    built from the preset rows -- hash order, not the order
+    ``limb_preset_rows`` (and the combo box drawn from it) actually lists
+    them in. Enough distinctly-named presets makes a set's iteration order
+    disagree with list order, so the pre-selected preset silently was not
+    the first row shown.
+    """
+    from types import SimpleNamespace
+
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import skeleton as poser_skeleton
+
+    presets = [
+        {"key": f"preset-{i}", "label": f"Preset {i}", "bone_count": i} for i in range(30)
+    ]
+    monkeypatch.setattr(poser_mode, "limb_preset_rows", lambda ctx: presets)
+    monkeypatch.setattr(poser_skeleton.widgets, "section", lambda *a, **k: None)
+    monkeypatch.setattr(poser_skeleton.widgets, "muted", lambda *a, **k: None)
+    monkeypatch.setattr(
+        poser_skeleton.widgets, "labeled_combo", lambda label, value, options: value
+    )
+    monkeypatch.setattr(
+        poser_skeleton.controls, "checkbox", lambda *a, **k: (False, False)
+    )
+    monkeypatch.setattr(poser_skeleton.widgets, "disabled_button", lambda *a, **k: False)
+    monkeypatch.setattr(poser_skeleton.widgets, "wrapped", lambda *a, **k: None)
+    monkeypatch.setattr(poser_skeleton, "_error_for", lambda *a, **k: "")
+
+    state = SimpleNamespace(limb_preset="not-a-real-key", limb_side="", limb_mirror=False)
+    poser_skeleton._limb_row(ctx=None, state=state, viewer=None, selected=None)
+    assert state.limb_preset == presets[0]["key"]

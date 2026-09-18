@@ -538,3 +538,48 @@ def test_reset_no_longer_draws_from_the_settings_column():
     source = inspect.getsource(settings_2d)
     assert "_reset_row" not in source
     assert "Reset..." not in source
+
+
+def test_a_second_undecided_group_does_not_hide_the_older_one():
+    """The 2026-09-18 audit, finding create-01, reproduced by
+    ``probes/create-workspace-01.py``: group A settled (both members
+    ``done``) but was never decided (kept or discarded), and group B was
+    submitted after it. ``candidates.pending`` only ever offers the newest
+    group, so nothing on screen ever pointed back at A -- and a third
+    submission would have orphaned it for good, contradicting
+    ``state.Filters.matches``'s own promise that nothing stays hidden without
+    a picker able to reach it. Refusing a *further* submission while any
+    group is still undecided means there is never a second group for the
+    first to disappear behind.
+    """
+    jobs = [
+        {"id": "a1", "candidate_group": "groupA", "candidate_index": 0,
+         "status": "done", "created_at": 100.0},
+        {"id": "a2", "candidate_group": "groupA", "candidate_index": 1,
+         "status": "done", "created_at": 100.0},
+        {"id": "b1", "candidate_group": "groupB", "candidate_index": 0,
+         "status": "queued", "created_at": 200.0},
+        {"id": "b2", "candidate_group": "groupB", "candidate_index": 1,
+         "status": "queued", "created_at": 200.0},
+    ]
+    ctx = SimpleNamespace(cache=SimpleNamespace(jobs=jobs))
+
+    problems = create_brief._with_pending_candidates_problem(ctx, [])
+
+    assert problems, "a further submission must be refused while group A is still undecided"
+    assert "pending" in str(problems[0]).lower()
+
+
+def test_no_pending_group_adds_no_problem():
+    ctx = SimpleNamespace(cache=SimpleNamespace(jobs=[]))
+
+    assert create_brief._with_pending_candidates_problem(ctx, []) == []
+
+
+def test_missing_cache_does_not_crash_the_bar():
+    """Some construction paths in this file's own ``_real_ctx``/``_state``
+    stubs carry no ``cache`` at all; the guard must degrade rather than
+    raise."""
+    ctx = SimpleNamespace()
+
+    assert create_brief._with_pending_candidates_problem(ctx, []) == []

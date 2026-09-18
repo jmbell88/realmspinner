@@ -168,6 +168,26 @@ def test_opening_an_already_open_path_focuses_rather_than_forking():
     assert plotter_mode.active(ctx) is first
 
 
+def test_ask_open_focuses_an_already_open_map_instead_of_forking_a_second_tab(tmp_path):
+    """The 2026-09-18 audit (second run, finding plotter-01): the
+    ``plotter-open`` arm (the file-picker dialog and the Tiled-import result)
+    adopted unconditionally while ``fileio.open_path`` already guards -- the
+    identical gap Clay closed in its own dialog arm on 2026-09-12 (clay-02).
+    Two tabs over one path race on save."""
+    ctx = FakeCtx()
+    path = tmp_path / "level.wmap"
+    path.write_bytes(b"")
+    existing = plotter_mode.adopt(ctx, _tab(ctx).doc, path=path)
+    ctx.submitted.clear()
+
+    doc = _tab(ctx, tileset=False).doc
+    plotter_mode.on_task_done(
+        ctx, _Done("plotter-open", {"doc": doc, "path": str(path), "title": "Map"})
+    )
+
+    assert plotter_mode.active(ctx) is existing
+
+
 def test_one_file_spelled_two_ways_is_one_tab(tmp_path):
     """On Windows ``Level.WMAP`` and ``level.wmap`` are the same file, and
     ``Path.__eq__`` says they are not -- so the recents list and a drop used to

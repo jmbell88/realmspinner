@@ -160,12 +160,22 @@ SEARCH_SYNONYMS: dict[str, str] = {
 
 
 def _row_matches(row: SearchRow, needle: str) -> bool:
-    """Whether ``needle`` (already stripped and lowered) names this row."""
+    """Whether ``needle`` (already stripped and lowered) names this row.
+
+    The synonym half used to require ``needle`` to be a literal substring of
+    the stored phrase, which only ever matched a needle that was a *prefix or
+    exact fragment* of the phrase in the same word order -- "bigger text"
+    found "UI scale" but "make text bigger", a phrasing just as plain, did
+    not, because it is not a substring of "bigger text" (the 2026-09-18
+    audit, shell-09). Word-set overlap fixes it: every word of the stored
+    phrase must appear somewhere in the needle, in any order.
+    """
     hay = f"{row.label} {row.tooltip}".lower()
     if needle in hay:
         return True
+    needle_words = set(needle.split())
     return any(
-        needle and needle in phrase and target.lower() in hay
+        needle and set(phrase.split()) <= needle_words and target.lower() in hay
         for phrase, target in SEARCH_SYNONYMS.items()
     )
 

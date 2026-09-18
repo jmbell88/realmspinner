@@ -497,7 +497,7 @@ def _along_lineage(ctx: Any, stage: str) -> str | None:
     for row in getattr(ctx.cache, "jobs", []) or []:
         if row.get("parent_id") != parent or row.get("stage") != "model":
             continue
-        if best is None or str(row.get("created_at") or "") >= str(best.get("created_at") or ""):
+        if best is None or _created_at(row) >= _created_at(best):
             best = row
     return None if best is None else str(best["id"])
 
@@ -533,8 +533,24 @@ def promotions(ctx: Any, job: Any) -> list[Any]:
         for row in getattr(getattr(ctx, "cache", None), "jobs", []) or []
         if row.get("parent_id") == job_id and row.get("stage") == "model"
     ]
-    rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+    rows.sort(key=_created_at, reverse=True)
     return rows
+
+
+def _created_at(row: dict[str, Any]) -> float:
+    """``row["created_at"]`` as the ``REAL`` column it is. -> 0.0 if unusable.
+
+    The 2026-09-18 audit, finding create-03: both callers above used to
+    compare ``str(created_at)`` lexically, which is fine for two timestamps of
+    equal digit count and wrong the moment one gains or loses a digit --
+    ``"9999999999.0" >= "10000000000.0"`` lexically, backwards numerically --
+    so ``_along_lineage``/``promotions`` could pick the lexically-greatest
+    child rather than the numerically-newest one.
+    """
+    try:
+        return float(row.get("created_at") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _current(ctx: Any) -> Any:

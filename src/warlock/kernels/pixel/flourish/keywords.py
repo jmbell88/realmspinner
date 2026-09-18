@@ -65,6 +65,17 @@ _COLOUR_SLOTS: dict[str, tuple[tuple[str, int], ...]] = {
     "sprite": (("tint", 0),),
 }
 
+#: Primitives this vocabulary knows by name but which have nothing a colour
+#: word can repaint. The 2026-09-18 audit (inker-06): ``smoke`` is the one
+#: coloured *primitive* (it draws in ``Param("color", ...)``, see
+#: ``prims/smoke.py``) with no entry in ``_COLOUR_SLOTS`` above, so a colour
+#: word aimed at it fell all the way through to "No words I know" -- the same
+#: message an actually-unrecognised word gets. Listing it here instead of
+#: silently adding a slot keeps the wording honest: this app does not treat
+#: smoke's tint as a hot/cool pair worth exposing to the keyword mapper, and
+#: the difference from a plain unknown word is that this one names smoke.
+_NO_COLOUR_SLOT = {"smoke"}
+
 #: Size-ish parameters a "bigger"/"smaller" word scales.
 _SIZE_PARAMS = {"radius", "width", "height", "size", "spawn_radius", "thickness", "length"}
 #: Speed-ish parameters.
@@ -133,17 +144,28 @@ def apply(recipe: Recipe, text: str) -> tuple[Recipe, list[str]]:
         hot, cool = COLOURS[word]
         target = _kind_after(words, i)
         touched = 0
+        no_colour = set()
         for j, layer in enumerate(layers):
             if target is not None and layer.kind != target:
                 continue
             slots = _COLOUR_SLOTS.get(layer.kind)
             if not slots:
+                # The 2026-09-18 audit (inker-06): ``smoke`` used to fall
+                # through here identically to a genuinely unrecognised
+                # primitive, and with no other note produced this word's
+                # whole clause landed on the generic "No words I know" at the
+                # bottom of this function -- even though the word itself
+                # ("green") and the primitive ("smoke") were both known.
+                if layer.kind in _NO_COLOUR_SLOT:
+                    no_colour.add(layer.kind)
                 continue
             for name, role in slots:
                 layers[j] = layers[j].with_param(name, hot if role == 0 else cool)
             touched += 1
         if touched:
             notes.append(f"{word}: recoloured {touched} layer(s)")
+        for kind in sorted(no_colour):
+            notes.append(f"{kind} has no colour to change")
 
     # "more sparks" / "no smoke": counts and visibility per kind.
     for i, word in enumerate(words):

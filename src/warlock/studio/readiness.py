@@ -205,7 +205,15 @@ def _size_row(report: dict[str, Any], params: dict[str, Any], prompt: Any) -> Ro
             f"no target size was requested; a {noun} is usually {metres:g} m",
         )
 
-    target = float(target)
+    try:
+        target = float(target)
+    except (TypeError, ValueError):
+        # The 2026-09-18 audit, finding create-02: a non-numeric ``size_m``
+        # in a job row (a hand-edited job, or a future writer's bug) raised
+        # straight out of this draw, which ``panes/inspector.py`` calls on
+        # the frame thread on every Export-stage frame -- a session-ending
+        # ``ValueError`` in a loop that runs sixty times a second.
+        return Row("Size", "attention", "size target could not be read")
     achieved = report.get("achieved_size_m")
     if not isinstance(achieved, (int, float)) or achieved <= 0:
         return Row("Size", "ok", f"asked for {target:.3f} m; achieved size not measured")

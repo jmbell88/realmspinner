@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,24 @@ def _cost(texture: Any) -> int:
         return int(size[0]) * int(size[1]) * int(getattr(texture, "components", 4) or 4)
     except (TypeError, ValueError, IndexError):
         return 0
+
+
+def _decode(path: Path, max_side: int) -> tuple[tuple[int, int], bytes] | None:
+    """Decode ``path`` to RGBA bytes at ``max_side``, with no GL call.
+
+    Safe to run off the frame thread -- unlike ``ThumbnailCache._load``, which
+    also mints a ``ctx.texture()`` and so must stay on it.
+    """
+    from PIL import Image
+
+    try:
+        with Image.open(path) as im:
+            im = im.convert("RGBA")
+            im.thumbnail((max_side, max_side))
+            return im.size, im.tobytes()
+    except Exception:
+        log.debug("could not decode %s", path, exc_info=True)
+        return None
 
 
 class ThumbnailCache:
@@ -89,6 +108,21 @@ class ThumbnailCache:
         # Frame-scoped stat() memo (B17): several panes ask for one thumbnail
         # in one frame, and the file cannot change mid-frame meaningfully.
         self._stats: dict[str, float | None] = {}
+        # Decode-only futures for ``background=True`` callers (the manual --
+        # see ``_draw_image``). The 2026-09-18 audit measured a 1600 px
+        # screenshot's PIL decode at 12-21ms on this machine, which is most
+        # of a 60fps frame budget on its own; a small pool decodes off the
+        # frame thread and ``begin_frame`` uploads whatever finished, which is
+        # the only GL call and so the only part that must stay on-thread.
+        self._executor: ThreadPoolExecutor | None = None
+        self._inflight: dict[tuple[str, float, bool, int], Future] = {}
+
+    def _pool(self) -> ThreadPoolExecutor:
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix="warlock-thumb-decode"
+            )
+        return self._executor
 
     def begin_frame(self) -> None:
         """Start a frame, releasing whatever last frame retired.
@@ -101,6 +135,38 @@ class ThumbnailCache:
         retired, self._retired = self._retired, []
         for texture in retired:
             self._release_one(texture)
+        self._adopt_finished_decodes()
+
+    def _adopt_finished_decodes(self) -> None:
+        """Upload whatever a background decode finished since last frame.
+
+        The decode ran off-thread; the upload (``ctx.texture``) is a GL call
+        and must happen here, on the frame thread that owns the context.
+        """
+        done = [key for key, future in self._inflight.items() if future.done()]
+        for key in done:
+            future = self._inflight.pop(key)
+            job_id, mtime, nearest, _max_side = key
+            try:
+                decoded = future.result()
+            except Exception:
+                log.debug("background decode failed for %s", job_id, exc_info=True)
+                decoded = None
+            if decoded is None:
+                self._missing.add(key)
+                self._missing_by_key.setdefault(job_id, set()).add(key)
+                continue
+            size, data = decoded
+            try:
+                texture = self.ctx.texture(size, 4, data)
+            except Exception:
+                log.debug("could not upload decoded image %s", job_id, exc_info=True)
+                continue
+            mode = self.ctx.NEAREST if nearest else self.ctx.LINEAR
+            texture.filter = (mode, mode)
+            texture.repeat_x = texture.repeat_y = False
+            self._supersede(job_id, mtime)
+            self._insert(key, texture)
 
     def get(
         self,
@@ -109,12 +175,19 @@ class ThumbnailCache:
         *,
         nearest: bool = False,
         max_side: int = MAX_SIDE,
+        background: bool = False,
     ) -> Any | None:
         """-> a texture for the job's thumb.png, or None if there isn't one.
 
-        Decoding happens on the frame thread on purpose: it is one small PNG,
-        it happens once per thumbnail for the life of the process, and the
-        alternative is a placeholder that flickers for a frame.
+        Decoding a 256 px thumbnail happens on the frame thread on purpose:
+        it is one small PNG, it happens once per thumbnail for the life of
+        the process, and the alternative is a placeholder that flickers for
+        a frame. ``background=True`` (the manual's 1600 px screenshots --
+        see ``manual/render.py``'s ``_draw_image``) instead decodes off the
+        frame thread and returns None until the decode lands, degrading to
+        the caller's own placeholder (alt text) in the meantime; the 2026-
+        09-18 audit measured that decode at 12-21ms, most of a 60fps frame
+        budget, which is not "one small PNG" any more.
 
         ``nearest`` samples the texture unfiltered -- what keeps a 32 px pixel
         artifact crisp when drawn at an integer multiple. It is part of the key
@@ -147,6 +220,10 @@ class ThumbnailCache:
             self._touched[key] = self._frame
             return entry
         if key in self._missing:
+            return None
+        if background:
+            if key not in self._inflight:
+                self._inflight[key] = self._pool().submit(_decode, path, max_side)
             return None
         texture = self._load(path, nearest, max_side)
         if texture is None:
@@ -297,6 +374,10 @@ class ThumbnailCache:
         self._by_key.clear()
         self._missing_by_key.clear()
         self._stats.clear()
+        self._inflight.clear()
+        if self._executor is not None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
         # The byte count with them. It is the one field ``release`` left
         # standing, so a cache used again after a release started at the old
         # total with nothing in it and evicted on its first insert -- and went

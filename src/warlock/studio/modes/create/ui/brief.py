@@ -165,6 +165,7 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     # offering what the thing behind it will not do.
     hide_count = form.get("output") in ("sheet", "character")
     problems = create_recipe.problems_for(ctx, form)
+    problems = _with_pending_candidates_problem(ctx, problems)
     busy = ctx.busy("submit")
 
     items = _rail_items_for_measurement()
@@ -187,6 +188,29 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
               show_count=show_count)
     imgui.same_line()
     _reset(ctx, compact=reset_compact)
+
+
+def _with_pending_candidates_problem(ctx: Any, problems: list[Any]) -> list[Any]:
+    """Add a refusal while an undecided candidate group exists. -> ``problems``.
+
+    The 2026-09-18 audit, finding create-01: a second candidate-producing
+    brief used to hide the *older* undecided group with nothing on screen --
+    ``candidates.pending`` only ever offers the newest group, and
+    ``state.Filters.matches`` hides every ``candidate_group`` row from the
+    library regardless of age, so a third submission before the second is
+    decided orphaned the first forever. Refusing a new submission while any
+    group -- decided-looking or not -- is still pending means there is never
+    a second group to hide the first behind.
+    """
+    from .... import candidates as candidates_mod
+
+    cache = getattr(ctx, "cache", None)
+    jobs = getattr(cache, "jobs", None) if cache is not None else None
+    if jobs is None or candidates_mod.pending(jobs) is None:
+        return problems
+    from ....problems import Problem
+
+    return [*problems, Problem("Decide the pending candidates first.")]
 
 
 def _rail_items_for_measurement() -> list[tuple[str, str, str, str | None]]:
