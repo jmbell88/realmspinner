@@ -86,7 +86,7 @@ def frames():
 def _no_device(monkeypatch):
     """No pane in this file may reach the mixer. CI has no card and a box that
     has one is not something a drawing test should depend on."""
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: False)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -213,7 +213,7 @@ def test_the_bar_fits_the_height_it_declares(frames, tmp_path, duration_custom):
 
 
 def test_a_playing_take_draws_as_stop(frames, tmp_path, monkeypatch):
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "playing", lambda: True)
     monkeypatch.setattr(sirens_audio, "tag", lambda: "a")

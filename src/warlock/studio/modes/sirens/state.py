@@ -44,7 +44,7 @@ from typing import Any
 
 import numpy as np
 
-from . import docmodes
+from ... import docmodes
 
 #: Bigger than any order index, pattern uid or row, so a bisect key of
 #: ``(offset, _LAST, _LAST, _LAST)`` lands past every mark that shares the
@@ -446,7 +446,7 @@ class SirensState:
             # that silenced A. The one import of a device in this module, and
             # deliberately local: everything else here is answerable with no
             # sound card, which is what lets the tests ask it.
-            from . import sirens_audio
+            from . import audio as sirens_audio
 
             sirens_audio.stop()
             self.play_request += 1

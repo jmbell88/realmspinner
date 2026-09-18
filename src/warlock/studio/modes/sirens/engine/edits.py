@@ -27,7 +27,7 @@ from typing import Any
 
 import numpy as np
 
-from ...core.undo import Edit
+from .....core.undo import Edit
 
 
 def _copy(array: np.ndarray) -> np.ndarray:

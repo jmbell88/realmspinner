@@ -55,7 +55,7 @@ from typing import Any
 
 import numpy as np
 
-from ...core.undo import UndoStack
+from .....core.undo import UndoStack
 from . import edits as E
 from . import instruments as inst
 from . import notes

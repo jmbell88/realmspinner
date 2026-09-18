@@ -37,14 +37,18 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from . import dialogs, docmodes, journal, sirens_audio, sirens_io, sirens_state
+from ... import dialogs, docmodes, journal
+from ...state import set_mode
+from . import audio as sirens_audio
+from . import fileio as sirens_io
+from . import state as sirens_state
 
 # ``ensure`` and ``active`` live in :mod:`.sirens_state` -- they touch nothing
 # but ``ctx.state.sirens`` -- and the file layer lives in :mod:`.sirens_io`.
 # Both are re-exported here, as **plain imports rather than wrappers**, because
 # every pane, every key binding and every test says ``sirens_mode.save(ctx)``:
 # a wrapper would be a second object where the callers reach for one.
-from .sirens_io import (  # noqa: F401
+from .fileio import (  # noqa: F401
     EXPORT_PREFIX,
     SAMPLE_FILTER,
     SAMPLE_PREFIX,
@@ -67,14 +71,13 @@ from .sirens_io import (  # noqa: F401
     save_as,
     save_to,
 )
-from .sirens_state import (  # noqa: F401
+from .state import (  # noqa: F401
     COLUMN_DIGITS,
     SirensState,
     SongTab,
     active,
     ensure,
 )
-from .state import set_mode
 
 log = logging.getLogger(__name__)
 
@@ -115,7 +118,7 @@ def new_document(ctx: Any) -> SongTab:
     ``document.new_song`` rather than a bare ``SongDoc()``: an empty order list
     is a document where Space does nothing and there is no way to find out why.
     """
-    from .sirens import document
+    from .engine import document
 
     return adopt(ctx, document.new_song(), title="Untitled")
 
@@ -199,7 +202,8 @@ def confirm_remove_pattern(ctx: Any, tab: SongTab, uid: int, used: int) -> None:
     warn about.
     """
     def go() -> None:
-        from . import sirens_edit, sirens_play
+        from . import edit as sirens_edit
+        from . import play as sirens_play
 
         if tab.doc.remove_pattern(uid):
             sirens_play.request_rerender(ctx, tab)
@@ -253,7 +257,7 @@ def toggle_mute(ctx: Any, uid: int, tab: SongTab | None = None) -> bool:
     the buffer Space plays is the render, and a mute that only changed a button
     would be a control that does nothing until the next edit.
     """
-    from . import sirens_play
+    from . import play as sirens_play
 
     state = ensure(ctx)
     tab = tab or state.active
@@ -273,7 +277,7 @@ def toggle_mute(ctx: Any, uid: int, tab: SongTab | None = None) -> bool:
 def toggle_solo(ctx: Any, uid: int, tab: SongTab | None = None) -> int:
     """Solo one channel, or clear the solo when it is already this one. -> the
     soloed uid, or ``-1``."""
-    from . import sirens_play
+    from . import play as sirens_play
 
     state = ensure(ctx)
     tab = tab or state.active
@@ -330,7 +334,7 @@ def _still_wanted(state: Any, done: Any) -> bool:
 
 
 def on_task_done(ctx: Any, done: Any) -> None:
-    from . import sirens_play
+    from . import play as sirens_play
 
     state = ensure(ctx)
     key, result = done.key, done.result
@@ -393,7 +397,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
     if name == "sirens-sample":
         if isinstance(result, dict):
-            from . import sirens_edit
+            from . import edit as sirens_edit
 
             # The mode switch is the *last* thing, and only on a key: a sample
             # the document refused (a full table, a name it would not take) has
@@ -433,7 +437,7 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     """A failed save must not leave the document locked, and a failed *render*
     must clear ``rendering`` and record why -- a dead Play button with no
     sentence beside it is the worst outcome of a song that would not render."""
-    from . import sirens_play
+    from . import play as sirens_play
 
     if done.key.startswith(sirens_io.OPEN_PREFIX):
         # Before the tab lookup, because an open that failed has no tab: what
@@ -484,7 +488,7 @@ def guard(ctx: Any, verb: str, proceed: Any) -> bool:
 
 def close_tab(ctx: Any, uid: str) -> None:
     """``docmodes.close_tab``; what is Sirens' is the release."""
-    from . import sirens_play
+    from . import play as sirens_play
 
     state = ensure(ctx)
 
@@ -516,13 +520,13 @@ def _journal_slots(ctx: Any) -> list[Any]:
 
 
 def _journal_encode(tab: Any) -> bytes:
-    from .sirens import wsng
+    from .engine import wsng
 
     return wsng.wsng_bytes(tab.doc)
 
 
 def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
-    from .sirens import wsng
+    from .engine import wsng
 
     ensure(ctx)
     try:
@@ -570,70 +574,70 @@ JOURNAL = journal.register(
 # **A name appears exactly once**, so the table is the record of where each
 # thing went rather than a second place to keep in step.
 _MOVED: dict[str, str] = {
-    "AUDITION_PREFIX": "sirens_play",
-    "ENVELOPE_FIELDS": "sirens_edit",
-    "PATTERN_PREFIX": "sirens_play",
-    "PIANO_KEYS": "sirens_keys",
-    "PREVIEW_PREFIX": "sirens_play",
-    "PREVIEW_ROWS": "sirens_play",
-    "RENDER_PREFIX": "sirens_play",
-    "_MUTATING_CTRL": "sirens_keys",
-    "_caret_kind": "sirens_play",
+    "AUDITION_PREFIX": "play",
+    "ENVELOPE_FIELDS": "edit",
+    "PATTERN_PREFIX": "play",
+    "PIANO_KEYS": "keys",
+    "PREVIEW_PREFIX": "play",
+    "PREVIEW_ROWS": "play",
+    "RENDER_PREFIX": "play",
+    "_MUTATING_CTRL": "keys",
+    "_caret_kind": "play",
     # Added by the 2026-09-13 audit, finding sirens-02: both names were
     # reachable from their own modules but missing from this table, breaking
     # the promise that every split-out name stays reachable as
     # ``sirens_mode.<name>``. The ghost test that should have caught it
     # checked only that every table entry still resolves, not that every
     # module-level name in the split modules is in the table.
-    "_caret_offset": "sirens_play",
-    "_column_ceiling": "sirens_edit",
-    "_ctrl_key": "sirens_keys",
-    "step_history": "sirens_edit",
-    "_playable": "sirens_play",
-    "_touch": "sirens_edit",
-    "_write_at_caret": "sirens_edit",
-    "adopt_sample": "sirens_edit",
-    "audition": "sirens_play",
-    "begin_envelope_drag": "sirens_edit",
-    "clamp_caret": "sirens_edit",
-    "clear_cell": "sirens_edit",
-    "clear_selection": "sirens_edit",
-    "copy_selection": "sirens_edit",
-    "cut_selection": "sirens_edit",
-    "cycle_instrument": "sirens_edit",
-    "end_envelope_drag": "sirens_edit",
-    "follow_playhead": "sirens_play",
-    "handle_key": "sirens_keys",
-    "interpolate_selection": "sirens_edit",
-    "jump_row": "sirens_edit",
-    "move_caret": "sirens_edit",
-    "paste": "sirens_edit",
-    "_piano_elsewhere": "sirens_keys",
-    "play": "sirens_play",
-    "play_from_caret": "sirens_play",
-    "play_pattern": "sirens_play",
-    "playhead_mark": "sirens_play",
-    "playhead_row": "sirens_play",
-    "preview_note": "sirens_play",
-    "pump": "sirens_play",
-    "redo": "sirens_edit",
-    "release_all": "sirens_keys",
-    "remove_sample": "sirens_edit",
-    "request_render": "sirens_play",
-    "request_rerender": "sirens_play",
-    "set_caret": "sirens_edit",
-    "set_sequence": "sirens_edit",
-    "shift_rows": "sirens_edit",
-    "stop": "sirens_play",
-    "synth_rate": "sirens_play",
-    "toggle_play": "sirens_play",
-    "transpose": "sirens_edit",
-    "undo": "sirens_edit",
-    "update_channel": "sirens_edit",
-    "write_cell": "sirens_edit",
-    "write_effect": "sirens_edit",
-    "write_hex": "sirens_edit",
-    "write_note": "sirens_edit",
+    "_caret_offset": "play",
+    "_column_ceiling": "edit",
+    "_ctrl_key": "keys",
+    "step_history": "edit",
+    "_playable": "play",
+    "_touch": "edit",
+    "_write_at_caret": "edit",
+    "adopt_sample": "edit",
+    "audition": "play",
+    "begin_envelope_drag": "edit",
+    "clamp_caret": "edit",
+    "clear_cell": "edit",
+    "clear_selection": "edit",
+    "copy_selection": "edit",
+    "cut_selection": "edit",
+    "cycle_instrument": "edit",
+    "end_envelope_drag": "edit",
+    "follow_playhead": "play",
+    "handle_key": "keys",
+    "interpolate_selection": "edit",
+    "jump_row": "edit",
+    "move_caret": "edit",
+    "paste": "edit",
+    "_piano_elsewhere": "keys",
+    "play": "play",
+    "play_from_caret": "play",
+    "play_pattern": "play",
+    "playhead_mark": "play",
+    "playhead_row": "play",
+    "preview_note": "play",
+    "pump": "play",
+    "redo": "edit",
+    "release_all": "keys",
+    "remove_sample": "edit",
+    "request_render": "play",
+    "request_rerender": "play",
+    "set_caret": "edit",
+    "set_sequence": "edit",
+    "shift_rows": "edit",
+    "stop": "play",
+    "synth_rate": "play",
+    "toggle_play": "play",
+    "transpose": "edit",
+    "undo": "edit",
+    "update_channel": "edit",
+    "write_cell": "edit",
+    "write_effect": "edit",
+    "write_hex": "edit",
+    "write_note": "edit",
 }
 
 

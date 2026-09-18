@@ -18,8 +18,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import docmodes, sirens_mode, sirens_play, sirens_state
-from .sirens_state import SirensState, SongTab, ensure  # noqa: F401
+from ... import docmodes
+from . import mode as sirens_mode
+from . import play as sirens_play
+from . import state as sirens_state
+from .state import SirensState, SongTab, ensure  # noqa: F401
 
 
 def release_all(ctx: Any) -> None:
@@ -67,7 +70,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
     afterwards either way, as it does for every workspace mode."""
     import pygame
 
-    from .sirens import document as D
+    from .engine import document as D
 
     if event.type != pygame.KEYDOWN:
         return False
@@ -180,7 +183,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
             sirens_mode.write_note(ctx, PIANO_KEYS[name])
             return True
         if event.key == pygame.K_BACKQUOTE:
-            from .sirens import notes
+            from .engine import notes
 
             # Backtick cuts (``===``), Shift+backtick releases (``~~~``). They
             # are one physical key because they are one gesture with two

@@ -46,10 +46,10 @@ from ..modes.inker.ui.workspace import InkerWorkspace
 from ..modes.muse.ui.workspace import MuseWorkspace
 from ..modes.poser.ui.viewport import PoserViewport
 from ..modes.review.ui.workspace import ReviewPanes
+from ..modes.sirens.ui.workspace import SirensWorkspace
 from ..modes.troupe.ui.workspace import TroupeWorkspace
 from ..packwright_workspace import PackwrightWorkspace
 from ..plotter_workspace import PlotterWorkspace
-from ..sirens_workspace import SirensWorkspace
 from .events import EventsMixin
 from .frame import FrameMixin
 from .quit import QuitMixin

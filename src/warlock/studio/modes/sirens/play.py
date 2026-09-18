@@ -19,8 +19,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import sirens_audio, sirens_mode
-from .sirens_state import SongTab, Sounding, active, ensure  # noqa: F401
+from . import audio as sirens_audio
+from . import mode as sirens_mode
+from .state import SongTab, Sounding, active, ensure  # noqa: F401
 
 # --- rendering ----------------------------------------------------------------
 
@@ -70,7 +71,7 @@ def request_render(ctx: Any, tab: SongTab | None = None) -> None:
     if ctx.busy(f"{RENDER_PREFIX}{uid}"):
         return
 
-    from .sirens import wsng
+    from .engine import wsng
 
     # The snapshot; see the module docstring. Taken on the frame thread, which
     # is where the document is safe to read.
@@ -82,9 +83,9 @@ def request_render(ctx: Any, tab: SongTab | None = None) -> None:
     whole = len(keep) == len(tab.doc.channels)
 
     def run() -> dict[str, Any]:
-        from ..kernels.audio import wavout
-        from ..service.errors import invalid_from
-        from .sirens import synth
+        from ....kernels.audio import wavout
+        from ....service.errors import invalid_from
+        from .engine import synth
 
         try:
             doc = wsng.read_wsng(data)
@@ -164,15 +165,15 @@ def audition(ctx: Any, tab: SongTab | None, uid: int) -> bool:
     if ctx.busy(f"{AUDITION_PREFIX}{tab.uid}"):
         return False
 
-    from .sirens import wsng
+    from .engine import wsng
 
     data = wsng.wsng_bytes(tab.doc)
     effect = int(uid)
 
     def run() -> dict[str, Any]:
-        from ..kernels.audio import wavout
-        from ..service.errors import invalid_from
-        from .sirens import synth
+        from ....kernels.audio import wavout
+        from ....service.errors import invalid_from
+        from .engine import synth
 
         try:
             doc = wsng.read_wsng(data)
@@ -229,14 +230,14 @@ def preview_note(ctx: Any, note: int) -> bool:
     if ctx.busy(f"{PREVIEW_PREFIX}{tab.uid}"):
         return False
 
-    from .sirens import wsng
+    from .engine import wsng
 
     data = wsng.wsng_bytes(tab.doc)
     uid, value, kind = int(state.instrument), int(note), _caret_kind(ctx, tab)
 
     def run() -> dict[str, Any]:
-        from ..kernels.audio import wavout
-        from .sirens import synth
+        from ....kernels.audio import wavout
+        from .engine import synth
 
         doc = wsng.read_wsng(data)
         samples = synth.render_note(
@@ -388,15 +389,15 @@ def play_pattern(ctx: Any, tab: SongTab | None = None) -> bool:
     # finding sirens-01).
     if ctx.busy(f"{PATTERN_PREFIX}{tab.uid}"):
         return False
-    from .sirens import wsng
+    from .engine import wsng
 
     data = wsng.wsng_bytes(tab.doc)
     uid = int(state.pattern)
 
     def run() -> dict[str, Any]:
-        from ..kernels.audio import wavout
-        from ..service.errors import invalid_from
-        from .sirens import synth
+        from ....kernels.audio import wavout
+        from ....service.errors import invalid_from
+        from .engine import synth
 
         try:
             doc = wsng.read_wsng(data)
@@ -505,7 +506,7 @@ def playhead_mark(ctx: Any, tab: SongTab | None = None) -> tuple[int, int, int] 
 
 def synth_rate() -> int:
     """The render's sample rate. A function so the import stays lazy."""
-    from .sirens import synth
+    from .engine import synth
 
     return int(synth.SAMPLE_RATE)
 

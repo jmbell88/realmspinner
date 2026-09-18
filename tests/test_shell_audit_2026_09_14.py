@@ -232,7 +232,10 @@ def _bounded_zip_callers() -> list[str]:
         if path.name == "zipguard.py":
             continue
         if pattern.search(path.read_text(encoding="utf-8")):
-            callers.append(f"{path.parent.name}/{path.name}")
+            # A mode's headless package is ``modes/<mode>/engine/`` since P6;
+            # "which engine" is the mode's name, not the word "engine".
+            owner = path.parent.parent if path.parent.name == "engine" else path.parent
+            callers.append(f"{owner.name}/{path.name}")
     return callers
 
 

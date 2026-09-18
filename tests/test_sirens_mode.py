@@ -20,9 +20,10 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import sirens_io, sirens_mode
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import notes, wsng
+from warlock.studio.modes.sirens import fileio as sirens_io
+from warlock.studio.modes.sirens import mode as sirens_mode
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import notes, wsng
 
 
 class FakeCtx:
@@ -138,7 +139,7 @@ def _no_device(monkeypatch):
     the device exists is ``sirens_audio``'s question and CI's answer to it is
     not something these tests should depend on either way.
     """
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: False)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -242,7 +243,7 @@ def test_render_prefix_is_a_shared_constant_not_a_repeated_literal():
     import ast
     import inspect
 
-    from warlock.studio import sirens_play
+    from warlock.studio.modes.sirens import play as sirens_play
 
     assert sirens_mode.RENDER_PREFIX == "sirens-render:" == sirens_play.RENDER_PREFIX
 
@@ -279,7 +280,7 @@ def test_a_render_already_in_flight_is_not_re_serialised_every_frame(monkeypatch
     frame thread. ``submit`` refuses a key already in flight and the dirty flag
     deliberately stays armed when it does -- so the whole song was serialised
     and thrown away once per frame for as long as the render took."""
-    from warlock.studio.sirens import wsng as wsng_mod
+    from warlock.studio.modes.sirens.engine import wsng as wsng_mod
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -489,7 +490,7 @@ def test_the_panic_key_withdraws_a_pattern_audition_still_rendering(monkeypatch)
     """
     import pygame
 
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -528,8 +529,8 @@ def test_leaving_sirens_mode_stops_a_sounding_song(monkeypatch):
     checks for the panic key's own copy of this call.
     """
     from warlock.studio import state as state_mod
+    from warlock.studio.modes.sirens.state import Sounding
     from warlock.studio.shell import events as events_mod
-    from warlock.studio.sirens_state import Sounding
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -557,8 +558,8 @@ def test_arriving_in_or_staying_within_sirens_does_not_stop_anything(monkeypatch
     between two non-Sirens modes, or the same-mode press ``set_mode`` already
     refuses, must not touch a song that was never Sirens' to begin with."""
     from warlock.studio import state as state_mod
+    from warlock.studio.modes.sirens.state import Sounding
     from warlock.studio.shell import events as events_mod
-    from warlock.studio.sirens_state import Sounding
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -805,7 +806,7 @@ def test_a_sample_the_document_refused_does_not_move_the_window(tmp_path, monkey
     switched: list[str] = []
     monkeypatch.setattr(sirens_mode, "set_mode", lambda state, mode: switched.append(mode))
 
-    from warlock.studio import sirens_edit
+    from warlock.studio.modes.sirens import edit as sirens_edit
 
     monkeypatch.setattr(sirens_edit, "adopt_sample", lambda c, t, result: "")
     sirens_mode.import_sample(ctx, tab, _wav(tmp_path / "track.wav"), switch=True)
@@ -839,7 +840,7 @@ def test_an_imported_sample_is_resampled_to_the_render_rate(tmp_path):
     """``read_wav`` is the whole conversion and the only one: the synth advances
     a sample's phase in output samples, so a 22 kHz source would otherwise play
     an octave out."""
-    from warlock.studio.sirens import synth
+    from warlock.studio.modes.sirens.engine import synth
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -851,8 +852,8 @@ def test_an_imported_sample_is_resampled_to_the_render_rate(tmp_path):
 def test_a_sample_instrument_makes_a_sound_once_it_has_one(tmp_path):
     import numpy as np
 
-    from warlock.studio.sirens import document as D
-    from warlock.studio.sirens import synth
+    from warlock.studio.modes.sirens.engine import document as D
+    from warlock.studio.modes.sirens.engine import synth
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1027,7 +1028,7 @@ def test_the_caret_label_is_empty_rather_than_wrong_with_nothing_open():
 @pytest.fixture
 def _device(monkeypatch):
     """A mixer that answers, and remembers what it was handed."""
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     played: list[Any] = []
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
@@ -1038,7 +1039,7 @@ def _device(monkeypatch):
 def test_auditioning_an_effect_renders_that_effect_rather_than_the_song(_device):
     """The one thing an Audition button must not do is play the music."""
     from warlock.kernels.audio import wavout
-    from warlock.studio.sirens import synth
+    from warlock.studio.modes.sirens.engine import synth
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1144,8 +1145,8 @@ def _sounding(monkeypatch, tab: Any, seconds: float, *, anchor: int = 0) -> None
     faked the device would be asking about audio that, as far as the tab is
     concerned, was never started.
     """
-    from warlock.studio import sirens_audio
-    from warlock.studio.sirens_state import Sounding
+    from warlock.studio.modes.sirens import audio as sirens_audio
+    from warlock.studio.modes.sirens.state import Sounding
 
     tab.sounding = Sounding(
         marks=tab.marks, anchor=anchor, generation=tab.render_generation
@@ -1199,7 +1200,7 @@ def test_the_playhead_is_the_row_the_renderer_was_on(monkeypatch):
 def test_a_sound_effect_on_the_channel_is_not_the_songs_playhead(monkeypatch):
     """One channel: an audition replaces the song on it, and bisecting the
     song's map against an effect's clock walks rows nothing is playing."""
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     ctx = FakeCtx()
     tab, _first, _second = _two_pattern_song(ctx)
@@ -1305,7 +1306,7 @@ def test_moving_an_entry_carries_the_loop_point_with_it():
     """The loop is an index into the order list, so moving entries under it
     repoints it at whatever landed there -- a song looping from somewhere the
     user never chose."""
-    from warlock.studio.panes.sirens_orders import moved_loop
+    from warlock.studio.modes.sirens.ui.panes.orders import moved_loop
 
     # The moved entry takes its own loop with it.
     assert moved_loop(2, 2, 0) == 0
@@ -1387,7 +1388,7 @@ def test_the_header_can_tell_muted_from_merely_unheard():
 def test_a_muted_render_keeps_the_row_map_the_full_one_has():
     """The effect column survives a mute, so the mix stays sample-aligned and
     the playhead does not move when a channel is silenced."""
-    from warlock.studio.sirens import synth
+    from warlock.studio.modes.sirens.engine import synth
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1412,7 +1413,7 @@ def test_a_mute_does_not_touch_the_document():
 
 
 def _audible(monkeypatch):
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     played: list[tuple[Any, dict[str, Any]]] = []
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
@@ -1447,7 +1448,7 @@ def test_the_playhead_is_still_the_songs_row_after_playing_from_the_caret(monkey
     sirens_mode.play_from_caret(ctx, tab)
     assert played
 
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "tag", lambda: tab.uid)
     monkeypatch.setattr(sirens_audio, "position", lambda: 0.0)
@@ -1564,7 +1565,7 @@ def test_the_playhead_bisects_the_render_the_mixer_is_actually_playing(monkeypat
     assert sirens_mode.play(ctx, tab) is True
     assert played
 
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "tag", lambda: tab.uid)
     monkeypatch.setattr(sirens_audio, "position", lambda: 0.0)
@@ -1647,7 +1648,7 @@ def test_from_the_caret_with_loop_playback_repeats_the_song_not_its_tail(monkeyp
 
     # And the rotation is unwound: at the instant it starts, the playhead is on
     # the row the caret was on, not on row 0 of the song.
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "tag", lambda: tab.uid)
     monkeypatch.setattr(sirens_audio, "position", lambda: 0.0)
@@ -1687,7 +1688,7 @@ def test_switching_tabs_stops_the_song_that_was_playing(monkeypatch):
     buffer is still on the channel.
     """
     stopped: list[bool] = []
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "stop", lambda: stopped.append(True))
     ctx = FakeCtx()
@@ -1708,7 +1709,7 @@ def test_space_starts_the_song_while_a_pattern_audition_is_still_sounding(monkey
     two-presses-to-play bug. Against the unfixed code, ``play()`` is never
     called and ``stop()`` is.
     """
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     stopped: list[bool] = []
     played: list[bool] = []

@@ -218,8 +218,8 @@ def test_the_engine_never_imports_a_sibling_mode():
         "warlock.studio.inker",
         "warlock.studio.plotter",
         "warlock.studio.packwright",
-        "warlock.studio.sirens",
-        "warlock.studio.sirens_mode",
+        "warlock.studio.modes.sirens.engine",
+        "warlock.studio.modes.sirens.mode",
         "warlock.studio.modes.muse.mode",
         "warlock.studio.modes.poser.mode",
     )

@@ -74,7 +74,7 @@ def test_a_generate_produces_a_wav_the_rest_of_the_app_can_read(client, tmp_path
     )
     assert got == out and out.is_file()
     rate, channels, frames = _wav(out)
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     assert rate == sirens_audio.RATE
     assert channels == sirens_audio.CHANNELS

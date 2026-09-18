@@ -145,7 +145,7 @@ def _song(*patterns):
     note values. Real ``Pattern`` cells are ``(rows, channels, COLUMNS)``."""
     import numpy as np
 
-    from warlock.studio.sirens import document as D
+    from warlock.studio.modes.sirens.engine import document as D
 
     made = []
     for rows in patterns:
@@ -166,7 +166,7 @@ def test_a_note_off_is_not_a_note():
     """``NOTE_OFF`` and ``NOTE_RELEASE`` are sentinels above the pitch range, so
     the count is a range test rather than ``!= EMPTY``. A reader who cut a note
     has not written one."""
-    from warlock.studio.sirens import notes
+    from warlock.studio.modes.sirens.engine import notes
 
     sirens = _song([[notes.NOTE_OFF], [notes.NOTE_RELEASE], [notes.EMPTY]])
     assert tour_pane.satisfied(_ctx(sirens=sirens), "notes_at_least", "1") is False

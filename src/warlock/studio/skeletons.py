@@ -428,14 +428,12 @@ def sirens(ctx: Any) -> dict[str, Column]:
     the reason ``layout_skeleton`` states once.
     """
 
-    from .panes import (
-        sirens_bridge,
-        sirens_effects,
-        sirens_envelopes,
-        sirens_instruments,
-        sirens_orders,
-        sirens_transport,
-    )
+    from .modes.sirens.ui.panes import bridge as sirens_bridge
+    from .modes.sirens.ui.panes import effects as sirens_effects
+    from .modes.sirens.ui.panes import envelopes as sirens_envelopes
+    from .modes.sirens.ui.panes import instruments as sirens_instruments
+    from .modes.sirens.ui.panes import orders as sirens_orders
+    from .modes.sirens.ui.panes import transport as sirens_transport
 
     left = Column(
         "left",

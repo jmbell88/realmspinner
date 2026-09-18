@@ -1290,7 +1290,7 @@ def start_sirens(ctx: Any) -> None:
     empty document -- five channels, a pattern and an order that points at it,
     so the first note typed makes a sound.
     """
-    from .. import sirens_mode
+    from ..modes.sirens import mode as sirens_mode
 
     set_mode(ctx.state, "sirens")
     if not sirens_mode.ensure(ctx).docs:

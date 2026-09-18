@@ -34,10 +34,10 @@ from pathlib import Path
 
 from _pure_packages import dotted_root, siblings_of
 
-from warlock.studio import sirens
+from warlock.studio.modes.sirens import engine as sirens
 
 ENGINE = Path(sirens.__file__).parent
-PACKAGE = "warlock.studio.sirens"
+PACKAGE = "warlock.studio.modes.sirens.engine"
 
 #: ``audio`` is this package's own kernel (``kernels/audio/wavout.py``,
 #: extracted from ``studio/sirens/wavout.py`` in P3), not a peer engine --

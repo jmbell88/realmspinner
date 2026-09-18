@@ -14,9 +14,9 @@ import zipfile
 import numpy as np
 import pytest
 
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import instruments as inst
-from warlock.studio.sirens import synth, wsng
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import instruments as inst
+from warlock.studio.modes.sirens.engine import synth, wsng
 
 
 def _song() -> D.SongDoc:

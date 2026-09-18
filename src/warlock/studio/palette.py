@@ -442,7 +442,7 @@ def commands(ctx: Any) -> list[Command]:
         packwright_mode.new_document(ctx)
 
     def new_song(ctx: Any) -> None:
-        from . import sirens_mode
+        from .modes.sirens import mode as sirens_mode
 
         sirens_mode.new_document(ctx)
 

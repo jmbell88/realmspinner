@@ -41,11 +41,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import anchors, controls, sirens_mode, theme, widgets
-from ..manual import render as manual_render
-from ..sirens import envelope
-from ..sirens import instruments as inst
-from ..tokens import sp
+from ..... import anchors, controls, theme, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as sirens_mode
+from ...engine import envelope
+from ...engine import instruments as inst
 
 # **The pure half lives under ``studio/sirens/`` now** (2026-09-04), where a
 # test can reach it without an imgui frame -- which is what "a marker cannot be

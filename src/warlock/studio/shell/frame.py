@@ -389,7 +389,7 @@ class FrameMixin:
         # screen moves either. The two audio modes share one predicate because
         # they share one argument.
         if state.mode in ("sirens", "muse"):
-            from .. import sirens_audio
+            from ..modes.sirens import audio as sirens_audio
 
             if sirens_audio.playing():
                 return True

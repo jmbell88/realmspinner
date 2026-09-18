@@ -14,7 +14,8 @@ import inspect
 from warlock.studio import controls, widgets
 from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
 from warlock.studio.modes.inker.ui.panes import generate as inker_generate
-from warlock.studio.panes import packwright_bridge, plotter_bridge, sirens_bridge
+from warlock.studio.modes.sirens.ui.panes import bridge as sirens_bridge
+from warlock.studio.panes import packwright_bridge, plotter_bridge
 
 BRIDGES = (clay_bridge, inker_generate, packwright_bridge, plotter_bridge, sirens_bridge)
 

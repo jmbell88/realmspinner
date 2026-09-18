@@ -22,11 +22,11 @@ import numpy as np
 import pytest
 from test_sirens_mode import FakeCtx, _tab
 
-from warlock.studio import sirens_mode
-from warlock.studio.panes import sirens_envelopes as env
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import instruments as inst
-from warlock.studio.sirens import notes, synth
+from warlock.studio.modes.sirens import mode as sirens_mode
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import instruments as inst
+from warlock.studio.modes.sirens.engine import notes, synth
+from warlock.studio.modes.sirens.ui.panes import envelopes as env
 
 # --- the vocabulary -----------------------------------------------------------
 

@@ -513,7 +513,7 @@ _WORKSPACE_ARMS = {
     "packwright": "packwright_mode",
     "troupe": "modes.troupe.mode",
     "muse": "modes.muse.mode",
-    "sirens": "sirens_mode",
+    "sirens": "modes.sirens.mode",
     "mason": "mason_mode",
 }
 

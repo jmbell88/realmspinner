@@ -19,8 +19,8 @@ import time
 
 import pytest
 
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import synth
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import synth
 
 #: Measured at roughly 30x on the development machine with the default five
 #: channels. A third of that is the floor: slow enough not to fail on a busy or

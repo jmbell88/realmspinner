@@ -19,8 +19,8 @@ from typing import Any
 
 import numpy as np
 
-from . import sirens_mode
-from .sirens_state import COLUMN_DIGITS, SongTab, ensure  # noqa: F401
+from . import mode as sirens_mode
+from .state import COLUMN_DIGITS, SongTab, ensure  # noqa: F401
 
 
 def clamp_caret(ctx: Any, tab: SongTab | None = None) -> None:
@@ -31,7 +31,7 @@ def clamp_caret(ctx: Any, tab: SongTab | None = None) -> None:
     a row the pattern no longer has, which ``set_cells`` clips to nothing: the
     key does nothing and there is no way to see why.
     """
-    from .sirens import document as D
+    from .engine import document as D
 
     state = ensure(ctx)
     tab = tab or state.active
@@ -76,7 +76,7 @@ def move_caret(ctx: Any, drow: int = 0, dchannel: int = 0, dcolumn: int = 0,
     caret was *before* this step, once, so a run of shifted arrows grows one
     rectangle rather than re-anchoring each time.
     """
-    from .sirens import document as D
+    from .engine import document as D
 
     state = ensure(ctx)
     pattern = sirens_mode.caret_pattern(ctx)
@@ -240,7 +240,7 @@ def write_note(ctx: Any, semitone: int) -> bool:
     silent" report: a note with no instrument plays nothing, and the user who
     typed it has no reason to suspect a second column they never touched.
     """
-    from .sirens import notes
+    from .engine import notes
 
     state = ensure(ctx)
     tab = state.active
@@ -249,7 +249,7 @@ def write_note(ctx: Any, semitone: int) -> bool:
     value = state.octave * 12 + int(semitone)
     if not notes.is_note(value):
         return False
-    from .sirens import document as D
+    from .engine import document as D
 
     values = [value]
     if state.instrument is not None:
@@ -274,8 +274,8 @@ def _column_ceiling(column: int) -> int:
     volume column is the engine's own ``0..15``, and the parameter column is a
     byte because that is exactly what every effect's ``xx`` is.
     """
-    from .sirens import document as D
-    from .sirens import instruments as inst
+    from .engine import document as D
+    from .engine import instruments as inst
 
     if column == D.INSTRUMENT:
         return D.MAX_INSTRUMENTS - 1
@@ -354,8 +354,8 @@ def write_effect(ctx: Any, letter: str) -> bool:
     silence, which the person who typed it cannot tell from a bug in the
     synthesiser.
     """
-    from .sirens import document as D
-    from .sirens import synth
+    from .engine import document as D
+    from .engine import synth
 
     state = ensure(ctx)
     if state.column != D.EFFECT:
@@ -377,7 +377,7 @@ def clear_cell(ctx: Any) -> bool:
     rectangle over rows and channels and has never had a column axis to narrow
     along.
     """
-    from .sirens import notes
+    from .engine import notes
 
     state = ensure(ctx)
     if state.anchor is not None:

@@ -318,8 +318,8 @@ def test_pump_export_clears_the_lock_on_any_failure():
 
 
 def test_a_backward_jump_ends_the_body_and_loops_rather_than_rendering_forever():
-    from warlock.studio.sirens import document as D
-    from warlock.studio.sirens import synth
+    from warlock.studio.modes.sirens.engine import document as D
+    from warlock.studio.modes.sirens.engine import synth
 
     doc = D.new_song()
     first = doc.patterns[0]

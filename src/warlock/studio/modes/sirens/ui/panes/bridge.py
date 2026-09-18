@@ -18,9 +18,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import anchors, icons, sirens_mode, tokens, widgets
-from ..manual import render as manual_render
-from ..tokens import sp
+from ..... import anchors, icons, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as sirens_mode
 
 #: What this pane refuses to shrink past, in design pixels: the document
 #: header's two button rows, the path and status lines, the undo/redo row, and
@@ -162,7 +163,7 @@ def _export(ctx: Any, tab: Any) -> None:
             "Your loop points travel with it."
         ),
     ):
-        from ..modes.muse import mode as muse_mode
+        from ....muse import mode as muse_mode
 
         muse_mode.compose_from_sirens(ctx, tab)
 
@@ -207,8 +208,8 @@ def _closeness(ctx: Any) -> None:
     to *Make more -> Something like this* to adjust it -- a control on a
     different job, which is a documentation bug whether or not this ships.
     """
-    from ..modes.muse import mode as muse_mode
-    from ..modes.muse.ui.panes.results import DERIVE_FIELDS
+    from ....muse import mode as muse_mode
+    from ....muse.ui.panes.results import DERIVE_FIELDS
 
     label, low, high, hint = DERIVE_FIELDS["ref_audio_strength"]
     state = muse_mode.ensure(ctx)

@@ -31,7 +31,8 @@ def test_play_refuses_a_stale_buffer(monkeypatch):
     import numpy as np
     from test_sirens_mode import FakeCtx, _tab
 
-    from warlock.studio import sirens_audio, sirens_mode
+    from warlock.studio.modes.sirens import audio as sirens_audio
+    from warlock.studio.modes.sirens import mode as sirens_mode
 
     played: list = []
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
@@ -218,7 +219,7 @@ def test_a_tmj_keeps_a_stored_zero_opacity_and_origin():
 def _sirens():
     from test_sirens_mode import FakeCtx, _tab
 
-    from warlock.studio import sirens_mode
+    from warlock.studio.modes.sirens import mode as sirens_mode
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -229,9 +230,9 @@ def _sirens():
 
 
 def test_a_typed_note_and_its_instrument_are_one_undo_step():
-    from warlock.studio import sirens_mode
-    from warlock.studio.sirens import document as D
-    from warlock.studio.sirens import notes
+    from warlock.studio.modes.sirens import mode as sirens_mode
+    from warlock.studio.modes.sirens.engine import document as D
+    from warlock.studio.modes.sirens.engine import notes
 
     ctx, tab, state, pattern = _sirens()
     state.instrument = 0
@@ -246,9 +247,9 @@ def test_a_typed_note_and_its_instrument_are_one_undo_step():
 
 
 def test_a_two_digit_hex_entry_is_one_undo_step():
-    from warlock.studio import sirens_mode
-    from warlock.studio.sirens import document as D
-    from warlock.studio.sirens import notes
+    from warlock.studio.modes.sirens import mode as sirens_mode
+    from warlock.studio.modes.sirens.engine import document as D
+    from warlock.studio.modes.sirens.engine import notes
 
     ctx, tab, state, pattern = _sirens()
     sirens_mode.set_caret(ctx, column=D.PARAM)
@@ -262,7 +263,7 @@ def test_a_two_digit_hex_entry_is_one_undo_step():
 
 
 def test_shift_up_at_row_zero_does_not_wrap():
-    from warlock.studio import sirens_mode
+    from warlock.studio.modes.sirens import mode as sirens_mode
 
     ctx, tab, state, pattern = _sirens()
     sirens_mode.move_caret(ctx, drow=-1, select=True)
@@ -272,8 +273,8 @@ def test_shift_up_at_row_zero_does_not_wrap():
 
 
 def test_a_paste_ends_the_nibble_being_typed():
-    from warlock.studio import sirens_mode
-    from warlock.studio.sirens import document as D
+    from warlock.studio.modes.sirens import mode as sirens_mode
+    from warlock.studio.modes.sirens.engine import document as D
 
     ctx, tab, state, pattern = _sirens()
     sirens_mode.set_caret(ctx, column=D.PARAM)

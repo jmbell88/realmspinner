@@ -420,7 +420,7 @@ def test_a_decoded_take_is_handed_to_the_mixer_tagged_with_its_job_id(
         played.update(pcm=pcm, rate=rate, tag=tag)
         return True
 
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "play", _play)
     # M11: a completed decode is only adopted while it still matches the
@@ -438,7 +438,7 @@ def test_a_decoded_take_is_handed_to_the_mixer_tagged_with_its_job_id(
 
 
 def test_a_device_that_refuses_leaves_nothing_claiming_to_play(ctx, monkeypatch):
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: False)
     monkeypatch.setattr(sirens_audio, "unavailable_reason", lambda: "no device")
@@ -454,7 +454,7 @@ def test_a_device_that_refuses_leaves_nothing_claiming_to_play(ctx, monkeypatch)
 
 
 def test_a_take_that_ran_to_its_end_stops_being_the_playing_one(ctx, monkeypatch):
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     muse_mode.ensure(ctx).playing_job = "abc123"
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -471,7 +471,7 @@ def test_an_older_decode_that_lands_after_a_newer_one_does_not_override_it(
     against the unfixed code, which adopts every successful ``LOAD_PREFIX``
     result with no check against what the user asked for most recently.
     """
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     _finished(ctx, "a")
     _finished(ctx, "b")
@@ -522,7 +522,7 @@ def test_stop_before_a_decode_completes_cancels_it_rather_than_starting_playback
 def test_is_playing_asks_the_mixers_tag_rather_than_the_stored_pointer(
     ctx, monkeypatch
 ):
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "playing", lambda: True)
     monkeypatch.setattr(sirens_audio, "tag", lambda: "other")
@@ -596,8 +596,8 @@ def test_open_in_sirens_goes_through_the_real_import_door(ctx, monkeypatch):
     _finished(ctx, "abc123")
     imported: list[Any] = []
 
-    from warlock.studio import sirens_io
-    from warlock.studio import sirens_mode as sirens
+    from warlock.studio.modes.sirens import fileio as sirens_io
+    from warlock.studio.modes.sirens import mode as sirens
 
     monkeypatch.setattr(
         sirens_io,
@@ -618,8 +618,8 @@ def test_the_bridge_does_not_switch_modes_before_the_take_has_landed(ctx, monkey
     about. The switch rides the task instead."""
     _finished(ctx, "abc123")
 
-    from warlock.studio import sirens_io
-    from warlock.studio import sirens_mode as sirens
+    from warlock.studio.modes.sirens import fileio as sirens_io
+    from warlock.studio.modes.sirens import mode as sirens
 
     monkeypatch.setattr(sirens, "active", lambda c: object())
     monkeypatch.setattr(
@@ -639,8 +639,8 @@ def test_the_bridge_starts_a_song_when_there_is_nowhere_to_put_the_sample(
     _finished(ctx, "abc123")
     made: list[str] = []
 
-    from warlock.studio import sirens_io
-    from warlock.studio import sirens_mode as sirens
+    from warlock.studio.modes.sirens import fileio as sirens_io
+    from warlock.studio.modes.sirens import mode as sirens
 
     monkeypatch.setattr(sirens, "active", lambda c: None)
     monkeypatch.setattr(sirens, "new_document", lambda c: made.append("new") or object())
@@ -1046,8 +1046,8 @@ def test_switching_takes_keeps_the_playback_position(ctx, monkeypatch):
     """
     import numpy as np
 
-    from warlock.studio import sirens_audio
     from warlock.studio.modes.muse import mode as muse_mode
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: True)
     state = muse_mode.ensure(ctx)
@@ -1084,8 +1084,8 @@ def test_a_take_switch_gives_the_first_takes_loop_points_back(ctx, monkeypatch):
     """
     import numpy as np
 
-    from warlock.studio import sirens_audio
     from warlock.studio.modes.muse import mode as muse_mode
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: True)
     state = muse_mode.ensure(ctx)

@@ -17,10 +17,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import anchors, controls, icons, sirens_audio, sirens_mode, tokens, widgets
-from ..manual import render as manual_render
-from ..sirens import document as D
-from ..tokens import sp
+from ..... import anchors, controls, icons, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import audio as sirens_audio
+from ... import mode as sirens_mode
+from ...engine import document as D
 
 
 def draw(ctx: Any) -> None:

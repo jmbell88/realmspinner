@@ -26,9 +26,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..core.safeio import atomic, sizeguard
-from . import dialogs, docmodes, filetypes, sirens_state
-from .sirens_state import SongTab, active, ensure
+from ....core.safeio import atomic, sizeguard
+from ... import dialogs, docmodes, filetypes
+from . import state as sirens_state
+from .state import SongTab, active, ensure
 
 #: The picker's one row. Label *and* pattern through :mod:`.filetypes`, which
 #: is the rule ``packwright_io`` states at length: portable-file-dialogs pairs a
@@ -65,15 +66,15 @@ def _within_ceiling(path: Path) -> Path:
     refusal about a file the user picked, and its text reaches the user
     verbatim through the task classifier.
     """
-    from .sirens import wsng
+    from .engine import wsng
 
     return sizeguard.within_ceiling(path, wsng.MAX_DECOMPRESSED_BYTES)
 
 
 def _load(path: Path) -> dict[str, Any]:
     """Blocking; task thread only. Raises rather than returning a broken tab."""
-    from ..service.errors import invalid_from
-    from .sirens import wsng
+    from ....service.errors import invalid_from
+    from .engine import wsng
 
     path = _within_ceiling(Path(path))
     try:
@@ -132,7 +133,7 @@ def _sample_ceiling(path: Path) -> Path:
     widest frame this build decodes (stereo 32-bit), rather than a second
     figure invented here.
     """
-    from ..kernels.audio import wavout
+    from ....kernels.audio import wavout
 
     return sizeguard.within_ceiling(path, wavout.MAX_SAMPLE_FRAMES * 8)
 
@@ -153,9 +154,9 @@ def _decode_sample(path: Path, instrument: int | None, switch: bool = False) -> 
     ``instrument`` does, so the caller that wants the window moved to Sirens
     gets it moved *after* the decode lands rather than before it can fail.
     """
-    from ..kernels.audio import wavout
-    from ..service.errors import invalid_from
-    from .sirens import synth
+    from ....kernels.audio import wavout
+    from ....service.errors import invalid_from
+    from .engine import synth
 
     path = _sample_ceiling(Path(path))
     try:
@@ -217,7 +218,7 @@ def free_sample_key(doc: Any, name: str) -> str:
     Suffixed rather than refused, because the user's answer to "that name is
     taken" is always "then use another one".
     """
-    from .sirens import instruments as inst
+    from .engine import instruments as inst
 
     stem = (name or "sample").strip()[: inst.MAX_NAME_LEN] or "sample"
     if stem not in doc.samples:
@@ -249,7 +250,7 @@ def _write(files: dict[Path, bytes]) -> None:
 
 
 def save_to(ctx: Any, tab: SongTab, path: Path) -> None:
-    from .sirens import wsng
+    from .engine import wsng
 
     path = Path(path)
     head = tab.doc.history.head
@@ -270,7 +271,7 @@ def save(ctx: Any, tab: SongTab | None = None) -> None:
 
 
 def save_as(ctx: Any, tab: SongTab | None = None) -> None:
-    from .sirens import wsng
+    from .engine import wsng
 
     tab = tab or active(ctx)
     if tab is None or tab.saving:
@@ -358,7 +359,7 @@ def safe_stem(name: str, fallback: str) -> str:
     somebody called ``...`` would be a refusal about the wrong thing. The
     fallback is positional (``effect3``), so the file is still findable.
     """
-    from ..kernels.pixel import sheetout
+    from ....kernels.pixel import sheetout
 
     # ``strip(" .-")`` on top of the character class. A dot is legal *inside* a
     # filename and illegal at either end of one on Windows, which silently
@@ -440,7 +441,7 @@ def _stem_render(doc: Any, index: int) -> tuple[Any, tuple[int, int] | None]:
     (the effect column survives, so a stem stays sample-aligned with the mix)
     lives there.
     """
-    from .sirens import synth
+    from .engine import synth
 
     samples, loop, _marks = synth.render_only(doc, {index})
     return samples, loop
@@ -458,8 +459,8 @@ def export_plan(doc: Any, directory: Path) -> dict[Path, bytes]:
     which is why ``wavout`` was written by hand -- a soundtrack whose loop is in
     a sidecar the engine does not read is a soundtrack that does not loop.
     """
-    from ..kernels.audio import wavout
-    from .sirens import synth
+    from ....kernels.audio import wavout
+    from .engine import synth
 
     directory = Path(directory)
     rate = synth.SAMPLE_RATE
@@ -487,8 +488,8 @@ def _export(data: bytes, directory: Path) -> dict[str, Any]:
     the caret is writing into, and rendering a song is seconds. The zip round
     trip is the price of an export that cannot tear.
     """
-    from ..service.errors import invalid_from
-    from .sirens import wsng
+    from ....service.errors import invalid_from
+    from .engine import wsng
 
     directory = Path(directory)
     try:
@@ -510,7 +511,7 @@ def export_to(ctx: Any, tab: SongTab, directory: Path) -> None:
     :func:`~.sirens_mode.request_render` takes its own here: this is where the
     document is safe to read.
     """
-    from .sirens import wsng
+    from .engine import wsng
 
     if tab is None or tab.saving:
         return
@@ -530,7 +531,7 @@ def export_files(ctx: Any, tab: SongTab | None = None) -> None:
     native dialog is modal to the OS and blocks until dismissed, and on the
     frame thread that is a frozen window.
     """
-    from .sirens import wsng
+    from .engine import wsng
 
     tab = tab or active(ctx)
     if tab is None or tab.saving:

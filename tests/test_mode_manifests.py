@@ -80,7 +80,7 @@ def test_sirens_defines_persist_and_is_covered_by_the_manifest():
     coincidence: Sirens defines ``persist`` and is one of the modes
     :func:`mode_manifest.persisting_modes` reports."""
     modules = _all_mode_modules()
-    assert callable(modules["sirens_mode"].persist)
+    assert callable(modules["modes.sirens.mode"].persist)
     assert "sirens" in {entry.key for entry in mode_manifest.persisting_modes()}
 
 

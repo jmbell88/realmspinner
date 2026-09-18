@@ -435,7 +435,7 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
         "mason_mode",
         "plotter_mode",
         "packwright_mode",
-        "sirens_mode",
+        "modes.sirens.mode",
         "modes.inker.mode",
     }
     assert expected_at_least <= caller_modules

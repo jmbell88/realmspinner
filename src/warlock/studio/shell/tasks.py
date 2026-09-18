@@ -184,7 +184,7 @@ class TasksMixin:
                     # pane shows an empty list that reads as success.
                     packwright_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("sirens-"):
-                    from .. import sirens_mode
+                    from ..modes.sirens import mode as sirens_mode
 
                     # Same rule, plus one of its own: a failed *render* has to
                     # clear ``rendering`` and record why, or the transport
@@ -569,7 +569,7 @@ class TasksMixin:
             muse_mode.on_task_done(ctx, done)
             return
         if key.startswith("sirens-"):
-            from .. import sirens_mode
+            from ..modes.sirens import mode as sirens_mode
 
             sirens_mode.on_task_done(ctx, done)
             return

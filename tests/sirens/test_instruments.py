@@ -12,7 +12,7 @@ import dataclasses
 
 import pytest
 
-from warlock.studio.sirens.instruments import (
+from warlock.studio.modes.sirens.engine.instruments import (
     MAX_SEQUENCE_LEN,
     Instrument,
     Sequence,

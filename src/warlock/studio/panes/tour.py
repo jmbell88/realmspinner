@@ -192,8 +192,8 @@ def _notes(ctx: Any) -> int:
     try:
         import numpy as np
 
-        from ..sirens import document as D
-        from ..sirens import notes as N
+        from ..modes.sirens.engine import document as D
+        from ..modes.sirens.engine import notes as N
 
         total = 0
         for pattern in tab.doc.patterns:

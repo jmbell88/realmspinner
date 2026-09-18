@@ -73,7 +73,7 @@ def read_track(path: Any) -> dict[str, Any]:
     import soundfile as sf
     from scipy.signal import resample_poly
 
-    from ... import sirens_audio
+    from ..sirens import audio as sirens_audio
     from .engine import waveform
 
     data, rate = sf.read(str(path), dtype="float32", always_2d=True)

@@ -33,8 +33,6 @@ from warlock.studio import (
     plotter_io,
     plotter_mode,
     plotter_tilesets,
-    sirens_io,
-    sirens_mode,
     theme,
     tokens,
     viewer_embed,
@@ -43,6 +41,8 @@ from warlock.studio import state as state_mod
 from warlock.studio.modes.clay import mode as clay_mode
 from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.modes.review import mode as review_mode
+from warlock.studio.modes.sirens import fileio as sirens_io
+from warlock.studio.modes.sirens import mode as sirens_mode
 from warlock.studio.state import AppState, Filters
 
 

@@ -26,26 +26,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import (
-    anchors,
-    controls,
-    docmodes,
-    icons,
-    sirens_hints,
-    sirens_mode,
-    sirens_state,
-    theme,
-    widgets,
-)
-from ..sirens import document as D
+from ..... import anchors, controls, docmodes, icons, theme, widgets
+from .....tokens import sp
+from ... import hints as sirens_hints
+from ... import mode as sirens_mode
+from ... import state as sirens_state
+from ...engine import document as D
 
 # ``synth`` at module level, not inside ``_cell_text``: that function runs once
 # per visible cell per frame -- up to forty rows times eight channels -- and an
 # import statement there was a ``sys.modules`` lookup and a dict write per cell
 # for a table that never changes.
-from ..sirens import instruments as inst
-from ..sirens import notes, synth
-from ..tokens import sp
+from ...engine import instruments as inst
+from ...engine import notes, synth
 
 #: One row's height and one column-group's width, in design pixels. Both are
 #: measured from the monospace text they hold rather than chosen: a cell is
@@ -279,7 +272,7 @@ def _start_tour(ctx: Any) -> None:
     """``sirens-basics``, from the empty state. Imported here rather than at
     module level because the tour pane draws imgui of its own and this pane is
     the one every Sirens frame goes through."""
-    from . import tour as tour_pane
+    from .....panes import tour as tour_pane
 
     tour_pane.start(ctx, "sirens-basics")
 
@@ -410,8 +403,8 @@ def choose_effect(ctx: Any, row: int, channel: int, effect: int) -> bool:
     does not have writes nothing, the same refusal typing an unknown letter
     already gets.
     """
-    from ..sirens import document as D
-    from ..sirens import synth
+    from ...engine import document as D
+    from ...engine import synth
 
     entry = synth.EFFECT_NAMES.get(effect)
     if entry is None:
@@ -426,7 +419,7 @@ def _effect_popup(ctx: Any, name: str, row: int, channel: int) -> None:
     the reference table in the manual carries, read rather than retyped."""
     from imgui_bundle import imgui
 
-    from ..sirens import synth
+    from ...engine import synth
 
     if not imgui.begin_popup(name):
         return

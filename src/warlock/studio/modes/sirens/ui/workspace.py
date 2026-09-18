@@ -35,10 +35,10 @@ class SirensWorkspace:
         """
         from imgui_bundle import imgui
 
-        from . import layout as layout_mod
-        from . import skeletons
-        from .panes import sirens_patterns
-        from .shell.frame import _column_boundary
+        from .... import layout as layout_mod
+        from .... import skeletons
+        from ....shell.frame import _column_boundary
+        from .panes import patterns as sirens_patterns
 
         ctx = self.app_ctx
         lay = self.layout

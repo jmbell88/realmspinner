@@ -56,11 +56,11 @@ from warlock.studio.modes.inker.state import InkerDoc
 from warlock.studio.modes.muse import fileio as muse_io
 from warlock.studio.modes.muse import mode as muse_mode
 from warlock.studio.modes.muse import state as muse_state
+from warlock.studio.modes.sirens.engine import wsng
 from warlock.studio.modes.troupe import mode as troupe_mode
 from warlock.studio.packwright import wpack
 from warlock.studio.packwright.document import PackDoc
 from warlock.studio.packwright.sources import Sprite
-from warlock.studio.sirens import wsng
 from warlock.studio.viewer_embed import Viewer
 
 WORKER = "warlock-task-test"

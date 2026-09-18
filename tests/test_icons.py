@@ -183,7 +183,7 @@ _CONVERTED_TO_DOWNLOAD = (
 
 _CONVERTED_TO_FOLDER_OPEN = (
     (STUDIO_ROOT / "panes" / "landing.py", '{icons.FOLDER_OPEN} Import mesh...'),
-    (STUDIO_ROOT / "panes" / "sirens_instruments.py", '{icons.FOLDER_OPEN} Import...'),
+    (STUDIO_ROOT / "modes/sirens/ui/panes/instruments.py", '{icons.FOLDER_OPEN} Import...'),
 )
 
 

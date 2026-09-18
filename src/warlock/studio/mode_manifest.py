@@ -108,8 +108,10 @@ DOC_MODES: tuple[ModeManifest, ...] = (
     # Named for the folder rather than for a file: this is the one export in
     # the app that writes a family (song.wav, stems/, sfx/) into a directory
     # the user picks, so "Export WAV" would describe a third of what happens.
-    # Its recent rows are reopened by ``sirens_io``, not ``sirens_mode``.
-    ModeManifest("sirens", "sirens_mode", "sirens", "Export WAV + stems", "sirens_io"),
+    # Its recent rows are reopened by ``fileio``, not ``mode``.
+    ModeManifest(
+        "sirens", "modes.sirens.mode", "sirens", "Export WAV + stems", "modes.sirens.fileio"
+    ),
     # An empty export label suppresses the command (see the field's own
     # docstring); no opener, for the same reason a pose has no New command.
     ModeManifest("poser", "modes.poser.mode", "pose", "", None),

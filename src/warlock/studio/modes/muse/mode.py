@@ -49,8 +49,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ... import sirens_audio, sirens_io, sirens_mode, sirens_state
 from ...state import set_mode
+from ..sirens import audio as sirens_audio
+from ..sirens import fileio as sirens_io
+from ..sirens import mode as sirens_mode
+from ..sirens import state as sirens_state
 from . import fileio as muse_io
 from .state import (  # noqa: F401
     DEFAULT_DERIVE,
@@ -926,7 +929,7 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
     """
     from ....service import jobs as svc_jobs
     from ...panes import model_gate
-    from ...sirens import wsng
+    from ..sirens.engine import wsng
 
     # muse-02 (2026-09-14 audit): this door does not call ``generate``, so its
     # own model_gate check does not cover it -- Sirens' "Compose in Muse" used
@@ -959,7 +962,7 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
     def run():
         from ....kernels.audio import wavout
         from ....service.errors import invalid_from
-        from ...sirens import synth
+        from ..sirens.engine import synth
 
         try:
             doc = wsng.read_wsng(data)

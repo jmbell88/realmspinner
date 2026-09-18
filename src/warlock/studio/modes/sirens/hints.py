@@ -18,7 +18,7 @@ worse than no hint, because it is read as a promise.
 
 from __future__ import annotations
 
-from .sirens import synth
+from .engine import synth
 
 #: The two piano rows, spelled as the reader sees them on the keyboard rather
 #: than derived from ``sirens_keys.PIANO_KEYS``: that module reaches

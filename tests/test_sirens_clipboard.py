@@ -15,9 +15,9 @@ import pytest
 from test_sirens_keys import _at, _cells, _press
 from test_sirens_mode import FakeCtx, _tab
 
-from warlock.studio import sirens_mode
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import notes
+from warlock.studio.modes.sirens import mode as sirens_mode
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import notes
 
 
 def _ctrl(ctx: FakeCtx, key: str) -> bool:

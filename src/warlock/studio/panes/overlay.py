@@ -712,7 +712,7 @@ def _plotter_new(ctx: Any) -> None:
 
 
 def _sirens_new(ctx: Any) -> None:
-    from .. import sirens_mode
+    from ..modes.sirens import mode as sirens_mode
 
     sirens_mode.new_document(ctx)
 

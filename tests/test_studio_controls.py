@@ -299,7 +299,7 @@ def test_major_panes_have_roles_and_no_production_pane_child_calls():
         root / "modes/review/ui/workspace.py",
         root / "plotter_workspace.py",
         root / "modes/muse/ui/workspace.py",
-        root / "sirens_workspace.py",
+        root / "modes/sirens/ui/workspace.py",
         root / "modes/troupe/ui/workspace.py",
         root / "packwright_workspace.py",
     ]

@@ -33,9 +33,10 @@ import pytest
 from test_sirens_mode import FakeCtx, _Done, _tab
 
 from warlock.kernels.audio import wavout
-from warlock.studio import sirens_io, sirens_mode
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import notes, synth
+from warlock.studio.modes.sirens import fileio as sirens_io
+from warlock.studio.modes.sirens import mode as sirens_mode
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import notes, synth
 
 
 def _chunks(raw: bytes) -> dict[bytes, bytes]:

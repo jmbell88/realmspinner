@@ -34,9 +34,10 @@ from typing import Any
 import numpy as np
 from imgui_bundle import imgui
 
-from ..... import controls, layout, sirens_audio, theme, widgets
+from ..... import controls, layout, theme, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
+from ....sirens import audio as sirens_audio
 from ... import fileio as muse_io
 from ... import mode as muse_mode
 from ...engine import waveform

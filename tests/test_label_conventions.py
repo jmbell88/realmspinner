@@ -89,9 +89,10 @@ def test_every_close_without_saving_goes_through_the_one_helper():
     Inker over [Close]."""
     from pathlib import Path
 
-    from warlock.studio import docmodes, packwright_mode, plotter_mode, sirens_mode
+    from warlock.studio import docmodes, packwright_mode, plotter_mode
     from warlock.studio.modes.clay import mode as clay_mode
     from warlock.studio.modes.inker import mode as inker_mode
+    from warlock.studio.modes.sirens import mode as sirens_mode
 
     # The question moved into ``docmodes.close_tab`` on 2026-09-05, so the
     # five modes ask it by calling that and none spells it out any more.

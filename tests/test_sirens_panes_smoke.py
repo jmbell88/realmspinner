@@ -27,18 +27,16 @@ import numpy as np
 import pytest
 from test_sirens_mode import FakeCtx, _tab
 
-from warlock.studio import sirens_mode
-from warlock.studio.panes import (
-    sirens_bridge,
-    sirens_effects,
-    sirens_envelopes,
-    sirens_instruments,
-    sirens_orders,
-    sirens_patterns,
-    sirens_transport,
-)
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import instruments as inst
+from warlock.studio.modes.sirens import mode as sirens_mode
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import instruments as inst
+from warlock.studio.modes.sirens.ui.panes import bridge as sirens_bridge
+from warlock.studio.modes.sirens.ui.panes import effects as sirens_effects
+from warlock.studio.modes.sirens.ui.panes import envelopes as sirens_envelopes
+from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
+from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
+from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
+from warlock.studio.modes.sirens.ui.panes import transport as sirens_transport
 
 PANES = (
     ("sirens-patterns", sirens_patterns),
@@ -105,7 +103,7 @@ def frames():
 def _no_device(monkeypatch):
     """No pane in this file may reach the mixer. CI has no card and a box that
     has one is not something a drawing test should depend on."""
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: False)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -285,7 +283,7 @@ def test_the_effects_pane_draws_an_effect_whose_pattern_is_gone(frames):
 
 
 def test_a_click_inside_a_column_picks_that_column():
-    from warlock.studio.panes.sirens_patterns import column_at
+    from warlock.studio.modes.sirens.ui.panes.patterns import column_at
 
     widths = [30.0, 20.0, 20.0, 10.0, 20.0]
     gap = 6.0
@@ -300,7 +298,7 @@ def test_a_click_inside_a_column_picks_that_column():
 def test_the_gap_after_a_column_belongs_to_it():
     """A caret that refused to move because the press landed one pixel wide of
     a glyph is a control that works most of the time."""
-    from warlock.studio.panes.sirens_patterns import column_at
+    from warlock.studio.modes.sirens.ui.panes.patterns import column_at
 
     widths = [30.0, 20.0, 20.0, 10.0, 20.0]
     assert column_at(33.0, widths, 6.0) == 0
@@ -309,7 +307,7 @@ def test_the_gap_after_a_column_belongs_to_it():
 
 
 def test_a_click_past_the_last_column_clamps_rather_than_refusing():
-    from warlock.studio.panes.sirens_patterns import column_at
+    from warlock.studio.modes.sirens.ui.panes.patterns import column_at
 
     widths = [30.0, 20.0, 20.0, 10.0, 20.0]
     assert column_at(10_000.0, widths, 6.0) == 4
@@ -330,7 +328,7 @@ def test_retarget_popup_refuses_a_selection_while_the_song_is_busy(frames, monke
     """
     from imgui_bundle import imgui
 
-    from warlock.studio.panes import sirens_orders
+    from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
 
     ctx = FakeCtx()
     tab = _tab(ctx)

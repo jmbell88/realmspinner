@@ -91,7 +91,7 @@ def _leave_sirens_if_needed(ctx: Any, old: str) -> None:
     """
     if old != "sirens":
         return
-    from .. import sirens_play
+    from ..modes.sirens import play as sirens_play
 
     sirens_play.stop(ctx)
 
@@ -621,7 +621,7 @@ class EventsMixin:
             muse_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "sirens":
-            from .. import sirens_mode
+            from ..modes.sirens import mode as sirens_mode
 
             # Unconditional and returning, for the reason every workspace arm
             # above is: ``handle_key`` answers False for every key it does not
@@ -842,7 +842,8 @@ class EventsMixin:
                 ctx.toast("Packwright opens .wpack documents and packs image files.", "error")
             return
         if ctx.state.mode == "sirens":
-            from .. import sirens_mode, sirens_state
+            from ..modes.sirens import mode as sirens_mode
+            from ..modes.sirens import state as sirens_state
 
             suffix = path.suffix.lower()
             if suffix == sirens_state.WSNG_SUFFIX:

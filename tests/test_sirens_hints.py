@@ -12,10 +12,12 @@ import re
 
 import pytest
 
-from warlock.studio import sirens_hints, sirens_keys, sirens_state
-from warlock.studio.panes import sirens_patterns
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import synth
+from warlock.studio.modes.sirens import hints as sirens_hints
+from warlock.studio.modes.sirens import keys as sirens_keys
+from warlock.studio.modes.sirens import state as sirens_state
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import synth
+from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
 
 
 def test_a_line_for_every_column_the_document_has():

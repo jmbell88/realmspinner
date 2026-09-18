@@ -23,8 +23,9 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import controls, icons, sirens_audio, verbs, widgets
+from ..... import controls, icons, verbs, widgets
 from .....tokens import sp
+from ....sirens import audio as sirens_audio
 from ... import mode as muse_mode
 
 #: A card's size in design pixels. Wide enough for two lines of tags at a

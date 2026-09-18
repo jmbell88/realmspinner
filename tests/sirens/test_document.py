@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import notes
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import notes
 
 
 def _song() -> D.SongDoc:

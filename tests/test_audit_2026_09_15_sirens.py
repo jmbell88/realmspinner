@@ -16,10 +16,11 @@ import numpy as np
 import pytest
 from test_sirens_mode import FakeCtx, _audible, _tab
 
-from warlock.studio import sirens_play
-from warlock.studio.panes import sirens_effects, sirens_instruments
-from warlock.studio.sirens import document as D
-from warlock.studio.sirens import synth, wsng
+from warlock.studio.modes.sirens import play as sirens_play
+from warlock.studio.modes.sirens.engine import document as D
+from warlock.studio.modes.sirens.engine import synth, wsng
+from warlock.studio.modes.sirens.ui.panes import effects as sirens_effects
+from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
 
 # --- sirens-01 ------------------------------------------------------------
 

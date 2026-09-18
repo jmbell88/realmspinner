@@ -836,7 +836,7 @@ def test_every_real_provider_is_registered_by_ensure():
         ("warlock.studio.modes.clay.state", "ClayTab"),
         ("warlock.studio.plotter_state", "PlotterDoc"),
         ("warlock.studio.packwright_state", "PackTab"),
-        ("warlock.studio.sirens_state", "SongTab"),
+        ("warlock.studio.modes.sirens.state", "SongTab"),
         ("warlock.studio.mason_state", "MasonTab"),
     ],
 )

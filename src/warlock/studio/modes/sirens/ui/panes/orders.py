@@ -23,10 +23,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import anchors, controls, icons, sirens_mode, tokens, widgets
-from ..manual import render as manual_render
-from ..sirens import document as D
-from ..tokens import sp
+from ..... import anchors, controls, icons, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as sirens_mode
+from ...engine import document as D
 
 _BUSY_WHY = "This song is being written; the buttons come back when it lands."
 _ROW_WHY = "This entry is already at the end it would move to."

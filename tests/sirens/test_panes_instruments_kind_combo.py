@@ -15,8 +15,8 @@ from typing import Any
 import pytest
 from test_sirens_mode import FakeCtx, _tab
 
-from warlock.studio import sirens_mode
-from warlock.studio.panes import sirens_instruments
+from warlock.studio.modes.sirens import mode as sirens_mode
+from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
 
 
 @pytest.fixture
@@ -60,7 +60,7 @@ def frame():
 
 @pytest.fixture(autouse=True)
 def _no_device(monkeypatch):
-    from warlock.studio import sirens_audio
+    from warlock.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: False)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)

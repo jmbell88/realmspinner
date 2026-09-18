@@ -509,7 +509,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.shell.app", "warlock.studio.plotter_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.modes.poser.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.review.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.sirens_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.sirens.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.modes.troupe.ui.workspace"),
     ("warlock.studio.shell.frame", "warlock.studio.modes.create.ui.brief"),
     # No ``create_rail`` row, though P4 moved Create's stage rail out of
@@ -602,12 +602,12 @@ _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
 # muse <-> sirens cross-import" (RESTRUCTURE.md's own words) once
 # kernels/audio/ (P3) holds what the two shared.
 _P10_MUSE_FOLDS_INTO_CREATE: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.modes.muse.mode", "warlock.studio.sirens_audio"),
-    ("warlock.studio.modes.muse.mode", "warlock.studio.sirens_io"),
-    ("warlock.studio.modes.muse.mode", "warlock.studio.sirens_mode"),
-    ("warlock.studio.modes.muse.mode", "warlock.studio.sirens_state"),
-    ("warlock.studio.modes.muse.ui.panes.player", "warlock.studio.sirens_audio"),
-    ("warlock.studio.modes.muse.ui.panes.results", "warlock.studio.sirens_audio"),
+    ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.audio"),
+    ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.fileio"),
+    ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.mode"),
+    ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.state"),
+    ("warlock.studio.modes.muse.ui.panes.player", "warlock.studio.modes.sirens.audio"),
+    ("warlock.studio.modes.muse.ui.panes.results", "warlock.studio.modes.sirens.audio"),
 })
 
 # P11 -- Review folds into a Library view; P12 -- Home folds into Library's

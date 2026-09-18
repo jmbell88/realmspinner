@@ -32,8 +32,8 @@ from typing import Any
 
 import numpy as np
 
-from ...core.safeio import npyguard, zipguard
-from ...kernels.audio import wavout
+from .....core.safeio import npyguard, zipguard
+from .....kernels.audio import wavout
 from . import document as D
 from . import instruments as inst
 from . import notes, synth
