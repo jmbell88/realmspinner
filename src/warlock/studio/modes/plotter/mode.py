@@ -1455,13 +1455,6 @@ def _ctrl_key(
 # ``clay_mode``'s four answers, for maps. See :mod:`studio.journal`.
 
 
-def _journal_slots(ctx: Any) -> list[Any]:
-    state = getattr(ctx.state, "plotter", None)
-    if state is None:
-        return []
-    return [tab for tab in state.docs if tab.dirty and not tab.busy]
-
-
 def _journal_encode(tab: Any) -> bytes:
     from .engine import wmap as wmaplib
 
@@ -1484,16 +1477,6 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
     return True
 
 
-JOURNAL = journal.register(
-    journal.Provider(
-        kind="plotter",
-        ext=".wmap",
-        label="map",
-        slots=_journal_slots,
-        uid_of=lambda tab: tab.uid,
-        title_of=lambda tab: tab.title,
-        head_of=lambda tab: tab.doc.history.head,
-        encode=_journal_encode,
-        adopt=_journal_adopt,
-    )
+JOURNAL = journal.tab_provider(
+    "plotter", ".wmap", "map", encode=_journal_encode, adopt=_journal_adopt
 )

@@ -154,6 +154,48 @@ def register(provider: Provider) -> Provider:
     return provider
 
 
+def tab_provider(
+    kind: str,
+    ext: str,
+    label: str,
+    *,
+    encode: Callable[[Any], bytes],
+    adopt: Callable[[Any, Path, dict[str, Any]], bool],
+) -> Provider:
+    """Register a tabbed document mode, whose tabs live on ``ctx.state.<kind>``.
+
+    Six modes wrote the same four answers: the slots are the dirty tabs that
+    are not ``busy``, and a tab's uid, title and undo head are its own. Only
+    the serialiser and the reopen differ, so only those are passed.
+
+    ``busy`` rather than ``saving`` for Inker's reason, which is every mode's:
+    the encode walks the live document, and an edit landing mid-write produces
+    an archive whose parts disagree about what is in it. Clay and Mason gated
+    on ``saving``, which is the whole of their ``busy``.
+    """
+
+    def slots(ctx: Any) -> list[Any]:
+        # ``getattr``: asking what to copy must not create the state.
+        state = getattr(ctx.state, kind, None)
+        if state is None:
+            return []
+        return [tab for tab in state.docs if tab.dirty and not tab.busy]
+
+    return register(
+        Provider(
+            kind=kind,
+            ext=ext,
+            label=label,
+            slots=slots,
+            uid_of=lambda tab: tab.uid,
+            title_of=lambda tab: tab.title,
+            head_of=lambda tab: tab.doc.history.head,
+            encode=encode,
+            adopt=adopt,
+        )
+    )
+
+
 #: The modules that register a provider, derived from :mod:`.mode_manifest`
 #: -- one list of facts instead of five hand tables, see that module's
 #: docstring. Imported on demand rather than at module scope, which keeps

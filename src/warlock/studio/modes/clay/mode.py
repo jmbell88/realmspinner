@@ -1190,16 +1190,6 @@ def _duplicate_selection(ctx: Any, state: ClayState, doc: Any) -> None:
 # a save.
 
 
-def _journal_slots(ctx: Any) -> list[Any]:
-    """Dirty tabs that are not mid-write. ``saving`` for ``write_wblk``'s
-    reason: it walks the object list, and an edit landing mid-encode produces
-    an archive whose parts disagree about what is in the document."""
-    state = getattr(ctx.state, "clay", None)
-    if state is None:
-        return []
-    return [tab for tab in state.docs if tab.dirty and not tab.saving]
-
-
 def _journal_encode(tab: Any) -> bytes:
     from ....kernels.mesh import serialize
 
@@ -1245,16 +1235,6 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-JOURNAL = journal.register(
-    journal.Provider(
-        kind="clay",
-        ext=".wblk",
-        label="model",
-        slots=_journal_slots,
-        uid_of=lambda tab: tab.uid,
-        title_of=lambda tab: tab.title,
-        head_of=lambda tab: tab.doc.history.head,
-        encode=_journal_encode,
-        adopt=_journal_adopt,
-    )
+JOURNAL = journal.tab_provider(
+    "clay", ".wblk", "model", encode=_journal_encode, adopt=_journal_adopt
 )

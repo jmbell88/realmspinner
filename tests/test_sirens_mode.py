@@ -679,7 +679,7 @@ def test_the_journal_provider_round_trips_a_song(tmp_path):
     ctx = FakeCtx()
     tab = _tab(ctx)
     sirens_mode.write_note(ctx, 0)
-    assert [slot.uid for slot in sirens_mode._journal_slots(ctx)] == [tab.uid]
+    assert [slot.uid for slot in sirens_mode.JOURNAL.slots(ctx)] == [tab.uid]
     path = tmp_path / "copy.wsng"
     path.write_bytes(sirens_mode._journal_encode(tab))
 
@@ -709,7 +709,7 @@ def test_a_busy_tab_is_not_journalled():
     tab = _tab(ctx)
     sirens_mode.write_note(ctx, 0)
     tab.saving = True
-    assert sirens_mode._journal_slots(ctx) == []
+    assert sirens_mode.JOURNAL.slots(ctx) == []
 
 
 def test_the_provider_is_registered_under_its_own_kind():

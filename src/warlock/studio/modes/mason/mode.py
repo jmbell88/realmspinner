@@ -1237,16 +1237,6 @@ def _ctrl_key(
 # --- crash recovery (UX-05) ---------------------------------------------------
 
 
-def _journal_slots(ctx: Any) -> list[Any]:
-    """Dirty tabs that are not mid-write -- ``clay_mode``'s reason: an edit
-    landing mid-encode would produce an archive whose parts disagree about
-    what is in the document."""
-    state = getattr(ctx.state, "mason", None)
-    if state is None:
-        return []
-    return [tab for tab in state.docs if tab.dirty and not tab.saving]
-
-
 def _journal_encode(tab: Any) -> bytes:
     from .engine import serialize
 
@@ -1282,18 +1272,8 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-JOURNAL = journal.register(
-    journal.Provider(
-        kind="mason",
-        ext=".wscn",
-        label="scene",
-        slots=_journal_slots,
-        uid_of=lambda tab: tab.uid,
-        title_of=lambda tab: tab.title,
-        head_of=lambda tab: tab.doc.history.head,
-        encode=_journal_encode,
-        adopt=_journal_adopt,
-    )
+JOURNAL = journal.tab_provider(
+    "mason", ".wscn", "scene", encode=_journal_encode, adopt=_journal_adopt
 )
 
 

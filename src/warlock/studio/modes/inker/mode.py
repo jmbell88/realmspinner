@@ -2151,19 +2151,6 @@ def import_tileset(ctx: Any, tab: InkerDoc | None = None) -> None:
 # and does not touch the linked job.
 
 
-def _journal_slots(ctx: Any) -> list[InkerDoc]:
-    """The tabs worth copying: dirty, and not mid-write.
-
-    ``busy`` for the reason every other structural control is gated --
-    ``write_ora`` walks the layer stack, and a rotate landing mid-write
-    produces an archive whose parts disagree about the canvas size.
-    """
-    state = getattr(ctx.state, "inker", None)
-    if state is None:
-        return []
-    return [tab for tab in state.docs if tab.dirty and not tab.busy]
-
-
 def _journal_encode(tab: InkerDoc) -> bytes:
     from ....kernels.pixel import ora
 
@@ -2183,18 +2170,8 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
     return True
 
 
-JOURNAL = journal.register(
-    journal.Provider(
-        kind="inker",
-        ext=".ora",
-        label="drawing",
-        slots=_journal_slots,
-        uid_of=lambda tab: tab.uid,
-        title_of=lambda tab: tab.title,
-        head_of=lambda tab: tab.doc.history.head,
-        encode=_journal_encode,
-        adopt=_journal_adopt,
-    )
+JOURNAL = journal.tab_provider(
+    "inker", ".ora", "drawing", encode=_journal_encode, adopt=_journal_adopt
 )
 
 

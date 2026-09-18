@@ -1021,13 +1021,6 @@ def _ctrl_key(
 # seconds and is the only answer that cannot be stale.
 
 
-def _journal_slots(ctx: Any) -> list[Any]:
-    state = getattr(ctx.state, "packwright", None)
-    if state is None:
-        return []
-    return [tab for tab in state.docs if tab.dirty and not tab.busy]
-
-
 def _journal_encode(tab: Any) -> bytes:
     from .engine import wpack
 
@@ -1073,16 +1066,6 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any] | None:
     return {"doc": doc, "title": title, "path": str(path)}
 
 
-JOURNAL = journal.register(
-    journal.Provider(
-        kind="packwright",
-        ext=".wpack",
-        label="atlas",
-        slots=_journal_slots,
-        uid_of=lambda tab: tab.uid,
-        title_of=lambda tab: tab.title,
-        head_of=lambda tab: tab.doc.history.head,
-        encode=_journal_encode,
-        adopt=_journal_adopt,
-    )
+JOURNAL = journal.tab_provider(
+    "packwright", ".wpack", "atlas", encode=_journal_encode, adopt=_journal_adopt
 )
