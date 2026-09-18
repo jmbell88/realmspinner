@@ -30,8 +30,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import changelog
-from .. import (
+from ...... import changelog
+from ..... import (
     asset_open,
     controls,
     fonts,
@@ -43,11 +43,11 @@ from .. import (
     tokens,
     widgets,
 )
-from ..manual import render as manual_render
-from ..modes.create.ui import stages as create_stages
-from ..state import DEFAULT_FORM_3D, default_form_2d, format_bytes, set_mode
-from ..tokens import sp
-from . import thumbs
+from .....manual import render as manual_render
+from .....panes import thumbs
+from .....state import DEFAULT_FORM_3D, default_form_2d, format_bytes, set_mode
+from .....tokens import sp
+from ....create.ui import stages as create_stages
 
 log = logging.getLogger(__name__)
 
@@ -398,8 +398,8 @@ def _setup_status(ctx: Any) -> Status | None:
     snapshot says nothing, so a headless ctx and the first frame before the
     answers land both stay quiet rather than claiming everything is missing.
     """
-    from . import model_gate
-    from .first_run import GENERATION_ROWS
+    from .....panes import model_gate
+    from .....panes.first_run import GENERATION_ROWS
 
     rows = model_gate.missing(ctx, GENERATION_ROWS)
     if not rows:
@@ -439,7 +439,7 @@ def visible_home_rows(rows: list[Status]) -> list[Status]:
 
 
 def _count_unreviewed(svc: Any) -> int:
-    from ..modes.review.mode import SOURCE
+    from ....review.mode import SOURCE
 
     return len(svc.store.unverdicted_models(source=SOURCE, limit=UNREVIEWED_LIMIT))
 
@@ -635,7 +635,7 @@ def _tour_offer(ctx: Any) -> None:
     widgets.section("New here?")
     imgui.text_wrapped(offer.blurb)
     if widgets.primary_button(f"Start: {offer.title}##tour-offer"):
-        from . import tour as tour_pane
+        from .....panes import tour as tour_pane
 
         tour_pane.start(ctx, offer.key)
     imgui.same_line()
@@ -657,8 +657,8 @@ def _offerable_tour(ctx: Any) -> Any:
     (``first-hour``, which starts on Home and only later visits Create); a
     tour with no single mode is never gated on that basis.
     """
-    from ..tour import scripts as tour_scripts
-    from . import model_gate
+    from .....panes import model_gate
+    from .....tour import scripts as tour_scripts
 
     state = ctx.state.tour
     dismissed = _dismissed(ctx)
@@ -677,8 +677,8 @@ def _offerable_tour(ctx: Any) -> Any:
 def _dismissed(ctx: Any) -> set[str]:
     """Which tours have been declined. A list-valued setting -- ``tours_finished``
     is already one -- with the old ``"1"`` read as "all of them"."""
-    from ..settings import as_list
-    from ..tour import scripts as tour_scripts
+    from .....settings import as_list
+    from .....tour import scripts as tour_scripts
 
     stored = ctx.settings.get(TOUR_DISMISSED_KEY, None)
     if isinstance(stored, str):
@@ -716,7 +716,7 @@ _VERSION: str | None = None
 def _version() -> str:
     global _VERSION
     if _VERSION is None:
-        from ... import installed_version
+        from ...... import installed_version
 
         _VERSION = installed_version()
     return _VERSION
@@ -764,7 +764,7 @@ def _recovery(ctx: Any) -> None:
     sense -- see its docstring for why re-reading the directory here would start
     offering the user their own open documents back.
     """
-    from .. import journal
+    from ..... import journal
 
     found = list(journal.snapshot(ctx))
     if not found:
@@ -994,7 +994,7 @@ def _start(ctx: Any) -> None:
     # alone, which refuses a rigged one because it has no skinning.
     imgui.same_line()
     if widgets.ghost_button(f"{icons.FOLDER_OPEN} Import mesh..."):
-        from ..modes.library.ui.panes import library
+        from ....library.ui.panes import library
 
         library.pick_and_import_mesh(ctx)
     imgui.dummy((0, sp(tokens.SP_2)))
@@ -1036,7 +1036,7 @@ def _status(ctx: Any, status: list[Status]) -> None:
                 if row.status_filter:
                     ctx.state.filters.status = row.status_filter
                 if row.settings_category:
-                    from ..modes.settings.ui.panes.app_settings import CATEGORY_SLOT
+                    from ....settings.ui.panes.app_settings import CATEGORY_SLOT
 
                     ctx.state.preview[CATEGORY_SLOT] = row.settings_category
                 set_mode(ctx.state, row.target)
@@ -1194,7 +1194,7 @@ def _create_door(ctx: Any) -> bool:
     routed the same way (``model_gate.request_for_mode``), so Home's menu
     stops being the one door with no handle on it.
     """
-    from . import model_gate
+    from .....panes import model_gate
 
     where, _keys = model_gate.mode_gate(ctx, "create")
     if not where:
@@ -1245,7 +1245,7 @@ def start_clay(ctx: Any) -> None:
     document is minted only when there are none -- opening one over existing
     work would break the keeps-whatever-was-open contract.
     """
-    from ..modes.clay import mode as clay_mode
+    from ....clay import mode as clay_mode
 
     set_mode(ctx.state, "clay")
     if not clay_mode.ensure(ctx).docs:
@@ -1257,7 +1257,7 @@ def start_mason(ctx: Any) -> None:
     button says "new scene", so arriving with nothing open and no obvious way
     to begin is a dead end, and a document is minted only when there are
     none."""
-    from ..modes.mason import mode as mason_mode
+    from ....mason import mode as mason_mode
 
     set_mode(ctx.state, "mason")
     if not mason_mode.ensure(ctx).docs:
@@ -1265,7 +1265,7 @@ def start_mason(ctx: Any) -> None:
 
 
 def start_plotter(ctx: Any) -> None:
-    from ..modes.plotter import mode as plotter_mode
+    from ....plotter import mode as plotter_mode
 
     set_mode(ctx.state, "plotter")
     if not plotter_mode.ensure(ctx).docs:
@@ -1275,7 +1275,7 @@ def start_plotter(ctx: Any) -> None:
 
 
 def start_packwright(ctx: Any) -> None:
-    from ..modes.packwright import mode as packwright_mode
+    from ....packwright import mode as packwright_mode
 
     set_mode(ctx.state, "packwright")
     if not packwright_mode.ensure(ctx).docs:
@@ -1290,7 +1290,7 @@ def start_sirens(ctx: Any) -> None:
     empty document -- five channels, a pattern and an order that points at it,
     so the first note typed makes a sound.
     """
-    from ..modes.sirens import mode as sirens_mode
+    from ....sirens import mode as sirens_mode
 
     set_mode(ctx.state, "sirens")
     if not sirens_mode.ensure(ctx).docs:
@@ -1307,7 +1307,7 @@ def start_troupe(ctx: Any) -> None:
     Plotter *was* the act of creating a map" mistake the function above it
     exists to have stopped making.
     """
-    from ..modes.troupe import mode as troupe_mode
+    from ....troupe import mode as troupe_mode
 
     set_mode(ctx.state, "troupe")
     troupe_mode.ensure(ctx)

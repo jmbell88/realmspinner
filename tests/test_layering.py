@@ -519,7 +519,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     # for the reasons the module docstring gives. Named here because an entry
     # *was* added on the reasoning that it would be an edge, and the pin
     # refused it as stale -- which is the pin working.
-    ("warlock.studio.panes.landing", "warlock.studio.modes.create.ui.stages"),
+    ("warlock.studio.modes.home.ui.panes.landing", "warlock.studio.modes.create.ui.stages"),
 })
 
 # P3 -- shared code moves out of studio/, DONE for Familiar's headless half

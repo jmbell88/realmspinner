@@ -1072,7 +1072,7 @@ def test_the_right_sidebar_splits_inspector_and_library_by_settings_share(app_ct
 def test_the_landing_screen_builds_empty_and_with_something_to_resume(app_ctx, imgui_ctx):
     """Both states, because Home's empty state is the frame that shows none of
     its Resume rows -- which is the half a seeded smoke run never reaches."""
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     _frame(imgui_ctx, lambda: landing.draw(app_ctx))
     _seeded(app_ctx)
@@ -1088,7 +1088,7 @@ def test_the_landing_columns_are_bordered_and_rounded_surfaces(app_ctx, imgui_ct
     from imgui_bundle import imgui
 
     from warlock.studio import tokens
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     seen: dict[str, tuple[int, float]] = {}
     real = imgui.begin_child
@@ -1118,7 +1118,7 @@ def test_the_landing_screen_builds_with_unsaved_work_to_offer(app_ctx, imgui_ctx
     render as a greyed row rather than vanish.
     """
     from warlock.studio import journal
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     app_ctx.state.recovery = [
         journal.Recovered(path=Path("sketch-pd9.ora"), kind="inker", title="sketch", at=1.0),
@@ -4047,9 +4047,10 @@ def test_the_whole_frame_builds_under_every_palette(app_ctx, imgui_ctx, palette)
     *switch into*.
     """
     from warlock.studio import theme, tokens
+    from warlock.studio.modes.home.ui.panes import landing
     from warlock.studio.modes.library.ui.panes import library
     from warlock.studio.modes.settings.ui.panes import app_settings
-    from warlock.studio.panes import inspector, landing
+    from warlock.studio.panes import inspector
 
     imgui, _renderer = imgui_ctx
     _seeded(app_ctx)
@@ -4071,7 +4072,7 @@ def test_the_whole_frame_builds_under_every_palette(app_ctx, imgui_ctx, palette)
 
 def test_the_home_resume_rows_build_with_the_keyboard_cursor_on_each(app_ctx, imgui_ctx):
     from warlock.studio import recents
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     app_ctx.state.mode = "home"
     _seeded(app_ctx)

@@ -705,7 +705,7 @@ def test_troupe_holds_no_document_and_says_so_by_omission():
 def test_entering_from_home_creates_nothing(ctx, svc):
     """Unlike the four document modes: entering Plotter *was* the act of
     creating a map, silently and at whatever the default happened to be."""
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     before = len(svc.store.list())
     landing.start_troupe(ctx)

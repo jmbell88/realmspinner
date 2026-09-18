@@ -144,7 +144,7 @@ def test_home_builds_its_resume_list_once_per_job_page():
     """Three things index this list every frame -- the count, the grid and the
     keyboard -- and the asset half walks the whole cache page for each."""
     from warlock.studio import recents
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
     from warlock.studio.state import AppState
 
     class Settings:

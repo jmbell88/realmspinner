@@ -220,7 +220,7 @@ def _setup_status_constants() -> list[str]:
     """
     import ast
 
-    source = (STUDIO / "panes" / "landing.py").read_text(encoding="utf-8")
+    source = (STUDIO / "modes/home/ui/panes/landing.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.JoinedStr):

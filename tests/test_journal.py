@@ -1070,7 +1070,7 @@ def test_journal_docstring_and_kind_modes_comment_name_no_deleted_profile_kind()
     """
     import inspect
 
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     journal.ensure_providers()
     exts = {p.ext for p in journal.providers()}

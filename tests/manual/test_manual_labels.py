@@ -59,7 +59,7 @@ def test_home_new_menu_manual_lists_every_item_including_the_scene():
     more, when Mason's "New scene" made it nine, and a hand-typed number would
     have had to be found again instead of the chapter simply failing here.
     """
-    from warlock.studio.panes.landing import NEW_ITEMS
+    from warlock.studio.modes.home.ui.panes.landing import NEW_ITEMS
 
     words = {8: "eight", 9: "nine", 10: "ten"}
     counted = words[len(NEW_ITEMS)]

@@ -519,7 +519,7 @@ class EventsMixin:
             # Profiles are their own modes now, so there is no sub-view behind
             # which a cursor could move invisibly and then fire on Enter.
             if ctx.state.mode == "home":
-                from ..panes import landing
+                from ..modes.home.ui.panes import landing
 
                 if event.key in (pygame.K_UP, pygame.K_DOWN):
                     landing.move(ctx, -1 if event.key == pygame.K_UP else 1)

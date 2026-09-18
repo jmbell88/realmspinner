@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio.panes import landing
+from warlock.studio.modes.home.ui.panes import landing
 
 
 def test_the_recovery_title_is_trimmed_not_drawn_raw() -> None:

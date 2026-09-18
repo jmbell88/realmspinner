@@ -2309,9 +2309,9 @@ def test_every_new_map_door_asks_rather_than_inventing():
     import inspect
 
     from warlock.studio import palette
+    from warlock.studio.modes.home.ui.panes import landing
     from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
     from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
-    from warlock.studio.panes import landing
 
     for module in (palette, landing, plotter_bridge, plotter_canvas, plotter_mode):
         source = inspect.getsource(module)

@@ -21,7 +21,8 @@ from warlock.studio import (
     toolbar,
     widgets,
 )
-from warlock.studio.panes import landing, overlay
+from warlock.studio.modes.home.ui.panes import landing
+from warlock.studio.panes import overlay
 
 
 def test_control_sizes_follow_the_display_scale():

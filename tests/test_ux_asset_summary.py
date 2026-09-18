@@ -11,7 +11,8 @@ from __future__ import annotations
 import inspect
 
 from warlock.studio import widgets
-from warlock.studio.panes import inspector, landing
+from warlock.studio.modes.home.ui.panes import landing
+from warlock.studio.panes import inspector
 
 JOB = {
     "id": "15009c54aa81",

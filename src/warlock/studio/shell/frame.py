@@ -639,9 +639,10 @@ class FrameMixin:
         from .. import menus, modes, rail
         from .. import tokens as tokens_mod
         from ..main import _SINGLE_PANE_MODES
+        from ..modes.home.ui.panes import landing
         from ..modes.library.ui.panes import library
         from ..modes.settings.ui.panes import app_settings
-        from ..panes import bottom_pane, inspector, landing
+        from ..panes import bottom_pane, inspector
 
         ctx = self.app_ctx
         # The rail first of all, because the sidebars are fitted against what

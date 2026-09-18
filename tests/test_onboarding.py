@@ -265,8 +265,8 @@ def test_homes_new_3d_model_does_not_open_create_through_a_shut_gate(monkeypatch
     Home with no explanation. The rail and the palette both turn the same
     refusal into a trip to Settings; Home's menu must now do the same."""
     from warlock.studio.modes.create.ui import stages as create_stages
+    from warlock.studio.modes.home.ui.panes import landing
     from warlock.studio.modes.settings.ui.panes import app_settings
-    from warlock.studio.panes import landing
 
     ctx = _gated_ctx(model_rows=_MISSING_CREATE_ROWS)
     called = []
@@ -284,8 +284,8 @@ def test_homes_new_2d_image_routes_to_packs_before_models(monkeypatch):
     must agree with the rail about which door a gated Create actually points
     at, or a user sent to Models here buys nothing without the pack too."""
     from warlock.studio.modes.create.ui import stages as create_stages
+    from warlock.studio.modes.home.ui.panes import landing
     from warlock.studio.modes.settings.ui.panes import app_settings
-    from warlock.studio.panes import landing
 
     pack_row = {
         "key": "text2image",
@@ -309,7 +309,7 @@ def test_homes_new_menu_still_opens_create_once_the_door_is_open(monkeypatch):
     """The gate check must not itself become a new way to refuse a healthy
     install: with everything present, the New... menu still opens Create."""
     from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     present_rows = [dict(row, present=True) for row in _MISSING_CREATE_ROWS]
     ctx = _gated_ctx(model_rows=present_rows)
@@ -327,7 +327,7 @@ def test_a_tour_whose_mode_is_gated_is_not_offered():
     step waits on ``Condition("mode_is", "muse")`` -- which ``state.set_mode``
     refuses outright while the ACE-Step weights are missing (H14). Offered
     anyway, the card would sit on step 1 forever with no way forward."""
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
     from warlock.studio.tour import scripts as tour_scripts
 
     row = {"row_key": "music:ace_step_v1", "present": False, "size_gib": 8.3}
@@ -343,7 +343,7 @@ def test_a_tour_whose_mode_is_gated_is_not_offered():
 def test_an_ungated_tour_is_offered_once_its_door_is_open():
     """The other direction: a gate check that never lifts is as wrong as one
     that never falls."""
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
     from warlock.studio.tour import scripts as tour_scripts
 
     row = {"row_key": "music:ace_step_v1", "present": True, "size_gib": 8.3}

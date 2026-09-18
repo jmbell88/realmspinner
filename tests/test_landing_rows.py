@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from warlock.studio import recents
-from warlock.studio.panes import landing
+from warlock.studio.modes.home.ui.panes import landing
 from warlock.studio.state import AppState
 
 

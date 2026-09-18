@@ -188,7 +188,7 @@ _CONVERTED_TO_DOWNLOAD = (
 )
 
 _CONVERTED_TO_FOLDER_OPEN = (
-    (STUDIO_ROOT / "panes" / "landing.py", '{icons.FOLDER_OPEN} Import mesh...'),
+    (STUDIO_ROOT / "modes/home/ui/panes/landing.py", '{icons.FOLDER_OPEN} Import mesh...'),
     (STUDIO_ROOT / "modes/sirens/ui/panes/instruments.py", '{icons.FOLDER_OPEN} Import...'),
 )
 

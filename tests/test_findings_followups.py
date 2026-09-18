@@ -18,7 +18,7 @@ def test_every_recent_kind_has_an_opener_with_an_open_path():
     """``open_row``'s opener table and ``_KIND_MODES`` had drifted: a ``.wsng``
     row did nothing on click, with no toast."""
     from warlock.studio import recents
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     assert set(landing.KIND_OPENERS) == set(recents.KINDS)
     for kind, module in landing.KIND_OPENERS.items():

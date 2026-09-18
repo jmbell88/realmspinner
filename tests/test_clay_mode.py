@@ -932,7 +932,7 @@ def test_adopting_while_already_in_clay_keeps_the_escape_history(tmp_path: Path)
 def test_the_home_tile_mints_a_document_when_clay_is_empty() -> None:
     """The tile says "model something", so arriving with nothing open and no
     obvious way to begin is a dead end."""
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     ctx = FakeCtx()
     landing.start_clay(ctx)
@@ -946,7 +946,7 @@ def test_the_home_tile_mints_a_document_when_clay_is_empty() -> None:
 def test_the_home_tile_opens_nothing_over_work_already_there() -> None:
     """The other half of the contract Inker and Clay share: the documents *are*
     the work, so entering the mode must leave them exactly as they were."""
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     ctx = FakeCtx()
     tab = _tab(ctx)

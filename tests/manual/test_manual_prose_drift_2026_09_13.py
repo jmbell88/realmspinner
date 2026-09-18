@@ -254,7 +254,7 @@ def test_manual_review_start_from_current_settings_label():
 
 
 def test_manual_home_setup_row_label_matches_landing_pane():
-    landing = (STUDIO / "panes" / "landing.py").read_text(encoding="utf-8")
+    landing = (STUDIO / "modes/home/ui/panes/landing.py").read_text(encoding="utf-8")
     assert "Generation is not set up yet" in landing
 
     text = _chapter("43-troubleshooting.md")

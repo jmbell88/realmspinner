@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from warlock.studio import icons, modes, recents
-from warlock.studio.panes import landing
+from warlock.studio.modes.home.ui.panes import landing
 from warlock.studio.state import AppState
 
 

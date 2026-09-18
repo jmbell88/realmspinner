@@ -25,7 +25,7 @@ import pytest
 from test_studio_wiring import FakeSettings, _ctx, _teardown_app
 
 from warlock.studio import journal, mode_manifest, modes, palette
-from warlock.studio.panes import landing
+from warlock.studio.modes.home.ui.panes import landing
 
 
 @pytest.fixture

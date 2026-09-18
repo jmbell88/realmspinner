@@ -96,7 +96,7 @@ def test_new_items_comment_count_matches_its_own_length():
     """shell-15: the comment above ``NEW_ITEMS`` no longer names a stale
     length ("eight" when the tuple held nine)."""
 
-    path = SRC / "panes" / "landing.py"
+    path = SRC / "modes/home/ui/panes/landing.py"
     lines = path.read_text().splitlines()
     tree = ast.parse("\n".join(lines))
     (node,) = [

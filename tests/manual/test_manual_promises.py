@@ -425,7 +425,7 @@ def test_manual_home_status_rows_match_landing_HOME_STATUS():
     rail badge and the startup banner already carry it, and a third rendering
     is a third place to keep in step. The "setup" row Home *does* draw was
     documented nowhere."""
-    from warlock.studio.panes import landing
+    from warlock.studio.modes.home.ui.panes import landing
 
     assert "health" not in landing.HOME_STATUS, (
         "sanity: Home grew a health row, so this pin is now backwards"
