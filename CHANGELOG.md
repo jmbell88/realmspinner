@@ -26,6 +26,27 @@ data-loss bug five modes shared: opening a file that was already open in another
 tab made a second, independent tab on the same path, and whichever tab saved
 last silently discarded the other's edits.
 
+- **Inker's Walk Cycle no longer shows two bars above the canvas.** While a
+  walk session was open, the ordinary tool bar — brush, size, symmetry, all
+  still live — drew above the walk row's next / Bake / Cancel. The walk row
+  is now the only bar until the session ends.
+- **A Flourish restyle can no longer undo a frame cut.** A restyle takes tens
+  of seconds; if the effect was regenerated shorter while it ran, landing the
+  restyle regrew the timeline and painted its frames onto the wrong cels. It
+  now notices the effect has moved and declines with a message instead.
+- **Rotating or scaling a selection dragged far off the canvas can no longer
+  build an image past the transform size ceiling.** The ceiling bounded the
+  scale but not the padding around a pivot, and a selection moved 50,000
+  pixels away padded a plane six times wider than the ceiling allows.
+- **A pixel-mode Flourish bake holds a fraction of the memory it did.** It
+  kept every frame at full supersampled float precision until the end —
+  about 3 GiB for an effect the cost check accepted. Each frame is now
+  reduced as it is drawn (the pixels are identical), and an effect that
+  would still need more than 512 MiB is refused before it starts.
+- **A small crafted `.ora` can no longer make Inker loop over millions of
+  entries on open.** Nine metadata lists — group bindings, a Flourish
+  effect's own records, the sheet-merge block, and the tilemap cels — had
+  no count ceiling while their siblings did.
 - **Create's candidate picker no longer re-scans and re-sorts the whole job
   history every frame.** Four places on the Create canvas each asked "is a
   candidate group waiting?" independently, every frame, by walking every job

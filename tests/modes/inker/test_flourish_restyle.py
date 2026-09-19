@@ -325,6 +325,58 @@ def test_submit_restyle_does_not_encode_png_on_the_frame_thread(tmp_path, monkey
     assert len(calls) == 3  # one per anchor frame
 
 
+def test_a_regenerate_landing_while_a_restyle_is_in_flight_does_not_resurrect_trimmed_frames(
+    tmp_path,
+):
+    """The 2026-09-19 audit, inker-02: ``submit_restyle`` captures the
+    phase's flat frame span once, at submit time, and ``land_restyle`` used
+    to land on it unconditionally. If the user cut frames off the timeline
+    while the restyle rendered off-thread, the span it landed on named
+    indices that no longer existed; ``insert_flourish_track``'s
+    ``_flourish_ensure_frames`` then regrew the grid to fit them, undoing the
+    user's own cut and landing the restyled cels on the wrong frames.
+    ``land_prompt`` already refuses to land a stale snapshot this way --
+    this is the same discipline for a restyle.
+    """
+    ctx, tab, group = _scene(tmp_path)
+    held = tab.doc.flourish_state(group)
+    anim = tab.doc.anim
+    span = inker_flourish._phase_span(held, anim, "sparks")
+    assert span is not None
+    first, last = span
+    assert last > first  # the phase spans more than one frame, or the cut below is a no-op
+
+    # Cut the tail of the timeline down to just past the phase's first frame
+    # -- the shape of a user trimming frames while the restyle was in flight.
+    cut_to = first + 1
+    while len(anim.frames) > cut_to:
+        tab.doc.remove_frame(len(anim.frames) - 1)
+    trimmed_frame_count = len(anim.frames)
+    tracks_before = len(anim.tracks)
+
+    pending = {
+        "tab_uid": tab.uid,
+        "group": group,
+        "phase": "sparks",
+        "span": [first, last],  # the stale span, captured before the cut
+        "jobs": {},
+        "frames": [first, last],
+        "next_poll": 0.0,
+        "subject": "",
+    }
+    cels = {i: _plane((5, 5, 5, 255), (32, 32)) for i in range(first, last + 1)}
+    done = Done(key="land", result={"pending": pending, "cels": cels})
+
+    landed = inker_flourish.land_restyle(ctx, ctx.state.inker, done)
+
+    assert landed is False
+    # The cut must survive: nothing regrows the frames the user removed.
+    assert len(tab.doc.anim.frames) == trimmed_frame_count
+    # And no snapshot track landed on the stale, now out-of-range indices.
+    assert len(tab.doc.anim.tracks) == tracks_before
+    assert ctx.toasts[-1][1] == "info"
+
+
 def test_a_failed_job_ends_the_restyle_with_a_warning(tmp_path):
     ctx, tab, group = _scene(tmp_path)
     state = ctx.state.inker

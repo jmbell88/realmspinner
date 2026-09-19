@@ -206,3 +206,80 @@ def test_a_copy_does_not_alias_the_live_base():
 
     assert snapshot.digests == {11: "a"}
     assert snapshot.conflicts == {11}
+
+
+# -- the ceiling, at the ora.py caller ----------------------------------------
+#
+# base_from_payload itself carries no ceiling on "cells"/"conflicts" and never
+# will: this module is pure and may not import ora.py to check itself
+# (layering). The 2026-09-19 audit, finding inker-05, found the caller had no
+# ceiling either -- unlike every sibling list ora.py already bounds -- so the
+# refusal lives in ora._read_sheet_base, before it calls base_from_payload at
+# all. The audit's own probe walked 4,000,000 "cells" in ~1s to keep one
+# digest. Reached through ora._read_sheet_base directly (a stub doc/anim, not
+# a whole .ora) because that is where the guard actually lives.
+
+
+def test_read_sheet_base_refuses_a_cells_list_past_the_ceiling(monkeypatch):
+    from types import SimpleNamespace
+
+    from warlock.kernels.pixel import ora
+
+    calls: list[int] = []
+    original = sheetmerge.base_from_payload
+
+    def _counting(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sheetmerge, "base_from_payload", _counting)
+
+    doc = SimpleNamespace(
+        anim=SimpleNamespace(frames=[SimpleNamespace(uid=i) for i in range(8)]),
+        sheet_base=None,
+    )
+    payload = {
+        "sheet": {
+            "algorithm": sheetmerge.DIGEST_ALGORITHM,
+            "cells": [
+                {"frame": 0, "digest": "a" * 32}
+                for _ in range(ora.MAX_ORA_METADATA_ENTRIES + 1)
+            ],
+            "conflicts": [],
+        }
+    }
+
+    ora._read_sheet_base(doc, payload)
+    assert calls == []
+    assert doc.sheet_base is None
+
+
+def test_read_sheet_base_refuses_a_conflicts_list_past_the_ceiling(monkeypatch):
+    from types import SimpleNamespace
+
+    from warlock.kernels.pixel import ora
+
+    calls: list[int] = []
+    original = sheetmerge.base_from_payload
+
+    def _counting(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sheetmerge, "base_from_payload", _counting)
+
+    doc = SimpleNamespace(
+        anim=SimpleNamespace(frames=[SimpleNamespace(uid=i) for i in range(8)]),
+        sheet_base=None,
+    )
+    payload = {
+        "sheet": {
+            "algorithm": sheetmerge.DIGEST_ALGORITHM,
+            "cells": [{"frame": 0, "digest": "a" * 32}],
+            "conflicts": [0] * (ora.MAX_ORA_METADATA_ENTRIES + 1),
+        }
+    }
+
+    ora._read_sheet_base(doc, payload)
+    assert calls == []
+    assert doc.sheet_base is None

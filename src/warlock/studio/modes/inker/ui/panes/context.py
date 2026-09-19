@@ -12,12 +12,17 @@ particular that *every* key in ``TOOL_OPTION_DEFAULTS`` is reachable from some
 tool's bar. An option that quietly became unreachable when it left the sidebar
 would be the one real risk of this move.
 
-**Four state bars take precedence over the tool bar**, checked in order, and
-the order is the modality: a transform, then a floating buffer, then a
-half-finished gesture, then a selection. Each is about something the user is in
-the middle of, and while they are in the middle of it that is what the row is
-for. The selection bar is the only one that also draws under a tool bar,
-because a mask outlives the gesture that made it.
+**State bars take precedence over the tool bar**, checked in order by
+``which_bar``, and the order is the modality: a transform, then a floating
+buffer, then a half-finished gesture, then an open walk-cycle session, then a
+selection. Each is about something the user is in the middle of, and while
+they are in the middle of it that is what the row is for. The selection bar is
+the only one that also draws under a tool bar, because a mask outlives the
+gesture that made it. The walk bar is the only one that draws *nothing* here
+-- ``inker_walk_canvas.row`` is its own bar, drawn separately by
+``inker_canvas.draw`` -- because before the 2026-09-19 audit (inker-03) a walk
+session had no branch here at all and fell through to the tool bar, stacking
+two bars above the canvas.
 """
 
 from __future__ import annotations
@@ -31,6 +36,7 @@ from ..... import controls, icons, toolbar, widgets
 from .....tokens import sp
 from ... import mode as inker_mode
 from ... import state as inker_state
+from ... import walk as inker_walk
 
 #: How wide a context field is, in design px, per widget kind. A number rather
 #: than a measurement: a field's natural size is a decision, and ``toolbar``
@@ -120,19 +126,47 @@ SYMMETRY_TOGGLES: tuple[tuple[str, str, str], ...] = (
 SYMMETRY_RESET = "symreset"
 
 
+def which_bar(state: Any, tab: Any) -> str:
+    """The precedence decision, pure so a test can call it with no imgui context.
+
+    The 2026-09-19 audit (inker-03): this used to be an ``if``/``elif`` chain
+    inline in ``draw`` with no branch for a walk session, so an open session
+    fell through to ``_tool_bar`` -- the tool context bar and
+    ``inker_walk_canvas.row`` both drew above the canvas at once, breaking the
+    INVARIANTS promise that Inker has one bar there and it is the context bar.
+    Returns ``""`` for "nothing to draw" (no tab).
+    """
+    if tab is None:
+        return ""
+    if state.transforming:
+        return "transform"
+    if tab.doc.floating is not None:
+        return "float"
+    if state.gesture_pts:
+        return "gesture"
+    if inker_walk.session(state, tab) is not None:
+        return "walk"
+    return "tool"
+
+
 def draw(ctx: Any, state: Any, tab: Any) -> None:
     """The bar. Called by the canvas, between the tab bar and the image."""
 
-    if tab is None:
+    which = which_bar(state, tab)
+    if which == "":
         return
-    if state.transforming:
+    if which == "transform":
         _transform_bar(ctx, state, tab)
         return
-    if tab.doc.floating is not None:
+    if which == "float":
         _float_bar(ctx, state, tab)
         return
-    if state.gesture_pts:
+    if which == "gesture":
         _gesture_bar(ctx, state, tab)
+        return
+    if which == "walk":
+        # Nothing: ``inker_walk_canvas.row`` is the walk session's own bar,
+        # drawn by ``inker_canvas.draw`` right after this call returns.
         return
     _tool_bar(ctx, state, tab)
     if tab.doc.mask is not None:

@@ -208,6 +208,47 @@ def test_the_pivot_is_clamped_to_the_canvas():
     assert doc.floating.pivot == (0.0, 24.0)
 
 
+def test_a_floating_buffer_dragged_off_canvas_then_pivoted_does_not_blow_the_transform_ceiling(
+    monkeypatch,
+):
+    """The 2026-09-19 audit's pivot reopening of the 2026-09-11 scale-ceiling
+    defect. ``set_floating_pivot`` clamps the pivot to the *document*'s
+    bounds, not to the buffer -- and ``move_floating``/``FloatingBuffer.moved``
+    never clamp ``offset`` at all. Drag the buffer far off-canvas and pivot
+    back onto the page and ``pivot_local`` (canvas pivot minus the buffer's
+    own, unclamped, remembered corner) is huge, so ``_pad_to_pivot`` -- which
+    has no ceiling of its own -- padded a plane sized by that distance rather
+    than by :data:`~warlock.kernels.pixel.selection.MAX_TRANSFORM_SIDE`, the
+    same ceiling :func:`FloatingBuffer.transform`'s scale already respects.
+
+    The final buffer is cropped back to its mask's coverage, so asserting on
+    ``buf.size`` alone would pass even on the unfixed code -- the cost was
+    already spent padding and rotating a plane nobody keeps. The spy below
+    catches the padded plane itself, before the crop throws the evidence away.
+    """
+    from warlock.kernels.pixel import selection as sel
+
+    seen: list[tuple[int, int]] = []
+    real_pad = sel._pad_to_pivot
+
+    def spy(source, mask, pivot):
+        padded, padded_mask, pads = real_pad(source, mask, pivot)
+        seen.append(padded.shape[:2])
+        return padded, padded_mask, pads
+
+    monkeypatch.setattr(sel, "_pad_to_pivot", spy)
+
+    doc = _floated()
+    doc.move_floating(-50_000, 0)
+    assert doc.set_floating_pivot((0.0, 0.0))
+    assert doc.transform_floating(angle=15.0, resample="nearest")
+
+    assert seen, "the render must have padded the source at least once"
+    for height, width in seen:
+        assert width <= sel.MAX_TRANSFORM_SIDE
+        assert height <= sel.MAX_TRANSFORM_SIDE
+
+
 def test_setting_the_pivot_to_none_goes_back_to_the_centred_render():
     """And *in place*: dropping the pivot re-centres on where the subject
     already is rather than teleporting it back to where a never-pivoted gesture

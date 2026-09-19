@@ -155,8 +155,28 @@ def bake(
     total = recipe.frame_count * count
     done = 0
 
+    # Pixel mode never keeps a frame's full supersampled float32 composite
+    # alive once it has been produced: the 2026-09-19 audit (inker-04) found
+    # that ``raw_composites`` held one such plane (16 bytes/raster-pixel) per
+    # frame of every phase and direction until the whole bake finished, which
+    # ``check_bake_cost`` -- a *time* budget, not a memory one -- could still
+    # wave through at up to 3.16 GiB. Each composite is instead reduced, the
+    # moment it exists, to the two logical-size uint8 arrays the rest of this
+    # function actually consumes: the derived-palette contact-sheet tile
+    # (``R.to_uint8``, skipped when the palette is already known) and the
+    # box-reduced draft ``_pixelize`` quantises (``pixelize.reduce`` -- the
+    # same call ``_pixelize`` used to make internally, just run here instead
+    # of after every direction has rendered). Both are pure functions of the
+    # composite, and ``pixelize.reduce`` is a no-op on an image already at
+    # its target size, so this reproduces the old output byte for byte.
+    needs_tiles = pixel and not palette and not recipe.palette
+    if pixel:
+        from PIL import Image as _Image
+
+        from warlock.pipelines import pixelize as _pixelize_mod
+
     facings: list[Facing] = []
-    raw_composites: list[tuple[Facing, str, np.ndarray]] = []
+    raw_composites: list[tuple[Facing, str, Any, np.ndarray | None]] = []
     for name, degrees in zip(names, angles, strict=True):
         facing = Facing(name=name, degrees=degrees)
         for phase in recipe.phases:
@@ -169,7 +189,13 @@ def bake(
                 planes = R.render(recipe, frame, degrees, assets)
                 comp = R.composite(recipe, planes, phase.name)
                 if pixel:
-                    raw_composites.append((facing, phase.name, comp))
+                    small = _pixelize_mod.reduce(
+                        _Image.fromarray(_straight(comp), "RGBA"),
+                        (recipe.width, recipe.height),
+                        mode="box",
+                    )
+                    tile = R.to_uint8(comp, s) if needs_tiles else None
+                    raw_composites.append((facing, phase.name, small, tile))
                 else:
                     facing.composites[phase.name].append(R.to_uint8(comp, s))
                     for layer in recipe.layers:
@@ -193,28 +219,31 @@ def bake(
         return Bake(recipe=recipe, facings=facings, palette=None, palette_source="none")
 
     entries, source = _resolve(recipe, raw_composites, palette)
-    for facing, phase_name, comp in raw_composites:
-        facing.composites[phase_name].append(_pixelize(comp, recipe, entries, dither))
+    for facing, phase_name, small, _tile in raw_composites:
+        facing.composites[phase_name].append(_pixelize(small, recipe, entries, dither))
     return Bake(recipe=recipe, facings=facings, palette=entries, palette_source=source)
 
 
 def _resolve(
     recipe: Recipe,
-    composites: list[tuple[Facing, str, np.ndarray]],
+    composites: list[tuple[Facing, str, Any, np.ndarray | None]],
     override: tuple[RGB, ...] | None,
 ) -> tuple[tuple[RGB, ...], str]:
     from PIL import Image
 
-    from warlock.pipelines import pixel, pixelsheet
+    from warlock.pipelines import pixelsheet
 
     if override:
         return tuple(override), "designed"
     if recipe.palette:
+        from warlock.pipelines import pixel
+
         return pixel.parse_hex("\n".join(recipe.palette)), "designed"
     # A contact sheet of every frame at logical size: the palette has to see
-    # the cast's glow and the dissipate's ash, not one or the other.
-    s = int(recipe.supersample)
-    tiles = [R.to_uint8(comp, s) for _, _, comp in composites]
+    # the cast's glow and the dissipate's ash, not one or the other. Each
+    # tile was already reduced from the raw composite in the main loop above
+    # (the 2026-09-19 audit, inker-04) rather than kept around to compute here.
+    tiles = [tile for _, _, _, tile in composites if tile is not None]
     if not tiles:
         return ((0, 0, 0),), "derived"
     cols = max(1, int(np.ceil(np.sqrt(len(tiles)))))
@@ -231,16 +260,16 @@ def _resolve(
     return tuple(entries), source
 
 
-def _pixelize(
-    comp: np.ndarray, recipe: Recipe, entries: tuple[RGB, ...], dither: bool
-) -> np.ndarray:
-    from PIL import Image
-
+def _pixelize(small: Any, recipe: Recipe, entries: tuple[RGB, ...], dither: bool) -> np.ndarray:
+    """``small`` is already the box-reduced logical-size RGBA image the main
+    loop produced (see the 2026-09-19 audit, inker-04): ``pixelize.pixelize``
+    below reduces to the same ``size`` again, which is a no-op on an image
+    already there, so this is byte-identical to reducing here for the first
+    time."""
     from warlock.pipelines import pixelize
 
-    big = Image.fromarray(_straight(comp), "RGBA")
-    small, _report = pixelize.pixelize(
-        big,
+    result, _report = pixelize.pixelize(
+        small,
         size=(recipe.width, recipe.height),
         palette=entries,
         dither=dither,
@@ -248,4 +277,4 @@ def _pixelize(
         outline_mode="none",
         clean=True,
     )
-    return np.asarray(small.convert("RGBA"), dtype=np.uint8).copy()
+    return np.asarray(result.convert("RGBA"), dtype=np.uint8).copy()

@@ -300,10 +300,59 @@ def bake_cost(recipe: Recipe, directions: int | None = None) -> int:
     )
 
 
+#: Bytes ``bake()`` holds *at once* per frame-direction in pixel mode, after
+#: the restructure in ``bake.py`` (the 2026-09-19 audit, inker-04): each
+#: composite is reduced, the moment it is rendered, to the two logical-size
+#: uint8 RGBA arrays ``_resolve``/``_pixelize`` actually need -- the
+#: derived-palette contact-sheet tile and the box-reduced draft ``_pixelize``
+#: quantises -- rather than kept as the full supersampled float32 composite
+#: (measured at 16 bytes per raw pixel, ``s ** 2`` times as many pixels as
+#: this) that ``raw_composites`` used to carry until the whole bake finished.
+#: 2 arrays * 4 channels * 1 byte each.
+PIXEL_HELD_BYTES_PER_PIXEL = 8
+
+#: The byte ceiling this build holds for a pixel-mode bake's composites at
+#: once. ``MAX_BAKE_COST`` prices render *time* and is weighted per layer (a
+#: "particles" layer at its own maximum costs ~17,000x "one ordinary layer",
+#: see :data:`_COST_PARAMS`), but the two small arrays a pixel-mode composite
+#: now reduces to do not scale with a layer's own parameters at all -- only
+#: canvas size, frame count and direction count drive them. A recipe with no
+#: expensive layers can still ride the *time* budget all the way to
+#: ``MAX_BAKE_COST`` at ``supersample=1``, where the restructure above saves
+#: proportionally the least (there is no supersampling to shed), and still
+#: hold three quarters of a GiB. 512 MiB is comfortably above any real
+#: recipe (a nine-layer, nine-direction fireball at the default 128px canvas
+#: is a couple of MiB) and a hard stop on the worst case the restructure
+#: alone does not bound. The 2026-09-19 audit, inker-04.
+MAX_PIXEL_BAKE_BYTES = 512 * 1024 * 1024
+
+
+def pixel_bake_bytes(recipe: Recipe, directions: int | None = None) -> int:
+    """The bytes ``bake()`` holds at once for ``recipe``'s composites in
+    pixel mode. See :data:`PIXEL_HELD_BYTES_PER_PIXEL`. Unlike
+    :func:`bake_cost`, this is independent of a layer's own parameters --
+    the two small arrays a pixel-mode composite reduces to are the same size
+    no matter what a "particles"/"smoke"/"trail" layer's own sliders ask the
+    renderer to draw."""
+    count = int(directions) if directions is not None else int(recipe.directions)
+    return int(
+        int(recipe.width)
+        * int(recipe.height)
+        * PIXEL_HELD_BYTES_PER_PIXEL
+        * int(recipe.frame_count)
+        * max(1, count)
+    )
+
+
 def check_bake_cost(recipe: Recipe, directions: int | None = None) -> None:
     """Refuse a bake before it is submitted, rather than let it freeze
     Regenerate indefinitely or raise ``MemoryError`` partway through with no
-    way to cancel. See :data:`MAX_BAKE_COST`."""
+    way to cancel. See :data:`MAX_BAKE_COST`.
+
+    In pixel mode this also refuses a recipe whose held composite bytes
+    would cross :data:`MAX_PIXEL_BAKE_BYTES`, a check ``bake_cost`` alone
+    cannot make since that cost is priced per layer and composite memory is
+    not (the 2026-09-19 audit, inker-04)."""
     cost = bake_cost(recipe, directions)
     if cost > MAX_BAKE_COST:
         raise ValueError(
@@ -311,6 +360,15 @@ def check_bake_cost(recipe: Recipe, directions: int | None = None) -> None:
             f"the {MAX_BAKE_COST:,} this build will bake in one request -- "
             "lower the size, supersampling, frame count, directions or layers"
         )
+    if recipe.mode == "pixel":
+        held = pixel_bake_bytes(recipe, directions)
+        if held > MAX_PIXEL_BAKE_BYTES:
+            raise ValueError(
+                f"this effect would hold about {held:,} bytes of pixel-mode "
+                f"composites at once, past the {MAX_PIXEL_BAKE_BYTES:,} this "
+                "build will bake in one request -- lower the size, frame "
+                "count or directions"
+            )
 
 
 # -- codec ----------------------------------------------------------------------

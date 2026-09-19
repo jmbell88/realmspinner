@@ -309,6 +309,62 @@ def test_corrupt_tilerefs_member_drops_structure_but_keeps_pixels(
     assert any(ora.TILES_MEMBER in record.message for record in caplog.records)
 
 
+# -- containment: an uncapped tracks/cels list costs structure, keeps pixels -
+
+
+def test_read_tiles_refuses_a_tracks_list_that_repeats_one_entry_past_the_ceiling(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    """The 2026-09-19 audit, finding inker-06: ``tiles.json``'s own "tracks"
+    list had no ceiling, unlike "tilesets" (capped since the 2026-09-11
+    audit's inker-03) -- a crafted file could repeat one binding tens of
+    thousands of times with no refusal."""
+    doc = _animated_doc()
+    path = tmp_path / "many_tile_tracks.ora"
+    ora.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        payload = json.loads(zf.read(ora.TILES_MEMBER))
+    binding = payload["tracks"][0]
+    payload["tracks"] = [binding] * (ora.MAX_ORA_METADATA_ENTRIES + 1)
+    _rewrite_member(path, ora.TILES_MEMBER, json.dumps(payload).encode("utf-8"))
+
+    with caplog.at_level(logging.WARNING):
+        back = ora.read_ora(path)
+
+    assert back.tilesets == []
+    assert not isinstance(back.stack[1], TilemapCel)
+    assert np.array_equal(back.stack[1].pixels, doc.stack[1].pixels)
+    assert any(ora.TILES_MEMBER in record.message for record in caplog.records)
+
+
+def test_read_tiles_refuses_a_cels_list_that_repeats_one_entry_past_the_ceiling(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    """The 2026-09-19 audit, finding inker-06: "cels" entries are not
+    deduplicated, so one valid entry repeated N times ran ``_new_cel`` -- a
+    canvas-sized refs rebuild -- N times, exactly the shape "tilesets" was
+    capped for. Pins the containment shape (structure dropped, pixels kept),
+    the same as every other way ``tiles.json`` can be wrong."""
+    doc = _still_doc()
+    path = tmp_path / "many_cels.ora"
+    ora.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        payload = json.loads(zf.read(ora.TILES_MEMBER))
+    cel_entry = payload["cels"][0]
+    payload["cels"] = [cel_entry] * (ora.MAX_ORA_LAYERS + 1)
+    _rewrite_member(path, ora.TILES_MEMBER, json.dumps(payload).encode("utf-8"))
+
+    with caplog.at_level(logging.WARNING):
+        back = ora.read_ora(path)
+
+    assert back.tilesets == []
+    assert not isinstance(back.stack[1], TilemapCel)
+    assert np.array_equal(back.stack[1].pixels, doc.stack[1].pixels)
+    assert any(ora.TILES_MEMBER in record.message for record in caplog.records)
+
+
 # -- an unreferenced tileset is not garbage -----------------------------------
 
 

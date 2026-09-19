@@ -10,10 +10,50 @@ directions.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from warlock.kernels import pixel as inker
 from warlock.studio.modes.inker import state as inker_state
+
+
+def test_context_bar_draws_nothing_while_a_walk_session_is_open(monkeypatch):
+    """inker-03 (2026-09-19 audit): ``context.draw``'s precedence chain --
+    transform, then floating, then gesture, then the tool bar -- had no branch
+    for an open walk session, so a session fell through to ``_tool_bar``. The
+    ordinary tool bar and the walk session's own row
+    (``inker_walk_canvas.row``, drawn separately by ``inker_canvas.draw``
+    right after this one) both landed above the canvas at once, breaking the
+    INVARIANTS promise that Inker has one bar there and it is the context bar.
+
+    ``which_bar`` is the pure predicate ``draw`` dispatches on -- callable with
+    no imgui context, the same way the rest of this file tests dispatch -- and
+    a walk session has to win the way a transform already does. The second
+    half proves ``draw`` actually honours it: every other bar function is
+    monkeypatched to fail the test if called while the session is open.
+    """
+    from warlock.studio.modes.inker import walk as inker_walk
+    from warlock.studio.modes.inker.ui.panes import context as inker_context
+
+    state = inker_state.InkerState()
+    tab = SimpleNamespace(doc=inker.Document.blank(32, 32), uid="t", busy=False)
+    state.docs.append(tab)
+    state.active_uid = "t"
+    ctx = SimpleNamespace(state=SimpleNamespace(inker=state), viewer=None)
+    assert inker_walk.open_session(ctx, tab)
+
+    assert inker_context.which_bar(state, tab) == "walk"
+
+    for name in (
+        "_transform_bar", "_float_bar", "_gesture_bar", "_tool_bar", "_selection_bar",
+    ):
+        def _fail(*_a, _n=name, **_k):
+            pytest.fail(f"{_n} drew while a walk session was open")
+
+        monkeypatch.setattr(inker_context, name, _fail)
+
+    inker_context.draw(ctx, state, tab)
 
 
 def test_every_option_is_reachable_from_some_tools_bar():

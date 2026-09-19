@@ -1246,8 +1246,29 @@ def land_restyle(ctx: Any, state: Any, done: Any) -> bool:
     if tab is None:
         return False
     group = int(pending["group"])
-    if tab.doc.flourish_state(group) is None:
+    held = tab.doc.flourish_state(group)
+    if held is None:
         ctx.toast("That effect was detached while its keyframes restyled.", "info")
+        return False
+    anim = tab.doc.anim
+    span = _phase_span(held, anim, pending["phase"]) if anim is not None else None
+    if span is None or list(span) != list(pending["span"]):
+        # The 2026-09-19 audit, finding inker-02: this used to land on
+        # ``pending["span"]`` -- the phase's flat frame span captured once,
+        # back at ``submit_restyle`` time -- no matter what the timeline had
+        # become while the restyle rendered off-thread. A frame cut moves
+        # ``tag_span``'s clamp (it bounds a tag to ``len(anim.frames) - 1``),
+        # so the span recomputed here differs the moment frames the restyle
+        # was keyed to no longer exist; landing on the stale one anyway made
+        # ``insert_flourish_track``'s ``_flourish_ensure_frames`` regrow the
+        # grid to fit indices the user had just cut, undoing their own edit
+        # and placing the restyled cels on the wrong frames. ``land_prompt``
+        # already refuses a stale snapshot this way; this is the same
+        # discipline for a restyle.
+        ctx.toast(
+            "The effect's frames changed while the restyle rendered; it was dropped.",
+            "info",
+        )
         return False
     name = f"Restyled {pending['phase']}"
     tab.doc.insert_flourish_track(group, name, result["cels"])

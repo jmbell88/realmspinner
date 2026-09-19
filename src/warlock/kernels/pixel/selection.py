@@ -731,6 +731,42 @@ def _coverage(mask: np.ndarray) -> tuple[int, int, int, int] | None:
     return (int(cols[0]), int(rows[0]), int(cols[-1]) + 1, int(rows[-1]) + 1)
 
 
+def _clamp_pivot_to_pad_ceiling(
+    source: np.ndarray, pivot: tuple[float, float]
+) -> tuple[float, float]:
+    """Bound how far ``pivot`` may sit from ``source`` before ``_pad_to_pivot``
+    would pad past :data:`MAX_TRANSFORM_SIDE`.
+
+    ``_pad_to_pivot`` pads *one* side per axis by however far the pivot sits
+    from that axis's own extent, with no ceiling of its own -- it trusts every
+    caller to hand it a sane point. That trust broke on the 2026-09-19 audit,
+    reopening the 2026-09-11 scale-ceiling defect through the pivot instead of
+    the scale: a floating buffer's ``offset`` is never clamped
+    (``FloatingBuffer.moved``/``Document.move_floating``), so a selection
+    dragged far off-canvas and then pivoted back onto the page
+    (``set_floating_pivot`` clamps only to the *document*, not to the buffer)
+    produced a ``pivot_local`` -- canvas pivot minus the buffer's own,
+    unclamped, remembered corner -- whose distance from the source was
+    unrelated to :data:`MAX_TRANSFORM_SIDE`, so the pad it drove was too.
+    Clamped once, here, for every caller of :func:`render_transform_about`
+    (the free transform, the ranged replay and the walk renderer) rather than
+    at each site that computes a pivot.
+
+    The bound: padding one axis to centre ``pivot`` at the padded array's
+    middle costs ``2 * max(pivot, extent - pivot)`` on that axis (one side
+    pads, the other does not), so keeping that at or under the ceiling means
+    keeping ``pivot`` within ``[extent - ceiling/2, ceiling/2]`` -- sorted,
+    since a caller could in principle hand a ``source`` already wider than
+    the ceiling.
+    """
+    height, width = source.shape[:2]
+    half = MAX_TRANSFORM_SIDE / 2.0
+    px, py = float(pivot[0]), float(pivot[1])
+    x_lo, x_hi = sorted((width - half, half))
+    y_lo, y_hi = sorted((height - half, half))
+    return (min(max(px, x_lo), x_hi), min(max(py, y_lo), y_hi))
+
+
 def render_transform_about(
     source: np.ndarray,
     mask: np.ndarray,
@@ -764,6 +800,7 @@ def render_transform_about(
     Two callers, like :func:`render_transform` and for the same reason: the
     buffer's live render and ``Document._replay_transform_on``.
     """
+    pivot = _clamp_pivot_to_pad_ceiling(source, pivot)
     padded, padded_mask, _pads = _pad_to_pivot(source, mask, pivot)
     out, out_mask = render_transform(padded, padded_mask, angle, scale, shear, resample)
     height, width = out.shape[:2]

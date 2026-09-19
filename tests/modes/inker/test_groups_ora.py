@@ -355,6 +355,65 @@ def test_a_grouping_with_too_many_nodes_costs_the_folders_and_not_the_grid(
     assert not back.groups
 
 
+def test_a_grouping_with_too_many_track_bindings_costs_the_folders_and_not_the_grid(
+    tmp_path: Path,
+):
+    """The 2026-09-19 audit, finding inker-05: "groups"."tracks" had no
+    ceiling either, the same gap "nodes" had before the 2026-09-16 audit
+    closed it -- a crafted ``animation.json`` could repeat one binding tens
+    of thousands of times with no refusal at all."""
+    doc = _animated()
+    doc.group_layers([1, 2], name="Ink")
+    path = tmp_path / "many_track_bindings.ora"
+    inker.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        members = {name: zf.read(name) for name in zf.namelist()}
+    payload = json.loads(members[inker_ora.ANIMATION_MEMBER])
+    binding = payload["groups"]["tracks"][0]
+    payload["groups"]["tracks"] = [binding] * (inker_ora.MAX_ORA_METADATA_ENTRIES + 1)
+    members[inker_ora.ANIMATION_MEMBER] = json.dumps(payload).encode("utf-8")
+    broken = tmp_path / "broken_track_bindings.ora"
+    with zipfile.ZipFile(broken, "w") as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+    back = inker.Document.load(broken)
+    assert not back.groups
+
+
+def test_a_grouping_with_too_many_nesting_entries_costs_the_folders_and_not_the_grid(
+    tmp_path: Path,
+):
+    """Same gap as the track-bindings test above, one field over:
+    "groups"."nesting" had no ceiling either. Animated rather than
+    ``_doc(...)`` alone -- a still document's groups round-trip through
+    ``stack.xml``'s nested ``<stack>`` elements and never reach
+    ``_read_groups`` at all, so only an animated file's ``animation.json``
+    exercises this list."""
+    doc = _doc(4)
+    doc.add_frame(copy=True)
+    doc.set_current_frame(0)
+    doc.group_layers([1, 2, 3], name="outer")
+    doc.group_layers([2, 3], name="inner")
+    path = tmp_path / "many_nesting.ora"
+    inker.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        members = {name: zf.read(name) for name in zf.namelist()}
+    payload = json.loads(members[inker_ora.ANIMATION_MEMBER])
+    edge = payload["groups"]["nesting"][0]
+    payload["groups"]["nesting"] = [edge] * (inker_ora.MAX_ORA_METADATA_ENTRIES + 1)
+    members[inker_ora.ANIMATION_MEMBER] = json.dumps(payload).encode("utf-8")
+    broken = tmp_path / "broken_nesting.ora"
+    with zipfile.ZipFile(broken, "w") as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+    back = inker.Document.load(broken)
+    assert not back.groups
+
+
 def test_a_groups_key_that_is_not_a_mapping_is_ignored(tmp_path: Path):
     doc = _animated()
     path = tmp_path / "anim.ora"

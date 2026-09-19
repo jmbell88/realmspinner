@@ -489,6 +489,89 @@ def test_read_flourish_refuses_past_a_metadata_ceiling(tmp_path, monkeypatch):
     assert not back.flourish
 
 
+def test_read_flourish_refuses_a_tracks_map_past_the_ceiling(tmp_path):
+    """The 2026-09-19 audit, finding inker-05: one flourish entry's own
+    "tracks" map had no ceiling either, unlike the "flourish" list itself
+    (capped since the 2026-09-16 audit). A crafted entry could carry tens of
+    thousands of bindings and pay a dict write per one, with no refusal."""
+    import json
+    import zipfile
+
+    doc = inker.Document.blank(40, 40)
+    rec = _recipe(seed=5)
+    doc.insert_flourish(B.bake(rec))
+    path = tmp_path / "many_entry_tracks.ora"
+    ora.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        members = {name: zf.read(name) for name in zf.namelist()}
+    payload = json.loads(members[ora.ANIMATION_MEMBER])
+    entry = payload["flourish"][0]
+    entry["tracks"] = {str(i): 0 for i in range(ora.MAX_ORA_METADATA_ENTRIES + 1)}
+    members[ora.ANIMATION_MEMBER] = json.dumps(payload).encode("utf-8")
+    broken = tmp_path / "broken_entry_tracks.ora"
+    with zipfile.ZipFile(broken, "w") as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+    back = inker.Document.load(broken)
+    assert not back.flourish
+
+
+def test_read_flourish_refuses_a_digests_list_past_the_ceiling(tmp_path):
+    """Same gap as the tracks-map test above, one field over: a flourish
+    entry's own "digests" list had no ceiling either."""
+    import json
+    import zipfile
+
+    doc = inker.Document.blank(40, 40)
+    rec = _recipe(seed=5)
+    doc.insert_flourish(B.bake(rec))
+    path = tmp_path / "many_entry_digests.ora"
+    ora.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        members = {name: zf.read(name) for name in zf.namelist()}
+    payload = json.loads(members[ora.ANIMATION_MEMBER])
+    entry = payload["flourish"][0]
+    entry["digests"] = [[0, 0, "a" * 32]] * (ora.MAX_ORA_METADATA_ENTRIES + 1)
+    members[ora.ANIMATION_MEMBER] = json.dumps(payload).encode("utf-8")
+    broken = tmp_path / "broken_entry_digests.ora"
+    with zipfile.ZipFile(broken, "w") as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+    back = inker.Document.load(broken)
+    assert not back.flourish
+
+
+def test_read_flourish_refuses_a_conflicts_list_past_the_ceiling(tmp_path):
+    """Same gap, the last field: a flourish entry's own "conflicts" list had
+    no ceiling either."""
+    import json
+    import zipfile
+
+    doc = inker.Document.blank(40, 40)
+    rec = _recipe(seed=5)
+    doc.insert_flourish(B.bake(rec))
+    path = tmp_path / "many_entry_conflicts.ora"
+    ora.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        members = {name: zf.read(name) for name in zf.namelist()}
+    payload = json.loads(members[ora.ANIMATION_MEMBER])
+    entry = payload["flourish"][0]
+    entry["conflicts"] = [[0, 0]] * (ora.MAX_ORA_METADATA_ENTRIES + 1)
+    members[ora.ANIMATION_MEMBER] = json.dumps(payload).encode("utf-8")
+    broken = tmp_path / "broken_entry_conflicts.ora"
+    with zipfile.ZipFile(broken, "w") as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+    back = inker.Document.load(broken)
+    assert not back.flourish
+
+
 def test_an_ordinary_document_writes_no_flourish_key(tmp_path):
     doc = inker.Document.blank(8, 8)
     doc.add_frame()

@@ -86,6 +86,42 @@ def test_check_bake_cost_allows_an_ordinary_recipe():
     assert R.bake_cost(rec) < R.MAX_BAKE_COST
 
 
+def test_a_pixel_mode_bake_at_the_cost_ceiling_does_not_exceed_a_memory_budget():
+    """The 2026-09-19 audit (inker-04): ``bake()`` in pixel mode held every
+    frame's full supersampled float32 composite alive until the final
+    quantise pass, while ``MAX_BAKE_COST`` -- the only ceiling
+    ``check_bake_cost`` applies -- bounds render *time*, priced per layer, and
+    not the bytes a finished composite sits on. A recipe with no
+    ``_COST_PARAMS``-named layer (unit multiplier 1.0) rides that time budget
+    to ``MAX_BAKE_COST`` on canvas size and frame count alone, at up to 3.16
+    GiB held at once (measured, ``inker-flourish-01.py``). This recipe stays
+    comfortably under ``MAX_BAKE_COST`` (100,000,000 of its
+    212,000,000-unit ceiling) purely on width * height * frames, at
+    supersample=1 -- the case where the bake.py restructure that fixes this
+    finding saves proportionally the least -- yet would still hold about
+    763 MiB of pixel-mode composites at once, past the budget
+    ``check_bake_cost`` must also enforce."""
+    rec = flourish.clamp(
+        R.Recipe(
+            width=1000,
+            height=1000,
+            supersample=1,
+            mode="pixel",
+            directions=1,
+            phases=(R.Phase("p", 100, False),),
+            layers=(R.Layer(uid=1, kind="core"),),
+        )
+    )
+    cost = R.bake_cost(rec)
+    assert cost == 100_000_000
+    assert cost < R.MAX_BAKE_COST  # the time budget alone would allow this
+    held = R.pixel_bake_bytes(rec)
+    assert held == 800_000_000
+    assert held > R.MAX_PIXEL_BAKE_BYTES
+    with pytest.raises(ValueError, match="bytes of pixel-mode composites"):
+        R.check_bake_cost(rec)
+
+
 def test_an_unknown_primitive_kind_is_refused_not_kept():
     with pytest.raises(ValueError, match="not a primitive"):
         flourish.from_dict({"layers": [{"kind": "lensflare"}]})

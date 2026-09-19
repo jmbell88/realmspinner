@@ -1659,6 +1659,25 @@ def _read_sheet_base(doc, payload: dict) -> None:
     if raw is None:
         return
     try:
+        # The 2026-09-19 audit, finding inker-05: ``sheetmerge.base_from_
+        # payload`` walks "cells" and "conflicts" with no ceiling of its own,
+        # unlike every sibling list this module already bounds --
+        # ``sheetmerge`` may not import ``ora`` (layering), so the refusal
+        # lives here, before the call, rather than inside that function. The
+        # audit's probe walked 4,000,000 "cells" in ~1s to keep one digest.
+        if isinstance(raw, dict):
+            cells = raw.get("cells")
+            if isinstance(cells, list) and len(cells) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"this drawing's sheet block names more than "
+                    f"{MAX_ORA_METADATA_ENTRIES} cells"
+                )
+            conflicts = raw.get("conflicts")
+            if isinstance(conflicts, list) and len(conflicts) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"this drawing's sheet block names more than "
+                    f"{MAX_ORA_METADATA_ENTRIES} conflicts"
+                )
         uid_at = [frame.uid for frame in doc.anim.frames] if doc.anim else []
         base = sheetmerge.base_from_payload(raw, uid_at)
     except (AttributeError, KeyError, TypeError, ValueError):
@@ -1707,12 +1726,28 @@ def _read_groups(doc, payload: dict) -> None:
         ]
         tracks = doc.anim.tracks
         group_of: dict[int, int] = {}
-        for entry in raw.get("tracks", []):
+        # The 2026-09-19 audit, finding inker-05: "tracks" and "nesting" had
+        # no ceiling either, the same gap "nodes" had before the 2026-09-16
+        # audit closed it -- a crafted file could repeat one binding tens of
+        # thousands of times and pay a dict write per copy with no refusal.
+        raw_tracks = raw.get("tracks", [])
+        if len(raw_tracks) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"animation.json names more than {MAX_ORA_METADATA_ENTRIES}"
+                " group track bindings"
+            )
+        for entry in raw_tracks:
             ti, gi = int(entry["track"]), int(entry["group"])
             if not (0 <= ti < len(tracks) and 0 <= gi < len(nodes)):
                 raise ValueError(f"track {ti} names group {gi}")
             group_of[tracks[ti].uid] = nodes[gi].uid
-        for entry in raw.get("nesting", []):
+        raw_nesting = raw.get("nesting", [])
+        if len(raw_nesting) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"animation.json names more than {MAX_ORA_METADATA_ENTRIES}"
+                " group nesting entries"
+            )
+        for entry in raw_nesting:
             gi, pi = int(entry["group"]), int(entry["parent"])
             if not (0 <= gi < len(nodes) and 0 <= pi < len(nodes)) or gi == pi:
                 raise ValueError(f"group {gi} names parent {pi}")
@@ -1759,11 +1794,36 @@ def _read_flourish(doc, payload: dict, nodes: list) -> None:
             recipe = flourish_recipe.from_dict(entry["recipe"])
             flourish_recipe.reserve_uids(recipe)
             state = FlourishState(recipe=recipe)
-            for key, ti in dict(entry.get("tracks") or {}).items():
+            # The 2026-09-19 audit, finding inker-05: this entry's own
+            # "tracks"/"digests"/"conflicts" had no ceiling either, unlike
+            # the "flourish" list itself (capped just above since the
+            # 2026-09-16 audit) -- a single crafted entry could repeat one
+            # binding, digest or conflict tens of thousands of times with no
+            # refusal, costing this document its regenerate the same as any
+            # other malformed entry does.
+            entry_tracks = dict(entry.get("tracks") or {})
+            if len(entry_tracks) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"a flourish entry names more than {MAX_ORA_METADATA_ENTRIES}"
+                    " tracks"
+                )
+            for key, ti in entry_tracks.items():
                 state.tracks[int(key)] = tracks[int(ti)].uid
-            for ti, fi, digest in entry.get("digests") or []:
+            entry_digests = entry.get("digests") or []
+            if len(entry_digests) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"a flourish entry names more than {MAX_ORA_METADATA_ENTRIES}"
+                    " digests"
+                )
+            for ti, fi, digest in entry_digests:
                 state.digests[(tracks[int(ti)].uid, frames[int(fi)].uid)] = str(digest)
-            for ti, fi in entry.get("conflicts") or []:
+            entry_conflicts = entry.get("conflicts") or []
+            if len(entry_conflicts) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"a flourish entry names more than {MAX_ORA_METADATA_ENTRIES}"
+                    " conflicts"
+                )
+            for ti, fi in entry_conflicts:
                 state.conflicts.add((tracks[int(ti)].uid, frames[int(fi)].uid))
             offset = entry.get("offset") or [0, 0]
             state.offset = (int(offset[0]), int(offset[1]))
@@ -2104,7 +2164,18 @@ def _read_tiles(zf: zipfile.ZipFile, doc, anim: Animation | None) -> None:
             slots.append(TilesetSlot(tileset=tileset))
 
         track_binds: list[tuple[int, int]] = []
-        for entry in payload.get("tracks", []):
+        # 2026-09-19 audit, finding inker-06: this list had no ceiling
+        # either, unlike "tilesets" above (the 2026-09-11 audit's own gap in
+        # this member) -- a binding is as cheap as a metadata entry
+        # elsewhere in this module, so it reuses that ceiling rather than
+        # ``MAX_ORA_LAYERS``.
+        raw_tracks = payload.get("tracks", [])
+        if len(raw_tracks) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"{TILES_MEMBER} names more than {MAX_ORA_METADATA_ENTRIES}"
+                " track bindings"
+            )
+        for entry in raw_tracks:
             ti, si = int(entry["track"]), int(entry["tileset"])
             if anim is None or not (0 <= ti < len(anim.tracks) and 0 <= si < len(slots)):
                 raise ValueError(f"{TILES_MEMBER} track {ti} names tileset {si}")
@@ -2165,6 +2236,17 @@ def _read_tiles(zf: zipfile.ZipFile, doc, anim: Animation | None) -> None:
                 tileset_uid=slots[si].uid,
             )
 
+        # 2026-09-19 audit, finding inker-06: "cels" entries are not
+        # deduplicated, and each one runs ``_new_cel`` below -- a full
+        # canvas-sized ``materialize``, the same per-entry cost "tilesets"
+        # above is capped for -- so this reuses ``MAX_ORA_LAYERS`` rather
+        # than the cheaper metadata ceiling.
+        raw_cels = payload.get("cels", [])
+        if len(raw_cels) > MAX_ORA_LAYERS:
+            raise ValueError(
+                f"{TILES_MEMBER} names more than the {MAX_ORA_LAYERS} cels"
+                " this build will open"
+            )
         replacements: dict[int, TilemapCel] = {}
         if anim is not None:
             # ``_cel_names`` recomputed, not passed in: it is a pure function
@@ -2176,7 +2258,7 @@ def _read_tiles(zf: zipfile.ZipFile, doc, anim: Animation | None) -> None:
             by_name: dict[str, Layer] = {}
             for cel_layer in anim.unique_cel_layers():
                 by_name[names[id(cel_layer)]] = cel_layer
-            for entry in payload.get("cels", []):
+            for entry in raw_cels:
                 layer = by_name.get(entry.get("cel"))
                 if layer is None:
                     raise ValueError(
@@ -2185,7 +2267,7 @@ def _read_tiles(zf: zipfile.ZipFile, doc, anim: Animation | None) -> None:
                 replacements[id(layer)] = _new_cel(layer, entry)
         else:
             stack_layers = list(doc.stack)
-            for entry in payload.get("cels", []):
+            for entry in raw_cels:
                 li = int(entry["layer"])
                 if not 0 <= li < len(stack_layers):
                     raise ValueError(f"{TILES_MEMBER} cel names layer {li}")
