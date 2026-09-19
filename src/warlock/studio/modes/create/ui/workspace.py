@@ -153,7 +153,7 @@ def should_draw(ctx: Any) -> bool:
         return False
     if getattr(cache, "active", None) is not None:
         return True
-    if candidates_mod.pending(cache.jobs) is not None:
+    if candidates_mod.pending_cached(cache) is not None:
         return True
     return bool(_recent_results(ctx))
 
@@ -178,7 +178,7 @@ def draw(ctx: Any, height: float = 0.0) -> None:
     widgets.pane_header("Generations")
     widgets.muted(_brief_caption(ctx))
     active = getattr(ctx.cache, "active", None)
-    group = candidates_mod.pending(ctx.cache.jobs)
+    group = candidates_mod.pending_cached(ctx.cache)
     if group is not None:
         _candidate_grid(ctx, group)
     else:

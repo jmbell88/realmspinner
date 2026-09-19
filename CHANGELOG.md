@@ -26,6 +26,12 @@ data-loss bug five modes shared: opening a file that was already open in another
 tab made a second, independent tab on the same path, and whichever tab saved
 last silently discarded the other's edits.
 
+- **Create's candidate picker no longer re-scans and re-sorts the whole job
+  history every frame.** Four places on the Create canvas each asked "is a
+  candidate group waiting?" independently, every frame, by walking every job
+  the Library had paged in (up to five thousand rows after enough "Load
+  older"). The answer is now computed once per refresh of the job cache and
+  shared, the same way the candidate grades already were.
 - **Troupe is gone as a separate mode; rigging, posing, clips and character
   sprite sheets now all live inside Poser.** The app had fourteen modes and
   now has thirteen. Poser opens a rigged asset's poses and clips exactly as

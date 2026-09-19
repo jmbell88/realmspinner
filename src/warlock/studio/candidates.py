@@ -88,6 +88,45 @@ def pending(jobs: list[dict[str, Any]]) -> Group | None:
     return Group(newest[0], members)
 
 
+#: One memoized answer: ``(key, Group | None)`` for :func:`pending_cached`.
+#: Module-level, like ``panes.candidates_panel._GRADES_CACHE`` beside it --
+#: Create only ever shows one cache's tray at a time, so one slot is enough.
+_PENDING_CACHE: tuple[Any, Group | None] | None = None
+
+
+def pending_cached(cache: Any) -> Group | None:
+    """Memoized :func:`pending`, keyed on ``cache``'s generation counter.
+
+    The 2026-09-19 audit, finding create-01: ``pending`` did a full linear
+    scan of ``cache.jobs`` (up to ``MAX_LIST_LIMIT`` = 5000 rows once "Load
+    older" has widened the window), building a fresh ``groups`` dict and
+    sorting every group's members, with no memo at all -- and every one of
+    its call sites (``workspace.should_draw``, ``workspace.draw``,
+    ``brief._with_pending_candidates_problem`` and ``candidates_panel.draw``)
+    runs every frame the Create canvas is visible, so one frame paid the
+    scan three or four times over though nothing had changed since the last
+    one. Keyed on ``cache._generation`` the way
+    ``candidates_panel._grades`` already keys its own memo against the
+    identical counter -- it only moves when ``JobsCache.adopt`` actually
+    publishes a fresh read, never on a frame that changed nothing.
+
+    ``pending`` itself stays pure and untouched (it is tested directly in
+    ``tests/studio/test_candidates.py``); this only wraps it. A ``None``
+    generation -- a headless stand-in with no real cache, as most tests here
+    build -- never memoizes, since there is nothing behind it that can go
+    stale to avoid re-scanning.
+    """
+    global _PENDING_CACHE
+    generation = getattr(cache, "_generation", None)
+    key = (id(cache), generation)
+    if generation is not None and _PENDING_CACHE is not None and _PENDING_CACHE[0] == key:
+        return _PENDING_CACHE[1]
+    result = pending(cache.jobs)
+    if generation is not None:
+        _PENDING_CACHE = (key, result)
+    return result
+
+
 def label(member: dict[str, Any]) -> str:
     """What one candidate's button says. Latin-1 only, like every other UI
     string here -- imgui's default atlas has nothing above it."""

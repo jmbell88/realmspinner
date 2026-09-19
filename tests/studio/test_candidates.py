@@ -538,6 +538,43 @@ def test_the_picker_reads_grades_once_per_group_not_per_frame(svc):
     assert len(calls) == 1
 
 
+def test_pending_group_lookup_is_not_recomputed_per_frame_for_an_unchanged_job_list(
+    svc, monkeypatch
+):
+    """The 2026-09-19 audit, finding create-01: ``pending`` did a full linear
+    scan and re-sort of every job with no memo, and its four call sites
+    (``workspace.should_draw``/``draw``, ``brief._with_pending_candidates_
+    problem``, ``candidates_panel.draw``) each ran it fresh every frame the
+    Create canvas is visible -- so one frame paid the scan three or four
+    times though nothing had changed since the last one.
+    ``candidates.pending_cached`` must answer every draw of one unmoved
+    cache generation from a single scan, the way ``candidates_panel._grades``
+    already does against the identical generation counter.
+    """
+    from warlock.studio.jobs_cache import JobsCache
+
+    source = _reference(svc)
+    result = svc_jobs.promote_candidates(svc, source, count=3)
+    cache = JobsCache(svc)
+    cache.tick()
+    assert candidates_mod.pending(cache.jobs) is not None
+    assert result["group"] is not None
+
+    calls = []
+    real_pending = candidates_mod.pending
+
+    def counting(jobs):
+        calls.append(jobs)
+        return real_pending(jobs)
+
+    monkeypatch.setattr(candidates_mod, "pending", counting)
+    for _ in range(5):
+        group = candidates_mod.pending_cached(cache)
+        assert group is not None
+
+    assert len(calls) == 1
+
+
 # --- engine axes on an ordinary promotion ------------------------------------
 #
 # A findings sweep could already set every one of the seven trellis_* launch

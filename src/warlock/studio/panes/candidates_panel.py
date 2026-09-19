@@ -66,7 +66,7 @@ _GRADES_CACHE: tuple[Any, dict[str, int | None]] | None = None
 
 def draw(ctx: Any) -> None:
     """Draw the picker for the newest undecided group, if there is one."""
-    group = candidates_mod.pending(ctx.cache.jobs)
+    group = candidates_mod.pending_cached(ctx.cache)
     if group is None:
         return
     widgets.section("Candidates")

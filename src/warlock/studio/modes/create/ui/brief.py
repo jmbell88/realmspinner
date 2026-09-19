@@ -206,7 +206,7 @@ def _with_pending_candidates_problem(ctx: Any, problems: list[Any]) -> list[Any]
 
     cache = getattr(ctx, "cache", None)
     jobs = getattr(cache, "jobs", None) if cache is not None else None
-    if jobs is None or candidates_mod.pending(jobs) is None:
+    if jobs is None or candidates_mod.pending_cached(cache) is None:
         return problems
     from ....problems import Problem
 
