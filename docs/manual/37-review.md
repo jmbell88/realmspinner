@@ -314,5 +314,5 @@ instead of guessing](12-tuning-what-you-get.md#measuring-instead-of-guessing).
 Verdicts, measurements and matched pairs all survive pruning and sweep deletion; the corpus outlives
 the assets it was learned from.
 
-Next: [Keyboard shortcuts](39-shortcuts.md) has the full Review table, and
-[The library and jobs](37-library-and-jobs.md) covers where sweep units do and do not appear.
+Next: [Keyboard shortcuts](38-shortcuts.md) has the full Review table, and
+[The library and jobs](36-library-and-jobs.md) covers where sweep units do and do not appear.

@@ -4,7 +4,8 @@ Three findings of the 2026-09-05 consistency review, each checked against
 the v0.0.34 captures: Inker's toolbar said ``opa 1.00`` where everything
 else said "Opacity"; the cross-workspace verbs were worded five ways; and
 Poser and Troupe drew the same standing figure in a rail whose default is
-icons only.
+icons only (moot since P9, 2026-09-18: Troupe folded into Poser as a stage,
+so there is only the one rail row left to draw it).
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import inspect
 import re
 
-from warlock.studio import icons, modes, state, verbs
+from warlock.studio import modes, state, verbs
 from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
 from warlock.studio.modes.inker import ops as inker_ops
 from warlock.studio.modes.inker.ui.panes import context as inker_context
@@ -21,8 +22,7 @@ from warlock.studio.modes.muse.ui.panes import results as muse_results
 from warlock.studio.modes.packwright.ui.panes import bridge as packwright_bridge
 from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
 from warlock.studio.modes.plotter.ui.panes import menu as plotter_menu
-from warlock.studio.modes.troupe.ui.panes import bridge as troupe_bridge
-from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
+from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
 from warlock.studio.panes import inspector, sheet_panel, sprite_panel
 
 # --- property labels --------------------------------------------------------
@@ -48,14 +48,14 @@ def test_verbs_are_spelt_from_the_mode_table():
     assert verbs.open_in("inker") == "Open in Inker"
     assert verbs.add_to("packwright") == "Add to Packwright"
     assert verbs.add_to("plotter", "as a tileset") == "Add to Plotter as a tileset"
-    assert verbs.send_to("troupe") == "Send to Troupe"
+    assert verbs.send_to("poser") == "Send to Poser"
     assert verbs.EXPORT_TO_LIBRARY == "Export to the library"
 
 
 def test_no_pane_spells_a_cross_workspace_verb_by_hand():
     panes = (
         clay_bridge, inspector, library, muse_results, packwright_bridge,
-        plotter_menu, sheet_panel, sprite_panel, troupe_bridge, troupe_settings,
+        plotter_menu, sheet_panel, sprite_panel, poser_sheet,
         inker_ops,
     )
     literal = re.compile(r'"(Open in|Send to|Add to) [A-Z]|Export to (the )?library"')
@@ -79,10 +79,3 @@ def test_the_card_action_ladder_uses_the_same_words():
 def test_every_rail_icon_is_unique():
     glyphs = [icon for _key, _label, icon, _purpose in modes.MODES]
     assert len(glyphs) == len(set(glyphs)), glyphs
-
-
-def test_troupe_wears_the_same_glyph_on_every_surface():
-    from warlock.studio.modes.troupe import mode as troupe_mode
-
-    icon = dict((k, i) for k, _l, i, _p in modes.MODES)["troupe"]
-    assert icon == troupe_mode.ICON == icons.FILM

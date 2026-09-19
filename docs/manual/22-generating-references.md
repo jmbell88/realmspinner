@@ -23,7 +23,7 @@ reference, so there is history to show. Picking one replaces what is in the box.
 the session (it is saved with your other Studio preferences and is there again after a restart), and
 it is per prompt text only — if you want a whole recipe back, use **Copy settings to form** from a
 job's overflow menu instead, which is described in [Rerun and
-promotion](37-library-and-jobs.md#rerun-and-promotion).
+promotion](36-library-and-jobs.md#rerun-and-promotion).
 
 Under **Avoid**, further down the pane, is a second box listing what the image must not
 contain. It is pre-filled with the things that most often ruin a reconstruction, and it is yours:
@@ -253,7 +253,7 @@ Each finished reference therefore carries a **rank**, shown as a percentage on i
 it exists to answer one question: which of these is worth opening first. It is labelled *rank* and
 nothing else, because that is all it claims — where this candidate sits in its own strip, not whether
 it is any good. (Through v0.0.38 the same figure was drawn as "judge: N% likely a keeper", which named
-the wrong instrument: the trained probe in [Review](38-review.md) is a different thing and is never
+the wrong instrument: the trained probe in [Review](37-review.md) is a different thing and is never
 consulted here.)
 
 Three things go into it, and each is absent-changes-nothing — a term that could not be measured
@@ -396,7 +396,7 @@ the artifact is derived, so it is rebuilt whenever the settings above make the c
 and a document that saved back over it would have that edit thrown away — the first `Ctrl+S` is a
 Save As. **Export as PNG** writes the size selected here to wherever you choose. Both derive the
 artifact first if it does not exist yet, so neither waits on **Preview pixels**. The
-[downloads grid](37-library-and-jobs.md) exports the same files; what these add is that they act on
+[downloads grid](36-library-and-jobs.md) exports the same files; what these add is that they act on
 the size you are looking at.
 
 Both settings are app preferences rather than properties of the job, so they persist across
@@ -653,8 +653,8 @@ ways forward, and each of them is a press you make:
   winged thing, never a puddle.
 - **Sprite sheet (experimental)** switches the asset type and leaves your brief alone. SDXL will
   draw things the registry does not model; see [Sheets](#sheets) for what that costs.
-- **Draw it in Troupe** copies the brief into [Troupe](34-troupe.md) and opens it, which is the
-  route through a generated reference and a reconstruction.
+- **Draw it in Poser** copies the brief into [Poser](26-poser.md#starting-a-new-character) and opens
+  it, which is the route through a generated reference and a reconstruction.
 
 A brief that names no creature at all is refused in the same register, and the Species picker is
 there to answer it directly.
@@ -663,9 +663,9 @@ there to answer it directly.
 
 **Species** is grouped by body plan, because the plan decides the skeleton, the clips and which
 appearance sliders this character has. **Look** offers only the palettes that species is painted in;
-*The species' own* means its first one. **Camera** is the same preset table Troupe uses, and its
-helper states the elevation in degrees and the direction count, which is what transfers when you are
-matching sprites to a map.
+*The species' own* means its first one. **Camera** is the same preset table Poser's own sheet form
+uses, and its helper states the elevation in degrees and the direction count, which is what transfers
+when you are matching sprites to a map.
 
 **Idle**, **Walk** and **Attack** are switches, each carrying the frames it costs; the muted total
 under them is the cell count the render will produce. **Sprite size** and **Colours** are the same
@@ -681,7 +681,7 @@ row and never blocks Generate, so it is safe to press while you are still decidi
 Generate builds the mesh, mints it as a finished asset, and queues the rig that will produce the
 sheet. Create moves to the Mesh stage, because there is no reference image to look at — a character
 has no drawing behind it. When the rig lands, the sheet follows, and the finished character is
-played in [Troupe](34-troupe.md).
+played in [Poser](26-poser.md).
 
 Rigging needs Blender. Without it the press is refused before anything is built, because a body with
 no skeleton is half an asset and the whole ordering of that door exists to prevent one.

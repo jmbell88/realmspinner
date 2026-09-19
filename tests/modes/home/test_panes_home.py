@@ -354,7 +354,7 @@ def test_the_new_menu_offers_every_creation_type_exactly_once():
         landing.start_plotter,
         landing.start_packwright,
         landing.start_sirens,
-        landing.start_troupe,
+        landing.start_poser,
     }
 
 

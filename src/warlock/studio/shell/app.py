@@ -3,16 +3,18 @@
 The P4 restructure split ``studio/main.py`` (5,971 lines) into
 ``shell/{app,frame,events,tasks,quit}.py``, plus one module per mode for the
 six inline ``_*_workspace`` methods; this is the module that assembles the
-whole of it. :class:`App` is built from fourteen mixins: the four that
-already lived beside ``main.py`` (``ClayViewport``, ``MasonViewport``,
-``PoserViewport``, ``ReviewPanes``, each "this repository's idiom for a body
-of drawing that belongs to the shell", per ``studio/modes/clay/ui/viewport.py``'s own module
-docstring); :class:`FrameMixin`, :class:`TasksMixin`, :class:`EventsMixin` and
+whole of it. :class:`App` is built from thirteen mixins (fourteen before P9,
+2026-09-18 folded Troupe's own ``TroupeWorkspace`` into Poser's stage rather
+than a workspace of its own): the four that already lived beside ``main.py``
+(``ClayViewport``, ``MasonViewport``, ``PoserViewport``, ``ReviewPanes``, each
+"this repository's idiom for a body of drawing that belongs to the shell",
+per ``studio/modes/clay/ui/viewport.py``'s own module docstring);
+:class:`FrameMixin`, :class:`TasksMixin`, :class:`EventsMixin` and
 :class:`QuitMixin`, which ``shell/frame.py``, ``shell/tasks.py``,
-``shell/events.py`` and ``shell/quit.py`` define; and the six workspace
+``shell/events.py`` and ``shell/quit.py`` define; and the five workspace
 mixins this same wave gave their own module -- ``InkerWorkspace``,
-``PlotterWorkspace``, ``MuseWorkspace``, ``SirensWorkspace``,
-``TroupeWorkspace`` and ``PackwrightWorkspace``, one file each, named the way
+``PlotterWorkspace``, ``MuseWorkspace``, ``SirensWorkspace`` and
+``PackwrightWorkspace``, one file each, named the way
 ``ClayViewport``/``MasonViewport`` already were. ``self`` in every mixin's
 method is this one assembled class, whichever file the method's body happens
 to live in.
@@ -49,7 +51,6 @@ from ..modes.plotter.ui.workspace import PlotterWorkspace
 from ..modes.poser.ui.viewport import PoserViewport
 from ..modes.review.ui.workspace import ReviewPanes
 from ..modes.sirens.ui.workspace import SirensWorkspace
-from ..modes.troupe.ui.workspace import TroupeWorkspace
 from .events import EventsMixin
 from .frame import FrameMixin
 from .quit import QuitMixin
@@ -87,7 +88,6 @@ class App(
     PlotterWorkspace,
     MuseWorkspace,
     SirensWorkspace,
-    TroupeWorkspace,
     PackwrightWorkspace,
 ):
     def __init__(self, runtime: Any) -> None:

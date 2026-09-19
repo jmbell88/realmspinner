@@ -1,23 +1,30 @@
-"""The question both silent Troupe doors used to skip.
+"""The question both silent sheet-rendering doors used to skip.
 
 ``service.troupe.send_to_troupe`` has always accepted a sprite size and a rig
-template, and the picker *inside* Troupe passes the mode's form so both apply.
-The two doors a user actually reaches for -- the library's right-click item and
-the inspector's button -- called it with no form at all, so ``logical_size``
-arrived None and fell back to 32, and the skeleton was pinned to ``humanoid``.
-A user who wanted 64 px sprites had to know to enter Troupe first and open a
-collapsed sub-header; a user with a quadruped got human walk cycles, and the
-manual's own advice was to go and re-rig it from Create.
+template, and this modal passes the mode's sheet form so both apply. The two
+doors a user actually reaches for -- the library's right-click item and the
+inspector's button, both in :mod:`..... asset_exits` -- called it with no form
+at all, so ``logical_size`` arrived None and fell back to 32, and the skeleton
+was pinned to ``humanoid``. A user who wanted 64 px sprites had to know to
+open Poser first and find a collapsed sub-header; a user with a quadruped got
+human walk cycles, and the manual's own advice was to go and re-rig it from
+Create.
 
 So the doors ask. One modal, enqueued from anywhere and drawn at top level --
 the ``dialogs.ConfirmQueue`` shape, because the library's item is inside an
-imgui context popup and ``imgui.open_popup`` cannot be called there -- with the
-single slot ``matte_preview`` uses, since at most one send is in flight.
+imgui context popup and ``imgui.open_popup`` cannot be called there -- with
+the single slot ``matte_preview`` uses, since at most one send is in flight.
 
 **The answers are written back into the mode's form**, not kept per door, so
-the size chosen at the library is the size the inspector opens on and Troupe's
-own pane shows the same numbers. Two doors remembering separately would be two
-defaults for one request.
+the size chosen at the library is the size a "Build another sheet" section
+opens on. Two doors remembering separately would be two defaults for one
+request.
+
+**P9 (2026-09-18):** ported whole from Troupe's own ``ui/panes/send.py`` --
+this was already reachable from outside that mode (the library and inspector
+"ways out"), so folding Troupe into Poser moves this module rather than
+retiring it. ``ctx.state.troupe_send`` becomes ``ctx.state.poser_send``; the
+mode it hands off to is ``poser_mode`` throughout.
 """
 
 from __future__ import annotations
@@ -32,9 +39,9 @@ from ......kernels import charsheet
 from ......kernels.rig import skeleton
 from ..... import controls, tokens, widgets
 from .....tokens import sp
-from ... import mode as troupe_mode
+from ... import mode as poser_mode
 
-TITLE = "Send to Troupe"
+TITLE = "Send to Poser"
 
 #: The floor ``widgets.modal_bounds`` is given. The combos are full-width, so
 #: this is what decides how wide the dialog reads.
@@ -42,7 +49,7 @@ DIALOG_W = 420.0
 
 
 @dataclass
-class TroupeSend:
+class PoserSend:
     """The mesh being sent, and the answers so far.
 
     The answers are held here rather than edited straight into the mode's form
@@ -54,42 +61,40 @@ class TroupeSend:
     label: str = ""
     #: Whether the mesh already carries ``rig.glb``. Read off the row's cached
     #: ``files`` list -- the rig's *template* is a fact about a file on disk,
-    #: and reading it here is the disk read ``can_send_to_troupe`` deliberately
+    #: and reading it here is the disk read ``can_render_sheet`` deliberately
     #: does not do on the frame thread.
     rigged: bool = False
     #: The skeleton this send actually resolves against -- read off the
     #: mesh's own ``rig.json`` when it is already rigged, or the Skeleton
-    #: combo's pick otherwise. **Not** whatever character happens to be
-    #: bound to Troupe's own pane: see :func:`_send`, and the 2026-09-16
-    #: audit, finding troupe-01.
+    #: combo's pick otherwise. **Not** whatever character happens to be bound
+    #: to Poser's own session: see :func:`_send`.
     template: str = ""
     #: This mesh's own recorded front, read once at :func:`ask` -- a fact
     #: about the job, not a question this dialog asks. See ``_front_helper``.
     front_yaw: float = 0.0
-    #: P4 (2026-09-13): whether the rig's own skeleton was edited away from its
-    #: template (``rig.json["skeleton"] == "custom"``), and how many bones the
-    #: template's clip library animates that this rig no longer has
-    #: (``skeleton.clip_coverage``). Read once here, not per frame -- a rig read
-    #: is a file, and ``_skeleton`` draws every frame the dialog is open.
+    #: Whether the rig's own skeleton was edited away from its template
+    #: (``rig.json["skeleton"] == "custom"``), and how many bones the
+    #: template's clip library animates that this rig no longer has. Read
+    #: once here, not per frame -- a rig read is a file, and ``_skeleton``
+    #: draws every frame the dialog is open.
     custom_skeleton: bool = False
     custom_skeleton_missing: int = 0
     logical_size: int = 32
     #: Whether the size box is the "Custom..." input rather than the ladder
     #: combo. Its own field rather than inferred solely from ``logical_size``
     #: being off the ladder, so a user who *chose* Custom and then typed a
-    #: value that happens to sit on a preset (say, 32) is not silently bounced
-    #: back to the combo underneath them.
+    #: value that happens to sit on a preset (say, 32) is not silently
+    #: bounced back to the combo underneath them.
     custom_size: bool = False
     camera: str = ""
     outline: str = ""
     colors: int = 64
     palette: str = ""
-    #: Pixel art or HD -- ``troupe_mode.STYLE_PIXEL_ART``/``STYLE_HD``. HD
-    #: disables Outline and Colours below, the same reason ``troupe_settings
-    #: ._style`` disables them rather than hiding them.
-    style: str = troupe_mode.STYLE_PIXEL_ART
-    #: A layout-wide rate, or ``None`` for "Authored". See ``troupe_mode
-    #: ._layout_request``: set, it moves the request's layout to version 3.
+    #: Pixel art or HD -- ``poser_mode.STYLE_PIXEL_ART``/``STYLE_HD``. HD
+    #: disables Outline and Colours below.
+    style: str = poser_mode.STYLE_PIXEL_ART
+    #: A layout-wide rate, or ``None`` for "Authored". See ``poser_mode.
+    #: _layout_request``: set, it moves the request's layout to version 3.
     fps: int | None = None
     # ``imgui.open_popup`` must be called exactly once per question, and the
     # overlay redraws every frame: ``dialogs.Confirm._open``'s idiom.
@@ -105,31 +110,21 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
     job_id = str((job or {}).get("id") or "")
     if not job_id:
         return False
-    form = troupe_mode.form(ctx)
-    options = troupe_mode.options(ctx)
+    form = poser_mode.sheet_form(ctx)
+    options = poser_mode.sheet_options(ctx)
     logical_size = int(form.get("logical_size") or 32)
     rigged = "rig.glb" in ((job or {}).get("files") or [])
     custom_skeleton = False
     custom_missing = 0
     rig_template = ""
     if rigged:
-        # The 2026-09-13 audit, finding troupe-03: this reads rig.json
-        # synchronously from a button handler, on the frame thread. Recorded
-        # here rather than moved off-thread, because the read is a single
-        # small JSON on an explicit click, not a loop or a poll, and it is
-        # already bounded -- ``store.read_record`` (which ``get_rig`` goes
-        # through) stats the file before reading and refuses anything over
-        # ``MAX_RECORD_BYTES`` (1 MiB) rather than loading it, so the worst
-        # case here is one small stat call and a suppressed exception, not an
-        # unbounded read. See dev/INVARIANTS.md.
-        #
-        # P4 (2026-09-13): a rig whose skeleton was edited away from its
-        # template may no longer have every bone the template's clip library
-        # animates -- Troupe warns, once, at the door, rather than a silently
-        # thinner walk cycle discovered after the render. Read tolerantly:
-        # an unreadable rig here is not this dialog's refusal to raise, only a
-        # missed warning -- the send itself re-reads the rig and is the real
-        # gate.
+        # This reads rig.json synchronously from a button handler, on the
+        # frame thread. Recorded here rather than moved off-thread, because
+        # the read is a single small JSON on an explicit click, not a loop or
+        # a poll, and it is already bounded -- ``store.read_record`` (which
+        # ``get_rig`` goes through) stats the file before reading and refuses
+        # anything over ``MAX_RECORD_BYTES`` (1 MiB) rather than loading it.
+        # See dev/INVARIANTS.md.
         from ......service import rig as svc_rig
 
         with contextlib.suppress(Exception):
@@ -140,7 +135,7 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
                 custom_missing = len(
                     skeleton.clip_coverage(rig, str(rig.get("template") or ""))
                 )
-    ctx.state.troupe_send = TroupeSend(
+    ctx.state.poser_send = PoserSend(
         job_id=job_id,
         label=str((job or {}).get("prompt") or (job or {}).get("name") or "")[:48],
         rigged=rigged,
@@ -148,29 +143,26 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
         custom_skeleton_missing=custom_missing,
         front_yaw=float(((job or {}).get("params") or {}).get("front_yaw") or 0.0),
         # Rigged: the mesh's own recorded skeleton, read above -- never the
-        # form's, which names whichever character is bound to Troupe's own
-        # pane. Unrigged: the form's remembered choice, the same default the
-        # Skeleton combo below opens on and may still change before Send.
+        # form's, which names whichever character is bound to Poser's own
+        # session. Unrigged: the form's remembered choice, the same default
+        # the Skeleton combo below opens on and may still change before Send.
         template=rig_template if rigged else str(form.get("template") or ""),
         logical_size=logical_size,
-        # Off-ladder means the field is already a custom answer -- the form
-        # opens on the Custom box rather than silently snapping it to a
-        # preset it does not hold.
         custom_size=logical_size not in (options.get("logical_sizes") or ()),
         camera=str(form.get("camera") or ""),
         outline=str(form.get("outline") or ""),
         colors=int(form.get("colors") or 64),
         palette=str(form.get("palette") or ""),
-        style=troupe_mode._style_choice(form),
+        style=poser_mode._style_choice(form),
         fps=form.get("fps"),
     )
     return True
 
 
 def close(ctx: Any) -> None:
-    state = getattr(getattr(ctx, "state", None), "troupe_send", None)
+    state = getattr(getattr(ctx, "state", None), "poser_send", None)
     if state is not None:
-        ctx.state.troupe_send = None
+        ctx.state.poser_send = None
 
 
 def is_open(ctx: Any) -> bool:
@@ -180,20 +172,20 @@ def is_open(ctx: Any) -> bool:
     and here for its reason: ``App._modal_open`` asks this on every key press
     and must not require a state object the caller has never built.
     """
-    state = getattr(getattr(ctx, "state", None), "troupe_send", None)
+    state = getattr(getattr(ctx, "state", None), "poser_send", None)
     return state is not None and bool(state.job_id)
 
 
 def draw(ctx: Any) -> None:
     """The modal. Beside the confirms, because it is one."""
-    state = getattr(ctx.state, "troupe_send", None)
+    state = getattr(ctx.state, "poser_send", None)
     if state is None or not state.job_id:
         return
     appearing = not state._open
     if appearing:
         imgui.open_popup(TITLE)
         state._open = True
-    alpha, rise = widgets.popover_enter("troupe-send", appearing)
+    alpha, rise = widgets.popover_enter("poser-send", appearing)
     frosted = widgets.frosted()
     if frosted:
         imgui.set_next_window_bg_alpha(0.0)
@@ -220,20 +212,16 @@ def draw(ctx: Any) -> None:
     imgui.pop_style_var()
 
 
-def _body(ctx: Any, state: TroupeSend) -> None:
-    options = troupe_mode.options(ctx)
-    form = troupe_mode.form(ctx)
+def _body(ctx: Any, state: PoserSend) -> None:
+    options = poser_mode.sheet_options(ctx)
+    form = poser_mode.sheet_form(ctx)
     # The body scrolls and the action row does not (INVARIANTS: a bounded
     # modal puts its body in ``modal_body`` and draws the buttons after it).
-    with widgets.modal_body("troupe-send-body"):
+    with widgets.modal_body("poser-send-body"):
         if state.label:
             widgets.muted(state.label)
         _skeleton(ctx, state, options)
         _size(state, options)
-        # ``check_troupe``/``_charsheet_spec``'s ``field="layout"`` -- an atlas
-        # over the texture limit at this size, most reachably -- has no table
-        # here the way ``troupe_settings._layout`` rings one; the size combo
-        # just above is the nearest control a reader would blame.
         widgets.field_error(ctx.state, "layout")
         presets = options.get("camera_presets") or {}
         state.camera = widgets.labeled_combo(
@@ -247,7 +235,7 @@ def _body(ctx: Any, state: TroupeSend) -> None:
         widgets.muted(_front_helper(state.front_yaw))
         _frame_rate(ctx, state, options)
         _style(state)
-        hd = state.style == troupe_mode.STYLE_HD
+        hd = state.style == poser_mode.STYLE_HD
         state.outline = widgets.labeled_combo(
             "Outline",
             state.outline,
@@ -255,9 +243,6 @@ def _body(ctx: Any, state: TroupeSend) -> None:
             enabled=not hd,
             reason="Style is HD, so there is no outline pass." if hd else "",
         )
-        # Shown only when no palette is named, mirroring ``troupe_settings``:
-        # the budget is what a *derived* palette gets, so offering it beside a
-        # named one would be a control whose value is silently ignored.
         if state.palette:
             widgets.muted(f"Palette: {state.palette}")
         else:
@@ -274,12 +259,12 @@ def _body(ctx: Any, state: TroupeSend) -> None:
     _actions(ctx, state, form)
 
 
-def _skeleton(ctx: Any, state: TroupeSend, options: dict[str, Any]) -> None:
+def _skeleton(ctx: Any, state: PoserSend, options: dict[str, Any]) -> None:
     """Which rig an unrigged mesh is built on, when there is a choice.
 
-    A rigged mesh is not asked: the skeleton is already on disk and the service
-    reads it off ``rig.json``, so a picker here would be a control whose value
-    that branch discards.
+    A rigged mesh is not asked: the skeleton is already on disk and the
+    service reads it off ``rig.json``, so a picker here would be a control
+    whose value that branch discards.
     """
     if state.rigged:
         widgets.muted("This mesh is already rigged; its own skeleton is used.")
@@ -309,22 +294,19 @@ def _skeleton(ctx: Any, state: TroupeSend, options: dict[str, Any]) -> None:
             "are offered."
         ),
     )
-    # ``stage_rig.skeleton_field``'s idiom, bare rather than through
-    # ``forms.Form``: ``_charsheet_spec`` refuses an unrigged send's skeleton
-    # by name (``field="template"``), on a missing or partial clip library.
     if state.template != before:
         ctx.state.clear_field_error("template")
     widgets.field_error(ctx.state, "template")
 
 
-def _style(state: TroupeSend) -> None:
-    """Pixel art or HD -- ``troupe_settings._style``'s control, mirrored."""
+def _style(state: PoserSend) -> None:
+    """Pixel art or HD -- the same control the sheet form draws, mirrored."""
     state.style = widgets.labeled_combo(
         "Style",
         state.style,
         [
-            (troupe_mode.STYLE_PIXEL_ART, "Pixel art"),
-            (troupe_mode.STYLE_HD, "HD"),
+            (poser_mode.STYLE_PIXEL_ART, "Pixel art"),
+            (poser_mode.STYLE_HD, "HD"),
         ],
         help_text=(
             "Pixel art reduces the render to a logical size, a colour budget "
@@ -334,9 +316,9 @@ def _style(state: TroupeSend) -> None:
     )
 
 
-def _frame_rate(ctx: Any, state: TroupeSend, options: dict[str, Any]) -> None:
-    """A layout-wide rate, or every clip's own recorded speed. ``troupe
-    _settings._frame_rate``'s control, mirrored."""
+def _frame_rate(ctx: Any, state: PoserSend, options: dict[str, Any]) -> None:
+    """A layout-wide rate, or every clip's own recorded speed. The sheet
+    form's control, mirrored."""
     choices = [("", "Authored")] + [
         (str(n), f"{n} fps") for n in options.get("fps_choices") or ()
     ]
@@ -357,19 +339,14 @@ def _frame_rate(ctx: Any, state: TroupeSend, options: dict[str, Any]) -> None:
     widgets.field_error(ctx.state, "fps")
 
 
-#: The combo's sentinel for "type your own number" -- distinct from every
-#: ladder entry, which are all digit strings, so it can never collide with a
-#: size the ladder actually offers.
+#: The combo's sentinel for "type your own number".
 _CUSTOM = "custom"
 
 
-def _size(state: TroupeSend, options: dict[str, Any]) -> None:
-    """Sprite size: the ladder, or a hand-typed value in ``logical_size_range``.
-
-    ``troupe_settings._size``'s pane-side twin, kept in step because the two
-    are the same question asked from two doors -- a size chosen here has to
-    read back the same way in Troupe's own settings form.
-    """
+def _size(state: PoserSend, options: dict[str, Any]) -> None:
+    """Sprite size: the ladder, or a hand-typed value in
+    ``logical_size_range``. ``ui/panes/sheet.py``'s own combo, kept in step:
+    a size chosen here has to read back the same way in that form."""
     choices = [(str(s), f"{s} px") for s in options.get("logical_sizes") or ()]
     choices.append((_CUSTOM, "Custom..."))
     combo_value = _CUSTOM if state.custom_size else str(state.logical_size)
@@ -381,7 +358,7 @@ def _size(state: TroupeSend, options: dict[str, Any]) -> None:
         state.logical_size = int(picked)
     if state.custom_size:
         lo, hi = options.get("logical_size_range") or (8, 256)
-        _changed, value = controls.input_int("##troupe-send-size", int(state.logical_size))
+        _changed, value = controls.input_int("##poser-send-size", int(state.logical_size))
         state.logical_size = max(int(lo), min(int(hi), int(value)))
         if state.logical_size and charsheet.RENDER_SIZE % state.logical_size != 0:
             widgets.muted_wrapped(
@@ -394,9 +371,7 @@ def _front_helper(front_yaw: float) -> str:
 
     **Read-only, no override control.** The front is set from Poser or the
     viewport toolbar, both places the user is looking at the model turning
-    under the press; a number box in a send dialog the user opened to answer
-    two questions about sprite size and skeleton would be the worse tool for
-    the same job, with no picture beside it to judge the angle by.
+    under the press.
     """
     if not front_yaw:
         return "This mesh has no front set; sheets are rendered from yaw 0."
@@ -404,17 +379,14 @@ def _front_helper(front_yaw: float) -> str:
 
 
 def _camera_helper(presets: dict[str, Any], key: str) -> str:
-    """``troupe_settings._camera_helper``'s sentence, for the same reason."""
     entry = presets.get(key) or {}
     if "elevation" not in entry:
         return ""
     return f"{float(entry['elevation']):g} degrees above the horizon"
 
 
-def _actions(ctx: Any, state: TroupeSend, form: dict[str, Any]) -> None:
-    from . import settings as troupe_settings
-
-    count = troupe_settings.cell_count(form)
+def _actions(ctx: Any, state: PoserSend, form: dict[str, Any]) -> None:
+    count = poser_mode.cell_count(form)
     note = f"{count} cells are rendered at {state.logical_size} px."
     if not state.rigged:
         note = f"A mesh that is not rigged is rigged first. Then {note}"
@@ -433,7 +405,7 @@ def _actions(ctx: Any, state: TroupeSend, form: dict[str, Any]) -> None:
         close(ctx)
 
 
-def _send(ctx: Any, state: TroupeSend, form: dict[str, Any]) -> None:
+def _send(ctx: Any, state: PoserSend, form: dict[str, Any]) -> None:
     """Write the answers back, then submit with the form the pane also draws.
 
     No imgui: see ``_actions``.
@@ -447,20 +419,19 @@ def _send(ctx: Any, state: TroupeSend, form: dict[str, Any]) -> None:
         form["template"] = state.template
     form["style"] = state.style
     form["fps"] = state.fps
-    # The 2026-09-16 audit, finding troupe-01: ``form["layout"]`` is built by
-    # ``troupe_mode.form``/``_default_layout`` against whichever character is
-    # bound to Troupe's own pane (``troupe_mode.ensure(ctx).job_id``), not
-    # against the mesh this dialog is actually sending -- a separate id
-    # chosen from the Library or the inspector. Rebuilt here whenever the two
-    # disagree, so a character open in Troupe -- and any layout it carries,
-    # hand-edited or not -- cannot leak onto an unrelated mesh sent through
-    # this door. ``state.template`` empty means the skeleton could not be
-    # resolved (an unreadable ``rig.json``, read tolerantly above) -- the
-    # form's own layout is kept rather than replaced with one built for no
-    # template at all, and ``create_charsheet`` re-reads the rig and is the
-    # real gate.
-    if state.template and state.job_id != troupe_mode.ensure(ctx).job_id:
-        form["layout"] = troupe_mode._layout_for_template(ctx, state.template)
+    # ``form["layout"]`` is built by ``poser_mode.sheet_form``/
+    # ``_default_sheet_layout`` against whichever character is bound to
+    # Poser's own session, not against the mesh this dialog is actually
+    # sending -- a separate id chosen from the Library or the inspector.
+    # Rebuilt here whenever the two disagree, so a character open in Poser --
+    # and any layout it carries, hand-edited or not -- cannot leak onto an
+    # unrelated mesh sent through this door. ``state.template`` empty means
+    # the skeleton could not be resolved (an unreadable ``rig.json``, read
+    # tolerantly above) -- the form's own layout is kept rather than replaced
+    # with one built for no template at all, and ``create_charsheet``
+    # re-reads the rig and is the real gate.
+    if state.template and state.job_id != poser_mode.ensure(ctx).job_id:
+        form["layout"] = poser_mode._layout_for_sheet_template(ctx, state.template)
     job_id = state.job_id
     close(ctx)
-    troupe_mode.send_to_troupe(ctx, {"id": job_id}, form)
+    poser_mode.render_character_sheet(ctx, {"id": job_id}, form)

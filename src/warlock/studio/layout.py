@@ -340,9 +340,9 @@ class Layout:
             share = 0.55
         self.settings_share = min(max(share, SHARE_MIN), SHARE_MAX)
         # **One share per split, not one for the whole app.** ``settings_share``
-        # above is a single number that nine workspaces read and one -- Inker
-        # -- can write, from two handles. So dragging Inker's toolbox handle
-        # silently re-split Create, Clay, Plotter, Packwright, Troupe and
+        # above is a single number that several workspaces read and one --
+        # Inker -- can write, from two handles. So dragging Inker's toolbox
+        # handle silently re-split Create, Clay, Plotter, Packwright and
         # Review, and Inker's own right column besides: a handle that resizes
         # six screens the user cannot see is not a handle, it is a setting.
         #
@@ -391,7 +391,11 @@ class Layout:
     _SHARE_SPLITS: dict[str, tuple[str, ...]] = {
         "clay": ("clay-tools", "clay-outliner"),
         "plotter": ("plotter-tools", "plotter-layers"),
-        "troupe": ("troupe-cast", "troupe-sheets"),
+        # Troupe's own ``troupe-cast``/``troupe-sheets`` split left this table
+        # when the mode folded into Poser as a stage (P9, 2026-09-18): Poser's
+        # sheet section draws inline in the existing library/controls panes
+        # rather than as a split column of its own, so there is no pane id
+        # left for a migrated share to seed.
         "packwright": ("packwright-sources", "packwright-items"),
         "sirens": ("sirens-transport", "sirens-instruments"),
         "review": ("review-runs",),
@@ -724,7 +728,7 @@ def pane_child(pane_id: str, size: tuple[float, float], window_flags: int = 0) -
 def sidebar_width(side: str = "left") -> float:
     """A sidebar's width this frame, in physical px. Narrowed to fit (UX-01).
 
-    What the nine workspaces call instead of ``sp(SIDEBAR_W)``. Same value
+    What the eight workspaces call instead of ``sp(SIDEBAR_W)``. Same value
     whenever there is room, which is the ordinary case; the difference only
     shows at high UI scale in a small window, which is exactly the case a user
     who enlarged the UI to read it is in.

@@ -126,13 +126,6 @@ ALLOWED: dict[tuple[str, str], str] = {
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): "panes/clay_props._carry_shading is named \"now deleted\" -- not a live citation.",
     (
-        "tests/modes/troupe/test_troupe_imports.py",
-        "studio/troupe/ (the flat headless package)",
-    ): (
-        "the 2026-09-15 audit finding it quotes (troupe-04) predates this "
-        "restructure and used the real names of that day."
-    ),
-    (
         "src/warlock/studio/modes/inker/mode.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): (

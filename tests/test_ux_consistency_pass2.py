@@ -324,7 +324,7 @@ def test_every_transport_is_the_one_helper():
         "plotter_tileset_editor.py",
     ):
         assert "widgets.transport(" in sources[name], name
-    for name in ("inker_timeline.py", "troupe_preview.py"):
+    for name in ("inker_timeline.py", "poser_sheet.py"):
         assert "widgets.transport_label(" in sources[name], name
     for name, text in sources.items():
         assert '"Pause"' not in text, name
@@ -337,9 +337,9 @@ def test_every_transport_is_the_one_helper():
 
 def test_frame_counters_are_one_spelling():
     sources = _pane_sources()
-    for name in ("inker_preview.py", "troupe_preview.py", "plotter_tileset_editor.py"):
+    for name in ("inker_preview.py", "poser_sheet.py", "plotter_tileset_editor.py"):
         assert "widgets.frame_counter(" in sources[name], name
-    for name in ("inker_preview.py", "troupe_preview.py", "plotter_tileset_editor.py"):
+    for name in ("inker_preview.py", "poser_sheet.py", "plotter_tileset_editor.py"):
         assert 'f"frame {' not in sources[name], name
         assert 'imgui.text(f"{index + 1}/' not in sources[name], name
 
@@ -381,12 +381,12 @@ def test_every_bridge_has_one_primary_and_the_exits_heading():
     from warlock.studio import widgets
 
     sources = _pane_sources()
-    for name in ("packwright_bridge.py", "sirens_bridge.py", "troupe_settings.py"):
+    for name in ("packwright_bridge.py", "sirens_bridge.py", "poser_sheet.py"):
         assert "widgets.primary_button(" in sources[name], name
     for name in (
         "clay_bridge.py",
         "packwright_bridge.py",
-        "troupe_bridge.py",
+        "poser_sheet.py",
         "plotter_bridge.py",
         "sirens_bridge.py",
         "inker_generate.py",

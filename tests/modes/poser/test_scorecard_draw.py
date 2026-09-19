@@ -14,6 +14,9 @@ rendered at 16:51:42).
 So this is a real imgui context and a real ``_scorecard`` call: nothing short
 of the binding actually rejecting the arguments would have caught it, which is
 why no source-text assertion appears below.
+
+P9 (2026-09-18): followed Troupe's own ``ui/panes/preview.py`` into Poser's
+``ui/panes/sheet.py`` when that mode folded in.
 """
 
 from __future__ import annotations
@@ -24,9 +27,9 @@ import pytest
 from _ui_context import imgui_context
 
 from warlock.studio import probe
-from warlock.studio.modes.troupe import mode as troupe_mode
-from warlock.studio.modes.troupe.engine import qa
-from warlock.studio.modes.troupe.ui.panes import preview as troupe_preview
+from warlock.studio.modes.poser import mode as poser_mode
+from warlock.studio.modes.poser.engine import qa
+from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
 
 
 @pytest.fixture
@@ -71,15 +74,15 @@ def _movement() -> dict:
 
 
 def _draw(ui, monkeypatch, *, direction: str, frame: int):
-    monkeypatch.setattr(troupe_mode, "scores", lambda ctx: _score())
-    monkeypatch.setattr(troupe_mode, "preview_movement", lambda ctx: _movement())
+    monkeypatch.setattr(poser_mode, "scores", lambda ctx: _score())
+    monkeypatch.setattr(poser_mode, "preview_movement", lambda ctx: _movement())
     ctx = SimpleNamespace()
-    state = SimpleNamespace(direction=direction, frame=frame)
+    state = SimpleNamespace(sheet_direction=direction, sheet_frame=frame)
     probe.begin_frame()
     ui.new_frame()
     ui.begin("host")
     try:
-        troupe_preview._scorecard(ctx, state)
+        poser_sheet._scorecard(ctx, state)
     finally:
         ui.end()
         ui.end_frame()

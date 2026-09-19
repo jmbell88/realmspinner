@@ -146,14 +146,12 @@ DROPPABLE_IMAGES = filetypes.IMAGE_SUFFIXES
 #: A test holds this table and the document branches of ``_on_drop`` against
 #: ``modes.KEYS``, so a new mode cannot be forgotten. Home, Library and Create
 #: are the modes a drop *starts* something in and are deliberately absent.
+#: Troupe's own row folded into Poser's (P9, 2026-09-18) when the mode did.
 DROP_REFUSALS: dict[str, str] = {
     "poser": (
-        "The Poser opens no files: it edits poses on a rig you already have, "
+        "Poser opens no files: it edits poses on a rig you already have and "
+        "plays the character sheets a render has already produced, both "
         "chosen from its own library."
-    ),
-    "troupe": (
-        "Troupe opens no files: it plays the character sheets a render has "
-        "already produced."
     ),
     "muse": (
         "Muse opens no files: it makes music from a brief, and a take goes to "

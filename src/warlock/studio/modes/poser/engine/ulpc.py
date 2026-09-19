@@ -1,14 +1,14 @@
 """A reader for Universal-LPC "full" sheets -- validation material, not art.
 
-Troupe is an alternative to ULPC, not a consumer of it. This module exists for
-one reason: it turns the measurements taken off ``examples/*.png`` into
+Poser's character-sheet render is an alternative to ULPC, not a consumer of it.
+This module exists for one reason: it turns the measurements taken off ``examples/*.png`` into
 regression oracles that cost nothing to keep passing -- the 352-cell frame
 table, the N/W/S/E direction order, the lossless W/E mirror away from the
 face. **No ULPC art ships**; the example sheets are CC-BY-SA/GPL and stay out
 of the package and out of any training set.
 
 ``read`` and ``crop`` decode a full sheet against :data:`LAYOUT` and have no
-caller anywhere outside ``tests/modes/troupe/test_ulpc.py`` and this package's own
+caller anywhere outside ``tests/modes/poser/test_ulpc.py`` and this package's own
 re-export. This docstring used to also claim a second purpose -- a
 user-supplied-art import door, standing in while a character is being built
 -- which the 2026-09-08 audit (finding troupe-03) cut: no pane, service door

@@ -188,7 +188,8 @@ def add_rendered_sheet(ctx: Any, job_id: str, sheet_id: str, *, pixel: bool = Fa
     # Keyed on the request's own identity, not the bare tab uid
     # ``ask_add_tileset`` submits under. The 2026-09-07 audit's packwright-02:
     # both call sites shared ``packwright-tileset:{uid}`` and neither inspects
-    # ``ctx.submit``'s return, so a Troupe handoff landing while the manual
+    # ``ctx.submit``'s return, so a character-sheet handoff (Poser's own
+    # since P9, 2026-09-18; Troupe's before it) landing while the manual
     # picker's OS dialog was still open -- the same tab, same key, already in
     # flight -- was refused with nothing to say so: manual submit ``True``,
     # handoff ``False``, no toast. ``job_id``/``sheet_id`` make this handoff

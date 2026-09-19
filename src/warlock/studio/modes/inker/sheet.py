@@ -54,7 +54,7 @@ __all__ = [
 ]
 
 NO_SHEET = (
-    "Open a Troupe character sheet -- its tags are named animation_direction, "
+    "Open a character sheet -- its tags are named animation_direction, "
     "and that is what a sheet correction reads."
 )
 NO_MARK = "Nothing has changed on this cell since it was marked."

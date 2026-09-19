@@ -422,18 +422,19 @@ def test_modal_open_sees_both_queues():
     ctx.prompts.ask(dialogs.Prompt(title="A", label="name"))
     assert main.App._modal_open(app) is True
 
-    # And the fifth: the Send to Troupe question. It is a real modal with its
-    # own Send and Cancel, and a shortcut leaking through it is UX-08 -- Esc
-    # would cancel the dialog *and* leave the mode behind it. The partial ctx
-    # is the point of ``troupe_send.is_open``'s ``getattr``: this caller has
-    # never built a state object.
+    # And the fifth: the sheet-rendering question (Troupe's own "Send to
+    # Troupe" dialog, ported to Poser whole in P9, 2026-09-18). It is a real
+    # modal with its own Send and Cancel, and a shortcut leaking through it is
+    # UX-08 -- Esc would cancel the dialog *and* leave the mode behind it. The
+    # partial ctx is the point of ``poser_send.is_open``'s ``getattr``: this
+    # caller has never built a state object.
     from types import SimpleNamespace as _NS
 
-    from warlock.studio.modes.troupe.ui.panes import send as troupe_send
+    from warlock.studio.modes.poser.ui.panes import send as poser_send
 
     ctx.prompts.dismiss()
     assert main.App._modal_open(app) is False
-    ctx.state = _NS(troupe_send=troupe_send.TroupeSend(job_id="abc"))
+    ctx.state = _NS(poser_send=poser_send.PoserSend(job_id="abc"))
     assert main.App._modal_open(app) is True
 
 
@@ -512,7 +513,6 @@ _WORKSPACE_ARMS = {
     "inker": "modes.inker.mode",
     "plotter": "modes.plotter.mode",
     "packwright": "modes.packwright.mode",
-    "troupe": "modes.troupe.mode",
     "muse": "modes.muse.mode",
     "sirens": "modes.sirens.mode",
     "mason": "modes.mason.mode",

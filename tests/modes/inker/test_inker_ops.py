@@ -113,7 +113,7 @@ def test_a_greyed_op_with_no_document_open_says_so_rather_than_naming_busy_or_a_
 
 
 #: The Sheet menu's nine ops all delegate their reason to ``inker_sheet``,
-#: whose functions already answer "Open a Troupe character sheet -- its tags
+#: whose functions already answer "Open a character sheet -- its tags
 #: are named animation_direction, and that is what a sheet correction reads."
 #: with nothing open (``inker_sheet.NO_SHEET``, via ``no_sheet_reason``/
 #: ``is_sheet(None)``). That sentence never names a document that does not

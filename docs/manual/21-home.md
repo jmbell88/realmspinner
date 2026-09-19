@@ -69,7 +69,7 @@ Beside it, quieter, is **Import mesh…**. That is the other errand: not startin
 bringing in a `.glb` you already have — a character someone modelled for you, a prop from another
 tool. You can also drag the file onto Home or onto the Library. Either way it becomes an ordinary
 library asset, which means everything that works on a generated mesh works on it too: **Send to
-Troupe**, the Poser, the triangle retarget and every export.
+Poser**, the triangle retarget and every export.
 
 An imported mesh keeps whatever rig it arrived with only as far as the library. Warlock fits its
 own skeleton when you rig it, because a supplied rig rarely maps onto the one the clips are
@@ -87,7 +87,7 @@ to go is clickable.
 |---|---|---|
 | Setup | "Generation is not set up yet — N downloads, about G GB", when a fresh machine still owes weights. It is the one line here about getting started rather than about work in progress, and it is absent once nothing is owed. | [App settings](42-app-settings.md), opened on **Models**. |
 | Queue | What is running or queued, with a percentage when the worker is reporting one, or "Queue idle". | — |
-| Unreviewed | How many finished meshes nobody has judged, when there are any. | [Review](38-review.md). |
+| Unreviewed | How many finished meshes nobody has judged, when there are any. | [Review](37-review.md). |
 
 There used to be a **Library** line here too, counting assets and disk. It went when Resume became a
 grid of those same assets: a count of the thing you are looking at is not news, and the Library is

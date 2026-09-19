@@ -59,8 +59,8 @@ from warlock.studio.modes.packwright import fileio as packwright_io
 from warlock.studio.modes.packwright.engine import wpack
 from warlock.studio.modes.packwright.engine.document import PackDoc
 from warlock.studio.modes.packwright.engine.sources import Sprite
+from warlock.studio.modes.poser import mode as poser_mode
 from warlock.studio.modes.sirens.engine import wsng
-from warlock.studio.modes.troupe import mode as troupe_mode
 from warlock.studio.viewer_embed import Viewer
 
 WORKER = "warlock-task-test"
@@ -185,13 +185,13 @@ def test_the_character_preview_submits_the_parse_and_adopts_it_on_landing():
     assert "adopt_model" in adopt
 
 
-# --- 2. the Troupe atlas ------------------------------------------------------
+# --- 2. the character-sheet atlas (Troupe's own, folded into Poser by P9) ---
 
 
-class _TroupeCtx(_Threaded):
+class _PoserSheetCtx(_Threaded):
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.state = SimpleNamespace(troupe=None, preview={}, mode="troupe")
+        self.state = SimpleNamespace(poser=None, preview={}, mode="poser")
         self.viewer = SimpleNamespace(ctx=_GL())
         self.submitted, self.tags, self.result = [], [], None
         self.toasts: list[tuple[str, str]] = []
@@ -206,27 +206,27 @@ class _TroupeCtx(_Threaded):
         self.toasts.append((text, level))
 
 
-def _sheet(ctx: _TroupeCtx) -> tuple[str, str]:
+def _sheet(ctx: _PoserSheetCtx) -> tuple[str, str]:
     from warlock.kernels.rig import store
 
-    state = troupe_mode.ensure(ctx)
+    state = poser_mode.ensure(ctx)
     state.job_id, state.sheet_id = "job1", store.new_id()
     _png(store.sheet_png_path(ctx.job_dir("job1"), state.sheet_id), (16, 8))
     return "job1", state.sheet_id
 
 
-def test_the_troupe_atlas_is_decoded_on_a_task_and_uploaded_when_it_lands(tmp_path, monkeypatch):
-    ctx = _TroupeCtx(tmp_path)
+def test_the_sheet_atlas_is_decoded_on_a_task_and_uploaded_when_it_lands(tmp_path, monkeypatch):
+    ctx = _PoserSheetCtx(tmp_path)
     key = _sheet(ctx)
-    threads = _spy(monkeypatch, troupe_mode, "_decode_atlas")
+    threads = _spy(monkeypatch, poser_mode, "_decode_atlas")
 
-    assert troupe_mode.atlas_texture(ctx) is None, "not yet: the decode is in flight"
-    assert ctx.submitted == [troupe_mode.atlas_key(*key)]
+    assert poser_mode.atlas_texture(ctx) is None, "not yet: the decode is in flight"
+    assert ctx.submitted == [poser_mode.atlas_key(*key)]
     assert threads == [WORKER]
     assert ctx.viewer.ctx.uploads == [], "nothing touched GL on the frame thread"
 
-    troupe_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result, tag=key))
-    texture = troupe_mode.atlas_texture(ctx)
+    poser_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result, tag=key))
+    texture = poser_mode.atlas_texture(ctx)
     assert texture is not None and texture.size == (16, 8)
     assert ctx.viewer.ctx.uploads == [((16, 8), 16 * 8 * 4)]
     assert len(ctx.submitted) == 1, "cached: the second ask decodes nothing"
@@ -235,22 +235,22 @@ def test_the_troupe_atlas_is_decoded_on_a_task_and_uploaded_when_it_lands(tmp_pa
 def test_a_decoded_atlas_for_a_sheet_no_longer_on_screen_is_dropped(tmp_path):
     from warlock.kernels.rig import store
 
-    ctx = _TroupeCtx(tmp_path)
+    ctx = _PoserSheetCtx(tmp_path)
     key = _sheet(ctx)
-    troupe_mode.atlas_texture(ctx)
-    troupe_mode.ensure(ctx).sheet_id = store.new_id()
-    troupe_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result, tag=key))
+    poser_mode.atlas_texture(ctx)
+    poser_mode.ensure(ctx).sheet_id = store.new_id()
+    poser_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result, tag=key))
     assert ctx.viewer.ctx.uploads == []
     assert "troupe_texture" not in ctx.state.preview
 
 
 def test_an_unreadable_atlas_is_tried_once(tmp_path):
-    ctx = _TroupeCtx(tmp_path)
+    ctx = _PoserSheetCtx(tmp_path)
     key = _sheet(ctx)
-    troupe_mode.atlas_texture(ctx)
-    troupe_mode.on_task_failed(ctx, _Done(ctx.submitted[-1], tag=key, error=OSError("bad png")))
+    poser_mode.atlas_texture(ctx)
+    poser_mode.on_task_failed(ctx, _Done(ctx.submitted[-1], tag=key, error=OSError("bad png")))
     for _ in range(3):
-        assert troupe_mode.atlas_texture(ctx) is None
+        assert poser_mode.atlas_texture(ctx) is None
     assert len(ctx.submitted) == 1
 
 

@@ -42,7 +42,7 @@ moves them.
 
 The symptom is "the arms are welded to the body". There is no "Measured joints" control here to
 reach for — fitting the arm and leg lines to a mesh's own vertex cloud, and, with the ViTPose
-weights installed, to the reference image's own landmarks, is something Troupe's Character pipeline
+weights installed, to the reference image's own landmarks, is something the character pipeline
 does **automatically** for a T-posed reference, before the rig ever reaches this stage. It never
 appears as a button you press.
 
@@ -149,8 +149,9 @@ step is one or two. If you tweak easing and see no change, the control is fine a
 
 1. Rig a mesh, then read the `weighting:` line and look at the deformation sheet.
 2. If the arms look welded to the chest, that is the A-pose trap, and there is no **Measured joints**
-   button here to press: Troupe's Character route measures joints for you, before the rig is built.
-   Compare one built that way, or open the asset's Pose panel and use **Adjust joints** by hand.
+   button here to press: the Character route (Create → Character, or Poser's Start a new character
+   form) measures joints for you, before the rig is built. Compare one built that way, or open the
+   asset's Pose panel and use **Adjust joints** by hand.
 3. In the asset's Pose panel, rotate an arm, mirror it, and save the pose.
 4. Open Poser on the same skeleton. Notice the bare armature. Author a wave and
    **Save as reusable pose...**.

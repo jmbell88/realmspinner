@@ -170,20 +170,21 @@ def test_installation_chapter_sdxl_recipe_count_matches_the_registry():
     )
 
 
-def test_troupe_settings_draws_the_fps_control_the_invariant_says_it_lacks():
-    """docs-06, source half: ``troupe_settings.py`` must still draw the fps
+def test_the_sheet_form_draws_the_fps_control_the_invariant_says_it_lacks():
+    """docs-06, source half: the character-sheet form must still draw the fps
     control that INVARIANTS.md's fps-refusal paragraph (checked in
     ``dev/tests/test_audit_2026_09_15_docs.py``) says it lacks --
-    ``_frame_rate`` (added in fa2fee2a) draws one, a
+    ``_frame_rate`` (added in fa2fee2a, on Troupe's own ``troupe_settings.py``
+    before P9, 2026-09-18 folded that mode into Poser) draws one, a
     ``form_ui.combo("fps", "Frame rate", ...)``.
     """
-    troupe_settings_path = (
-        ROOT / "src" / "warlock" / "studio" / "modes/troupe/ui/panes/settings.py"
+    sheet_path = (
+        ROOT / "src" / "warlock" / "studio" / "modes/poser/ui/panes/sheet.py"
     )
-    troupe_settings = troupe_settings_path.read_text(encoding="utf-8")
-    assert 'form_ui.combo(\n        "fps",' in troupe_settings or re.search(
-        r'form_ui\.combo\(\s*"fps"', troupe_settings
+    sheet_source = sheet_path.read_text(encoding="utf-8")
+    assert 'form_ui.combo(\n        "fps",' in sheet_source or re.search(
+        r'form_ui\.combo\(\s*"fps"', sheet_source
     ), (
-        "troupe_settings.py no longer draws an 'fps' combo -- re-check docs-06 "
+        "the sheet form no longer draws an 'fps' combo -- re-check docs-06 "
         "against the current source"
     )

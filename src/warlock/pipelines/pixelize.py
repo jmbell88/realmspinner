@@ -43,7 +43,7 @@ neighbours, and outline across the seam.
 
 Deterministic end to end -- no RNG, no dither unless asked, integer arithmetic
 where it matters -- which is what makes the golden-image test in
-``tests/modes/troupe/test_pixelize.py`` the right bar.
+``tests/pipelines/test_pixelize.py`` the right bar.
 """
 
 from __future__ import annotations

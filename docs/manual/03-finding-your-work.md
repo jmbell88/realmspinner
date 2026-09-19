@@ -73,7 +73,7 @@ A **Usable** toggle sits beside Favourites: it shows only meshes graded at or ab
 
 **Opening** an asset is a click, or Enter on the selection. Where it lands depends on what it is: a
 reference opens on the Reference stage, a mesh on Mesh, a drawing in Inker, a tile map in Plotter, a
-character sheet in Troupe. You do not choose the destination and you should not have to.
+character sheet in Poser. You do not choose the destination and you should not have to.
 
 ## The four kinds of delete
 

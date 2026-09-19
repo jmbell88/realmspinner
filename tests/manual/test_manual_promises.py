@@ -301,7 +301,7 @@ def test_manual_ch04_and_ch37_name_the_labelling_section_teach_the_judge():
         "section -- update this test and the manual together"
     )
 
-    for name in ("04-judging-what-you-made.md", "38-review.md"):
+    for name in ("04-judging-what-you-made.md", "37-review.md"):
         text = _chapter(name)
         assert "Teaching the judge" not in text, (
             f"docs/manual/{name} still calls the section 'Teaching the "
@@ -376,28 +376,33 @@ def test_manual_26_does_not_claim_clip_root_offsets_are_refused():
     )
 
 
-# --- packwright-04: the Troupe handoff belongs in Packwright's own chapter -
+# --- packwright-04: the character-sheet handoff belongs in Packwright's own
+# chapter -----------------------------------------------------------------
 
 
 def test_the_packwright_manual_chapter_lists_every_source_door_the_code_has():
     """The 2026-09-07 audit, finding packwright-04: chapter 32 said "Four
-    ways in" and never mentioned the Troupe handoff that chapter 10
-    documents as a door -- ``troupe_mode.add_to_packwright`` calls
+    ways in" and never mentioned the character-sheet handoff that chapter 10
+    documents as a door -- ``poser_mode.add_to_packwright`` calls
     ``packwright_mode.add_rendered_sheet``, the same bridge. A reader
     consulting Packwright's own reference chapter was told the door did
     not exist.
+
+    P9 (2026-09-18): the door moved with Troupe into Poser's character-sheet
+    section, unrenamed -- ``add_to_packwright`` is exactly the function it
+    was.
     """
     from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.troupe import mode as troupe_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     assert hasattr(packwright_mode, "add_rendered_sheet"), (
         "sanity: packwright_mode lost its rendered-sheet door"
     )
-    assert hasattr(troupe_mode, "add_to_packwright"), (
-        "sanity: troupe_mode lost its Packwright bridge"
+    assert hasattr(poser_mode, "add_to_packwright"), (
+        "sanity: poser_mode lost its Packwright bridge"
     )
 
-    ch10_bridges = ("From Inker", "From the library", "From Troupe")
+    ch10_bridges = ("From Inker", "From the library", "From Poser")
     ch10 = _chapter("10-packing-an-atlas.md")
     for bridge in ch10_bridges:
         assert f"**{bridge}**" in ch10, f"sanity: chapter 10 no longer lists {bridge!r}"
@@ -407,7 +412,7 @@ def test_the_packwright_manual_chapter_lists_every_source_door_the_code_has():
     assert not missing, (
         "docs/manual/33-packwright.md's Sources section is missing the "
         f"door(s) {missing}, which chapter 10 documents and the code has "
-        "(troupe_mode.add_to_packwright -> packwright_mode.add_rendered_sheet)"
+        "(poser_mode.add_to_packwright -> packwright_mode.add_rendered_sheet)"
     )
 
 
@@ -566,12 +571,12 @@ def test_the_shortcuts_chapter_does_not_send_the_reader_to_a_rail_button_that_do
         "backwards"
     )
 
-    text = _chapter("39-shortcuts.md")
+    text = _chapter("38-shortcuts.md")
     assert "rail's footer" not in text, (
-        "docs/manual/39-shortcuts.md sends the reader to a Shortcuts button "
+        "docs/manual/38-shortcuts.md sends the reader to a Shortcuts button "
         f"in the rail's footer; RAIL_GROUPS' footer group is {footer}"
     )
     assert "Help" in text, (
-        "docs/manual/39-shortcuts.md no longer names where the sheet actually "
+        "docs/manual/38-shortcuts.md no longer names where the sheet actually "
         "lives (the Help menu / command palette)"
     )

@@ -45,6 +45,7 @@ import copy
 import logging
 import math
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,6 +56,24 @@ from ....kernels.rig import cliplib, poses, skeleton, store, templates
 from ... import dialogs, journal
 
 log = logging.getLogger(__name__)
+
+#: How many jobs deep the "Rigged assets" walk looks, and the character-sheet
+#: walks below it. P9 (2026-09-18): Troupe's own constants, moved here rather
+#: than left behind an ``..troupe`` import -- the mode that owned them no
+#: longer exists, and this picker's own docstring already borrowed them by
+#: name for the identical reason (a page cap on a corpus that only grows).
+SCAN_LIMIT = 400
+
+#: How often the cast-adjacent walks below go back to the store. Troupe's own
+#: ``CAST_REFRESH_LIVE``, moved for :data:`SCAN_LIMIT`'s reason -- ``db.list``'s
+#: "twice a second" applied to a table shared with a worker that is writing it.
+CAST_REFRESH_LIVE = 0.5
+
+#: How often :func:`sheets` and :func:`active_sheet` go back to disk. Troupe's
+#: ``SHEETS_REFRESH``, moved whole: the character sheet panes ask three to four
+#: times a frame between them, for a directory that changes only when a sheet
+#: is built.
+SHEETS_REFRESH = 0.5
 
 # Task keys. Prefixed "poser-" because the app claims results by prefix.
 LIST_KEY = "poser-list"
@@ -344,6 +363,68 @@ class PoserState:
     skeleton_rename: str = ""
     skeleton_rename_for: str | None = None
 
+    # -- the character sheet (P9, 2026-09-18) ----------------------------------
+    #
+    # Troupe folded into Poser as a stage: rig, then clips, then a sheet, one
+    # workspace. Everything below is Troupe's own ``TroupeState`` -- minus the
+    # cross-character cast list, which decision 1 of the folding brief drops
+    # outright (binding an asset is now the one way to look at its sheets,
+    # through :func:`open_asset` above) -- carried onto this dataclass rather
+    # than a nested one. It is *not* journal-tracked: nothing in
+    # :data:`JOURNAL`'s ``slots``/``head_of``/``encode`` ever reads a
+    # ``sheet_*`` field, exactly as Troupe's own state carried "there is no
+    # document here, and that is the mode" -- a sheet is a selection over
+    # files a worker already published, not something a crash can cost the
+    # user beyond which frame the preview was on.
+    #
+    # A sheet is always the *bound asset's* own -- ``PoserState.job_id`` above
+    # is the one id a sheet session needs, where Troupe kept a second,
+    # independent ``job_id`` of its own. :func:`open_asset`/:func:`close_asset`
+    # reset the block below with the rest of the session for the identical
+    # reason they reset ``asset_poses``/``rerig_open``/etc.
+    #: Whether the centre viewport and the right sidebar are showing the
+    #: sprite preview instead of the pose editor. Meaningless with no asset
+    #: bound; :func:`close_asset` and :func:`open_asset` both clear it.
+    sheet_view: bool = False
+    #: The selected sheet, by id -- never a record, ``TroupeState``'s own
+    #: reason: a record cached across a frame can outlive the file it
+    #: describes.
+    sheet_id: str = ""
+    #: What the preview is playing. Names from the selected sheet's snapshot,
+    #: never indices -- see ``TroupeState.animation``.
+    sheet_animation: str = "walk"
+    sheet_direction: str = "front"
+    #: Paused by default -- ``TroupeState.playing``'s own reasoning, carried
+    #: whole: stepping already implies looking, which is why ``step`` clears
+    #: this, and opening a sheet should mean the same thing.
+    sheet_playing: bool = False
+    sheet_clock: float = 0.0
+    sheet_frame: int = 0
+    sheet_speed: float = 1.0
+    sheet_zoom: int = 6
+    sheet_checker: bool = False
+    sheet_show_pivot: bool = True
+    #: The new-character and build-a-sheet form, shared the way Troupe's own
+    #: ``form`` was shared between its settings pane and the direct "Build
+    #: another sheet" door -- one construction of the request, not two.
+    sheet_form: dict[str, Any] = field(default_factory=dict)
+    #: The throttled directory read behind :func:`sheets`, keyed and timed the
+    #: way ``TroupeState.sheets_cache`` was.
+    sheets_cache: list[dict[str, Any]] | None = None
+    sheets_key: str = ""
+    sheets_next: float = 0.0
+    #: The throttled sidecar read behind :func:`active_sheet`.
+    sheet_cache: dict[str, Any] | None = None
+    sheet_cache_key: tuple[str, str] = ("", "")
+    sheet_cache_next: float = 0.0
+    #: The pixel-art measurement for the selected sheet, keyed on its id --
+    #: ``TroupeState.pixel_report_cache``'s own reason: a ``kind``-filtered
+    #: page under the store's one lock has no business running every frame a
+    #: sheet section is open.
+    pixel_report_cache: dict[str, Any] | None = None
+    pixel_report_key: str = ""
+    pixel_report_next: float = 0.0
+
     def find_asset_pose(self, pose_id: Any) -> dict[str, Any] | None:
         return next((p for p in self.asset_poses if p.get("id") == pose_id), None)
 
@@ -558,14 +639,15 @@ def set_template(ctx: Any, template: str) -> None:
 # at all -- the only doors in were the inspector's Pose panel link and, once
 # B1 closed it, the library/inspector exits list, both of which mean leaving
 # whatever the user was looking at. This is Poser's own picker's data half,
-# modelled line for line on ``troupe_mode.can_send_to_troupe`` /
-# ``sendable_meshes`` -- see both docstrings for the two costs paid here too.
+# modelled line for line on Troupe's own ``can_send_to_troupe`` / ``sendable
+# _meshes`` -- since folded into this module as :func:`can_render_sheet` (P9,
+# 2026-09-18) -- see both docstrings for the two costs paid here too.
 
 
 def can_open_in_poser(ctx: Any, job: Any) -> bool:
     """Whether this row belongs in the "Rigged assets" picker.
 
-    From the cached row alone -- no filesystem -- ``troupe_mode.can_send_to_troupe``'s
+    From the cached row alone -- no filesystem -- :func:`can_render_sheet`'s
     shape and its reason: the pane asks this every frame its own header is
     open. ``rig.glb`` in ``files``, not a rig *row*: a rig job's own row
     carries no files of its own (``asset_open``'s docstring names the trap),
@@ -585,8 +667,9 @@ def can_open_in_poser(ctx: Any, job: Any) -> bool:
 def riggable_assets(ctx: Any) -> list[dict[str, Any]]:
     """Every rigged mesh the picker may offer, newest first. Throttled.
 
-    ``sendable_meshes``'s pattern, reused rather than restated: the page cap
-    and the refresh cadence are ``troupe_mode``'s own constants, over the same
+    Troupe's own ``sendable_meshes`` pattern (that mode folded into this one in
+    P9, 2026-09-18), reused rather than restated: the page cap and the refresh
+    cadence are :data:`SCAN_LIMIT`/:data:`CAST_REFRESH_LIVE`, over the same
     store, for the same reason a second set of numbers would just be a second
     answer to a question already answered. ``can_open_in_poser`` reads
     ``files``, which is ``attach_files``' one-stat-per-listed-name-per-row
@@ -614,7 +697,6 @@ def riggable_assets(ctx: Any) -> list[dict[str, Any]]:
     be one more thing for this and ``open_asset`` to agree about by hand.
     """
     from ....service import jobs as svc_jobs
-    from ..troupe import mode as troupe_mode
 
     state = ensure(ctx)
     now = time.monotonic()
@@ -628,22 +710,22 @@ def riggable_assets(ctx: Any) -> list[dict[str, Any]]:
                 "params": row.get("params") or {},
             }
             for row in svc_jobs.list_jobs(
-                ctx.svc, limit=troupe_mode.SCAN_LIMIT, files_cache=state.riggable_files
+                ctx.svc, limit=SCAN_LIMIT, files_cache=state.riggable_files
             )
             if can_open_in_poser(ctx, row)
         ]
         out.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         state.riggable_cache = out
-        state.riggable_next = now + troupe_mode.CAST_REFRESH_LIVE
+        state.riggable_next = now + CAST_REFRESH_LIVE
     return state.riggable_cache
 
 
 def invalidate_riggable(ctx: Any) -> None:
     """Drop the throttled rigged-asset list so the next draw re-reads it.
 
-    ``troupe_mode.invalidate_sendable``'s sibling, called from the same kind
-    of place: a rig landing while Poser's own picker is open is exactly the
-    event that makes the throttled list stale before its interval is up.
+    ``invalidate_sheets``'s sibling, called from the same kind of place: a rig
+    landing while Poser's own picker is open is exactly the event that makes
+    the throttled list stale before its interval is up.
     """
     ensure(ctx).riggable_cache = None
 
@@ -651,7 +733,7 @@ def invalidate_riggable(ctx: Any) -> None:
 # --- the asset session ---------------------------------------------------------
 
 
-def open_asset(ctx: Any, job: dict[str, Any]) -> None:
+def open_asset(ctx: Any, job: dict[str, Any], *, sheet_id: str | None = None) -> None:
     """Bind the session to one real rigged asset's own mesh, behind the guard.
 
     Reads the rig's template so the shared library beside it is the one that
@@ -673,6 +755,17 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
     particular (:func:`_land_rerig`). That automatic case still has no click
     to hide the wait behind, so it goes through :func:`sync_asset`'s own
     parse-on-a-task/adopt-on-this-frame split instead; see its docstring.
+
+    **P9 (2026-09-18):** ``sheet_id``, keyword-only and ``None`` by default,
+    is the door Troupe's own ``open_sheet``/``select`` folded into. ``None``
+    means an ordinary pose-authoring open and leaves the sheet section alone,
+    which is every call site that predates this phase. Any string -- including
+    ``""`` for "whichever sheet is newest" -- points the session at that sheet
+    and switches the workspace into sheet view once the bind lands, through
+    :func:`select_sheet`. Threaded through ``proceed`` rather than applied by
+    the caller afterwards, because the caller cannot tell *when* ``proceed``
+    actually ran -- a template switch with unsaved clip edits defers it behind
+    a confirm the user has not yet answered.
     """
     from ....service import rig as svc_rig
 
@@ -721,6 +814,13 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
         state.limb_preset = ""
         state.limb_side = ""
         state.limb_mirror = False
+        # The character-sheet session, P9's own version of the five fields
+        # above: a sheet selected on the asset just left describes nothing
+        # about this one, and a stale ``sheet_view`` would show the sprite
+        # preview over a session that has not picked a sheet yet.
+        state.sheet_view = False
+        state.sheet_id = ""
+        _release_sheet_caches(ctx, state)
         viewer = viewer_of(ctx)
         if viewer is not None:
             # Whatever the viewer was showing -- another asset, the meshless
@@ -731,6 +831,8 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
         refresh(ctx)
         clips_refresh(ctx)
         refresh_asset_poses(ctx)
+        if sheet_id is not None:
+            select_sheet(ctx, sheet_id)
 
     def guarded() -> None:
         guard(ctx, "open this asset", proceed)
@@ -770,6 +872,9 @@ def close_asset(ctx: Any) -> None:
         state.limb_preset = ""
         state.limb_side = ""
         state.limb_mirror = False
+        state.sheet_view = False
+        state.sheet_id = ""
+        _release_sheet_caches(ctx, state)
         viewer = viewer_of(ctx)
         if viewer is not None:
             viewer.exit_pose_mode()
@@ -1897,7 +2002,17 @@ def handle_key(ctx: Any, event: Any) -> bool:
 
     The undo binding is shared with the inspector's asset pose mode through
     ``docmodes.pose_undo_key``, because it is one editor with two doors.
+
+    **P9 (2026-09-18):** with the sheet section on screen (``state.
+    sheet_view``), the keyboard belongs to the sprite transport instead --
+    Troupe's own ``handle_key``, now :func:`sheet_handle_key`. Checked first
+    and unconditionally: the pose viewer's own keys below all require
+    ``viewer.pose_mode``, which a sheet-viewing session need not have (an
+    asset can be bound and shown as a sheet with no pose edit in progress).
     """
+    if ensure(ctx).sheet_view:
+        return sheet_handle_key(ctx, event)
+
     import pygame
 
     from ... import docmodes
@@ -1949,9 +2064,83 @@ def handle_key(ctx: Any, event: Any) -> bool:
 
 
 def on_task_done(ctx: Any, done: Any) -> None:
-    """Called from the app for every ``poser-`` key."""
+    """Called from the app for every ``poser-`` key, and, since P9
+    (2026-09-18), every ``troupe-`` one too -- Troupe's own task keys, kept
+    exactly as they were (see the character-sheet section's own note), routed
+    here now that the mode reading their results is this one.
+    """
     state = ensure(ctx)
     key = done.key
+    if key.startswith("troupe-atlas:"):
+        _adopt_atlas(ctx, done)
+        return
+    if key.startswith("troupe-qa:"):
+        # Adopted only if it is still the sheet on screen, and with no toast:
+        # a score is a thing to look at, not news.
+        if key == scores_key(state.job_id, state.sheet_id):
+            ctx.state.preview["troupe_scores"] = getattr(done, "result", None)
+            ctx.state.preview["troupe_scores:key"] = (state.job_id, state.sheet_id)
+        return
+    if key.startswith("troupe-export:"):
+        # **Both names, because the pair is the deliverable.** A toast saying
+        # "Exported the sheet" leaves the user to discover for themselves
+        # whether the JSON came too, which is the one thing that makes the
+        # folder importable. ``None`` is the cancelled picker: no news.
+        written = getattr(done, "result", None)
+        if isinstance(written, dict):
+            png = Path(str(written.get("png") or "")).name
+            sidecar = Path(str(written.get("json") or "")).name
+            ctx.toast(
+                f"Exported {png} and {sidecar} to {written.get('dir') or ''}.",
+                "success",
+            )
+        return
+    if key.startswith("troupe-frames:"):
+        folder = getattr(done, "result", None)
+        if folder:
+            ctx.toast(f"Frames exported to {folder}.", "success")
+        return
+    if key == "troupe-start" or key.startswith(("troupe-sheet:", "troupe-send:")):
+        # Every one of these queues or finishes a row the sheet section reads,
+        # so the throttled copies are dropped rather than waited out -- the
+        # interval is there to stop idle polling, not to delay news the panes
+        # already have.
+        invalidate_sheets(ctx)
+        invalidate_riggable(ctx)
+        result = getattr(done, "result", None)
+        if key == "troupe-start":
+            # The form's own choice: this fires on the way out of the submit,
+            # and the row it queued is not readable here yet.
+            pose = str((state.sheet_form or {}).get("pose") or "")
+            ctx.toast(
+                f"Drawing the {POSE_LABELS.get(pose, 'pose')} reference. "
+                "Approve it in Create to build the mesh.",
+                "success",
+            )
+            # Only if the user is still standing where they pressed the
+            # button -- Troupe's own rule for this branch. This fires when
+            # the *submit* returns, which can be seconds later and in another
+            # mode entirely, and a mode switch nobody asked for takes the
+            # window away from whatever they moved on to.
+            if ctx.state.mode == "poser":
+                from ...state import set_mode
+
+                set_mode(ctx.state, "create")
+        elif key.startswith("troupe-send:"):
+            # Two shapes behind one press, and the toast says which happened:
+            # an unrigged mesh is minutes of CPU behind a button that is not
+            # called "Rig", and a user who is not told that will think it
+            # hung. No mode switch -- see ``render_character_sheet``.
+            rigged = isinstance(result, dict) and result.get("rigged") is not False
+            ctx.toast(
+                "Rendering the character sheet. Watch it in Poser."
+                if rigged
+                else "Rigging the mesh, then rendering the character sheet. Watch it in Poser.",
+                "success",
+            )
+        else:
+            ctx.toast("Queued the configured character sheet; give it a few minutes.", "info")
+        return
     if key == LIST_KEY:
         state.loading = False
         if isinstance(done.result, dict) and done.result.get("template") == state.template:
@@ -2125,8 +2314,30 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
 def on_task_failed(ctx: Any, done: Any) -> None:
     """Flags only: the generic failure path has already toasted the service's
-    own message, which for a save names the duplicate or the bad field."""
+    own message, which for a save names the duplicate or the bad field.
+
+    Since P9 (2026-09-18), also the landing for every ``troupe-`` task key --
+    see :func:`on_task_done`'s own note.
+    """
     state = ensure(ctx)
+    if str(done.key).startswith("troupe-atlas:"):
+        # Logged as well as marked: an unreadable atlas leaves nothing in
+        # warlock.log otherwise, and a blank preview is not a diagnosis.
+        ctx.state.preview["troupe_texture:failed"] = getattr(done, "tag", None)
+        log.warning("could not read the character sheet: %s", getattr(done, "error", ""))
+        return
+    if str(done.key).startswith("troupe-qa:"):
+        # A sheet that cannot be scored is a log line, not a refusal: the
+        # preview still plays it. Latched so it is asked once.
+        if done.key == scores_key(state.job_id, state.sheet_id):
+            ctx.state.preview["troupe_scores:failed"] = (state.job_id, state.sheet_id)
+        log.warning("could not score the character sheet: %s", getattr(done, "error", ""))
+        return
+    if done.key == "troupe-start" or str(done.key).startswith(("troupe-sheet:", "troupe-send:")):
+        invalidate_sheets(ctx)
+        invalidate_riggable(ctx)
+        ctx.toast(str(getattr(done, "error", "") or "That request was refused."), "error")
+        return
     if done.key == LIST_KEY:
         # ``loading`` gates the refresh; leaving it set makes the mode inert.
         state.loading = False
@@ -2192,6 +2403,1268 @@ def on_task_failed(ctx: Any, done: Any) -> None:
                 "message": str(getattr(done, "message", "") or done.error or ""),
             }
         return
+
+
+# --- the character sheet (P9, 2026-09-18) ------------------------------------
+#
+# Troupe folded into Poser as a stage: rig, then clips, then a sheet, one
+# workspace. Everything below is Troupe's own ``mode.py``, minus the
+# cross-character cast list and the in-mode "existing mesh" picker -- both
+# superseded by :func:`open_asset`/:func:`riggable_assets` above, per decision
+# 1 of the folding brief: a sheet is reachable only once an asset is bound,
+# through the same door that binds it to pose. The job kind, ``_q_troupe.py``
+# and ``service/troupe.py`` are unchanged; every ``troupe-`` task-key prefix
+# below is kept exactly as it was, because renaming a UI-side key with no
+# corresponding module rename underneath is pure churn.
+#
+# **Nothing here is journal-tracked**, Troupe's own rule carried whole: a
+# sheet is a selection over files a worker already published, not something a
+# crash can cost the user beyond which frame the preview was on. See the
+# ``sheet_*`` fields' own note on :class:`PoserState`.
+
+
+def _release_sheet_caches(ctx: Any, state: PoserState) -> None:
+    """Drop every throttled read and cached texture the sheet session holds.
+
+    Called whenever the *bound asset* changes (:func:`open_asset`,
+    :func:`close_asset`) as well as whenever the *selected sheet* does
+    (:func:`select_sheet`) -- a cache keyed on the wrong asset is as stale as
+    one keyed on the wrong sheet.
+    """
+    state.sheets_cache = None
+    state.sheet_cache = None
+    state.pixel_report_cache = None
+    release_texture(ctx)
+    release_scores(ctx)
+    release_rerender_selection(ctx)
+
+
+#: What each reference pose is called in prose -- Troupe's ``POSE_LABELS``,
+#: kept whole: the sidebar, the toast and the form all name the same thing,
+#: and three spellings of it is three chances to drift.
+POSE_LABELS = {"tpose": "T-pose", "apose": "A-pose"}
+
+
+def _pose_label(row: Any) -> str:
+    """What to call the pose a job row was drawn against.
+
+    Falls back to the T-pose, and deliberately not to the door's default: a
+    row queued before the pose was a choice was drawn against that guide, and
+    ``_q_generate`` redraws it against the same one.
+    """
+    params = (row or {}).get("params") or {}
+    return POSE_LABELS.get(str(params.get("guide_pose") or "tpose"), "reference")
+
+
+def can_render_sheet(ctx: Any, job: Any) -> bool:
+    """Whether "Send to..." belongs on this job's row -- Troupe's own
+    ``can_send_to_troupe``, renamed now that the mode it was named for is
+    gone. Still the predicate :mod:`.asset_exits`' kept sheet-rendering door
+    asks, for any finished mesh, rigged or not.
+
+    From the cached row alone -- no filesystem call, because a toolbar asks
+    this every frame. Deliberately does not require a rig: an unrigged mesh is
+    exactly what the door is for, and it mints the rig itself.
+    """
+    del ctx
+    return bool(
+        job
+        and job.get("stage") == "model"
+        and job.get("status") == "done"
+        and not job.get("deleted_at")
+        and "model.glb" in (job.get("files") or [])
+    )
+
+
+def sheets(ctx: Any, job_id: str) -> list[dict[str, Any]]:
+    """The character sheets in one job's directory, newest first.
+
+    Only the character sheets: a mesh can also hold ordinary pose sheets, and
+    they have no ``animation`` block, no direction runs and nothing this
+    section can play. Filtered on the block rather than on the row that made
+    it, because the *artifact* is what the preview reads.
+
+    Throttled like every other cast-adjacent read in this module, keyed on
+    ``job_id`` as well as timed so switching the bound asset reads
+    immediately; :func:`invalidate_sheets` closes the gap a build would
+    otherwise leave.
+    """
+    state = ensure(ctx)
+    if not job_id:
+        return []
+    now = time.monotonic()
+    if state.sheets_cache is None or state.sheets_key != job_id or now >= state.sheets_next:
+        state.sheets_cache = _read_sheets(ctx, job_id)
+        state.sheets_key = job_id
+        state.sheets_next = now + SHEETS_REFRESH
+    return state.sheets_cache
+
+
+def invalidate_sheets(ctx: Any) -> None:
+    """Drop the throttled sheet reads so the next draw re-reads the directory."""
+    state = ensure(ctx)
+    state.sheets_cache = None
+    state.sheet_cache = None
+
+
+def _read_sheets(ctx: Any, job_id: str) -> list[dict[str, Any]]:
+    """The uncached read :func:`sheets` throttles."""
+    from ....kernels.rig import store as rig_store
+
+    out = [
+        record
+        for record in rig_store.list_sheets(ctx.job_dir(job_id))
+        if (record.get("animation") or {}).get("tags")
+    ]
+    out.sort(key=lambda r: float(r.get("created") or 0.0), reverse=True)
+    return out
+
+
+def open_character_sheet(ctx: Any, job_id: str, sheet_id: str = "") -> bool:
+    """Enter Poser pointed at one character sheet. Troupe's own ``open_sheet``,
+    adapted to Poser's asset-bound model. **The one door in from elsewhere**
+    -- a "Show" toast on a finished charsheet row, or a reopened one
+    (:mod:`.asset_open`).
+
+    Returns False, and does not switch modes or bind the asset, when the
+    character has no playable sheet at all: the alternative is arriving at
+    "No character on screen", which is the blank arrival this door exists to
+    stop. Once a sheet is known to exist, the bind itself is best-effort --
+    ``pose_panel.open_in_poser``'s own precedent: a template switch with
+    unsaved clip edits can still defer behind its own confirm, and this still
+    switches to Poser rather than leaving the press looking like it did
+    nothing.
+    """
+    if not job_id or not sheets(ctx, job_id):
+        return False
+    from ...state import set_mode
+
+    job = None
+    cache = getattr(ctx, "cache", None)
+    if cache is not None:
+        job = cache.get(job_id)
+    open_asset(ctx, job or {"id": job_id}, sheet_id=sheet_id)
+    set_mode(ctx.state, "poser")
+    return True
+
+
+def select_sheet(ctx: Any, sheet_id: str = "") -> None:
+    """Point the sheet section at one of the bound asset's sheets.
+
+    Troupe's own ``select``, minus the job half: which asset is bound is
+    :func:`open_asset`'s question now, not this function's. The clock is reset
+    here rather than left to run -- carried across a selection it would show
+    the new sheet mid-stride at whatever frame the old one happened to be on,
+    which reads as a rendering fault rather than as a preview that kept
+    playing.
+    """
+    state = ensure(ctx)
+    if not state.job_id:
+        return
+    # The throttled directory read is dropped rather than waited out, for the
+    # reason ``on_task_done`` drops it below: the interval exists to stop idle
+    # polling, not to delay news the user has just asked for by name.
+    invalidate_sheets(ctx)
+    available = sheets(ctx, state.job_id)
+    if sheet_id and any(r["id"] == sheet_id for r in available):
+        state.sheet_id = sheet_id
+    else:
+        state.sheet_id = available[0]["id"] if available else ""
+    state.sheet_clock = 0.0
+    state.sheet_frame = 0
+    state.sheet_view = True
+    _reconcile_sheet_preview(ctx)
+    release_texture(ctx)
+    release_scores(ctx)
+    release_rerender_selection(ctx)
+
+
+def active_sheet(ctx: Any) -> dict[str, Any] | None:
+    """The selected sheet's sidecar, or None. Throttled like :func:`sheets`.
+
+    Several panes ask for this in their draw, so it was several JSON reads a
+    frame of a file that changes only when a sheet is rebuilt.
+    """
+    from ....kernels.rig import store as rig_store
+
+    state = ensure(ctx)
+    if not (state.job_id and state.sheet_id):
+        return None
+    key = (state.job_id, state.sheet_id)
+    now = time.monotonic()
+    if (
+        state.sheet_cache is None
+        or state.sheet_cache_key != key
+        or now >= state.sheet_cache_next
+    ):
+        state.sheet_cache = rig_store.read_sheet(ctx.job_dir(key[0]), key[1])
+        state.sheet_cache_key = key
+        state.sheet_cache_next = now + SHEETS_REFRESH
+    return state.sheet_cache
+
+
+def preview_layout(ctx: Any) -> dict[str, Any]:
+    """The active sheet's immutable layout, with a pre-v2 legacy fallback."""
+    from .engine import spec as sheet_spec
+
+    record = active_sheet(ctx) or {}
+    snapshot = record.get("troupe")
+    if isinstance(snapshot, dict):
+        try:
+            movements = snapshot.get("movements") or ()
+            runs = snapshot.get("runs") or ()
+            valid = bool(movements and runs) and all(
+                str(m.get("key") or "")
+                and int(m.get("frames") or 0) > 0
+                and bool(m.get("directions"))
+                for m in movements
+            ) and all(
+                str(run.get("movement") or "")
+                and str(run.get("direction") or "")
+                and 0 <= int(run.get("start")) <= int(run.get("end"))
+                for run in runs
+            )
+        except (AttributeError, TypeError, ValueError):
+            valid = False
+        if valid:
+            return snapshot
+        # Named, not just swallowed. An empty layout draws "That animation and
+        # direction are not on this sheet", which reads like a selection
+        # problem and sends the user looking at the selectors; the sidecar is
+        # the actual answer and nothing else was going to say so.
+        #
+        # **Once per sheet**, latched the way the scorer latches a failure:
+        # this function is called several times a frame by the panes, so a
+        # bare warning here would be sixty lines a second in ``warlock.log``.
+        sheet_id = str(record.get("id") or record.get("sheet_id") or "?")
+        if ctx.state.preview.get("troupe_layout:warned") != sheet_id:
+            ctx.state.preview["troupe_layout:warned"] = sheet_id
+            log.warning(
+                "the layout snapshot on sheet %s is not readable; "
+                "the preview will be empty",
+                sheet_id,
+            )
+        return {"version": 2, "movements": [], "runs": [], "cell_count": 0}
+    table = sheet_spec.load()
+    movements = [
+        {
+            "key": animation.name,
+            "label": animation.name.title(),
+            "frames": animation.frames,
+            "loop": animation.loop,
+            "duration_ms": animation.duration_ms,
+            "directions": [
+                {"key": direction.name, "yaw": direction.yaw}
+                for direction in table.directions
+            ],
+        }
+        for animation in table.animations
+    ]
+    runs = [
+        {
+            "movement": animation,
+            "direction": direction,
+            "start": start,
+            "end": end,
+        }
+        for animation, direction, start, end, _loop in table.spans()
+    ]
+    return {"version": 1, "movements": movements, "runs": runs, "cell_count": 256}
+
+
+def preview_movement(ctx: Any, name: str | None = None) -> dict[str, Any] | None:
+    wanted = name or ensure(ctx).sheet_animation
+    return next(
+        (m for m in preview_layout(ctx).get("movements") or () if m.get("key") == wanted),
+        None,
+    )
+
+
+def _reconcile_sheet_preview(ctx: Any) -> None:
+    state = ensure(ctx)
+    movements = preview_layout(ctx).get("movements") or ()
+    if not movements:
+        return
+    movement = next(
+        (m for m in movements if m.get("key") == state.sheet_animation), movements[0]
+    )
+    state.sheet_animation = str(movement.get("key") or "")
+    directions = movement.get("directions") or ()
+    keys = [str(d.get("key") or "") for d in directions]
+    if keys and state.sheet_direction not in keys:
+        state.sheet_direction = keys[0]
+    state.sheet_frame = min(state.sheet_frame, max(int(movement.get("frames") or 1) - 1, 0))
+
+
+# --- the clock ----------------------------------------------------------
+
+
+def sheet_advance(ctx: Any, dt: float) -> None:
+    """Move the sheet preview on by ``dt`` seconds of wall clock.
+
+    A ``while`` rather than an ``if``: a frame that took longer than one
+    sprite frame -- a job finishing, a texture upload, the window being
+    dragged -- must skip cells rather than fall behind and never catch up.
+    Bounded by the run's own length, so a pathological stall costs at most one
+    lap.
+    """
+    state = ensure(ctx)
+    if not state.sheet_playing:
+        return
+    animation = preview_movement(ctx)
+    if animation is None:
+        return
+    duration = int(animation.get("duration_ms") or 100)
+    frames = int(animation.get("frames") or 1)
+    interval = max(duration, 1) / 1000.0 / max(state.sheet_speed, 0.01)
+    state.sheet_clock += max(dt, 0.0)
+    laps = 0
+    while state.sheet_clock >= interval and laps <= frames:
+        state.sheet_clock -= interval
+        state.sheet_frame += 1
+        laps += 1
+    if animation.get("loop"):
+        state.sheet_frame %= frames
+    else:
+        # A one-shot holds its last frame -- see ``kernels.sheet.
+        # interpolate_clip``'s extra landing frame. Held rather than looped
+        # *and* rather than stopped: a preview that stops needs a control to
+        # start it again, and the point of the mode is that a bad frame is
+        # obvious without pressing anything.
+        state.sheet_frame = min(state.sheet_frame, frames - 1)
+
+
+def cell_index(ctx: Any) -> int | None:
+    """Which cell of the atlas the preview is showing.
+
+    Through ``spec.cells()`` rather than arithmetic over the animation
+    lengths: that table is the studio's copy of the frame table and
+    ``tests/modes/poser/test_sheet_geometry_agreement.py`` is the sole owner
+    of its agreement with the pipeline's. A second piece of arithmetic here
+    would be a third copy nothing owns.
+    """
+    state = ensure(ctx)
+    for run in preview_layout(ctx).get("runs") or ():
+        if (
+            run.get("movement") == state.sheet_animation
+            and run.get("direction") == state.sheet_direction
+        ):
+            start, end = int(run.get("start") or 0), int(run.get("end") or 0)
+            index = start + state.sheet_frame
+            return index if start <= index <= end else None
+    return None
+
+
+def set_sheet_animation(ctx: Any, name: str) -> None:
+    state = ensure(ctx)
+    if name == state.sheet_animation:
+        return
+    state.sheet_animation = name
+    state.sheet_clock = 0.0
+    state.sheet_frame = 0
+    _reconcile_sheet_preview(ctx)
+
+
+def set_sheet_direction(ctx: Any, name: str) -> None:
+    state = ensure(ctx)
+    state.sheet_direction = name
+    movement = preview_movement(ctx)
+    state.sheet_frame = min(state.sheet_frame, max(int((movement or {}).get("frames") or 1) - 1, 0))
+
+
+def sheet_step(ctx: Any, delta: int) -> None:
+    """Nudge one frame, and stop playing -- stepping implies looking."""
+    state = ensure(ctx)
+    state.sheet_playing = False
+    frames = int((preview_movement(ctx) or {}).get("frames") or 1)
+    state.sheet_frame = (state.sheet_frame + delta) % frames
+    state.sheet_clock = 0.0
+
+
+def _cycle(names: list[str], current: str, delta: int) -> str | None:
+    """The next name round the ring, or None when there is nothing to cycle.
+
+    None rather than a default on an empty list, because an invalid v2
+    snapshot resolves to a layout with no movements (:func:`preview_layout`)
+    and a key press must not invent a direction the sheet does not have.
+    """
+    if not names:
+        return None
+    try:
+        index = names.index(current)
+    except ValueError:
+        # The selection is off this sheet -- ``_reconcile_sheet_preview``'s
+        # case, reached here when a key arrives first. Start from the top.
+        return names[0]
+    return names[(index + delta) % len(names)]
+
+
+def cycle_sheet_direction(ctx: Any, delta: int) -> None:
+    """Turn the character one direction round the compass.
+
+    Through :func:`set_sheet_direction`, which deliberately does *not* reset
+    the clock -- turning mid-stride shows the same frame from the other side.
+    """
+    state = ensure(ctx)
+    names = [
+        str(entry.get("key") or "")
+        for entry in (preview_movement(ctx) or {}).get("directions") or ()
+    ]
+    picked = _cycle(names, state.sheet_direction, delta)
+    if picked is not None:
+        set_sheet_direction(ctx, picked)
+
+
+def cycle_sheet_animation(ctx: Any, delta: int) -> None:
+    """Move to the next animation on the sheet.
+
+    Through :func:`set_sheet_animation`, which *does* reset the clock and
+    reconciles the direction -- a movement need not carry the one currently
+    selected.
+    """
+    state = ensure(ctx)
+    names = [
+        str(movement.get("key") or "")
+        for movement in preview_layout(ctx).get("movements") or ()
+    ]
+    picked = _cycle(names, state.sheet_animation, delta)
+    if picked is not None:
+        set_sheet_animation(ctx, picked)
+
+
+def sheet_to_end(ctx: Any, last: bool) -> None:
+    """Jump to the first or last frame of the run on screen, and stop."""
+    state = ensure(ctx)
+    frames = int((preview_movement(ctx) or {}).get("frames") or 1)
+    sheet_goto(ctx, state.sheet_direction, frames - 1 if last else 0)
+
+
+# --- the scores -----------------------------------------------------------
+#
+# ``poser.engine.qa`` over the selected sheet, run through the task runner
+# when the selection changes and read back by the preview's scorecard. Never
+# in the frame loop -- a 256-cell atlas is a few hundred milliseconds of
+# numpy, which is a stall in the one pane whose whole point is smooth
+# playback. The scores rank; nothing reads them to refuse anything.
+
+
+def cell_geometry(record: Mapping[str, Any] | None) -> tuple[int, int, int] | None:
+    """``(columns, frame_w, frame_h)`` of a sidecar, or None if it does not say."""
+    if not record:
+        return None
+    columns = int(record.get("columns") or 8)
+    size = int(record.get("frame_size") or 0)
+    width = size if size > 0 else int(record.get("frame_w") or 0)
+    height = size if size > 0 else int(record.get("frame_h") or width)
+    if columns < 1 or width < 1 or height < 1:
+        return None
+    return columns, width, height
+
+
+def pivot_of(
+    record: Mapping[str, Any] | None, index: int | None
+) -> tuple[float, float] | None:
+    """One cell's pivot in **cell pixels**, or ``None`` if the sidecar has none.
+
+    **``None`` rather than a centre.** A marker drawn at a guessed origin is a
+    lie about where the engine will place the sprite, and the user cannot tell
+    it apart from a measured one.
+    """
+    if not record or index is None:
+        return None
+    for entry in record.get("cells") or ():
+        if not isinstance(entry, Mapping):
+            continue
+        try:
+            if int(entry.get("index")) != int(index):
+                continue
+        except (TypeError, ValueError):
+            continue
+        x, y = entry.get("pivot_x"), entry.get("pivot_y")
+        if x is None or y is None:
+            return None
+        try:
+            return float(x), float(y)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def scores_key(job_id: str, sheet_id: str) -> str:
+    return f"troupe-qa:{job_id}:{sheet_id}"
+
+
+def _score_task(path: Path, layout: dict[str, Any], geometry: tuple[int, int, int]) -> Any:
+    """The task-thread half: read the PNG, score it. No GL, no state."""
+    import numpy as np
+    from PIL import Image
+
+    from .engine import qa
+
+    with Image.open(path) as opened:
+        opened.load()
+        atlas = np.asarray(opened.convert("RGBA"))
+    columns, frame_w, frame_h = geometry
+    return qa.score_sheet(atlas, layout, columns=columns, frame_w=frame_w, frame_h=frame_h)
+
+
+def release_scores(ctx: Any) -> None:
+    for name in ("troupe_scores", "troupe_scores:key", "troupe_scores:failed"):
+        ctx.state.preview.pop(name, None)
+
+
+#: Where ``poser.ui.panes.sheet``'s "Re-render some runs" checkbox keeps its
+#: ticks. Owned here rather than by that pane, because :func:`select_sheet` is
+#: what has to clear it (the 2026-09-08 audit, troupe-02): ticks made on one
+#: sheet must not reappear pre-checked on the next one whose runs happen to
+#: share the same animation/direction vocabulary.
+RERENDER_SLOT = "troupe_rerender_runs"
+
+
+def release_rerender_selection(ctx: Any) -> None:
+    """Forget the "Re-render some runs" ticks -- :func:`select_sheet`'s own
+    rule, applied to :data:`RERENDER_SLOT`: a set of ticked runs is a fact
+    about the sheet on screen, and it must not survive picking a different
+    one."""
+    ctx.state.preview.pop(RERENDER_SLOT, None)
+
+
+def scores(ctx: Any) -> Any:
+    """The selected sheet's QA score, or None while it is being computed,
+    absent or unscorable. Frame thread; cheap."""
+    from ....kernels.rig import store as rig_store
+
+    state = ensure(ctx)
+    if not (state.job_id and state.sheet_id):
+        return None
+    key = (state.job_id, state.sheet_id)
+    preview = ctx.state.preview
+    if preview.get("troupe_scores:key") == key:
+        return preview.get("troupe_scores")
+    if preview.get("troupe_scores:failed") == key:
+        return None
+    record = active_sheet(ctx)
+    geometry = cell_geometry(record)
+    path = rig_store.sheet_png_path(ctx.job_dir(state.job_id), state.sheet_id)
+    # is_file(), not exists(): the 2026-09-08 audit's troupe-04 found exists()
+    # here, which is also true of a directory and would let a stale or
+    # malformed sheet path slip past this refusal only to fail later inside
+    # Image.open with no mention of which sheet.
+    if geometry is None or not path.is_file():
+        preview["troupe_scores:failed"] = key
+        return None
+    task_key = scores_key(*key)
+    if ctx.busy(task_key):
+        return None
+    ctx.submit(task_key, _score_task, path, dict(preview_layout(ctx)), geometry)
+    return None
+
+
+def scores_failed(ctx: Any) -> bool:
+    state = ensure(ctx)
+    return ctx.state.preview.get("troupe_scores:failed") == (state.job_id, state.sheet_id)
+
+
+def sheet_goto(ctx: Any, direction: str, frame: int) -> None:
+    """Point the preview at one cell and stop -- a click on the heatmap."""
+    state = ensure(ctx)
+    set_sheet_direction(ctx, direction)
+    frames = int((preview_movement(ctx) or {}).get("frames") or 1)
+    state.sheet_frame = max(0, min(int(frame), frames - 1))
+    state.sheet_playing = False
+    state.sheet_clock = 0.0
+
+
+# --- the texture ------------------------------------------------------------
+#
+# One texture for the whole atlas, uploaded once per sheet and drawn as a
+# sub-rectangle per frame. The filter is NEAREST, which is the whole point: a
+# linear-filtered sprite is the one thing a pixel-art preview must never show.
+
+
+def release_texture(ctx: Any) -> None:
+    """Forget-then-release the cached atlas texture. Also called at teardown."""
+    ctx.state.preview.pop("troupe_texture:key", None)
+    ctx.state.preview.pop("troupe_texture:failed", None)
+    cached = ctx.state.preview.pop("troupe_texture", None)
+    if cached is None:
+        return
+    from ... import imgui_backend
+
+    renderer = imgui_backend.current()
+    if renderer is not None:
+        renderer.forget_texture(cached)
+    cached.release()
+
+
+def atlas_key(job_id: str, sheet_id: str) -> str:
+    return f"troupe-atlas:{job_id}:{sheet_id}"
+
+
+def _decode_atlas(path: Path) -> tuple[tuple[int, int], bytes]:
+    """The task-thread half: the PNG as RGBA bytes. No GL, no state."""
+    from PIL import Image
+
+    with Image.open(path) as opened:
+        opened.load()
+        atlas = opened.convert("RGBA")
+        return atlas.size, atlas.tobytes()
+
+
+def atlas_texture(ctx: Any) -> Any:
+    """The selected sheet's atlas, uploaded once. ``None`` when there is none
+    -- or not yet: the decode is a task, and the frames it takes show the
+    empty state rather than a hitch.
+
+    Keyed on ``(job, sheet)`` rather than on the file's mtime: a published
+    sheet is write-once under a fresh id, so a stale texture cannot exist for
+    a key that has not changed.
+    """
+    from ....kernels.rig import store as rig_store
+
+    state = ensure(ctx)
+    if ctx.viewer is None or not (state.job_id and state.sheet_id):
+        return None
+    key = (state.job_id, state.sheet_id)
+    preview = ctx.state.preview
+    if preview.get("troupe_texture:key") == key:
+        return preview.get("troupe_texture")
+    # Tried once: a sheet that would not decode is logged, not re-read on
+    # every frame (``on_task_failed`` marks it).
+    if preview.get("troupe_texture:failed") == key:
+        return None
+    task = atlas_key(*key)
+    if ctx.busy(task):
+        return None
+    path = rig_store.sheet_png_path(ctx.job_dir(state.job_id), state.sheet_id)
+    if not path.is_file():
+        return None
+    ctx.submit(task, _decode_atlas, path, tag=key)
+    return None
+
+
+def _adopt_atlas(ctx: Any, done: Any) -> None:
+    """Upload a decoded atlas, if it is still the sheet on screen."""
+    state = ensure(ctx)
+    key = getattr(done, "tag", None)
+    if key != (state.job_id, state.sheet_id) or ctx.viewer is None:
+        return
+    size, data = done.result
+    release_texture(ctx)
+    texture = ctx.viewer.ctx.texture(size, 4, data)
+    texture.filter = (ctx.viewer.ctx.NEAREST, ctx.viewer.ctx.NEAREST)
+    ctx.state.preview["troupe_texture"] = texture
+    ctx.state.preview["troupe_texture:key"] = key
+
+
+# --- the two doors ----------------------------------------------------------
+
+#: The two Style choices a sheet request may carry. On the form as a string
+#: rather than a bare boolean, because a combo needs a value for its *other*
+#: state too.
+STYLE_PIXEL_ART = "pixel_art"
+STYLE_HD = "hd"
+
+
+def _style_choice(form: Mapping[str, Any]) -> str:
+    """Which of the two Style choices a form holds, tolerant of an old one."""
+    return str(form.get("style") or STYLE_PIXEL_ART)
+
+
+def _pixel_style_request(form: Mapping[str, Any]) -> dict[str, Any]:
+    """The pixel-art fields a request should carry, gated on Style.
+
+    **Pixel art sends today's request, unchanged.** No ``pixel_art`` key at
+    all, so a form that never touches the switch mints the byte-identical row
+    it always did.
+
+    **HD sends ``pixel_art: False`` and none of the four fields a pixel-art
+    render has.** The door refuses a request that turns ``pixel_art`` off but
+    still names a non-empty palette, a true ``dither`` or an outline mode
+    other than ``none`` (``service.troupe._check_options``).
+    """
+    if _style_choice(form) == STYLE_HD:
+        return {"pixel_art": False, "reduce_mode": form.get("reduce_mode")}
+    return {
+        "colors": form.get("colors"),
+        "outline": form.get("outline"),
+        "reduce_mode": form.get("reduce_mode"),
+        "dither": bool(form.get("dither")),
+        "palette": form.get("palette") or "",
+    }
+
+
+def _layout_request(form: dict[str, Any]) -> dict[str, Any]:
+    """Strip presentation-only flags from the editable sheet form.
+
+    **Version 3 only when the layout actually uses what v3 offers** -- a
+    top-level ``fps``, or a movement outside the closed legacy five -- and
+    version 2 otherwise, byte-identical to what this function produced before
+    the open vocabulary existed.
+    """
+    from ....kernels import charsheet
+
+    source = form.get("layout") or {}
+    movements = [
+        {
+            "key": row.get("key"),
+            "frames": row.get("frames"),
+            "directions": row.get("directions"),
+        }
+        for row in source.get("movements") or ()
+        if row.get("enabled", True)
+    ]
+    legacy_names = {name for name, *_rest in charsheet.ANIMATIONS}
+    non_legacy = any(str(m.get("key")) not in legacy_names for m in movements)
+    fps = form.get("fps")
+    request: dict[str, Any] = {
+        "version": 3 if (fps is not None or non_legacy) else 2,
+        "columns": int(source.get("columns") or 8),
+        "movements": movements,
+    }
+    if fps is not None:
+        request["fps"] = int(fps)
+    return request
+
+
+def camera_elevation(form: Mapping[str, Any]) -> float | None:
+    """The elevation a form's camera choice means, or None if it makes none.
+
+    An explicit ``elevation`` on the form still wins, and that is deliberate:
+    an angle off the preset ladder has to stay expressible.
+    """
+    explicit = form.get("elevation")
+    if explicit not in (None, ""):
+        return float(explicit)
+    key = str(form.get("camera") or "")
+    if not key:
+        return None
+    from ....kernels import charsheet
+
+    return next(
+        (angle for preset, _label, angle in charsheet.CAMERA_PRESETS if preset == key),
+        None,
+    )
+
+
+#: Where :func:`sheet_options` caches the door's answer. On ``state.preview``
+#: rather than on ``PoserState``: it is neither a selection nor a clock.
+OPTIONS_SLOT = "troupe_options"
+
+
+def sheet_options(ctx: Any) -> dict[str, Any]:
+    """The door's own answer about what a sheet request may ask for.
+
+    Cached on the frame state rather than called per draw: it walks the
+    palette directory, and a directory walk sixty times a second is a cost
+    with no reader. Keyed on ``stamps.stamp_ns`` of the palette directory, the
+    same rule ``panes.inspector.palette_names`` already uses for the
+    identical directory.
+    """
+    from ....service import troupe as svc_troupe
+    from ...panes import stamps
+
+    key = stamps.stamp_ns(ctx.svc.config.palette_dir)
+    cached = ctx.state.preview.get(OPTIONS_SLOT)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    value = svc_troupe.troupe_options(ctx.svc)
+    # After the read, never beside it: that ordering is what makes the stored
+    # stamp's tick provably older than the read it describes.
+    if stamps.storable(key):
+        ctx.state.preview[OPTIONS_SLOT] = (key, value)
+    return value
+
+
+def sheet_form(ctx: Any) -> dict[str, Any]:
+    """The new-character/build-a-sheet request, kept on the mode's own state.
+
+    Public, because Create's Character arm offers "Draw it in Poser" as the
+    escape route from a species this program does not model, and that route
+    has to put the brief into *this* form -- the one the pane will draw when
+    the mode opens. A second construction of the same dict there and here is
+    two defaults for one request.
+    """
+    defaults = sheet_options(ctx).get("defaults") or {}
+    state = ensure(ctx)
+    if not state.sheet_form:
+        state.sheet_form = {
+            "prompt": "",
+            "variant": str(defaults.get("variant") or "male"),
+            "pose": str(defaults.get("pose") or "apose"),
+            "logical_size": int(defaults.get("logical_size") or 32),
+            "colors": int(defaults.get("colors") or 64),
+            "outline": str(defaults.get("outline") or "outer"),
+            "reduce_mode": str(defaults.get("reduce_mode") or "box"),
+            "camera": str(defaults.get("camera") or ""),
+            "template": str(defaults.get("template") or ""),
+            "dither": False,
+            "palette": "",
+            "name": "",
+            "layout": _default_sheet_layout(ctx),
+            "style": (
+                STYLE_PIXEL_ART if defaults.get("pixel_art", True) else STYLE_HD
+            ),
+            "fps": None,
+        }
+    elif "layout" not in state.sheet_form:
+        # Session-state migration for a form created by a pre-v2 build.
+        state.sheet_form["layout"] = _default_sheet_layout(ctx)
+    elif state.sheet_form["layout"].get("template") != _bound_sheet_template(ctx):
+        # The character bound changed rig -- or the form's layout predates the
+        # skeleton it was built for being recorded at all. Rows built for one
+        # skeleton describe nothing on another, so a changed rig rebuilds the
+        # default rows rather than leaving stale ones.
+        state.sheet_form["layout"] = _default_sheet_layout(ctx)
+    if "template" not in state.sheet_form:
+        state.sheet_form["template"] = str(defaults.get("template") or "")
+    if "camera" not in state.sheet_form:
+        state.sheet_form["camera"] = str(defaults.get("camera") or "")
+    if "style" not in state.sheet_form:
+        state.sheet_form["style"] = (
+            STYLE_PIXEL_ART if defaults.get("pixel_art", True) else STYLE_HD
+        )
+    if "fps" not in state.sheet_form:
+        state.sheet_form["fps"] = None
+    return state.sheet_form
+
+
+def _bound_sheet_template(ctx: Any) -> str:
+    """The skeleton the sheet form's movement rows should be built from.
+
+    Troupe's own ``_bound_template`` read the bound character's rig off a
+    ``SCAN_LIMIT``-row SQL walk (``_bound_rig_template``), because Troupe held
+    no rig of its own to ask. Poser does: once an asset is bound,
+    ``PoserState.template`` already *is* that asset's own rig template --
+    ``open_asset`` reads and records it at bind time -- so this is a field
+    read rather than a second store scan. A fresh "New character" form with
+    nothing bound yet has no rig to defer to, which is the only case the
+    door's own default is for.
+    """
+    state = ensure(ctx)
+    if state.job_id and state.template:
+        return state.template
+    return str((sheet_options(ctx).get("defaults") or {}).get("template") or "")
+
+
+def _layout_for_sheet_template(ctx: Any, template: str) -> dict[str, Any]:
+    """The default layout for *template*'s own clip vocabulary.
+
+    Built from ``clip_vocabulary`` -- the rig's *whole* clip library -- rather
+    than the closed legacy five, so a movement the vocabulary opened is a row
+    on the form from the first frame. Only the clips the vocabulary itself
+    marks ``default`` start ticked, which is what keeps a fresh form's request
+    byte-identical to the one it built before this vocabulary opened.
+    """
+    opts = sheet_options(ctx)
+    vocabulary = (opts.get("clip_vocabulary") or {}).get(template) or ()
+    return {
+        "version": 2,
+        "columns": 8,
+        "template": template,
+        "movements": [
+            {
+                "key": row.get("name"),
+                "enabled": bool(row.get("default", False)),
+                "frames": int(row.get("frames") or 1),
+                "directions": 8,
+            }
+            for row in vocabulary
+        ],
+    }
+
+
+def _default_sheet_layout(ctx: Any) -> dict[str, Any]:
+    """The layout a fresh New Character form opens with.
+
+    Timed to the bound character's own skeleton (:func:`_bound_sheet_template`),
+    not always the door's default -- a quadruped, bird or blob bound here used
+    to get the humanoid vocabulary's names, frames and provisional flags
+    regardless of what its own clip library actually holds.
+    """
+    return _layout_for_sheet_template(ctx, _bound_sheet_template(ctx))
+
+
+def cell_count(form: dict[str, Any]) -> int:
+    """Troupe's own ``settings.cell_count``, moved here beside the request it
+    counts: two panes (the settings form and the "Build another sheet" door)
+    read it, and it is not presentation."""
+    return sum(
+        int(row.get("frames") or 0) * int(row.get("directions") or 0)
+        for row in (form.get("layout") or {}).get("movements") or ()
+        if row.get("enabled", True)
+    )
+
+
+def start_character(ctx: Any, form: dict[str, Any]) -> bool:
+    """Submit the pose reference that starts a character.
+
+    The *first* link only. The gate is the point of the shape: this queues one
+    cheap image, the user approves it in Create, and only then is the
+    reconstruction spent. Which is also why this hands off to Create rather
+    than staying here -- the approval lives where every other reference's
+    approval lives, and a second promote button would be a second gate.
+    """
+    from ....service import jobs as svc_jobs
+
+    key = "troupe-start"
+    if ctx.busy(key):
+        return False
+    ctx.state.clear_field_errors()
+    return ctx.submit(
+        key,
+        svc_jobs.create_job,
+        ctx.svc,
+        kind="text",
+        prompt=str(form.get("prompt") or ""),
+        output="reference",
+        # ``troupe=`` is the service door's own keyword (``_jobs_create``,
+        # out of scope for this phase) -- unchanged, because the field it
+        # writes onto the row is read by ``service.troupe`` and
+        # ``_q_troupe.py``, neither of which this phase touches.
+        troupe={
+            "variant": form.get("variant"),
+            "pose": form.get("pose"),
+            "logical_size": form.get("logical_size"),
+            "camera": form.get("camera"),
+            "elevation": camera_elevation(form),
+            "layout": _layout_request(form),
+            **_pixel_style_request(form),
+        },
+    )
+
+
+def build_sheet(ctx: Any, job_id: str, form: dict[str, Any]) -> bool:
+    """Queue another character sheet for a mesh that is already rigged.
+
+    The direct door -- for a supplied base mesh, or for a second sheet at a
+    different size from the same character.
+    """
+    from ....service import troupe as svc_troupe
+
+    key = f"troupe-sheet:{job_id}"
+    if ctx.busy(key):
+        return False
+    ctx.state.clear_field_errors()
+    return ctx.submit(
+        key,
+        svc_troupe.create_charsheet,
+        ctx.svc,
+        job_id,
+        logical_size=form.get("logical_size"),
+        elevation=camera_elevation(form),
+        layout=_layout_request(form),
+        name=str(form.get("name") or ""),
+        **_pixel_style_request(form),
+    )
+
+
+def render_character_sheet(ctx: Any, job: Any, form: dict[str, Any] | None = None) -> bool:
+    """Take an existing mesh -- rigged or not -- into a character sheet.
+    Troupe's own ``send_to_troupe``, renamed now that it is Poser's "render a
+    sheet" door rather than a trip into a second mode. -> whether the request
+    was submitted.
+
+    **It does not switch modes.** There is nothing to do next, and yanking
+    somebody out of the library mid-review to watch a spinner is the opposite
+    of the affordance. The toast says where to watch instead.
+    """
+    from ....service import troupe as svc_troupe
+
+    job_id = str((job or {}).get("id") or "")
+    if not job_id:
+        return False
+    settings = _layout_request(form or {}) if form else {}
+    request = dict(form or {})
+
+    def run() -> Any:
+        return svc_troupe.send_to_troupe(
+            ctx.svc,
+            job_id,
+            logical_size=request.get("logical_size"),
+            elevation=camera_elevation(request),
+            lighting=request.get("lighting"),
+            name=str(request.get("name") or ""),
+            layout=settings or None,
+            template=request.get("template") or None,
+            **_pixel_style_request(request),
+        )
+
+    return bool(ctx.submit(f"troupe-send:{job_id}", run))
+
+
+def rerender_runs(ctx: Any, subset: list[dict[str, str]]) -> bool:
+    """Re-render some runs of the selected sheet. -> whether it was submitted.
+
+    Takes no options: the door copies them from the row that made the sheet,
+    so the cells that come back match the ones they land beside.
+    """
+    from ....service import troupe as svc_troupe
+
+    state = ensure(ctx)
+    if not (state.job_id and state.sheet_id and subset):
+        return False
+    key = f"troupe-sheet:{state.job_id}"
+    if ctx.busy(key):
+        return False
+    ctx.state.clear_field_errors()
+    return bool(
+        ctx.submit(
+            key,
+            svc_troupe.rerender_charsheet,
+            ctx.svc,
+            state.job_id,
+            sheet_id=state.sheet_id,
+            subset=list(subset),
+        )
+    )
+
+
+def sheet_runs(ctx: Any) -> list[dict[str, str]]:
+    """Every ``(animation, direction)`` run on the selected sheet."""
+    return [
+        {"animation": str(run.get("movement") or ""), "direction": str(run.get("direction") or "")}
+        for run in preview_layout(ctx).get("runs") or ()
+    ]
+
+
+def open_in_inker(ctx: Any) -> bool:
+    """Hand the selected sheet to Inker as an animated document."""
+    from ..inker import mode as inker_mode
+
+    state = ensure(ctx)
+    if not (state.job_id and state.sheet_id):
+        return False
+    inker_mode.open_rendered_sheet(ctx, state.job_id, state.sheet_id)
+    return True
+
+
+def add_to_packwright(ctx: Any) -> bool:
+    """The other way out -- one sheet's cells into an atlas beside everything
+    else being packed."""
+    from ..packwright import mode as packwright_mode
+
+    state = ensure(ctx)
+    if not (state.job_id and state.sheet_id):
+        return False
+    packwright_mode.add_rendered_sheet(ctx, state.job_id, state.sheet_id)
+    return True
+
+
+def export_key(job_id: str, sheet_id: str) -> str:
+    return f"troupe-export:{job_id}:{sheet_id}"
+
+
+def export_package(ctx: Any) -> bool:
+    """Copy the selected sheet's PNG and its sidecar out together."""
+    from ....service import characters as svc_characters
+
+    state = ensure(ctx)
+    if not (state.job_id and state.sheet_id):
+        return False
+    key = export_key(state.job_id, state.sheet_id)
+    if ctx.busy(key):
+        return False
+    job_id, sheet_id = state.job_id, state.sheet_id
+    configured = getattr(ctx, "export_dir", None) or None
+
+    def run() -> Any:
+        dest = configured
+        if dest is None:
+            from ... import dialogs as dialogs_mod
+
+            picked = dialogs_mod.select_folder("Export the character sheet")
+            if picked is None:
+                return None
+            dest = picked
+        return svc_characters.export_package(ctx.svc, job_id, sheet_id, dest_dir=dest)
+
+    return bool(ctx.submit(key, run))
+
+
+def frames_key(job_id: str, sheet_id: str) -> str:
+    return f"troupe-frames:{job_id}:{sheet_id}"
+
+
+def export_frames(ctx: Any) -> bool:
+    """Cut the selected sheet's atlas into one PNG per frame, folder per clip
+    and compass direction, beside a ``manifest.json`` of the frame rates."""
+    from ....service import characters as svc_characters
+
+    state = ensure(ctx)
+    if not (state.job_id and state.sheet_id):
+        return False
+    key = frames_key(state.job_id, state.sheet_id)
+    if ctx.busy(key):
+        return False
+    job_id, sheet_id = state.job_id, state.sheet_id
+    configured = getattr(ctx, "export_dir", None) or None
+
+    def run() -> Any:
+        dest = configured
+        if dest is None:
+            from ... import dialogs as dialogs_mod
+
+            picked = dialogs_mod.select_folder("Export the character sheet's frames")
+            if picked is None:
+                return None
+            dest = picked
+        return svc_characters.export_frames(ctx.svc, job_id, sheet_id, dest_dir=dest)
+
+    return bool(ctx.submit(key, run))
+
+
+# --- what the sheet says about itself ----------------------------------------
+#
+# Two different questions, and the panes must not blur them. ``poser.engine.
+# qa`` *ranks*: it scores every cell against its neighbours and flags the
+# worst, and nothing anywhere refuses a sheet on its account.
+# ``pipelines/sheetcheck.py`` *checks structure*: a cell is clipped at the
+# frame edge, empty, or was never rendered -- facts about the file.
+
+
+def validation_of(record: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The sheet's ``validation`` block, or an empty one."""
+    block = (record or {}).get("validation")
+    return dict(block) if isinstance(block, Mapping) else {}
+
+
+def needs_repair(record: Mapping[str, Any] | None) -> bool:
+    """Whether the sheet failed its structural check."""
+    block = validation_of(record)
+    return bool(block) and block.get("ok") is False
+
+
+def repair_notes(record: Mapping[str, Any] | None) -> list[str]:
+    """``sheetcheck.describe`` over this sheet's block. The pane's diagnostics."""
+    from ....pipelines import sheetcheck
+
+    return list(sheetcheck.describe(validation_of(record) or None))
+
+
+# --- back to Create ----------------------------------------------------------
+
+
+def recipe_of(record: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The recipe the sheet's ``character`` block carries, or an empty dict."""
+    block = (record or {}).get("character")
+    if not isinstance(block, Mapping):
+        return {}
+    recipe = block.get("recipe")
+    return dict(recipe) if isinstance(recipe, Mapping) else {}
+
+
+def vary_in_create(ctx: Any, record: Mapping[str, Any] | None) -> bool:
+    """Load this sheet's recipe into Create's form and go to the Reference
+    stage. ``settings_character.hand_to_poser``'s opposite number: that route
+    carries a brief *out* of Create, and this carries a finished character
+    back in so the next one can differ by a seed, a colour count or a horn
+    length.
+
+    Returns False when the sheet carries no recipe, so the caller can say so
+    rather than switching into a form describing somebody else.
+    """
+    import json
+
+    from ..create.engine import assets as create_assets
+    from ..create.engine import character as character_engine
+    from ..create.ui import stages as create_stages
+
+    recipe = recipe_of(record)
+    if not recipe:
+        return False
+    form = ctx.state.form_2d
+    form["asset_type"] = "character"
+    form["generation_type"] = "character"
+    body = recipe.get("appearance")
+    animations = recipe.get("animations") or {}
+    values = {
+        "character_family": str(recipe.get("family") or ""),
+        "character_theme": str(recipe.get("theme") or character_engine.THEME_UNSET),
+        "character_camera": str(recipe.get("camera") or ""),
+        "character_actions": ",".join(
+            name for name, _frames in character_engine.MOVEMENTS if name in animations
+        ),
+        "character_pixel": str(int(recipe.get("logical_size") or 64)),
+        "character_colors": str(int(recipe.get("colors") or 32)),
+        "character_body": json.dumps(
+            {str(k): float(v) for k, v in dict(body).items()}, sort_keys=True
+        )
+        if isinstance(body, Mapping)
+        else "{}",
+        "character_name": str(recipe.get("name") or ""),
+    }
+    form.update(values)
+    for key in values:
+        character_engine.touched(form, key)
+    seed = recipe.get("seed")
+    if seed is not None:
+        form["seed"] = int(seed)
+    create_assets.sync_legacy_fields(form)
+    create_stages.go(ctx, "reference")
+    return True
+
+
+def sheet_handle_key(ctx: Any, event: Any) -> bool:
+    """The sheet preview's transport, at the keyboard. Troupe's own
+    ``handle_key`` -- every key here is one imgui never sees, which is why
+    Poser joins ``modes.NAV_KEY_MODES`` once a sheet is on screen.
+
+    **Presses only.** A release is not consumed, because nothing downstream
+    acts on a bare KEYUP.
+    """
+    import pygame
+
+    if event.type != pygame.KEYDOWN:
+        return False
+    state = ensure(ctx)
+    if event.key in (pygame.K_c, pygame.K_p):
+        if _typing():
+            return False
+        if event.key == pygame.K_c:
+            state.sheet_checker = not state.sheet_checker
+        else:
+            state.sheet_show_pivot = not state.sheet_show_pivot
+        return True
+    if event.key == pygame.K_SPACE:
+        state.sheet_playing = not state.sheet_playing
+        return True
+    if event.key == pygame.K_LEFT:
+        sheet_step(ctx, -1)
+        return True
+    if event.key == pygame.K_RIGHT:
+        sheet_step(ctx, 1)
+        return True
+    if event.key == pygame.K_UP:
+        cycle_sheet_direction(ctx, -1)
+        return True
+    if event.key == pygame.K_DOWN:
+        cycle_sheet_direction(ctx, 1)
+        return True
+    if event.key == pygame.K_PAGEUP:
+        cycle_sheet_animation(ctx, -1)
+        return True
+    if event.key == pygame.K_PAGEDOWN:
+        cycle_sheet_animation(ctx, 1)
+        return True
+    if event.key == pygame.K_HOME:
+        sheet_to_end(ctx, last=False)
+        return True
+    if event.key == pygame.K_END:
+        sheet_to_end(ctx, last=True)
+        return True
+    return False
+
+
+def _typing() -> bool:
+    """Whether a text field has the keyboard right now."""
+    try:
+        from imgui_bundle import imgui
+    except ImportError:  # pragma: no cover -- imgui is a studio dependency
+        return False
+    if imgui.get_current_context() is None:
+        return False
+    return bool(imgui.get_io().want_text_input)
 
 
 # --- crash recovery (UX-05) ---------------------------------------------------
@@ -2992,7 +4465,7 @@ def import_clip(ctx: Any) -> bool:
     shows.
 
     The open-file dialog is asked **on the task thread**, inside ``run`` --
-    ``troupe_mode.export_package``'s and ``library._export_zip``'s
+    this module's own :func:`export_package` and ``library._export_zip``'s
     arrangement and its reason: a blocking OS picker on the frame thread
     freezes the window behind it. ``None`` from it means the user cancelled,
     and :func:`on_task_done`'s ``CLIP_IMPORT_KEY`` branch does nothing with

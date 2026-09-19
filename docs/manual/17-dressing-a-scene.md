@@ -164,7 +164,7 @@ row, with a thumbnail taken from the viewport you are looking at right now. Pres
 ## The round trip
 
 Open the **Library** and find the row that just appeared. It is a real mesh: it opens in Create's
-Mesh stage, it can go to Clay or Poser or Troupe, and it behaves like anything else you made.
+Mesh stage, it can go to Clay or Poser, and it behaves like anything else you made.
 
 It also carries two doors back. Its exits offer **Open in Mason**, which reopens *the scene*, not the
 merged mesh — every node, every group, every instance, exactly as you left it. Mason kept the `.wscn`
@@ -188,5 +188,5 @@ ceilings and what each export writes.
 [Putting it in a game](13-putting-it-in-a-game.md) covers what each engine does with a glTF scene,
 and the interop caveats worth knowing before you build a large one.
 
-[Keyboard shortcuts](39-shortcuts.md) has Mason's full table, including the axis views and the
+[Keyboard shortcuts](38-shortcuts.md) has Mason's full table, including the axis views and the
 document keys this tutorial skipped past.

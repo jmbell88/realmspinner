@@ -241,23 +241,35 @@ def test_a_tileset_reference_offers_exactly_the_same_run(svc):
     assert plain == tileset == {"inker", "plotter", "packwright"}
 
 
-def test_an_unrigged_mesh_offers_clay_mason_and_troupe_and_dims_poser(svc):
+def test_an_unrigged_mesh_offers_clay_mason_and_a_sheet_render_and_dims_pose(svc):
     """The pinned set gained ``mason`` in Stage G, deliberately: a mesh is a
-    thing a *scene* is built out of, so every row that offers Clay, Poser and
-    Troupe now offers somewhere to place it as well. The set is asserted
-    exactly, not with ``<=``, because the whole reason this module exists is
-    that two surfaces grew different lists -- an assertion that only checked
-    for presence would let a sixth destination appear on one and not the
-    other without saying so."""
+    thing a *scene* is built out of, so every row that offers Clay and Poser
+    now offers somewhere to place it as well. The set is asserted exactly,
+    not with ``<=``, because the whole reason this module exists is that two
+    surfaces grew different lists -- an assertion that only checked for
+    presence would let a sixth destination appear on one and not the other
+    without saying so.
+
+    P9 (2026-09-18): Troupe folded into Poser as a stage, and its own exit
+    (``_render_sheet``, "Send to Poser...") shares ``_poser``'s mode string --
+    the two are not the same door (posing versus rendering a sheet, the
+    Mason reopen/add-to-scene pair's own shape), so ``_labels``' one-exit-
+    per-mode collapse cannot tell them apart and this reads the unfiltered
+    list for the ``poser`` pair instead.
+    """
     ctx = FakeCtx(svc)
     exits = asset_exits.exits_for(ctx, _rows(svc)["mesh"])
-    by_mode = _labels(exits)
-    assert set(by_mode) == {"clay", "mason", "poser", "troupe"}
-    assert by_mode["clay"][1] is False
-    assert by_mode["troupe"][1] is False
-    assert by_mode["poser"][1] is True
-    poser = next(e for e in exits if e.mode == "poser")
-    assert "Rig" in poser.reason
+    modes_present = {e.mode for e in exits}
+    assert modes_present == {"clay", "mason", "poser"}
+    clay = next(e for e in exits if e.mode == "clay")
+    assert not clay.reason
+
+    poser_exits = [e for e in exits if e.mode == "poser"]
+    assert len(poser_exits) == 2, "posing and rendering a sheet are two doors, not one"
+    pose = next(e for e in poser_exits if e.label == verbs.open_in("poser"))
+    assert "Rig" in pose.reason
+    render = next(e for e in poser_exits if e.label.startswith(verbs.send_to("poser")))
+    assert not render.reason, "an unrigged mesh is exactly what the render door is for"
 
 
 def test_a_done_mesh_with_no_model_dims_poser_with_the_model_reason_not_the_rig_one(svc):
@@ -278,9 +290,12 @@ def test_a_done_mesh_with_no_model_dims_poser_with_the_model_reason_not_the_rig_
 def test_a_rigged_mesh_dims_nothing(svc):
     ctx = FakeCtx(svc)
     exits = asset_exits.exits_for(ctx, _rows(svc)["rigged_mesh"])
-    by_mode = _labels(exits)
-    assert set(by_mode) == {"clay", "mason", "poser", "troupe"}
-    assert not any(dimmed for _label, dimmed in by_mode.values())
+    modes_present = {e.mode for e in exits}
+    assert modes_present == {"clay", "mason", "poser"}
+    assert not any(e.reason for e in exits)
+    # Posing and rendering a sheet are two doors sharing one mode string --
+    # see ``test_an_unrigged_mesh_offers_clay_mason_and_a_sheet_render_and_dims_pose``.
+    assert len([e for e in exits if e.mode == "poser"]) == 2
 
 
 def test_a_finished_mesh_does_not_offer_plotter_or_packwright_add_doors(svc):
@@ -314,9 +329,9 @@ def test_a_rig_row_offers_its_mesh_destinations_and_poser_opens_the_source(svc, 
     ctx = FakeCtx(svc)
     ctx.cache.rows[mesh["id"]] = mesh
     exits = asset_exits.exits_for(ctx, rig_row)
-    by_mode = _labels(exits)
-    assert set(by_mode) == {"clay", "mason", "poser", "troupe"}
-    assert not any(dimmed for _label, dimmed in by_mode.values())
+    modes_present = {e.mode for e in exits}
+    assert modes_present == {"clay", "mason", "poser"}
+    assert not any(e.reason for e in exits)
 
     opened: list = []
     monkeypatch.setattr(pose_panel, "open_in_poser", lambda ctx, job: opened.append(job))
@@ -334,13 +349,12 @@ def test_a_rig_row_over_an_unrigged_mesh_dims_poser_with_the_mesh_reason(svc):
     ctx = FakeCtx(svc)
     ctx.cache.rows[mesh["id"]] = mesh
     exits = asset_exits.exits_for(ctx, rig_row)
-    by_mode = _labels(exits)
-    assert set(by_mode) == {"clay", "mason", "poser", "troupe"}
-    assert by_mode["clay"][1] is False
-    assert by_mode["troupe"][1] is False
-    assert by_mode["poser"][1] is True
-    poser = next(e for e in exits if e.mode == "poser")
-    assert "Rig" in poser.reason
+    modes_present = {e.mode for e in exits}
+    assert modes_present == {"clay", "mason", "poser"}
+    clay = next(e for e in exits if e.mode == "clay")
+    assert not clay.reason
+    pose = next(e for e in exits if e.mode == "poser" and e.label == verbs.open_in("poser"))
+    assert "Rig" in pose.reason
 
 
 def test_a_rig_row_whose_source_is_not_in_the_cache_offers_nothing_at_all(svc):
@@ -353,32 +367,36 @@ def test_a_rig_row_whose_source_is_not_in_the_cache_offers_nothing_at_all(svc):
     assert asset_exits.exits_for(ctx, rig_row) == []
 
 
-def test_a_charsheet_offers_only_the_way_back_into_troupe(svc):
+def test_a_charsheet_offers_nothing_in_the_exits_list(svc):
     """Regression: a charsheet row carries ``stage == "model"`` -- the column
     default every follow-up product wears, per ``asset_open``'s own docstring
     -- and it also carries ``params["source_job"]``, the same field a rig or a
     sheet carries. ``charsheet`` is deliberately not a key of
-    ``asset_open.FOLLOWUP_STAGES`` (it opens in Troupe, not in Create), so
+    ``asset_open.FOLLOWUP_STAGES`` (it opens in Poser, not in Create), so
     ``_mesh_for`` must not hop for it even when its source mesh really is in
     the cache -- a version of that gate keyed on ``source_job`` alone did hop,
     resolving straight back to the mesh and offering Clay and Poser it has no
-    files to back, plus a *second*, duplicate "Open in Troupe" beside
-    ``_troupe_out``'s own. The mesh is loaded into the cache here on purpose:
-    an empty cache only proves the fallback branch (no mesh found), not that
-    the kind gate actually holds when a hop is otherwise possible."""
+    files to back, plus (while Troupe was still its own mode, before P9
+    2026-09-18) a *second*, duplicate "Open in Troupe" beside ``_troupe_out``'s
+    own.
+
+    P9 deleted ``_troupe_out`` outright rather than repointing it: reopening a
+    specific character sheet is ``asset_open.open_asset``'s job now (the
+    primary "Open"/"Show" door, which does carry the resolved sheet id) and a
+    second, redundant copy of that door in the "Take it somewhere" exits list
+    is not owed. So the correct answer for a charsheet row is now the empty
+    list -- and the mesh is loaded into the cache here on purpose, exactly as
+    it was before: an empty cache only proves the fallback branch (no mesh
+    found), not that the kind gate actually holds when a hop is otherwise
+    possible. If ``_mesh_for``'s kind-scoped exclusion of ``charsheet`` were
+    ever lost, this is the test that would catch Clay and Poser reappearing
+    for a row that has no files of its own to back them.
+    """
     ctx = FakeCtx(svc)
     mesh = _mesh(svc, rigged=True)
     ctx.cache.rows[mesh["id"]] = mesh
     exits = asset_exits.exits_for(ctx, _charsheet(svc, mesh["id"]))
-    by_mode = _labels(exits)
-    assert set(by_mode) == {"troupe"}
-    assert by_mode["troupe"][1] is False
-    assert by_mode["troupe"][0] == verbs.open_in("troupe")
-    # ``_labels`` collapses by mode, which is exactly why a second "Open in
-    # Troupe" from a resolved mesh's own ``_troupe_in`` would be invisible to
-    # the assertions above -- checked separately, on the unfiltered list.
-    troupe_exits = [e for e in exits if e.mode == "troupe"]
-    assert len(troupe_exits) == 1, "a resolved mesh must not add a second Troupe door"
+    assert exits == []
 
 
 def test_an_authored_map_offers_both_plotter_doors_plus_inker_and_packwright(svc):
@@ -487,7 +505,7 @@ def test_no_gate_touches_the_filesystem(svc, monkeypatch):
     patch below, so this only catches a stat made by a gate itself and not
     one made by some unrelated module's own import machinery.
     """
-    from warlock.studio.modes.troupe.ui.panes import send as troupe_send  # noqa: F401
+    from warlock.studio.modes.poser.ui.panes import send as poser_send  # noqa: F401
     from warlock.studio.panes import pose_panel  # noqa: F401
 
     def _raise(self, *_a, **_k):

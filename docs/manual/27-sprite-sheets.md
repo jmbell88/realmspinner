@@ -112,14 +112,14 @@ snippet above still works. A reader that does not recognise a block should skip 
   and `missing` as lists of cell indices, `metadata` as a list of sentences about the sidecar
   disagreeing with itself, and `reframed` saying whether the wider second render happened. It is a
   report, never a refusal; see
-  [Troupe → Needs repair](34-troupe.md#needs-repair-and-why-it-is-not-the-heatmap).
+  [Poser → Needs repair](26-poser.md#needs-repair-and-why-it-is-not-the-heatmap).
 - **`animation.fps`** — a top-level key inside the existing `animation` block, present only when a
-  Troupe sheet was built at a fixed **Frame rate** rather than each movement playing at its own
+  character sheet was built at a fixed **Frame rate** rather than each movement playing at its own
   clip's recorded speed. Absent means the same thing every other additive key's absence means here:
-  no opinion, not zero. See [Troupe → The options](34-troupe.md#the-options).
-- **`pixel_art`** — `false` only on a Troupe sheet built with **Style** set to HD: full colour, no
+  no opinion, not zero. See [Poser → The options](26-poser.md#the-options).
+- **`pixel_art`** — `false` only on a character sheet built with **Style** set to HD: full colour, no
   palette reduction. Absent, the ordinary case, is the pixel-art render this chapter already
-  describes. See [Troupe → The options](34-troupe.md#the-options).
+  describes. See [Poser → The options](26-poser.md#the-options).
 
 One addition is **per cell** rather than top level: a cell rendered with sockets — or copied
 byte-for-byte from a base sheet on a subset re-render, carrying forward what that base sheet already

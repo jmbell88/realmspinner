@@ -204,12 +204,11 @@ def test_the_engine_never_imports_its_own_ui_sibling():
 
 
 def test_the_engine_never_imports_a_sibling_mode():
-    """Nor any *other* mode's module -- ``troupe_mode``, ``clay``'s UI,
+    """Nor any *other* mode's module -- ``poser_mode``, ``clay``'s UI,
     Mason's panes. An engine may reach its own subtree and everything at L4
     and below; a sibling mode is neither.
     """
     other_mode_markers = (
-        "warlock.studio.modes.troupe.mode",
         "warlock.studio.modes.review.mode",
         "warlock.studio.modes.review.ui.workspace",
         "warlock.studio.modes.clay",

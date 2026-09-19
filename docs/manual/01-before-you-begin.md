@@ -116,7 +116,7 @@ Quite a lot, which is worth knowing if you are reading this while 24 GB arrives.
 | Inker — drawing and animation | Generating a reference image from a prompt |
 | Clay — modelling from primitives | Reconstructing a 3D model from a reference |
 | Plotter — tile maps | Re-texturing a finished model |
-| Packwright — atlas packing | Starting a character in Troupe from a prompt |
+| Packwright — atlas packing | Starting a character in Poser from a prompt |
 | Poser, if Blender installed | Rigging, if Blender did not install |
 | The Library, and every form in Create | |
 

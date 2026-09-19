@@ -327,7 +327,7 @@ the asset. What each one changes when present:
 
 | Model | Without it | With it |
 | --- | --- | --- |
-| DINOv2 | An attached reference has no anchor similarity; the judge has no probes. | [Review](38-review.md) works fully. |
+| DINOv2 | An attached reference has no anchor similarity; the judge has no probes. | [Review](37-review.md) works fully. |
 | PickScore | Candidates rank on composition and style anchor alone. | A human-preference term joins the ranking — see [Seeds and candidates](22-generating-references.md#seeds-and-candidates). |
 | ViTPose | Skeletons are fitted by bounding box. | Humanoid rigs start from measured joints — see [Where the joints come from](25-rigging-and-posing.md#where-the-joints-come-from). |
 | BiRefNet | A 2D export's alpha comes from a corner flood fill. | The cutout is matted properly, which shows on hair and anything thin. |
@@ -347,7 +347,7 @@ never leaves a stale choice behind.
 
 ## The music model (Muse)
 
-One entry, and the only model [Muse](36-muse.md) can use. It is ~8.3 GB and lives beside every
+One entry, and the only model [Muse](35-muse.md) can use. It is ~8.3 GB and lives beside every
 other model in the model root, so nothing new has to be configured to hold it.
 
 ```powershell

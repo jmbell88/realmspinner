@@ -328,7 +328,7 @@ def test_troupe_manual_lists_256_as_a_preset_sprite_size_not_custom_only():
 
     assert 256 in charsheet.SIZES
 
-    text = _normalize_ws(_read("docs/manual/34-troupe.md"))
+    text = _normalize_ws(_read("docs/manual/26-poser.md"))
     row_match = re.search(r"How many pixels tall one cell is\. (.*?) or \*\*Custom", text)
     assert row_match, "could not find the Sprite size row"
     preset_text = row_match.group(1)

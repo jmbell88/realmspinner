@@ -7,12 +7,12 @@ The generation pipeline:
 - **Image → 3D**: reference image → textured GLB (base colour plus a combined metallic/roughness texture; surface detail rides on vertex normals, not a normal map), powered by Microsoft **TRELLIS.2-4B** running natively via [trellis.cpp](https://github.com/pwilkin/trellis.cpp) (C++/GGML, CUDA).
 - **Text → 3D**: prompt → reference image via a diffusers pipeline, loaded from a local weights dir. **SDXL 1.0 at full CFG** is the default and the one base download the setup below asks for — 30 steps at 1024 px, with the negative prompt and ControlNet live; the same 7 GB also powers three faster recipes over the same weights, and **SDXL-Turbo** remains the 4-step fast option one install away. Eleven base models are registered (`src/warlock/models.py`) from 4-step distillations to full-CFG SDXL, Playground, Juggernaut, DreamShaper and FLUX.2 klein, with per-job style LoRAs, IP-Adapter appearance conditioning, ControlNet silhouette lock, and a seamless-tile mode with seam measurement. See [docs/MODELS.md](docs/MODELS.md).
 - **Text → 2D sheets**: the same prompt as a **tileset**, in one of three layouts — *Materials* (1–16 surface descriptions × 1–4 draws, capped at 64 cells, each cell its own **seamless** generation, so the tiles genuinely repeat), *Terrain set* (an inside and an outside surface composited into a complete 47-case blob autotile that lands in Plotter with the Terrain tool live, by record, with no import prompt), or *Grid (legacy)* (the original 8×8 single generation onto a ControlNet grid guide — the only layout offering 3/4 and 2:1 isometric, and the only one offering a 48 px tile; the seamless two are top-down at 16/32/64 px, since a seamless tile must divide the 1024 px material and must wrap a square). Or as a **sprite sheet**: pick an action (idle, walk, run, attack, cast, hurt, jump) and a direction count, and it draws the character first, keeps it as its own asset, then imagines candidate sheets from it with animation tags and frame durations baked in. Neither is reconstructed into a mesh; a tileset goes on to Plotter or Packwright. The legacy grid mechanism is measured on the maintainer's own corpus; its art direction is not settled.
-- **Rig → pose → sprite sheet**: fit one of seven template skeletons (humanoid, quadruped, bird, fish, insect, serpent, tailed biped), pose it with 3D gizmos or reusable poses from the Poser's global library, and bake poses into sprite sheets — flat or lit, 4/8/16 directions, optionally restyled into pixel art. Beyond single poses, **Troupe** renders whole animation clips: keyframes authored in the Poser, interpolated into a 256-cell character sheet of five animations across eight directions.
+- **Rig → pose → sprite sheet**: fit one of seven template skeletons (humanoid, quadruped, bird, fish, insect, serpent, tailed biped), pose it with 3D gizmos or reusable poses from the Poser's global library, and bake poses into sprite sheets — flat or lit, 4/8/16 directions, optionally restyled into pixel art. Beyond single poses, Poser's own character-sheet section renders whole animation clips: keyframes authored in the Poser, interpolated into a 256-cell character sheet of five animations across eight directions.
 - **The approval gate**: text jobs stop at the reference by default — the image is shown full-size for approval (with candidate fan-out and per-stage seeds) before anything pays for a trellis run.
 
 ## The modes
 
-A rail down the left of the window chooses between **fourteen** top-level modes
+A rail down the left of the window chooses between **thirteen** top-level modes
 (`src/warlock/studio/modes/__init__.py` is the authoritative list, and `RAIL_GROUPS` is
 the grouping) in three sections: **Pipeline**, **Workspaces**, and an
 unlabelled footer. There is no per-mode key — the `Ctrl+K` command palette is
@@ -32,7 +32,7 @@ are looking at.
    and candidates), then the mesh, then rig, pose, sprite sheet and surface
    re-texture. Text jobs stop at the reference for approval by default, before
    anything pays for a trellis run. A "send this asset to..." menu — Inker,
-   Clay, Poser, Troupe, Plotter, Packwright, whichever the asset in front of
+   Clay, Poser, Plotter, Packwright, whichever the asset in front of
    you can actually become — is on every stage and in the Library alike, so a
    destination that isn't reachable yet says why rather than disappearing.
 
@@ -68,42 +68,40 @@ are looking at.
    animates — which keys, in what order, how many frames apart — with
    onion-skinned neighbours, a scrubber that plays the renderer's own
    interpolation, and your edits saved beside the shipped clips rather than over
-   them.
-8. **Troupe** — character sprite sheets from a 3D model, as a chain rather than
-   a button: a prompt draws a reference against a drawn pose guide — **A-pose by
-   default**, because the shipped humanoid rig template is itself an A-pose, with
-   T-pose still on offer for the limb separation a single-view reconstruction
-   prefers — you approve it, and the same asset then goes through reconstruction,
-   the auto-rig and a 256-cell render without being asked again. Five animations
-   (idle, walk, run, attack, jump) across eight directions, rendered large and
-   reduced to the pixel size you asked for, quantised against one palette. The
-   sidecar carries a tag per animation and direction, so **Edit in Inker** opens
-   the whole sheet on its own timeline with the spans already set. The rail
-   marks Troupe **Experimental** — the chain runs end to end, but its art
-   direction isn't settled the way the other workspaces' is.
-9. **Plotter** — a tile-map editor: grid, layer stack, tilesets and object
+   them. And, in the same workspace, **character sprite sheets** from a 3D
+   model, as a chain rather than a button: a prompt draws a reference against a
+   drawn pose guide — **A-pose by default**, because the shipped humanoid rig
+   template is itself an A-pose, with T-pose still on offer for the limb
+   separation a single-view reconstruction prefers — you approve it, and the
+   same asset then goes through reconstruction, the auto-rig and a 256-cell
+   render without being asked again. Five animations (idle, walk, run, attack,
+   jump) across eight directions, rendered large and reduced to the pixel size
+   you asked for, quantised against one palette. The sidecar carries a tag per
+   animation and direction, so **Edit in Inker** opens the whole sheet on its
+   own timeline with the spans already set.
+8. **Plotter** — a tile-map editor: grid, layer stack, tilesets and object
    layers, terrain/Wang sets, per-tile metadata, hexagonal and staggered maps,
    infinite maps, native `.wmap`, and Tiled interop in both directions
    (`.tmx`/`.tmj` import and export; unsupported Tiled features are refused
    explicitly, never partially loaded).
-10. **Packwright** — a sprite-atlas packer: files, drops, Inker documents or
+9. **Packwright** — a sprite-atlas packer: files, drops, Inker documents or
    library assets in; a deterministic atlas out (Grid or MaxRects, with
    trim/padding/extrude/power-of-two), as PNG plus TexturePacker JSON, and a
    `.tsx` for grid packs. Re-export of an unchanged document is byte-identical.
-11. **Muse** — generated music: comma-separated style tags and an optional lyric
+10. **Muse** — generated music: comma-separated style tags and an optional lyric
     block become a finished track from **ACE-Step v1** (3.5B, text-to-music,
     local and offline) — up to ten minutes per generation (30s/60s/120s/240s/10m
     presets, or any typed length in between), four minutes when extending an
     existing take — one job row per take, auditioned in the mode and openable
     in Sirens as a sample instrument.
-12. **Sirens** — a chiptune tracker: the synthesis engine, a five-column pattern
+11. **Sirens** — a chiptune tracker: the synthesis engine, a five-column pattern
    grid, an envelope editor, sample import and sound effects, with WAV, stems
    and sfx export.
 
 **The footer** carries no caption, and holds the two destinations where you are
 not making something — entered rarely and left again:
 
-13. **Review** — judging finished meshes with graded verdicts (−5..+5 plus
+12. **Review** — judging finished meshes with graded verdicts (−5..+5 plus
     tags), parameter sweeps over arbitrary setting axes, an advisory DINOv2-probe
     quality judge taught by in-app labelling, and the "What works" findings the
     verdicts add up to — which surface as hints beside the generate controls.
@@ -111,7 +109,7 @@ not making something — entered rarely and left again:
     the shipped defaults, a blind grading pass on 2026-09-02 found **11 of 22**
     prop meshes usable on a representative corpus and 10 of 20 on a second.
     Single-view humanoids grade poorly on both.
-14. **Settings** — the app's own preferences: theme, UI scale, layout, and the
+13. **Settings** — the app's own preferences: theme, UI scale, layout, and the
     model list, from which a missing one can be downloaded.
 
 Two things are deliberately *not* modes, and both are overlays. The
@@ -136,7 +134,7 @@ Everything but the primary artifacts is derived lazily on first request and cach
 - **16 GB VRAM** for 3D reconstruction (`vram.py`'s `TRELLIS_GIB = 16.0`). Tested on an RTX 5090 / 32 GB; a 4080/5080-class card or better is the comfortable range.
 - **32 GB system RAM.** More than the GPU figure suggests it should need: Windows charges trellis's ~16 GiB device allocation against *host* commit, so admission control refuses jobs at 96% commit on a 63.5 GB machine even with 24 GB physically free. 16 GB will fight you.
 - **~24 GB disk before the first asset** — 16.1 GB of TRELLIS.2 GGUF weights, 7.0 GB for SDXL 1.0 and 0.8 GB for the reconstruction engine itself — then roughly 35–50 MB per generated 3D job. There is no automatic age-out; pruning is manual.
-- **A 1920×1080 display or larger at 100% scaling.** The window opens at 1600×950 (scaled by your DPI setting) and is clamped to the desktop, so it fits smaller panels, but below that the nine workspaces get cramped.
+- **A 1920×1080 display or larger at 100% scaling.** The window opens at 1600×950 (scaled by your DPI setting) and is clamped to the desktop, so it fits smaller panels, but below that the eight workspaces get cramped.
 - [uv](https://docs.astral.sh/uv/) and **Python 3.13** — `bpy` ships CPython 3.13 wheels only, and rigging is not optional enough to support a Python it can never run on. The floor was 3.12 until 2026-09-03, when the CI leg testing that claim was read for the first time and was not green. On 3.14 or later the rig extra installs nothing, `warlock doctor` reports rigging unavailable, and the app hides the rig controls; everything else works unchanged.
 
 **How long a generation takes:** roughly two minutes of GPU per 3D attempt on the tested card — a reference image in seconds, then the reconstruction. Budget for more than one attempt: the approval gate exists because the first reference is often not the one you want.
@@ -178,8 +176,8 @@ share one 7 GB checkpoint.
 Nothing above is required to *run* Warlock, and since 2026-09-10 that includes
 the reconstruction engine: it is a registry row like a model, so the installer
 no longer carries its 838 MB and a machine that only draws pixel art never
-fetches it. Eight of the nine workspaces --
-Inker, Clay, Mason, Poser, Troupe, Plotter, Packwright and the Sirens tracker --
+fetches it. Seven of the eight workspaces --
+Inker, Clay, Mason, Poser, Plotter, Packwright and the Sirens tracker --
 open and work with an empty model directory, and `warlock doctor` exits 0 on a
 machine that has downloaded none of it, reporting the absent rows as `[SETUP]`
 rather than as failures. What the weights buy is generation: **Create** and
@@ -287,7 +285,7 @@ The app is a single process: a pygame window, one ModernGL context, and [imgui-b
 
 Outputs land in `~/.warlock/assets/<job_id>/` (`input.png`, `model.glb`, `rig.glb`/`rig.json`, `poses/`, `sheets/`); the SQLite job store lives at `~/.warlock/assets/jobs.sqlite`. Everything the app generates — the library, benchmark runs, palettes and model weights — sits under that one home directory rather than inside the checkout; an install that predates it has its directories moved there on the next start (copy, verify, then delete), and `WARLOCK_HOME` or `WARLOCK_NO_MIGRATE` opts out. See [Data locations](docs/manual/41-configuration.md#data-locations).
 
-Where to read more: the user manual is [docs/manual/00-index.md](docs/manual/00-index.md) (44 chapters, also embedded in the app); the hard invariants and their measured reasoning, and past measurement write-ups, are kept in the maintainer's own local development notes rather than in this public repo; and `CHANGELOG.md` tracks releases.
+Where to read more: the user manual is [docs/manual/00-index.md](docs/manual/00-index.md) (43 chapters, also embedded in the app); the hard invariants and their measured reasoning, and past measurement write-ups, are kept in the maintainer's own local development notes rather than in this public repo; and `CHANGELOG.md` tracks releases.
 
 ## Licence
 

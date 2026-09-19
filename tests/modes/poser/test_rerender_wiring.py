@@ -1,6 +1,7 @@
 """The two ends of the re-render loop, as the app reaches them.
 
-Troupe submits the re-render; Inker finds the result and merges it. Neither
+Poser's character-sheet section submits the re-render (Troupe's own door,
+folded in by P9, 2026-09-18); Inker finds the result and merges it. Neither
 half is any use without the other, and neither had a caller until this landed.
 """
 
@@ -17,13 +18,13 @@ from warlock.kernels.pixel.sheetin import document_from_sheet
 from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.modes.inker import ops as inker_ops
 from warlock.studio.modes.inker import sheet as inker_sheet
-from warlock.studio.modes.troupe import mode as troupe_mode
+from warlock.studio.modes.poser import mode as poser_mode
 
 
 class _Ctx:
     """The narrow slice of the app context these helpers touch.
 
-    ``test_troupe_mode``'s hand-rolled context, for its reason: none of this
+    ``test_poser_mode``'s hand-rolled context, for its reason: none of this
     needs a GL context, and opening one to check a conflict flag would be
     untrue about what is being tested."""
 
@@ -31,7 +32,7 @@ class _Ctx:
         self.svc = svc
         self.cache = svc.store
         self.state = SimpleNamespace(
-            troupe=None, preview={}, mode="troupe", inker=None,
+            poser=None, preview={}, mode="poser", inker=None,
             field_errors={}, clear_field_errors=lambda: None,
         )
         self.viewer = None
@@ -51,18 +52,16 @@ class _Ctx:
 def ctx(svc):
     return _Ctx(svc)
 
-# -- the Troupe end ------------------------------------------------------------
+# -- the sheet-section end -----------------------------------------------------
 
 
 def test_the_runs_offered_come_from_the_sheet_rather_than_the_shipped_table(ctx, svc):
     """A sheet built with four directions has four runs per animation, and
     offering it eight would be offering runs it does not contain."""
-    from warlock.studio.modes.troupe import mode as mode
-
-    state = mode.ensure(ctx)
+    state = poser_mode.ensure(ctx)
     state.job_id, state.sheet_id = "", ""
-    layout = mode.preview_layout(ctx)
-    runs = mode.sheet_runs(ctx)
+    layout = poser_mode.preview_layout(ctx)
+    runs = poser_mode.sheet_runs(ctx)
 
     assert len(runs) == len(layout.get("runs") or ())
     assert all({"animation", "direction"} == set(run) for run in runs)
@@ -75,29 +74,37 @@ def test_rerender_selection_is_cleared_when_the_selected_sheet_changes(ctx):
     sheet reappeared pre-checked on the next character or sheet whose runs
     happen to share the same animation/direction names, which is the common
     case, and pressing "Re-render N run(s)" there re-rendered the wrong
-    sheet's runs."""
-    ctx.state.preview[troupe_mode.RERENDER_SLOT] = {"walk/front", "idle/front"}
+    sheet's runs.
 
-    troupe_mode.select(ctx, "a-different-character")
+    Ported onto :func:`poser_mode.select_sheet`, which assumes the asset is
+    already bound (:func:`poser_mode.open_asset`'s job, too heavy for this
+    test) -- so the bound id is set directly here, the way a real session
+    would have it already set by the time a sheet gets picked.
+    """
+    ctx.state.preview[poser_mode.RERENDER_SLOT] = {"walk/front", "idle/front"}
+    state = poser_mode.ensure(ctx)
+    state.job_id = "a-different-character"
 
-    assert troupe_mode.RERENDER_SLOT not in ctx.state.preview
+    poser_mode.select_sheet(ctx, "")
+
+    assert poser_mode.RERENDER_SLOT not in ctx.state.preview
 
 
 def test_a_re_render_needs_a_selected_sheet_and_some_runs(ctx):
-    state = troupe_mode.ensure(ctx)
+    state = poser_mode.ensure(ctx)
     state.job_id, state.sheet_id = "", ""
-    assert troupe_mode.rerender_runs(ctx, [{"animation": "walk", "direction": "front"}]) is False
+    assert poser_mode.rerender_runs(ctx, [{"animation": "walk", "direction": "front"}]) is False
 
     state.job_id, state.sheet_id = "abc", "def"
-    assert troupe_mode.rerender_runs(ctx, []) is False
+    assert poser_mode.rerender_runs(ctx, []) is False
 
 
 def test_the_pane_offers_the_control_and_names_what_it_costs():
     import inspect
 
-    from warlock.studio.modes.troupe.ui.panes import sheets as troupe_sheets
+    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
 
-    source = inspect.getsource(troupe_sheets)
+    source = inspect.getsource(poser_sheet)
     assert "rerender_runs" in source, "the pane must reach the controller"
     assert "cost_note" in source
     # A greyed control with no reason is the thing the census exists to catch.

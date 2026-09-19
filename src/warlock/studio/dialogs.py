@@ -685,7 +685,7 @@ def modal_open(ctx: Any) -> bool:
     from .modes.library.ui.panes import library as library_panes
     from .modes.muse import mode as muse_mode
     from .modes.packwright.ui.panes import sources as packwright_sources
-    from .modes.troupe.ui.panes import send as troupe_send
+    from .modes.poser.ui.panes import send as poser_send
     from .panes import first_run
 
     return (
@@ -693,7 +693,7 @@ def modal_open(ctx: Any) -> bool:
         or ctx.prompts.pending is not None
         or matte_preview.is_open(ctx)
         or first_run.is_open(ctx)
-        or troupe_send.is_open(ctx)
+        or poser_send.is_open(ctx)
         or muse_mode.derive_popup_open(ctx)
         or packwright_sources.tileset_popup_open(ctx)
         or library_panes.popup_open(ctx)

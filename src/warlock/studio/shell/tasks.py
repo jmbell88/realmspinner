@@ -203,14 +203,6 @@ class TasksMixin:
                     # on -- and the strip spun forever, since only a
                     # *successful* ``on_task_done`` ever turned it back off.
                     muse_mode.on_task_failed(ctx, done)
-                elif done.key.startswith("troupe-"):
-                    from ..modes.troupe import mode as troupe_mode
-
-                    # Both of Troupe's tasks are *doors*, so a failure here is
-                    # always a refusal with a sentence in it -- and one the
-                    # user is owed, since neither door's button can know in
-                    # advance which of its options the service will object to.
-                    troupe_mode.on_task_failed(ctx, done)
                 elif done.key.startswith(("download:", "remove:")):
                     # A failed fetch has to be *routed* somewhere, not merely
                     # toasted: the rows carry a presence flag, and a fetch that
@@ -253,11 +245,15 @@ class TasksMixin:
                     # Same rule: ``scanning`` gates every button and key, so a
                     # failed scan that left it set would make the mode inert.
                     review_mode.on_task_failed(ctx, done)
-                elif done.key.startswith("poser-"):
+                elif done.key.startswith(("poser-", "troupe-")):
                     from ..modes.poser import mode as poser_mode
 
                     # Same rule again: ``loading``/``building`` gate the pane
-                    # and the viewport's progress row.
+                    # and the viewport's progress row. ``troupe-`` is Troupe's
+                    # own task-key prefix, kept exactly as it was when the
+                    # mode folded into Poser as a character-sheet stage (P9,
+                    # 2026-09-18) -- every one of those tasks is a door, so a
+                    # failure here is always a refusal with a sentence in it.
                     poser_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("matte-"):
                     from .. import matte_preview
@@ -606,17 +602,16 @@ class TasksMixin:
 
             sirens_mode.on_task_done(ctx, done)
             return
-        if key.startswith("troupe-"):
-            from ..modes.troupe import mode as troupe_mode
-
-            troupe_mode.on_task_done(ctx, done)
-            return
         if key.startswith("review-"):
             from ..modes.review import mode as review_mode
 
             review_mode.on_task_done(ctx, done)
             return
-        if key.startswith("poser-"):
+        if key.startswith(("poser-", "troupe-")):
+            # ``troupe-`` is Troupe's own task-key prefix, kept exactly as it
+            # was when the mode folded into Poser as a character-sheet stage
+            # (P9, 2026-09-18) -- renaming a UI-side key with no corresponding
+            # module rename underneath would be pure churn.
             from ..modes.poser import mode as poser_mode
 
             poser_mode.on_task_done(ctx, done)
@@ -763,10 +758,10 @@ class TasksMixin:
                 # cache invalidation above does not bring it back.
                 self._refresh_rig_side_data()
             if key.startswith(("rig:", "joints:")):
-                # Poser's own "Rigged assets" picker is throttled like
-                # ``troupe_mode.sendable_meshes`` -- up to CAST_REFRESH_LIVE
-                # stale on its own -- but a rig landing while the mode is
-                # already open should not need a restart to appear in it.
+                # Poser's own "Rigged assets" picker is throttled -- up to
+                # CAST_REFRESH_LIVE stale on its own -- but a rig landing
+                # while the mode is already open should not need a restart to
+                # appear in it.
                 from ..modes.poser import mode as poser_mode
 
                 poser_mode.invalidate_riggable(ctx)

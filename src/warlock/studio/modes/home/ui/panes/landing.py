@@ -1297,20 +1297,26 @@ def start_sirens(ctx: Any) -> None:
         sirens_mode.new_document(ctx)
 
 
-def start_troupe(ctx: Any) -> None:
-    """Troupe from Home. It asks for nothing and invents nothing.
+def start_poser(ctx: Any) -> None:
+    """Poser's character-sheet stage, from Home. It asks for nothing and
+    invents nothing.
 
-    Unlike the four document modes above it, entering Troupe does not create
-    anything: the mode is a selection over character sheets a worker published,
-    and what a user does first here is either watch one or describe a new
-    character in the form. Creating something on entry would be the "entering
-    Plotter *was* the act of creating a map" mistake the function above it
-    exists to have stopped making.
+    Troupe's own ``start_troupe``, repointed at the stage that mode folded
+    into (P9, 2026-09-18). Unlike the four document modes above it, this does
+    not create anything: the stage is a selection over character sheets a
+    worker published, and what a user does first here is either bind an
+    existing asset or describe a new character in the "Start a new character"
+    section -- opened on arrival (``widgets.request_open``) so the one thing
+    this tile promises is not a scroll away. Creating something on entry
+    would be the "entering Plotter *was* the act of creating a map" mistake
+    the function above it exists to have stopped making.
     """
-    from ....troupe import mode as troupe_mode
+    from ....poser import mode as poser_mode
+    from ....poser.ui.panes.sheet import NEW_CHARACTER_SECTION
 
-    set_mode(ctx.state, "troupe")
-    troupe_mode.ensure(ctx)
+    set_mode(ctx.state, "poser")
+    poser_mode.ensure(ctx)
+    widgets.request_open(NEW_CHARACTER_SECTION)
 
 
 #: The things this app can start from nothing, in the order the menu offers
@@ -1335,5 +1341,5 @@ NEW_ITEMS: tuple[tuple[str, str, str, object], ...] = (
     ("plotter", "New tile map", icons.GRID, start_plotter),
     ("packwright", "New sprite atlas", icons.LAYERS, start_packwright),
     ("sirens", "New song", icons.AUDIO_WAVEFORM, start_sirens),
-    ("troupe", "New character", icons.PERSON_STANDING, start_troupe),
+    ("poser", "New character", icons.PERSON_STANDING, start_poser),
 )

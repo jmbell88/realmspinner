@@ -119,10 +119,10 @@ NO_HELP_BUTTON = {
     # A modal raised by two doors elsewhere -- the library's menu item and the
     # inspector's button -- and drawn at top level because the first of those
     # is inside a context popup. It has no titled section to hang a (?) beside,
-    # and the settings it asks about are the ones ``troupe-settings`` already
-    # documents, so a second target would point at the same chapter under a
-    # different name.
-    "troupe_send",
+    # and the settings it asks about are the ones ``poser-new-character``
+    # already documents, so a second target would point at the same chapter
+    # under a different name.
+    "poser_send",
 }
 
 

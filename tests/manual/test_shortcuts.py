@@ -1,8 +1,8 @@
-"""Chapter 39 and the Ctrl+/ sheet have to agree.
+"""Chapter 38 and the Ctrl+/ sheet have to agree.
 
 ``tests/manual/`` gates the manual's *structure* -- the chapter list, links,
 anchors, help-button parity, line length -- and nothing that reads a chapter's
-claims against the app. That gap is how chapter 39 came to open by telling the
+claims against the app. That gap is how chapter 38 came to open by telling the
 reader to press a **?** button in a top bar that chapter 1 says does not
 exist, and how the in-app sheet came to list "F1 -- Switch to the Manual"
 three waves after F1 stopped switching to anything.
@@ -23,7 +23,7 @@ import pytest
 
 from warlock.studio.shortcuts import shortcut_sections
 
-CHAPTER = Path(__file__).resolve().parents[2] / "docs" / "manual" / "39-shortcuts.md"
+CHAPTER = Path(__file__).resolve().parents[2] / "docs" / "manual" / "38-shortcuts.md"
 
 # The popup's group titles against the chapter headings that cover them. Two
 # popup groups share one chapter section, which is why this is a table rather
@@ -39,7 +39,6 @@ SECTIONS = {
     "Poser": "Poser",
     "Plotter": "Plotter",
     "Packwright": "Packwright",
-    "Troupe": "Troupe",
     "Muse": "Muse",
     "Sirens": "Sirens",
 }
@@ -186,7 +185,7 @@ def test_every_mode_the_chapter_gives_a_section_has_a_group_in_the_sheet():
         if label in headings and label not in groups
     )
     assert not missing, (
-        f"docs/manual/39-shortcuts.md documents {missing}, and the Ctrl+/ "
+        f"docs/manual/38-shortcuts.md documents {missing}, and the Ctrl+/ "
         f"sheet has no group for them -- a user in that mode learns nothing"
     )
 
@@ -198,27 +197,33 @@ def test_no_binding_in_the_sheet_is_missing_from_the_chapter(title):
     missing = sorted(_popup_atoms().get(title, set()) - chapter)
     assert not missing, (
         f"the Ctrl+/ sheet's {title} group lists {missing}, which "
-        f"docs/manual/39-shortcuts.md does not"
+        f"docs/manual/38-shortcuts.md does not"
     )
 
 
-def test_troupe_shortcuts_sheet_lists_the_checkerboard_and_pivot_keys():
+def test_poser_sheet_shortcuts_sheet_lists_the_checkerboard_and_pivot_keys():
     """The reverse of every other gate in this module -- see the module
     docstring for why the popup-to-chapter direction alone was not enough.
 
     2026-09-08 audit, finding troupe-01: the Ctrl+/ sheet's Troupe table (and
-    chapter 38's) omitted C and P, which ``troupe_mode.handle_key`` has bound
-    all along, and chapter 38 closed the section with "there is nothing
-    else". Read straight off ``handle_key``'s own source rather than off a
-    list hand-written here, so the next plain-letter binding it adds cannot
-    go missing from the sheet silently the way these two did.
+    chapter 38's) omitted C and P, which ``handle_key`` has bound all along,
+    and chapter 38 closed the section with "there is nothing else". Read
+    straight off ``handle_key``'s own source rather than off a list
+    hand-written here, so the next plain-letter binding it adds cannot go
+    missing from the sheet silently the way these two did.
+
+    P9 (2026-09-18): Troupe's own ``handle_key`` folded into Poser's
+    character-sheet section as ``poser_mode.sheet_handle_key``, and its
+    popup/chapter table folded into Poser's own -- so the gate reads that
+    function and checks against the "Poser" group rather than a "Troupe"
+    one that no longer exists.
     """
     import inspect
     import re
 
-    from warlock.studio.modes.troupe import mode as troupe_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
-    source = inspect.getsource(troupe_mode.handle_key)
+    source = inspect.getsource(poser_mode.sheet_handle_key)
     # Plain lower-case letter constants only (``pygame.K_c``, not
     # ``pygame.K_LEFT`` or ``pygame.K_SPACE``) -- the arrows, Space, Home/End
     # and the page keys are named tokens the chapter and popup already spell
@@ -226,11 +231,11 @@ def test_troupe_shortcuts_sheet_lists_the_checkerboard_and_pivot_keys():
     # like C or P is the case that slipped through once already.
     letters = {match.upper() for match in re.findall(r"pygame\.K_([a-z])\b", source)}
     assert letters, "handle_key binds no plain letters -- this gate has nothing to check"
-    troupe = _popup_atoms().get("Troupe", set())
-    missing = sorted(letters - troupe)
+    poser = _popup_atoms().get("Poser", set())
+    missing = sorted(letters - poser)
     assert not missing, (
-        f"troupe_mode.handle_key binds {missing} and the Ctrl+/ sheet's "
-        f"Troupe table does not list them"
+        f"poser_mode.sheet_handle_key binds {missing} and the Ctrl+/ sheet's "
+        f"Poser table does not list them"
     )
 
 

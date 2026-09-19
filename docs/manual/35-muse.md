@@ -1,7 +1,7 @@
 # Muse
 
 Muse generates a finished piece of music from a description. It is the other half of the pair
-[Sirens](35-sirens.md) opens: that mode is a tracker you author note by note, and this one is a
+[Sirens](34-sirens.md) opens: that mode is a tracker you author note by note, and this one is a
 model you ask.
 
 The two are not a pipeline and not rivals. They are the same relationship
@@ -202,7 +202,7 @@ rerolling a variation gives you another variation, not the original back.
 
 ## Where a take lives
 
-A take is an ordinary job row. It appears in the [library](37-library-and-jobs.md) with its prompt,
+A take is an ordinary job row. It appears in the [library](36-library-and-jobs.md) with its prompt,
 its seed and its recipe alongside every image and mesh you have made, it can be filtered, renamed,
 tagged, trashed and pruned like any of them, and its file is `track.wav` in the job's own directory.
 
@@ -307,5 +307,5 @@ and this build deliberately ships none.
 ## What to read next
 
 - [Generating a soundtrack](16-generating-a-soundtrack.md) — the tutorial: a description to a track to a sample.
-- [Sirens](35-sirens.md) — the tracker, and what a sample instrument is once it lands there.
+- [Sirens](34-sirens.md) — the tracker, and what a sample instrument is once it lands there.
 - [Installation](40-installation.md) — the ACE-Step download.

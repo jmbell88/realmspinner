@@ -96,6 +96,15 @@ class PoserViewport:
         if not ctx.rigging_available:
             overlay.placeholder(ctx)
             return
+        if state.job_id and state.sheet_view:
+            # P9 (2026-09-18): the character-sheet stage, Troupe's own centre
+            # pane -- a sprite rather than a 3D rig, so it draws over the
+            # whole content region without touching ``self.poser_viewer`` at
+            # all.
+            from .panes import sheet as poser_sheet
+
+            poser_sheet.draw_preview(ctx)
+            return
         viewer = self._ensure_poser_viewer()
         if state.job_id:
             showing = poser_mode.sync_asset(ctx, viewer)

@@ -1,12 +1,13 @@
-"""The palette directory, as seen by Troupe's own forms.
+"""The palette directory, as seen by Poser's character-sheet forms.
 
 Modelled directly on ``tests/studio/test_panes_mtime_guard.py``'s palette pair for
 ``panes.inspector.palette_names`` -- the same directory, the same hazard, and
 until the 2026-09-11 audit (finding troupe-04) neither of these two caches
 applied the rule that file already had to learn.
 
-``troupe_mode.options`` backs three surfaces (itself, ``modes.troupe.ui.panes.send``
-and ``modes.troupe.ui.panes.settings``, which all call it directly) and
+``poser_mode.sheet_options`` (Troupe's own ``options``, folded into Poser by
+P9, 2026-09-18) backs three surfaces (itself, ``modes.poser.ui.panes.send``
+and ``modes.poser.ui.panes.sheet``, which all call it directly) and
 ``panes.character_engine.options`` backs Create's Character arm and its own
 New Character form. Before the fix both cached ``ctx.state.preview`` forever
 on ``OPTIONS_SLOT`` with no key at all, so a palette file dropped in while the
@@ -22,7 +23,7 @@ from typing import Any
 import pytest
 
 from warlock.studio.modes.create.engine import character as character_engine
-from warlock.studio.modes.troupe import mode as troupe_mode
+from warlock.studio.modes.poser import mode as poser_mode
 from warlock.studio.panes import stamps
 
 
@@ -59,23 +60,24 @@ def palette_dir(svc, monkeypatch, tmp_path):
     return directory
 
 
-# --- troupe_mode.options: the door troupe_send and troupe_settings share ------
+# --- poser_mode.sheet_options: the door send and sheet share -----------------
 
 
-def test_a_palette_dropped_in_mid_session_appears_in_the_troupe_and_character_forms(
+def test_a_palette_dropped_in_mid_session_appears_in_the_sheet_and_character_forms(
     svc, monkeypatch, palette_dir
 ):
-    """The regression, for ``troupe_mode.options`` -- read by ``troupe_mode``
-    itself, ``modes.troupe.ui.panes.send`` and ``modes.troupe.ui.panes.settings`` alike."""
+    """The regression, for ``poser_mode.sheet_options`` -- read by
+    ``poser_mode`` itself, ``modes.poser.ui.panes.send`` and
+    ``modes.poser.ui.panes.sheet`` alike."""
     ctx = FakeCtx(svc)
     (palette_dir / "nes.hex").write_text("000000\nffffff\n", encoding="utf-8")
     _frozen(monkeypatch, palette_dir)
 
-    assert troupe_mode.options(ctx)["palettes"] == ["nes"]
+    assert poser_mode.sheet_options(ctx)["palettes"] == ["nes"]
 
     (palette_dir / "gameboy.hex").write_text("081820\ne0f8d0\n", encoding="utf-8")
 
-    assert troupe_mode.options(ctx)["palettes"] == ["gameboy", "nes"]
+    assert poser_mode.sheet_options(ctx)["palettes"] == ["gameboy", "nes"]
 
 
 def test_a_settled_troupe_options_directory_is_walked_once(svc, monkeypatch, palette_dir):
@@ -94,7 +96,7 @@ def test_a_settled_troupe_options_directory_is_walked_once(svc, monkeypatch, pal
     )
 
     for _ in range(5):
-        assert troupe_mode.options(ctx)["palettes"] == ["nes"]
+        assert poser_mode.sheet_options(ctx)["palettes"] == ["nes"]
 
     assert len(calls) == 1
 

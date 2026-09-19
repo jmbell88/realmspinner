@@ -5,6 +5,11 @@ that the name and the number stop agreeing -- a combo saying "Isometric" over a
 sheet rendered at 35 degrees is worse than no combo at all. So the table has one
 home, ``kernels.charsheet.CAMERA_PRESETS``: the door reads it, the form reads
 the door, and the worker matches against it when it stamps the sidecar.
+
+P9 (2026-09-18): this test followed Troupe's own ``ui/panes/settings.py`` into
+Poser's ``ui/panes/sheet.py`` when that mode folded in. The service-side
+assertions (``_q_troupe``, ``service.troupe``) are unchanged -- neither module
+moved.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from warlock import _q_troupe
 from warlock.kernels import charsheet
 from warlock.kernels import sheet as sheetlib
 from warlock.service import troupe as svc_troupe
-from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
+from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
 
 
 def test_the_form_and_the_door_read_one_preset_table(svc):
@@ -37,8 +42,27 @@ def test_the_form_and_the_door_read_one_preset_table(svc):
     }
 
     # The pane builds its choices out of ``options["camera_presets"]`` -- it
-    # never names a preset or an angle itself.
-    pane = inspect.getsource(troupe_settings)
+    # never names a preset or an angle itself. Scanned as the specific
+    # functions that draw the camera/layout/style form fields, not the whole
+    # module: P9 (2026-09-18) merged Troupe's four panes into one file, and
+    # the sheet preview's own drawing (``_scorecard``, unrelated ``0.0``
+    # defaults and the like) would otherwise collide with this scan by
+    # coincidence rather than by actually naming a preset.
+    pane = "".join(
+        inspect.getsource(fn)
+        for fn in (
+            poser_sheet._size,
+            poser_sheet._camera_helper,
+            poser_sheet._layout,
+            poser_sheet._style,
+            poser_sheet._frame_rate,
+            poser_sheet._logical_size,
+            poser_sheet._palette,
+            poser_sheet.draw_new_character,
+            poser_sheet._build_another,
+            poser_sheet._submit_new_character,
+        )
+    )
     assert '"camera_presets"' in pane
     for key, label, angle in charsheet.CAMERA_PRESETS:
         # As a *literal*: "side" is a substring of "beside", which this file's

@@ -138,7 +138,7 @@ def test_a_template_with_no_clips_is_a_keyerror_not_an_empty_sheet():
 
 # -- the ULPC oracle's docstring ----------------------------------------------
 #
-# Kept out of ``tests/modes/troupe/test_ulpc.py``: that module's ``pytestmark`` skips
+# Kept out of ``tests/modes/poser/test_ulpc.py``: that module's ``pytestmark`` skips
 # every test in the file when the (unshipped, CC-BY-SA/GPL) example sheets are
 # not checked out, and a docstring assertion has nothing to do with whether
 # those files are on disk.
@@ -149,13 +149,13 @@ def test_ulpc_docstring_no_longer_claims_a_door_nothing_wires():
     claimed two purposes -- built regression oracles, and letting a user
     "bring their own LPC art in as filler while a character is being built"
     -- but ``read()``/``crop()`` have no caller anywhere in ``src/`` outside
-    ``tests/modes/troupe/test_ulpc.py`` and the package's own re-export, so the
+    ``tests/modes/poser/test_ulpc.py`` and the package's own re-export, so the
     second purpose described a door that does not exist as though it did.
     Cut rather than built: wiring a pane or service door to these is new
     feature work of its own, out of scope for this fix, and returned as owed
     rather than done.
     """
-    from warlock.studio.modes.troupe.engine import ulpc
+    from warlock.studio.modes.poser.engine import ulpc
 
     assert "bring their own" not in (ulpc.__doc__ or "")
 
@@ -690,33 +690,34 @@ def test_a_mesh_already_rigged_as_something_else_is_still_refused(svc):
 def test_send_to_troupe_does_not_submit_the_currently_selected_characters_layout_for_a_different_mesh(  # noqa: E501
     svc,
 ):
-    """The 2026-09-16 audit, finding troupe-01: ``troupe_send.ask()``/``_send()``
-    used to submit ``troupe_mode.form(ctx)["layout"]`` unchanged -- built by
-    ``troupe_mode._default_layout`` against whichever character is *bound to
-    Troupe's own pane* (``troupe_mode.ensure(ctx).job_id``), never rebuilt
-    against the mesh this dialog is actually sending, a separate id chosen
-    from the Library or the inspector. A user with a character open in
-    Troupe, its sheet layout hand-edited down to one movement, who then used
-    "Send to Troupe" on an unrelated rigged mesh from the Library used to
-    submit that same hand-edited layout on the unrelated mesh's rig, silently
-    -- today's shipped templates share one clip vocabulary, so there is no
-    refusal to notice it by.
+    """The 2026-09-16 audit, finding troupe-01: ``poser_send.ask()``/``_send()``
+    (Troupe's own ``troupe_send``, folded into Poser's character-sheet stage
+    by P9, 2026-09-18) used to submit ``poser_mode.sheet_form(ctx)["layout"]``
+    unchanged -- built by ``poser_mode._default_sheet_layout`` against
+    whichever character is *bound* (``poser_mode.ensure(ctx).job_id``), never
+    rebuilt against the mesh this dialog is actually sending, a separate id
+    chosen from the Library or the inspector. A user with a character bound,
+    its sheet layout hand-edited down to one movement, who then used "Send to
+    Poser" on an unrelated rigged mesh from the Library used to submit that
+    same hand-edited layout on the unrelated mesh's rig, silently -- today's
+    shipped templates share one clip vocabulary, so there is no refusal to
+    notice it by.
     """
     from types import SimpleNamespace
 
-    from warlock.studio.modes.troupe import mode as troupe_mode
-    from warlock.studio.modes.troupe.ui.panes import send as troupe_send
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import send as poser_send
 
     class _Ctx:
         """The slice of the app context the door's logic touches. No GL --
-        ``tests/modes/troupe/test_send_door.py``'s own fixture, inlined here since
-        this test lives beside the service-layer chain rather than that
+        ``tests/modes/poser/test_send_door.py``'s own fixture, inlined here
+        since this test lives beside the service-layer chain rather than that
         pane-level file."""
 
         def __init__(self, svc):
             self.svc = svc
             self.state = SimpleNamespace(
-                troupe=None, preview={}, mode="library", troupe_send=None
+                poser=None, preview={}, mode="library", poser_send=None
             )
             self.submitted: list[tuple[str, object]] = []
 
@@ -735,32 +736,34 @@ def test_send_to_troupe_does_not_submit_the_currently_selected_characters_layout
 
     ctx = _Ctx(svc)
 
-    # A character is bound to Troupe's own pane, and its sheet layout has
-    # been hand-edited down to one movement -- "run" only, none of the
-    # humanoid library's other four legacy clips.
+    # A character is bound, and its sheet layout has been hand-edited down to
+    # one movement -- "run" only, none of the humanoid library's other four
+    # legacy clips.
     bound = _rigged_mesh(svc, template="humanoid")
     rig_row = svc.store.create(
         "rig", "a bound ranger", {"source_job": bound, "template": "humanoid"}
     )
     svc.store.set_status(rig_row, "done")
-    troupe_mode.ensure(ctx).job_id = bound
+    state = poser_mode.ensure(ctx)
+    state.job_id = bound
+    state.template = "humanoid"
 
-    default_layout = troupe_mode.form(ctx)["layout"]
+    default_layout = poser_mode.sheet_form(ctx)["layout"]
     edited = {
         **default_layout,
         "movements": [
             dict(m, enabled=(m["key"] == "run")) for m in default_layout["movements"]
         ],
     }
-    troupe_mode.form(ctx)["layout"] = edited
+    poser_mode.sheet_form(ctx)["layout"] = edited
     assert {m["key"] for m in edited["movements"] if m["enabled"]} == {"run"}
 
     # A different, unrelated rigged mesh is sent through the library door.
     other = _rigged_mesh(svc, template="humanoid")
     job = {"id": other, "prompt": "an unrelated ranger", "files": ["model.glb", "rig.glb"]}
-    assert troupe_send.ask(ctx, job)
-    state = ctx.state.troupe_send
-    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+    assert poser_send.ask(ctx, job)
+    send_state = ctx.state.poser_send
+    poser_send._send(ctx, send_state, poser_mode.sheet_form(ctx))
 
     (_key, run), = ctx.submitted
     made = run()
@@ -1752,8 +1755,9 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
     The second half is the one that would break quietly: a sheet whose source
     has no ``character.json`` must come back the sheet it always was, with no
     ``character`` key and no ``sockets`` on any cell, and must still open
-    through both readers that consume a Troupe sidecar -- Inker's
-    ``document_from_sheet`` and Troupe's own ``preview_layout``.
+    through both readers that consume a character-sheet sidecar -- Inker's
+    ``document_from_sheet`` and Poser's own ``preview_layout`` (Troupe's,
+    before P9 2026-09-18 folded that mode in).
     """
     import types
 
@@ -1762,7 +1766,7 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
 
     from warlock.kernels.pixel import sheetin
     from warlock.kernels.rig import store as rig_store
-    from warlock.studio.modes.troupe import mode as troupe_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
     calls = _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
     # A themed character and, in the same run, a mesh with no species behind it.
@@ -1808,8 +1812,8 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
     assert len(doc.anim.frames) == len(old["cells"])
 
     ctx = types.SimpleNamespace(state=types.SimpleNamespace(preview={}))
-    monkeypatch.setattr(troupe_mode, "active_sheet", lambda _ctx: old)
-    layout = troupe_mode.preview_layout(ctx)
+    monkeypatch.setattr(poser_mode, "active_sheet", lambda _ctx: old)
+    layout = poser_mode.preview_layout(ctx)
     assert layout["movements"] and layout["runs"]
 
 
@@ -2150,7 +2154,7 @@ async def test_a_256px_sheet_renders_through_the_chain_at_an_exact_stride(worker
     outright -- it only exercises ``_charsheet``/``pixel_report`` once a 256px
     request reaches the worker. The door-level claim that 256 became a
     legal size lives in
-    ``tests/modes/troupe/test_charsheet.py::test_256_is_a_sheet_size``.
+    ``tests/test_charsheet.py::test_256_is_a_sheet_size``.
 
     ``charsheet.SIZES`` now reaches 256, and 512 (``RENDER_SIZE``) divides
     it exactly -- stride 2, not the NEAREST fallback a size ``RENDER_SIZE``

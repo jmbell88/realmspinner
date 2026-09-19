@@ -207,9 +207,10 @@ def _selected(ctx: Any) -> Any:
 # names a folder because it is the one export in the app that writes a family
 # -- song.wav, stems/, sfx/ -- into a directory the user picks; Poser's empty
 # label suppresses the command rather than forcing a fake one, since a pose
-# is a library record, saved and never exported). Troupe deliberately does
-# not appear at all -- it has no document, so all four commands would be
-# empty.
+# is a library record, saved and never exported -- and its character-sheet
+# stage, folded in from Troupe in P9 (2026-09-18), changes nothing here: a
+# sheet is a selection over files a worker already published, the same "no
+# document" reason the empty label already covers).
 _DOC_MODES: dict[str, tuple[str, str]] = mode_manifest.export_table()
 
 _DOC_WHY = "Open a drawing, model, map, atlas or song first."

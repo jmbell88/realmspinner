@@ -553,7 +553,7 @@ def test_character_options_answers_for_every_archetype_and_species(svc):
     assert options["troupe"]["camera_presets"]
 
 
-def test_a_finished_character_offers_troupe_once_it_is_rigged_and_clay_before(svc):
+def test_a_finished_character_offers_poser_once_it_is_rigged_and_clay_before(svc):
     """The card's one action, for the intent this door writes.
 
     Never "rig": the rig row was minted in the same press, and offering to make
@@ -571,6 +571,6 @@ def test_a_finished_character_offers_troupe_once_it_is_rigged_and_clay_before(sv
     }
     assert state.primary_action(body) == "clay"
     rigged = {**body, "files": ["model.glb", "rig.glb"]}
-    assert state.primary_action(rigged) == "troupe"
+    assert state.primary_action(rigged) == "poser"
     # And the label exists, because the library looks it up by name.
-    assert state.ACTIONS["troupe"]
+    assert state.ACTIONS["poser"]

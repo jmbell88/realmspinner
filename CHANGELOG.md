@@ -26,6 +26,19 @@ data-loss bug five modes shared: opening a file that was already open in another
 tab made a second, independent tab on the same path, and whichever tab saved
 last silently discarded the other's edits.
 
+- **Troupe is gone as a separate mode; rigging, posing, clips and character
+  sprite sheets now all live inside Poser.** The app had fourteen modes and
+  now has thirteen. Poser opens a rigged asset's poses and clips exactly as
+  before, and a new section renders and judges the character sheet that used
+  to be Troupe's own screen — the sprite preview, the QA heatmap, the "needs
+  repair" check, and the same ways out to Inker, Packwright and an export
+  folder — reached from the asset already bound in Poser rather than through
+  a second, cross-character cast browser. Starting a character from nothing
+  still works, from a "New character" section inside Poser. The rail's
+  Experimental badge is gone with it rather than moved to another mode:
+  nothing in the app is marked Experimental any more. The rig, clip library
+  and render pipeline underneath are unchanged — this is where the controls
+  live, not what they do.
 - **A reference can no longer be stuck unable to become a mesh by an engine
   setting the engine refuses.** Create's Texture resolution field stopped only
   at 0, but the engine accepts 128 to 4096, so a typed 64 was saved and every

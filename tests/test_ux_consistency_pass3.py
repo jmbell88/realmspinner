@@ -59,7 +59,7 @@ _IMPERATIVES = ("Describe", "Add", "Rig", "Start", "Choose", "Draw", "Write")
 #: user works in another pane, and "Describe the music you want above" points
 #: at a control already on screen above it. A button repeating a pointer is a
 #: second way to do one thing, which is the divergence this pass closes.
-_POINTERS = {"create/mesh", "create/rig", "create/export", "poser", "review", "troupe", "muse"}
+_POINTERS = {"create/mesh", "create/rig", "create/export", "poser", "review", "muse"}
 
 
 def test_every_imperative_placeholder_offers_the_thing_it_asks_for():

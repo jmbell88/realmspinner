@@ -2,9 +2,11 @@
 
 Split out of ``modes/create/ui/settings_character.py`` (2026-09-18
 restructure, P5) -- the half of that module with no imgui in it. Familiar
-(``assistant/ui.py``, ``assistant/doors.py``), Troupe (``troupe_mode.py``) and
-the shell (``state.py``, ``shell/tasks.py``, ``modes/create/ui/workspace.py``)
-all read this vocabulary today by reaching into a *pane*; they import this
+(``assistant/ui.py``, ``assistant/doors.py``), Poser's character-sheet stage
+(``modes/poser/mode.py`` -- Troupe's own vocabulary, folded in whole by P9,
+2026-09-18) and the shell (``state.py``, ``shell/tasks.py``,
+``modes/create/ui/workspace.py``) all read this vocabulary today by reaching
+into a *pane*; they import this
 module directly now. What stays in ``modes/create/ui/settings_character.py``
 is the drawing and the orchestration of a press (``draw_block``, the field
 callbacks, ``preflight_fix``'s buttons, and ``submit``, which toasts).
@@ -50,9 +52,10 @@ MOVEMENTS: tuple[tuple[str, int], ...] = tuple(recipe_mod.DEFAULT_ANIMATIONS.ite
 DIRECTIONS = 8
 
 #: Where :func:`options` caches the door's answer for the life of the process.
-#: ``troupe_settings._options``' slot and its reason: ``character_options``
-#: walks the palette directory, and a directory walk sixty times a second is a
-#: cost with no reader.
+#: ``poser_mode.OPTIONS_SLOT``'s slot and its reason (Troupe's own, before
+#: P9 2026-09-18 folded that mode into Poser): ``character_options`` walks
+#: the palette directory, and a directory walk sixty times a second is a cost
+#: with no reader.
 OPTIONS_SLOT = "character_options"
 
 #: Which recipe field each control answers to. The door refuses in the
@@ -421,9 +424,9 @@ def camera_options(opts: dict[str, Any]) -> tuple[tuple[str, str], ...]:
 def camera_helper(opts: dict[str, Any], camera: str) -> str:
     """The angle and the direction count, in the numbers that transfer.
 
-    ``troupe_settings._camera_helper``'s argument: a user matching these sprites
-    to a Plotter map knows what elevation that map is drawn at, and a preset's
-    name does not answer that while its angle does.
+    ``poser.ui.panes.sheet._camera_helper``'s argument: a user matching these
+    sprites to a Plotter map knows what elevation that map is drawn at, and a
+    preset's name does not answer that while its angle does.
     """
     entry = opts["troupe"]["camera_presets"].get(camera) or {}
     if "elevation" not in entry:
@@ -536,11 +539,12 @@ def recipe_kwargs(form: dict[str, Any], opts: dict[str, Any]) -> dict[str, Any]:
     of a press no test can reach while it lives inside a closure.
 
     ``elevation`` is sent as the *number* rather than left to the recipe's
-    default, which is ``troupe_settings``' arrangement and its argument: a
-    preset is only a name for an angle, and a recipe carrying a camera whose
-    elevation is somebody else's default would be framed at an angle nobody
-    picked. Both come from ``troupe_options``, so the pane holds no second copy
-    of the table (``tests/modes/troupe/test_camera_presets.py``).
+    default, which is ``poser.ui.panes.sheet``'s arrangement and its argument
+    (Troupe's own ``troupe_settings``, before P9 2026-09-18): a preset is
+    only a name for an angle, and a recipe carrying a camera whose elevation
+    is somebody else's default would be framed at an angle nobody picked.
+    Both come from ``service.troupe.troupe_options``, so the pane holds no
+    second copy of the table (``tests/modes/poser/test_camera_presets.py``).
     """
     camera = camera_of(form, opts)
     presets = opts["troupe"]["camera_presets"]
@@ -573,7 +577,7 @@ def toast_for(form: dict[str, Any], opts: dict[str, Any]) -> str:
     label = str((row or {}).get("label") or "character").lower()
     return (
         f"Building the {label}: mesh -> rig -> {cell_count(form)}-cell sheet. "
-        f"Watch it here, then in Troupe."
+        f"Watch it here, then in Poser."
     )
 
 

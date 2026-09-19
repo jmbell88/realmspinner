@@ -11,6 +11,9 @@ The claim that matters most is the last one. A sheet that records no pivot must
 get **no mark**, not a mark at the middle of the cell: the marker says "this is
 where the engine will put the sprite's origin", and drawn from a guess it is a
 lie the user cannot tell from a measurement.
+
+P9 (2026-09-18): followed Troupe's own ``ui/panes/preview.py`` into Poser's
+``ui/panes/sheet.py`` when that mode folded in.
 """
 
 from __future__ import annotations
@@ -20,8 +23,8 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio.modes.troupe import mode as troupe_mode
-from warlock.studio.modes.troupe.ui.panes import preview as troupe_preview
+from warlock.studio.modes.poser import mode as poser_mode
+from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
 
 
 @pytest.fixture
@@ -80,9 +83,9 @@ def _record(*, pivot: tuple[float, float] | None = PIVOT) -> dict:
 
 
 def _draw(ui, monkeypatch, record, *, checker: bool, show_pivot: bool) -> _Spy:
-    monkeypatch.setattr(troupe_mode, "cell_index", lambda ctx: 0)
+    monkeypatch.setattr(poser_mode, "cell_index", lambda ctx: 0)
     ctx = SimpleNamespace()
-    state = SimpleNamespace(zoom=ZOOM, checker=checker, show_pivot=show_pivot)
+    state = SimpleNamespace(sheet_zoom=ZOOM, sheet_checker=checker, sheet_show_pivot=show_pivot)
     spy: list[_Spy] = []
     real = ui.get_window_draw_list
 
@@ -98,7 +101,7 @@ def _draw(ui, monkeypatch, record, *, checker: bool, show_pivot: bool) -> _Spy:
     # take the fixture's own patches with it.
     ui.get_window_draw_list = spied
     try:
-        troupe_preview._sprite(ctx, state, _Texture(), record)
+        poser_sheet._sprite(ctx, state, _Texture(), record)
     finally:
         ui.get_window_draw_list = real
         ui.end()

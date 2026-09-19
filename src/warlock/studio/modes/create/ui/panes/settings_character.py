@@ -213,8 +213,8 @@ def _appearance(
         return
     # Above the sliders rather than rung onto one of them: the door refuses the
     # ``appearance`` *block*, and a ring on an arbitrary channel would point at
-    # the wrong control. ``troupe_settings``' handling of ``layout``, which is
-    # the same shape of address.
+    # the wrong control. ``poser.ui.panes.sheet``'s handling of ``layout``,
+    # which is the same shape of address.
     form_ui.note("character_body")
     body = character_engine.body_of(form, opts)
     for channel in channels:
@@ -379,22 +379,24 @@ def _offer_fixes(ctx: Any, form: dict[str, Any]) -> None:
     ):
         character_engine.switch_to_sprite_sheet(form)
         ctx.state.clear_field_errors()
-    if controls.button("Draw it in Troupe##character-troupe", role=controls.ButtonRole.GHOST):
-        hand_to_troupe(ctx, form)
+    if controls.button("Draw it in Poser##character-poser", role=controls.ButtonRole.GHOST):
+        hand_to_poser(ctx, form)
 
 
-def hand_to_troupe(ctx: Any, form: dict[str, Any]) -> None:
+def hand_to_poser(ctx: Any, form: dict[str, Any]) -> None:
     """The third route: a generated reference and a reconstruction.
 
-    The brief goes into ``troupe_mode.form`` -- *the* form that mode's pane
-    draws, not a copy -- and then the mode opens. The prompt here is left
-    exactly as it was, ``switch_to_sprite_sheet``'s rule and its reason.
+    Troupe's own ``hand_to_troupe``, repointed at Poser's character-sheet
+    stage now that the mode folded into it (P9, 2026-09-18). The brief goes
+    into ``poser_mode.sheet_form`` -- *the* form that stage's pane draws, not
+    a copy -- and then the mode opens. The prompt here is left exactly as it
+    was, ``switch_to_sprite_sheet``'s rule and its reason.
 
-    Not in the engine: it imports ``troupe_mode``, a sibling mode's UI module,
+    Not in the engine: it imports ``poser_mode``, a sibling mode's UI module,
     which an engine module may never do.
     """
     from .....state import set_mode
-    from ....troupe import mode as troupe_mode
+    from ....poser import mode as poser_mode
 
-    troupe_mode.form(ctx)["prompt"] = str(form.get("prompt") or "")
-    set_mode(ctx.state, "troupe")
+    poser_mode.sheet_form(ctx)["prompt"] = str(form.get("prompt") or "")
+    set_mode(ctx.state, "poser")

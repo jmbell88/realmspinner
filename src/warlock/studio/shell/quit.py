@@ -264,14 +264,16 @@ class QuitMixin:
             _step("write settings", ctx.settings.flush)
             if ctx.textures is not None:
                 _step("release textures", ctx.textures.release)
-            from ..modes.troupe import mode as troupe_mode
+            from ..modes.poser import mode as poser_mode
             from ..panes import sheet_panel
 
             _step("release sheet strip", lambda: sheet_panel.release_strip_texture(ctx))
-            # Troupe's atlas, for the same reason and by the same rule: it is
-            # registered with the imgui backend by ``widgets.texture_ref``, so
-            # it must be forgotten before it is released.
-            _step("release troupe atlas", lambda: troupe_mode.release_texture(ctx))
+            # The character-sheet section's atlas texture (Troupe's own,
+            # folded into Poser in P9, 2026-09-18), for the same reason and by
+            # the same rule: it is registered with the imgui backend by
+            # ``widgets.texture_ref``, so it must be forgotten before it is
+            # released.
+            _step("release poser sheet atlas", lambda: poser_mode.release_texture(ctx))
             from ..modes.inker import mode as inker_mode
             from ..modes.packwright import mode as packwright_mode
             from ..modes.plotter import mode as plotter_mode

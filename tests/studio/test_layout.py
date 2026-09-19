@@ -192,15 +192,17 @@ def test_migration_never_overwrites_a_split_the_user_has_already_moved():
 def _main_source() -> str:
     """Every file that builds a hand-composed split, as source.
 
-    **One file since 2026-09-04, now six since the P4 restructure.** Review's
-    nine hundred lines of pane drawing moved to ``studio/review_panes.py`` as
-    a mixin on ``App`` (T7 of the 2026-09-02 review), and it draws splits and
-    handles like every other workspace. The P4 restructure
-    (``dev/RESTRUCTURE.md``) then moved ``_split_column``/``_right_column``
-    themselves out of ``studio/main.py`` into ``studio/shell/frame.py``, and
-    the two workspaces that called them by name (Troupe's and Packwright's)
-    into ``studio/troupe_workspace.py`` and ``studio/packwright_workspace.py``
-    -- along with Inker's own hand-built timeline splitter, in
+    **One file since 2026-09-04, now six since the P4 restructure -- five
+    since P9 (2026-09-18) folded Troupe into Poser as a stage, which draws no
+    split of its own.** Review's nine hundred lines of pane drawing moved to
+    ``studio/review_panes.py`` as a mixin on ``App`` (T7 of the 2026-09-02
+    review), and it draws splits and handles like every other workspace. The
+    P4 restructure (``dev/RESTRUCTURE.md``) then moved
+    ``_split_column``/``_right_column`` themselves out of ``studio/main.py``
+    into ``studio/shell/frame.py``, and the two workspaces that called them by
+    name at the time (Troupe's and Packwright's) into
+    ``studio/troupe_workspace.py`` and ``studio/packwright_workspace.py`` --
+    along with Inker's own hand-built timeline splitter, in
     ``studio/modes/inker/ui/workspace.py``. ``main.py`` itself has drawn no split since
     that move; it stays in this list so a future one landing back on the
     shell's entry module is not silently invisible to this scan.
@@ -209,7 +211,6 @@ def _main_source() -> str:
     from warlock.studio.modes.inker.ui import workspace as inker_workspace
     from warlock.studio.modes.packwright.ui import workspace as packwright_workspace
     from warlock.studio.modes.review.ui import workspace as review_panes
-    from warlock.studio.modes.troupe.ui import workspace as troupe_workspace
     from warlock.studio.shell import frame
 
     sources = [
@@ -219,7 +220,6 @@ def _main_source() -> str:
             review_panes,
             frame,
             inker_workspace,
-            troupe_workspace,
             packwright_workspace,
         )
     ]
@@ -392,6 +392,9 @@ def test_every_split_has_a_handle_and_every_handle_a_split():
         # The sound-effect list is the third shareable pane of that column
         # (Phase 4), so the right column carries three handles.
         "sirens-effects",
-        "troupe-cast",
-        "troupe-sheets",
+        # Troupe's own "troupe-cast"/"troupe-sheets" left this set when P9
+        # (2026-09-18) folded that mode into Poser: the character-sheet
+        # section draws inline in Poser's existing library/controls panes
+        # rather than as a split column of its own, so there is no handle
+        # left for it to carry.
     }

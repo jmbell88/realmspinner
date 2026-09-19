@@ -134,7 +134,7 @@ def draft_in_create(
     a form the click path already knows cannot generate anything yet.
 
     *character_fields* exists for T7's character-plan card: applied the way
-    ``troupe_mode.vary_in_create`` applies a recipe's own fields -- written,
+    ``poser_mode.vary_in_create`` applies a recipe's own fields -- written,
     then marked ``character_engine.touched`` so the next prompt edit
     (``sync_from_prompt``) leaves them alone rather than silently
     overwriting what the card just proposed.

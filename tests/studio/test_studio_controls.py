@@ -301,7 +301,6 @@ def test_major_panes_have_roles_and_no_production_pane_child_calls():
         root / "modes/plotter/ui/workspace.py",
         root / "modes/muse/ui/workspace.py",
         root / "modes/sirens/ui/workspace.py",
-        root / "modes/troupe/ui/workspace.py",
         root / "modes/packwright/ui/workspace.py",
     ]
     for path in sources:

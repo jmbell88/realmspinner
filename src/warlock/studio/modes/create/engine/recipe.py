@@ -3,8 +3,9 @@
 Split out of ``modes/create/ui/settings_2d.py`` (2026-09-18 restructure, P5)
 -- the imgui-free half of that ~3,200-line module. Familiar
 (``assistant/ui.py``, ``assistant/doors.py``), Review (``review_panes.py``) and
-Troupe read this vocabulary today by reaching into a *pane*, through comments
-that say they may not import it outright (``service/sprites.py``,
+Poser's character-sheet stage (Troupe's own, before P9 2026-09-18 folded that
+mode in) read this vocabulary today by reaching into a *pane*, through
+comments that say they may not import it outright (``service/sprites.py``,
 ``service/tilesheets.py``); they import this module directly now, since it
 draws nothing. What stays in ``modes/create/ui/settings_2d.py`` is the
 drawing and the orchestration of a press (``draw``, the field callbacks,

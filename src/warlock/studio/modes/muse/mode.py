@@ -869,10 +869,11 @@ def handle_key(ctx: Any, event: Any) -> bool:
     binding every other form in this app already carries.
 
     Up/Down move the tray's selection. They are bound rather than left alone
-    for the reason ``troupe_mode.handle_key`` states at length: membership of
-    ``NAV_KEY_MODES`` withholds those keys from imgui whether or not anything
-    binds them, so an unbound one is a key taken from one consumer and given to
-    none.
+    for the reason ``poser_mode.sheet_handle_key`` states at length (Troupe's
+    own ``handle_key``, before P9 2026-09-18 folded that mode into Poser):
+    membership of ``NAV_KEY_MODES`` withholds those keys from imgui whether or
+    not anything binds them, so an unbound one is a key taken from one
+    consumer and given to none.
 
     The player's six are the same bargain, and cheap for the same reason.
     Left/Right nudge the playhead (Shift, ten times as far), Home returns it to

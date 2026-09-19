@@ -33,7 +33,7 @@ the promotion inherit whatever the reference happened to record.
 Derived values never carry across. Anything the worker recorded about the *source* run's artifacts
 — the composed prompt, the mesh report, the applied transform — is stripped, so a new job never
 wears a quality verdict about a mesh that does not exist yet. See
-[Rerun and promotion](37-library-and-jobs.md#rerun-and-promotion).
+[Rerun and promotion](36-library-and-jobs.md#rerun-and-promotion).
 
 ## Checking the cutout
 
@@ -104,7 +104,7 @@ hidden ones. When every attempt in a group fails there is nothing to keep, so th
 attempt becomes an ordinary asset — and only then asks whether to delete them.
 
 Verdicts work on a candidate like any other mesh, so judging the group feeds the same findings pool.
-See [Review](38-review.md). The picker itself shows what has been graded so far: a candidate you have
+See [Review](37-review.md). The picker itself shows what has been graded so far: a candidate you have
 already graded carries its grade — `+4`, `-2` — beside its status, read once for the whole group rather
 than asked about candidate by candidate. While any finished attempt in the group is still ungraded, a
 line under the picker says so: *"Grade each attempt before you keep one - they feed What works."* That
@@ -215,7 +215,7 @@ run. It exists for measurement work: sweeping the token budget or the atlas size
 default should move, the way earlier measurement passes on this same axis
 already did through Review's sweep form. See
 [Configuration](41-configuration.md#environment-variables) for what each flag does and the environment
-variable that sets the same thing app-wide, and [Review](38-review.md#what-works) for how a findings
+variable that sets the same thing app-wide, and [Review](37-review.md#what-works) for how a findings
 hint next to one of these controls is read.
 
 ## Triangle budget
@@ -390,9 +390,10 @@ job still completes: the GLB is already on disk, and a missing verdict is better
 ## Exports
 
 The **Rig**, **Pose** and **Export** stages each open with the same **Take it somewhere** section
-Reference and Mesh do — Clay, Mason, Poser and Troupe stay reachable for a rigged mesh however far through
-the pipeline you have taken it, rather than only from the Mesh stage it started on. See
-[The library and jobs](37-library-and-jobs.md) for what the list offers and how a destination one
+Reference and Mesh do — Clay, Poser and Mason stay reachable for a rigged mesh however far through
+the pipeline you have taken it, rather than only from the Mesh stage it started on, and Poser's own
+door renders a character sheet directly. See [The library and jobs](36-library-and-jobs.md) for what
+the list offers and how a destination one
 step away (a mesh with no rig yet, and so on) is shown rather than hidden.
 
 Standing on the Export stage, above the grid of buttons, is **Ready for an engine?** — a checklist
@@ -434,7 +435,7 @@ The inspector's **Export** tab lists everything you can take away, as a two-colu
 Only `model.glb` and `source.glb` come out of the job itself. Everything else is produced the first
 time you ask for it, then cached — a pure function of `model.glb`, except **Animated GLB**, which is
 made from `rig.glb`: it is the only export that carries motion, and the only way the clips leave
-Warlock as something an engine can play rather than as Troupe's 2D sheet. Godot, Unity, Unreal and
+Warlock as something an engine can play rather than as a 2D character sheet. Godot, Unity, Unreal and
 three.js all read named glTF animations directly. Retargeting the mesh lists it as stale beside the
 rig, for the same reason the rig is listed: both describe geometry that no longer exists — which is why the first STL
 of a large mesh takes a moment and the second is instant. Rebuilding the mesh at a new triangle
@@ -449,4 +450,4 @@ the pixel-art reductions and the manifest — see
 [2D exports](22-generating-references.md#2d-exports).
 
 For bulk export of several assets at once, and for the storage those files occupy, see
-[The library and jobs](37-library-and-jobs.md#storage-and-pruning).
+[The library and jobs](36-library-and-jobs.md#storage-and-pruning).

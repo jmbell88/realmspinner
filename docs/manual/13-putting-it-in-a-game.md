@@ -88,7 +88,7 @@ rectangles, tags, durations and pivots, in plain JSON, for you to read with what
 Packwright's sidecar is TexturePacker's format instead, which a great many 2D toolchains already
 understand.
 
-A Troupe character sheet has a third way out: **Export frames...** writes a folder named after the
+A Poser character sheet has a third way out: **Export frames...** writes a folder named after the
 character, one subfolder per movement inside it, one subfolder per compass direction inside that
 (`N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW`; `S` is the character facing you, `W` its left profile),
 and `000.png`, `001.png` and so on inside that — plus a
@@ -136,7 +136,7 @@ To make the shape of it concrete, here is one path end to end. Every step has it
 1. Prompt a reference in Create, approve it, reconstruct a mesh.
 2. Judge it in Review. Remesh if the picture was fine and the mesh was not.
 3. Rig it, and pose it in Poser.
-4. Render a character sheet in Troupe.
+4. Render a character sheet, from that same Poser session.
 5. Clean the sheet up by hand in Inker.
 6. Pack it with other sprites in Packwright.
 7. Build the level it lives in with Plotter.

@@ -38,7 +38,7 @@ Part IV explains how it is built.
 - [Generating meshes](23-generating-meshes.md) — promoting a reference, mesh settings, triangle budgets, quality reports and exports.
 - [The 3D viewport](24-the-3d-viewport.md) — the camera, the toolbar over it, and what else the scene carries.
 - [Rigging and posing](25-rigging-and-posing.md) — fitting a skeleton to a mesh, and posing that asset.
-- [Poser](26-poser.md) — authoring a pose against a skeleton, so it applies to every asset that shares it.
+- [Poser](26-poser.md) — authoring a pose against a skeleton, rigging, clips, and rendering a character sprite sheet.
 - [Sprite sheets](27-sprite-sheets.md) — baking poses and directions into a 2D sheet, and every block of its JSON sidecar.
 - [Inker](28-inker.md) — the layered raster editor and the two directions it connects to the pipeline.
 - [Inker: animation](29-inker-animation.md) — the timeline: cels, links, tags, onion skin, ranges and clip exports.
@@ -46,12 +46,11 @@ Part IV explains how it is built.
 - [Mason](31-mason.md) — the 3D scene editor: placing assets, grouping and instancing, terrain, lights and the three exports.
 - [Plotter](32-plotter.md) — tile maps: tilesets, layers, objects, and Tiled import and export.
 - [Packwright](33-packwright.md) — packing sprites into an atlas, and the sidecar that describes it.
-- [Troupe](34-troupe.md) — character sprite sheets: three routes to a rigged mesh, and 256 animated cells out of it.
-- [Sirens](35-sirens.md) — the chiptune tracker: patterns, instruments, sound effects and WAV export.
-- [Muse](36-muse.md) — generated music: style tags, lyrics, takes, and the bridge into Sirens.
-- [The library and jobs](37-library-and-jobs.md) — job status, filters, rerunning, storage and pruning.
-- [Review](38-review.md) — judging finished meshes, parameter sweeps, and the findings the verdicts add up to.
-- [Keyboard shortcuts](39-shortcuts.md) — every binding the app answers to.
+- [Sirens](34-sirens.md) — the chiptune tracker: patterns, instruments, sound effects and WAV export.
+- [Muse](35-muse.md) — generated music: style tags, lyrics, takes, and the bridge into Sirens.
+- [The library and jobs](36-library-and-jobs.md) — job status, filters, rerunning, storage and pruning.
+- [Review](37-review.md) — judging finished meshes, parameter sweeps, and the findings the verdicts add up to.
+- [Keyboard shortcuts](38-shortcuts.md) — every binding the app answers to.
 
 ## Setup & operations
 

@@ -2187,7 +2187,7 @@ def pack_size_note(row: dict[str, Any]) -> str:
 
 
 def pack_unlocks(row: dict[str, Any]) -> str:
-    """"Unlocks Poser and Troupe", in rail order. Empty when it gates no mode.
+    """"Unlocks Poser", in rail order. Empty when it gates no mode.
 
     The mode *labels*, not the keys the registry stores: ``packs.Pack.modes``
     is deliberately strings so that ``warlock.packs`` imports no ``studio``,

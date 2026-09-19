@@ -21,7 +21,7 @@ about each.
 
 What happens next has no gate in it. The body is built in the app, minted as a finished mesh asset,
 and a rig is queued behind it; when the rig lands the sheet follows, and the finished character
-plays in [Troupe](34-troupe.md). Create moves to the **Mesh** stage rather than the Reference stage,
+plays in [Poser](26-poser.md). Create moves to the **Mesh** stage rather than the Reference stage,
 because there is no drawing behind a character to look at.
 
 **None of it needs a GPU.** The mesh is generated in-process, the rig and the render are Blender on
@@ -40,7 +40,8 @@ That is also the honest limit of it. The registry is a fixed vocabulary, and **W
 substitutes**. Ask for a phoenix and it does not quietly hand you a dragon: the species stays empty,
 Generate is refused, and the refusal says *"Warlock has no phoenix yet. The closest it makes is a
 dragon"* with three presses under it — take the offer, switch to the experimental sprite-sheet type,
-or take the brief to Troupe. The offer is always the same body plan, and taking it is your press.
+or take the brief to Poser's own form. The offer is always the same body plan, and taking it is your
+press.
 [Generating references → Characters](22-generating-references.md#characters) has the whole of that
 screen.
 
@@ -59,8 +60,8 @@ be switched off on its own. This screen offers only these three — the ones eve
 read as alive — but the door behind it accepts any clip a character's skeleton actually defines, and
 on the four shipped body plans that is ten now, not three: idle, walk, run, attack, jump, plus five
 newer ones (attack_02, cast, fall, hit, death) still marked provisional. For the wider set, or for
-choosing **Style** (Pixel art or HD) and **Frame rate**, build the sheet from Troupe's own form once
-the character exists — [Troupe → The options](34-troupe.md#the-options) covers both.
+choosing **Style** (Pixel art or HD) and **Frame rate**, build the sheet from Poser's own form once
+the character exists — [Poser → The options](26-poser.md#the-options) covers both.
 
 Eight directions clockwise from front in 45° steps. Each movement can be turned off or given a
 different frame count, and the direction count can be 1, 4, 8 or 16. A sheet warns above 256 cells
@@ -75,8 +76,8 @@ would exceed the maximum atlas size, so per-frame reduction is the only route ra
 optimisation. It also keeps the smooth resize used for previews away from your pixel art.
 
 If your species carries a fire theme, the flame is composited in that same gap — after the reduce,
-before the pack — so its oranges go through the same colour cut as the character's skin. *Troupe →
-[Characters that are on fire](34-troupe.md#characters-that-are-on-fire)* is why.
+before the pack — so its oranges go through the same colour cut as the character's skin. *Poser →
+[Characters that are on fire](26-poser.md#characters-that-are-on-fire)* is why.
 
 ## Watching it
 
@@ -101,8 +102,8 @@ cells that came back clipped at the frame edge, cells that came back empty, and 
 needed a second, wider render to fit its poses. That is a structural note rather than a judgement,
 and it never refuses a sheet either.
 
-Troupe is the one workspace that holds no document. There is nothing to save and no undo stack;
-entering it creates nothing. Sheets are ordinary library assets.
+The sheet section holds no document of its own. There is nothing to save and no undo stack over a
+sheet; opening it creates nothing. Sheets are ordinary library assets.
 
 ## Getting the sheet out
 
@@ -118,7 +119,7 @@ them by hand.
 
 **Build another sheet** takes a mesh that is *already rigged* and renders a sheet from it — no
 species, no registry, your own model. It costs the same minutes of CPU and no GPU at all, so if you
-bring your own rigged character the whole of Troupe's output is available to you.
+bring your own rigged character the whole of this pipeline's output is available to you.
 
 To use it: import your mesh, rig it in Poser against one of the templates that has clips authored
 for it, then Build another sheet.
@@ -143,9 +144,9 @@ route — a built character ships its own joints, so there is nothing to guess.
 
 ### A reconstruction from a generated drawing
 
-The third route is the original one, and it is in Troupe's own form: describe a character, let the
+The third route is the original one, and it is in Poser's own form: describe a character, let the
 app draw a pose reference, approve that drawing, and let it be reconstructed into a mesh which is
-then rigged and rendered. See [Making a character](34-troupe.md#making-a-character).
+then rigged and rendered. See [Starting a new character](26-poser.md#starting-a-new-character).
 
 It is still there, and it is still the only route that will draw you a creature the registry does
 not model. What it is not is reliable, and the next section is the measurement.

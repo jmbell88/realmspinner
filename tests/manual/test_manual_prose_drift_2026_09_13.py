@@ -130,7 +130,7 @@ def test_manual_add_to_packwright_from_troupe_describes_the_tileset_popup_step()
     for chapter, forbidden in (
         ("33-packwright.md", "contributes one sprite per cell to whatever atlas is open"),
         ("10-packing-an-atlas.md", "a rendered character sheet contributes one sprite per cell"),
-        ("34-troupe.md", "contributes one sprite per cell to an open atlas"),
+        ("26-poser.md", "contributes one sprite per cell to an open atlas"),
     ):
         text = _flat(_chapter(chapter))
         assert forbidden not in text, f"{chapter} still claims a direct contribution"
@@ -238,14 +238,14 @@ def test_manual_poser_revert_label_matches_button():
     assert re.search(r"\*\*Revert\*\*(?! to)", text) is None
 
 
-# --- docs-09: chapter 38's Start from current settings label ----------------
+# --- docs-09: chapter 37's Start from current settings label ----------------
 
 
 def test_manual_review_start_from_current_settings_label():
     review_panes = (STUDIO / "modes/review/ui/workspace.py").read_text(encoding="utf-8")
     assert '"Start from current 2D/3D settings"' in review_panes
 
-    text = _chapter("38-review.md")
+    text = _chapter("37-review.md")
     assert "Start from current 2D/3D settings" in text
     assert re.search(r"\*\*Start from current settings\*\*", text) is None
 

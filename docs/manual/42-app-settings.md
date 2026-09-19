@@ -190,7 +190,7 @@ arrive here, chosen:
 | Pack | What it turns on |
 | --- | --- |
 | **Image generation** | Create's reference stage, host-side matting, candidate ranking |
-| **Rigging** | Poser and Troupe |
+| **Rigging** | Poser |
 | **Music generation** | Muse, and stem separation |
 
 Each row says what the pack is for, which workspaces it unlocks, and what it costs — in two figures,
@@ -215,8 +215,8 @@ A pack cannot be removed from here. Uninstalling torch out from under a running 
 the same act as deleting a folder of weights, and the way to get the disk back is to reinstall the
 base app.
 
-**A greyed workspace sends you here first when a pack is what it is waiting for.** Create, Poser,
-Troupe and Muse each need two separate things — the pack, which is the code, and the model weights,
+**A greyed workspace sends you here first when a pack is what it is waiting for.** Create, Poser
+and Muse each need two separate things — the pack, which is the code, and the model weights,
 which are what the code reads — and the pack has to come first, because weights with nothing to load
 them do nothing at all. So on a fresh install, clicking one of those modes opens this page and the
 tooltip names the pack by its own size; once it is installed, clicking the mode again opens
@@ -260,7 +260,7 @@ while one you pressed the button for tells you what went wrong.
 ## Storage
 
 Four figures and four buttons. The figures are how many job directories exist and what they occupy,
-what is sitting in the [trash](37-library-and-jobs.md#the-trash) waiting to be emptied, how much
+what is sitting in the [trash](36-library-and-jobs.md#the-trash) waiting to be emptied, how much
 disk the downloaded model weights are actually using, and what the evidence archive holds. All four
 are measured on a background thread and the last answer is drawn until a new one arrives, so none of
 them walks the disk while you are looking at something else. The first two are the same measurements
@@ -282,7 +282,7 @@ stamped folder beside the library is where a backup goes.
 count — N is yours to choose and it starts at twenty every time it is asked. Running jobs are never
 touched, and neither is anything you accepted or labelled. Anything you *did* grade, and anything a
 benchmark run tagged, has its files copied to the evidence archive on the way out — see
-[Library and jobs](37-library-and-jobs.md#storage-and-pruning).
+[Library and jobs](36-library-and-jobs.md#storage-and-pruning).
 
 **Clean library...** is the other end of the same scale: every asset, trashed or not, including the
 accepted ones and the labelled images the quality judge and the tier checks are measured against.
@@ -293,7 +293,7 @@ anything is queued or running.
 
 Both used to sit at the foot of the library, under the list of assets, which is the one place where
 "clean library" reads as an action on the assets you can see rather than on all of them.
-[Library and jobs](37-library-and-jobs.md#storage-and-pruning) has the longer account of what
+[Library and jobs](36-library-and-jobs.md#storage-and-pruning) has the longer account of what
 each one deletes and why prune removes from disk rather than trashing.
 
 ## Health

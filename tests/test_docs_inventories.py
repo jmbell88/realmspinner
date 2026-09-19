@@ -197,13 +197,20 @@ def test_editor_packages_are_the_eight_this_test_was_written_for():
     first, legibly, rather than surface as a confusing diff inside the
     CONTRIBUTING.md assertion below.
 
-    Still eight after 2026-09-17's P3 move, and deliberately the same eight
-    names -- ``_ENGINE_TO_MODE`` exists so that Clay's and Inker's engines
-    changing address (and name) inside ``warlock/kernels/`` does not also
-    change what a contributor reads in a doc. If this count ever does move,
-    say so in this test's name and docstring rather than just editing the
-    tuple below -- that was the instruction this test itself was written to
-    satisfy the last time the set changed.
+    Still eight, but ``troupe`` became ``poser`` in this tuple on 2026-09-18:
+    P9 of ``dev/RESTRUCTURE.md`` (Troupe folds into Poser as a stage) moved
+    ``spec``/``qa``/``ulpc`` from ``modes/troupe/engine/`` to
+    ``modes/poser/engine/`` verbatim as its first step, so
+    ``pure_packages()`` -- and this derivation over it -- stopped finding
+    ``troupe`` and started finding ``poser`` the moment the file landed, the
+    same way P5 made it start finding ``create``. ``_ENGINE_TO_MODE`` exists
+    so that Clay's and Inker's engines changing address (and name) inside
+    ``warlock/kernels/`` does not also change what a contributor reads in a
+    doc; this rename needed no entry there because ``poser`` already matches
+    a mode key directly. If this count ever does move, say so in this test's
+    name and docstring rather than just editing the tuple below -- that was
+    the instruction this test itself was written to satisfy the last time the
+    set changed.
     """
     assert editor_packages() == (
         "clay",
@@ -212,8 +219,8 @@ def test_editor_packages_are_the_eight_this_test_was_written_for():
         "muse",
         "packwright",
         "plotter",
+        "poser",
         "sirens",
-        "troupe",
     )
 
 

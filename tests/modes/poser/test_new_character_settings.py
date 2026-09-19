@@ -1,6 +1,8 @@
-"""Troupe's New Character pane: the open clip vocabulary, Style and Frame rate.
+"""Poser's "Start a new character" section: the open clip vocabulary, Style
+and Frame rate.
 
-Four claims new since the 2026-09-12 open vocabulary
+Troupe's own ``ui/panes/settings.py``, folded into ``ui/panes/sheet.py`` by
+P9 (2026-09-18). Four claims new since the 2026-09-12 open vocabulary
 (``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` and the
 service-layer landing that followed it):
 
@@ -23,15 +25,15 @@ import pytest
 from _ui_context import imgui_context
 
 from warlock.service import troupe as svc_troupe
-from warlock.studio import probe
-from warlock.studio.modes.troupe import mode as troupe_mode
-from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
+from warlock.studio import probe, widgets
+from warlock.studio.modes.poser import mode as poser_mode
+from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
 from warlock.studio.state import AppState
 
 
 class _Ctx:
     """The narrow slice of the app context the pane's draw touches. No GL --
-    ``test_troupe_mode``'s own reason: none of this needs one."""
+    ``test_poser_mode``'s own reason: none of this needs one."""
 
     def __init__(self, svc):
         self.svc = svc
@@ -57,19 +59,26 @@ def ui(monkeypatch):
         yield imgui
 
 
-def _draw(ui, ctx):
+def _draw(ui, ctx, monkeypatch):
+    # The "Start a new character" section is a collapsed-by-default header
+    # (``ui/panes/library.py`` draws it beside the pose library, poses and
+    # rigged-asset picker, and a column that long cannot stand it open by
+    # default) -- forced open here the way every other pane smoke test forces
+    # its own collapsed sections, rather than by asserting on a header that
+    # is not drawing its body at all.
+    monkeypatch.setattr(widgets, "FORCE_SECTIONS_OPEN", True)
     probe.begin_frame()
     ui.new_frame()
     ui.begin("host")
     try:
-        troupe_settings.draw(ctx)
+        poser_sheet.draw_new_character(ctx)
     finally:
         ui.end()
         ui.end_frame()
     return probe.census()
 
 
-def test_the_settings_pane_offers_every_clip_the_rigs_skeleton_defines(ui, ctx, svc):
+def test_the_settings_pane_offers_every_clip_the_rigs_skeleton_defines(ui, ctx, svc, monkeypatch):
     """Every row of ``clip_vocabulary["humanoid"]``, not just the legacy five
     ``options["animations"]`` still carries -- drawn as a real ``movement_<name>``
     switch, in a real imgui frame.
@@ -78,7 +87,7 @@ def test_the_settings_pane_offers_every_clip_the_rigs_skeleton_defines(ui, ctx, 
     names = {str(row["name"]) for row in vocabulary}
     assert len(names) > 5, "the shipped humanoid library carries more than five clips"
 
-    seen = _draw(ui, ctx)
+    seen = _draw(ui, ctx, monkeypatch)
     switches = {c.name for c in seen if c.kind == "switch" and c.name.startswith("movement_")}
     offered = {name.split("movement_", 1)[1] for name in switches}
     assert offered == names
@@ -107,23 +116,31 @@ def test_the_movement_rows_follow_the_rigs_own_skeleton(ui, ctx, svc, monkeypatc
     """The shared layout table reads the *bound* character's own skeleton, not
     the door's default -- the defect: a quadruped, bird or blob bound here
     used to get the default vocabulary's rows regardless of what its own clip
-    library actually holds."""
-    monkeypatch.setattr(troupe_mode, "options", lambda _ctx: dict(_FAKE_LAYOUT_OPTIONS))
+    library actually holds.
+
+    Ported onto ``PoserState.job_id``/``template`` directly (Poser's own bound
+    asset), rather than a separate SQL scan of the rig's template the way
+    Troupe's own ``_bound_rig_template`` needed -- see ``_bound_sheet_template``'s
+    own docstring for why the scan is gone.
+    """
+    monkeypatch.setattr(poser_mode, "sheet_options", lambda _ctx: dict(_FAKE_LAYOUT_OPTIONS))
     mesh_id = svc.store.create("image", "a wolf", {}, stage="model")
     svc.store.create(
         "rig", "a wolf", {"source_job": mesh_id, "template": "quadruped"}, status="done"
     )
-    troupe_mode.ensure(ctx).job_id = mesh_id
+    state = poser_mode.ensure(ctx)
+    state.job_id = mesh_id
+    state.template = "quadruped"
 
-    assert _offered_movements(_draw(ui, ctx)) == {"gallop"}
+    assert _offered_movements(_draw(ui, ctx, monkeypatch)) == {"gallop"}
 
 
 def test_rows_fall_back_to_the_default_skeleton_only_without_a_rig(ui, ctx, svc, monkeypatch):
     """Nothing bound -- the ordinary "New character" form -- still gets the
     door's default vocabulary."""
-    monkeypatch.setattr(troupe_mode, "options", lambda _ctx: dict(_FAKE_LAYOUT_OPTIONS))
+    monkeypatch.setattr(poser_mode, "sheet_options", lambda _ctx: dict(_FAKE_LAYOUT_OPTIONS))
 
-    assert _offered_movements(_draw(ui, ctx)) == {"walk"}
+    assert _offered_movements(_draw(ui, ctx, monkeypatch)) == {"walk"}
 
 
 def test_a_provisional_clip_row_says_so():
@@ -131,7 +148,7 @@ def test_a_provisional_clip_row_says_so():
     ``provisional`` flag rather than a guess -- a source claim, ``test_camera
     _presets``'s own reason: the failure is a row that looks finished and is
     not, which no widget geometry can tell apart from one that really is."""
-    source = inspect.getsource(troupe_settings._layout)
+    source = inspect.getsource(poser_sheet._layout)
     assert 'clip.get("provisional")' in source
     assert "Placeholder keyframes; an animator's pass is still owed" in source
     assert '"Provisional"' in source
@@ -145,7 +162,7 @@ def test_256_is_offered(svc):
     so this reads the source of the function that now actually draws it."""
     options = svc_troupe.troupe_options(svc)
     assert 256 in options["logical_sizes"]
-    source = inspect.getsource(troupe_settings._logical_size)
+    source = inspect.getsource(poser_sheet._logical_size)
     assert '"logical_sizes"' in source
     # ``(8, 256)`` does appear, as the fallback for ``logical_size_range`` --
     # task G's custom-size floor/ceiling, an unrelated number from the ladder
@@ -156,7 +173,7 @@ def test_256_is_offered(svc):
 
 def _minimal_form(ctx) -> dict:
     """A form that submits cheaply: one movement, one frame, one direction."""
-    form = troupe_mode.form(ctx)
+    form = poser_mode.sheet_form(ctx)
     form["prompt"] = "a wizard"
     form["layout"] = {
         "version": 2,
@@ -169,7 +186,7 @@ def _minimal_form(ctx) -> dict:
 def _submitted_troupe_block(ctx, form: dict) -> dict:
     captured: dict = {}
     ctx.submit = lambda key, fn, *a, **kw: (captured.update(kw), True)[1]
-    assert troupe_mode.start_character(ctx, form)
+    assert poser_mode.start_character(ctx, form)
     return captured["troupe"]
 
 
@@ -178,7 +195,7 @@ def test_hd_style_sends_no_palette_options(ctx, svc):
     render has -- even when the form still holds yesterday's values for them,
     from before the switch was flipped."""
     form = _minimal_form(ctx)
-    form["style"] = troupe_mode.STYLE_HD
+    form["style"] = poser_mode.STYLE_HD
     form["palette"] = "nes"
     form["dither"] = True
     form["outline"] = "outer"
@@ -194,7 +211,7 @@ def test_pixel_art_style_sends_todays_request_unchanged(ctx, svc):
     """No ``pixel_art`` key at all, so a form that never touches Style mints
     the byte-identical row it always did."""
     form = _minimal_form(ctx)
-    form["style"] = troupe_mode.STYLE_PIXEL_ART
+    form["style"] = poser_mode.STYLE_PIXEL_ART
     form["colors"] = 64
     form["outline"] = "outer"
     form["reduce_mode"] = "box"

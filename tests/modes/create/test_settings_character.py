@@ -394,23 +394,26 @@ def test_the_escape_routes_keep_the_brief(ctx):
     assert form["output"] == "sheet"
 
     other = _form("a fierce manticore")
-    settings_character.hand_to_troupe(ctx, other)
+    settings_character.hand_to_poser(ctx, other)
     assert other["prompt"] == "a fierce manticore"
-    from warlock.studio.modes.troupe import mode as troupe_mode
+    from warlock.studio.modes.poser import mode as poser_mode
 
-    assert troupe_mode.form(ctx)["prompt"] == "a fierce manticore"
-    assert ctx.state.mode == "troupe"
+    assert poser_mode.sheet_form(ctx)["prompt"] == "a fierce manticore"
+    assert ctx.state.mode == "poser"
 
 
-def test_troupes_form_has_one_construction_and_both_callers_use_it():
-    """``troupe_settings._form`` moved to ``troupe_mode.form`` for this: the
-    hand-off has to reach the form the pane will draw, and two constructions of
-    one request are two defaults."""
-    from warlock.studio.modes.troupe import mode as troupe_mode
-    from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
+def test_the_sheet_forms_has_one_construction_and_both_callers_use_it():
+    """Troupe's own ``troupe_settings._form`` moved to ``troupe_mode.form``
+    for this: the hand-off has to reach the form the pane will draw, and two
+    constructions of one request are two defaults. P9 (2026-09-18) moved both
+    again, onto ``poser_mode.sheet_form`` and ``poser.ui.panes.sheet
+    .draw_new_character``.
+    """
+    from warlock.studio.modes.poser import mode as poser_mode
+    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
 
-    assert "troupe_mode.form(ctx)" in inspect.getsource(troupe_settings.draw)
-    assert callable(troupe_mode.form)
+    assert "poser_mode.sheet_form(ctx)" in inspect.getsource(poser_sheet.draw_new_character)
+    assert callable(poser_mode.sheet_form)
 
 
 # --- Blender ------------------------------------------------------------------
@@ -536,7 +539,7 @@ def test_the_toast_names_the_species_and_the_cell_count(ctx):
     message = character_engine.toast_for(form, character_engine.options(ctx))
     assert "ogre" in message
     assert f"{character_engine.cell_count(form)}-cell sheet" in message
-    assert "Troupe" in message
+    assert "Poser" in message
 
 
 def test_a_preview_has_its_own_key_so_it_can_never_swallow_a_press():
@@ -787,4 +790,4 @@ def test_the_refusal_and_its_three_repairs_draw_under_the_plan(ui, ctx):
     labels = [c.label for c in probe.census()]
     assert any("character-offer" in label for label in labels), labels
     assert any("character-sprite" in label for label in labels), labels
-    assert any("character-troupe" in label for label in labels), labels
+    assert any("character-poser" in label for label in labels), labels

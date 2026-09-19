@@ -42,10 +42,10 @@ If you already have a picture, you can skip the first stage entirely and upload 
 
 ## The modes
 
-A rail down the left edge of the window chooses between fourteen modes, and that rail is the single
+A rail down the left edge of the window chooses between thirteen modes, and that rail is the single
 thing that decides what the panes show. It is drawn in every mode, so there is no screen you cannot
 leave. There is no per-mode keyboard shortcut — the command palette (`Ctrl+K`) is the keyboard
-route, see [Keyboard shortcuts](39-shortcuts.md).
+route, see [Keyboard shortcuts](38-shortcuts.md).
 
 The rail shows glyphs by default and expands to show the labels beside them; **Window → Navigation
 labels** toggles that, and the choice is remembered. Every mode carries a short purpose sentence
@@ -63,7 +63,7 @@ where you are not making something.
 - **Home.** What the app opens on: what changed in this build, what the machine is doing, and a
   single list of everything you were recently working on. Returning here is never destructive.
 - **Library.** Every asset that has ever been generated, filtered, sorted and searched, with the
-  trash and the prune. Covered in [The library and jobs](37-library-and-jobs.md).
+  trash and the prune. Covered in [The library and jobs](36-library-and-jobs.md).
 - **Create.** One mode for the whole asset pipeline, drawn as five **stages** on a rail above the
   settings column. **Reference** owns the prompt and every control that composes it — the
   negative prompt, the image model and style LoRA, the seed and the candidate count.
@@ -75,7 +75,7 @@ where you are not making something.
   [Generating meshes](23-generating-meshes.md) and
   [Rigging and posing](25-rigging-and-posing.md).
 
-Then the nine workspaces:
+Then the eight workspaces:
 
 - **Inker.** A layered raster editor, wired into the pipeline in both directions. Covered in
   [Inker](28-inker.md), with the timeline in [Inker: animation](29-inker-animation.md).
@@ -85,12 +85,12 @@ Then the nine workspaces:
   duplicate them, light it, sculpt a ground, and export the arrangement as a glTF scene, an
   engine-friendly GLB-plus-manifest, or merged OBJ geometry.
 - **Poser.** Authoring reusable poses against a skeleton template, kept in a global pose library
-  rather than belonging to any one asset. Covered in [Poser](26-poser.md).
-- **Troupe.** A character-sprite factory: a prompt becomes a reference, a mesh, a fitted rig and
-  then a rendered, pixelised sprite sheet of the clips a character walks and swings through.
-  Experimental — the chain runs end to end, but the shipped keyframes are provisional and the
-  prompt-to-character half does not currently produce usable humanoids (measured 2026-08-30), so
-  the route worth using is a mesh you supply. Covered in [Troupe](34-troupe.md).
+  rather than belonging to any one asset, plus (once a rigged asset is bound) a character-sheet
+  section: a prompt becomes a reference, a mesh, a fitted rig and then a rendered, pixelised sprite
+  sheet of the clips a character walks and swings through. The sheet keyframes are still
+  provisional and the prompt-to-character half does not currently produce usable humanoids
+  (measured 2026-08-30), so the route worth using there is a mesh you supply. Covered in
+  [Poser](26-poser.md).
 - **Plotter.** A tile-map editor: a grid, a layer stack, one or more tilesets, and the objects an
   engine reads as spawn points and trigger volumes — where a sheet of tiles becomes a level. It
   speaks Tiled's formats in both directions. Covered in [Plotter](32-plotter.md).
@@ -98,17 +98,17 @@ Then the nine workspaces:
   where everything landed. Covered in [Packwright](33-packwright.md).
 - **Muse.** Generated music: a comma-separated style-tag string and an optional lyric block become a
   finished track, one job row per take, auditioned in the mode and openable in Sirens as a sample
-  instrument. Covered in [Muse](36-muse.md).
+  instrument. Covered in [Muse](35-muse.md).
 - **Sirens.** A chiptune tracker: NES-era pulse, triangle, noise and sample voices written into a
   pattern grid, stitched into a song by an order list, and saved as a `.wsng`. Instruments carry
   four envelope sequences you drag into shape, a `.wav` dropped on the window becomes a sample, and
   the whole thing exports as a mix, one WAV per channel and one per sound effect. Covered in
-  [Sirens](35-sirens.md).
+  [Sirens](34-sirens.md).
 
 And in the footer:
 
 - **Review.** Judging finished meshes — one at a time or as a parameter sweep — and the "what
-  works" findings the verdicts add up to. Covered in [Review](38-review.md).
+  works" findings the verdicts add up to. Covered in [Review](37-review.md).
 - **Settings.** The app's own preferences — UI scale, the frame-rate readout, layout resets, and the
   list of models it loaded, from which a missing one can be downloaded. See
   [In-app settings](41-configuration.md#in-app-settings).
@@ -159,7 +159,7 @@ Above the columns is the menu bar and below them is the bottom pane, and both ar
 
 ## What is the same in every workspace
 
-Nine workspaces are nine editors, and they are deliberately one program nine times. Whichever
+Eight workspaces are eight editors, and they are deliberately one program eight times. Whichever
 one is open:
 
 - **The file panel** in the right column carries the same four verbs — **New**, **Open**, **Save**,
@@ -167,7 +167,7 @@ one is open:
   the step count, which is a button onto the history when the mode has one. Under **Take it
   somewhere** are the ways out of the mode: the library, and whichever workspaces read what this one
   makes. Each panel has exactly one accented button, and it is the mode's own commit — export to the
-  library, send to Troupe, export the audio.
+  library, send to Poser, export the audio.
 - **The same gestures.** The wheel zooms, in 5% steps, in every canvas; `Shift` and the wheel scrolls
   sideways; the middle button pans. In a 3D view, `Alt`+drag orbits and the middle button pans.
   `Ctrl+1`, `Ctrl+3` and `Ctrl+7` look along an axis and `Ctrl+5` toggles perspective, in Clay, in
@@ -193,7 +193,7 @@ one is open:
 One menu bar across the top of the window, drawn in every mode. Its roots are **File**, **Edit**,
 **View**, **Workspace**, **Window** and **Help**, and between Edit and View sits whatever the
 current workspace contributes. For most of them that is a single menu under the mode's own name —
-*Clay*, *Plotter*, *Troupe* — holding the actions that belong to that mode alone. Inker, which has
+*Clay*, *Plotter*, *Mason* — holding the actions that belong to that mode alone. Inker, which has
 far more of them, contributes several: **Sprite**, **Layer**, **Frame** and **Select**, and it adds
 rows to File, Edit and View as well. Either way a mode's actions get their own place rather than
 being filed into File or Edit, which would turn the two menus everybody already understands into a
@@ -205,7 +205,7 @@ through, so the menu, `Ctrl+K` and the keyboard cannot disagree about what an ac
 it is available, or why it is not. A row you cannot use is greyed with the reason on hover — the
 same reason the palette gives — and a row with a keyboard binding prints it on the right.
 
-**Workspace** is the one to know about: it holds all fourteen modes, so it is a third way — beside
+**Workspace** is the one to know about: it holds all thirteen modes, so it is a third way — beside
 the rail and the palette — to change what the window is showing.
 
 ## The status group
@@ -271,4 +271,4 @@ document tab keeps its own conversation, the same way it keeps its own undo stac
 every other mode without a document of its own shares one Studio-wide thread.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
-the command palette, and it is reproduced in [Keyboard shortcuts](39-shortcuts.md).
+the command palette, and it is reproduced in [Keyboard shortcuts](38-shortcuts.md).

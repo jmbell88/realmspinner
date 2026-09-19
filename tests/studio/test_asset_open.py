@@ -45,9 +45,9 @@ def test_a_follow_up_opens_the_asset_that_holds_its_artifacts(kind, stage):
     assert target.stage == stage
 
 
-def test_a_character_sheet_opens_in_troupe_with_its_sheet_selected():
+def test_a_character_sheet_opens_in_poser_with_its_sheet_selected():
     target = asset_open.route(_row("charsheet", source_job="MESH", sheet_id="S1"))
-    assert target == asset_open.Route("troupe", "", "MESH", "S1", "")
+    assert target == asset_open.Route("poser", "", "MESH", "S1", "")
 
 
 def test_a_sprite_sheet_opens_the_reference_with_the_panel_open():
@@ -77,7 +77,7 @@ def test_an_ordinary_asset_still_routes_by_its_stage(stage, expected):
     assert target == asset_open.Route("create", expected, "A", "", "")
 
 
-def test_a_character_model_row_opens_on_the_mesh_stage_and_its_sheet_in_troupe():
+def test_a_character_model_row_opens_on_the_mesh_stage_and_its_sheet_in_poser():
     """The two halves of a character land in two different places, on purpose.
 
     ``create_character`` mints the *model* row finished, with ``stage="model"``
@@ -87,7 +87,8 @@ def test_a_character_model_row_opens_on_the_mesh_stage_and_its_sheet_in_troupe()
     where the canvas would be empty with a row selected.
 
     Its ``charsheet`` follow-up is unchanged: it holds nothing of its own and
-    opens in Troupe against the mesh it was rendered from. So one press produces
+    opens in Poser (Troupe's own character-sheet stage, folded in by P9,
+    2026-09-18) against the mesh it was rendered from. So one press produces
     an asset that opens in Create and a product that opens in a mode, and the
     routing table says which is which without either of them knowing about the
     other.
@@ -108,7 +109,7 @@ def test_a_character_model_row_opens_on_the_mesh_stage_and_its_sheet_in_troupe()
     assert asset_open.route(body) == asset_open.Route("create", "mesh", "CHAR", "", "")
 
     sheet = _row("charsheet", source_job="CHAR", sheet_id="S1")
-    assert asset_open.route(sheet) == asset_open.Route("troupe", "", "CHAR", "S1", "")
+    assert asset_open.route(sheet) == asset_open.Route("poser", "", "CHAR", "S1", "")
 
 
 def test_a_character_row_wears_the_placeholder_glyph_of_a_built_mesh():

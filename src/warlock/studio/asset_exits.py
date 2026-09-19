@@ -105,16 +105,17 @@ class Exit(NamedTuple):
 #: different one before this module existed and changing it now would just be
 #: relabelling a button nobody asked to have relabelled. Inker's brush and
 #: Clay's box read as "edit this" at button size faster than the rail's
-#: pen-tool and ruler do; Troupe's standing figure is the icon the "Send to
-#: Troupe" button wore before the rail's own glyph for Troupe moved to FILM
-#: (``modes.py``'s comment on that move: the rail needed a picture of what
-#: Troupe *makes*, frames of a character, and this button is still about the
-#: character going in). One rule -- the rail's icon, except these three,
+#: pen-tool and ruler do. One rule -- the rail's icon, except these two,
 #: kept for continuity with what shipped first.
+#:
+#: Troupe's own override (its standing figure, worn by the "Send to Troupe"
+#: button before the rail's glyph for Troupe moved to FILM) did not survive
+#: the mode's fold into Poser (P9, 2026-09-18): :func:`_render_sheet` opens
+#: onto Poser now, whose rail icon already *is* a standing figure, so a
+#: second copy of it here would be the identical picture twice.
 _ICON_OVERRIDES: dict[str, str] = {
     "inker": icons.BRUSH,
     "clay": icons.BOX,
-    "troupe": icons.PERSON_STANDING,
 }
 
 _MODE_ICONS: dict[str, str] = {key: icon for key, _label, icon, _purpose in modes.MODES}
@@ -172,7 +173,7 @@ def _is_mesh(job: Any) -> bool:
     minted with ``params["source_job"]`` and write their artifacts into *that*
     job's directory, never into their own -- so their own row never gets a
     ``model.glb``, and without this check a finished character sheet showed a
-    dimmed "Send to Troupe" for the mesh it does not have. ``source_job`` is
+    dimmed "Send to Poser" for the mesh it does not have. ``source_job`` is
     the exact field ``service._jobs_lifecycle.dependent_jobs`` filters on for
     the same fact, read from the other side.
     """
@@ -186,14 +187,18 @@ def _mesh_for(ctx: Any, job: Any) -> Any:
     on membership of ``asset_open.FOLLOWUP_STAGES`` -- **kind-scoped, not
     ``source_job``-scoped** -- because a bare "carries a ``source_job``" test
     also matches ``charsheet``, whose own row is not a mesh follow-up at all:
-    it opens in Troupe, never in Create (``FOLLOWUP_STAGES``'s own comment
+    it opens in Poser, never in Create (``FOLLOWUP_STAGES``'s own comment
     says so). Gating on ``source_job`` alone hopped for a charsheet too and
     resolved it straight back to the mesh it was rendered from, so a
-    charsheet row offered Clay and Poser it has no business offering, *and* a
-    second, duplicate "Open in Troupe" beside ``_troupe_out``'s own --
-    exactly the outcome ``_is_mesh``'s docstring already names as the trap
-    this module exists to avoid, reintroduced one layer down. Importing the
-    mapping (lazily, as every other cross-module read here is) means the
+    charsheet row offered Clay and Poser it has no business offering, *and* --
+    while Troupe was still its own mode, before P9 (2026-09-18) folded it into
+    Poser -- a second, duplicate "Open in Troupe" beside the reopen door's own
+    -- exactly the outcome ``_is_mesh``'s docstring already names as the trap
+    this module exists to avoid, reintroduced one layer down. The reopen door
+    is gone now (``_poser`` above covers it -- binding the asset is how you
+    reach its sheets), but the kind-scoped gate stays: a charsheet row still
+    has no mesh of its own to offer Clay or Poser's pose door on. Importing
+    the mapping (lazily, as every other cross-module read here is) means the
     charsheet exclusion is inherited from the one place that already states
     it, rather than restated and risking a second copy that drifts.
 
@@ -328,11 +333,26 @@ def _poser(ctx: Any, job: Any) -> Exit | None:
     return Exit("poser", verbs.open_in("poser"), hint, "", reason, door)
 
 
-# --- Troupe -----------------------------------------------------------------
+# --- Poser's character-sheet stage (Troupe, folded in -- P9, 2026-09-18) ----
+#
+# Two doors used to exist here -- ``_troupe_in`` (render a sheet, minting a
+# rig first if the mesh needed one) and ``_troupe_out`` (reopen a finished
+# character sheet). Now that both destinations are one mode, ``_poser`` above
+# already covers the "reopen" case: it binds the asset, and the bound asset's
+# sheets are read from inside Poser's own library pane, so a second "Open in
+# Poser" beside it would be the exact duplicate-door shape this module's own
+# docstring names as the trap (a charsheet row resolving back to its source
+# mesh and offering two ways to the same place). ``_troupe_out`` is deleted
+# outright rather than kept as a second entry, and the ``troupe_send`` state
+# slot it shared with ``_render_sheet`` moved with the survivor to
+# ``poser_send`` (``state.py``).
 
 
-def _troupe_in(ctx: Any, job: Any) -> Exit | None:
-    """Take a mesh into Troupe -- rigging it first if it is not rigged.
+def _render_sheet(ctx: Any, job: Any) -> Exit | None:
+    """Render a character sheet from a mesh -- rigging it first if it is not
+    rigged. Troupe's own ``_troupe_in``, repointed at Poser's door: the modal
+    it opens (``modes.poser.ui.panes.send``) is Troupe's own "Send to Troupe"
+    dialog, moved whole.
 
     The hint and tooltip wording is carried over verbatim from the two call
     sites this module replaces (``inspector._edit_actions`` and
@@ -344,8 +364,8 @@ def _troupe_in(ctx: Any, job: Any) -> Exit | None:
     mesh = _mesh_for(ctx, job)
     if mesh is None:
         return None
-    from .modes.troupe import mode as troupe_mode
-    from .modes.troupe.ui.panes import send as troupe_send
+    from .modes.poser import mode as poser_mode
+    from .modes.poser.ui.panes import send as poser_send
 
     rigged = "rig.glb" in _files(mesh)
     hint = (
@@ -359,17 +379,17 @@ def _troupe_in(ctx: Any, job: Any) -> Exit | None:
         "not rigged yet. Asks for the sprite size -- and, for an unrigged "
         "mesh, the skeleton -- before anything is queued."
     )
-    label = f"{verbs.send_to('troupe')}..."
+    label = f"{verbs.send_to('poser')}..."
 
     # Closed over ``mesh``, ``_clay``'s and ``_poser``'s reason: a follow-up
-    # row's own send would ask Troupe to rig or sheet a row with no
+    # row's own send would ask this door to rig or sheet a row with no
     # ``model.glb``, since the mesh it actually needs is the one this door
     # already resolved to.
     def door(ctx: Any, job: Any, _mesh: Any = mesh) -> None:
-        troupe_send.ask(ctx, _mesh)
+        poser_send.ask(ctx, _mesh)
 
-    if troupe_mode.can_send_to_troupe(ctx, mesh):
-        return Exit("troupe", label, hint, tooltip, "", door)
+    if poser_mode.can_render_sheet(ctx, mesh):
+        return Exit("poser", label, hint, tooltip, "", door)
 
     if mesh.get("status") != "done":
         reason = _status_reason(mesh)
@@ -377,37 +397,7 @@ def _troupe_in(ctx: Any, job: Any) -> Exit | None:
         reason = "This mesh has no model yet."
     else:
         return None
-    return Exit("troupe", label, hint, tooltip, reason, door)
-
-
-def _troupe_out(ctx: Any, job: Any) -> Exit | None:
-    """Back into Troupe from a finished character sheet.
-
-    Not a near-miss destination (A2's three bullets do not name it): a
-    charsheet row with no ``source_job`` is an old row or a hand-edited one,
-    and there is nothing a dimmed button could offer a reason about that the
-    row itself would still be true a moment later.
-    """
-    if job.get("kind") != "charsheet" or job.get("status") != "done":
-        return None
-    params = _params(job)
-    source = str(params.get("source_job") or "")
-    if not source:
-        return None
-    sheet_id = str(params.get("sheet_id") or "")
-    from .modes.troupe import mode as troupe_mode
-
-    def door(ctx: Any, job: Any, _source: str = source, _sheet: str = sheet_id) -> None:
-        troupe_mode.open_sheet(ctx, _source, _sheet)
-
-    return Exit(
-        "troupe",
-        verbs.open_in("troupe"),
-        "Reopens this character sheet where it plays.",
-        "",
-        "",
-        door,
-    )
+    return Exit("poser", label, hint, tooltip, reason, door)
 
 
 # --- Plotter ----------------------------------------------------------------
@@ -537,8 +527,9 @@ def _mason_reopen(ctx: Any, job: Any) -> Exit | None:
 def _mason_add(ctx: Any, job: Any) -> Exit | None:
     """Drop a library mesh into the open scene.
 
-    Gated on the *resolved* mesh like ``_clay``, ``_poser`` and ``_troupe_in``,
-    for their reason: a rig or a retexture row writes into its source's
+    Gated on the *resolved* mesh like ``_clay``, ``_poser`` and
+    ``_render_sheet``, for their reason: a rig or a retexture row writes into
+    its source's
     directory and has no ``model.glb`` of its own, so a door keyed on the
     selected row would place a reference to a job with no mesh behind it.
 
@@ -609,8 +600,7 @@ _BUILDERS: tuple[Callable[[Any, Any], Exit | None], ...] = (
     _mason_reopen,
     _mason_add,
     _poser,
-    _troupe_in,
-    _troupe_out,
+    _render_sheet,
     _plotter_reopen,
     _plotter_add,
     _packwright_reopen,

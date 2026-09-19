@@ -512,19 +512,6 @@ def test_clay_state_close_has_a_caller():
     assert 'name == "w"' in text
 
 
-def test_the_troupe_cast_rows_have_a_context_menu():
-    """B2. Four idioms across the app was never the defect -- *none* was: this
-    was the one list in the tree with no way to act on a member without first
-    selecting it and then finding a button in another pane."""
-    import inspect
-
-    from warlock.studio.modes.troupe.ui.panes import characters as troupe_characters
-
-    source = inspect.getsource(troupe_characters)
-    assert "_row_menu(ctx, state, character)" in source
-    assert "begin_popup_context_item" in source
-
-
 def test_poser_saves_from_the_keyboard_and_the_palette():
     """B1. Both functions existed and neither had a key: saving a pose was a
     button in one pane and nothing else."""

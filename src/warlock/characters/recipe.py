@@ -22,7 +22,7 @@ The vocabulary this module checks against -- the size ladder, the colour ladder,
 the outline and reduce modes -- is **restated here rather than imported**,
 because ``characters`` may not import ``service`` and the pixel ladders live
 behind it. ``tests/characters/test_recipe.py`` owns the agreement between the
-two copies, in the ``kernels.charsheet`` / ``studio.modes.troupe.engine.spec`` arrangement:
+two copies, in the ``kernels.charsheet`` / ``studio.modes.poser.engine.spec`` arrangement:
 a change to one is a change to both plus that test.
 """
 
@@ -418,7 +418,7 @@ def _default_camera() -> tuple[str, float]:
     Not two literals here. ``charsheet.CAMERA_PRESETS`` is the table the pane
     offers from, the door validates against and the Blender worker frames the
     ortho window with, and
-    ``tests/modes/troupe/test_camera_presets.py::test_the_form_and_the_door_read_one_preset_table``
+    ``tests/modes/poser/test_camera_presets.py::test_the_form_and_the_door_read_one_preset_table``
     scans the whole package for a second module spelling the default key --
     which is exactly how this file's first draft was caught. A preset whose
     angle is edited in one place and copied in another is a form offering a

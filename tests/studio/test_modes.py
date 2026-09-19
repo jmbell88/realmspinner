@@ -15,7 +15,7 @@ from warlock.studio import modes
 MODES_PATH = Path(modes.__file__)
 
 ALL_MODE_KEYS = (
-    "home", "library", "create", "inker", "clay", "mason", "poser", "troupe",
+    "home", "library", "create", "inker", "clay", "mason", "poser",
     "plotter", "packwright", "muse", "sirens", "review", "settings",
 )
 
@@ -29,7 +29,7 @@ def test_every_mode_carries_a_purpose_and_the_rail_shows_it():
     fresh mode could be added to ``MODES`` without ever getting a purpose --
     nothing tied the two together. This asserts the sentence is part of the
     tuple itself, that it exists (non-empty, plain, no trailing period-less
-    fragment) for all fourteen modes, and that the rail module actually wires
+    fragment) for all thirteen modes, and that the rail module actually wires
     it into both the tooltip and the labelled-rail drawing path.
     """
     assert {key for key, *_rest in modes.MODES} == set(ALL_MODE_KEYS)
@@ -89,8 +89,8 @@ def test_rail_groups_comment_states_the_real_pipeline_and_workspace_counts():
     """
     pipeline_count = len(modes.RAIL_GROUPS[0])
     workspace_count = len(modes.RAIL_GROUPS[1])
-    assert (pipeline_count, workspace_count) == (3, 9), (
-        f"sanity: expected RAIL_GROUPS to hold 3 and 9 modes, found "
+    assert (pipeline_count, workspace_count) == (3, 8), (
+        f"sanity: expected RAIL_GROUPS to hold 3 and 8 modes, found "
         f"{pipeline_count} and {workspace_count} -- update the numbers below "
         "as well as this test"
     )

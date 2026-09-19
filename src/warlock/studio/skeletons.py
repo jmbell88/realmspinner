@@ -606,8 +606,8 @@ def mason(ctx: Any) -> dict[str, Column]:
 
 #: Which builder serves which workspace. A workspace with no entry keeps its
 #: hand-written composition, which is what the centre-heavy ones (Create,
-#: Review, Troupe, Poser) still have -- and Packwright, which is the last of
-#: the sidebar-shaped ones left composing by hand.
+#: Review, Poser) still have -- and Packwright, which is the last of the
+#: sidebar-shaped ones left composing by hand.
 BUILDERS = {
     "clay": clay,
     "inker": inker,

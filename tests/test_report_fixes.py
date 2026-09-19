@@ -426,31 +426,36 @@ def test_every_mode_says_what_it_is_for():
         assert text.strip().lower() != labels[key]
 
 
-def test_troupe_is_the_mode_marked_experimental():
-    """It is code-complete and a user really can get a rendered sheet -- but
-    three of its own phases are unstarted and its keyframes are provisional.
-    ``docs/manual/11`` is candid about that and the app was not.
+def test_no_mode_is_marked_experimental():
+    """Troupe was the one mode carrying the chip -- code-complete and a user
+    really could get a rendered sheet, but three of its own phases were
+    unstarted and its keyframes were provisional, and ``docs/manual/11`` was
+    candid about that where the app was not.
 
     **The note was narrowed on 2026-09-03**, Sirens' rule applied to the chip
-    that is still up: it claimed humanoid reconstruction quality was
+    that was still up: it claimed humanoid reconstruction quality was
     "untested" when it had been measured on 2026-08-30 and the answer was no.
     A chip that hedges about a settled question teaches the reader to discount
-    it, so it now states the result and names the route that does work. The
-    dict itself is unchanged, which is the assertion below.
+    it, so it stated the result and named the route that does work.
 
     **Sirens left the list on 2026-09-02.** Its reason was narrowed at every
     landing rather than left standing: the columns that took no keys closed on
     2026-08-27 (``tests/modes/sirens/test_sirens_keys.py``) and the block clipboard -- copy,
     cut and paste on Ctrl+C/X/V -- closed last (``tests/modes/sirens/test_sirens_clipboard.py``).
-    Asserting the exact dict rather than membership is the point -- a mode
-    joining or leaving this list is a claim about the app that should have to
-    be written down twice.
+
+    **Troupe left it too, on 2026-09-18 (P9, decision 3 of the folding
+    brief), when the mode folded into Poser as a character-sheet stage.** The
+    badge did not move to Poser -- dropped outright, not relabelled, since
+    Poser's own surface (ordinary pose authoring) was never provisional, and
+    the caveats that are still true belong in the manual's own prose now.
+    Asserting the dicts are empty rather than merely small is the point -- a
+    mode joining or leaving maturity tracking is a claim about the app that
+    should have to be written down twice.
     """
     from warlock.studio import modes
 
-    assert modes.MATURITY == {"troupe": "Experimental"}
-    assert set(modes.MATURITY_NOTE) == set(modes.MATURITY)
-    assert set(modes.MATURITY) <= set(modes.KEYS)
+    assert modes.MATURITY == {}
+    assert modes.MATURITY_NOTE == {}
 
 
 def test_the_rail_passes_the_purpose_and_the_badge_through():

@@ -84,11 +84,11 @@ pad into a sustained instrument, or using a finished track as a reference to wri
 
 **And back again.** In Sirens, **Compose in Muse...** renders the open song and hands it to the
 model as a reference — you write the shape of the piece in the tracker and ask the model to perform
-it. See [Muse](36-muse.md#composing-from-a-song).
+it. See [Muse](35-muse.md#composing-from-a-song).
 
 ## Where the file is
 
-Every take is a job row like any other, so it is in the [library](37-library-and-jobs.md) with its
+Every take is a job row like any other, so it is in the [library](36-library-and-jobs.md) with its
 prompt, its seed and its recipe, and the file itself is `track.wav` in that job's directory. Export
 it the way you export anything else.
 
@@ -100,6 +100,6 @@ engine or use it as material in Sirens rather than as a finished loop.
 
 - [Dressing a scene](17-dressing-a-scene.md) — the next tutorial, and the last one: Mason, a room
   built from what you have already made.
-- [Muse](36-muse.md) — the reference chapter: every control, and what each recipe value does.
-- [Sirens](35-sirens.md) — the tracker the bridge lands in.
+- [Muse](35-muse.md) — the reference chapter: every control, and what each recipe value does.
+- [Sirens](34-sirens.md) — the tracker the bridge lands in.
 - [Making a soundtrack](14-making-a-soundtrack.md) — the same goal, authored by hand.

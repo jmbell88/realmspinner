@@ -195,11 +195,11 @@ def default_form_2d() -> dict[str, Any]:
         # creature that has no fire.
         "character_theme": "none",
         # Empty means the door's default preset. Deliberately *not* the preset
-        # key spelled out: ``tests/modes/troupe/test_camera_presets.py`` pins the
-        # default camera key to exactly two homes in the package
+        # key spelled out: ``tests/modes/poser/test_camera_presets.py`` pins
+        # the default camera key to exactly two homes in the package
         # (``charsheet.py`` and ``characters/resolve.py``), because an angle
         # copied into a third module is a form offering a framing nothing
-        # renders. The pane reads it from ``troupe_options``.
+        # renders. The pane reads it from ``poser_mode.sheet_options``.
         "character_camera": "",
         # Strings, for ``tile_size``'s reason two dozen lines up: the segmented
         # controls that carry them hand back strings, and an int default here
@@ -1309,15 +1309,14 @@ class AppState:
     # are -- and, like Troupe's, holding no document: a take is a job row a
     # worker wrote, so the store owns it and there is nothing here to lose.
     muse: Any = None
-    # Troupe's selection and its preview clock, built on first use by
-    # ``troupe_mode.ensure``. Untyped and None for the reason the others are --
-    # and the only one of them that holds no document: it is a selection over
-    # sheets a worker published, so there is nothing here to lose.
-    troupe: Any = None
-    # Poser's authoring session -- which template, what the library holds --
-    # built on first use by ``poser_mode.ensure``. Untyped and None for the
-    # reason the four above are. Its Viewer lives on the App/Ctx, not here:
-    # AppState carries no GL objects.
+    # Poser's authoring session -- which template, what the library holds,
+    # and (since P9, 2026-09-18) the character-sheet stage Troupe folded into
+    # it -- built on first use by ``poser_mode.ensure``. Untyped and None for
+    # the reason the four above are. Its Viewer lives on the App/Ctx, not
+    # here: AppState carries no GL objects. The ``sheet_*`` fields on
+    # ``PoserState`` are Troupe's own selection-and-clock state, carried
+    # whole: a sheet is a selection over files a worker published, so there
+    # is nothing there for a crash to lose either.
     poser: Any = None
     # Mason's own state, built on first use once a later stage gives the mode
     # something to hold. Untyped and None for the reason the others are: this
@@ -1358,11 +1357,13 @@ class AppState:
     # ``clay``/``review`` are, and never persisted: a stored cutout would be a
     # claim about a file that has had a whole session to change.
     matte: Any = None
-    # The open "Send to Troupe" question, built by ``modes.troupe.ui.panes.send.ask``
-    # and drawn at top level -- the library's door is inside a context popup,
-    # where ``imgui.open_popup`` cannot be called. One slot, because at most
-    # one send is in flight; untyped and None here for ``matte``'s reason.
-    troupe_send: Any = None
+    # The open sheet-rendering question (Troupe's own "Send to Troupe" dialog,
+    # ported to Poser whole in P9, 2026-09-18), built by
+    # ``modes.poser.ui.panes.send.ask`` and drawn at top level -- the
+    # library's door is inside a context popup, where ``imgui.open_popup``
+    # cannot be called. One slot, because at most one send is in flight;
+    # untyped and None here for ``matte``'s reason.
+    poser_send: Any = None
     manual: ManualState = field(default_factory=ManualState)
     tour: TourState = field(default_factory=TourState)
     # The selected asset's parsed manifest.json, held as ((job id, mtime), data)
@@ -1560,10 +1561,11 @@ ACTIONS = {
     "inker": verbs.open_in("inker"),
     "clay": verbs.open_in("clay"),
     "plotter": verbs.add_to("plotter"),
-    # A character's sheet is *made* in Troupe rather than edited there, which
-    # is why this is "Send to" and not "Open in" -- ``verbs`` draws exactly that
-    # distinction, and the overflow menu's own Troupe row already uses it.
-    "troupe": verbs.send_to("troupe"),
+    # A rigged character mesh's own next step: Poser is where its sheet gets
+    # made (Troupe's own stage, folded in whole by P9, 2026-09-18) -- this
+    # simply opens the asset there, so it reads ``open_in`` rather than the
+    # "Send to" a fresh render from this card would need.
+    "poser": verbs.open_in("poser"),
     # **Missing since Muse shipped, and it was a crash rather than a gap.**
     # ``primary_action`` returns ``"muse"`` for a finished take and for a
     # separate row, and the library's result card labels its button with
@@ -1649,13 +1651,15 @@ def primary_action(job: dict[str, Any], *, rigging_available: bool = True) -> st
     if intent == "character":
         # A character is minted finished and its rig is queued in the same
         # press, so the interesting question on the card is which half has
-        # landed. Once ``rig.glb`` exists the sheet is what this asset is *for*;
-        # until then the body is all there is, and Clay is where a body is
-        # edited. Deliberately never "rig": the rig row already exists, and
-        # offering to make a second one is how a user spends Blender twice on
-        # one character. The ladder below would answer "rig" for exactly that
-        # window, which is why this arm sits above it rather than beside it.
-        return "troupe" if "rig.glb" in files else "clay"
+        # landed. Once ``rig.glb`` exists the sheet is what this asset is
+        # *for*, and Poser is where it gets made (Troupe's own stage, folded
+        # in whole by P9, 2026-09-18); until then the body is all there is,
+        # and Clay is where a body is edited. Deliberately never "rig": the
+        # rig row already exists, and offering to make a second one is how a
+        # user spends Blender twice on one character. The ladder below would
+        # answer "rig" for exactly that window, which is why this arm sits
+        # above it rather than beside it.
+        return "poser" if "rig.glb" in files else "clay"
     if intent == "tileset" and "input.png" in files:
         return "plotter"
     if intent in ("refine_2d", "sprite") and "input.png" in files:

@@ -371,12 +371,14 @@ class FrameMixin:
         poser = self.poser_viewer
         if poser is not None and state.mode == "poser" and not poser.camera.settled():
             return True
-        # Troupe plays its sheet with no input at all, and ``advance`` only
-        # runs inside the preview's draw -- so a skipped frame does not advance
-        # playback, it *drops* it. Throttled to IDLE_FPS the preview becomes
-        # coarse catch-up jumps that can step straight over the frame being
-        # judged, which is the one thing the mode exists to make obvious.
-        if state.mode == "troupe" and getattr(state.troupe, "playing", False):
+        # Poser's character-sheet section plays its sheet with no input at
+        # all -- Troupe's own reasoning, folded in whole (P9, 2026-09-18) --
+        # and ``sheet_advance`` only runs inside the preview's draw, so a
+        # skipped frame does not advance playback, it *drops* it. Throttled to
+        # IDLE_FPS the preview becomes coarse catch-up jumps that can step
+        # straight over the frame being judged, which is the one thing the
+        # section exists to make obvious.
+        if state.mode == "poser" and getattr(state.poser, "sheet_playing", False):
             return True
         # Sirens for the same reason, and it was missing: the playhead is drawn
         # from the mixer's clock and nothing else moves, so at IDLE_FPS the row
@@ -867,8 +869,6 @@ class FrameMixin:
                         self._muse_workspace()
                     elif mode == "sirens":
                         self._sirens_workspace()
-                    elif mode == "troupe":
-                        self._troupe_workspace()
                     elif mode == "mason":
                         self._mason_workspace()
                     else:
@@ -1135,7 +1135,7 @@ class FrameMixin:
         """
         from .. import widgets
         from ..modes.create.ui.panes import settings_3d
-        from ..modes.troupe.ui.panes import send as troupe_send
+        from ..modes.poser.ui.panes import send as poser_send
         from ..panes import first_run, overlay, palette
 
         ctx = self.app_ctx
@@ -1206,15 +1206,17 @@ class FrameMixin:
             on_failure=lambda: tour_pane.stop(ctx),
         )
         over("overlay/palette", palette.draw, ctx, title="The command palette")
-        # The Send to Troupe question, above the confirms for ``matte``'s
-        # reason: it is a modal raised from a context menu, and it must take the
-        # single popup slot before any confirm the same frame raises.
+        # The sheet-rendering question (Troupe's own "Send to Troupe" dialog,
+        # ported to Poser whole in P9, 2026-09-18), above the confirms for
+        # ``matte``'s reason: it is a modal raised from a context menu, and it
+        # must take the single popup slot before any confirm the same frame
+        # raises.
         over(
-            "overlay/troupe-send",
-            troupe_send.draw,
+            "overlay/poser-send",
+            poser_send.draw,
             ctx,
-            title="Send to Troupe",
-            on_failure=lambda: troupe_send.close(ctx),
+            title="Send to Poser",
+            on_failure=lambda: poser_send.close(ctx),
         )
         # A queue that stops drawing still reports ``modal_open``, so the
         # keyboard would be owned by a modal nobody can see. Dismissing is the

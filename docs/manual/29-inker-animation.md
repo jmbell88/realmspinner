@@ -256,7 +256,7 @@ in on every frame at once.
 
 ### Sheet corrections
 
-A character sheet from Troupe opens with one tag per animation and direction, named
+A character sheet from Poser opens with one tag per animation and direction, named
 `walk_left`, `idle_back` and so on, and every frame is one cell of the same size. That is enough
 for the timeline to know what the sheet *is*, and on such a document a strip appears between the
 transport and the grid -- on an ordinary animation there is nothing there.
@@ -313,7 +313,7 @@ opened as a plain image has no such record, and the menu row says so rather than
 reason. That record travels in the `.ora` file, so it survives closing the document and coming back
 to it a week later.
 
-To make the sheet to merge, use **Re-render some runs** in Troupe: tick the animations and
+To make the sheet to merge, use **Re-render some runs** in Poser: tick the animations and
 directions you want rebuilt, and the rest are copied from the sheet you are re-rendering, at that
 sheet's own settings.
 

@@ -4,9 +4,9 @@ Much smaller than ``sirens_state`` / ``inker_state`` / ``plotter_state``,
 because **Muse holds no document.** The other document workspaces each own a file
 format, a tab list, a dirty flag and an undo stack; a take is a job row that a
 worker wrote, so the store owns it and there is nothing here to lose. What is
-left is a form and a pointer at whatever is currently making a noise -- which is
-Troupe's shape, the one other workspace whose subject is rows a worker
-published.
+left is a form and a pointer at whatever is currently making a noise -- Poser's
+character-sheet section's own shape (Troupe's, before P9 2026-09-18 folded
+that mode in): the other surface whose subject is rows a worker published.
 
 ``ensure`` and ``active`` live here rather than in ``muse_mode`` for the reason
 they live in ``sirens_state``: they touch exactly one thing, ``ctx.state.muse``,

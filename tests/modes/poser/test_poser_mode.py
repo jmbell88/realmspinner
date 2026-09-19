@@ -39,7 +39,14 @@ class _Asks:
 class FakeCtx:
     def __init__(self, svc=None, accept=True) -> None:
         self.svc = svc
-        self.state = SimpleNamespace(poser=None)
+        # ``preview``: P9 (2026-09-18) gave ``open_asset``/``close_asset`` a
+        # new reset step, ``_release_sheet_caches`` (the character-sheet
+        # session's own caches, Troupe's own release_texture/release_scores/
+        # release_rerender_selection folded in whole), which reaches
+        # ``ctx.state.preview`` for the first time from this door -- the real
+        # ``AppState`` always carries this dict, so a fake missing it is the
+        # thing that was unfaithful.
+        self.state = SimpleNamespace(poser=None, preview={})
         self.submitted: list[str] = []
         self.results: dict = {}
         # ``TaskRunner.submit``'s own ``tag``, by key -- real ``submit`` pulls
@@ -1615,13 +1622,17 @@ def test_poser_results_are_claimed_before_the_asset_pose_branches():
     two ``if`` statements keeps a Poser result out of the inspector's pose
     handler, and the fix if they were ever swapped is not obvious from either
     site -- so the order is the pin.
+
+    P9 (2026-09-18) folded the ``troupe-`` prefix into the same branch
+    (Troupe's own task keys, kept exactly as they were), so the literal this
+    reads for widened from a bare string to the tuple that also names it.
     """
     import inspect
 
     from warlock.studio import main
 
     source = inspect.getsource(main.App._on_task_done)
-    poser = source.index('key.startswith("poser-")')
+    poser = source.index('key.startswith(("poser-", "troupe-"))')
     assert poser < source.index('key.startswith("pose-library:")')
     assert poser < source.index('key.startswith("pose-")')
 
@@ -2622,13 +2633,13 @@ def test_can_open_in_poser_table(svc):
 
 
 def test_riggable_assets_is_throttled_page_capped_and_passes_a_files_cache(svc, monkeypatch):
-    """``sendable_meshes``'s two costs, paid here too: a second call inside the
-    throttle window must not re-list, the page cap is ``troupe_mode``'s own
-    constant reused rather than restated, and ``files_cache`` is handed to
+    """Troupe's own ``sendable_meshes``'s two costs, paid here too: a second
+    call inside the throttle window must not re-list, the page cap is
+    ``poser_mode.SCAN_LIMIT`` (Troupe's own constant, moved here by P9,
+    2026-09-18, rather than restated), and ``files_cache`` is handed to
     ``list_jobs`` so the picker is not a stat per listed name per row every
     frame its header is open."""
     from warlock.service import jobs as svc_jobs
-    from warlock.studio.modes.troupe import mode as troupe_mode
 
     job_id = _rigged_job(svc)
     ctx = FakeCtx(svc)
@@ -2651,7 +2662,7 @@ def test_riggable_assets_is_throttled_page_capped_and_passes_a_files_cache(svc, 
     assert first and first[0]["id"] == job_id
 
     limit, files_cache = calls[0]
-    assert limit == troupe_mode.SCAN_LIMIT, "the same page cap, reused rather than restated"
+    assert limit == poser_mode.SCAN_LIMIT, "the same page cap, reused rather than restated"
     state = poser_mode.ensure(ctx)
     assert files_cache is state.riggable_files, "the caller must own the files_cache dict"
 

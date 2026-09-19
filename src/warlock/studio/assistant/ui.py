@@ -955,7 +955,7 @@ def discard_preview(ctx: Any) -> None:
 def _character_fields(plan: dict[str, Any]) -> dict[str, Any]:
     """*plan* (:func:`~.familiar.character_plan.parse_plan`'s own shape) ->
     the Create form's own ``character_*`` field names -- the same subset
-    ``troupe_mode.vary_in_create`` writes for a recipe it is varying, built
+    ``poser_mode.vary_in_create`` writes for a recipe it is varying, built
     only from whichever of *plan*'s fields are actually present (never
     invents a theme, a camera or a name the plan itself does not carry).
 

@@ -1,11 +1,14 @@
-"""The one owner of the agreement between the two copies of Troupe's table.
+"""The one owner of the agreement between the two copies of the character
+sheet's frame table (Troupe's own table, before P9 2026-09-18 folded that
+mode into Poser).
 
 ``kernels.charsheet`` decides where a cell is in a rendered character sheet;
-``studio.modes.troupe.engine.spec`` decides what that cell means to the studio, and the
-Inker handoff built on it. They cannot share code -- ``studio/troupe`` imports
-nothing outward (``test_troupe_imports.py`` pins the empty set), and
-``pipelines`` modules run inside worker and Blender processes where ``studio``
-is not importable at all.
+``studio.modes.poser.engine.spec`` decides what that cell means to the
+studio, and the Inker handoff built on it. They cannot share code --
+``studio/modes/poser/engine/`` imports nothing outward
+(``tests/modes/poser/test_poser_engine_imports.py`` pins the empty set), and
+``pipelines`` modules run inside worker and Blender processes where
+``studio`` is not importable at all.
 
 So the two hold the same table twice, and this file is the only place the
 copies are checked against each other. This is
@@ -19,12 +22,12 @@ from __future__ import annotations
 import pytest
 
 from warlock.kernels import charsheet as cs
-from warlock.studio.modes.troupe.engine import spec as troupe_spec
+from warlock.studio.modes.poser.engine import spec as sheet_spec
 
 
 @pytest.fixture(scope="module")
 def spec():
-    return troupe_spec.load()
+    return sheet_spec.load()
 
 
 def test_the_two_modules_name_the_same_animations_in_the_same_order(spec):

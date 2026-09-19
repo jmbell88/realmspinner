@@ -49,10 +49,10 @@ recognise a glyph to know what pressing it would do.
 
 **The arrow keys belong to whatever is on screen.** Home moves its selection with Up and Down and
 the library moves through its grid with all four, Review steps between units with Left and Right,
-Troupe steps a clip a frame at a time with Left and Right, and Inker and Plotter pan while Space
-is held. In those six the arrows do that and nothing else — they do not also step the ring, which
-would be two things answering one key. Tab is never taken over in this way, which is what keeps
-traversal available everywhere.
+Poser's character-sheet section steps a clip a frame at a time with Left and Right, and Inker and
+Plotter pan while Space is held. In those six the arrows do that and nothing else — they do not also
+step the ring, which would be two things answering one key. Tab is never taken over in this way,
+which is what keeps traversal available everywhere.
 
 Inside a text field the arrows go back to being cursor movement, whichever mode you are in, and Tab
 leaves the field rather than typing into it.
@@ -375,6 +375,26 @@ the mouse are Clay's, on the same chords, so a hand that learned one viewport ha
 the same one the asset pose editor answers to, because they are
 [one editor with two doors](26-poser.md#undo-and-redo).
 
+### Poser — the character-sheet section
+
+| Keys | Action |
+| --- | --- |
+| Space | Play / pause the preview |
+| Left / Right | Step one frame, and pause |
+| Up / Down | Turn the character one direction, holding the frame |
+| PageUp / PageDown | Previous / next animation |
+| Home / End | First / last frame of the run, and pause |
+| C | Toggle the checkerboard |
+| P | Toggle the pivot mark |
+
+Live only while a character sheet is on screen, in place of the joint-editing keys above — the two
+never overlap, because a bound asset is either being posed or showing its sheet. Turning holds the
+frame on purpose, so you can see the same moment of a stride from another side. Changing animation
+starts the new one from its first frame.
+
+The sheet itself holds no document — it was published by a job and lives in that job's directory —
+so there is no save, no undo and no tab to close for it.
+
 ## Plotter
 
 | Keys | Action |
@@ -447,24 +467,6 @@ throw away the selection you spent a gesture placing.
 
 Packing is automatic — `R` is only there for when you want it now rather than on the next change.
 
-## Troupe
-
-| Keys | Action |
-| --- | --- |
-| Space | Play / pause the preview |
-| Left / Right | Step one frame, and pause |
-| Up / Down | Turn the character one direction, holding the frame |
-| PageUp / PageDown | Previous / next animation |
-| Home / End | First / last frame of the run, and pause |
-| C | Toggle the checkerboard |
-| P | Toggle the pivot mark |
-
-Turning holds the frame on purpose, so you can see the same moment of a stride from another side.
-Changing animation starts the new one from its first frame.
-
-That is the whole keyboard. Troupe holds no document — the sheet it plays was published by a job and
-lives in that job's directory — so there is no save, no undo and no tab to close.
-
 ## Muse
 
 Undocumented since the mode shipped, which is the honest note to open on: Space, the arrows and
@@ -482,7 +484,7 @@ Ctrl+Enter were all bound and none of them was written down anywhere.
 
 The last four need a take under the player, which appears once you have pressed Play on one. The
 bracket keys place a marker exactly where you are listening — the thing a mouse is bad at. See
-[Muse](36-muse.md#the-player).
+[Muse](35-muse.md#the-player).
 
 ## Sirens
 
@@ -525,7 +527,7 @@ twice above. The piano rows fire in the **note** column only: `e` in the effect 
 of an effect rather than an E natural, and `c` in the volume column is the hex digit twelve. The
 instrument and parameter columns take two digits — the first fills the high nibble, the second the
 low, and the caret rings whichever one is next — while volume takes one. See
-[Sirens](35-sirens.md#the-pattern-grid).
+[Sirens](34-sirens.md#the-pattern-grid).
 
 Those are *letter* positions rather than physical key positions, so the layout is right for anyone
 arriving from another tracker and wrong on an AZERTY keyboard.

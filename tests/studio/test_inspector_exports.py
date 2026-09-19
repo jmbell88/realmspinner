@@ -688,10 +688,10 @@ def test_trellis_log_button_shows_a_spinner_while_busy():
 class _SubmitCtx:
     """Just enough of ``Ctx`` for ``_submit_export_godot``: a job to hand the
     door, an export folder that may or may not be configured, and a task
-    queue that never actually runs anything -- ``troupe_mode``'s
-    ``_SubmitCtx``/``_TakenCtx`` pattern, restated here rather than imported,
-    since ``tests/modes/troupe`` is Troupe's own directory and not a shared fixture
-    module.
+    queue that never actually runs anything -- ``poser_mode``'s own
+    ``_SubmitCtx``/``_TakenCtx`` pattern (``tests/modes/poser/test_sheet_mode.py``),
+    restated here rather than imported, since that module is Poser's own test
+    file and not a shared fixture module.
     """
 
     def __init__(self, svc=None, export_dir=None):
@@ -743,7 +743,7 @@ def test_export_for_godot_is_offered_only_where_animated_glb_is_reachable():
 def test_export_for_godot_asks_for_a_folder_on_the_task_thread_only_when_none_is_configured(
     monkeypatch,
 ):
-    """``troupe_mode.export_package``'s arrangement: the picker is asked
+    """``poser_mode.export_package``'s arrangement: the picker is asked
     inside the submitted ``run``, never before, and only when
     ``ctx.export_dir`` is unset. Calling ``run()`` here rather than pressing a
     button is what proves "on the task thread" -- a picker invoked while
@@ -797,7 +797,7 @@ def test_a_cancelled_folder_pick_reports_no_export(monkeypatch):
 
 def test_a_second_click_while_exporting_queues_nothing():
     """Submitted under its own per-job key, the same shape as
-    ``troupe_mode.export_key``, so a second press while one is in flight is
+    ``poser_mode.export_key``, so a second press while one is in flight is
     refused rather than raced -- ``_SubmitCtx.busy`` answers True for a key
     already in ``submitted``, exactly as the real ``TaskRunner`` does while a
     task is running."""

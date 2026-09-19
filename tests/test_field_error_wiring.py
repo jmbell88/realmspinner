@@ -42,7 +42,12 @@ FIELD_FORMS = (
     ("panes/remesh_panel.py", "remesh-settings"),
     ("panes/sheet_panel.py", "sheet-settings"),
     ("panes/sprite_panel.py", "sprite-settings"),
-    ("modes/troupe/ui/panes/settings.py", "troupe-settings"),
+    # Troupe's own "troupe-settings" form, folded into Poser's character-sheet
+    # section by P9 (2026-09-18) as two collapsible entry points onto the
+    # same shared form (``poser_mode.sheet_form``) -- "Start a new character"
+    # and "Build a new sheet" for the bound asset.
+    ("modes/poser/ui/panes/sheet.py", "poser-new-character"),
+    ("modes/poser/ui/panes/sheet.py", "poser-sheet-build"),
     ("panes/retarget_panel.py", "retarget-settings"),
     ("panes/texture_panel.py", "retexture-settings"),
 )
@@ -112,7 +117,7 @@ def test_every_submit_that_can_be_refused_by_name_drops_last_times_rings():
         "panes/remesh_panel.py",
         "panes/texture_panel.py",
         "modes/settings/ui/panes/app_settings.py",
-        "modes/troupe/mode.py",
+        "modes/poser/mode.py",
     ):
         assert "clear_field_errors()" in _source(rel), rel
 
@@ -345,7 +350,7 @@ def test_every_refusal_a_pane_can_provoke_names_something_that_pane_draws():
         ("panes/sprite_panel.py", sprites.create_sprite_synthesis),
         ("panes/retarget_panel.py", _jobs_rework.optimize_job),
         ("panes/remesh_panel.py", _jobs_rework.remesh_job),
-        ("modes/troupe/ui/panes/settings.py", troupe.check_troupe),
+        ("modes/poser/ui/panes/sheet.py", troupe.check_troupe),
     )
     for rel, fn in cases:
         drawn = _form_field_ids(rel)

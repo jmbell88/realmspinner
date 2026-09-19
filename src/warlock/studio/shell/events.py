@@ -668,15 +668,6 @@ class EventsMixin:
             # A scan test pins every workspace mode's arm.
             sirens_mode.handle_key(ctx, event)
             return
-        if ctx.state.mode == "troupe":
-            from ..modes.troupe import mode as troupe_mode
-
-            # Unconditional and returning, for the reason the three above are:
-            # ``handle_key`` answers False for every key it does not bind, and
-            # letting that fall through would let F/W/S act on a viewport
-            # Troupe has replaced with a sprite.
-            troupe_mode.handle_key(ctx, event)
-            return
         if ctx.state.mode == "mason":
             from ..modes.mason import mode as mason_mode
 

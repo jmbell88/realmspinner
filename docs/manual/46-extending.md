@@ -223,7 +223,7 @@ adapter that cannot have run is a lie about provenance.
 Inputs are bounded at the door rather than deep in the pipeline: an upload is size-checked before it
 is decoded and pixel-checked from its header before pixels are allocated, prompts are length-capped,
 and every service entry point that accepts a seed range-checks it. See
-[Rerun and promotion](37-library-and-jobs.md#rerun-and-promotion).
+[Rerun and promotion](36-library-and-jobs.md#rerun-and-promotion).
 
 ## Pure-module boundaries
 

@@ -28,9 +28,10 @@ this row open", which is a different question the moment a row can be a product
 of something else.
 
 Kept out of ``create_stages`` deliberately: that module is *Create's* stages,
-and a ``charsheet`` opens in **Troupe**, which is not a stage. An edge from
-there to ``troupe_mode`` would quietly make Create's stage module the
-navigation layer for the whole app under a name that says otherwise.
+and a ``charsheet`` opens in **Poser** (Troupe's character-sheet stage, folded
+in whole by P9, 2026-09-18), which is not a stage. An edge from there to
+``poser_mode`` would quietly make Create's stage module the navigation layer
+for the whole app under a name that says otherwise.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ from typing import Any, NamedTuple
 class Route(NamedTuple):
     """Where one row opens. Pure data, so :func:`route` needs no ``ctx``."""
 
-    #: ``"create"``, ``"troupe"`` or ``"muse"``.
+    #: ``"create"``, ``"poser"`` or ``"muse"``.
     mode: str
     #: A key of ``create_stages.STAGES``; ``""`` when the mode is not Create.
     stage: str
@@ -68,7 +69,7 @@ SHEET_SECTION = "inspector/sheet"
 #: hangs off Pose, a sprite draft by ``panes.sprite_panel`` which hangs off
 #: Reference, and a retexture rewrites the mesh's own skin.
 #:
-#: ``charsheet`` is deliberately absent: it opens in Troupe, not in Create.
+#: ``charsheet`` is deliberately absent: it opens in Poser, not in Create.
 FOLLOWUP_STAGES: dict[str, str] = {
     "rig": "rig",
     "sheet": "pose",
@@ -124,17 +125,18 @@ def route(job: Any) -> Route:
         return Route("muse", "", source or str(job.get("id") or ""), "", "")
 
     if kind == "music":
-        # Muse, not a Create stage -- Troupe's shape exactly. A take's surface
-        # is the mode that plays it, and routing it by ``stage_for`` landed on
-        # Create's Mesh stage holding a row with no mesh, which is the blank
-        # arrival this module exists to stop. Checked before the follow-up arm
-        # because a derived take carries a ``source_job``-shaped parent and is
-        # still opened in Muse rather than beside its parent.
+        # Muse, not a Create stage -- a character sheet's shape exactly (see
+        # below). A take's surface is the mode that plays it, and routing it
+        # by ``stage_for`` landed on Create's Mesh stage holding a row with no
+        # mesh, which is the blank arrival this module exists to stop.
+        # Checked before the follow-up arm because a derived take carries a
+        # ``source_job``-shaped parent and is still opened in Muse rather than
+        # beside its parent.
         return Route("muse", "", str(job.get("id") or ""), "", "")
 
     if source:
         if kind == "charsheet":
-            return Route("troupe", "", source, detail, "")
+            return Route("poser", "", source, detail, "")
         stage = FOLLOWUP_STAGES.get(kind)
         if stage is not None:
             return Route("create", stage, source, detail, FOLLOWUP_SECTIONS.get(kind, ""))
@@ -155,7 +157,7 @@ def open_asset(ctx: Any, job_or_id: Any) -> None:
     from . import widgets
     from .modes.create.ui import stages as create_stages
     from .modes.library.ui.panes import library
-    from .modes.troupe import mode as troupe_mode
+    from .modes.poser import mode as poser_mode
 
     job = job_or_id if isinstance(job_or_id, dict) else ctx.cache.get(job_or_id)
     if job is None:
@@ -184,12 +186,13 @@ def open_asset(ctx: Any, job_or_id: Any) -> None:
         muse_mode.ensure(ctx).selected_job = target.job_id
         set_mode(ctx.state, "muse")
         return
-    if target.mode == "troupe":
-        if troupe_mode.open_sheet(ctx, target.job_id, target.detail):
+    if target.mode == "poser":
+        if poser_mode.open_character_sheet(ctx, target.job_id, target.detail):
             return
         # Only reachable if the sidecar has gone -- it is written last, as the
-        # completion marker -- but Troupe would otherwise draw "No character on
-        # screen", which is the blank arrival this module exists to stop.
+        # completion marker -- but the sheet section would otherwise draw "No
+        # character on screen", which is the blank arrival this module exists
+        # to stop.
         ctx.toast("That character sheet is not on disk any more.", "error")
         create_stages.go(ctx, "pose", select=target.job_id)
         return

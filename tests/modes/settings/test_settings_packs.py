@@ -73,7 +73,7 @@ def test_a_row_names_the_modes_it_turns_on(rows):
     """``packs.Pack.modes`` is deliberately mode *keys*, so that
     ``warlock.packs`` imports no ``studio``. The pane is the one place holding
     both tables, and the user reads rail labels rather than keys."""
-    assert app_settings.pack_unlocks(rows["rig"]) == "Unlocks Poser and Troupe"
+    assert app_settings.pack_unlocks(rows["rig"]) == "Unlocks Poser"
     assert app_settings.pack_unlocks(rows["music"]) == "Unlocks Muse"
 
 

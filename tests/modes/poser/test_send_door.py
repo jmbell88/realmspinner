@@ -1,10 +1,14 @@
-"""The two silent Troupe doors, and the question they now ask.
+"""The two silent sheet-rendering doors, and the question they now ask.
 
 ``send_to_troupe`` has always taken a sprite size and a rig template. The
 library's right-click item and the inspector's button passed neither, so a
 64 px sprite meant knowing to enter Troupe first and open a collapsed
 sub-header, and a quadruped was rigged as a humanoid and animated with human
 walk cycles -- discovered after a rig and up to 512 EEVEE frames.
+
+P9 (2026-09-18): followed Troupe's own ``ui/panes/send.py`` into Poser's
+``ui/panes/send.py`` when that mode folded in. The service-side door,
+``service.troupe.send_to_troupe``, is unchanged.
 """
 
 from __future__ import annotations
@@ -19,8 +23,8 @@ from warlock.kernels.rig import cliplib, templates
 from warlock.service import troupe as svc_troupe
 from warlock.service.errors import Invalid
 from warlock.studio import asset_exits
-from warlock.studio.modes.troupe import mode as troupe_mode
-from warlock.studio.modes.troupe.ui.panes import send as troupe_send
+from warlock.studio.modes.poser import mode as poser_mode
+from warlock.studio.modes.poser.ui.panes import send as poser_send
 
 
 class _Ctx:
@@ -30,7 +34,7 @@ class _Ctx:
         self.svc = svc
         self.cache = svc.store
         self.state = SimpleNamespace(
-            troupe=None, preview={}, mode="library", troupe_send=None
+            poser=None, preview={}, mode="library", poser_send=None
         )
         self.submitted: list[tuple[str, object]] = []
 
@@ -73,15 +77,15 @@ def test_the_library_door_asks_before_it_spends_a_rig(ctx, svc):
     """The press used to submit; now it opens the question and submits nothing
     until Send."""
     job = _mesh(svc)
-    assert troupe_send.ask(ctx, job)
-    assert troupe_send.is_open(ctx)
+    assert poser_send.ask(ctx, job)
+    assert poser_send.is_open(ctx)
     assert ctx.submitted == []
-    # ``asset_exits._troupe_in`` rather than the library's own item: the two
+    # ``asset_exits._render_sheet`` rather than the library's own item: the two
     # doors are one builder now (2026-09-07), which is what the next test
     # asserts. The claim is unchanged -- the press opens the question.
-    source = inspect.getsource(asset_exits._troupe_in)
-    assert "troupe_send.ask" in source
-    assert "troupe_mode.send_to_troupe" not in source
+    source = inspect.getsource(asset_exits._render_sheet)
+    assert "poser_send.ask" in source
+    assert "poser_mode.render_character_sheet" not in source
 
 
 def test_both_doors_ask_the_same_question():
@@ -93,23 +97,23 @@ def test_both_doors_ask_the_same_question():
     a pair of greps that could both be edited -- and the grep that remains is
     on the single builder they share.
     """
-    source = inspect.getsource(asset_exits._troupe_in)
+    source = inspect.getsource(asset_exits._render_sheet)
     # ``ctx, _mesh`` since B1 (2026-09-09): a follow-up row's own exits close
     # over the *resolved* mesh (``asset_exits._mesh_for``), not the selected
     # row -- both call sites invoke ``exit_.open(ctx, job)`` with whatever the
     # user actually picked, which for a rig row is not a mesh at all.
-    assert "troupe_send.ask(ctx, _mesh)" in source
-    assert asset_exits._troupe_in in asset_exits._BUILDERS
+    assert "poser_send.ask(ctx, _mesh)" in source
+    assert asset_exits._render_sheet in asset_exits._BUILDERS
 
 
 def test_a_size_chosen_at_the_door_reaches_the_job_row(ctx, svc):
     """Through the real service, not a captured kwarg: 32 was the fallback the
     user could not see."""
     job = _mesh(svc, rigged=True)
-    troupe_send.ask(ctx, job)
-    state = ctx.state.troupe_send
+    poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
     state.logical_size = 64
-    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+    poser_send._send(ctx, state, poser_mode.sheet_form(ctx))
     (_key, run), = ctx.submitted
     made = run()
     row = svc.store.get(made["id"])
@@ -121,11 +125,11 @@ def test_a_custom_size_chosen_at_the_door_reaches_the_job_row(ctx, svc):
     ladder combo, but ``_send`` writes ``logical_size`` the same way either
     way -- an int, straight into the form the service validates."""
     job = _mesh(svc, rigged=True)
-    troupe_send.ask(ctx, job)
-    state = ctx.state.troupe_send
+    poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
     state.custom_size = True
     state.logical_size = 40
-    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+    poser_send._send(ctx, state, poser_mode.sheet_form(ctx))
     (_key, run), = ctx.submitted
     made = run()
     row = svc.store.get(made["id"])
@@ -137,39 +141,39 @@ def test_asking_again_opens_on_custom_for_an_off_ladder_size(ctx, svc):
     reopen on the Custom box, not silently snap onto whatever preset the combo
     would otherwise show for an unrecognised value."""
     job = _mesh(svc, rigged=True)
-    troupe_send.ask(ctx, job)
-    state = ctx.state.troupe_send
+    poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
     state.custom_size = True
     state.logical_size = 40
-    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+    poser_send._send(ctx, state, poser_mode.sheet_form(ctx))
 
-    troupe_send.ask(ctx, job)
-    assert ctx.state.troupe_send.logical_size == 40
-    assert ctx.state.troupe_send.custom_size is True
+    poser_send.ask(ctx, job)
+    assert ctx.state.poser_send.logical_size == 40
+    assert ctx.state.poser_send.custom_size is True
 
 
 def test_the_door_remembers_the_size_the_last_send_chose(ctx, svc):
     """One form behind both doors, so the inspector opens on what the library
     chose. Two doors remembering separately would be two defaults."""
     job = _mesh(svc, rigged=True)
-    troupe_send.ask(ctx, job)
-    state = ctx.state.troupe_send
+    poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
     state.logical_size = 64
-    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+    poser_send._send(ctx, state, poser_mode.sheet_form(ctx))
 
-    troupe_send.ask(ctx, job)
-    assert ctx.state.troupe_send.logical_size == 64
-    assert troupe_mode.form(ctx)["logical_size"] == 64
+    poser_send.ask(ctx, job)
+    assert ctx.state.poser_send.logical_size == 64
+    assert poser_mode.sheet_form(ctx)["logical_size"] == 64
 
 
 def test_a_cancelled_question_leaves_the_form_alone(ctx, svc):
     job = _mesh(svc, rigged=True)
-    troupe_send.ask(ctx, job)
-    before = int(troupe_mode.form(ctx)["logical_size"])
-    ctx.state.troupe_send.logical_size = 128
-    troupe_send.close(ctx)
-    assert troupe_mode.form(ctx)["logical_size"] == before
-    assert not troupe_send.is_open(ctx)
+    poser_send.ask(ctx, job)
+    before = int(poser_mode.sheet_form(ctx)["logical_size"])
+    ctx.state.poser_send.logical_size = 128
+    poser_send.close(ctx)
+    assert poser_mode.sheet_form(ctx)["logical_size"] == before
+    assert not poser_send.is_open(ctx)
 
 
 def test_an_unrigged_mesh_may_be_rigged_on_any_skeleton_that_has_clips(ctx, svc, monkeypatch):
@@ -183,10 +187,10 @@ def test_an_unrigged_mesh_may_be_rigged_on_any_skeleton_that_has_clips(ctx, svc,
         "warlock.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
     )
     job = _mesh(svc)
-    troupe_send.ask(ctx, job)
-    state = ctx.state.troupe_send
+    poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
     state.template = "quadruped"
-    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+    poser_send._send(ctx, state, poser_mode.sheet_form(ctx))
     (_key, run), = ctx.submitted
     made = run()
     row = svc.store.get(made["id"])
@@ -220,14 +224,14 @@ def test_a_missing_specific_clip_on_an_otherwise_clip_bearing_template_is_refuse
     whether the library holds the *specific* clip a layout names. A template
     with some clips but not all five is an ordinary shape for a user-edited
     library: ``service.clips.save``'s own ``_check_renders`` only holds
-    ``TROUPE_TEMPLATE`` ("humanoid") to Troupe's frame table -- every other
-    template's library is accepted with any subset of clips, by design, "since
-    another template's clips are not laid into Troupe's frame table at all".
-    So a quadruped whose walk cycle was authored but whose jump never was still
-    answers ``has_clips`` True, and the request reaches ``expand_clips``'s
-    ``KeyError`` branch in ``_charsheet_spec`` -- unguarded, and until now with
-    no ``field=`` for the Skeleton control (``troupe_send._skeleton``) that
-    asked the question.
+    ``TROUPE_TEMPLATE`` ("humanoid") to the character sheet's frame table --
+    every other template's library is accepted with any subset of clips, by
+    design, "since another template's clips are not laid into that frame
+    table at all". So a quadruped whose walk cycle was authored but whose
+    jump never was still answers ``has_clips`` True, and the request reaches
+    ``expand_clips``'s ``KeyError`` branch in ``_charsheet_spec`` -- unguarded,
+    and until now with no ``field=`` for the Skeleton control
+    (``poser_send._skeleton``) that asked the question.
     """
     from warlock.kernels.rig import cliplib
 
@@ -256,9 +260,9 @@ def test_a_rigged_mesh_is_not_asked_which_skeleton_to_use(ctx, svc):
     """The skeleton is on disk and ``create_charsheet`` reads it off
     ``rig.json``, so a picker there would be a control whose value is
     discarded."""
-    troupe_send.ask(ctx, _mesh(svc, rigged=True))
-    assert ctx.state.troupe_send.rigged is True
-    source = inspect.getsource(troupe_send._skeleton)
+    poser_send.ask(ctx, _mesh(svc, rigged=True))
+    assert ctx.state.poser_send.rigged is True
+    source = inspect.getsource(poser_send._skeleton)
     assert "if state.rigged:" in source
     assert "return" in source
 
@@ -300,12 +304,12 @@ def test_a_custom_skeleton_warns_how_many_bones_its_clips_will_skip(ctx, svc):
     svc.store.set_status(job_id, "done")
     job = {"id": job_id, "prompt": "a hooded ranger", "files": ["model.glb", "rig.glb"]}
 
-    troupe_send.ask(ctx, job)
-    state = ctx.state.troupe_send
+    poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
     assert state.custom_skeleton is True
     assert state.custom_skeleton_missing == 1
 
-    source = inspect.getsource(troupe_send._skeleton)
+    source = inspect.getsource(poser_send._skeleton)
     assert "custom_skeleton_missing" in source
 
 
@@ -321,9 +325,9 @@ def test_ask_does_not_touch_disk_when_the_mesh_is_not_rigged(ctx, svc, monkeypat
 
     monkeypatch.setattr(store, "read_rig", _boom)
     job = _mesh(svc, rigged=False)
-    assert troupe_send.ask(ctx, job)
-    assert ctx.state.troupe_send.rigged is False
-    assert ctx.state.troupe_send.custom_skeleton is False
+    assert poser_send.ask(ctx, job)
+    assert ctx.state.poser_send.rigged is False
+    assert ctx.state.poser_send.custom_skeleton is False
 
 
 def test_ask_treats_an_oversized_rig_json_as_no_warning_rather_than_a_crash(ctx, svc):
@@ -337,36 +341,36 @@ def test_ask_treats_an_oversized_rig_json_as_no_warning_rather_than_a_crash(ctx,
     oversized = json.dumps({"template": "humanoid", "skeleton": "custom", "pad": "x" * (1 << 21)})
     (job_dir / "rig.json").write_text(oversized, "utf-8")
 
-    assert troupe_send.ask(ctx, job)
-    state = ctx.state.troupe_send
+    assert poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
     assert state.rigged is True
     assert state.custom_skeleton is False
     assert state.custom_skeleton_missing == 0
 
 
 def test_a_template_skeleton_is_not_flagged_custom(ctx, svc):
-    troupe_send.ask(ctx, _mesh(svc, rigged=True))
-    state = ctx.state.troupe_send
+    poser_send.ask(ctx, _mesh(svc, rigged=True))
+    state = ctx.state.poser_send
     assert state.custom_skeleton is False
     assert state.custom_skeleton_missing == 0
 
 
 def test_colours_is_hidden_when_a_palette_is_named(ctx, svc):
-    """``troupe_settings._palette``'s rule: the budget is what a *derived*
+    """``ui/panes/sheet._palette``'s rule: the budget is what a *derived*
     palette gets, so offering it beside a named one is a control that is
     silently ignored."""
-    source = inspect.getsource(troupe_send._body)
+    source = inspect.getsource(poser_send._body)
     assert "if state.palette:" in source
     assert source.index("if state.palette:") < source.index('"Colours"')
 
     job = _mesh(svc, rigged=True)
-    troupe_mode.form(ctx)["palette"] = "nes"
-    troupe_send.ask(ctx, job)
-    state = ctx.state.troupe_send
+    poser_mode.sheet_form(ctx)["palette"] = "nes"
+    poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
     state.colors = 8
-    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+    poser_send._send(ctx, state, poser_mode.sheet_form(ctx))
     # A named palette means the budget was never askable, so it is not written.
-    assert troupe_mode.form(ctx)["colors"] != 8
+    assert poser_mode.sheet_form(ctx)["colors"] != 8
 
 
 def test_the_send_dialog_owns_the_keyboard():
@@ -374,34 +378,40 @@ def test_the_send_dialog_owns_the_keyboard():
     from warlock.studio import dialogs
 
     source = inspect.getsource(dialogs.modal_open)
-    assert "troupe_send.is_open(ctx)" in source
+    assert "poser_send.is_open(ctx)" in source
 
 
 # --- the bug this work sits on top of ----------------------------------------
 
 
 def test_building_another_sheet_with_no_form_yet_uses_the_modes_defaults(ctx, svc):
-    """``troupe_sheets._rebuild``'s fallback called
+    """Troupe's own ``troupe_sheets._rebuild`` used to fall back to
     ``troupe_settings._form(state, troupe_settings._options(ctx))``. Both moved
-    to ``troupe_mode`` on 2026-09-05 and neither exists in that module any
+    to ``troupe_mode`` on 2026-09-05 and neither existed in that module any
     more, so the guard against submitting the door's defaults raised
     AttributeError in exactly the case it exists for -- ``state.form`` empty,
-    which is a fresh session's state."""
-    from warlock.studio.modes.troupe.ui.panes import settings as troupe_settings
-    from warlock.studio.modes.troupe.ui.panes import sheets as troupe_sheets
+    which is a fresh session's state.
 
-    assert not hasattr(troupe_settings, "_form")
-    state = troupe_mode.ensure(ctx)
-    state.form = {}
-    form = troupe_sheets._form(ctx, state)
+    P9 (2026-09-18): the pane this bug lived in did not survive the fold --
+    ``ui/panes/sheet.py``'s ``_build_another`` reads ``poser_mode.
+    sheet_form(ctx)`` directly, the one door that already builds the defaults
+    when ``state.sheet_form`` is empty, so there is no second, private
+    fallback left to go stale. This pins that directly instead.
+    """
+    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+
+    assert not hasattr(poser_sheet, "_form"), "a private fallback is a second place to forget"
+    state = poser_mode.ensure(ctx)
+    state.sheet_form = {}
+    form = poser_mode.sheet_form(ctx)
     assert form["logical_size"] == 32
-    assert form is troupe_mode.form(ctx)
+    assert form is poser_mode.ensure(ctx).sheet_form
 
 
 def test_a_door_that_asks_first_says_so():
     """The ellipsis convention, on the two labels that gained a dialog."""
     from warlock.studio import verbs
 
-    source = inspect.getsource(asset_exits._troupe_in)
-    assert "verbs.send_to('troupe')}..." in source
-    assert verbs.send_to("troupe") == "Send to Troupe"
+    source = inspect.getsource(asset_exits._render_sheet)
+    assert "verbs.send_to('poser')}..." in source
+    assert verbs.send_to("poser") == "Send to Poser"

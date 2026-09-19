@@ -41,7 +41,7 @@ This covers the packaged Windows installer only. If you want to run Warlock Stud
 
 The base install you just did gets you a working window, the tile/atlas/pose-library workspaces, and diagnostics — but not yet image generation, rigging, or music. That's by design: two separate, optional downloads finish the picture, and they are not the same kind of thing.
 
-- **Dependency packs** (Settings → Packs) are *code* — Python packages such as `torch` and `diffusers` that a workspace needs in order to run at all. Without the matching pack, a mode like Create, Poser, Troupe, or Muse says what it's missing instead of opening.
+- **Dependency packs** (Settings → Packs) are *code* — Python packages such as `torch` and `diffusers` that a workspace needs in order to run at all. Without the matching pack, a mode like Create, Poser, or Muse says what it's missing instead of opening.
 - **Model weights** (Settings → Models) are *data* — the actual trained checkpoints (SDXL, TRELLIS.2, and the rest) that a pack's code loads and runs. A pack with no weights fetched yet will tell you so at the door. **The 3D reconstruction engine lives on this screen too**, as *TRELLIS.2 engine*, about 0.7 GB. It is a program rather than a checkpoint, so it is the one row here that is not really "weights" — but it is a download you choose exactly like them, and it sits beside the weights it loads.
 
 You need a pack *and* its weights, in either order, before the workspace it unlocks does anything. Both are downloaded once, kept under your Warlock home, and reused by every later install or upgrade that still matches their pinned digests — see [Where things are stored](#where-things-are-stored) below.
@@ -53,7 +53,7 @@ Open **Settings → Packs**. Three packs are offered, matching `src/warlock/pack
 | Pack | Unlocks | What it costs |
 |---|---|---|
 | **Image generation** | Create's text-to-image path, host-side background matting, and candidate ranking | Multi-gigabyte (torch + diffusers + transformers stack); see the pane for this build's exact figure |
-| **Rigging** | Poser's skeleton fitting, and Troupe's clip rendering | The cheapest of the three — well under a gigabyte |
+| **Rigging** | Poser's skeleton fitting, clip and character-sheet rendering | The cheapest of the three — well under a gigabyte |
 | **Music generation** | Muse's text-to-music generation | Multi-gigabyte (its own torch + diffusers stack, pinned separately from Image generation); see the pane for this build's exact figure |
 
 Install whichever ones match what you actually want to do — a pixel-art-only session never needs any of them. Each pack downloads to a wheel cache under your Warlock home, verifies every file's hash, and only then installs into the app's own runtime as a short-lived background process; the app stays open and usable throughout, and the mode it unlocks lights up automatically once it finishes (a restart is only asked for if the running process genuinely cannot pick up the change).
@@ -97,7 +97,7 @@ A few things worth knowing so you don't worry unnecessarily:
 
 Separately, the Home screen offers a dismissible **"New here?"** guided tour with **Start** and **Not now** buttons. It's entirely optional and never launches on its own.
 
-When it opens, you'll see a rail on the left with **Home**, **Library**, and **Create**, then nine creative workspaces — **Inker**, **Clay**, **Mason**, **Poser**, **Troupe**, **Plotter**, **Packwright**, **Muse**, and **Sirens** — with **Review** and **Settings** tucked into the footer.
+When it opens, you'll see a rail on the left with **Home**, **Library**, and **Create**, then eight creative workspaces — **Inker**, **Clay**, **Mason**, **Poser**, **Plotter**, **Packwright**, **Muse**, and **Sirens** — with **Review** and **Settings** tucked into the footer.
 
 ## Where things are stored
 

@@ -614,11 +614,6 @@ PLACEHOLDERS: dict[str, tuple[str, str, str]] = {
         "No song open",
         "Ctrl+N starts one, Ctrl+O opens a file.",
     ),
-    "troupe": (
-        icons.PERSON_STANDING,
-        "No character on screen",
-        "Pick one on the left, or describe a new one below it.",
-    ),
 }
 
 

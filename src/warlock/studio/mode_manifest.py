@@ -22,7 +22,7 @@ docstring reserves that module for the rail's tuple -- key, label, icon,
 purpose -- and says a table of anything else there would be a second place
 deciding something, which is exactly what this is not: it is data about the
 *document* modes, a strict subset of ``modes.KEYS`` (Home, Library, Create,
-Troupe, Review, Muse and Settings own no document and are not here); it needs
+Review, Muse and Settings own no document and are not here); it needs
 :data:`.verbs.EXPORT_TO_LIBRARY`, a second import ``modes.py`` has no other
 reason to carry; and the plan this phase works from (``dev/RESTRUCTURE.md``,
 P2) puts a mode's manifest inside that mode's own future package -- a shape a

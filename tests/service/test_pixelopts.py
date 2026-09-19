@@ -281,8 +281,9 @@ def test_an_hd_request_naming_an_outline_is_refused_on_the_outline_field(svc):
 def test_a_non_boolean_pixel_art_is_refused(svc):
     """``bool("false")`` is ``True`` in Python, so a string here used to turn
     HD mode *on* by way of a value that spells "off". Every pane sends a real
-    bool -- ``troupe_settings.py``'s Style combo resolves to one through
-    ``troupe_mode._style_choice``, never a raw value passed through -- so this
+    bool -- ``poser.ui.panes.sheet``'s Style combo (Troupe's own, before P9
+    2026-09-18 folded that mode into Poser) resolves to one through
+    ``poser_mode._style_choice``, never a raw value passed through -- so this
     refusal has no control on any pane to address and is deliberately left
     unfielded rather than pointed at an address nothing draws."""
     with pytest.raises(Invalid) as excinfo:

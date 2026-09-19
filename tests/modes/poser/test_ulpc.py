@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.studio.modes.troupe.engine import ulpc
+from warlock.studio.modes.poser.engine import ulpc
 
 # Only the one regression test below needs it, to run this module inside a
 # module of its own with the example sheets made to look uninstalled.

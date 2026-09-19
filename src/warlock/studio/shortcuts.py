@@ -291,10 +291,11 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
     table(
         "Poser",
         [
-            # The mode is otherwise mouse-shaped -- joints are clicked and
-            # gizmos are dragged. The view keys and the mouse rows are Clay's,
-            # on the same chords: the 2026-09-05 pass found this table saying
-            # "two rows are the whole group" a week after six more were bound.
+            # The pose-editing half is otherwise mouse-shaped -- joints are
+            # clicked and gizmos are dragged. The view keys and the mouse rows
+            # are Clay's, on the same chords: the 2026-09-05 pass found this
+            # table saying "two rows are the whole group" a week after six
+            # more were bound.
             ("Ctrl+Z / Ctrl+Y", "Undo / redo (Ctrl+Shift+Z also redoes)"),
             ("Ctrl+S / Ctrl+Shift+S", "Save / save as"),
             ("Ctrl+1 / Ctrl+3 / Ctrl+7", "Look along front / right / top (Shift: the opposite)"),
@@ -302,6 +303,24 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("F", "Frame the armature"),
             ("Alt+drag", "Orbit (middle drag pans)"),
             ("Esc", "Deselect the joint"),
+            # Below: the character-sheet section (Troupe's own rows, folded in
+            # whole by P9, 2026-09-18) -- live only while a sheet is on
+            # screen, the same way the rows above apply only while a joint
+            # editor is.
+            ("Space", "Play / pause the sheet preview"),
+            # Stepping pauses, which is why the two rows are not "step" alone:
+            # the binding does two things and a sheet that named one of them
+            # would be describing a different control.
+            ("Left / Right", "Step one frame, and pause"),
+            ("Up / Down", "Turn the character one direction, holding the frame"),
+            ("PageUp / PageDown", "Previous / next animation"),
+            ("Home / End", "First / last frame of the run, and pause"),
+            # C and P were bound in ``poser_mode.sheet_handle_key`` (Troupe's
+            # own ``handle_key``) from the start but missing from this table
+            # and chapter 38 -- the 2026-09-08 audit's troupe-01, closed here
+            # and in the manual chapter alongside it.
+            ("C", "Toggle the checkerboard"),
+            ("P", "Toggle the pivot mark"),
         ],
     )
     table(
@@ -319,24 +338,6 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             # Middle drag alone, not "Space / middle drag" as Plotter's row
             # says: there is no space-pan in this mode to advertise.
             ("Middle drag", "Pan (wheel zooms)"),
-        ],
-    )
-    table(
-        "Troupe",
-        [
-            ("Space", "Play / pause the preview"),
-            # Stepping pauses, which is why the two rows are not "step" alone:
-            # the binding does two things and a sheet that named one of them
-            # would be describing a different control.
-            ("Left / Right", "Step one frame, and pause"),
-            ("Up / Down", "Turn the character one direction, holding the frame"),
-            ("PageUp / PageDown", "Previous / next animation"),
-            ("Home / End", "First / last frame of the run, and pause"),
-            # C and P were bound in troupe_mode.handle_key from the start but
-            # missing from this table and chapter 38 -- the 2026-09-08 audit's
-            # troupe-01, closed here and in the manual chapter alongside it.
-            ("C", "Toggle the checkerboard"),
-            ("P", "Toggle the pivot mark"),
         ],
     )
     table(

@@ -57,7 +57,7 @@ The ones that most often surprise people:
   `kernels/pixel/`, the `inker` engine, incl. `flourish/` and `walk/`;
   `kernels/grid2d/`, `kernels/geom3d/`, `kernels/manual/`, `kernels/audio/`;
   plus each mode's own `studio/modes/<name>/engine/` for
-  `mason`, `plotter`, `packwright`, `sirens`, `troupe` and `muse`) import no
+  `mason`, `plotter`, `packwright`, `sirens`, `poser` and `muse`) import no
   imgui, moderngl, pygame or `service`. Import-pinning tests enforce the exact
   outward set, so adding an import means updating the pin -- deliberately.
   The list is `tests/_pure_packages.py`'s `pure_packages()`, worked out from

@@ -24,7 +24,7 @@ asset in the pane that made it.
 
 Selecting a finished asset puts a **"Take it somewhere"** section at the top of the inspector, above
 its tabs, so it is visible whichever one you have open. It lists every workspace this particular
-asset can go to next — Inker, Clay, Mason, Poser, Troupe, Plotter, Packwright, Sirens — worded as
+asset can go to next — Inker, Clay, Mason, Poser, Plotter, Packwright, Sirens — worded as
 *Open in*,
 *Add to* or *Send to* depending on what pressing it does, with a one-line note under each button
 saying what it will do. A destination this asset is one step away from — a mesh with no rig yet, a

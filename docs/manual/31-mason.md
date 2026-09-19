@@ -287,7 +287,7 @@ See [Putting it in a game](13-putting-it-in-a-game.md) for what each engine does
 ## The round trip
 
 A scene exported to the library is a real asset row. It appears in the library, it opens in Create's
-Mesh stage like any other mesh, and it can be sent on to Clay, Poser or Troupe — because by then it
+Mesh stage like any other mesh, and it can be sent on to Clay or Poser — because by then it
 *is* a mesh.
 
 It also carries two doors back. **Open in Mason** reopens the scene it was, from the `.wscn` stored
@@ -305,7 +305,7 @@ as a mesh node.
 
 A `.wscn` goes wherever you save it; nothing in Mason writes into your library unless you ask it to.
 **Export to the library** does, and what it writes lives under the job's own directory like every
-other asset — see [The library and jobs](37-library-and-jobs.md).
+other asset — see [The library and jobs](36-library-and-jobs.md).
 
 The scene's own copy of an exported asset is kept beside that asset rather than listed as one of its
 downloads: it is what the reopen reads, not a file you were meant to hand to anyone.

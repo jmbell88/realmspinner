@@ -80,8 +80,22 @@ def draw(ctx: Any) -> None:
 
     if state.job_id:
         _asset_poses(ctx, state)
+        # P9 (2026-09-18): Troupe folded into Poser as a stage -- the bound
+        # asset's character sheets, and the door to render another, sit here
+        # rather than in a workspace of their own.
+        from .sheet import draw_sheets_section
+
+        imgui.dummy((0, sp(tokens.SP_1)))
+        draw_sheets_section(ctx, state)
     _library(ctx, state)
     _presets(ctx, state)
+
+    # Always offered, bound asset or not: a fresh character has nothing to
+    # bind to yet.
+    from .sheet import draw_new_character
+
+    imgui.dummy((0, sp(tokens.SP_1)))
+    draw_new_character(ctx)
 
 
 def _rigged_assets(ctx: Any, state: Any) -> None:

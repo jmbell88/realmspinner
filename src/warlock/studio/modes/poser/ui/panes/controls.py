@@ -85,6 +85,15 @@ def _changed_from_rest(viewer: Any, bone: str | None) -> bool:
 
 def draw(ctx: Any) -> None:
     state = poser_mode.ensure(ctx)
+    if state.job_id and state.sheet_view:
+        # P9 (2026-09-18): the character-sheet stage draws Troupe's own two
+        # right panes here instead -- what the sheet is, and the ways out.
+        # No Blender check above this branch: reading a sheet's sidecar and
+        # queuing another render need no rig kernel at all.
+        from .sheet import draw_info as _draw_sheet_info
+
+        _draw_sheet_info(ctx)
+        return
     widgets.section("Pose")
     manual_render.help_button(ctx, "poser-controls")
     if not ctx.rigging_available:

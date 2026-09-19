@@ -25,7 +25,7 @@ from .. import icons
 # the call sites that only want the sentence keyed by mode.
 #
 # **The order is the rail's order** (the UI redesign, wave 3): where you start and
-# what you look at, then the nine creative workspaces, then Settings. It used to
+# what you look at, then the eight creative workspaces, then Settings. It used to
 # be the *segmented control's* order, grouped by a predicate over
 # ``WORK_MODES`` -- a rule that rendered correctly and explained nothing, and
 # which put Library and Review on the far side of a break from the panes they
@@ -88,17 +88,13 @@ MODES: list[tuple[str, str, str, str]] = [
     # *contains* is job rows, which is the thing that makes it a workspace
     # rather than a second library -- a scene references assets and is not one.
     ("mason", "Mason", icons.BLOCKS, "Build 3D scenes, export to engines."),
-    ("poser", "Poser", icons.PERSON_STANDING, "Rig a mesh, author clips."),
-    # Troupe (the Troupe programme's own mode). A workspace of its own rather
-    # than a panel in Create for the reason Poser is one: what happens here is
-    # *watching* -- a walk cycle plays continuously and you judge it -- and
-    # that is a use of the whole window, not of a 300px column beside a form.
-    # Not Poser's glyph any more. It was, "deliberately: both are about a
-    # human figure, and the rail distinguishes them by label" -- and then the
-    # rail's default became icons (``layout.py``), so two adjacent rows drew
-    # the same standing figure and were told apart only by hovering. FILM is
-    # what this mode makes: frames of a character, played.
-    ("troupe", "Troupe", icons.FILM, "A 3D character to sprites."),
+    # Troupe folded into Poser as a stage (P9, 2026-09-18): rig, then clips,
+    # then a character sheet, one workspace rather than a hand-off between
+    # two. What Troupe added to the purpose line below -- *watching* a walk
+    # cycle play continuously and judging it, a use of the whole window and
+    # not of a 300px column beside a form -- is still true of the sheet
+    # section; it is no longer a second door to get there through.
+    ("poser", "Poser", icons.PERSON_STANDING, "Rig a mesh, author clips and sheets."),
     ("plotter", "Plotter", icons.GRID, "Paint maps, export to Tiled."),
     ("packwright", "Packwright", icons.LAYERS, "Pack sprites into an atlas."),
     # Muse: the thirteenth mode, and the one whose output is a **job row**.
@@ -161,7 +157,7 @@ MODES: list[tuple[str, str, str, str]] = [
 # drawing path.
 RAIL_GROUPS: tuple[tuple[str, ...], ...] = (
     ("home", "library", "create"),
-    ("inker", "clay", "mason", "poser", "troupe", "plotter", "packwright", "muse", "sirens"),
+    ("inker", "clay", "mason", "poser", "plotter", "packwright", "muse", "sirens"),
     ("review", "settings"),
 )
 
@@ -185,7 +181,7 @@ RAIL_GROUP_LABELS: tuple[str, ...] = ("Pipeline", "Workspaces", "")
 WORK_MODES = frozenset(
     {
         "create", "inker", "clay", "mason", "poser", "review", "plotter",
-        "packwright", "troupe", "muse", "sirens",
+        "packwright", "muse", "sirens",
     }
 )
 
@@ -206,15 +202,15 @@ VIEWPORT_MODES = frozenset({"create"})
 
 # Neither one pane nor the asset viewport: a mode that fills the window with
 # its own three-column workspace. Inker, Clay, Mason, Poser, Review, Plotter,
-# Packwright, Troupe, Muse and Sirens are the ten; Library is a single pane,
-# not a workspace, and joins Home/Manual/Settings there. The three categories
-# partition KEYS exactly -- which matters because ``_build_ui``'s dispatch ends
-# in a bare ``else``, so an unlisted mode would draw one of these rather than
-# fail.
+# Packwright, Muse and Sirens are the nine (Troupe folded into Poser as a
+# stage, P9 2026-09-18); Library is a single pane, not a workspace, and joins
+# Home/Manual/Settings there. The three categories partition KEYS exactly --
+# which matters because ``_build_ui``'s dispatch ends in a bare ``else``, so
+# an unlisted mode would draw one of these rather than fail.
 WORKSPACE_MODES = frozenset(
     {
         "inker", "clay", "mason", "poser", "review", "plotter", "packwright",
-        "troupe", "muse", "sirens",
+        "muse", "sirens",
     }
 )
 
@@ -227,9 +223,10 @@ WORKSPACE_MODES = frozenset(
 # the arrows belong to the surface. This is the "which surface" half, listed
 # here beside the other mode groupings rather than inside the backend, because
 # it is a fact about the modes and not about the input door.
-# Troupe joins them for its own version of the same clash: Space toggles
-# playback and Left/Right step one frame of a clip, so one press must not also
-# move a focus ring through the direction buttons.
+# Poser joins them for Troupe's own version of the same clash, folded in
+# whole (P9, 2026-09-18): with the character-sheet section on screen, Space
+# toggles playback and Left/Right step one frame of a clip, so one press must
+# not also move a focus ring through the direction buttons.
 # Muse joins them for the mildest version: Space auditions the selected take,
 # which must not also activate whatever button the focus ring is on.
 # Sirens joins them for the sharpest version of the clash: all four arrows move
@@ -237,7 +234,7 @@ WORKSPACE_MODES = frozenset(
 # bar -- so every key imgui would use to walk a focus ring is a key the grid
 # has already spoken for.
 NAV_KEY_MODES = frozenset(
-    {"home", "library", "review", "inker", "plotter", "troupe", "muse", "sirens"}
+    {"home", "library", "review", "inker", "plotter", "poser", "muse", "sirens"}
 )
 
 KEYS = tuple(key for key, _label, _icon, _purpose in MODES)
@@ -257,22 +254,15 @@ PURPOSE: dict[str, str] = {key: purpose for key, _label, _icon, purpose in MODES
 
 #: Modes whose maturity the rail says out loud, and the word it uses.
 #:
-#: **Troupe is code-complete and a user really can get a rendered sheet**, but
-#: three of its own phases are unstarted, its 22 keyframes are provisional, and
-#: its palette claim rests on a textured base mesh that does not exist.
+#: **Troupe's own "Experimental" chip did not move with it into Poser** (P9,
+#: 2026-09-18, decision 3 of the folding brief): dropped outright rather than
+#: relabelled onto the merged mode. Troupe's provisional keyframes and
+#: untested-by-reconstruction caveats are still true and still worth a
+#: reader's caution, but they belong in the manual's own prose now
+#: (``docs/manual``) rather than as a rail-wide badge on a mode most of whose
+#: surface -- ordinary pose authoring -- was never provisional at all.
 #:
-#: The note said reconstruction quality was "untested" until 2026-09-03. It had
-#: been tested -- on 2026-08-30, with a negative answer -- so the chip was
-#: hedging about a question that had been settled, and pointing the reader at a
-#: manual chapter that already stated the result. It now says the result.
-#: ``docs/manual/11`` and ``33`` are candid about every bit of that -- and the
-#: app was not, which is the gap this closes: the manual is read by people who
-#: already know to be careful, and the rail is read by everyone.
-#:
-#: The wording is the manual's own ("provisional", "untested"), deliberately,
-#: so a user who follows the tooltip into the chapter finds the same words
-#: rather than a second, differently-hedged account.
-# **Sirens' chip came off on 2026-09-02.** It went on because the mode shipped
+#: **Sirens' chip came off on 2026-09-02.** It went on because the mode shipped
 # in halves, and the note was narrowed at every landing rather than left
 # standing, because a chip whose sentence names what is already there teaches
 # the reader to ignore the chip. The absences it named in turn -- no manual
@@ -283,27 +273,10 @@ PURPOSE: dict[str, str] = {key: purpose for key, _label, _icon, purpose in MODES
 # / ``paste`` on Ctrl+C/X/V, through the document's one ``set_cells`` door. A
 # mode joins this dict when there is a sentence to put under it, and leaves it
 # when there is not.
-MATURITY: dict[str, str] = {
-    "troupe": "Experimental",
-}
+MATURITY: dict[str, str] = {}
 
 #: What the chip's own tooltip adds, past the word.
-MATURITY_NOTE: dict[str, str] = {
-    # Narrowed 2026-09-05, when Create's Character type shipped. The 2026-08-30
-    # verdict is unchanged but it is narrower than the chip used to say: what
-    # was measured not to work is building a character by *reconstruction from
-    # a drawing*, not "a character from a prompt" -- a prompt now resolves to an
-    # authored family, which needs no reconstruction and no card. The chip
-    # stays, because the keyframes are still provisional and that is the half a
-    # user judges.
-    "troupe": (
-        "The chain runs end to end, but the shipped animation keyframes are"
-        " provisional, and building a character by reconstruction from a"
-        " drawing is measured not to work yet -- start from a mesh you already"
-        " have, or from Create's Character type."
-        " See the manual (Troupe)."
-    ),
-}
+MATURITY_NOTE: dict[str, str] = {}
 
 #: Registry rows a mode's *primary work* cannot happen without.
 #:

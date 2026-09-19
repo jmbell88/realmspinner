@@ -23,7 +23,7 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # The Rig stage's own column (the UI redesign, wave 5). Rigging was three
     # buttons in three places and no pane of its own, so it had no (?) either.
     "settings-rig": ("25-rigging-and-posing", "rigging-a-mesh"),
-    "library": ("37-library-and-jobs", None),
+    "library": ("36-library-and-jobs", None),
     "inspector": ("23-generating-meshes", "exports"),
     "retarget": ("23-generating-meshes", "triangle-budget"),
     "retexture": ("23-generating-meshes", "surface-texture"),
@@ -42,7 +42,7 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "sprites": ("27-sprite-sheets", "from-a-single-drawing"),
     "inker-timeline": ("29-inker-animation", "the-timeline"),
     # The sheet-correction strip under the transport, which exists only on a
-    # Troupe character sheet and is the phase-6 cleanup loop.
+    # Poser character sheet and is the phase-6 cleanup loop.
     "inker-sheet": ("29-inker-animation", "sheet-corrections"),
     "inker-flourish": ("29-inker-animation", "effects"),
     # Found by the O118 coverage sweep: two panes a user reads and neither had
@@ -127,31 +127,32 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # instrument list's; what a release point splits is the envelope editor's;
     # why an effect keeps its own tempo is the effects panel's; and what a
     # folder of WAVs contains is the bridge's.
-    "sirens-transport": ("35-sirens", "playing-it"),
-    "sirens-orders": ("35-sirens", "patterns-and-the-order"),
-    "sirens-instruments": ("35-sirens", "instruments"),
-    "sirens-envelopes": ("35-sirens", "the-envelope-editor"),
-    "sirens-effects": ("35-sirens", "sound-effects"),
-    "sirens-bridge": ("35-sirens", "exporting-the-audio"),
+    "sirens-transport": ("34-sirens", "playing-it"),
+    "sirens-orders": ("34-sirens", "patterns-and-the-order"),
+    "sirens-instruments": ("34-sirens", "instruments"),
+    "sirens-envelopes": ("34-sirens", "the-envelope-editor"),
+    "sirens-effects": ("34-sirens", "sound-effects"),
+    "sirens-bridge": ("34-sirens", "exporting-the-audio"),
     # Muse's one target. The recipe column carries it, because that is the pane
     # whose controls a reader has a question about; the brief is a bar and
     # carries none, exactly as ``create_brief`` does -- a (?) in a one-row
     # command bar competes with the button the bar exists for. The results tray
     # is exempt rather than targeted: it is the surface the mode is *about*, the
     # way the pattern grid and the two canvases are.
-    "muse-recipe": ("36-muse", "the-window"),
-    "muse-player": ("36-muse", "the-player"),
-    # Troupe's four panes. Four entries rather than one chapter-wide target
-    # because the questions differ per pane: what a sheet *is* is the cast's
-    # question, what the options mean is the form's, why the preview never
-    # stops is the centre's, and what a stray-pixel count means is the sheet
-    # panel's.
-    "troupe-characters": ("34-troupe", "what-a-character-sheet-contains"),
-    "troupe-settings": ("34-troupe", "making-a-character"),
-    "troupe-preview": ("34-troupe", "watching-it"),
-    "troupe-sheets": ("34-troupe", "the-sheet-panel"),
-    "troupe-bridge": ("34-troupe", "taking-it-somewhere"),
-    "review": ("38-review", None),
+    "muse-recipe": ("35-muse", "the-window"),
+    "muse-player": ("35-muse", "the-player"),
+    # Poser's character-sheet section (Troupe's own four panes, folded in by
+    # P9, 2026-09-18, and 26-poser.md rewritten to cover them the same day).
+    # Per-pane again now that the chapter has its own anchors for each: the
+    # questions differ per pane (what a sheet *is* and how to start one, what
+    # the preview and heatmap mean, what a stray-pixel count or Needs repair
+    # means, where a finished sheet goes).
+    "poser-sheets": ("26-poser", "rendering-a-character-sheet"),
+    "poser-new-character": ("26-poser", "starting-a-new-character"),
+    "poser-sheet-preview": ("26-poser", "watching-the-sheet"),
+    "poser-sheet-info": ("26-poser", "the-sheet-panel"),
+    "poser-sheet-bridge": ("26-poser", "taking-a-sheet-somewhere"),
+    "review": ("37-review", None),
     "app-settings": ("42-app-settings", None),
     # The chooser the app opens on (F56/O118): the one pane a first run
     # certainly sees, and the only one that had no way into the manual at all.

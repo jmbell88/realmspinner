@@ -223,7 +223,7 @@ def draw(ctx: Any) -> None:
     # Top level, not nested in anything above: the popup's own
     # ``imgui.open_popup``/``begin_popup_modal`` pair has to run outside any
     # popup or child window the rest of this frame opened, exactly as
-    # ``troupe_send``'s modal does from the overlay.
+    # ``poser_send``'s modal does from the overlay.
     _draw_export_popup(ctx)
     _draw_convert_popup(ctx)
 
@@ -1423,22 +1423,24 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
         from ....plotter import mode as plotter_mode
 
         plotter_mode.use_as_tileset(ctx, job)
-    elif action in ("troupe", "muse"):
+    elif action in ("poser", "muse"):
         # **Both through ``asset_open``, which already knows where each of these
         # goes.** Neither had an arm here, and the two failed differently:
         # ``primary_action`` has returned ``"muse"`` for a finished take and for
         # a separate row since Muse shipped, and ``"muse"`` was in neither this
         # chain *nor* ``state.ACTIONS`` -- so ``ACTIONS[action]`` on the card
         # (``_result_row`` above) raised ``KeyError`` and took the whole library
-        # pane down on a music row. ``"troupe"`` was the same gap caught one
-        # step earlier: the character work gave it a label, which turned the
-        # crash into a button that silently did nothing.
+        # pane down on a music row. ``"poser"`` (``"troupe"`` before P9,
+        # 2026-09-18 folded that mode in) was the same gap caught one step
+        # earlier: the character work gave it a label, which turned the crash
+        # into a button that silently did nothing.
         #
         # Delegated rather than restated because ``asset_open`` is the module
         # that owns "where does this asset open", including the two refusals
-        # neither arm could sensibly repeat here -- a Troupe sheet whose sidecar
-        # has gone, and a take whose selection has to be set before the mode
-        # switch. A third spelling of that routing is a third thing to go stale.
+        # neither arm could sensibly repeat here -- a character sheet whose
+        # sidecar has gone, and a take whose selection has to be set before the
+        # mode switch. A third spelling of that routing is a third thing to go
+        # stale.
         from ..... import asset_open
 
         asset_open.open_asset(ctx, job)
@@ -1459,15 +1461,17 @@ def pick_and_import_mesh(ctx: Any) -> None:
     mesh a user already had could not enter at all. The only file-open path for
     a ``.glb`` was a drop onto Clay, which converts it into an editable Clay
     *document* and refuses a rigged one outright, because Clay has no skinning.
-    So the supplied-base-mesh path that Troupe's whole intake assumes had no
-    door: ``jobs.import_mesh`` was written, tested and reachable only from Clay
+    So the supplied-base-mesh path that Poser's character-sheet stage (built
+    as Troupe, folded in by P9 2026-09-18) whole intake assumes had no door:
+    ``jobs.import_mesh`` was written, tested and reachable only from Clay
     exporting its own work back out.
 
     Nothing new happens to the file. It becomes an ordinary finished model row,
-    and every consumer inherits it at once -- Send to Troupe, the Poser, the
-    triangle retarget, every export -- because all of them are pure functions of
-    ``model.glb``. That is the same payoff ``import_mesh``'s own docstring
-    claims for Clay, collected a second time for a door that costs nothing.
+    and every consumer inherits it at once -- render a sheet, Poser's pose
+    session, the triangle retarget, every export -- because all of them are
+    pure functions of ``model.glb``. That is the same payoff ``import_mesh``'s
+    own docstring claims for Clay, collected a second time for a door that
+    costs nothing.
     """
     ctx.submit(IMPORT_MESH_KEY, _pick_and_import, ctx)
 

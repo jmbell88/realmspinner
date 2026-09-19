@@ -190,7 +190,7 @@ not a property of the picture.
 ## Tools
 
 The toolbox is an icon grid; hovering a tool shows its name and its letter. Every tool is listed in
-[Keyboard shortcuts](39-shortcuts.md). Under the grid are the foreground and background colours,
+[Keyboard shortcuts](38-shortcuts.md). Under the grid are the foreground and background colours,
 each with its hex value in a box you can type into and a swatch that opens the full picker; the
 shuffle button beneath them swaps the two, as `X` does.
 
@@ -1521,4 +1521,4 @@ A painted reference is a real job row that never ran on the worker: the image al
 queueing a run to reproduce what you just drew would be two minutes of GPU for nothing. It is
 created finished, at the reference stage, which is exactly what promotion consumes. It cannot be
 rerolled — there is no generator behind it for a new seed to change — but it can be remeshed. See
-[Rerun and promotion](37-library-and-jobs.md#rerun-and-promotion).
+[Rerun and promotion](36-library-and-jobs.md#rerun-and-promotion).

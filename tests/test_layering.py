@@ -38,9 +38,10 @@ the same reason stated there plus one this repo already writes down twice.
 ``familiar/contract.py`` imports ``agent_clay`` *inside a function*
 specifically so the module keeps importing with no imgui/moderngl/pygame in
 the process, and its own docstring names that as the reason; ``poser_mode.py``
-imports ``clay_mode`` and ``troupe_mode`` the same way, inside functions, and
-says so ("the ``studio/modes/clay/mode.py`` pattern -- state and logic here, drawing in
-``main.py``"). A lazy, function-scope import is this codebase's accepted way
+imports ``clay_mode``, ``inker_mode`` and ``packwright_mode`` the same way,
+inside functions, and says so ("the ``studio/modes/clay/mode.py`` pattern --
+state and logic here, drawing in ``main.py``"). A lazy, function-scope import
+is this codebase's accepted way
 to reach across a boundary rarely and by name -- treating it the same as a
 module-scope import would fail two patterns the code is deliberately, visibly
 using as an escape hatch, not two bugs. It also means this pin cannot see
@@ -102,13 +103,15 @@ STRAY_MODE_FILES: dict[str, str] = {
     # and the edges that used to be violations because of the
     # misattribution are gone rather than waived:
     #
-    # * ``studio/probe.py`` is not Troupe's. Its own docstring: a per-frame
+    # * ``studio/probe.py`` was never Troupe's, and Troupe folding into
+    #   Poser as a stage (P9, 2026-09-18) is a real, module-scope importer of
+    #   it now: ``poser/ui/panes/sheet.py``'s scorecard calls ``probe.record``
+    #   for real, where Troupe's own copy of that call only cited the
+    #   reasoning in a comment. Its own docstring still stands: a per-frame
     #   census of everything ``controls._finish_item`` saw, with the rect a
     #   driver can click -- the half that makes a control *addressable* to
-    #   ``/exercise-mode``. Shell instrumentation. Nothing under Troupe
-    #   imports it (the one mention in ``troupe_mode.py`` is a comment
-    #   citing ``probe.record``'s reasoning), and its two importers are
-    #   ``widgets`` and ``controls``, i.e. the design system itself.
+    #   ``/exercise-mode``. Shell instrumentation, read by the design system
+    #   (``widgets``, ``controls``) and now by one mode's own pane as well.
     # * ``studio/quality.py`` is not Review's. Its docstring states the
     #   opposite outright: one wording for what a mesh measurement is
     #   allowed to say, read by *three* surfaces (the quality badge, the
@@ -511,7 +514,6 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.shell.app", "warlock.studio.modes.poser.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.review.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.modes.sirens.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.modes.troupe.ui.workspace"),
     ("warlock.studio.shell.frame", "warlock.studio.modes.create.ui.brief"),
     # No ``create_rail`` row, though P4 moved Create's stage rail out of
     # ``widgets.py`` and ``_stage_rail`` (now in ``shell/frame.py``) calls
@@ -633,6 +635,16 @@ _P10_MUSE_FOLDS_INTO_CREATE: frozenset[tuple[str, str]] = frozenset({
     # is not a member of _EDGE_PAIRS, and test_exceptions_has_no_stale_entries
     # would fail it as stale the moment it landed. See the comment above.
 })
+
+# P9 -- Troupe folded into Poser as a stage (RESTRUCTURE.md: "Rig -> clips ->
+# sheet becomes one workspace"), landed 2026-09-18. Step 1 of that fold
+# relocated the headless engine -- spec/qa/ulpc -- from ``modes/troupe/
+# engine/`` to ``modes/poser/engine/`` verbatim, ahead of the mode merge
+# itself, which is what this group used to name: ``troupe_mode`` and its
+# preview pane reaching across to the new address for a frame table and a QA
+# scorer that used to be their own package. Both edges closed the day the
+# rest of P9 landed and ``modes/troupe/`` stopped existing -- the group itself
+# is gone rather than left empty, ``_P3_FAMILIAR_MOVES_OUT``'s own precedent.
 
 # P11 -- Review folds into a Library view; P12 -- Home folds into Library's
 # empty state. `panes/candidates_panel.py` and `panes/library.py` reaching

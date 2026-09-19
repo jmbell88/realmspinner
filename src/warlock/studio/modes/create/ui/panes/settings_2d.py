@@ -556,7 +556,8 @@ def _pixel_look(
     whatever ``resolve_palette`` returned. So on this form a dither with no
     palette dithers against the derived table, which is a real and different
     picture -- and hiding the box would make *that* the unreachable capability.
-    Troupe's pane, the one that shipped these controls first, draws it
+    Poser's character-sheet form (Troupe's own pane, before P9 2026-09-18
+    folded that mode in, shipped these controls first) draws it
     unconditionally for the same reason.
 
     The palette list comes from the arm's own door and never from
