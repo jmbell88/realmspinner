@@ -280,3 +280,47 @@ def test_the_generate_command_does_not_spawn_a_stray_menu_root_outside_create():
             f"a stray menu root should not exist in {mode}, got paths "
             f"{sorted({r.path for r in rows if r.path[0] not in menus.ROOTS})}"
         )
+
+
+def _row(path):
+    """A minimal ``MenuSpec`` naming only ``path``, which is all ``roots()``
+    reads."""
+    from realmspinner.studio import menus
+
+    return menus.MenuSpec(
+        identity=f"test:{'/'.join(path)}",
+        path=path,
+        order=0,
+        label="x",
+        enabled=True,
+        checked=False,
+        shortcut="",
+        disabled_reason="",
+        callback=lambda: None,
+    )
+
+
+def test_roots_places_a_contextual_workspace_menu_before_view():
+    """shell-09 (the 2026-09-20 audit): ``roots()``'s own docstring promises
+    "contextual workspace menus before View" and nothing in the suite ever
+    called it -- so a mode's contextual root landing after View/Window would
+    read as the app's own fixed menus having reordered themselves, with
+    nothing failing to say otherwise."""
+    from realmspinner.studio import menus
+
+    rows = [_row(("File",)), _row(("Edit",)), _row(("Clay",)), _row(("View",))]
+    order = menus.roots(rows)
+    assert order.index("Clay") < order.index("View")
+    assert order == ["File", "Edit", "Clay", "View", "Workspace", "Window", "Help"]
+
+
+def test_roots_is_just_the_six_fixed_roots_when_no_row_is_contextual():
+    """The six named in :data:`menus.ROOTS` are permanent menu-bar sections
+    (drawn even empty) -- unlike a contextual root, which only appears when a
+    row actually asked for it. With no contextual row at all, ``roots()``
+    must return exactly the fixed six, in their declared order, regardless of
+    which of them a particular frame's rows happen to populate."""
+    from realmspinner.studio import menus
+
+    assert menus.roots([]) == list(menus.ROOTS)
+    assert menus.roots([_row(("File",)), _row(("Help",))]) == list(menus.ROOTS)

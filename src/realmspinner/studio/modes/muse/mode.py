@@ -218,8 +218,21 @@ def derive(ctx: Any) -> bool:
     An ``edit`` sends ``None`` for a field the user left alone rather than the
     empty string, because those mean different things at that door: ``None`` is
     "keep the parent's" and ``""`` is "drop the words entirely".
+
+    **The 2026-09-20 audit, finding muse-01.** ``generate``'s docstring above
+    claims every entry into a music job inherits the ``model_gate`` check, but
+    this door never called it -- deriving with the weights gone reached
+    ``derive_music_job``'s own refusal, which names a field no control in the
+    derive popup carries, instead of the mode's own gate pointing at the
+    Recipe panel. Checked here, the same way ``generate`` and
+    ``compose_from_sirens`` do it, so the claim is actually true.
     """
     from ....service import jobs as svc_jobs
+    from ...panes import model_gate
+
+    if model_gate.missing(ctx, svc_jobs.MUSIC_ROWS):
+        ctx.toast("The music model is not downloaded. See the Recipe panel.", "warn")
+        return False
 
     state = ensure(ctx)
     form = dict(state.derive_form)

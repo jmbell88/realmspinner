@@ -171,6 +171,34 @@ def test_ref_edit_undo_and_redo_apply_ref_by_uid():
     assert doc.calls == [("ref", 4, None), ("ref", 4, ref)]
 
 
+def test_ref_edit_and_subtree_bytes_charge_a_primitive_refs_large_nested_params_not_just_sys_getsizeof():  # noqa: E501
+    """The 2026-09-20 audit's mason-01: ``_ref_bytes`` priced a
+    ``PrimitiveRef`` with a bare ``sys.getsizeof``, which only sees the
+    dataclass's own three pointers and never what its ``params`` tuple
+    holds -- a lathe or sweep profile of thousands of ``(x, y)`` points was
+    charged the same handful of bytes as an empty one (an ~11,700x
+    undercount against the real bytes, per the audit's own measurement).
+    ``nd.subtree_bytes`` compounded it by never charging a ``MeshNode``'s
+    ``ref`` at all. Against the unfixed code, ``big_cost`` is barely bigger
+    than ``small_cost`` and ``subtree_bytes`` does not move when the same
+    big ref is attached to a mesh node.
+    """
+    small_ref = refs.primitive_ref("lathe", {"profile": [[0.0, 0.0], [1.0, 1.0]]})
+    big_profile = [[float(i), float(i) * 0.5] for i in range(5_000)]
+    big_ref = refs.primitive_ref("lathe", {"profile": big_profile})
+
+    small_cost = ed.RefEdit(1, None, small_ref).cost
+    big_cost = ed.RefEdit(1, None, big_ref).cost
+    # ~5,000 (x, y) float pairs is on the order of hundreds of KB; two
+    # orders of magnitude of headroom over the small ref is well clear of
+    # dataclass/tuple overhead noise and still catches the reported bug.
+    assert big_cost > small_cost * 100
+
+    mesh_no_ref = nd.MeshNode(uid=nd.new_uid())
+    mesh_with_ref = nd.MeshNode(uid=nd.new_uid(), ref=big_ref)
+    assert nd.subtree_bytes(mesh_with_ref) > nd.subtree_bytes(mesh_no_ref) + 100_000
+
+
 # --- TerrainEdit ---------------------------------------------------------------
 
 

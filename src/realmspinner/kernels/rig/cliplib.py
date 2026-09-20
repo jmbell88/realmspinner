@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import charsheet
+from ..sheet import POSE_SPACES
 from .poses import validate_bones
 from .templates import TEMPLATE_DIR, _read_json_capped, catalog, get_template
 
@@ -277,6 +278,14 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
     # clip: a library mixing the two would be one edit away from a clip that
     # silently means the other thing.
     space = str(raw.get("space") or "node")
+    # The 2026-09-20 audit's poser-02: read with no membership test, unlike
+    # ``sheet.py``'s own doors for the identical field. An unrecognised value
+    # reached ``blender_worker._apply_pose``, which treats anything but the
+    # exact string "delta" as "node" -- so a misspelled space applied every
+    # clip in this file in the wrong rotation frame, silently. Raised here
+    # like every other malformed-file case this parser already refuses on.
+    if space not in POSE_SPACES:
+        raise ValueError(f"space must be one of {list(POSE_SPACES)}, not {space!r}")
     clips = []
     clip_names = [str(clip["name"]) for clip in raw["clips"]]
     if len(set(clip_names)) != len(clip_names):

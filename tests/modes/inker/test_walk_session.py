@@ -435,6 +435,33 @@ def test_an_unfinished_rig_previews_nothing_rather_than_half_a_figure():
     assert inker_walk.frames(ctx.state.inker.walk) == []
 
 
+def test_clipping_does_not_rerender_the_walk_cycle_on_every_call(monkeypatch):
+    """The 2026-09-20 audit, finding inker-05: ``clipping`` called the
+    uncached ``walk.frames`` directly instead of reading a memo on the same
+    ``(rig.rev, settings)`` stamp ``frames`` above already uses, so the setup
+    panel's clipping note (drawn every frame a session is open) re-rendered
+    the whole eight-frame cycle every draw -- ~9.9 ms/call on the 8-part,
+    64x64 test rig, 59% of a 60 fps budget."""
+    ctx, tab = _scene()
+    session = _rigged(ctx, tab)
+    calls: list[int] = []
+    real_frames = walk.frames
+
+    def counting(rig, settings, *a, **kw):
+        calls.append(1)
+        return real_frames(rig, settings, *a, **kw)
+
+    monkeypatch.setattr(walk, "frames", counting)
+
+    inker_walk.clipping(session)
+    inker_walk.clipping(session)
+    assert calls == [1], "a second call with nothing changed must read the memo"
+
+    inker_walk.set_setting(ctx, tab, "arm_swing", 40.0)
+    inker_walk.clipping(session)
+    assert len(calls) == 2, "a settings change must invalidate the memo"
+
+
 def test_playback_advances_off_the_clock_and_wraps():
     ctx, tab = _scene()
     session = _rigged(ctx, tab)

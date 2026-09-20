@@ -67,6 +67,12 @@ class Viewer(PoseOps, FrameOps):
         #: cleared by the pane that draws the joint menu -- ``clay_view``'s
         #: rule, and its reason: this layer may not know imgui exists.
         self.menu_request: tuple[float, float] | None = None
+        #: The pending right-button press ``FrameOps._rmb_release`` resolves on
+        #: release -- see ``_press``'s button-3 branch. Until the 2026-09-20
+        #: audit (finding create-04) the menu opened straight from the press,
+        #: bypassing the four-pixel slop rule ``_rmb_release`` exists to apply,
+        #: so a right-drag still popped the joint menu.
+        self._rmb_at: tuple[float, float] | None = None
         # Which job's rig the editor is bound to, so a write can never land on
         # whichever asset happens to be selected. See enter_pose_mode.
         self.pose_job_id: str | None = None
@@ -513,6 +519,11 @@ class Viewer(PoseOps, FrameOps):
             return self._press(event.button, local)
         if event.type == pygame.MOUSEBUTTONUP:
             self._render_dirty = True
+            if event.button == 3:
+                # Routed through the shared slop rule rather than the generic
+                # ``_release`` below: see ``_press``'s button-3 branch and the
+                # 2026-09-20 audit, finding create-04.
+                return self._rmb_release(local)
             return self._release(event.button)
         if event.type == pygame.MOUSEMOTION:
             return self._motion(local)
@@ -576,7 +587,16 @@ class Viewer(PoseOps, FrameOps):
             # nobody is posing. Recorded rather than opened, ``clay_view``'s
             # rule -- the pane layer is the only one allowed to know imgui
             # exists.
-            self.menu_request = local
+            #
+            # Recorded here, not opened: the menu itself only appears on a
+            # *clean* release, through ``FrameOps._rmb_release``'s four-pixel
+            # slop rule. Opening it straight from the press (the 2026-09-20
+            # audit, finding create-04) skipped that rule entirely, so a
+            # right-drag still popped the menu -- exactly the "grabbing the
+            # wrong button mid-orbit costs nothing" promise the comment below
+            # makes for every other viewport. ``handle_event`` routes the
+            # matching release to ``_rmb_release`` rather than ``_release``.
+            self._rmb_at = local
             return True
         # **Alt+drag orbits, as it does in Clay, and the middle button pans.**
         # Until 2026-09-05 Alt+drag *panned* here, with a comment citing Maya

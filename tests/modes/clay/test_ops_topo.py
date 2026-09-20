@@ -306,6 +306,29 @@ def test_extrude_refuses_an_empty_selection() -> None:
         ops.extrude_faces(prim.box(), el.empty())
 
 
+def test_extrude_faces_refuses_past_a_size_ceiling_before_stalling_the_frame_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-20 audit's clay-03: unlike the nine sibling growth ops in
+    this package (`MAX_INSET_CORNERS`, `MAX_COLLAPSED_PAIRS`,
+    `MAX_BRIDGED_RING` among them), `extrude_faces` had no size ceiling of
+    any kind -- reproduced at 504 ms for an 800k-corner selection, 2.65s for
+    3.2M, linear, no refusal. Refuse from the selection's own corner count
+    before `_region_offsets` runs.
+    """
+    monkeypatch.setattr(ops, "MAX_EXTRUDE_CORNERS", 4)
+    box = prim.box()
+    sel = el.ElementSel(faces=np.arange(bm.face_count(box), dtype="i4"))
+    with pytest.raises(el.OpError, match="past the"):
+        ops.extrude_faces(box, sel)
+
+
+def test_extrude_faces_stays_reachable_under_the_ceiling() -> None:
+    """The ceiling must not have crept down onto ordinary use."""
+    box = prim.box()
+    assert 4 * bm.face_count(box) < ops.MAX_EXTRUDE_CORNERS
+
+
 # --- inset_faces ------------------------------------------------------------
 
 

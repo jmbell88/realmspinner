@@ -1704,3 +1704,55 @@ def test_fetch_pack_and_update_worker_report_an_unreadable_spec_as_a_sentence_no
         assert proc.returncode == 2, (module, proc.returncode, proc.stdout, proc.stderr)
         assert "Traceback" not in proc.stderr, (module, proc.stderr)
         assert proc.stderr.strip(), f"{module} printed no sentence explaining the refusal"
+
+
+def test_fetch_pack_and_update_worker_stage_their_result_write(tmp_path, monkeypatch):
+    """2026-09-20 audit, pipelines-02: fetch_worker.main, pack_worker.main and
+    update_worker.main all wrote their result JSON with a bare
+    ``result_path.write_text(...)`` -- unlike blender_worker.main,
+    lora_train_worker.main and separation_worker.main, which stage the write
+    into a ``.tmp`` sibling and ``Path.replace`` it onto the served name, each
+    with a comment citing that rule. The host polls ``result_path`` for
+    existence, so a write left partial by a crash mid-write would be read as
+    a finished (if malformed) result instead of no result yet -- the same
+    "never write onto a served name in place" hazard those three were fixed
+    for.
+
+    Each worker's own network/install function is stubbed out so this runs
+    in-process with no network; only ``main()``'s own write is under test.
+    ``Path.write_text`` is spied on to prove the write lands on a ``.tmp``
+    sibling and never directly on ``result_path``.
+    """
+    pack_worker = __import__("realmspinner.pipelines.pack_worker", fromlist=["_"])
+    update_worker = __import__("realmspinner.pipelines.update_worker", fromlist=["_"])
+    fetch_worker = _import_fetch_worker()
+
+    writes: list[Path] = []
+    real_write_text = Path.write_text
+
+    def spy_write_text(self, *a, **kw):
+        writes.append(self)
+        return real_write_text(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "write_text", spy_write_text)
+
+    for module, fn_name in (
+        (fetch_worker, "fetch_one"),
+        (pack_worker, "run"),
+        (update_worker, "run"),
+    ):
+        writes.clear()
+        result_path = tmp_path / f"{module.__name__.rsplit('.', 1)[-1]}-result.json"
+        monkeypatch.setattr(module, fn_name, lambda _spec: {"ok": True})
+        monkeypatch.setattr(
+            sys, "stdin", io.StringIO(json.dumps({"result_path": str(result_path)}))
+        )
+        assert module.main() == 0, module.__name__
+        assert json.loads(result_path.read_text(encoding="utf-8"))["ok"] is True
+        assert result_path not in writes, (
+            f"{module.__name__}.main() wrote straight onto result_path instead of "
+            "staging a .tmp sibling and replacing"
+        )
+        assert any(p.name.endswith(".tmp") for p in writes), (
+            f"{module.__name__}.main() never staged a .tmp file before replacing result_path"
+        )

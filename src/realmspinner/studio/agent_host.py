@@ -446,6 +446,23 @@ def _protected(op: _Op) -> bool:
     return not op.fetched
 
 
+class _Saturated(Exception):
+    """Raised by :meth:`_Calls.mint` in place of its old evict-anyway
+    fallback, when the store is full and every remembered operation is
+    :func:`_protected` -- nothing safe to make room with.
+
+    The 2026-09-20 audit (agents-02): before this, the refusal lived only
+    in :meth:`AgentHost._call_task`'s own pre-mint check against
+    :meth:`_Calls.saturated`, so :meth:`AgentHost._call`'s ordinary
+    blocking mint -- ``mint``'s *other* caller -- never consulted it and
+    reached the same fallback unguarded, evicting a still-``QUEUED``
+    task-mode operation to make room for an unrelated blocking call. That
+    is the 2026-09-18 audit's agents-05 hole through the other door: two
+    copies of one rule had already drifted once. Raising here instead
+    means both callers share the single enforcement point inside
+    :meth:`_Calls.mint` itself; each catches it and crafts its own reply."""
+
+
 class _Calls:
     """One connection's memory of the operations it has already run, keyed
     by :func:`_fingerprint` so a retried intent can be recognised without a
@@ -474,7 +491,9 @@ class _Calls:
         # over with nothing minted, exactly as it gets a fresh Clay session.
         self.character = agent_character.Session()
 
-    def mint(self, tool: str, args: dict, *, task_mode: bool = False) -> _Op:
+    def mint(
+        self, tool: str, args: dict, *, task_mode: bool = False, exempt: bool = False
+    ) -> _Op:
         """A fresh operation id and its intent fingerprint, remembered as
         undelivered. Evicts one existing operation when the store is already
         at ``MAX_REMEMBERED_CALLS`` -- the oldest *evictable* one, not simply
@@ -484,21 +503,28 @@ class _Calls:
         a slow task could lose the only handle to it while it is still
         running (see :func:`_protected`).
 
-        The 2026-09-18 audit (agents-05) found that when *every* remembered
-        operation happened to be protected, this method fell through to
-        evicting the oldest one anyway -- a still-``QUEUED`` operation's only
-        handle silently vanished so a *new* task-mode call could have a slot,
-        which is backwards: the memory bound exists to bound an idle client's
-        junk, not to make room by killing a client's own working task.
-        :meth:`AgentHost._call_task` now checks :meth:`saturated` before ever
-        minting a new task-mode operation and refuses instead (a clear error
-        the caller can read, rather than a `status` poll that later, and
-        silently, starts saying `not_found`) -- so this fallback should never
-        actually fire for a task-mode mint anymore. It is kept, unchanged,
-        for the ordinary blocking path (:meth:`AgentHost._call`'s own
-        ``mint``, always ``task_mode=False``): a blocking call has no
-        durable handle worth protecting once its own reply is on the wire,
-        so the hard cap still wins there.
+        Raises :class:`_Saturated` -- rather than falling through to
+        evicting the oldest entry regardless of protection -- when the store
+        is already full and every remembered operation is protected, so
+        nothing here is safe to take. The 2026-09-18 audit (agents-05) found
+        that old fallback firing for a task-mode mint: a still-``QUEUED``
+        operation's only handle silently vanished so a *new* task-mode call
+        could have a slot. The 2026-09-20 audit (agents-02) found the same
+        fallback still reachable from the *other* caller of this method,
+        :meth:`AgentHost._call`'s ordinary blocking mint (always
+        ``task_mode=False``), which minted no task-mode operations of its
+        own and so had no reason to check :meth:`saturated` first -- it
+        evicted a still-working task-mode operation anyway to make room for
+        an unrelated blocking call. Raising here, in the one place both
+        callers pass through, closes that door for both rather than asking
+        every future call site to remember a pre-check.
+
+        *exempt* keeps the old evict-the-oldest-anyway behaviour for the one
+        caller that must never be refused outright: ``STATUS_TOOL``, whose
+        own mint in :meth:`AgentHost._call_task` passes it, because it
+        exists precisely to answer while the connection is stuck -- and a
+        fully saturated store is exactly that kind of stuck (see
+        ``_call_task``'s own docstring).
 
         Read without ``AgentHost._job_lock``: the state this consults is a
         snapshot, exactly as tolerant as every other unlocked read in this
@@ -514,6 +540,12 @@ class _Calls:
                 victim = oid
                 break
             if victim is None:
+                if not exempt:
+                    raise _Saturated(
+                        f"{MAX_REMEMBERED_CALLS} operations are already remembered "
+                        "on this connection and every one of them is still "
+                        "working, or finished but never polled."
+                    )
                 victim = next(iter(self._ops))
             del self._ops[victim]
         # Incremented before use, so the first minted id is op-1, not op-0.
@@ -530,13 +562,16 @@ class _Calls:
 
     def saturated(self) -> bool:
         """True once this store holds ``MAX_REMEMBERED_CALLS`` operations
-        and every single one is :func:`_protected` -- so a further
-        task-mode mint would have nothing evictable to make room with. See
-        :meth:`mint`'s own docstring for the 2026-09-18 audit (agents-05)
-        this exists to answer: :meth:`AgentHost._call_task` calls this
-        *before* minting a new task-mode operation and refuses the call
-        outright when it is true, rather than letting ``mint`` fall through
-        to evicting a working task to make room for a new one."""
+        and every single one is :func:`_protected` -- so a further mint
+        would have nothing evictable to make room with and (absent
+        ``mint``'s ``exempt``) would raise :class:`_Saturated`. A read-only
+        query, kept for callers and tests that want the answer without
+        minting anything; :meth:`AgentHost._call` and
+        :meth:`AgentHost._call_task` no longer pre-check it themselves
+        (the 2026-09-20 audit, agents-02, moved the actual refusal inside
+        ``mint`` itself so both share one enforcement point instead of a
+        pre-check only one of them remembered to make) -- they call
+        ``mint`` and catch :class:`_Saturated` instead."""
         return len(self._ops) >= MAX_REMEMBERED_CALLS and all(
             _protected(op) for op in self._ops.values()
         )
@@ -1467,7 +1502,23 @@ class AgentHost:
             if replay is not None:
                 return replay
 
-        op = calls.mint(name, arguments)
+        try:
+            op = calls.mint(name, arguments)
+        except _Saturated as exc:
+            # The 2026-09-20 audit (agents-02): this mint used to reach
+            # `_Calls.mint`'s eviction fallback unguarded -- unlike
+            # `_call_task`, which already checked `saturated()` before its
+            # own mint -- so an ordinary blocking call landing on a
+            # connection whose task-mode store was already full of
+            # still-working operations evicted one of them anyway to make
+            # room for itself. `mint` now refuses instead (see
+            # `_Saturated`, the single enforcement point both this method
+            # and `_call_task` share); nothing was minted or queued.
+            return rpc.fail(
+                f"{exc} Poll or cancel an existing task-mode operation on this "
+                "connection, or retry this call once one completes.",
+                recovery="retry",
+            )
         if name in agent_character.HANDLERS:
             # The character tool surface's own doors (subprocesses, sqlite,
             # disk) never touch a Document, GL or imgui, so they run on the
@@ -1834,17 +1885,24 @@ class AgentHost:
         queue entirely: it exists to answer *while something else is stuck*,
         and a saturated task store (sixteen other operations all still
         working) is exactly that kind of stuck. Any other tool refuses
-        instead of minting -- see :meth:`_Calls.saturated`."""
-        if name != STATUS_TOOL and calls.saturated():
+        instead of minting -- see :meth:`_Calls.mint`'s own ``exempt``
+        parameter, the single enforcement point both this method and
+        :meth:`AgentHost._call` now share (the 2026-09-20 audit, agents-02:
+        this refusal used to live only here, as a pre-mint check nothing
+        stopped :meth:`_call` from skipping)."""
+        try:
+            op = calls.mint(name, arguments, task_mode=True, exempt=(name == STATUS_TOOL))
+        except _Saturated:
             # The 2026-09-18 audit (agents-05): with MAX_REMEMBERED_CALLS
             # task-mode operations all still working, a further task-mode
             # call used to reach `calls.mint` anyway, which -- finding
             # nothing evictable -- evicted the oldest working operation
             # regardless, so a client polling `status`/`cancel` for it later
             # got a bare `{"error": {"code": "not_found"}}` with no way to
-            # tell a lost handle from a job that never existed. Refused here
-            # instead, before anything is minted or queued, with a header
-            # the caller can actually read the reason from.
+            # tell a lost handle from a job that never existed. `mint`
+            # itself now refuses (see `_Saturated`) rather than minting or
+            # queuing anything, with a header the caller can actually read
+            # the reason from.
             return {
                 "error": {
                     "code": "saturated",
@@ -1858,7 +1916,6 @@ class AgentHost:
                     ),
                 }
             }
-        op = calls.mint(name, arguments, task_mode=True)
         op.args = arguments
         if name == STATUS_TOOL:
             result = self._status(calls, arguments)

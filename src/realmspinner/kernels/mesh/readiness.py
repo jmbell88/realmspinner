@@ -12,17 +12,20 @@ the panel shows a warning is a contradiction with nobody's name on it. Every
 (:data:`FIX_OPS`), never a made-up verb, so a caller can run it rather than
 just print it.
 
-**Nothing here mutates or refuses.** Unlike :mod:`.ops_clean` (which fixes)
-or :mod:`.ops_boolean` (which refuses past a ceiling), this module only
-*measures*, the same doctrine :mod:`.diagnose` and :mod:`.analyze` are
-written under -- see their own docstrings. A readiness read that silently
-skipped an expensive object rather than refusing outright is not new
-behaviour invented here either: it is the same "measure, do not stall"
-answer :mod:`.analyze` gives for :data:`~.analyze.MAX_ANALYZE_TRIANGLES`,
+**Nothing here mutates, and only one thing refuses.** Unlike :mod:`.ops_clean`
+(which fixes) or :mod:`.ops_boolean` (which refuses past a ceiling), this
+module almost always only *measures*, the same doctrine :mod:`.diagnose` and
+:mod:`.analyze` are written under -- see their own docstrings. A readiness
+read that silently skipped an expensive object rather than refusing outright
+is not new behaviour invented here either: it is the same "measure, do not
+stall" answer :mod:`.analyze` gives for :data:`~.analyze.MAX_ANALYZE_TRIANGLES`,
 just landing as a per-check ``"skip"`` instead of a raised
 :class:`~.elements.OpError`, because a readiness report that refused outright
 the moment one object in a forty-object scene was oversized would be a worse
 answer than "everything else checked out; here is what did not run and why."
+The one exception is :data:`MAX_VALIDATE_OBJECTS`, a document-*wide* object
+count rather than one object's own size -- see its own docstring for why a
+per-object skip cannot answer the case it exists for.
 
 **Why a check fails rather than warns.** Every check here defaults to
 ``warn`` -- an engine budget is advice, not a correctness rule, and the
@@ -98,17 +101,48 @@ from ..geom3d import math3d as m3
 from . import mesh as bm
 from . import ops, ops_clean, primitives
 from .adjacency import check_manifold
+from .elements import OpError
 
 __all__ = [
     "CHECKS",
     "DEFAULT_PROFILE",
     "FIX_OPS",
+    "MAX_VALIDATE_OBJECTS",
     "PROFILES",
     "Check",
     "Profile",
     "Report",
     "validate",
 ]
+
+
+MAX_VALIDATE_OBJECTS = 1_000
+"""The most visible objects one :func:`validate` call may face at once --
+:mod:`.analyze`'s :data:`~.analyze.MAX_ANALYZE_OBJECTS` shape, applied here
+for the first time. The 2026-09-20 audit's clay-05 measured :func:`validate`
+against documents of only ordinary-sized *objects* (not the oversized-mesh
+case :data:`~.ops_clean.MAX_CLEAN_CORNERS` already guards): 522 ms at 50
+objects, 3.7 s at 800, 15.1 s at 3,200 -- because every check here still
+walks every object once (a ``survey`` call apiece for ``geometry``/
+``normals``/``closed`` alone), and nothing before this ceiling existed
+bounded how many objects there could be, only how big one of them could be.
+1,000 sits close to the 800-object measurement (3.7 s) rather than the
+3,200-object one (15.1 s): a single Check press tying up a worker thread for
+multiple seconds is already a bad trade for a whole-document button, and this
+module's own cost section states a ~1 s whole-document budget it is built to.
+
+This is the one exception to this module's own "nothing here mutates or
+refuses" doctrine (see the module docstring) -- past this many objects the
+per-object work is not merely slow, it is a document whose size answers its
+own readiness question before the checks even run: an asset a game engine
+imports as *one thing* does not have a thousand separate objects in it.
+:func:`~.mode.check_readiness` (``studio/modes/clay/mode.py``) now also runs
+this off the frame thread via ``TaskRunner`` (the same audit's other half of
+clay-05), so this ceiling is not a frame-stall guard the way
+:data:`~.analyze.MAX_ANALYZE_OBJECTS` is -- it exists so one Check press
+cannot tie up a task-pool worker for double-digit seconds on a document this
+disproportionate, and so a user who somehow ends up with one is told why
+rather than waiting it out."""
 
 
 CHECKS: tuple[str, ...] = (
@@ -937,8 +971,12 @@ def validate(doc: Any, profile: str = DEFAULT_PROFILE, *, visible_only: bool = T
     (each duck-typed on the five texture slots and the factor fields --
     :class:`~.geom3d.gltf.Material`'s), the same "read a document without
     importing one" contract :mod:`.analyze` and :mod:`.diagnose` state for
-    their own entry points. Nothing here mutates *doc* or raises: every
-    ceiling below is a ``"skip"`` row naming why, never a refusal.
+    their own entry points. Nothing here mutates *doc*; every ceiling below
+    is a ``"skip"`` row naming why, never a refusal, except
+    :data:`MAX_VALIDATE_OBJECTS` -- raised as an :class:`~.elements.OpError`
+    before any per-object work runs, the same "known cheaply, refused before
+    it is paid for" shape :func:`~.analyze.analyze` uses for its own object
+    and triangle ceilings.
 
     **Every check below measures the evaluated mesh**, not the base --
     ``doc.evaluated(obj.uid)`` is swapped in for ``obj.mesh`` once, here,
@@ -969,6 +1007,23 @@ def validate(doc: Any, profile: str = DEFAULT_PROFILE, *, visible_only: bool = T
     # same way.
     keep = [obj for obj in doc.objects if getattr(obj, "role", "mesh") != "collider"]
     visible = [obj for obj in keep if obj.visible] if visible_only else keep
+
+    # The 2026-09-20 audit's clay-05: checked here, against the raw count,
+    # before a single ``_evaluated_world`` call runs -- every check below
+    # walks every object at least once (a ``survey`` call apiece for three of
+    # them), so a document already past this ceiling would otherwise pay for
+    # that walk before ever being told no, the same "refuse before the cost"
+    # shape :func:`~.analyze.analyze` uses for its own object and triangle
+    # ceilings. See :data:`MAX_VALIDATE_OBJECTS` for the measurements behind
+    # the number and why this is the one refusal in an otherwise
+    # measure-only module.
+    if len(visible) > MAX_VALIDATE_OBJECTS:
+        raise OpError(
+            f"This document has {len(visible)} visible objects, past the "
+            f"{MAX_VALIDATE_OBJECTS:,} Game check works with at once. Hide "
+            "or delete some before checking readiness."
+        )
+
     objects = [_evaluated_world(obj, doc) for obj in visible]
 
     # The collider objects the pass above dropped, read back for the three

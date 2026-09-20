@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import colorsys
 import logging
+import weakref
 from dataclasses import dataclass
 from typing import Any
 
@@ -181,14 +182,31 @@ def _hex_color(color: tuple[int, int, int]) -> str:
     return "#{:02x}{:02x}{:02x}".format(*color)
 
 
-def _count_color(pixels: np.ndarray, color: tuple[int, int, int]) -> int:
-    """How many pixels of an ``(h, w, 3)`` uint8 image match *color* exactly.
+def _count_colors(
+    pixels: np.ndarray, colors: dict[int, tuple[int, int, int]]
+) -> dict[int, int]:
+    """How many pixels of an ``(h, w, 3)`` uint8 image match each of *colors*
+    exactly. -> ``{uid: pixel count}``, 0 for a colour the image never drew.
 
-    Exact match, not a tolerance: ``Renderer.draw_ids`` draws with blending
-    and MSAA both off precisely so this comparison never has to guess at a
-    near-miss."""
-    match = np.all(pixels == np.array(color, dtype=np.uint8), axis=-1)
-    return int(np.count_nonzero(match))
+    The 2026-09-20 audit's clay-07: the previous shape, ``_count_color``, ran
+    one ``np.all(pixels == color)`` pass over the *whole* image *per object*,
+    synchronously on the frame thread that must never block (this module's
+    own header) -- ~1.07s for 100 objects at the default 1024 size. Packing
+    each pixel's three channels into one integer and asking ``np.unique`` for
+    every distinct value and its count is one pass over the pixels regardless
+    of how many objects are in *colors*; the per-uid lookup afterwards is a
+    dict get, not a second scan. Exact match, not a tolerance:
+    ``Renderer.draw_ids`` draws with blending and MSAA both off precisely so
+    this never has to guess at a near-miss.
+    """
+    packed = pixels.astype(np.uint32)
+    packed = (packed[..., 0] << 16) | (packed[..., 1] << 8) | packed[..., 2]
+    values, counts = np.unique(packed, return_counts=True)
+    by_packed = dict(zip(values.tolist(), counts.tolist(), strict=True))
+    return {
+        uid: by_packed.get((color[0] << 16) | (color[1] << 8) | color[2], 0)
+        for uid, color in colors.items()
+    }
 
 
 @dataclass(frozen=True)
@@ -348,7 +366,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         # array's address coming back on a different transform would otherwise
         # match a stale matrix.
         self._world_cache: dict[
-            int, tuple[tuple[int, ...], Any, tuple[Any, ...]]
+            tuple[int, int],
+            tuple[weakref.ReferenceType[Any], tuple[int, ...], Any, tuple[Any, ...]],
         ] = {}
         # element_centre / selection_centre / world_bounds memos (B25/B27),
         # each ``(key, answer, pins)`` -- the pins hold what the key's ids name.
@@ -502,19 +521,44 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         answers "what does the parent chain compose to" -- a root's chain is
         empty, so this still costs one ``compose`` for a document with no
         parenting, exactly as it always has.
+
+        **The dict slot is ``(id(doc), obj.uid)``, not ``obj.uid`` alone.**
+        The 2026-09-20 audit's clay-20: ``_ghost_draws`` calls this against
+        two documents that deliberately share a uid namespace -- the live
+        document and its Familiar preview scratch clone -- and a single slot
+        per uid meant each document's entry evicted the other's every frame
+        both were drawn, defeating the pin that keeps the winning entry's
+        transform arrays alive.
+
+        **The entry checks a weak reference to ``doc``, not a strong one.**
+        ``_centre_memo``/``_bounds_memo`` (``_view_bounds.py``) pin their
+        ``doc`` outright, but those only fire while a gizmo is on screen; this
+        memo fires on *every* draw of *every* visible object, so a strong pin
+        here would keep a closed tab's whole document graph alive for as long
+        as ``_world_cache`` happens to hold that slot (up to the 4096-entry
+        cap) -- reopening the exact leak ``tests/modes/clay/
+        test_clay_view_cache.py``'s ``test_the_pinned_document_survives_
+        every_other_reference_being_dropped`` (2026-09-07 audit's clay-09)
+        proves does *not* happen once a tab's only other referrer drops it.
+        A dead weakref is simply a miss: ``id(doc)`` is only ever used to pick
+        the dict bucket, never trusted on its own, so a collected document's
+        address being handed to an unrelated new one is safe too -- the
+        dereferenced weakref will not be that new document, however the
+        addresses land.
         """
         chain = [obj, *(doc.by_uid(u) for u in doc.ancestors(obj.uid))]
+        slot = (id(doc), obj.uid)
         key = tuple(id(v) for o in chain for v in (o.translation, o.rotation, o.scale))
-        hit = self._world_cache.get(obj.uid)
-        if hit is not None and hit[0] == key:
-            return hit[1]
+        hit = self._world_cache.get(slot)
+        if hit is not None and hit[0]() is doc and hit[1] == key:
+            return hit[2]
         world = doc.world_matrix(obj.uid)
         # Every ancestor's arrays are pinned, not only this object's own: an
         # id in the key is only sound while the array it names is alive, and
         # nothing else holds an ancestor's transform alive on this cache's
         # behalf.
         pins = tuple(v for o in chain for v in (o.translation, o.rotation, o.scale))
-        self._world_cache[obj.uid] = (key, world, pins)
+        self._world_cache[slot] = (weakref.ref(doc), key, world, pins)
         if len(self._world_cache) > 4096:
             self._world_cache.clear()
         return world
@@ -1008,9 +1052,9 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
             self.renderer.draw_ids(target, self.camera, self._composite(doc), id_colors=colors)
             png = capture.png_bytes(target)
             pixels = target.read_rgba()[..., :3]
+            counts = _count_colors(pixels, colors)
             rows = [
-                (uid, _hex_color(color), _count_color(pixels, color))
-                for uid, color in sorted(colors.items())
+                (uid, _hex_color(color), counts[uid]) for uid, color in sorted(colors.items())
             ]
             return png, rows
         finally:

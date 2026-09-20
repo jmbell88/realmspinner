@@ -313,12 +313,42 @@ def _pose(ctx: Any, job: Any, viewer: Any) -> None:
         guard(ctx, "move joints", viewer.enter_joints_mode)
 
 
+def _apply_saved_pose(ctx: Any, job: Any, pose: dict[str, Any], pose_id: str) -> None:
+    """Apply one of this asset's saved poses, root offset included.
+
+    poser-01 (the 2026-09-20 audit): this used to call ``set_pose`` alone, with
+    no ``reset_all`` first and no ``set_root_translation`` after, so a pose
+    authored with "Move root" lost its offset the moment it was re-applied
+    from here -- the same omission the Poser's own apply door,
+    ``poser_mode.apply_asset_pose``, was fixed for on 2026-09-11 (poser-02).
+    Mirrors that function's sequence exactly: reset clean, then the bones,
+    then the root, both loads landing with ``dirty=False`` since applying a
+    saved pose is not itself an unsaved edit.
+    """
+    if not ctx.viewer.pose_mode:
+        _enter(ctx, job)
+    viewer = ctx.viewer
+    viewer.reset_all(dirty=False)
+    viewer.set_pose(pose.get("bones") or {}, pose_id=pose_id, dirty=False)
+    viewer.set_root_translation(pose.get("root_translation") or [0.0, 0.0, 0.0], dirty=False)
+
+
 def _save(ctx: Any, job: Any, viewer: Any) -> None:
     job_id = job["id"]
     existing = viewer.editor.current
 
     def accept(name: str) -> None:
-        payload: dict[str, Any] = {"name": name, "bones": viewer.get_pose()}
+        # poser-01 (the 2026-09-20 audit): root_translation was missing from
+        # this payload, and store.save_pose rebuilds the record wholesale from
+        # what it is given -- so re-saving a pose authored with "Move root"
+        # erased the offset from disk even though the editor still showed it.
+        # Mirrors poser_mode.save_pose_to_asset's own payload, fixed for the
+        # identical omission by poser-02 on 2026-09-11.
+        payload: dict[str, Any] = {
+            "name": name,
+            "bones": viewer.get_pose(),
+            "root_translation": viewer.editor.root_translation(),
+        }
         if existing:
             # Saving under the same pose replaces it, rather than leaving two
             # called "idle" that differ by one shoulder.
@@ -460,10 +490,8 @@ def _saved_list(ctx: Any, job: Any) -> None:
         if controls.small_button("Apply") and ctx.viewer is not None:
             # Overwrites the editor's rotations and clears dirty, so it is an
             # exit route like Done/Escape and takes the same confirm.
-            def _apply(pose=pose, pose_id=pose_id):
-                if not ctx.viewer.pose_mode:
-                    _enter(ctx, job)
-                ctx.viewer.set_pose(pose.get("bones") or {}, pose_id=pose_id, dirty=False)
+            def _apply(pose=pose, pose_id=pose_id, job=job):
+                _apply_saved_pose(ctx, job, pose, pose_id)
 
             guard(ctx, "apply a saved pose", _apply)
         widgets.same_line_or_wrap(widgets.button_width("Save GLB..."))

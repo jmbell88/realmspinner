@@ -86,15 +86,45 @@ CHARACTER_PREVIEW_LOAD_KEY = "character-preview-load"
 #: that everything else arriving unclaimed can be reported. Each is silent for
 #: its own reason, and the reasons are the point of the list:
 #:
-#: ``open-log``  ``os.startfile``. The outcome is a window the OS opened.
-#: ``thumb:``    a card image written to disk. ``ThumbnailCache`` keys on
-#:               mtime, so the library picks it up without being told.
-#: ``derive:``   an artifact derived *inside* the job directory. Deliberately
-#:               not ``save:`` -- ``app_ctx.derive_key`` says why -- because
-#:               the user chose no destination and "Saved to <internal path>"
-#:               is a sentence about a file they cannot find.
-#: ``wrap:``     the wrap preview. The pane re-reads the file it asked for.
-SILENT_TASK_KEYS = ("open-log", "thumb:", "derive:", "wrap:")
+#: ``open-log``           ``os.startfile``. The outcome is a window the OS
+#:                        opened.
+#: ``open-folder:``       ``app_ctx.reveal_in_explorer``/``os.startfile`` on a
+#:                        directory, keyed per target so two reveals never
+#:                        dedupe against each other. Same shape as
+#:                        ``open-log`` -- the outcome is an Explorer window
+#:                        the OS opened -- but missing here until the
+#:                        2026-09-20 audit, finding shell-06: every "Show in
+#:                        Folder"/"Reveal in Explorer" press logged the line
+#:                        that exists to report a genuine routing bug.
+#: ``open-release-notes`` opens a release URL in the user's browser, an
+#:                        unrelated process. Split out from ``open-log`` by
+#:                        the same audit's finding shell-04 -- see
+#:                        ``run-installer`` below.
+#: ``run-installer``      hands the downloaded installer to the shell to run.
+#:                        Split out from ``open-log`` (shell-04): it shared
+#:                        that key with "Release notes" and "Show in Folder",
+#:                        so ``TaskRunner.submit``'s per-key dedupe silently
+#:                        dropped whichever of the two buttons Settings ->
+#:                        Updates draws side by side was pressed second.
+#: ``thumb:``             a card image written to disk. ``ThumbnailCache``
+#:                        keys on mtime, so the library picks it up without
+#:                        being told.
+#: ``derive:``            an artifact derived *inside* the job directory.
+#:                        Deliberately not ``save:`` -- ``app_ctx.derive_key``
+#:                        says why -- because the user chose no destination
+#:                        and "Saved to <internal path>" is a sentence about a
+#:                        file they cannot find.
+#: ``wrap:``              the wrap preview. The pane re-reads the file it
+#:                        asked for.
+SILENT_TASK_KEYS = (
+    "open-log",
+    "open-folder:",
+    "open-release-notes",
+    "run-installer",
+    "thumb:",
+    "derive:",
+    "wrap:",
+)
 
 
 DEFAULT_SIZE = (1600, 950)

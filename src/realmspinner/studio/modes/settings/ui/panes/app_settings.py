@@ -2539,16 +2539,26 @@ def _update_result(ctx: Any, download_busy: bool) -> None:
         # A URL handed to the shell, which opens it in whatever the user's
         # browser is -- an unrelated process, exactly as if they had typed it.
         # Nothing in *this* process becomes able to reach the network.
-        ctx.submit("open-log", _open, release_url)
+        #
+        # Its own key, not "open-log": the 2026-09-20 audit, finding shell-04
+        # found this, "Run Installer" and "Show in Folder" all sharing the
+        # literal "open-log", so TaskRunner.submit's per-key dedupe silently
+        # dropped whichever of these two buttons -- drawn side by side -- was
+        # pressed second.
+        ctx.submit("open-release-notes", _open, release_url)
     ready = _staged(ctx, info)
     if ready is not None:
         widgets.muted(f"Update ready -- {ready.name}")
         if controls.small_button(f"{icons.DOWNLOAD} Run Installer##update-run"):
-            ctx.submit("open-log", _open, str(ready))
+            # Its own key too -- see the comment on "open-release-notes" above.
+            ctx.submit("run-installer", _open, str(ready))
             ctx.toast("The installer is opening. Close Realmspinner before it asks you to.")
         imgui.same_line()
         if controls.small_button("Show in Folder##update-show"):
-            ctx.submit("open-log", app_ctx.reveal_in_explorer, str(ready))
+            # "open-folder:" is the reveal-in-explorer convention
+            # ``library.py``'s own job-folder reveal already uses, keyed per
+            # target so two reveals never dedupe against each other either.
+            ctx.submit(f"open-folder:{ready}", app_ctx.reveal_in_explorer, str(ready))
         return
     if download_busy:
         found = ctx.progress(app_ctx.UPDATE_DOWNLOAD_KEY)

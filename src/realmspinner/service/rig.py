@@ -79,28 +79,40 @@ def create_rig(
     # into the door itself so every caller is covered, not just the two that
     # remembered to ask first -- send_to_troupe and the agent wrapper still
     # call it too, which is harmless double-checking.
-    if rig_in_flight(svc, job_id) is not None:
-        # send_to_troupe's own sentence, verbatim (troupe.py:981) -- one
-        # wording for "there is already a rig job for this mesh" wherever it
-        # is met, mirroring create_rig's own Blender refusal below. Unlike
-        # that door's comment, this one carries ``job_id``: this is the
-        # direct door (Library's "Rig this mesh", Poser's "Re-rig", and the
-        # agent's own character_rig, which already checks first and so never
-        # reaches this line) rather than the sheet reservation's own door,
-        # which draws no job_id control to ring.
-        raise Conflict("a rig for this mesh is already running", field="job_id")
-    params = {"source_job": job_id, "template": valid_template(template, svc.config.rig_template)}
-    # After every other refusal, and still before the row is written: this UI
-    # hides the Rig button when ``rig_templates``' own probe says bpy is
-    # absent, so the only paths that reach here on such a host are the MCP
-    # agent surface and a stale frame -- exactly the reachable-by-an-agent case
-    # worth refusing at the door rather than leaving to queue a job that dies
-    # in ``pipelines/blender_worker.py`` with exit code 3. ``troupe.py``'s own
-    # gate's sentence, verbatim, so the app has one wording for "this needs
-    # Blender" wherever it is met.
-    if not doctor.blender_check().ok:
-        raise Invalid("Rigging needs Blender, which is not installed.")
-    new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
+    # The 2026-09-20 audit, finding agents-03: the check above and the insert
+    # below used to be two separate operations with nothing holding the gap
+    # between them, so two ``character_rig`` calls landing on AgentHost's two
+    # service workers could both read "no rig in flight" and both mint a rig
+    # row for the same mesh -- both finalizing into the same job_dir.
+    # ``troupe.send_to_troupe`` already wraps its identical guard in
+    # ``convert_lock``; copied here, keyed on this door's own name rather than
+    # "sheets" since a plain rig is not a sheet reservation.
+    with svc.convert_lock(job_id, "rig"):
+        if rig_in_flight(svc, job_id) is not None:
+            # send_to_troupe's own sentence, verbatim (troupe.py:981) -- one
+            # wording for "there is already a rig job for this mesh" wherever it
+            # is met, mirroring create_rig's own Blender refusal below. Unlike
+            # that door's comment, this one carries ``job_id``: this is the
+            # direct door (Library's "Rig this mesh", Poser's "Re-rig", and the
+            # agent's own character_rig, which already checks first and so never
+            # reaches this line) rather than the sheet reservation's own door,
+            # which draws no job_id control to ring.
+            raise Conflict("a rig for this mesh is already running", field="job_id")
+        params = {
+            "source_job": job_id,
+            "template": valid_template(template, svc.config.rig_template),
+        }
+        # After every other refusal, and still before the row is written: this UI
+        # hides the Rig button when ``rig_templates``' own probe says bpy is
+        # absent, so the only paths that reach here on such a host are the MCP
+        # agent surface and a stale frame -- exactly the reachable-by-an-agent case
+        # worth refusing at the door rather than leaving to queue a job that dies
+        # in ``pipelines/blender_worker.py`` with exit code 3. ``troupe.py``'s own
+        # gate's sentence, verbatim, so the app has one wording for "this needs
+        # Blender" wherever it is met.
+        if not doctor.blender_check().ok:
+            raise Invalid("Rigging needs Blender, which is not installed.")
+        new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id, "template": params["template"]}
 
@@ -348,12 +360,20 @@ def save_pose(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]) ->
     pose_id = str(payload["id"]) if payload.get("id") else None
     if pose_id is not None:
         check_pose_id(pose_id)
-        if not store.pose_path(job_dir, pose_id).exists():
-            raise NotFound("no such pose")
         # Under the pose's bake lock: an in-flight bake of the old rotations
         # must finish (and be deleted here) before the new rotations land, or
         # the stale GLB gets cached under this id.
+        #
+        # The 2026-09-20 audit, finding poser-04: the existence check used to
+        # run before this lock was taken and was never re-checked once it was
+        # held, so a delete_pose landing in that gap could remove the pose
+        # file and release the lock before this write landed -- the delete
+        # then silently undone, the pose reappearing with no error to either
+        # caller. Moved inside the lock, as service.poses.update_library_pose
+        # already reads its own record under its lock rather than before it.
         with svc.convert_lock(job_id, f"pose:{pose_id}"):
+            if not store.pose_path(job_dir, pose_id).exists():
+                raise NotFound("no such pose")
             return store.save_pose(job_dir, pose, pose_id, extra=extra or None)
     # The cap is a check-then-write, so the count and the write that depends on
     # it happen under one hold -- exactly the rule the library's own cap in

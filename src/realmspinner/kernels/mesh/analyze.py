@@ -1059,6 +1059,33 @@ def analyze(
             f"once, past the {MAX_ANALYZE_OBJECTS} Clay works with. Narrow "
             "the selection with uids."
         )
+
+    # The 2026-09-20 audit's clay-19: MAX_ANALYZE_OBJECTS above already moved
+    # ahead of _evaluated_world (the 2026-09-19 audit's clay-22 fix), but
+    # MAX_ANALYZE_TRIANGLES was still only checked after _evaluated_world had
+    # run for every object -- and that call evaluates the object's whole
+    # modifier stack (doc.evaluated -> modifiers.evaluate), a cost this
+    # session's own probe found modifier-kind-dependent (cheap for `array`,
+    # unmeasured for `boolean`/`subdivide`) and unbounded by anything below.
+    # So a document whose *base* meshes alone already clear the triangle
+    # ceiling still paid to evaluate every modifier stack before ever being
+    # refused. Checked here against each object's own **unevaluated** mesh --
+    # the same n - 2 arithmetic clay-04 (2026-09-14) already uses, on the
+    # mesh _evaluated_world is about to swap out -- so a document already too
+    # big before any modifier runs is refused before paying for one. This
+    # does not bound a modifier that *inflates* triangle count from a small
+    # base (an array with a large count, say); that budget belongs inside
+    # modifiers.evaluate itself, not here -- see this constant's own
+    # docstring. The check below (against the evaluated mesh) still runs
+    # afterwards as a backstop for exactly that case.
+    base_tris = sum(len(obj.mesh.loops) - 2 * face_count(obj.mesh) for obj in objs)
+    if base_tris > MAX_ANALYZE_TRIANGLES:
+        raise OpError(
+            f"This analysis would need {base_tris:,} triangles at once, "
+            f"past the {MAX_ANALYZE_TRIANGLES:,} Clay works with. Narrow "
+            "the selection with uids."
+        )
+
     if doc is not None:
         objs = [_evaluated_world(obj, doc) for obj in objs]
 
@@ -1069,6 +1096,12 @@ def analyze(
     # triangulates into n - 2 triangles (mesh.triangulate's own docstring),
     # the same trick ops_boolean._refuse_complexity uses, so the total this
     # call would face is knowable from mesh.loops and face_count alone.
+    #
+    # Also the clay-19 backstop above's second half: when doc evaluation grew
+    # the triangle count past what the unevaluated check saw (a modifier that
+    # adds triangles), this still catches it -- after paying for evaluation,
+    # same as before this fix, because nothing this module owns can know that
+    # cost in advance without evaluating.
     total_tris = sum(len(obj.mesh.loops) - 2 * face_count(obj.mesh) for obj in objs)
     if total_tris > MAX_ANALYZE_TRIANGLES:
         raise OpError(

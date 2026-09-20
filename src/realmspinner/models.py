@@ -640,7 +640,22 @@ class FamiliarModel:
 
 
 def _table(*items):
-    return {item.key: item for item in items}
+    """The constructor behind all eleven weights registries below.
+
+    **service-02 (2026-09-20 audit).** ``{item.key: item for item in items}``
+    let a copy-pasted key silently delete the earlier entry from the
+    catalogue -- a dict comprehension has no way to notice a repeated key,
+    and nothing here or in the suite was checking. Raised at import time
+    instead, which is the moment the mistake is actually made and the only
+    moment a traceback can point at the two colliding literals rather than
+    at whatever unrelated model went missing from a picker later.
+    """
+    out: dict[str, Any] = {}
+    for item in items:
+        if item.key in out:
+            raise ValueError(f"duplicate model key: {item.key!r}")
+        out[item.key] = item
+    return out
 
 
 TRELLIS_GGUF_FILES = (

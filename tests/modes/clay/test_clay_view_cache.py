@@ -55,3 +55,34 @@ def test_the_pinned_document_survives_every_other_reference_being_dropped(view) 
     view._last_doc = None
     gc.collect()
     assert ref() is None, "and release it once the view stops pointing at it"
+
+
+def test_world_cache_for_one_uid_is_not_shared_between_a_document_and_its_preview_scratch(
+    view,
+) -> None:
+    """The 2026-09-20 audit's clay-20: ``ClayView._world``'s own memo
+    (``_world_cache``) keyed on ``obj.uid`` alone -- unlike ``_centre_memo``/
+    ``_bounds_memo``, this module's header names as the sibling pattern,
+    which key on ``(id(doc), uid)``. ``_ghost_draws`` calls ``_world``
+    against two documents that deliberately share a uid namespace: the live
+    document and its Familiar preview scratch clone. One dict slot per uid
+    meant the second document queried in a frame evicted the first's entry,
+    every frame both a document and its own preview are drawn, defeating the
+    very pin that is supposed to keep an object's transform arrays alive for
+    the memo to trust.
+    """
+    doc = _doc(count=1)
+    scratch = _doc(count=1)
+    # A Familiar preview clone starts from a full copy of ``doc``, uid and
+    # all -- forced directly here rather than going through ``clay.scratch``,
+    # since the uid collision between two distinct documents is the only
+    # part of that clone this test needs.
+    scratch.objects[0].uid = doc.objects[0].uid
+
+    view._world(doc, doc.objects[0])
+    view._world(scratch, scratch.objects[0])
+
+    assert len(view._world_cache) == 2, (
+        "one document's world-matrix entry evicted the other's -- same uid, "
+        "different document, one shared dict slot"
+    )

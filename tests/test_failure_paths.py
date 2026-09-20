@@ -101,6 +101,39 @@ def test_every_silent_key_is_a_key_something_actually_submits():
         assert f'"{prefix}' in text, f"nothing submits {prefix}"
 
 
+def test_open_folder_reveals_are_not_reported_as_unclaimed_tasks(monkeypatch, caplog):
+    """The 2026-09-20 audit, finding shell-06: ``"open-folder:"`` was matched
+    by no ``_on_task_done`` branch and missing from ``SILENT_TASK_KEYS``, so
+    every "Show in Folder"/"Reveal in Explorer" press logged the line that
+    exists to report a genuine routing bug -- although the list's own
+    docstring already compares this action to ``open-log``, which *is*
+    silent."""
+    app, _toasts = _app(monkeypatch)
+    with caplog.at_level("INFO"):
+        app._on_task_done(_done("open-folder:job123"))
+    assert not [r for r in caplog.records if "nowhere to deliver" in r.message]
+
+
+def test_release_notes_and_run_installer_do_not_share_a_task_key():
+    """The 2026-09-20 audit, finding shell-04: opening the release-notes URL
+    and running the downloaded installer both submitted under the literal
+    ``"open-log"``, so ``TaskRunner.submit``'s per-key dedupe silently dropped
+    whichever of "Release notes"/"Run Installer" was pressed second -- the two
+    buttons Settings -> Updates draws side by side."""
+    import inspect
+    import re
+
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+
+    source = inspect.getsource(app_settings._update_result)
+    notes_key = re.search(r'ctx\.submit\("([^"]+)",\s*_open,\s*release_url\)', source)
+    installer_key = re.search(r'ctx\.submit\("([^"]+)",\s*_open,\s*str\(ready\)\)', source)
+    assert notes_key and installer_key, "could not find the two submit calls to compare"
+    assert notes_key.group(1) != installer_key.group(1), (
+        "release notes and run installer must not share a task key"
+    )
+
+
 def test_a_screenshot_says_where_it_went(monkeypatch):
     """It was outside every branch, so a capture the user had just chosen a
     destination for finished in silence -- and the only other thing that looks

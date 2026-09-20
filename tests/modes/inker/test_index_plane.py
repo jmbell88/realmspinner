@@ -197,6 +197,17 @@ def test_histogram_counts_slots_and_not_colours():
     assert by_colour[1] == by_colour[3] == 3, "the colour count cannot tell them apart"
 
 
+def test_histogram_does_not_drop_pixels_holding_an_out_of_range_index():
+    """The 2026-09-20 audit, finding inker-04: ``bincount(...)[:count]``
+    sliced away any index >= ``count`` instead of folding it in, so during
+    the documented stale-plane window (a plane can outlive its table by one
+    history step) a slot genuinely holding pixels could report zero and
+    "delete unused colours" would call it safe. Clamped into the last slot
+    instead, the same rule ``materialize``/``apply_remap`` already apply."""
+    plane = np.asarray([[1, 5, 5, 3]], dtype=np.uint8)
+    assert ixp.histogram(plane, 4) == [0, 1, 0, 3]
+
+
 # --- dither.convert_indices -------------------------------------------------
 
 

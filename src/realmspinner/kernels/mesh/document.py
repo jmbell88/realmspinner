@@ -56,7 +56,11 @@ modifier stack or transform: :meth:`set_mesh`, :meth:`set_transform` (which
 also walks :meth:`ancestors`, since dragging an object *inside* a locked
 group still visibly rearranges the group even though the group's own
 geometry never changes), :meth:`set_generator_params`, :meth:`set_seams`,
-:meth:`set_modifiers` and :meth:`apply_modifiers`. :meth:`remove_object` and
+:meth:`set_modifiers`, :meth:`apply_modifiers` and :meth:`join_objects`
+(which refuses for its own target *and* for any locked object named in
+``others`` -- Join and every boolean consume an evaluated mesh and delete
+the objects they absorbed, and a locked object survived neither before the
+2026-09-20 audit's clay-01). :meth:`remove_object` and
 :meth:`separate` check ``obj.locked`` directly for the same reason without
 going through the shared helper -- the object does not survive either door,
 which is the least undoable change there is. Deliberately exempt:
@@ -1110,6 +1114,20 @@ class ClayDoc:
         geometry (``doomed`` absorbed nothing whose mesh differed) leaves
         them alone.
         """
+        # The 2026-09-20 audit's clay-01: this door never called
+        # _refuse_if_locked at all, for either half of what it does -- the
+        # target's mesh is overwritten and the absorbed objects are deleted,
+        # and a locked object survived neither through ordinary clicks or
+        # through clay_join/clay_boolean. Both refusals land before either
+        # mutation, exactly as every other locking door in this module does.
+        self._refuse_if_locked(target_uid)
+        for other in others:
+            other_uid = int(other)
+            if other_uid == target_uid:
+                continue
+            other_obj = self.by_uid(other_uid)
+            if other_obj.locked:
+                raise el.OpError(f"{other_obj.name!r} is locked.")
         obj = self.by_uid(target_uid)
         doomed = sorted({int(u) for u in others} - {target_uid}, key=self.index_of, reverse=True)
         if mesh is obj.mesh and not doomed:

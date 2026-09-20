@@ -171,6 +171,17 @@ def clean_jobs(svc: RealmspinnerService) -> dict[str, Any]:
         seen.add(job["id"])
 
     for job_id in seen:
+        # Re-checked per row, not just in the up-front active_jobs() snapshot:
+        # the 2026-09-20 audit, finding service-01. A rig or sprite sheet
+        # submitted after that snapshot -- while this multi-page walk is still
+        # running -- writes into the source job's directory without ever
+        # appearing in `active` above, so `delete_if_not_running` alone let
+        # this rmtree a directory a live dependent job was still using. Skip
+        # rather than raise, as `prune_jobs` and `empty_trash` do: this is
+        # already past the point of refusing the whole call, and one row
+        # caught mid-race is no reason to abandon the rest of the reclaim.
+        if worker_is_inside(svc, job_id) or dependent_jobs(svc, job_id):
+            continue
         # Conditional in the DB for prune_jobs' reason: the refusal above is a
         # snapshot, and a submit landing in the gap must not have its directory
         # removed underneath it.

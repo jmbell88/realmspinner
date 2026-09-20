@@ -365,6 +365,53 @@ def test_read_tiles_refuses_a_cels_list_that_repeats_one_entry_past_the_ceiling(
     assert any(ora.TILES_MEMBER in record.message for record in caplog.records)
 
 
+def _big_still_doc(size: int) -> Document:
+    """A ``size``x``size`` canvas with a 1x1-tile tilemap covering it -- so
+    each cel's declared ``grid_h * grid_w`` equals the canvas's own pixel
+    count, the shape the 2026-09-20 audit's repro used."""
+    doc = Document.blank(size, size)
+    ts = doc.add_tileset(strip(np.stack([_blank_tile(w=1, h=1), _tile(RED, w=1, h=1)], axis=0)))
+    cel = doc.add_tilemap_layer(ts.uid, name="Tiles")
+    doc.place_tiles(cel.uid, (0, 0), np.array([[1]], dtype=np.uint32))
+    return doc
+
+
+def test_read_tiles_refuses_a_cels_list_repeating_one_entry_past_the_canvas_pixel_budget_well_under_max_ora_layers(  # noqa: E501
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    """The 2026-09-20 audit, finding inker-02: the ceiling the test above
+    proves (``MAX_ORA_LAYERS`` on the "cels" list's *count*) is not a pixel
+    budget -- ``_new_cel`` reads and reshapes a canvas-sized refs blob for
+    every raw entry, *before* the ``id(layer)`` dedup further down collapses
+    repeats into one surviving cel, so a large canvas's cel repeated a
+    handful of times cost the same total work "tilesets" was already priced
+    for, with headroom to spare below the count ceiling: 0.73s for one entry,
+    8.47s for 1024 on a 1024x1024 canvas, linear, one surviving cel either
+    way. A 2048x2048 canvas's cel (4,194,304 declared grid cells) repeated 17
+    times -- 15 short of doubling the pixel budget and 1007 short of
+    ``MAX_ORA_LAYERS`` -- must now be refused before any of those reads run,
+    same containment shape as every other way ``tiles.json`` can be wrong."""
+    doc = _big_still_doc(2048)
+    path = tmp_path / "big_repeated_cel.ora"
+    ora.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        payload = json.loads(zf.read(ora.TILES_MEMBER))
+    cel_entry = payload["cels"][0]
+    repeats = 17
+    assert repeats < ora.MAX_ORA_LAYERS // 2, "must reproduce well under the count ceiling"
+    payload["cels"] = [cel_entry] * repeats
+    _rewrite_member(path, ora.TILES_MEMBER, json.dumps(payload).encode("utf-8"))
+
+    with caplog.at_level(logging.WARNING):
+        back = ora.read_ora(path)
+
+    assert back.tilesets == []
+    assert not isinstance(back.stack[1], TilemapCel)
+    assert np.array_equal(back.stack[1].pixels, doc.stack[1].pixels)
+    assert any(ora.TILES_MEMBER in record.message for record in caplog.records)
+
+
 # -- an unreferenced tileset is not garbage -----------------------------------
 
 

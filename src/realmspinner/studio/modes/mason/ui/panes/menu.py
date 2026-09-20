@@ -19,7 +19,7 @@ from ... import assets as mason_assets
 from ... import mode as mason_mode
 from ...engine import ops as mops
 from ...engine import scene as mscene
-from .outliner import groupish
+from .outliner import groupish, prefabbable
 
 POPUP = "mason-context"
 
@@ -63,8 +63,16 @@ def _rows(ctx: Any, tab: Any) -> None:
     # before one does: the Prefabs pane is a conditional slot that only appears
     # once the document has a template, so it cannot be the place a template is
     # authored. See ``modes/mason/ui/panes/prefabs``'s own docstring.
+    #
+    # The 2026-09-20 audit's mason-02: this used to gate on
+    # ``len(doc.selection) == 1`` alone, which lit the row up over a Terrain
+    # or an existing Prefab instance -- both of which
+    # ``prompt_define_prefab_from_selection`` silently refuses -- so pressing
+    # it did nothing. ``prefabbable`` (``mason_outliner.py``) is the same
+    # predicate the outliner's own identical row now shares, gated on the
+    # kinds the handler itself refuses.
     if controls.menu_item(
-        f"{icons.COPY} Make prefab", "", False, len(doc.selection) == 1
+        f"{icons.COPY} Make prefab", "", False, prefabbable(doc)
     )[0]:
         # The 2026-09-12 audit's docs-03: this used to call
         # ``define_prefab_from_selection`` directly with no name, so Chapter

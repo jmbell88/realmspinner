@@ -28,6 +28,7 @@ for no reason but which reference happens to be older.
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -205,6 +206,55 @@ def ref_key(ref: Ref | None) -> tuple[Any, ...]:
     if isinstance(ref, LibraryRef):
         return ("library", ref.job_id, ref.artifact)
     raise TypeError(f"not a Ref: {ref!r}")  # pragma: no cover - the Ref union is closed
+
+
+def ref_bytes(ref: Ref | None) -> int:
+    """What a reference costs a step or a subtree, walked rather than
+    ``sys.getsizeof``\\ 'd shallow.
+
+    The 2026-09-20 audit's mason-01: ``mason/edits.py``'s ``_ref_bytes`` used
+    to be a bare ``sys.getsizeof(ref)``, which only sees a ``PrimitiveRef``'s
+    own three pointers -- ``generator``, and the ``params`` tuple's own
+    header -- never what that tuple holds. A lathe or sweep profile of 5,000
+    ``(x, y)`` points is a real ~560 KB, and the shallow call priced it at 48
+    bytes regardless: an ~11,700x undercount that let a single placement of
+    a dense profile evict an hour of somebody else's undo history for free,
+    defeating the ``UNDO_BYTES`` ceiling ``cost`` exists to enforce. This
+    walks ``PrimitiveRef.params`` the way ``nodes._props_bytes`` already
+    walks a nested properties dict -- recursing into every nested tuple
+    (a profile's list of pairs, normalized to tuples by ``primitive_ref``)
+    and pricing every scalar leaf with ``sys.getsizeof``.
+
+    A ``LibraryRef`` has no nested container to miss -- ``job_id``,
+    ``artifact``, ``name`` and ``sha256`` are all plain strings sized
+    correctly by the dataclass's own shallow ``sys.getsizeof`` -- so only a
+    ``PrimitiveRef`` needs the walk.
+    """
+    if ref is None:
+        return 0
+    if isinstance(ref, PrimitiveRef):
+        return sys.getsizeof(ref) + _params_bytes(ref.params)
+    return sys.getsizeof(ref)
+
+
+def _params_bytes(params: tuple[tuple[str, Any], ...]) -> int:
+    total = sys.getsizeof(params)
+    for key, value in params:
+        total += sys.getsizeof(key)
+        total += _param_value_bytes(value)
+    return total
+
+
+def _param_value_bytes(value: Any) -> int:
+    """One params value, priced recursively -- a bare scalar shallow, a
+    nested tuple (what :func:`_normalize` turns every list/tuple/array into)
+    walked the same way ``_params_bytes`` walks the pairs around it."""
+    if isinstance(value, tuple):
+        total = sys.getsizeof(value)
+        for item in value:
+            total += _param_value_bytes(item)
+        return total
+    return sys.getsizeof(value)
 
 
 class GeometrySource(Protocol):

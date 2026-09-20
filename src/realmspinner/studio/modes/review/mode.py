@@ -243,6 +243,14 @@ class JudgingPass:
 
     total: int = 0
     filed: int = 0
+    # shell-03 (the 2026-09-20 audit): the closing report once summed
+    # accepted/rejected over every unit in a judged sweep, including verdicts
+    # filed long before this pass opened (a mixed sweep, or one hand-graded
+    # outside a pass earlier). "3 filed this pass - 5 accepted" was the
+    # reproduction. These two count only what ``record`` files while this
+    # pass is open, alongside ``filed`` for the same reason.
+    accepted: int = 0
+    rejected: int = 0
     # Bucket ids with work to do when the pass started, RECENT_ID first and then
     # sweeps in list order. Fixed at the start rather than recomputed: a bucket
     # that gains a unit mid-pass (a job finishing) would otherwise extend a pass
@@ -1022,6 +1030,13 @@ def record(ctx: Any, grade: int, tags: Any = ()) -> None:
     ctx.toast(f"Filed {filed} for {label(state, unit)}. Left arrow to re-grade it.")
     if state.judging is not None:
         state.judging.filed += 1
+        # shell-03 (the 2026-09-20 audit): tallied here, against what this
+        # pass itself just wrote, rather than re-derived later from the
+        # sweep's units -- which would count verdicts this pass never filed.
+        if unit["verdict"] == "accept":
+            state.judging.accepted += 1
+        elif unit["verdict"] == "reject":
+            state.judging.rejected += 1
     advance(state, unverdicted_only=True)
     # After the advance, so a pass that has just emptied its last bucket ends
     # with the cursor already parked rather than being moved by a report.
@@ -1151,7 +1166,7 @@ def finish_judging(ctx: Any) -> None:
         return
     state.judging = None
     per_sweep = []
-    filed = accepted = rejected = remaining = 0
+    remaining = 0
     for sweep in state.sweeps:
         if str(sweep["id"]) not in pass_.order:
             continue
@@ -1174,15 +1189,17 @@ def finish_judging(ctx: Any) -> None:
             ),
         }
         per_sweep.append(row)
-        accepted += row["accepted"]
-        rejected += row["rejected"]
         remaining += row["todo"]
-    filed = pass_.filed
     state.judging_report = {
         "sweeps": per_sweep,
-        "filed": filed,
-        "accepted": accepted,
-        "rejected": rejected,
+        "filed": pass_.filed,
+        # shell-03 (the 2026-09-20 audit): these two are ``pass_``'s own
+        # running tally from ``record``, not re-derived from the sweeps'
+        # units above -- a sweep can carry verdicts (mixed in, or hand-graded
+        # before this pass ever opened) that this pass never filed, and
+        # summing "every unit's verdict" reported those as if it had.
+        "accepted": pass_.accepted,
+        "rejected": pass_.rejected,
         "remaining": remaining,
     }
 

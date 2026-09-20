@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 
@@ -130,6 +132,48 @@ def test_a_face_pointing_down_a_negative_axis_still_clips() -> None:
     assert bm._face_normals(m)[0][1] < 0
     tris, _ = bm.triangulate(m)
     assert _tri_area_sum(m.positions, tris) == pytest.approx(_polygon_area(m.positions), rel=1e-5)
+
+
+def _comb(n_teeth: int) -> np.ndarray:
+    """A comb: ``n_teeth`` reflex notches, ``2 * n_teeth + 3`` corners, close
+    to the worst case the O(n^2) ear search can see -- the same shape this
+    fix's own scratch measurement used for :data:`~realmspinner.kernels.mesh.
+    earclip.MAX_EARCLIP_FACE_CORNERS`'s table."""
+    pts = []
+    for i in range(n_teeth):
+        pts.append((float(i), 1.0, 0.0))
+        pts.append((i + 0.5, 0.1, 0.0))
+    pts.append((float(n_teeth), 1.0, 0.0))
+    pts.append((float(n_teeth), -1.0, 0.0))
+    pts.append((0.0, -1.0, 0.0))
+    return np.array(pts, dtype="f4")
+
+
+def test_a_single_concave_face_with_many_corners_has_a_triangulation_ceiling() -> None:
+    """The 2026-09-20 audit's clay-02: a single concave face had no corner
+    ceiling before the pure-Python ear search, reproduced at 10.7s for one
+    12,800-corner face -- reachable from the frame thread on every draw and
+    pick, from an MCP ``sweep`` outline, and from an imported GLB. Past the
+    ceiling, `corner_triangles` must fall back to the plain fan rather than
+    pay for (or refuse) the search -- the module's own "rendering never
+    raises" rule.
+    """
+    positions = _comb(6400)  # 12,803 corners -- the audit's own 10.7s case
+    m = _one_face(positions)
+    assert len(positions) > ec.MAX_EARCLIP_FACE_CORNERS
+
+    normals = bm._face_normals(m)
+    mask = ec.concave_faces(m.positions, m.loops, m.starts, normals)
+    assert mask.tolist() == [True], "the comb must actually be flagged suspect"
+
+    t0 = time.perf_counter()
+    corners, tri_face = ec.corner_triangles(m.positions, m.loops, m.starts, normals)
+    dt = time.perf_counter() - t0
+    assert dt < 2.0, f"took {dt:.1f}s -- the ceiling should have skipped the ear search"
+
+    want, want_face = ec.fan_corners(m.starts)
+    assert np.array_equal(corners, want), "past the ceiling, the fan is kept, not ear-clipped"
+    assert np.array_equal(tri_face, want_face)
 
 
 def test_reversed_corner_perm_reverses_each_face_in_place() -> None:

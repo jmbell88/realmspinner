@@ -49,7 +49,6 @@ never take back; the trap is silent, because the edit still reports success.
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -58,7 +57,7 @@ import numpy as np
 from .....core.undo import Edit
 from .....kernels.geom3d import gltf
 from .nodes import Node, _props_bytes, subtree_bytes
-from .refs import Ref
+from .refs import Ref, ref_bytes
 from .terrain import Rect, Terrain
 
 
@@ -231,15 +230,23 @@ class NodePropsEdit(Edit):
 
 
 def _ref_bytes(ref: Ref | None) -> int:
-    """What a reference costs a step: its own small fields, shallowly.
+    """What a reference costs a step: its own fields, walked rather than
+    ``sys.getsizeof``\\ 'd shallow.
 
     Never the geometry it names -- resolving a :class:`~.refs.Ref` into
     triangles is exactly the one thing this package refuses to do (see
     ``refs.py``'s module docstring), so a step recording one cannot be
     charged for bytes it never touches, only for the job id or generator name
     and the handful of numbers the reference itself carries.
+
+    Delegates to :func:`~.refs.ref_bytes` -- the 2026-09-20 audit's mason-01:
+    a bare ``sys.getsizeof(ref)`` only sees a ``PrimitiveRef``'s own three
+    pointers, never what its ``params`` tuple holds, so a lathe or sweep
+    profile of thousands of points was charged the same handful of bytes as
+    an empty one. Restated as a thin wrapper rather than inlined so every
+    caller in this module keeps addressing it as ``_ref_bytes``.
     """
-    return 0 if ref is None else sys.getsizeof(ref)
+    return ref_bytes(ref)
 
 
 @dataclass

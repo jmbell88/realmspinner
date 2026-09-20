@@ -20,9 +20,22 @@ module-scope import back would be a cycle.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+# shell-01 (2026-09-20 audit): a queue key follows "<mode>-<action>:<uid>",
+# and "<action>" itself is not always the bare word "export" or "save" --
+# Clay's file export is "clay-exportfile:", Mason's two export buttons are
+# "mason-exportglb:"/"mason-exportobj:", and the asset session's save is
+# "poser-asset-save:". Matching the literal substring "-export:" (as the
+# muse-05 fix did) or a bare "save:" prefix caught none of those, so quitting
+# mid-write through any of them raised no warning at all. This matches any
+# "-<word starting with export or save>:" run anywhere in the key, so a
+# future mode's own spelling of the convention is covered without adding a
+# case here.
+_EXPORT_OR_SAVE_KEY = re.compile(r"-(?:export|save)\w*:")
 
 
 class QuitMixin:
@@ -57,13 +70,20 @@ class QuitMixin:
             lines.append("A model download is in progress and will be stopped.")
         # muse-05: this used to be ``k.startswith(("export", "save:", "bake:"))``,
         # which only ever matched the Library's bulk "export-folder"/"export-zip"
-        # keys -- every per-mode export queues as "<mode>-export:<name>" (Muse,
-        # Sirens, Clay, Inker, Packwright, Plotter all do this), and none of
-        # those *start with* "export", so a quit mid-export got no warning at
-        # all. Matching "-export:" anywhere in the key, not just as a prefix,
-        # catches every mode that follows this naming convention -- present or
-        # future -- without keeping a hand-maintained list of prefixes here.
-        if any(k.startswith(("export", "save:", "bake:")) or "-export:" in k for k in busy):
+        # keys -- every per-mode export or save queues as "<mode>-<action>:<name>"
+        # (Muse, Sirens, Clay, Inker, Packwright, Plotter, Mason, Poser all do
+        # this), and none of those *start with* "export" or "save:", so a quit
+        # mid-write got no warning at all. shell-01 (2026-09-20 audit): a plain
+        # "-export:" substring still missed "<mode>-exportfile:", "-exportglb:"
+        # and "-exportobj:" (no colon right after "export") and every
+        # "<mode>-save:"/"-saveas:" key never matched at all. ``_EXPORT_OR_SAVE_KEY``
+        # matches the whole family -- any "-export*:" or "-save*:" run -- so
+        # this genuinely catches every mode that follows the convention,
+        # present or future, without a hand-maintained list of prefixes here.
+        if any(
+            k.startswith(("export", "save:", "bake:")) or _EXPORT_OR_SAVE_KEY.search(k)
+            for k in busy
+        ):
             lines.append("An export is still being written.")
         # H02: named alongside downloads and exports rather than omitted. The
         # commit phase (pip writing into ``site-packages``) is not offered

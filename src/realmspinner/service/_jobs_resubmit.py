@@ -409,10 +409,21 @@ def rerun_job(
         # a job whose weights are missing.
         sheet_block = source["params"].get("sheet")
         sheet_mode = str(sheet_block.get("mode", "")) if isinstance(sheet_block, dict) else ""
+        # The 2026-09-20 audit, finding plotter-03: a style lock reaches the
+        # same IP-Adapter a reference does -- the first material becomes every
+        # later pass's reference (``_q_tileset._tile_set``'s ``later_cond``)
+        # -- and ``vram.estimate`` already reads ``style_lock`` off this same
+        # stored block for exactly that reason. This door held the mode and
+        # the reference file and never the lock, so a style-locked,
+        # reference-less reroll against a models directory missing the
+        # adapter passed every check here and died inside
+        # ``text2image.generate`` instead of being refused at the door.
+        style_locked = bool(isinstance(sheet_block, dict) and sheet_block.get("style_lock"))
         _check_sheet_weights(
             svc,
             mode=sheet_mode if sheet_mode in TILE_MODES else MODE_GRID,
             with_reference=(svc.job_dir(job_id) / "ref.png").exists(),
+            style_lock=style_locked,
         )
     if kind == "pixel_sheet":
         # The same door ``create_pixel_sheet`` holds, held again on the way

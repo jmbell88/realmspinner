@@ -358,6 +358,45 @@ def test_the_new_menu_offers_every_creation_type_exactly_once():
     }
 
 
+def test_a_gated_create_door_routes_start_2d_and_start_3d_to_the_install_request():
+    """shell-12 (the 2026-09-20 audit): ``_create_door``'s own docstring
+    records the regression it exists to fix -- a gated New... entry used to
+    reach ``create_stages.go``, which honours ``state.set_mode``'s gate but
+    does so silently (no toast, nothing), so on a fresh install the menu item
+    read as doing nothing at all. Nothing in the suite built a gated ctx and
+    called ``start_2d``/``start_3d`` to prove the routing (checked first,
+    same door the rail and the palette use) still happens.
+    """
+    from realmspinner.studio.panes import model_gate
+
+    # ``create``'s two weights rows (see ``modes.NEEDS_ROWS``), both missing,
+    # on a machine with no finished work -- exactly ``mode_gate``'s "models"
+    # branch, the same shape ``test_palette.py``'s twin gate test builds.
+    ctx = _ctx()
+    ctx.model_rows = [
+        {"row_key": "engine:trellis_gguf", "present": False, "size_gib": 8.0},
+        {"row_key": "base:sdxl_cfg", "present": False, "size_gib": 6.0},
+    ]
+    ctx.model_picks = set()
+    assert model_gate.mode_gate(ctx, "create")[0] == "models"
+
+    form_2d_before = ctx.state.form_2d
+    landing.start_2d(ctx)
+    assert ctx.state.mode == "settings"
+    # start_2d's own body -- a fresh form and clearing the selection -- never
+    # ran: the door held before either of those lines.
+    assert ctx.state.form_2d is form_2d_before
+    assert ctx.model_picks >= {"engine:trellis_gguf", "base:sdxl_cfg"}
+
+    ctx2 = _ctx()
+    ctx2.model_rows = ctx.model_rows
+    ctx2.model_picks = set()
+    form_3d_before = ctx2.state.form_3d
+    landing.start_3d(ctx2)
+    assert ctx2.state.mode == "settings"
+    assert ctx2.state.form_3d is form_3d_before
+
+
 def test_the_version_string_is_asked_for_once_per_process(monkeypatch):
     """C3: ``realmspinner.installed_version`` is an importlib.metadata distribution
     walk, and the header and the news block both used to ask every frame. An

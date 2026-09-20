@@ -5,6 +5,8 @@ that lands in the wrong place, or a LoRA that silently never loads."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from realmspinner import config as config_module
@@ -16,6 +18,23 @@ def test_keys_match_their_table_entries():
         assert spec.key == key
     for key, lora in models.STYLE_LORAS.items():
         assert lora.key == key
+
+
+def test_table_raises_on_a_duplicate_key_instead_of_silently_dropping_the_earlier_entry():
+    """service-02, the 2026-09-20 audit.
+
+    ``_table`` is the constructor behind all eleven weights registries
+    (``BASE_MODELS``, ``STYLE_LORAS``, ``MUSIC_MODELS`` and the rest): it
+    built ``{item.key: item for item in items}``, so a copy-pasted key
+    silently deleted the earlier entry from the catalogue with nothing on
+    screen or in the suite saying so. Failing against the unfixed code means
+    two distinct rows sharing a key produced a table with only one entry
+    instead of raising.
+    """
+    first = SimpleNamespace(key="dup", label="first")
+    second = SimpleNamespace(key="dup", label="second")
+    with pytest.raises(ValueError, match="dup"):
+        models._table(first, second)
 
 
 def test_base_and_style_keys_do_not_collide():

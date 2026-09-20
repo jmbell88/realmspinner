@@ -25,8 +25,12 @@ from ..... import vectors
 from .....bench import findings as findings_lib
 from .....service.validation import (
     MAX_MESH_CANDIDATES,
+    MAX_TRELLIS_ATLAS,
     MAX_TRELLIS_BAND,
+    MAX_TRELLIS_DECIM,
+    MAX_TRELLIS_MAX_TOKENS,
     MAX_TRELLIS_TEX_RES,
+    MIN_TRELLIS_ATLAS,
     MIN_TRELLIS_BAND,
     MIN_TRELLIS_TEX_RES,
     random_seed,
@@ -134,6 +138,47 @@ def clamp_band(value: int) -> int:
     if value <= 0:
         return 0
     return min(max(value, MIN_TRELLIS_BAND), MAX_TRELLIS_BAND)
+
+
+def clamp_max_tokens(value: int) -> int:
+    """The Token budget field's value, held inside ``check_trellis_max_tokens``'s range.
+
+    :func:`clamp_tex_res`/:func:`clamp_band`'s third sibling (the 2026-09-20
+    audit, finding create-01): those two were fixed on 2026-09-18 and this one
+    was not, so it still committed with only a floor -- a typed value above
+    ``MAX_TRELLIS_MAX_TOKENS`` was kept, persisted, and refused at every
+    Accept with a toast naming a control inside a collapsed header.
+    """
+    if value <= 0:
+        return 0
+    return min(max(value, 1), MAX_TRELLIS_MAX_TOKENS)
+
+
+def clamp_decim(value: int) -> int:
+    """The Decimation field's value, held inside ``check_trellis_decim``'s range.
+
+    The 2026-09-20 audit, finding create-01, same defect as
+    :func:`clamp_max_tokens` and :func:`clamp_atlas`. Its sentinel is -1, not
+    0: ``engine_kwargs``'s own comment explains why -- 0 is "decimation off",
+    a real value the exe must receive, so only -1 (``DEFAULT_FORM_3D``'s
+    sentinel) means "unset" here.
+    """
+    if value <= -1:
+        return -1
+    return min(value, MAX_TRELLIS_DECIM)
+
+
+def clamp_atlas(value: int) -> int:
+    """The Atlas resolution field's value, held inside ``check_trellis_atlas``'s range.
+
+    :func:`clamp_tex_res`'s twin, for the same defect (the 2026-09-20 audit,
+    finding create-01): the field committed with only a floor, so a typed
+    value outside ``[MIN_TRELLIS_ATLAS, MAX_TRELLIS_ATLAS]`` was kept and
+    refused at every Accept.
+    """
+    if value <= 0:
+        return 0
+    return min(max(value, MIN_TRELLIS_ATLAS), MAX_TRELLIS_ATLAS)
 
 
 def promote_kwargs(form: dict[str, Any]) -> dict[str, Any]:

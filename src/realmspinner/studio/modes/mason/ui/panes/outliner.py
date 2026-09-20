@@ -227,7 +227,7 @@ def _context_menu(ctx: Any, state: Any, doc: Any, node: Any) -> None:
         mason_mode.group_selected(ctx)
     if controls.menu_item("Ungroup", "Shift+G", False, groupish(doc))[0]:
         mason_mode.ungroup_selected(ctx)
-    if controls.menu_item(f"{icons.COPY} Make prefab", "", False, len(doc.selection) == 1)[0]:
+    if controls.menu_item(f"{icons.COPY} Make prefab", "", False, prefabbable(doc))[0]:
         # The 2026-09-12 audit's docs-03: see ``mason_menu.py``'s identical row.
         mason_mode.prompt_define_prefab_from_selection(ctx)
     if controls.menu_item(f"{icons.UNLINK} Unpack instance", "", False, _instanceish(doc))[0]:
@@ -264,6 +264,29 @@ def _instanceish(doc: Any) -> bool:
     from ...engine import nodes as nd
 
     return any(isinstance(doc.node(uid), nd.PrefabNode) for uid in doc.selection)
+
+
+def prefabbable(doc: Any) -> bool:
+    """Whether "Make prefab" can act on the current selection: exactly one
+    node, and it is neither a ``TerrainNode`` nor a ``PrefabNode``.
+
+    The 2026-09-20 audit's mason-02: both context-menu rows used to gate this
+    row on "exactly one node selected" alone, while
+    ``mason_mode.prompt_define_prefab_from_selection`` (and
+    ``define_prefab_from_selection`` beneath it) silently return for exactly
+    those two kinds -- the terrain is a document singleton whose height field
+    must not be copied into a template, and an existing instance is not a
+    thing to template again. An enabled row that does nothing when pressed is
+    the same shape ``groupish`` above was already fixed into by the
+    2026-09-15 audit's mason-03: one predicate, shared by both rows, gated on
+    the same kinds the handler itself refuses.
+    """
+    from ...engine import nodes as nd
+
+    if len(doc.selection) != 1:
+        return False
+    node = doc.node(next(iter(doc.selection)))
+    return node is not None and not isinstance(node, (nd.TerrainNode, nd.PrefabNode))
 
 
 def _row(

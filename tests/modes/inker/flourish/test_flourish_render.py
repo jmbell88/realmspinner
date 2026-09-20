@@ -119,6 +119,26 @@ def test_the_distortion_replaces_rather_than_adds():
     assert abs(int(a[..., 3].sum()) - int(b[..., 3].sum())) < 0.25 * int(a[..., 3].sum())
 
 
+def test_a_distortion_layers_opacity_slider_changes_its_rendered_output():
+    """The 2026-09-20 audit, finding inker-07: ``render`` applied
+    ``layer.opacity`` only on the non-``REPLACES_BELOW`` branch, and
+    distortion's own ``render`` never reads it either, yet the Opacity
+    slider is drawn identically for every layer kind in the inspector. A
+    distortion layer at opacity 0 must render exactly as if it were absent,
+    and some opacity between 0 and 1 must render differently from both
+    ends -- proving the slider actually does something."""
+    raw = solo("distortion", strength=3.0)
+    raw["layers"][-1]["opacity"] = 0.0
+    zeroed = flourish.from_dict(raw)
+    plain = flourish.from_dict(solo("core"))
+    full = flourish.from_dict(solo("distortion", strength=3.0))
+    a_zero = flourish.to_uint8(flourish.render_frame(zeroed, 2), 2)
+    a_plain = flourish.to_uint8(flourish.render_frame(plain, 2), 2)
+    a_full = flourish.to_uint8(flourish.render_frame(full, 2), 2)
+    assert np.array_equal(a_zero, a_plain), "opacity 0 must render as if the layer were absent"
+    assert not np.array_equal(a_zero, a_full), "the opacity slider must change the output"
+
+
 def test_the_glow_only_brightens():
     plain = flourish.from_dict(solo("core"))
     glowing = flourish.from_dict(solo("glow", strength=1.0, radius=4.0))

@@ -418,10 +418,23 @@ class LlamaServer:
         since the last check."""
         fingerprint = self._manifest_fingerprint(dest)
         cached = self._manifest_cache.get(dest)
-        if cached is not None and cached[0] == fingerprint:
+        if cached is not None and fingerprint is not None and cached[0] == fingerprint:
             return cached[1]
         verification = fetch.verify_manifest(dest)
-        self._manifest_cache[dest] = (fingerprint, verification)
+        # The 2026-09-20 audit (familiar-04): a transient ``OSError`` (a file
+        # briefly locked, a race with an in-progress copy) makes
+        # ``_manifest_fingerprint`` return ``None`` for one call. Caching
+        # that ``None`` used to poison the comparison twice over: this call
+        # always re-hashes (a ``None`` fingerprint can never equal a cached
+        # one, so that stall is unavoidable), but the *next* call re-hashed
+        # again too, because the freshly computed real fingerprint could
+        # never equal the ``None`` now sitting in the cache either -- one
+        # hiccup forced two several-hundred-millisecond-to-second stalls
+        # instead of one. Only overwrite the cache when this call actually
+        # got a real fingerprint, so a transient failure never displaces the
+        # last-known-good one and a later successful call can still hit it.
+        if fingerprint is not None:
+            self._manifest_cache[dest] = (fingerprint, verification)
         return verification
 
     def _check_manifest(self) -> None:

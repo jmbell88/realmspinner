@@ -292,11 +292,17 @@ def save_pose(
     pose_id = pose_id or new_id()
     path = pose_path(job_dir, pose_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Reuse the existing record's ``created`` on overwrite, as ``poselib.
+    # save_record`` already does -- the 2026-09-20 audit's poser-03 found this
+    # door stamping a fresh one on every edit instead, which jumps an edited
+    # pose to the end of a list sorted oldest-first (``list_poses`` sorts on
+    # this field) purely because it was re-saved, not because it is new.
+    existing = read_record(path, "pose")
     record = {
         "id": pose_id,
         "name": pose["name"],
         "bones": pose["bones"],
-        "created": time.time(),
+        "created": existing["created"] if existing and "created" in existing else time.time(),
     }
     if extra:
         protected = {"id", "name", "bones", "created"} & set(extra)

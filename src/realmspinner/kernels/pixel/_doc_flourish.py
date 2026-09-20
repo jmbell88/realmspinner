@@ -489,7 +489,18 @@ class FlourishOps:
         self.flourish[group_uid] = after
         edits.append(FlourishEdit(group_uid, state.copy(), after))
         if self.groups[group_uid].name == state.recipe.name != baked.recipe.name:
-            self.groups[group_uid].name = baked.recipe.name
+            # The 2026-09-20 audit, finding inker-03: this used to assign
+            # ``self.groups[group_uid].name`` directly, outside any edit, so
+            # Ctrl+Z on the regenerate restored the pixels and the recipe but
+            # left the renamed group standing -- the rename was never part of
+            # the undo step it visually belongs to. Routed through the same
+            # ``GroupPropsEdit`` ``set_group_props`` pushes, but appended to
+            # this call's own ``edits`` so the rename lands inside the single
+            # ``one_step`` a regenerate promises, not a second step of its own.
+            before_props = {"name": self.groups[group_uid].name}
+            after_props = {"name": baked.recipe.name}
+            self._set_group_props(group_uid, after_props)
+            edits.append(gp.GroupPropsEdit(group_uid, before_props, after_props))
         self.history.push(one_step(edits))
         self.invalidate_all()
         return FlourishCounts(**counts)

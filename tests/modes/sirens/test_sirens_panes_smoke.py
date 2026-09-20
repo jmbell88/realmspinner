@@ -315,6 +315,43 @@ def test_a_click_past_the_last_column_clamps_rather_than_refusing():
     assert column_at(-5.0, widths, 6.0) == 0
 
 
+def test_add_to_the_order_button_greys_out_at_max_order_not_just_its_reason_string(
+    frames, monkeypatch
+):
+    """sirens-01 (the 2026-09-20 audit). ``addable`` -- the enabling boolean
+    ``orders.draw`` passes to ``widgets.disabled_button`` for "Add to the
+    order" -- tested ``editable``, ``doc.patterns`` and the caret's effect but
+    never ``len(doc.order) >= D.MAX_ORDER``, although ``add_to_order_reason``
+    right beside it already computes that same ceiling and its own comment
+    says "it must be greyed here first". At 256 steps the button stayed live
+    and a click called ``set_order``, which raises a ``ValueError`` its caller
+    does not catch, straight out of ``draw()`` -- ``guard.py`` replaces the
+    whole pane after three of those in a row. Reproduced against the unfixed
+    code: with the order already full, the ``enabled`` argument captured for
+    this button was still ``True`` although its own reason string was
+    non-empty.
+    """
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    doc = tab.doc
+    verse = doc.patterns[0].uid
+    assert doc.set_order([verse] * D.MAX_ORDER)
+
+    calls: list[tuple[str, bool]] = []
+    original = sirens_orders.widgets.disabled_button
+
+    def _spy(label, enabled, size=(0, 0), *, reason="", tooltip=""):
+        calls.append((label, enabled))
+        return original(label, enabled, size, reason=reason, tooltip=tooltip)
+
+    monkeypatch.setattr(sirens_orders.widgets, "disabled_button", _spy)
+    frames(lambda: sirens_orders.draw(ctx))
+
+    add_calls = [enabled for label, enabled in calls if "Add to the order" in label]
+    assert add_calls, "the button was never drawn"
+    assert not add_calls[0], "the button must grey out once the order is full"
+
+
 def test_retarget_popup_refuses_a_selection_while_the_song_is_busy(frames, monkeypatch):
     """Finding sirens-04, the 2026-09-13 audit. The order list's "point this
     entry at another pattern" popup drew its rows with no regard for

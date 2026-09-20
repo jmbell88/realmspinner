@@ -59,9 +59,7 @@ def draw(ctx: Any) -> None:
     # from the centre pane's pump whenever ``pack_dirty`` is set. This used to
     # send the user hunting for a control that does not exist, which is the
     # worst kind of empty state -- one that reads as a working instruction.
-    packed_why = tab.pack_stale_why or (
-        "Nothing is packed yet. Add images -- packing runs by itself."
-    )
+    packed_why = _packed_why(tab)
 
     imgui.dummy((0, sp(tokens.SP_2)))
     _history(ctx, tab)
@@ -109,6 +107,25 @@ def draw(ctx: Any) -> None:
     )
 
     _recent(ctx)
+
+
+def _packed_why(tab: Any) -> str:
+    """Why the export buttons are disabled, once the shared ``busy`` gate has
+    already cleared them.
+
+    ``tab.packing`` is checked before falling back to "nothing packed yet":
+    the items and preview panes in this same mode already draw that
+    distinction (``items.py``'s "Packing..." row, ``preview.py``'s
+    ``elif tab.packing`` branch), and this pane didn't, so a user who had
+    just dropped sprites and was still waiting on the very first pack read
+    the export button's reason as the drop having produced nothing at all
+    (the 2026-09-20 audit, finding packwright-01).
+    """
+    if tab.pack_stale_why:
+        return tab.pack_stale_why
+    if tab.packing:
+        return "Packing..."
+    return "Nothing is packed yet. Add images -- packing runs by itself."
 
 
 def _history(ctx: Any, tab: Any) -> None:

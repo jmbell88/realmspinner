@@ -18,6 +18,7 @@ existing geometry, only over the profile selection and the step count.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 
@@ -179,6 +180,32 @@ def _quad_uv_array(quad_uv: list[tuple[float, float]]) -> np.ndarray:
     return np.array(quad_uv, dtype="f4").reshape(-1, 2)
 
 
+def _profile_owner_faces(
+    mesh: Mesh, a: Any, order: list[int], pairs: list[tuple[int, int]]
+) -> np.ndarray:
+    """The owning face of each profile edge, in *pairs* order.
+
+    The 2026-09-20 audit's clay-11: every lathe face this module mints was
+    minted at material slot 0 and flat-shaded (``np.zeros(n_new)``), rather
+    than inheriting from the profile's own edge -- the house rule every other
+    growth op here follows (``extrude_faces``' own docstring states it,
+    ``fill_hole`` and ``ops_bevel`` record it as a past incident each). A
+    profile edge cannot be a wire (see the module docstring's own "a Mesh
+    stores no wire edges"), so it always has at least one owning face; this
+    mirrors :func:`~.ops_topo._boundary_owner`'s "one corner speaks for the
+    edge" scatter, but without that helper's boundary-only (``uses == 1``)
+    refusal -- a spin profile is routinely an edge of a *closed* solid (two
+    owning faces, exactly the box edge every test in this module spins), and
+    either owning face is an equally valid source since the new geometry is a
+    fresh growth off the edge, not a continuation of one side of it.
+    """
+    edge_pairs = np.array([[order[i], order[j]] for i, j in pairs], dtype="i8")
+    ids = a.edge_ids(edge_pairs)
+    owner_corner = np.full(a.n_edges, -1, dtype="i8")
+    owner_corner[a.corner_edge.astype("i8")] = np.arange(len(mesh.loops), dtype="i8")
+    return a.corner_face[owner_corner[ids]].astype("i8")
+
+
 def _refuse_spin_size(n_bands: int, n_pairs: int, what: str) -> None:
     """Refuse on ``n_bands`` and the ``n_bands * n_pairs`` quad count
     separately -- see :data:`MAX_SPIN_BANDS`'s own comment for why a single
@@ -244,6 +271,7 @@ def spin(
     n_bands = n_copies if full_turn else n_copies - 1
     pairs = _profile_pairs(order, closed_profile)
     _refuse_spin_size(n_bands, len(pairs), "Spinning")
+    owner_faces = _profile_owner_faces(mesh, adjacency(mesh), order, pairs)
 
     center_v = np.asarray(center, dtype="f8").reshape(3)
     profile_pos = mesh.positions[order].astype("f8")
@@ -279,12 +307,19 @@ def spin(
         if len(new_positions)
         else mesh.positions.astype("f8")
     )
+    # Each band repeats the same `pairs` order (the loop above), so tiling the
+    # per-pair owner's material/smooth `n_bands` times over lands each new
+    # quad on the same profile edge that produced it -- see
+    # `_profile_owner_faces` for the 2026-09-20 audit's clay-11 this replaces
+    # (`np.zeros(n_new)`: material slot 0, flat-shaded, on every lathe face).
+    new_material = np.tile(mesh.material[owner_faces], n_bands)
+    new_smooth = np.tile(mesh.smooth[owner_faces], n_bands)
     out = topo.rebuild(
         positions_all,
         np.concatenate([mesh.loops.astype("i8"), np.array(quads, dtype="i8")]),
         _new_quad_starts(mesh.starts, n_new),
-        np.concatenate([mesh.material, np.zeros(n_new, dtype="i8")]),
-        np.concatenate([mesh.smooth, np.zeros(n_new, dtype=bool)]),
+        np.concatenate([mesh.material, new_material]),
+        np.concatenate([mesh.smooth, new_smooth]),
         uv=None if mesh.uv is None else np.concatenate([mesh.uv, _quad_uv_array(quad_uv)]),
     )
     return out, ElementSel(faces=np.arange(n_faces0, n_faces0 + n_new))
@@ -317,6 +352,7 @@ def screw(
     n_copies = steps + 1
     pairs = _profile_pairs(order, closed_profile)
     _refuse_spin_size(n_copies - 1, len(pairs), "Screwing")
+    owner_faces = _profile_owner_faces(mesh, adjacency(mesh), order, pairs)
 
     center_v = np.asarray(center, dtype="f8").reshape(3)
     profile_pos = mesh.positions[order].astype("f8")
@@ -354,12 +390,19 @@ def screw(
         if len(new_positions)
         else mesh.positions.astype("f8")
     )
+    # Each band repeats the same `pairs` order (the loop above), so tiling the
+    # per-pair owner's material/smooth `n_bands` times over lands each new
+    # quad on the same profile edge that produced it -- see
+    # `_profile_owner_faces` for the 2026-09-20 audit's clay-11 this replaces
+    # (`np.zeros(n_new)`: material slot 0, flat-shaded, on every lathe face).
+    new_material = np.tile(mesh.material[owner_faces], n_bands)
+    new_smooth = np.tile(mesh.smooth[owner_faces], n_bands)
     out = topo.rebuild(
         positions_all,
         np.concatenate([mesh.loops.astype("i8"), np.array(quads, dtype="i8")]),
         _new_quad_starts(mesh.starts, n_new),
-        np.concatenate([mesh.material, np.zeros(n_new, dtype="i8")]),
-        np.concatenate([mesh.smooth, np.zeros(n_new, dtype=bool)]),
+        np.concatenate([mesh.material, new_material]),
+        np.concatenate([mesh.smooth, new_smooth]),
         uv=None if mesh.uv is None else np.concatenate([mesh.uv, _quad_uv_array(quad_uv)]),
     )
     return out, ElementSel(faces=np.arange(n_faces0, n_faces0 + n_new))

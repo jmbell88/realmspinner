@@ -18,12 +18,17 @@ request for 96px tiles answered with 32px tiles and nobody told is the failure
 mode, and a slider quietly snapping back is the same failure wearing a nicer
 coat.
 
-The vocabulary this module checks against -- the size ladder, the colour ladder,
-the outline and reduce modes -- is **restated here rather than imported**,
+The vocabulary this module checks against -- the colour ladder, the outline
+mode and the reduce mode -- is **restated here rather than imported**,
 because ``characters`` may not import ``service`` and the pixel ladders live
 behind it. ``tests/characters/test_recipe.py`` owns the agreement between the
-two copies, in the ``kernels.charsheet`` / ``studio.modes.poser.engine.spec`` arrangement:
-a change to one is a change to both plus that test.
+two copies of each of those three, in the ``kernels.charsheet`` /
+``studio.modes.poser.engine.spec`` arrangement: a change to one is a change to
+both plus that test. The size ladder is not a fourth restated copy --
+:data:`LOGICAL_SIZES` is **derived** from ``kernels.charsheet.SIZES`` (see
+that name's own comment below), so it cannot drift the way a hand-typed
+ladder could. The 2026-09-20 audit, finding troupe-06, corrected this
+docstring's old claim that all four were restated and needed a paired test.
 """
 
 from __future__ import annotations

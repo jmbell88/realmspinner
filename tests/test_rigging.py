@@ -705,6 +705,49 @@ def test_a_clips_key_list_over_the_cap_is_refused():
         cliplib.parse_clip_library(raw)
 
 
+def test_a_pose_library_with_an_unrecognised_space_value_is_skipped_not_silently_treated_as_node(
+    tmp_path,
+):
+    """The 2026-09-20 audit's poser-02: ``space`` was read as
+    ``str(raw.get("space") or "node")`` with no check against the closed
+    vocabulary ``sheet.POSE_SPACES`` defines, while ``sheet.py``'s own doors
+    for the identical field both check ``if space not in POSE_SPACES``.
+    ``blender_worker._apply_pose`` treats anything but the exact string
+    "delta" as "node", so a misspelled space (here, a typo'd "delta")
+    silently applied every pose in the file in the wrong rotation frame --
+    the "character was lying down" incident's own read door. Skipped like
+    every other malformed file this loader's per-file ``try`` already costs.
+    """
+    (tmp_path / "poses").mkdir()
+    (tmp_path / "poses" / "broken.json").write_text(
+        json.dumps(
+            {
+                "space": "delat",  # typo: not in sheetlib.POSE_SPACES
+                "poses": [{"name": "x", "bones": {"root": [0.0, 0.0, 0.0, 1.0]}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert poses._load_pose_library(tmp_path / "poses") == {}
+
+
+def test_a_clip_library_with_an_unrecognised_space_value_is_refused(tmp_path):
+    """poser-02's other read door: ``cliplib.parse_clip_library`` read the
+    same top-level ``space`` field with the same missing membership test."""
+    raw = {
+        "space": "delat",  # typo: not in sheetlib.POSE_SPACES
+        "poses": [{"name": "rest", "bones": {}}],
+        "clips": [{"name": "idle", "keys": ["rest"], "segments": [1]}],
+    }
+    with pytest.raises(ValueError, match="space must be one of"):
+        cliplib.parse_clip_library(raw)
+
+    # And the read door built on it: a shipped/user file this shape costs
+    # itself, not the app, the same rule every other malformed file follows.
+    (tmp_path / "humanoid.json").write_text(json.dumps(raw), encoding="utf-8")
+    assert cliplib._load_clip_library(tmp_path) == {}
+
+
 def test_shipped_clips_survive_a_cache_invalidation_mid_read(monkeypatch):
     """``shipped_clip_library`` used to check ``_clips is None`` and then
     read the module global a *second* time (``library = _clips.get(...)``)
@@ -1879,6 +1922,40 @@ def test_save_pose_extra_may_not_override_what_the_record_owns(tmp_path):
     for key in ("id", "name", "bones", "created"):
         with pytest.raises(ValueError, match="may not override"):
             store.save_pose(tmp_path, pose, extra={key: "x"})
+
+
+def test_overwriting_a_pose_by_id_preserves_its_created_timestamp_and_list_order(
+    tmp_path, monkeypatch
+):
+    """The 2026-09-20 audit's poser-03: overwriting a pose by id always
+    stamped a fresh ``created``, unlike ``poselib.save_record``'s identical
+    door, which reads the existing record and reuses its ``created`` on an
+    edit. ``list_poses`` sorts oldest-first, so the old behaviour jumped an
+    edited pose to the end of the list purely because it was re-saved --
+    the picker reordering under the user's feet with no new pose involved.
+    """
+    monkeypatch.setattr(store.time, "time", lambda: 1000.0)
+    first = store.save_pose(
+        tmp_path, poses.validate_pose({"name": "snap", "bones": {"hips": [0, 0, 0, 1]}})
+    )
+    monkeypatch.setattr(store.time, "time", lambda: 2000.0)
+    second = store.save_pose(
+        tmp_path, poses.validate_pose({"name": "other", "bones": {"hips": [0, 0, 0, 1]}})
+    )
+
+    # Edit the first pose much later: its stored ``created`` must not move.
+    monkeypatch.setattr(store.time, "time", lambda: 9999.0)
+    updated = store.save_pose(
+        tmp_path,
+        poses.validate_pose({"name": "snap-edited", "bones": {"hips": [0, 0, 0, 1]}}),
+        pose_id=first["id"],
+    )
+    assert updated["created"] == first["created"] == 1000.0
+
+    # And the oldest-first order survives the edit -- the whole point of
+    # preserving ``created`` in the first place.
+    listed = store.list_poses(tmp_path)
+    assert [p["id"] for p in listed] == [first["id"], second["id"]]
 
 
 # --- pose storage against a hand-edited job directory ------------------------

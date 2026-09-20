@@ -15,6 +15,7 @@ bottom, behind the same importorskip the other Blender tests use.
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 import pytest
@@ -51,10 +52,13 @@ def test_a_degenerate_bounding_box_asks_for_no_weld_at_all():
 
 
 def test_a_weld_that_merged_nothing_is_not_a_welded_rig():
-    """The mesh the solve saw is the mesh it would have seen anyway, so the
-    recorded method must not claim otherwise -- and there is no second,
-    identical attempt to fall back to."""
-    assert blender_worker._skin_steps(0) == (("automatic", False),)
+    """The recorded method must not claim a merge that did not happen -- and
+    there is no second, identical attempt to fall back to. The mesh is
+    restored (not merely assumed unchanged) before the solve sees it: the
+    2026-09-20 audit, finding poser-05, found ``_weld`` still runs
+    ``normals_make_consistent`` at zero merges and can flip a face normal on
+    its own."""
+    assert blender_worker._skin_steps(0) == (("automatic", True),)
 
 
 def test_a_weld_that_merged_something_earns_its_own_name_and_a_retry():
@@ -403,6 +407,68 @@ def test_the_qa_record_is_derived_and_cannot_be_inherited_by_a_reroll():
 
 
 # --- with Blender actually installed ----------------------------------------
+
+
+@pytest.mark.gpu
+def test_a_zero_merge_weld_still_mutates_face_normals_and_is_not_the_unwelded_mesh():
+    """The 2026-09-20 audit, finding poser-05: ``_weld`` runs
+    ``normals_make_consistent`` unconditionally, so even a weld that merges
+    nothing can flip a face normal on its own -- against the old
+    ``_skin_steps(0)`` docstring's claim that the result was "exactly the
+    mesh the heat solve would have seen anyway". The existing zero-merge test
+    (``test_a_weld_that_merged_nothing_is_not_a_welded_rig``, and the fake-bpy
+    one above it) never caught this because the fake ``bpy``'s
+    ``normals_make_consistent`` is a no-op stub -- this one runs against real
+    Blender instead.
+
+    A cube's corners are 2 units apart, so nothing here is close enough for
+    ``remove_doubles`` to merge at any sane weld distance; flipping one face
+    by hand is the only source of inconsistency left for
+    ``normals_make_consistent`` to act on, so any change proves it ran, not
+    the weld. The actual regression is the second half: ``_skin`` decides
+    whether to keep that mutated mesh or restore the pre-weld one purely off
+    ``_skin_steps``'s ``restore`` flag, so this drives that flag rather than
+    hand-rolling the decision -- before the fix the flag was ``False`` and
+    this assertion fails; after it, the restore puts the untouched geometry
+    back and the solve sees exactly the ``weld=0.0`` mesh.
+    """
+    pytest.importorskip("bpy")
+    import bpy
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    obj = bpy.context.view_layer.objects.active
+
+    for polygon in obj.data.polygons:
+        polygon.select = False
+    obj.data.polygons[0].select = True
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.flip_normals()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    before_normal = tuple(obj.data.polygons[0].normal)
+
+    lo = [min(v.co[i] for v in obj.data.vertices) for i in range(3)]
+    hi = [max(v.co[i] for v in obj.data.vertices) for i in range(3)]
+    original, merged = blender_worker._weld(bpy, obj, blender_worker.weld_distance(lo, hi))
+    assert merged == 0, "a cube's corners are 2 units apart -- nothing should merge"
+    mutated_normal = tuple(obj.data.polygons[0].normal)
+    assert mutated_normal != before_normal, (
+        "normals_make_consistent ran and re-flipped the one inconsistent face "
+        "even though nothing merged -- true with or without the fix, which is "
+        "why the fix is a restore rather than a claim of no-op"
+    )
+
+    _, restore = blender_worker._skin_steps(merged)[0]
+    if restore:
+        blender_worker._restore_mesh(bpy, obj, original)
+    else:
+        with contextlib.suppress(Exception):
+            bpy.data.meshes.remove(original)
+    final_normal = tuple(obj.data.polygons[0].normal)
+    assert final_normal == before_normal, (
+        "a zero-merge weld must leave the heat solve looking at exactly the "
+        "mesh weld=0.0 would have handed it, per _skin_steps(0)'s docstring"
+    )
 
 
 @pytest.mark.gpu

@@ -359,3 +359,46 @@ def test_transplant_does_not_change_a_locked_objects_modifiers_or_seams():
     assert live.modifiers == (), "a locked object's modifier stack must not change"
     assert live.seams == (), "a locked object's seams must not change"
     assert live.name == "renamed", "a non-locking prop still transplants"
+
+
+def test_transplant_does_not_abort_the_rest_of_the_apply_when_a_locked_objects_mesh_or_transform_changed():  # noqa: E501
+    """The 2026-09-20 audit's clay-13: ``transplant`` tolerated a locked
+    object only for the ``modifiers``/``seams`` door (clay-19 above) --
+    ``set_mesh`` and ``set_transform`` were called unguarded, so a mesh or
+    transform change on an object locked between preview and apply raised
+    ``OpError`` uncaught and aborted the *whole* transplant, against this
+    module's own docstring ("the rest of the transplant still lands").
+    ``preview.apply``'s own head check catches a real user's lock first, so
+    this is only reachable by calling ``transplant`` directly -- the same way
+    ``test_transplant_does_not_change_a_locked_objects_modifiers_or_seams``
+    reaches its own otherwise-unreachable path.
+    """
+    doc = _doc(2)
+    locked_uid = doc.objects[0].uid
+    other_uid = doc.objects[1].uid
+    original_mesh = doc.by_uid(locked_uid).mesh
+    scratch = clay_scratch.clone(doc)
+
+    scratch.set_mesh(locked_uid, bp.box(size=[2.0, 2.0, 2.0]), keep_generator=True)
+    scratch.set_transform(locked_uid, translation=[3.0, 0.0, 0.0])
+    scratch.set_transform(other_uid, translation=[0.0, 5.0, 0.0])
+
+    result = clay_scratch.diff(doc, scratch)
+    assert locked_uid in result.mesh_changed
+    assert locked_uid in result.transform_changed
+    assert other_uid in result.transform_changed
+
+    doc.set_props(locked_uid, locked=True)
+
+    changed = clay_scratch.transplant(doc, scratch, result)
+
+    assert changed, "the transform change on the unlocked object must still push a step"
+    assert doc.by_uid(locked_uid).mesh is original_mesh, (
+        "a locked object's mesh must not change"
+    )
+    assert (doc.by_uid(locked_uid).translation == [0.0, 0.0, 0.0]).all(), (
+        "a locked object's transform must not change"
+    )
+    assert (doc.by_uid(other_uid).translation == [0.0, 5.0, 0.0]).all(), (
+        "a locked object aborting its own mesh/transform must not stop the rest of the transplant"
+    )

@@ -784,9 +784,24 @@ def compound(
             raise OpError("Compound needs at least one face to group into parts.")
         groups = [np.flatnonzero(shell == s) for s in range(n_shells)]
     else:
-        groups = [np.asarray(g, dtype="i8") for g in face_groups]
-        if not groups:
+        if not face_groups:
             raise OpError("Compound needs at least one face group.")
+        n_faces = len(mesh.starts) - 1
+        groups = []
+        for g in face_groups:
+            arr = np.asarray(g, dtype="i8")
+            # The 2026-09-20 audit, finding clay-14: an out-of-range face id
+            # here used to reach ``_corners_of_faces``'s ``mesh.starts[f]``
+            # indexing as a bare ``IndexError`` instead of this module's own
+            # named ``OpError`` refusal every other malformed input raises,
+            # and a *negative* id did not raise at all -- it wrapped through
+            # numpy's own negative-index semantics onto an unrelated face at
+            # the far end of the mesh, silently, with no error anywhere.
+            if arr.size and (int(arr.min()) < 0 or int(arr.max()) >= n_faces):
+                raise OpError(
+                    f"A compound face group names a face index outside 0..{n_faces - 1}."
+                )
+            groups.append(arr)
 
     parts: list[Collider] = []
     for g in groups:

@@ -125,8 +125,15 @@ def draw(ctx: Any) -> None:
     # this button used to append a coin pickup into the middle of the song and
     # say nothing.
     effect = sirens_mode.oneshot_name_for_caret(ctx, tab)
-    addable = editable and bool(doc.patterns) and not effect
+    # sirens-01 (the 2026-09-20 audit): ``addable`` used to test ``editable``,
+    # ``doc.patterns`` and ``effect`` by hand, one condition short of what
+    # ``add_to_order_reason`` right below actually refuses on -- it also
+    # greys once ``doc.order`` reaches ``D.MAX_ORDER``, and its own comment
+    # already said that ceiling "must be greyed here first". Gating on the
+    # reason string directly means the two can never drift again: whatever
+    # the reason function refuses for is exactly what disables the button.
     add_why = add_to_order_reason(effect, doc, editable)
+    addable = add_why == ""
     if widgets.disabled_button(
         f"{icons.PLUS} Add to the order", addable, (width, 0), reason=add_why
     ):

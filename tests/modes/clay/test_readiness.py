@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from realmspinner.kernels.geom3d import gltf
 from realmspinner.kernels.mesh import document as bd
@@ -303,3 +304,33 @@ def test_report_status_is_the_worst_of_its_checks():
     fail_report = readiness.validate(_doc(obj, materials=[tex_material]))
     assert _by_key(fail_report)["uvs"].status == "fail"
     assert fail_report.status == "fail"
+
+
+# --- clay-05 (2026-09-20 audit): a document-wide object ceiling --------------
+
+
+def test_validate_refuses_or_backgrounds_past_a_document_wide_object_ceiling():
+    """Before this fix, ``validate`` had no analogue of
+    ``analyze.MAX_ANALYZE_OBJECTS`` -- only a per-object size ceiling
+    (``ops_clean.MAX_CLEAN_CORNERS``) existed, so a document with many
+    *ordinary-sized* objects paid for a full per-object walk (a ``survey``
+    call apiece for ``geometry``/``normals``/``closed`` alone) with nothing
+    to refuse it: the 2026-09-20 audit's clay-05 measured 522 ms at 50
+    objects, 3.7 s at 800, 15.1 s at 3,200. This mesh is reused across every
+    object -- the point is the object *count*, not any one mesh's size, which
+    ``ops_clean.MAX_CLEAN_CORNERS`` already guards separately."""
+    mesh = replace(prim.box(), uv=None)
+    objects = [
+        _obj(mesh, translation=(0.0, 0.5, 0.0))
+        for _ in range(readiness.MAX_VALIDATE_OBJECTS + 1)
+    ]
+    doc = _doc(*objects)
+
+    with pytest.raises(el.OpError, match=f"{readiness.MAX_VALIDATE_OBJECTS:,}"):
+        readiness.validate(doc)
+
+    # At or under the ceiling, nothing changes: an ordinary document is
+    # still checked in full.
+    under = _doc(*objects[:-1])
+    report = readiness.validate(under)
+    assert report.status in ("pass", "warn", "fail", "skip")

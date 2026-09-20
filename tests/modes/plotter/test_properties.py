@@ -154,6 +154,50 @@ def test_every_addable_property_type_has_a_blank_value():
         assert blank is not None or kind == "string"
 
 
+# --- the remove button's reason (the 2026-09-20 audit, plotter-05) ---------
+
+
+def test_a_stale_top_level_selection_does_not_claim_it_is_not_top_level():
+    """``_prop_footer``'s remove button used to compute ``enabled`` as
+    ``bool(name) and name in props`` -- three conditions (top-level, a
+    non-empty name, and the name still existing) -- while its ``reason`` was
+    a plain binary built from ``selected``/``top_level`` alone: "nothing
+    selected" or else "Only a top-level property can be removed here." A
+    selection that *is* top-level but whose property has since gone (removed
+    elsewhere -- undo, another pane -- while this form still names it) fell
+    into that ``else`` branch and reported the not-top-level message, which
+    is false: the selection is top-level, it just no longer exists.
+    """
+    from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
+
+    props: dict[str, Prop] = {}  # the property named by ``selected`` is gone
+    name, reason = plotter_layers._prop_remove_target("/gone", props)
+
+    assert name == ""
+    assert reason == "Select a property to remove it.", (
+        "a stale top-level selection must not be reported as not-top-level"
+    )
+
+
+def test_a_genuinely_nested_selection_still_reports_the_not_top_level_reason():
+    """The companion case: a selection that is not top-level at all (a class
+    member or list item's path) must keep its own, correct message, which is
+    the one the stale case above was wrongly borrowing."""
+    props = {"stats": Prop(type="class", value={})}
+    name, reason = plotter_layers._prop_remove_target("/stats/hp", props)
+
+    assert name == ""
+    assert reason == "Only a top-level property can be removed here."
+
+
+def test_a_live_top_level_selection_is_removable():
+    props = {"hp": Prop(type="int", value=10)}
+    name, reason = plotter_layers._prop_remove_target("/hp", props)
+
+    assert name == "hp"
+    assert reason == ""
+
+
 # --- one gesture, one undo step (the 2026-09-07 audit, plotter-02) ----------
 
 

@@ -25,6 +25,7 @@ public checkout on 2026-09-16.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 from _pure_packages import KERNELS, STUDIO, dotted_root, pure_packages
@@ -33,6 +34,12 @@ from realmspinner.studio.modes import MODES
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINES = ROOT / "src" / "realmspinner" / "pipelines"
+
+#: Number words this project spells the mode count with, for the "N modes"
+#: sweep -- the 2026-09-20 audit, finding docs-03.
+_MODE_COUNT_WORDS = {
+    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+}
 
 
 #: 2026-09-17, P3 of ``dev/RESTRUCTURE.md``: Clay's and Inker's own engines
@@ -300,3 +307,68 @@ def test_before_you_begin_install_command_lists_all_four_extras():
     missing = [f"--extra {name}" for name in extras if f"--extra {name}" not in chapter]
     assert not missing, f"chapter 01's install command never passes {missing} (docs-01)"
     assert "three extras" not in chapter
+
+
+# --- the 2026-09-20 audit, findings docs-01 through docs-03 -------------------
+
+
+def test_security_md_file_format_inventory_includes_import_only_mesh_and_animation_formats():
+    """docs-01: SECURITY.md's "Any file the app opens" inventory named every
+    ``*_SOURCE`` native-document suffix (``test_security_md_file_format_
+    inventory_includes_every_native_document_suffix`` above, from the
+    2026-09-15 audit) but never the *import-only* third-party formats Clay's
+    mesh importer and Poser's clip importer also parse -- ``.obj``/``.stl``/
+    ``.ply`` (``kernels.mesh.meshimport.SUPPORTED_SUFFIXES``) and ``.fbx``/
+    ``.gltf`` (``service.clip_import.SOURCE_EXTENSIONS``). Those are five
+    parsers of untrusted third-party files with no line in the in-scope
+    list. Derived from both modules' own suffix constants, not hand-listed,
+    so a sixth import format enrols itself the way the native-document sweep
+    already does for a seventh native one.
+    """
+    from realmspinner.kernels.mesh.meshimport import SUPPORTED_SUFFIXES as mesh_import_suffixes
+    from realmspinner.service.clip_import import SOURCE_EXTENSIONS as clip_import_suffixes
+
+    suffixes = sorted(set(mesh_import_suffixes) | set(clip_import_suffixes))
+    security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    missing = [suffix for suffix in suffixes if suffix not in security]
+    assert not missing, (
+        f"SECURITY.md's 'Any file the app opens' inventory is missing import-only "
+        f"format(s) {missing} from meshimport.SUPPORTED_SUFFIXES / "
+        f"clip_import.SOURCE_EXTENSIONS (docs-01)"
+    )
+
+
+def test_security_md_names_every_network_worker():
+    """docs-02: SECURITY.md's three-exception network inventory read
+    correctly but was never tied to :func:`network_workers`, unlike
+    README.md's and CONTRIBUTING.md's equivalent claims two tests above --
+    so a fourth network-reaching worker could falsify this document alone
+    and nothing here would notice.
+    """
+    text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    missing = [w for w in network_workers() if w not in text]
+    assert not missing, f"SECURITY.md never names {missing} as network-reaching workers (docs-02)"
+
+
+def test_readme_mode_count_matches_modes_module():
+    """docs-03: README.md's "The modes" section names a number word right
+    before "top-level modes" in the very sentence that also names
+    ``studio/modes/__init__.py`` as the authoritative list -- but nothing
+    tied that word to ``len(modes.MODES)``, so it could drift the way the
+    workspace-count sentences ``test_no_document_miscounts_the_workspaces``
+    guards already did once. (CLAUDE.md makes the identical claim in its own
+    opening sentence, but CLAUDE.md left the public checkout on 2026-09-16 --
+    see ``tests/test_docs_inventories.py``'s module docstring -- so its half
+    of this gate belongs in ``dev/tests/test_docs_inventories.py`` instead;
+    this test covers README.md alone.)
+    """
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    match = re.search(r"\*\*(\w+)\*\*\s+top-level modes", text)
+    assert match, "README.md's mode-count sentence has moved or changed shape"
+    word = match.group(1).lower()
+    assert word in _MODE_COUNT_WORDS, (
+        f"no number word registered for {word!r} -- extend _MODE_COUNT_WORDS"
+    )
+    assert _MODE_COUNT_WORDS[word] == len(MODES), (
+        f"README.md says '{word}' top-level modes but modes.MODES has {len(MODES)} (docs-03)"
+    )

@@ -119,6 +119,14 @@ _KIND_WORDS: dict[str, tuple[str, ...]] = {
     "glow": ("glow", "bloom"),
     "flash": ("flash",),
     "distortion": ("heat", "shimmer", "distortion", "warp"),
+    # The 2026-09-20 audit, finding inker-08: "sprite" is a real primitive
+    # kind with its own colour slot (``_COLOUR_SLOTS["sprite"]`` above) but
+    # had no entry here, so ``_kind_after`` could never resolve a word like
+    # "sprite" to a target kind -- a clause such as "green sprite" left
+    # ``target`` at ``None``, which the colour loop below reads as "repaint
+    # every layer that has colours", silently recolouring every other
+    # coloured layer in the recipe instead of scoping to the sprite alone.
+    "sprite": ("sprite", "sprites", "image", "icon"),
 }
 
 
@@ -271,12 +279,28 @@ def apply_diff(recipe: Recipe, diff: Any) -> tuple[Recipe, list[str]]:
     if not isinstance(diff, dict):
         return recipe, ["The change was not a JSON object."]
     layers = list(recipe.layers)
-    by_name = {layer.name.lower(): i for i, layer in enumerate(layers)}
+    by_name: dict[str, list[int]] = {}
+    for i, layer in enumerate(layers):
+        by_name.setdefault(layer.name.lower(), []).append(i)
     by_uid = {str(layer.uid): i for i, layer in enumerate(layers)}
 
     def index_of(key: Any) -> int | None:
         text = str(key).strip().lower()
-        return by_name.get(text, by_uid.get(text))
+        if text in by_uid:
+            return by_uid[text]
+        matches = by_name.get(text)
+        if not matches:
+            return None
+        if len(matches) > 1:
+            # The 2026-09-20 audit, finding inker-06: this used to be a
+            # plain ``{name: index}`` dict comprehension, so a duplicate
+            # name kept only the *last* match -- the shipped ``buff``
+            # preset ships two layers literally named "Glow", and a diff
+            # naming "glow" could never reach the first one while still
+            # reporting success. Refuse rather than silently guess.
+            notes.append(f"{key!r} names {len(matches)} layers; address it by uid instead")
+            return None
+        return matches[0]
 
     for key, params in (diff.get("layers") or {}).items():
         i = index_of(key)

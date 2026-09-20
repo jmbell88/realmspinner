@@ -48,6 +48,37 @@ def _two_boxes(offset: tuple[float, float, float] = (5.0, 0.0, 0.0)) -> bm.Mesh:
     return merged
 
 
+def _n_boxes(n: int) -> bm.Mesh:
+    """``n`` boxes, none sharing a vertex index with any other -- ``n`` loose
+    parts, the same shape :func:`_two_boxes` builds for two."""
+    boxes = [bp.box() for _ in range(n)]
+    offsets = np.cumsum([0] + [len(b.positions) for b in boxes[:-1]])
+    corner_offsets = np.cumsum([0] + [len(b.loops) for b in boxes[:-1]])
+    positions = np.concatenate(
+        [
+            np.asarray(b.positions, dtype="f4") + np.array([5.0 * i, 0.0, 0.0], dtype="f4")
+            for i, b in enumerate(boxes)
+        ]
+    )
+    loops = np.concatenate(
+        [b.loops.astype("i8") + off for b, off in zip(boxes, offsets, strict=True)]
+    )
+    starts = np.concatenate(
+        [
+            b.starts[:-1].astype("i8") + off
+            for b, off in zip(boxes, corner_offsets, strict=True)
+        ]
+        + [[len(boxes[-1].loops) + corner_offsets[-1]]]
+    )
+    material = np.concatenate([b.material for b in boxes])
+    smooth = np.concatenate([b.smooth for b in boxes])
+    merged = bm.Mesh(
+        positions=positions, loops=loops, starts=starts, material=material, smooth=smooth
+    )
+    bm.validate(merged)
+    return merged
+
+
 def _two_toned_box() -> bm.Mesh:
     box = bp.box()
     material = np.zeros(bm.face_count(box), dtype="i4")
@@ -85,6 +116,49 @@ def test_by_loose_parts_compacts_positions_not_a_view_of_the_whole() -> None:
     pieces = separate.by_loose_parts(_two_boxes())
     total = sum(len(p.positions) for p in pieces)
     assert total == 16  # 8 + 8, not 16 + 16 (each piece holding both)
+
+
+def test_by_loose_parts_refuses_past_a_piece_count_ceiling_before_stalling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-20 audit's clay-04: ``by_loose_parts``/``by_material`` had
+    no ceiling at all, and the closing split cost ``pieces * n_faces`` twice
+    over -- once in the per-group ``flatnonzero`` rescan, once again one call
+    deeper where ``_piece`` recomputed ``np.diff(mesh.starts)`` (the whole
+    mesh's per-face corner counts) from scratch on every call. Both are fixed
+    now (see :data:`~realmspinner.kernels.mesh.separate.MAX_SEPARATE_PIECES`'s
+    own measurements), but a ceiling is kept regardless, because minting a
+    ``Mesh`` per piece is still real work that grows with piece count. The
+    ceiling is lowered here rather than built at a real 20,001 pieces, which
+    would make this test itself slow.
+    """
+    monkeypatch.setattr(separate, "MAX_SEPARATE_PIECES", 2)
+    assert len(separate.by_loose_parts(_two_boxes())) == 2  # exactly at the ceiling: fine
+
+    three = _n_boxes(3)
+    with pytest.raises(OpError, match="past the 2"):
+        separate.by_loose_parts(three)
+
+
+def test_by_material_refuses_past_a_piece_count_ceiling_before_stalling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """See ``test_by_loose_parts_refuses_past_a_piece_count_ceiling_before_
+    stalling`` above -- the same ceiling guards both of :mod:`.separate`'s
+    grouping ops, since both end at :func:`~.separate._grouped_pieces`."""
+    monkeypatch.setattr(separate, "MAX_SEPARATE_PIECES", 2)
+    box = bp.box()
+    material = np.arange(bm.face_count(box), dtype="i4") % 3  # 3 distinct slots
+    three_toned = bm.Mesh(
+        positions=box.positions,
+        loops=box.loops,
+        starts=box.starts,
+        material=material,
+        smooth=box.smooth,
+    )
+    bm.validate(three_toned)
+    with pytest.raises(OpError, match="past the 2"):
+        separate.by_material(three_toned)
 
 
 def test_by_loose_parts_keeps_material_smooth_and_uv_per_piece() -> None:

@@ -46,11 +46,13 @@ makes.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import json
 import logging
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -167,8 +169,23 @@ def archive_job(
             "verdicts": list((verdicts or {}).get(job_id) or ()),
             "files": files,
         }
-        # Last, and that ordering is the whole gate. See MANIFEST.
-        (root / MANIFEST).write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        # Last, and that ordering is the whole gate. See MANIFEST -- staged
+        # through a temp sibling and os.replace, the same idiom as
+        # journal._write_pair and findings.refresh: the 2026-09-20 audit,
+        # finding service-03. A plain write_text put the served name itself
+        # in the window, so a kill mid-write left a job.json that is_complete
+        # reported present and that did not parse. tmp+replace makes the
+        # served name appear whole or not at all.
+        manifest = root / MANIFEST
+        fd, raw = tempfile.mkstemp(dir=root, prefix=f".{MANIFEST}.", suffix=".tmp")
+        os.close(fd)
+        tmp = Path(raw)
+        try:
+            tmp.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+            os.replace(tmp, manifest)
+        finally:
+            with contextlib.suppress(OSError):
+                tmp.unlink()
         return root
     except Exception:
         log.exception("could not archive evidence for job %s", job_id)

@@ -388,6 +388,27 @@ def test_read_rsng_refuses_a_duplicate_oneshot_uid():
         rsng.read_rsng(raw)
 
 
+def test_a_non_numeric_channel_uid_is_reported_as_malformed_not_a_raw_valueerror():
+    """sirens-02 (the 2026-09-20 audit). Four of ``rsng.py``'s five collection
+    readers (``_channels_from``, ``_patterns_from``, ``_oneshots_from``,
+    ``_samples_from``) parsed a manifest number with a bare ``int()`` instead
+    of the module's own ``_int()`` helper, which ``_instruments_from`` already
+    wraps the identical call in -- so a non-numeric uid surfaced as Python's
+    own "invalid literal for int() with base 10: …" instead of the same
+    "this song's manifest is malformed" every sibling refusal gives. Reproduced
+    against the unfixed code: this raised a bare ``ValueError`` whose message
+    was the Python exception text, not ``_MALFORMED``.
+    """
+    doc = _song()
+
+    def edit(manifest):
+        manifest["channels"][0]["uid"] = "not-a-number"
+
+    raw = _repack(doc, edit)
+    with pytest.raises(ValueError, match="malformed"):
+        rsng.read_rsng(raw)
+
+
 def test_the_reserved_uid_high_water_mark_ignores_the_instruments(monkeypatch):
     """Their ids never came out of the global counter, so reserving above one
     would walk that counter toward its own ceiling for nothing -- which is the

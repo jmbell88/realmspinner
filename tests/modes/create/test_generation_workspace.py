@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from realmspinner.studio.modes.create.engine import assets as create_assets
@@ -212,3 +214,111 @@ def test_the_words_are_matched_whole_and_named_back():
     # "netting" is a word in the list; "vignetting" is not this word.
     assert create_recipe.open_form_words("heavy vignetting") == ()
     assert create_recipe.open_form_words("a barrel") == ()
+
+
+# --- queue_position memoization ----------------------------------------------
+
+
+class _GenCache:
+    """The one thing ``queue_position``'s memo reads off the cache besides
+    ``jobs``: a generation counter, exactly like ``candidates.pending_cached``
+    and ``candidates_panel._grades`` already key their own memos against."""
+
+    def __init__(self, jobs, generation):
+        self.jobs = jobs
+        self._generation = generation
+
+
+def _queued(job_id):
+    return {"id": job_id, "status": "queued"}
+
+
+def test_queue_position_answers_from_its_memo_not_a_fresh_scan_of_an_unchanged_generation():
+    """The 2026-09-20 audit, finding create-06: ``queue_position`` rebuilt and
+    linearly scanned a filtered list of every queued job on every call, with
+    no memo key at all -- called every frame from both the per-frame progress
+    card and the Reference-stage footer, the same shape ``candidates.pending``
+    was fixed for one day earlier (2026-09-19, finding create-01).
+
+    Proof that it now trusts a memo rather than always rescanning: a real
+    ``JobsCache`` only bumps ``_generation`` when ``adopt`` publishes a fresh
+    read, so a jobs list that changes with the generation held fixed is what
+    an unrelated frame looks like from the memo's point of view -- one that
+    changed nothing about the queue. The unfixed rescan-every-call code
+    cannot help but notice the mutation; a memo keyed on the generation
+    counter cannot.
+    """
+    saved = generation_workspace._QUEUE_POSITION_CACHE
+    try:
+        generation_workspace._QUEUE_POSITION_CACHE = None
+        cache = _GenCache([_queued("job-a")], generation=0)
+        ctx = SimpleNamespace(cache=cache)
+        assert generation_workspace.queue_position(ctx, "job-a") == 1
+
+        # Append an older still-queued job with the generation left
+        # untouched. A rescan would now see it first in reversed order and
+        # bump "job-a" to position 2; the memo must not.
+        cache.jobs = [_queued("job-a"), _queued("job-b")]
+        assert generation_workspace.queue_position(ctx, "job-a") == 1, (
+            "queue_position rescanned an unchanged generation instead of "
+            "answering from its memo"
+        )
+    finally:
+        generation_workspace._QUEUE_POSITION_CACHE = saved
+
+
+def test_queue_position_rescans_once_the_generation_moves():
+    """The other half of the same memo: once a real cache publishes a fresh
+    read (its generation counter moves), the answer must reflect it -- a
+    memo that only ever remembered its first answer would be its own kind of
+    silent staleness."""
+    saved = generation_workspace._QUEUE_POSITION_CACHE
+    try:
+        generation_workspace._QUEUE_POSITION_CACHE = None
+        cache = _GenCache([_queued("job-a")], generation=0)
+        ctx = SimpleNamespace(cache=cache)
+        assert generation_workspace.queue_position(ctx, "job-a") == 1
+
+        cache.jobs = [_queued("job-a"), _queued("job-b")]
+        cache._generation = 1
+        assert generation_workspace.queue_position(ctx, "job-a") == 2
+    finally:
+        generation_workspace._QUEUE_POSITION_CACHE = saved
+
+
+def test_queue_position_never_answers_for_a_different_cache_object_that_reused_a_freed_ids_address():  # noqa: E501
+    """The 2026-09-20 audit, finding create-05: a memo keyed on ``id(cache)``
+    alone can be fooled because CPython is free to hand a freed object's
+    address to a brand new one -- reproduced in 19,993 of 20,000
+    create-destroy-create cycles. My first fix for create-06 copied
+    ``(id(cache), generation)`` from ``candidates.pending_cached`` and
+    ``candidates_panel._grades`` before a concurrent fixer changed both of
+    those to key on ``cache`` itself for exactly this reason, which left
+    this memo the only ``id(cache)``-keyed one in the tree.
+
+    Modelled on ``tests/studio/test_candidates.py``'s
+    ``test_pending_cached_and_grades_never_answer_for_a_different_cache_
+    object_that_reused_a_freed_ids_address``: rather than force a real
+    GC-timed address collision, this plants the exact situation one
+    produces -- an entry keyed on the id of a cache that is very much
+    alive, but which was not the cache that produced the memoized answer.
+    If the memo trusts the bare id, it hands back that stale answer; if it
+    holds the cache itself it can never be fooled, because the planted key
+    (an ``int``) can never compare equal to one built from a live object.
+    """
+    saved = generation_workspace._QUEUE_POSITION_CACHE
+    try:
+        live = _GenCache([_queued("real-job")], generation=0)
+        # What a destroyed cache's memo looks like if its id is reused: a
+        # key built from a bare id, planted under the id the *live* object
+        # now happens to occupy, holding an answer that names no job of
+        # ``live``'s own queue.
+        generation_workspace._QUEUE_POSITION_CACHE = ((id(live), 0), {"ghost-job": 1})
+        ctx = SimpleNamespace(cache=live)
+        result = generation_workspace.queue_position(ctx, "real-job")
+        assert result == 1, (
+            "queue_position served a different cache's stale memo because "
+            "the key trusted a bare id(cache) instead of a strong reference"
+        )
+    finally:
+        generation_workspace._QUEUE_POSITION_CACHE = saved

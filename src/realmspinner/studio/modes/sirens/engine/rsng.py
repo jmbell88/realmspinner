@@ -346,7 +346,12 @@ def _channels_from(manifest: dict) -> list[D.Channel]:
         kind = str(entry.get("kind", "pulse"))
         if kind not in inst.KINDS:
             raise ValueError(f"this song has a {kind!r} channel, which this build cannot play")
-        uid = int(entry.get("uid", D.new_uid()))
+        # sirens-02 (the 2026-09-20 audit): a bare ``int()`` here let a
+        # non-numeric uid surface as Python's own "invalid literal for
+        # int() with base 10: ..." instead of the same malformed-manifest
+        # refusal every sibling check in this file gives -- ``_int()`` is
+        # this module's own helper for exactly that translation.
+        uid = _int(entry, "uid", D.new_uid())
         if uid in seen:
             raise ValueError(f"this song lists the channel {uid} twice")
         seen.add(uid)
@@ -442,7 +447,10 @@ def _patterns_from(
     for entry in _list(manifest, "patterns")[: D.MAX_PATTERNS]:
         if not isinstance(entry, dict):
             raise ValueError(_MALFORMED)
-        member = f"{PATTERN_DIR}/{int(entry.get('member', len(out)))}.npy"
+        # sirens-02 (the 2026-09-20 audit): see ``_channels_from`` -- routed
+        # through ``_int()`` so a non-numeric ``member`` reports the same
+        # malformed-manifest refusal instead of a raw ``ValueError``.
+        member = f"{PATTERN_DIR}/{_int(entry, 'member', len(out))}.npy"
         try:
             raw = zf.read(member)
         except (KeyError, zipfile.BadZipFile) as exc:
@@ -487,7 +495,8 @@ def _patterns_from(
             for old, new in remap.items():
                 plane[stored == old] = new
         np.clip(plane, notes.EMPTY, D.MAX_INSTRUMENTS - 1, out=plane)
-        uid = int(entry.get("uid", D.new_uid()))
+        # sirens-02 (the 2026-09-20 audit): see ``_channels_from``.
+        uid = _int(entry, "uid", D.new_uid())
         if uid in seen:
             raise ValueError(f"this song lists the pattern {uid} twice")
         seen.add(uid)
@@ -509,7 +518,8 @@ def _oneshots_from(manifest: dict) -> list[D.OneShot]:
     for entry in _list(manifest, "oneshots")[: D.MAX_ONESHOTS]:
         if not isinstance(entry, dict):
             raise ValueError(_MALFORMED)
-        uid = int(entry.get("uid", D.new_uid()))
+        # sirens-02 (the 2026-09-20 audit): see ``_channels_from``.
+        uid = _int(entry, "uid", D.new_uid())
         if uid in seen:
             raise ValueError(f"this song lists the sound effect {uid} twice")
         seen.add(uid)
@@ -530,7 +540,8 @@ def _samples_from(zf: Any, manifest: dict) -> dict[str, np.ndarray]:
     for index, entry in enumerate(_list(manifest, "samples")[: D.MAX_SAMPLES]):
         if not isinstance(entry, dict):
             raise ValueError(_MALFORMED)
-        member = f"{SAMPLE_DIR}/{int(entry.get('member', index))}.wav"
+        # sirens-02 (the 2026-09-20 audit): see ``_channels_from``.
+        member = f"{SAMPLE_DIR}/{_int(entry, 'member', index)}.wav"
         try:
             raw = zf.read(member)
         except (KeyError, zipfile.BadZipFile) as exc:

@@ -7,9 +7,13 @@ belong beside an existing rerun test file that this session does not own.
 
 from __future__ import annotations
 
+import pytest
+
+from realmspinner import models
 from realmspinner.pipelines import tileatlas
 from realmspinner.service import jobs as svc_jobs
 from realmspinner.service import tilesheets
+from realmspinner.service.errors import Invalid
 
 # --- service-01: a materials/terrain reroll must draw fresh per-material and
 # mask seeds, not just a new top-level one nothing on this kind reads --------
@@ -116,6 +120,39 @@ def test_reroll_of_a_grid_tile_sheet_still_works_with_no_sheet_materials(svc):
     new_row = svc.store.get(new["id"])
     assert new_row["params"]["sheet"]["materials"] == []
     assert new_row["params"]["seed"] != svc.store.get(made["id"])["params"]["seed"]
+
+
+# --- plotter-03: a style-locked reroll must check the IP-Adapter weights ----
+
+
+def test_rerun_of_a_style_locked_materials_sheet_with_no_reference_checks_ip_adapter_weights(
+    svc,
+):
+    """The 2026-09-20 audit, finding plotter-03: style lock hands the first
+    material to the IP-Adapter as every pass after it
+    (``_q_tileset._tile_set``'s ``later_cond``), so a style-locked,
+    reference-less sheet loads the encoder exactly as an uploaded reference
+    does -- ``vram.estimate`` already reads ``style_lock`` off the stored
+    ``sheet`` block for that reason. Before this fix, the rerun door's
+    ``_check_weights`` was told the mode and whether ``ref.png`` existed, but
+    never the lock, so a reroll of this row against a models directory
+    missing the adapter passed every check and would have died inside
+    ``text2image.generate`` instead of being refused here."""
+    job_id = _materials_job(svc, style_lock=True)
+    assert not (svc.job_dir(job_id) / "ref.png").exists()
+
+    adapter = models.IP_ADAPTERS["plus"]
+    weight = (
+        svc.config.t2i_model_root
+        / adapter.dir_name
+        / adapter.subfolder
+        / adapter.weight_name
+    )
+    weight.unlink()
+
+    with pytest.raises(Invalid) as excinfo:
+        svc_jobs.rerun_job(svc, job_id, mode="reroll")
+    assert excinfo.value.field == "ip_adapter"
 
 
 # --- create-02: the Create tray's Rerun button must agree with rerollable ----

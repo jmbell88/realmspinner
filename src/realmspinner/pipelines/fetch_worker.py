@@ -681,7 +681,20 @@ def main() -> int:
             "detail": f"{type(exc).__name__}: {exc}",
         }
     result["seconds"] = round(time.perf_counter() - started, 2)
-    result_path.write_text(json.dumps(result), encoding="utf-8")
+    # Staged and renamed, like blender_worker.main()/separation_worker.main()
+    # and every other write onto a name something else reads: the host polls
+    # for this file's existence, so a write left partial by a crash mid-write
+    # would be parsed as a finished (and malformed) result rather than as no
+    # result yet. The 2026-09-20 audit (pipelines-02) found the three network
+    # workers -- this one, pack_worker and update_worker -- writing straight
+    # to result_path while their six siblings all staged first.
+    tmp = result_path.with_name(result_path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(result), encoding="utf-8")
+        tmp.replace(result_path)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
     _emit(percent=100.0 if result.get("ok") else 0.0, label="")
     return 0 if result.get("ok") else 1
 

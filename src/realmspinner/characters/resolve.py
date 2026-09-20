@@ -351,8 +351,12 @@ KNOWN_CREATURES: dict[str, Creature] = {
     "behemoth": _c("quadruped"),
     "kirin": _c("quadruped"),
     # -- winged -------------------------------------------------------------
-    "dragon": _c("winged", "wyvern", "drake"),
-    "wyrm": _c("winged", "wyvern", "drake"),
+    # "drake" dropped from both kin tuples below: it is a silhouette stem and
+    # a family alias, never a species key in the registry, so ``_offer_for``
+    # (which filters ``kin`` against ``registry`` keys) dropped it on every
+    # call anyway -- the 2026-09-20 audit, finding troupe-05.
+    "dragon": _c("winged", "wyvern"),
+    "wyrm": _c("winged", "wyvern"),
     "drake": _c("winged", "wyvern"),
     "wyvern": _c("winged"),
     "griffin": _c("winged"),

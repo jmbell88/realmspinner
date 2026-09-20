@@ -817,7 +817,13 @@ class _Reader:
         raw_count = acc.get("count")
         if raw_count is None:
             raise ValueError("an accessor in this GLB is missing count")
-        count = int(raw_count)
+        # The 2026-09-20 audit, finding clay-15: this read straight off
+        # untrusted JSON into ``int(...)`` with no type check, unlike every
+        # sibling index-shaped field in this loader (``_check_int_index``) --
+        # a list or dict value raised a bare ``TypeError`` here instead of
+        # this loader's own named ``ValueError`` refusal.
+        _check_int_index(raw_count, "an accessor's count")
+        count = raw_count
         # Before the branch and not inside it, so the bound is a property of
         # *reading an accessor* rather than a rule the zeros path below had to
         # remember. The interleaved path pays for it twice over -- ``_check_span``
@@ -852,9 +858,24 @@ class _Reader:
             )
         view = buffer_views[bv]
         self._check_buffer(view)
-        start = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
+        # The 2026-09-20 audit, finding clay-17: these three fields used to
+        # reach arithmetic with no numeric type check at all. A string
+        # ``byteOffset`` raised a bare ``TypeError`` here, before
+        # ``_check_span`` ever got a chance to bound it against the buffer;
+        # a numeric-looking string ``byteStride`` (truthy, so it survived
+        # the ``or item`` fallback) reached ``stride == item`` as a false
+        # comparison and then ``stride * (count - 1)`` below as silent
+        # Python string repetition rather than an offset computation.
+        view_offset = view.get("byteOffset", 0)
+        _check_int_index(view_offset, "a bufferView's byteOffset")
+        acc_offset = acc.get("byteOffset", 0)
+        _check_int_index(acc_offset, "an accessor's byteOffset")
+        start = view_offset + acc_offset
         item = np.dtype(dtype).itemsize * ncomp
-        stride = view.get("byteStride") or item
+        raw_stride = view.get("byteStride")
+        if raw_stride is not None:
+            _check_int_index(raw_stride, "a bufferView's byteStride")
+        stride = raw_stride or item
         if stride == item:
             self._check_span(start, count * item)
             self._charge(count * item)
@@ -1497,7 +1518,23 @@ class _Reader:
             # A node gives either a matrix or TRS, never both.
             matrix = _trs(node, name, "matrix", 16)
             mat = matrix.reshape(4, 4).T
-            out.translation, out.rotation, out.scale = m3.decompose(mat)
+            t, rot, s = m3.decompose(mat)
+            # The 2026-09-20 audit, finding clay-16: ``m3.decompose``'s own
+            # docstring states it assumes no shear -- true of every matrix
+            # this codebase itself composes, but a hand-authored node matrix
+            # in a GLB is untrusted, and a sheared one used to load silently
+            # with a wrong rotation and scale (decompose has no way to
+            # represent the shear, so it just drops it). Rather than rewrite
+            # decompose to handle shear, recompose from what it returned and
+            # compare against the original matrix: if a shear made the round
+            # trip disagree, refuse the node instead of drawing it wrong.
+            recomposed = m3.compose(t, rot, s)
+            if not np.allclose(recomposed, mat, atol=1e-4, rtol=1e-4):
+                raise ValueError(
+                    f"node {name!r} has a sheared matrix, which this viewer cannot "
+                    "represent without silently distorting it"
+                )
+            out.translation, out.rotation, out.scale = t, rot, s
         else:
             out.translation = _trs(node, name, "translation", 3, (0.0, 0.0, 0.0))
             out.rotation = _trs(node, name, "rotation", 4, (0.0, 0.0, 0.0, 1.0))

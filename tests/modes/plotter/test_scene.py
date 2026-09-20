@@ -185,6 +185,46 @@ def test_a_group_cannot_be_moved_inside_its_own_subtree():
     assert outer.children == [inner]
 
 
+def test_deeply_nested_groups_do_not_crash_move_layer_or_scene_resolve():
+    """The 2026-09-20 audit, finding plotter-01: nothing capped how deep the
+    layer tree could nest, and every walker over it (``_walk``, ``move_layer``,
+    ``scene.resolve``, the ``.rmap`` writer) is plain recursion -- so ordinary,
+    undoable edits (no hand-edited file needed) reproduced an uncaught
+    ``RecursionError`` at ~990 levels.
+
+    Two 40-deep chains -- each shallow enough to build with plain
+    ``add_group_layer`` calls without tripping anything -- are reparented
+    together with ``move_layer``. Combined, the moved chain's own deepest
+    descendant would land at ~79 levels: past the cap, so it must be refused
+    by name rather than silently built and left for the next canvas draw or
+    export to fall over on.
+    """
+    doc = _doc()
+
+    def _chain(depth: int) -> GroupLayer:
+        """``depth`` groups nested one inside the last; returns the top one."""
+        top = doc.add_group_layer("g0")
+        current = top
+        for i in range(1, depth):
+            current = doc.add_group_layer(f"g{i}", parent_uid=current.uid)
+        return top
+
+    left_top = _chain(40)
+    right_top = _chain(40)
+    # The deepest layer of the left chain, to reparent the right chain under.
+    left_bottom = left_top
+    while left_bottom.children:
+        left_bottom = left_bottom.children[0]
+
+    with pytest.raises(ValueError, match="deep"):
+        doc.move_layer(right_top.uid, 0, parent_uid=left_bottom.uid)
+
+    # A refused move must not have left the tree half-moved.
+    assert doc.parent_uid_of(right_top.uid) is None
+    # And the tree that is left must still be perfectly walkable.
+    scene.resolve(doc)
+
+
 def test_a_reparent_is_one_step_and_undoes_to_the_old_parent():
     doc = _doc()
     group = doc.add_group_layer("G")

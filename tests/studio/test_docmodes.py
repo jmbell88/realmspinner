@@ -551,3 +551,33 @@ def test_every_document_mode_inherits_the_one_tab_list():
             assert name not in vars(state_cls), f"{entry.key} overrides DocTabs.{name}"
         seen.add(entry.key)
     assert seen == set(docmodes.DOC_MODES)
+
+
+def test_a_mode_added_to_mode_manifest_doc_modes_is_seen_by_any_unsaved(monkeypatch):
+    """shell-05 (the 2026-09-20 audit): ``docmodes.DOC_MODES`` used to be a
+    second, hand-written tuple that merely happened to agree with
+    :data:`mode_manifest.DOC_MODES` minus "poser". The test above filters
+    ``mode_manifest.DOC_MODES`` down to entries already *in*
+    ``docmodes.DOC_MODES`` before checking anything, so a mode registered on
+    the manifest and never copied into the hand-written tuple passed it
+    silently -- a tautology w.r.t. completeness. Proven the way
+    ``status_bar``'s identical twin bug was (2026-09-08, shell-08): inject a
+    mode neither module has ever heard of and check that ``any_unsaved``
+    notices its dirty state, rather than comparing the two sets structurally
+    (a hand-written tuple that happened to be copied correctly would also
+    pass a structural comparison).
+    """
+    from realmspinner.studio import mode_manifest
+    from realmspinner.studio.state import AppState
+
+    gizmo = mode_manifest.ModeManifest(
+        "gizmo", "gizmo_mode", "gizmo", "Export Gizmo", "gizmo_mode"
+    )
+    monkeypatch.setattr(mode_manifest, "DOC_MODES", (*mode_manifest.DOC_MODES, gizmo))
+
+    state = AppState()
+    ctx = SimpleNamespace(state=state)
+    assert docmodes.any_unsaved(ctx) is False
+
+    state.gizmo = SimpleNamespace(any_dirty=True)
+    assert docmodes.any_unsaved(ctx) is True

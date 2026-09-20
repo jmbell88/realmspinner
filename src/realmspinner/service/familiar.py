@@ -74,6 +74,19 @@ def _reason_for(message: str) -> str:
         return "missing"
     if "did not become healthy in time" in message:
         return "unhealthy"
+    if "has no key file" in message:
+        # The 2026-09-20 audit (familiar-02): llama_client._headers raises
+        # this RuntimeError when a chat lands after LlamaServer.stop() has
+        # already cleared server.key_path -- the same "server is simply not
+        # answering anymore" story the sibling race (a raw FileNotFoundError
+        # when the key *file* vanishes mid-read, between _headers reading it
+        # and pipelines.llama._release_key_file unlinking it) was already
+        # mapped to "unhealthy" for by the 2026-09-18 familiar-01 fix, a few
+        # lines earlier in _call's own OSError handler. Without this branch
+        # the message matched none of the substrings above and fell through
+        # to "http", so a stopped server was classified two different ways
+        # depending on which side of the race a request landed on.
+        return "unhealthy"
     if "bytes, over the" in message and "byte ceiling" in message:
         return "too_large"
     return "http"

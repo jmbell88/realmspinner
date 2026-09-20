@@ -220,6 +220,56 @@ def test_shift_clicking_an_object_row_extends_the_selection_without_crashing(ui,
     assert state.selected_object == second.uid
 
 
+def test_deleting_from_the_object_right_click_menu_removes_a_cross_layer_selection(
+    ui, monkeypatch
+):
+    """The 2026-09-20 audit, finding plotter-02: the canvas's object
+    right-click menu called ``doc.remove_objects(layer.uid, state.selected_objects)``
+    straight against the popup's own layer -- the exact active-layer-only
+    shape ``remove_selected_objects`` was written to replace at the dock's
+    Delete key and the Properties pane's "Delete N objects" button (the
+    2026-09-11 audit, plotter-02). ``remove_selected_objects``' own docstring
+    claims to cover "every delete site" while naming only those two; this
+    menu row was the third, unrouted one, so right-clicking one object of a
+    dock-built cross-layer selection and choosing Delete silently dropped
+    whichever uids lived on a layer other than the one right-clicked, while
+    ``state.selected_objects`` kept naming the survivors as still selected.
+    """
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+
+    doc = _map()
+    first_layer = doc.add_object_layer()
+    doc.set_layer_props(first_layer.uid, name="Spawns")
+    second_layer = doc.add_object_layer()
+    doc.set_layer_props(second_layer.uid, name="Triggers")
+    first = _place(doc, doc.layer(first_layer.uid), "player")
+    second = _place(doc, doc.layer(second_layer.uid), "door_1")
+
+    state = plotter_state.PlotterState()
+    # A dock-built selection spanning both layers, right-clicked on the
+    # object that lives on ``second_layer`` -- the popup's own layer.
+    state.select_objects({first.uid, second.uid}, primary=second.uid)
+    tab = SimpleNamespace(doc=doc, busy=False)
+    ctx = SimpleNamespace()
+
+    def _fake_menu_item(label, *_a, **_k):
+        # Real click detection needs a positioned, rendered popup, which a
+        # headless context cannot open (see ``test_map_settings.py``'s own
+        # docstring on the same limitation). Only Delete is "pressed".
+        return (label == "Delete", False)
+
+    monkeypatch.setattr(plotter_canvas.controls, "menu_item", _fake_menu_item)
+
+    ui.new_frame()
+    ui.begin("##host")
+    plotter_canvas.object_menu_rows(ctx, state, tab, doc.layer(second_layer.uid))
+    ui.end()
+    ui.end_frame()
+
+    assert doc.layer(first_layer.uid).objects == [], "the other layer's object survived"
+    assert doc.layer(second_layer.uid).objects == []
+
+
 def test_deleting_a_dock_selected_group_spanning_two_object_layers_removes_every_object(
     ui, monkeypatch
 ):

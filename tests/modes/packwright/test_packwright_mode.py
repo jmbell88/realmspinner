@@ -1251,3 +1251,29 @@ def test_columns_offer_automatic_instead_of_a_magic_zero(monkeypatch):
         # result the field started at the first time.
         click(centre_of(captured["Automatic"]))
         assert tab.doc.settings.columns == explicit
+
+
+# --- bridge pane ----------------------------------------------------------
+
+
+def test_packed_why_says_packing_while_the_first_pack_runs():
+    """The 2026-09-20 audit, finding packwright-01: ``bridge.py``'s
+    ``packed_why`` fell back straight to "Nothing is packed yet" whenever
+    ``tab.layout is None``, with no ``tab.packing`` check -- while its two
+    siblings in this mode (``items.py``'s "Packing...", ``preview.py``'s
+    ``elif tab.packing`` branch) both make that distinction. A user who just
+    dropped sprites and is still waiting on the first pack read the export
+    button's reason as the drop having produced nothing at all."""
+    from realmspinner.studio.modes.packwright.ui.panes import bridge as packwright_bridge
+
+    ctx = FakeCtx()
+    tab = _tab(ctx, sources=1)
+    assert tab.layout is None and tab.atlas is None and tab.pack_stale_why == ""
+
+    tab.packing = True
+    assert packwright_bridge._packed_why(tab) == "Packing..."
+
+    tab.packing = False
+    assert packwright_bridge._packed_why(tab) == (
+        "Nothing is packed yet. Add images -- packing runs by itself."
+    )

@@ -160,6 +160,27 @@ def test_every_way_of_dropping_a_key_drops_its_velocity_too(clock):
         assert "k" not in motion._STATE
 
 
+def test_spring_does_not_diverge_on_a_multi_second_dt(clock):
+    """shell-10 (the 2026-09-20 audit): the substep loop bounds substep
+    *count* at 64 but not substep *size*, so a ``dt`` past roughly 2.2 s makes
+    each of those 64 explicit-Euler substeps too large to be stable and the
+    integrator returns an astronomic value that then decays over hundreds of
+    frames -- measured -5e16 at ``dt=2.5``. Safe in the running app only
+    because ``shell/frame.py``'s ``_tick`` separately clamps ``dt`` to 0.25 s
+    three files away; the screenshot harness (and this test, using the
+    ``clock`` fixture to bypass the frame loop entirely) calls ``spring``
+    directly with no such clamp upstream, so the primitive has to be safe on
+    its own terms.
+    """
+    motion.spring("k", 0.0, duration=0.2)  # first sighting: snaps to 0.0
+    clock["tick"](2.5)
+    result = motion.spring("k", 1.0, duration=0.2)
+    # However this large a hitch is handled, the value must stay somewhere
+    # sane between (or not far past) the start and the target -- not an
+    # astronomic number arrived at by a divergent integrator.
+    assert abs(result) < 10.0, result
+
+
 # --- reduce motion -----------------------------------------------------------
 
 

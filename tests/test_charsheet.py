@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -278,6 +279,37 @@ def test_a_v2_direction_object_missing_yaw_is_refused_by_name_not_by_typeerror()
                         "frames": 1,
                         "directions": [{"key": "front"}],
                     }
+                ],
+            }
+        )
+
+
+def test_resolve_layout_refuses_an_oversized_directions_list_before_building_it():
+    """The 2026-09-20 audit (troupe-02): an untrusted ``directions`` list used
+    to be fully validated and built into a tuple -- a ``float()`` and a dict
+    lookup per entry -- before ever being checked against the four legal
+    presets, reproduced at ~0.6s to build a 2,000,000-entry tuple this
+    function was always going to refuse. The longest legal preset has 16
+    entries, so anything longer must be refused on ``len()`` alone.
+
+    A ``Sequence`` that answers ``__len__`` but raises the moment anything
+    reads an element proves the length is checked, and nothing is indexed,
+    before the refusal fires -- indexing it at all is the pre-fix behaviour.
+    """
+
+    class _Exploding(Sequence):
+        def __len__(self) -> int:
+            return 2_000_000
+
+        def __getitem__(self, index):
+            raise AssertionError("a direction must not be read before the length check")
+
+    with pytest.raises(ValueError, match="1, 4, 8, or 16"):
+        cs.resolve_layout(
+            {
+                "version": 2,
+                "movements": [
+                    {"key": "idle", "frames": 1, "directions": _Exploding()}
                 ],
             }
         )

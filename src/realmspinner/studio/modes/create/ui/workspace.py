@@ -480,18 +480,58 @@ def _recent_results(ctx: Any) -> list[dict[str, Any]]:
     ][:_RESULT_COLUMNS]
 
 
+#: One memoized ``{job_id: position}`` map, keyed on ``(cache, cache.
+#: _generation)`` -- the same shape ``candidates.pending_cached`` and
+#: ``candidates_panel._grades`` already use against the identical counter.
+#: Module-level for the same reason as its two neighbours: Create only ever
+#: shows one cache's queue at a time, so one slot is enough.
+_QUEUE_POSITION_CACHE: tuple[Any, dict[str, int]] | None = None
+
+
 def queue_position(ctx: Any, job_id: str) -> int | None:
     """Where a queued job sits in line, or None if it is not queued.
 
     Public: the plan footer in ``panes.settings_2d`` asks the same question,
     and was reaching for the private name to do it.
-    """
 
-    queued = [job for job in reversed(ctx.cache.jobs) if job.get("status") == "queued"]
-    for index, job in enumerate(queued, start=1):
-        if job.get("id") == job_id:
-            return index
-    return None
+    Memoized on ``ctx.cache``'s generation counter (the 2026-09-20 audit,
+    finding create-06): this rebuilt and linearly scanned a filtered list of
+    every queued job with no memo key, called every frame from both the
+    per-frame progress card and the Reference-stage footer -- the same shape
+    ``candidates.pending`` was fixed for one day earlier (2026-09-19,
+    finding create-01). A ``None`` generation (a headless stand-in with no
+    real cache) never memoizes, since there is nothing behind it that can go
+    stale to avoid re-scanning.
+
+    The key holds ``cache`` itself, not ``id(cache)``, for the same reason
+    ``candidates.pending_cached`` and ``candidates_panel._grades`` do (the
+    2026-09-20 audit, finding create-05): CPython reuses a freed object's
+    address, so a bare id can name a cache that no longer exists --
+    reproduced in 19,993 of 20,000 create-destroy-create cycles against a
+    fresh cache at generation 0. A strong reference to the actual object can
+    never be fooled that way.
+    """
+    global _QUEUE_POSITION_CACHE
+    cache = ctx.cache
+    generation = getattr(cache, "_generation", None)
+    key = (cache, generation)
+    if (
+        generation is not None
+        and _QUEUE_POSITION_CACHE is not None
+        and _QUEUE_POSITION_CACHE[0] == key
+    ):
+        positions = _QUEUE_POSITION_CACHE[1]
+    else:
+        positions = {
+            job["id"]: index
+            for index, job in enumerate(
+                (job for job in reversed(cache.jobs) if job.get("status") == "queued"),
+                start=1,
+            )
+        }
+        if generation is not None:
+            _QUEUE_POSITION_CACHE = (key, positions)
+    return positions.get(job_id)
 
 
 def _integer(value: Any, fallback: int) -> int:

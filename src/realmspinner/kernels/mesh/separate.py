@@ -43,14 +43,98 @@ from .adjacency import adjacency as mesh_adjacency
 
 __all__ = ["by_loose_parts", "by_material", "by_selection"]
 
+#: The largest number of pieces one `by_loose_parts`/`by_material` call will
+#: build. The 2026-09-20 audit's clay-04 found neither had any ceiling, and
+#: that the closing comprehension re-scanned the *whole* face array once per
+#: distinct group (`flatnonzero(face_labels == comp)` inside a Python loop
+#: over every group) -- reproduced at 0.94s/16k pieces, 6.8s/64k, 26.0s/128k,
+#: superlinear because that alone was `pieces * n_faces`. A second copy of the
+#: same shape of bug was hiding one call deeper: `_piece` itself recomputed
+#: `np.diff(mesh.starts)` -- the *whole* mesh's per-face corner counts -- from
+#: scratch on every call, rather than once per split. `_grouped_pieces` below
+#: fixes both: the grouping is one `argsort` and split, the same "compact
+#: each label to a run of a sorted key, then `np.split`" trick
+#: `ops_dissolve._group_by_label` already uses for exactly this shape of
+#: problem, and `counts_all` is computed once and threaded through every
+#: `_piece` call rather than per piece.
+#:
+#: A ceiling is still worth keeping past that fix, because `_piece` mints a
+#: brand-new `Mesh` per group -- its own `np.unique` remap, its own six-field
+#: dataclass, its own arrays -- and that per-piece Python/numpy overhead,
+#: measured on this machine on the same many-disjoint-quads shape the audit
+#: reproduced with (each piece a single quad, so this is the per-piece floor
+#: rather than a per-face cost), only grows *mildly* superlinear rather than
+#: with mesh size -- allocator/GC pressure from the sheer object count, not
+#: an algorithmic term either fix above left behind:
+#:
+#: | pieces  | by_loose_parts() | us/piece |
+#: |--------:|------------------:|---------:|
+#: |   4,000 |             98 ms |    24.6 |
+#: |   8,000 |            216 ms |    27.0 |
+#: |  16,000 |            477 ms |    29.8 |
+#: |  24,000 |            786 ms |    32.7 |
+#: |  32,000 |          1,118 ms |    35.0 |
+#:
+#: Set well under the ~30,000-piece point where that curve crosses a second,
+#: the same "well under a second" bar every sibling ceiling in this package
+#: uses.
+MAX_SEPARATE_PIECES = 20_000
 
-def _piece(mesh: bm.Mesh, faces: np.ndarray) -> bm.Mesh:
+
+def _refuse_piece_count(n_pieces: int) -> None:
+    """Refuse before :func:`_grouped_pieces` builds a `Mesh` per piece --
+    see :data:`MAX_SEPARATE_PIECES` for the measurements this ceiling is set
+    under.
+    """
+    if n_pieces > MAX_SEPARATE_PIECES:
+        raise el.OpError(
+            f"Separating this mesh would build {n_pieces:,} pieces, past the "
+            f"{MAX_SEPARATE_PIECES:,} Separate works with before it would "
+            "stall the frame it runs on. Separate a mesh with fewer pieces."
+        )
+
+
+def _grouped_pieces(mesh: bm.Mesh, labels: np.ndarray) -> list[bm.Mesh]:
+    """One :func:`_piece` per distinct value of *labels* (one entry per face),
+    groups found with one ``argsort`` and split rather than a ``flatnonzero``
+    rescan of the whole array per group -- see :data:`MAX_SEPARATE_PIECES` for
+    the incident this replaced. Groups come back in ascending label order,
+    each group's own faces ascending -- identical to what
+    ``[flatnonzero(labels == v) for v in np.unique(labels)]`` produced, since
+    ``argsort`` with ``kind="stable"`` preserves a tied group's original
+    (ascending) order exactly as ``flatnonzero`` did.
+    """
+    order = np.argsort(labels, kind="stable")
+    splits = np.flatnonzero(np.diff(labels[order])) + 1
+    # ``counts_all`` is the whole mesh's per-face corner count, computed once
+    # here rather than inside ``_piece`` -- see that function's own comment
+    # for why a per-call ``np.diff(mesh.starts)`` was the other half of
+    # clay-04's superlinear cost, on top of the grouping this function fixes.
+    counts_all = np.diff(mesh.starts).astype("i8")
+    return [
+        _piece(mesh, group.astype("i8"), counts_all) for group in np.split(order, splits)
+    ]
+
+
+def _piece(mesh: bm.Mesh, faces: np.ndarray, counts_all: np.ndarray | None = None) -> bm.Mesh:
     """*mesh* restricted to *faces*, with unused vertices dropped and
     ``loops`` remapped to the compacted vertex array. See the module
     docstring for why this compacts rather than keeping the full array the
     way :func:`~.document._submesh`'s per-material render slice does.
+
+    *counts_all* is the whole mesh's per-face corner count
+    (``np.diff(mesh.starts)``), computed once by a caller that builds several
+    pieces from the same mesh and passed through -- the 2026-09-20 audit's
+    clay-04 found this function computing it fresh, from scratch, on *every*
+    call, which made a piece-per-connected-component split cost
+    ``pieces * n_faces`` even after :func:`_grouped_pieces` stopped
+    rescanning the face array per group to find that piece's faces in the
+    first place. ``None`` (the single-piece callers, :func:`by_selection`'s
+    two-piece split among them) computes it locally, unchanged from before.
     """
-    counts = np.diff(mesh.starts).astype("i8")[faces]
+    if counts_all is None:
+        counts_all = np.diff(mesh.starts).astype("i8")
+    counts = counts_all[faces]
     starts = np.concatenate([[0], np.cumsum(counts)]).astype("i4")
     total = int(starts[-1]) if len(starts) else 0
     if total:
@@ -105,7 +189,8 @@ def by_loose_parts(mesh: bm.Mesh) -> list[bm.Mesh]:
     distinct = np.unique(face_labels)
     if len(distinct) <= 1:
         raise el.OpError("Nothing to separate: this object is one connected piece.")
-    return [_piece(mesh, np.flatnonzero(face_labels == comp)) for comp in distinct]
+    _refuse_piece_count(len(distinct))
+    return _grouped_pieces(mesh, face_labels)
 
 
 def by_material(mesh: bm.Mesh) -> list[bm.Mesh]:
@@ -119,7 +204,8 @@ def by_material(mesh: bm.Mesh) -> list[bm.Mesh]:
     materials = np.unique(mesh.material)
     if len(materials) <= 1:
         raise el.OpError("Nothing to separate: every face uses the same material.")
-    return [_piece(mesh, np.flatnonzero(mesh.material == m)) for m in materials]
+    _refuse_piece_count(len(materials))
+    return _grouped_pieces(mesh, mesh.material)
 
 
 def by_selection(mesh: bm.Mesh, sel: el.ElementSel) -> list[bm.Mesh]:
@@ -136,4 +222,5 @@ def by_selection(mesh: bm.Mesh, sel: el.ElementSel) -> list[bm.Mesh]:
     if len(faces) == 0 or len(faces) >= n_faces:
         raise el.OpError("Nothing to separate: select some faces, but not all of them.")
     rest = np.setdiff1d(np.arange(n_faces, dtype="i8"), faces, assume_unique=True)
-    return [_piece(mesh, faces), _piece(mesh, rest)]
+    counts_all = np.diff(mesh.starts).astype("i8")
+    return [_piece(mesh, faces, counts_all), _piece(mesh, rest, counts_all)]

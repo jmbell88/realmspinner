@@ -77,10 +77,18 @@ def _touch_finished_at(svc, job_id: str, value: float) -> None:
     svc.store._conn.commit()
 
 
-def _build_sheet(svc, mesh_id: str, *, sheet_id: str | None = None) -> str:
+def _build_sheet(
+    svc, mesh_id: str, *, sheet_id: str | None = None, back_run_end: int = 3
+) -> str:
     """A minimal, hand-built sheet: one movement, two directions, four cells --
     enough to exercise :func:`sheet_preview_png`'s cropping without paying for
-    the real render pipeline."""
+    the real render pipeline.
+
+    ``back_run_end`` defaults to the honest sidecar (a two-frame ``back`` run,
+    matching the movement's declared ``frames``); the 2026-09-20 audit's
+    troupe-01 test passes a shorter one to build a sidecar whose run span
+    disagrees with what it declares.
+    """
     from PIL import Image
 
     sheet_id = sheet_id or store.new_id()
@@ -110,7 +118,7 @@ def _build_sheet(svc, mesh_id: str, *, sheet_id: str | None = None) -> str:
     ]
     runs = [
         {"movement": "walk", "direction": "front", "yaw": 0.0, "start": 0, "end": 1},
-        {"movement": "walk", "direction": "back", "yaw": 180.0, "start": 2, "end": 3},
+        {"movement": "walk", "direction": "back", "yaw": 180.0, "start": 2, "end": back_run_end},
     ]
     cells = [
         {"index": i, "x": x, "y": y, "w": frame, "h": frame}
@@ -346,6 +354,89 @@ def test_sending_to_troupe_while_a_rig_is_running_queues_no_second_rig(svc, monk
     assert [r["id"] for r in rig_rows] == [rig_id]
 
 
+def test_two_concurrent_create_rig_calls_for_one_mesh_mint_only_one_rig_row(
+    svc, monkeypatch
+):
+    """The 2026-09-20 audit, finding agents-03: ``create_rig``'s
+    ``rig_in_flight`` check and its ``store.create`` insert were two separate
+    operations with nothing holding the gap between them, so two
+    ``character_rig`` calls landing on AgentHost's two service workers could
+    both read "no rig in flight" and both mint a rig row for the same mesh --
+    both then finalizing into the same ``job_dir``. ``send_to_troupe``'s
+    identical guard is correctly wrapped in ``convert_lock``, as this test's
+    sibling above proves.
+
+    Widened deterministically rather than raced on a sleep: ``rig_in_flight``
+    is patched to pause, once, immediately after answering "nothing in
+    flight" for this mesh, so a second call is proven to land in that exact
+    gap before the first call's insert lands.
+    """
+    import threading
+
+    monkeypatch.setattr(
+        "realmspinner.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
+    )
+    mesh_id = _mesh(svc)
+
+    real_rig_in_flight = svc_rig.rig_in_flight
+    checked = threading.Event()
+    release = threading.Event()
+    armed = True
+
+    def spy_rig_in_flight(svc_arg, job_id_arg):
+        nonlocal armed
+        result = real_rig_in_flight(svc_arg, job_id_arg)
+        if armed and job_id_arg == mesh_id:
+            armed = False
+            checked.set()
+            assert release.wait(5), "the first call's paused check never resumed"
+        return result
+
+    monkeypatch.setattr(svc_rig, "rig_in_flight", spy_rig_in_flight)
+
+    results: list = []
+    errors: list = []
+
+    def call():
+        try:
+            results.append(svc_rig.create_rig(svc, mesh_id))
+        except Conflict as exc:
+            errors.append(exc)
+
+    first = threading.Thread(target=call)
+    first.start()
+    assert checked.wait(5), "the first call's rig_in_flight check never ran"
+
+    second = threading.Thread(target=call)
+    second.start()
+    # Pre-fix, nothing holds a lock at this point, so the second call runs to
+    # completion here, inside the gap, and mints its own row. Post-fix, the
+    # first call already holds ``convert_lock(job_id, "rig")`` before it ever
+    # calls ``rig_in_flight``, so the second call blocks on that same lock
+    # instead -- either way, giving it a moment to run (or to prove it
+    # cannot) before releasing the first call is what makes the race
+    # deterministic rather than sleep-dependent.
+    second.join(timeout=1.0)
+
+    release.set()
+    first.join(5)
+    second.join(5)
+    assert not first.is_alive()
+    assert not second.is_alive()
+
+    rig_rows = [
+        r for r in svc.store.list(limit=1000, kind="rig")
+        if (r["params"] or {}).get("source_job") == mesh_id
+    ]
+    assert len(rig_rows) == 1, (
+        f"two concurrent create_rig calls minted {len(rig_rows)} rig rows "
+        f"for one mesh: {[r['id'] for r in rig_rows]}"
+    )
+    assert len(results) == 1
+    assert len(errors) == 1
+    assert errors[0].field == "job_id"
+
+
 # --- list_character_assets -----------------------------------------------------
 
 
@@ -474,6 +565,26 @@ def test_sheet_preview_crops_one_run_and_stays_under_max_bytes(svc):
             svc, mesh_id, sheet_id, max_side=64, direction="front", max_bytes=200_000,
         )
     assert direction_without_movement.value.field == "movement"
+
+
+def test_sheet_preview_of_a_whole_movement_refuses_when_a_runs_span_disagrees_with_its_declared_frame_count(  # noqa: E501
+    svc,
+):
+    # The 2026-09-20 audit, finding troupe-01: "walk" declares 2 frames but
+    # its "back" run only spans one cell (start=2, end=2) -- the whole-movement
+    # branch used to paste that short run into a canvas sized from the
+    # declared count and leave the second column blank rather than refusing,
+    # unlike the single-run branch a few lines above it, which already raises
+    # a named "sidecar is corrupted" error for the same class of mismatch.
+    mesh_id = _mesh(svc)
+    sheet_id = _build_sheet(svc, mesh_id, back_run_end=2)
+
+    with pytest.raises(Invalid) as corrupted:
+        svc_characters.sheet_preview_png(
+            svc, mesh_id, sheet_id, max_side=64, movement="walk", max_bytes=200_000,
+        )
+    assert corrupted.value.field == "sheet_id"
+    assert "corrupted" in str(corrupted.value)
 
 
 def charsheet_compass(direction_key: str) -> str:

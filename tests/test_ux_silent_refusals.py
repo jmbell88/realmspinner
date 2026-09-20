@@ -9,6 +9,7 @@ by a menu item is the same refusal with the explanation removed.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -297,3 +298,29 @@ def test_a_form_problem_is_reported_before_a_download_one():
     settings_2d.generate(ctx, form)
     assert ctx.submitted == []
     assert "prompt" in ctx.state.toasts[0][0].lower()
+
+
+def test_weights_problem_does_not_block_automatic_on_a_stale_advanced_base_model():
+    """The 2026-09-20 audit, finding create-02: picking an uninstalled
+    checkpoint under Advanced and switching the Model combo back to
+    Automatic leaves ``form["base_model"]`` holding that stale Advanced pick
+    -- ``_model()``'s switch-to-Automatic branch moves the *notes* to the
+    resolved recipe and never touches the field itself, exactly the
+    staleness ``validate()`` already resolves through ``resolved_recipe`` for
+    (its own docstring, "the 2026-09-15 audit, finding create-03").
+    ``weights_problem`` walked the raw field instead, so Generate refused
+    over a checkpoint Automatic will never load."""
+    ctx = _Ctx()
+    # A real config is not needed -- ``resolved_recipe`` runs its full
+    # candidate search with ``config=None`` (test_settings_2d_recipe_memo.py's
+    # ``_ctx``), which is enough to see which base Automatic actually picks.
+    ctx.svc = SimpleNamespace(config=None)
+    ctx.model_rows = _rows(
+        ("base:sdxl", "SDXL", False),
+        ("base:sdxl_cfg", "SDXL 1.0 CFG", True),
+    )
+    form = dict(default_form_2d())
+    form["prompt"] = "a barrel"
+    form["model_mode"] = "auto"
+    form["base_model"] = "sdxl"
+    assert create_recipe.weights_problem(ctx, form) is None

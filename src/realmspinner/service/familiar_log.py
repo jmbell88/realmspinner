@@ -14,7 +14,13 @@ growing log would make "what happened in this run" a grep exercise instead
 of "open the file"; a fresh ``<timestamp>-<pid>.jsonl`` under
 ``<REALMSPINNER_HOME>/familiar-log/`` is opened lazily, on the first record this
 process actually makes, so a session that never touches Familiar creates
-nothing.
+nothing. **Rotated at :data:`LOG_MAX_BYTES`** (``pipelines.llama``'s own
+ceiling for the sibling llama-server log, imported rather than duplicated) --
+the 2026-09-20 audit (familiar-05) found this file appended to for a whole
+process's life, recording full prompts and replies with no ceiling at all,
+while the log next to it already rotated. :func:`_rotate_if_over_ceiling`
+truncates the same session file in place rather than starting a second one,
+so this paragraph's "one file per process session" still holds.
 
 **The directory is resolved through ``config._home()``, not a value cached
 at import time** -- the same reason every root in ``config.py`` resolves
@@ -42,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import config as _config
+from ..pipelines.llama import LOG_MAX_BYTES
 
 #: Same truthy set ``studio.component_gallery.enabled`` uses -- one
 #: convention for "an env var toggles a dev-only surface" across the app.
@@ -127,6 +134,30 @@ def _current_exchange() -> str | None:
     return getattr(_local, "id", None)
 
 
+def _rotate_if_over_ceiling() -> None:
+    """Truncate the open session file once it passes :data:`LOG_MAX_BYTES`
+    -- must be called with :data:`_lock` already held, and only once
+    :data:`_file` is known to be open.
+
+    The 2026-09-20 audit (familiar-05): this file records full prompts and
+    replies for as long as the process runs, with no ceiling at all, while
+    ``pipelines.llama``'s own log for the same feature (the llama-server
+    child's stdout) rotates at this exact byte count (``_open_log``). Mirrors
+    that check-then-unlink shape rather than a new timestamped file, so
+    :func:`_session_path`'s "one file per process session" contract still
+    holds -- a rotation drops old lines the way ``_open_log`` does, it does
+    not start a second file a reader would have to know to go looking for.
+    """
+    global _file
+    if _path is None:
+        return
+    with contextlib.suppress(OSError):
+        if _path.stat().st_size > LOG_MAX_BYTES:
+            _file.close()
+            _path.unlink()
+            _file = _path.open("a", encoding="utf-8")
+
+
 def record(kind: str, **fields: Any) -> None:
     """Append one JSON line: ``{"ts", "kind", "exchange", **fields}``. A
     no-op, with nothing opened or written, unless :func:`enabled`. Never
@@ -151,6 +182,8 @@ def record(kind: str, **fields: Any) -> None:
                 path = _session_path()
                 path.parent.mkdir(parents=True, exist_ok=True)
                 _file = path.open("a", encoding="utf-8")
+            else:
+                _rotate_if_over_ceiling()
             _file.write(line + "\n")
             _file.flush()
     except (OSError, TypeError, ValueError):

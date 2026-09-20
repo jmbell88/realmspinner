@@ -141,3 +141,42 @@ def test_the_handle_geometry_is_lines_and_starts_at_the_origin() -> None:
     assert len(verts) % 2 == 0
     assert np.allclose(verts[0], [0.0, 0.0, 0.0])
     assert verts[:, 0].max() == pytest.approx(1.0)
+
+
+def test_centre_handle_geometry_is_a_box_of_lines_sized_off_centre_radius() -> None:
+    """``hit()`` already tests a sphere of radius ``CENTRE_RADIUS`` for the
+    uniform handle (see ``test_the_centre_handle_wins_at_the_origin``); the
+    drawn box has to be the same size or the picture and the pick volume
+    disagree."""
+    verts = gz.centre_handle()
+    assert verts.dtype == np.dtype("f4")
+    assert len(verts) % 2 == 0
+    assert np.allclose(np.abs(verts).max(axis=0), gz.CENTRE_RADIUS)
+
+
+class _FakeVao:
+    def release(self) -> None:
+        pass
+
+
+class _FakeCtx:
+    """Just enough of a moderngl context for ``Gizmo._geometry`` to run."""
+
+    def buffer(self, data: bytes) -> bytes:
+        return data
+
+    def vertex_array(self, program: object, attrs: object) -> _FakeVao:
+        return _FakeVao()
+
+
+def test_scale_gizmo_draws_includes_a_centre_handle() -> None:
+    """The class docstring promises "a uniform one at the centre" -- chapter 30
+    of the manual repeats the same claim, and ``hit()``/``begin()`` both
+    already accept the ``"xyz"`` handle ``draws()`` never drew. The
+    2026-09-20 audit, finding create-03."""
+    g = gz.ScaleGizmo(_FakeCtx(), {})
+    g.origin = np.zeros(3)
+    g.scale = 1.0
+    items = g.draws()
+    assert len(items) == 4, "three axis handles plus the centre handle"
+    assert "scale:xyz" in g._vaos

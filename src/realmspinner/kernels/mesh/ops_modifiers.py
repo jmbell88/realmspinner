@@ -214,6 +214,45 @@ def array_radial(mesh: Mesh, params: dict) -> Mesh:
 
 # --- solidify ---------------------------------------------------------------
 
+#: The largest number of boundary corners :func:`solidify` will build a rim
+#: for. The 2026-09-20 audit's clay-18 found the rim-building Python loop
+#: (one iteration per boundary corner, minting a wound quad and reading its
+#: owning face's material) had no ceiling of its own -- the only check,
+#: :func:`_refuse_growth`, runs *after* ``apply()`` has already built the
+#: whole result, which is too late for a cost that lives in the loop itself
+#: rather than in the triangle count it produces.
+#:
+#: Measured on this machine with a mesh of disjoint quads (every edge a
+#: boundary edge, so ``boundary_corners`` is exactly ``4 * quad count`` and
+#: isolated from any interior-mesh cost the way a solidified surface's own
+#: rim rarely is):
+#:
+#: | boundary corners | solidify() |
+#: |------------------:|-----------:|
+#: |            200,000 |    233 ms |
+#: |            300,000 |    357 ms |
+#: |            400,000 |    475 ms |
+#: |            500,000 |    584 ms |
+#:
+#: ...linear, about 1.2us/corner, matching the audit's own ~1.1us/corner
+#: closely. Set at 400,000 -- comfortably under the ~850,000-corner point
+#: where that rate would cross a second, the same "well under a second" bar
+#: every sibling ceiling in this package uses.
+MAX_SOLIDIFY_RIM_CORNERS = 400_000
+
+
+def _refuse_solidify_rim(n_corners: int) -> None:
+    """Refuse before the rim loop below runs -- see
+    :data:`MAX_SOLIDIFY_RIM_CORNERS` for the measurements.
+    """
+    if n_corners > MAX_SOLIDIFY_RIM_CORNERS:
+        raise el.OpError(
+            f"Solidifying this mesh means building a rim of {n_corners:,} "
+            f"boundary corners, past the {MAX_SOLIDIFY_RIM_CORNERS:,} "
+            "solidify works with before it would stall the frame it runs "
+            "on. Solidify a mesh with a smaller open boundary."
+        )
+
 
 def _vertex_normals(mesh: Mesh) -> np.ndarray:
     """Area-weighted per-vertex normals, ignoring the ``smooth`` flag.
@@ -254,6 +293,16 @@ def solidify(mesh: Mesh, params: dict) -> Mesh:
     offset = float(params.get("offset", -1.0))
     if bm.face_count(mesh) == 0:
         return mesh
+
+    # Found and refused before building either shell -- not just before the
+    # rim loop below -- so a mesh past the ceiling does not first pay for two
+    # full copies of itself it will never get to use. See
+    # MAX_SOLIDIFY_RIM_CORNERS for why _refuse_growth's own post-apply check
+    # (below, via .modifiers) is too late to protect this loop.
+    a = adjacency(mesh)
+    boundary_corners = np.flatnonzero(a.edge_uses[a.corner_edge] == 1)
+    _refuse_solidify_rim(len(boundary_corners))
+
     outer_amount = thickness * (offset + 1.0) / 2.0
     inner_amount = thickness * (offset - 1.0) / 2.0
     normals = _vertex_normals(mesh)
@@ -271,8 +320,6 @@ def solidify(mesh: Mesh, params: dict) -> Mesh:
     n = len(mesh.positions)
     shells = _concat([outer, inner])
 
-    a = adjacency(mesh)
-    boundary_corners = np.flatnonzero(a.edge_uses[a.corner_edge] == 1)
     if len(boundary_corners) == 0:
         return shells  # closed mesh: no rim, per the kind's own table entry
 

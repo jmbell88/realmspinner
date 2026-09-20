@@ -71,25 +71,43 @@ def _leading_comment_block(lines: list[str], decl_lineno: int) -> str:
     return "\n".join(block)
 
 
-def test_doc_modes_comment_count_matches_the_tuple_length():
-    """shell-12: the comment above ``DOC_MODES`` no longer names a stale
-    tuple length ("five" when the tuple held six)."""
+def test_doc_modes_is_derived_rather_than_a_second_hand_written_tuple():
+    """shell-12 (the 2026-09-13 audit) guarded a stale count in the comment
+    above a hand-written ``DOC_MODES`` tuple ("five" when the tuple held
+    six). shell-05 (the 2026-09-20 audit) replaced that tuple with a live
+    derivation off ``mode_manifest.DOC_MODES`` (``docmodes._doc_modes``,
+    read through a module ``__getattr__`` so every existing
+    ``docmodes.DOC_MODES`` call site keeps working) precisely because a
+    second hand-written copy is what let it drift in the first place -- so
+    there is no longer a literal tuple for a comment to go stale against.
+    This asserts that stays true, rather than scanning a comment that no
+    longer exists.
+    """
 
     path = SRC / "docmodes.py"
-    lines = path.read_text().splitlines()
-    tree = ast.parse("\n".join(lines))
-    (node,) = [
+    tree = ast.parse(path.read_text())
+    literal = [
         n
         for n in ast.walk(tree)
         if isinstance(n, ast.AnnAssign)
         and isinstance(n.target, ast.Name)
         and n.target.id == "DOC_MODES"
     ]
-    comment = _leading_comment_block(lines, node.lineno)
-    words = _count_words_before(comment, "document modes")
-    actual = len(ast.literal_eval(node.value))
-    stale = {w for w in words if _NUMBER_WORDS[w] != actual}
-    assert not stale, f"comment names {stale} but DOC_MODES has {actual} entries"
+    assert not literal, (
+        "DOC_MODES is a hand-written tuple again in docmodes.py -- derive it "
+        "from mode_manifest.DOC_MODES instead (the 2026-09-20 audit, shell-05)"
+    )
+
+    from realmspinner.studio import docmodes
+
+    assert set(docmodes.DOC_MODES) == {
+        "inker",
+        "clay",
+        "mason",
+        "plotter",
+        "packwright",
+        "sirens",
+    }
 
 
 def test_new_items_comment_count_matches_its_own_length():

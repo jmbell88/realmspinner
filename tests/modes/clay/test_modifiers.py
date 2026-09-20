@@ -327,6 +327,28 @@ def test_solidify_on_a_closed_mesh_adds_no_rim() -> None:
     assert_closed(out)
 
 
+def test_solidify_refuses_a_boundary_past_its_own_ceiling_before_building_the_rim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-20 audit's clay-18: the rim-building Python loop had no
+    ceiling of its own; the only check, `_refuse_growth`, runs *after*
+    `apply()` has already built the whole result (both shells, the rim, and
+    the triangle count it refuses on) -- too late for a cost that lives in
+    the loop itself. `solidify` must refuse from the boundary corner count
+    alone, before either shell is built.
+    """
+    monkeypatch.setattr(opm, "MAX_SOLIDIFY_RIM_CORNERS", 2)
+    with pytest.raises(el.OpError, match="past the"):
+        opm.solidify(bp.plane(), {"thickness": 0.1, "offset": -1.0})  # 4 boundary corners
+
+
+def test_solidify_stays_reachable_under_its_own_ceiling() -> None:
+    """The ceiling must not have crept down onto ordinary use."""
+    assert opm.MAX_SOLIDIFY_RIM_CORNERS > 4
+    out = opm.solidify(bp.plane(), {"thickness": 0.1, "offset": -1.0})
+    assert bm.face_count(out) == 6
+
+
 def test_solidify_on_an_empty_mesh_is_a_no_op() -> None:
     empty = replace(
         bp.box(),

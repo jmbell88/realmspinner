@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from realmspinner.kernels.mesh import adjacency as adj
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
 from realmspinner.kernels.mesh import ops_spin as osp
@@ -181,6 +182,75 @@ def test_spin_stays_reachable_under_the_bands_ceiling() -> None:
     out, sel = osp.spin(box, _PROFILE, axis=1, angle=180.0, steps=256, center=(0.0, 0.0, 0.0))
     bm.validate(out)
     assert len(sel.faces) == 256
+
+
+def test_spin_new_faces_inherit_the_profiles_own_material_and_smooth_flag() -> None:
+    """The 2026-09-20 audit's clay-11: every new lathe face was minted at
+    material slot 0 and flat-shaded regardless of the profile edge it grew
+    from, unlike every other growth op in this package (``extrude_faces``'
+    own docstring states the house rule, ``fill_hole``/``ops_bevel`` record
+    it as a fixed past incident each).
+    """
+    box = prim.box()
+    # Tag the box so every face has a distinct, non-default material/smooth --
+    # slot 0 and flat (the old wrong answer) would be indistinguishable from a
+    # correct inheritance if the source were left at the primitive's own
+    # defaults.
+    material = np.arange(bm.face_count(box), dtype="i4") + 1
+    smooth = np.ones(bm.face_count(box), dtype=bool)
+    tagged = bm.Mesh(
+        positions=box.positions,
+        loops=box.loops,
+        starts=box.starts,
+        material=material,
+        smooth=smooth,
+    )
+    bm.validate(tagged)
+
+    # _PROFILE is the edge [0, 4], shared by two faces of the box (it is
+    # closed, so every edge has two owners) -- either is a valid source.
+    a = adj.adjacency(tagged)
+    ids = a.edge_ids(np.array([[0, 4]], dtype="i4"))
+    owning_faces = a.corner_face[np.flatnonzero(a.corner_edge == ids[0])]
+    expected_material = set(int(tagged.material[f]) for f in owning_faces.tolist())
+    expected_smooth = set(bool(tagged.smooth[f]) for f in owning_faces.tolist())
+
+    out, sel = osp.spin(tagged, _PROFILE, axis=1, angle=180.0, steps=4, center=(0.0, 0.0, 0.0))
+    bm.validate(out)
+    new_material = set(int(m) for m in out.material[sel.faces].tolist())
+    new_smooth = set(bool(s) for s in out.smooth[sel.faces].tolist())
+    assert new_material <= expected_material, "every new face must come from an owning face"
+    assert new_material != {0}, "must not still be the flat slot-0 default"
+    assert new_smooth <= expected_smooth
+
+
+def test_screw_new_faces_inherit_the_profiles_own_material_and_smooth_flag() -> None:
+    """See the ``spin`` counterpart above -- ``screw`` shares the same band
+    grid and had the identical defect."""
+    box = prim.box()
+    material = np.arange(bm.face_count(box), dtype="i4") + 1
+    smooth = np.ones(bm.face_count(box), dtype=bool)
+    tagged = bm.Mesh(
+        positions=box.positions,
+        loops=box.loops,
+        starts=box.starts,
+        material=material,
+        smooth=smooth,
+    )
+    bm.validate(tagged)
+
+    a = adj.adjacency(tagged)
+    ids = a.edge_ids(np.array([[0, 4]], dtype="i4"))
+    owning_faces = a.corner_face[np.flatnonzero(a.corner_edge == ids[0])]
+    expected_material = set(int(tagged.material[f]) for f in owning_faces.tolist())
+
+    out, sel = osp.screw(
+        tagged, _PROFILE, axis=1, angle=90.0, steps=4, height=2.0, center=(0.0, 0.0, 0.0)
+    )
+    bm.validate(out)
+    new_material = set(int(m) for m in out.material[sel.faces].tolist())
+    assert new_material <= expected_material
+    assert new_material != {0}
 
 
 def test_spin_new_bands_are_consistently_wound() -> None:

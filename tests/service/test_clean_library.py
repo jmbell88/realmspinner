@@ -126,6 +126,45 @@ def test_an_empty_library_is_not_an_error(svc):
     assert svc_jobs.clean_jobs(svc) == {"deleted": 0, "orphans": 0}
 
 
+def test_clean_jobs_does_not_delete_a_directory_a_job_submitted_mid_walk_is_writing_into(
+    svc, monkeypatch
+):
+    """service-01, the 2026-09-20 audit: ``clean_jobs`` read ``active_jobs()``
+    once up front and then deleted across a multi-page walk guarded only by
+    ``delete_if_not_running``, so a rig submitted after that snapshot -- while
+    the walk collecting ``seen`` is still in progress -- could have its source
+    mesh's directory removed while it was still writing into it.
+    ``prune_jobs`` and ``empty_trash`` both re-check ``worker_is_inside``/
+    ``dependent_jobs`` per row for exactly this reason; this pins that
+    ``clean_jobs`` now does too.
+    """
+    source = _finished(svc)
+    real_list = svc.store.list
+    submitted = False
+
+    def _list_and_submit(*args, **kwargs):
+        # Simulates a rig being submitted for `source` after clean_jobs's
+        # up-front active_jobs() snapshot, in the gap while the walk that
+        # builds `seen` is still running -- the "mid-walk" race the finding
+        # names. The rig's later created_at keeps it out of the page itself,
+        # exactly as a genuinely concurrent submit would.
+        nonlocal submitted
+        page = real_list(*args, **kwargs)
+        if not submitted:
+            submitted = True
+            svc.store.create(
+                "rig", "", {"source_job": source}, stage="model", status="queued"
+            )
+        return page
+
+    monkeypatch.setattr(svc.store, "list", _list_and_submit)
+
+    svc_jobs.clean_jobs(svc)
+
+    assert svc.store.get(source) is not None
+    assert svc.job_dir(source).exists()
+
+
 def test_trash_size_excludes_jobs_empty_trash_will_keep(svc):
     """shell-02, the 2026-09-13 audit: ``trash_size`` counted every trashed
     job and its bytes, but ``empty_trash`` keeps a job named by

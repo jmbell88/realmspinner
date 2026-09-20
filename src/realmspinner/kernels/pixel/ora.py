@@ -2267,6 +2267,25 @@ def _read_tiles(zf: zipfile.ZipFile, doc, anim: Animation | None) -> None:
                 f"{TILES_MEMBER} names more than the {MAX_ORA_LAYERS} cels"
                 " this build will open"
             )
+        # 2026-09-20 audit, finding inker-02: the count cap above is not a
+        # pixel budget -- every raw entry runs ``_new_cel`` (it reads and
+        # reshapes a canvas-sized refs blob) *before* the ``id(layer)`` dedup
+        # further down collapses repeats into one surviving cel, so a file
+        # naming the same cel a few dozen times over a large canvas paid for
+        # every repeat: 0.73s for one entry, 8.47s for 1024 on a 1024x1024
+        # canvas, linear, with one surviving cel either way. Charged here,
+        # against each entry's own declared grid and before any entry's refs
+        # are read, the same running-total shape "tilesets" uses above
+        # (``tileset_pixels``) rather than a dedup that would only help the
+        # repeated-entry case and leave many-unique-entries unpriced.
+        cel_grid_pixels = 0
+        for entry in raw_cels:
+            cel_grid_pixels += int(entry["grid_h"]) * int(entry["grid_w"])
+            if cel_grid_pixels > pixelguard.MAX_DECODE_PIXELS:
+                raise ValueError(
+                    f"{TILES_MEMBER} cels hold more than the "
+                    f"{pixelguard.MAX_DECODE_PIXELS} pixels this build will open"
+                )
         replacements: dict[int, TilemapCel] = {}
         if anim is not None:
             # ``_cel_names`` recomputed, not passed in: it is a pure function

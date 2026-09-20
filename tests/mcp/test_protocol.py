@@ -1220,6 +1220,59 @@ def test_legacy_prompts_get_ok() -> None:
     assert reply["result"]["messages"][0]["content"]["text"] == "hi"
 
 
+def test_bridge_dispatch_survives_a_read_resource_or_get_prompt_that_raises() -> None:
+    """The 2026-09-20 audit (agents-01): `read_resource` and `get_prompt`,
+    the two callback call sites in `_resource_prompt_method`, had no
+    exception backstop -- unlike the four sibling callbacks
+    (`call_tool_task`, `get_task`, `cancel_task`, `call_tool`) that already
+    catch `Exception` and turn it into a `-32603` reply. `bridge.py`'s
+    `read_resource`/`get_prompt` both call `rpc.split_reply` on a Realmspinner
+    reply and catch only `(EOFError, OSError)` around it, so a malformed
+    reply's plain `ValueError` (`rpc.py`'s own documented failure mode)
+    propagated straight out of `bridge_dispatch`. `bridge.py::main`'s run
+    loop wraps `protocol.bridge_dispatch` in
+    `except (EOFError, KeyboardInterrupt): pass` only, so this used to kill
+    the whole `realmspinner mcp` process instead of failing one request."""
+
+    def exploding_read_resource(uri):
+        raise ValueError("reply frame has no header/body separator")
+
+    def exploding_get_prompt(name, arguments):
+        raise ValueError("reply frame has no header/body separator")
+
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "resources/read",
+            "params": {"uri": "realmspinner://clay/scene"},
+        },
+        state,
+        read_resource=exploding_read_resource,
+    )
+    assert reply is not None
+    assert "result" not in reply
+    assert reply["error"]["code"] == -32603
+    assert "reply frame has no header/body separator" in reply["error"]["message"]
+
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "prompts/get",
+            "params": {"name": "model_from_description", "arguments": {"description": "a barrel"}},
+        },
+        state,
+        get_prompt=exploding_get_prompt,
+    )
+    assert reply is not None
+    assert "result" not in reply
+    assert reply["error"]["code"] == -32603
+    assert "reply frame has no header/body separator" in reply["error"]["message"]
+
+
 def test_modern_resources_list_carries_cache_hints() -> None:
     state = p.BridgeEra()
     _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)

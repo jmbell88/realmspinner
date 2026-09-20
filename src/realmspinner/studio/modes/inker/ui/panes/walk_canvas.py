@@ -72,6 +72,14 @@ def row(ctx: Any, state: Any, tab: Any) -> None:
         toolbar.Item("cancel", "Cancel", icons.X, pinned=True),
     ]
     toolbar.toolbar("inker-walk", items, lambda key: _action(ctx, tab, session, key))
+    warning = clipping_warning(state, tab)
+    if warning:
+        # ``_transform_row``'s RotSprite note, drawn the same way: a drag
+        # re-renders every frame and cannot toast this every time, but the
+        # user is looking at this row the whole while a session is open. Was
+        # defined and tested but never called from here -- the 2026-09-20
+        # audit, finding inker-09.
+        widgets.muted(warning)
     widgets.divider()
 
 

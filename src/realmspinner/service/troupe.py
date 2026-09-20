@@ -87,7 +87,8 @@ DEFAULT_TROUPE_COLORS = 64
 DEFAULT_TROUPE_OUTLINE = "outer"
 
 #: How many ``charsheet`` rows deep the settings lookup looks. The library's
-#: own page size, and ``studio.troupe_mode``'s: a sheet older than this is one
+#: own page size, and ``studio.modes.poser.mode``'s (the 2026-09-18 P9 fold
+#: moved this off ``studio.troupe_mode``): a sheet older than this is one
 #: whose settings the door reports as no longer on record, by name.
 _SCAN_LIMIT = 400
 
@@ -280,10 +281,12 @@ def _check_options(svc: RealmspinnerService, entries: dict[str, Any]) -> dict[st
     **Only a real bool, or absence, answers.** ``bool("false")`` is ``True``
     in Python, so ``entries.get("pixel_art")`` used to turn HD mode *on* by
     way of a string that spells "off" -- every pane sends a real bool here
-    (``troupe_settings.py``'s Style combo resolves to one through
-    ``troupe_mode._style_choice``, never a raw value passed through), so this
-    refusal has no control on any pane to name and is deliberately left
-    unfielded rather than pointed at an address nothing draws.
+    (``send.py``'s and ``sheet.py``'s Style combo both resolve to one through
+    ``poser_mode._style_choice`` -- Troupe's own ``troupe_settings.py`` and
+    ``troupe_mode._style_choice`` before the 2026-09-18 P9 fold -- never a raw
+    value passed through), so this refusal has no control on any pane to name
+    and is deliberately left unfielded rather than pointed at an address
+    nothing draws.
     """
     from .pixelopts import check_pixel_options
 
@@ -361,9 +364,10 @@ def _timed_layout(
     ``test_every_refusal_a_pane_can_provoke_names_something_that_pane_draws``
     to see it -- a field chosen here and merely handed up would be invisible
     to that scan, which is exactly the gap this vocabulary's ``fps`` field
-    means to surface: ``modes/troupe/ui/panes/settings.py`` draws no ``fps`` control
-    yet, and the wiring test is how that stays visible instead of silently
-    passing.
+    means to surface: ``modes/poser/ui/panes/send.py`` and ``sheet.py`` (Troupe's
+    own ``modes/troupe/ui/panes/settings.py`` before the 2026-09-18 P9 fold)
+    draw no ``fps`` control yet, and the wiring test is how that stays visible
+    instead of silently passing.
     """
     return charsheet.resolve_layout(payload, timing=clip_timing(template))
 
@@ -414,7 +418,8 @@ def check_troupe(svc: RealmspinnerService, block: Any) -> dict[str, Any]:
         # **Refused against ``camera``, not against ``elevation``.** The number
         # is what this door validates, but nothing on the Troupe form is called
         # ``elevation`` -- the control is the Camera combo, and
-        # ``troupe_mode.camera_elevation`` turns its preset into this number on
+        # ``poser_mode.camera_elevation`` (Troupe's own ``troupe_mode.camera_elevation``
+        # before the 2026-09-18 P9 fold) turns its preset into this number on
         # the way here. A refusal naming the derived value would ring a field
         # that pane does not draw, which is precisely what
         # ``test_every_refusal_a_pane_can_provoke_names_something_that_pane_draws``
@@ -463,10 +468,11 @@ def check_troupe(svc: RealmspinnerService, block: Any) -> dict[str, Any]:
         # **field="layout", the 2026-09-11 audit's finding troupe-01.** This
         # branch is the one a real request reaches -- an atlas over the texture
         # limit, or a movement whose frame count the resolved layout and the
-        # expanded clip disagree about -- and ``modes/troupe/ui/panes/settings.py``
-        # calls ``form_ui.note("layout")`` on exactly this address to ring the
-        # layout table. Left unfielded, the refusal reached a form wired to
-        # catch it and rang nothing.
+        # expanded clip disagree about -- and ``modes/poser/ui/panes/sheet.py``
+        # (Troupe's own ``modes/troupe/ui/panes/settings.py`` before the
+        # 2026-09-18 P9 fold) calls ``form_ui.note("layout")`` on exactly this
+        # address to ring the layout table. Left unfielded, the refusal reached
+        # a form wired to catch it and rang nothing.
         raise invalid_from(exc, "That character sheet cannot be laid out", field="layout") from exc
     return checked
 

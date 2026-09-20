@@ -549,6 +549,16 @@ def resolve_layout(
         if isinstance(raw_directions, Sequence) and not isinstance(
             raw_directions, (str, bytes)
         ):
+            # The 2026-09-20 audit, finding troupe-02: an untrusted
+            # ``directions`` list used to be fully validated and built into a
+            # tuple (one float() and one dict lookup per entry) before ever
+            # being checked against the four legal presets, so a 2,000,000
+            # -entry list spent ~0.6s building a tuple this function was
+            # always going to refuse. The longest legal preset has 16
+            # entries, so anything longer is refused on length alone, before
+            # the per-entry work starts.
+            if len(raw_directions) > 16:
+                raise ValueError("directions must use the 1, 4, 8, or 16 direction preset")
             if any(not isinstance(d, Mapping) for d in raw_directions):
                 raise ValueError("every Troupe direction must be an object")
             # A v2 direction object with no ``yaw`` used to hit

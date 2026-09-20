@@ -7,6 +7,7 @@ gives for being a function rather than an inlined expression.
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import threading
 import wave
@@ -19,17 +20,22 @@ import pytest
 
 from realmspinner import _q_music as q
 from realmspinner import models, packs
+from realmspinner.pipelines import music_client as music_client_mod
 
 
 def _dir() -> Path:
     return Path("C:/jobs/abc")
 
 
-class _FakeWorker:
+class _FakeWorker(q.MusicOps):
     """Just enough of ``Worker`` for ``MusicOps._get_music_client``.
 
     Not a client, a card or a queue either -- the point of muse-03's fix is
-    that the pack is probed before any of those exist.
+    that the pack is probed before any of those exist. Subclasses
+    ``MusicOps`` (rather than duck-typing it) because the 2026-09-20 audit's
+    muse-03 fix moved the staleness check into its own ``MusicOps`` method,
+    ``_evict_stale_music_client``, which ``_get_music_client`` now calls on
+    ``self``.
     """
 
     _music_client = None
@@ -63,6 +69,57 @@ async def test_missing_music_extra_reports_pack_guidance_not_a_child_traceback(
     assert "Settings -> Packs" in message
     assert "ChildFailed" not in message
     assert "exited during startup" not in message
+
+
+class _FakeMusicClient:
+    """Just enough of ``MusicClient`` for the staleness check: a ``spec`` to
+    compare keys against, and an ``unload`` the eviction can call."""
+
+    def __init__(self, spec: Any, model_dir: Any = None) -> None:
+        self.spec = spec
+        self.model_dir = model_dir
+        self.loaded = True
+        self.unloaded = False
+
+    def unload(self) -> None:
+        self.unloaded = True
+        self.loaded = False
+
+
+async def test_get_music_client_reloads_when_the_requested_model_key_changes(
+    monkeypatch,
+):
+    """The 2026-09-20 audit, finding muse-03.
+
+    ``_get_music_client`` used to hand back ``self._music_client`` regardless
+    of the requested ``spec`` -- harmless while ``MUSIC_MODELS`` held exactly
+    one row, but ``models.py``'s own comment on ``ace_step_v1`` promises that
+    the table is real and a second row "costs no reshaping of the worker".
+    ``_get_text2image``/``_evict_stale_t2i`` key the image pipe on the
+    requested base already; this mirrors that for the music child. Failing
+    against the unfixed code means the resident client, still carrying the
+    old key, comes back unevicted and un-reloaded.
+    """
+    monkeypatch.setattr(q.packs_mod, "find", lambda key: None)
+    monkeypatch.setattr(music_client_mod, "MusicClient", _FakeMusicClient)
+
+    old_spec = models.MUSIC_MODELS[models.DEFAULT_MUSIC_MODEL]
+    # Constructed rather than looked up: nothing in MUSIC_MODELS today
+    # actually has two rows, which is exactly why muse-03 says "not reachable
+    # today" -- the fix has to hold for the row the comment promises anyway.
+    new_spec = dataclasses.replace(old_spec, key="ace_step_v2")
+
+    worker = _FakeWorker()
+    worker.config = SimpleNamespace(t2i_model_root=Path("C:/models"))
+    stale = _FakeMusicClient(old_spec, Path("C:/models/old"))
+    worker._music_client = stale
+
+    result = await q.MusicOps._get_music_client(worker, new_spec)
+
+    assert stale.unloaded, "the stale client, keyed to the old spec, was never evicted"
+    assert result is not stale
+    assert result.spec.key == "ace_step_v2"
+    assert worker._music_client is result
 
 
 # --- _task_kwargs ------------------------------------------------------------

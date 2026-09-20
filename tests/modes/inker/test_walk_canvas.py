@@ -181,3 +181,45 @@ def test_clipping_warning_stays_empty_until_the_rig_is_ready_to_render():
     session = inker_walk.session(state, tab)
     assert not inker_walk.ready(session)
     assert pane.clipping_warning(state, tab) == ""
+
+
+# -- row: clipping_warning is actually drawn, not only computed -------------------------
+
+
+def test_the_walk_canvas_row_draws_the_clipping_warning_when_the_walk_clips(monkeypatch):
+    """The 2026-09-20 audit, finding inker-09: ``clipping_warning`` was
+    defined, documented as "the standing version of the toast", and directly
+    tested (the two tests above), but ``row`` never called it -- only the
+    toolbar was drawn. Everything else ``row`` touches is stubbed out here so
+    this test is only about the wiring: does a non-empty ``clipping_warning``
+    reach ``widgets.muted`` when ``row`` draws?
+    """
+    ctx, state, tab = _scene()
+    assert inker_walk.open_session(ctx, tab)
+    monkeypatch.setattr(pane, "clipping_warning", lambda state, tab: "clipped 3 px")
+    monkeypatch.setattr(pane.imgui, "same_line", lambda *a, **k: None)
+    monkeypatch.setattr(pane.widgets, "text_colored", lambda *a, **k: None)
+    monkeypatch.setattr(pane.widgets, "divider", lambda: None)
+    monkeypatch.setattr(pane.toolbar, "toolbar", lambda *a, **k: None)
+    drawn: list[str] = []
+    monkeypatch.setattr(pane.widgets, "muted", lambda text: drawn.append(text))
+
+    pane.row(ctx, state, tab)
+
+    assert drawn == ["clipped 3 px"]
+
+
+def test_the_walk_canvas_row_draws_nothing_extra_when_nothing_clips(monkeypatch):
+    ctx, state, tab = _scene()
+    assert inker_walk.open_session(ctx, tab)
+    monkeypatch.setattr(pane, "clipping_warning", lambda state, tab: "")
+    monkeypatch.setattr(pane.imgui, "same_line", lambda *a, **k: None)
+    monkeypatch.setattr(pane.widgets, "text_colored", lambda *a, **k: None)
+    monkeypatch.setattr(pane.widgets, "divider", lambda: None)
+    monkeypatch.setattr(pane.toolbar, "toolbar", lambda *a, **k: None)
+    drawn: list[str] = []
+    monkeypatch.setattr(pane.widgets, "muted", lambda text: drawn.append(text))
+
+    pane.row(ctx, state, tab)
+
+    assert drawn == []

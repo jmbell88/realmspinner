@@ -454,6 +454,91 @@ def test_a_delete_waits_for_an_in_flight_bake_and_leaves_no_orphan_glb(
     assert not store.pose_path(assets / job_id, record["id"]).exists()
 
 
+def test_a_delete_racing_a_concurrent_update_by_id_does_not_resurrect_the_pose(
+    svc, assets, monkeypatch
+):
+    """The 2026-09-20 audit, finding poser-04: save_pose's own
+    ``pose_path(...).exists()`` check for an update-by-id ran *before*
+    ``convert_lock`` was taken and was never re-checked once the lock was
+    held. A delete landing in that exact gap -- after the check had already
+    read "the pose is there", before the write happened under the lock --
+    removed the pose file and released the lock, and the pending update then
+    wrote the file straight back with no error to either caller: a delete
+    the caller was told succeeded left the pose reappearing anyway.
+
+    Widened deterministically rather than raced on a sleep: ``Path.exists``
+    is patched to pause, once, immediately *after* it has answered True for
+    this pose's own path -- reproducing "the check already read true" -- and
+    only released once a concurrent ``delete_pose`` has had a chance to run.
+    Under the fix the update takes its lock before ever calling ``exists``,
+    so the concurrent delete cannot even start until the update's own locked
+    body (check-and-write) has finished, and the delete that runs last always
+    wins: the pose never comes back once a delete that reports success has
+    actually run against it.
+    """
+    import threading
+
+    job_id = _rigged_job(svc, assets)
+    record = svc_rig.save_pose(svc, job_id, _pose("idle"))
+    pose_id = record["id"]
+    target = store.pose_path(assets / job_id, pose_id)
+
+    real_exists = Path.exists
+    checked = threading.Event()
+    release = threading.Event()
+    armed = True
+
+    def spy_exists(self, *a, **kw):
+        nonlocal armed
+        result = real_exists(self, *a, **kw)
+        if armed and result and self == target:
+            armed = False
+            checked.set()
+            assert release.wait(5), "the update's paused check never resumed"
+        return result
+
+    monkeypatch.setattr(Path, "exists", spy_exists)
+
+    update_result: dict = {}
+
+    def updater():
+        body = _pose("wave", hips=[0.0, 0.0, 0.7071068, 0.7071068])
+        body["id"] = pose_id
+        update_result["record"] = svc_rig.save_pose(svc, job_id, body)
+
+    updater_thread = threading.Thread(target=updater)
+    updater_thread.start()
+    assert checked.wait(5), "the update's existence check never ran"
+
+    delete_result: dict = {}
+
+    def deleter():
+        delete_result["reply"] = svc_rig.delete_pose(svc, job_id, pose_id)
+
+    deleter_thread = threading.Thread(target=deleter)
+    deleter_thread.start()
+    # Pre-fix, nothing holds a lock at this point, so the delete runs to
+    # completion here, inside the gap. Post-fix, the update already holds
+    # ``convert_lock`` before it ever calls ``exists``, so the delete blocks
+    # on that same lock instead -- either way, giving it a moment to run (or
+    # to prove it cannot) before releasing the update is what makes the race
+    # deterministic rather than sleep-dependent.
+    deleter_thread.join(timeout=1.0)
+
+    release.set()
+    updater_thread.join(5)
+    deleter_thread.join(5)
+    assert not updater_thread.is_alive()
+    assert not deleter_thread.is_alive()
+
+    assert delete_result.get("reply") == {"ok": True}
+    assert update_result.get("record") is not None
+    assert not target.exists(), (
+        "the pose reappeared: a concurrent update resurrected a pose whose "
+        f"delete had already been reported successful ({update_result['record']!r})"
+    )
+
+
 def test_a_bake_of_a_pose_deleted_first_is_not_found(svc, assets, monkeypatch):
     """The pose is read under the bake lock, so the check and the bake are
     atomic against a delete."""

@@ -228,6 +228,43 @@ def test_closing_a_tab_drops_its_thread_through_the_registered_listener():
         docmodes.TAB_CLOSED[:] = before
 
 
+def test_closing_the_previewed_tab_clears_the_pending_familiar_preview_state():
+    """The 2026-09-20 audit, finding familiar-03: ``clay_mode.close_tab``'s
+    own ``release`` already clears the GL ghost unconditionally on every
+    close, but nothing used to clear ``FamiliarUIState.preview_calls``/
+    ``preview_scratch``/``preview_diff``/``preview_tab_uid`` -- so the bottom
+    pane kept offering Apply/Discard for a tab that no longer existed, and
+    Apply (reading a ``tab_uid`` ``state.get`` now answers ``None`` for)
+    refused "the document changed" forever with nothing telling the user
+    Discard was the only way out.
+
+    Driven through ``familiar_ui.install``'s own registration -- the same
+    "prove the wiring through the one door that registers it" rule
+    ``test_closing_a_tab_drops_its_thread_through_the_registered_listener``
+    above already follows -- rather than calling ``FamiliarUIState.
+    on_tab_closed`` directly.
+    """
+    ctx = _FakeCtx(bd.ClayDoc(), mode="clay")
+    before = list(docmodes.TAB_CLOSED)
+    try:
+        familiar_ui.install(ctx)
+        _land_build(
+            ctx, [{"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "x"}}]
+        )
+        ui = familiar_ui.ensure(ctx)
+        assert ui.preview_calls is not None, "a preview must be pending before the tab closes"
+
+        for listener in list(docmodes.TAB_CLOSED):
+            listener("clay", ctx.tab.uid)
+
+        assert ui.preview_calls is None
+        assert ui.preview_scratch is None
+        assert ui.preview_diff is None
+        assert ui.preview_tab_uid == ""
+    finally:
+        docmodes.TAB_CLOSED[:] = before
+
+
 # --- a canned Clay build previews as a ghost, then applies or refuses -------
 
 
@@ -470,6 +507,54 @@ def test_apply_after_the_document_changed_returns_preview_again():
     # Not silently discarded: the calls list stays offered, matching every
     # other familiar_preview refusal's own "fix is: preview again" contract.
     assert ui.preview_calls is not None
+
+
+def test_a_concurrent_edit_while_a_familiar_build_is_landing_is_not_silently_reverted_by_apply():
+    """The 2026-09-20 audit, finding familiar-01: the batch itself runs on a
+    worker (``LAND_KEY``, since the 2026-09-17 audit's own familiar-01) --
+    the window between the clone (``_submit_build_preview``, phase one) and
+    the diff (``_land_build_preview``, phase two) -- and an edit landed by
+    the user in that window used to be invisible: ``clay_scratch.diff`` was
+    handed ``tab.doc`` as it stood *after* the edit, so the concurrently
+    added object was not in the scratch clone and landed in ``diff.removed``.
+    Apply's own staleness check agreed, because the baseline it compared
+    against was stamped from the same, already-moved document -- so Apply
+    silently deleted the user's edit instead of refusing.
+
+    Unlike ``test_apply_after_the_document_changed_returns_preview_again``
+    above (which edits *after* the preview has already landed), this edits
+    *between* the two phases -- exactly the window the fix closes by
+    snapshotting ``id(tab.doc)``/``tab.doc.history.head`` at clone time and
+    checking them again before the diff, in ``_land_build_preview``.
+    """
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    calls = _canned_calls()
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+    familiar_ui.on_task_done(ctx, done)  # phase one: clones tab.doc now
+
+    # The user adds an object to the real document while Familiar is still
+    # "thinking" -- i.e. while the batch itself is on the worker thread.
+    doc.add_object(bd.Obj(uid=bd.new_uid(), name="concurrent", mesh=bp.box()))
+
+    _run_land(ctx)  # phase two: the batch landed, the diff would be taken now
+
+    ui = familiar_ui.ensure(ctx)
+    # The stale clone must be refused before it is ever offered as a preview
+    # -- not silently shown and only caught later on Apply.
+    assert ui.preview_calls is None
+    assert ui.message is not None and "preview again" in ui.message
+
+    familiar_ui.apply_preview(ctx)  # a no-op: nothing was ever offered
+
+    assert any(o.name == "concurrent" for o in doc.objects), (
+        "an edit made while Familiar was thinking must never be silently "
+        "reverted by Apply"
+    )
 
 
 def test_discard_clears_the_ghost_without_touching_the_document():

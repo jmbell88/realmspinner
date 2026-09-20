@@ -114,6 +114,32 @@ def test_child_commit_is_none_off_windows(monkeypatch):
     assert memlog.children_private([1234]) is None
 
 
+def test_summary_distinguishes_no_children_from_a_failed_reading(monkeypatch):
+    """service-05, the 2026-09-20 audit: ``children_private`` documents and
+    tests the None-vs-0.0 distinction ("no children" vs "cannot read"), but
+    its only caller in ``summary`` rendered both the same way -- a read
+    failure during exactly the host-commit investigation this module exists
+    for was indistinguishable from a clean bill of health.
+    """
+    monkeypatch.setattr(memlog, "process_memory", lambda: None)
+    monkeypatch.setattr(
+        memlog,
+        "system_memory",
+        lambda: memlog.SystemMemory(commit_total=40.0, commit_limit=80.0),
+    )
+
+    monkeypatch.setattr(memlog, "children_private", lambda pids: 0.0)
+    no_children = memlog.summary(children=[1234])
+
+    monkeypatch.setattr(memlog, "children_private", lambda pids: None)
+    cannot_read = memlog.summary(children=[1234])
+
+    assert no_children is not None and cannot_read is not None
+    assert "children" not in no_children
+    assert "children" in cannot_read
+    assert no_children != cannot_read
+
+
 @windows_only
 def test_summary_names_child_commit_when_there_is_any():
     """The log line is the artifact; a figure that never reaches it is not

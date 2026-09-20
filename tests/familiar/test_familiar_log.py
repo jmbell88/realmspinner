@@ -91,6 +91,30 @@ def test_call_failure_records_the_error_and_still_raises(tmp_path, monkeypatch):
     assert excinfo.value.reason == "lease"
 
 
+def test_the_log_rotates_at_the_same_ceiling_the_llama_server_log_uses(tmp_path, monkeypatch):
+    """The 2026-09-20 audit (familiar-05): this jsonl file is opened once per
+    process and appended to for the process's whole life, recording full
+    prompts and replies, while ``pipelines.llama``'s own log for the same
+    feature (the llama-server child's stdout) rotates at ``LOG_MAX_BYTES``.
+    Once the session file passes that ceiling, the next record must truncate
+    it rather than let it grow without bound."""
+    monkeypatch.setenv("REALMSPINNER_HOME", str(tmp_path))
+    monkeypatch.setenv(familiar_log.ENV_KEY, "1")
+    familiar_log.reset()
+    # A tiny ceiling makes the rotation reachable in a handful of records
+    # instead of writing megabytes of filler.
+    monkeypatch.setattr(familiar_log, "LOG_MAX_BYTES", 200)
+
+    for _ in range(20):
+        familiar_log.record("submit", submit_kind="chat", prompt="hello there, familiar")
+
+    path = familiar_log._session_path()
+    assert path.stat().st_size <= 200 + 300, (
+        "the session file grew well past LOG_MAX_BYTES -- it is never "
+        "rotated"
+    )
+
+
 def test_submit_request_and_outcome_share_one_exchange_id(tmp_path, monkeypatch):
     """One real Send round trip -- ``submit_chat`` on the frame thread, its
     closure on the worker, ``on_task_done`` back on the frame -- must write a

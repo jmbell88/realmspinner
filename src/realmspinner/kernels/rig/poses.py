@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from ..sheet import POSE_SPACES
 from . import templates
 from .templates import TEMPLATE_DIR, _read_json_capped, get_template
 
@@ -210,6 +211,17 @@ def _load_pose_library(
             # a row entirely when it is the default, so a preset file with
             # no opinion renders exactly as it always has.
             space = str(raw.get("space") or "node")
+            # The 2026-09-20 audit's poser-02: this read no membership test
+            # while ``sheet.parse_pose``/``parse_clip`` (the same top-level
+            # field, the same reason) both check ``space not in POSE_SPACES``.
+            # An unrecognised value fell through to "anything but the exact
+            # string 'delta' is node" in ``blender_worker._apply_pose`` and
+            # every pose in the file applied in the wrong rotation frame,
+            # silently -- the "character was lying down" incident's own read
+            # door. Raising here costs the file, not the app: the per-file
+            # ``try`` below already skips a malformed library and logs it.
+            if space not in POSE_SPACES:
+                raise ValueError(f"space must be one of {list(POSE_SPACES)}, not {space!r}")
             rows = []
             for i, pose in enumerate(raw["poses"]):
                 # The 2026-09-18 audit's second-run poser-01: this stored

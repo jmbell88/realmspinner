@@ -164,6 +164,29 @@ def test_regenerate_with_the_same_recipe_changes_nothing_but_is_one_step():
     assert doc.history.head == head
 
 
+def test_apply_flourish_group_rename_is_undone_with_the_regenerate():
+    """The 2026-09-20 audit, finding inker-03: a regenerate whose recipe was
+    renamed used to assign ``self.groups[group_uid].name`` directly, outside
+    any edit, so Ctrl+Z on the regenerate restored the pixels and the recipe
+    but left the group's new name standing. Routed through the same
+    ``GroupPropsEdit`` ``set_group_props`` uses, folded into the regenerate's
+    own ``one_step`` so it stays one undo step, not two."""
+    doc = inker.Document.blank(32, 32)
+    baked = B.bake(_recipe())
+    group = doc.insert_flourish(baked)
+    assert doc.groups[group].name == baked.recipe.name
+    head = doc.history.head
+    renamed = dataclasses.replace(baked.recipe, name="Renamed effect")
+    doc.apply_flourish(group, B.bake(renamed))
+    assert doc.groups[group].name == "Renamed effect"
+    assert doc.history.head == head + 1, "the rename must not be a step of its own"
+    doc.history.undo(doc)
+    assert doc.history.head == head
+    assert doc.groups[group].name == baked.recipe.name, "the rename must undo with the regenerate"
+    doc.history.redo(doc)
+    assert doc.groups[group].name == "Renamed effect"
+
+
 def test_a_regenerate_keeps_the_groups_textures():
     """``apply_flourish``'s own ``FlourishState`` construction used to omit
     ``assets`` altogether, which defaults to an *empty* dict

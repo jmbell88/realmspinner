@@ -373,7 +373,16 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
         for uid in touched:
             s = scratch.by_uid(uid)
             if uid in diff_.mesh_changed:
-                doc.set_mesh(uid, s.mesh, keep_generator=True)
+                # The 2026-09-20 audit's clay-13: the base object may have
+                # been locked after the preview was built, the same
+                # "state can move between preview and apply" gap clay-19
+                # closed for modifiers/seams above. set_mesh calls
+                # _refuse_if_locked and raised uncaught here, aborting the
+                # whole transplant against this docstring's own "the rest
+                # of the transplant still lands" -- so the refusal is
+                # tolerated the same way, and the loop moves on.
+                with contextlib.suppress(el.OpError):
+                    doc.set_mesh(uid, s.mesh, keep_generator=True)
             fields = diff_.props_changed.get(uid)
             if fields:
                 # The 2026-09-19 audit, finding clay-19: ``set_props`` is
@@ -401,7 +410,14 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
 
         for uid in diff_.transform_changed - diff_.added:
             s = scratch.by_uid(uid)
-            doc.set_transform(uid, translation=s.translation, rotation=s.rotation, scale=s.scale)
+            # Same tolerance as the mesh branch above, and the same
+            # clay-13 incident: set_transform is a locking door too, and an
+            # uncaught refusal here aborted every transform still queued
+            # behind it in this loop, not just this object's own.
+            with contextlib.suppress(el.OpError):
+                doc.set_transform(
+                    uid, translation=s.translation, rotation=s.rotation, scale=s.scale
+                )
 
         if diff_.order_changed:
             wanted = [uid for uid in (o.uid for o in scratch.objects) if uid in {

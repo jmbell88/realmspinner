@@ -29,12 +29,15 @@ builder gated on the row in hand and that row has no ``model.glb``.
 cached-row read, not a filesystem call -- for exactly the kinds
 ``asset_open.FOLLOWUP_STAGES`` already names as a mesh's own product, never on
 ``source_job`` alone: a character sheet carries that same field but is not
-one of them (it opens in Troupe, not in Create), and hopping for it too
+one of them (it opens in Poser, not in Create), and hopping for it too
 resolved it straight back to the mesh it was rendered from -- offering Clay
-and Poser on a row that has neither, plus a second, duplicate "Open in
-Troupe" beside :func:`_troupe_out`'s own. The three mesh-shaped builders
-(Clay, Poser, Troupe-in) read every gate off the *resolved* mesh, closing
-their door over it rather than over the selected row. A source that has
+and Poser on a row that has neither, plus, while Troupe was still its own
+mode, a second, duplicate "Open in Troupe" beside the reopen door's own --
+the same trap :func:`_mesh_for`'s docstring below dates to before P9
+(2026-09-18) folded Troupe into Poser and retired that second door. The
+mesh-shaped builders (Clay, Poser, and Poser's own sheet render) read every
+gate off the *resolved* mesh, closing their door over it rather than over
+the selected row. A source that has
 fallen off the loaded page, or a kind the hop does not cover, answers None,
 the same floor ``asset_open.open_asset`` already takes for the identical
 reason.

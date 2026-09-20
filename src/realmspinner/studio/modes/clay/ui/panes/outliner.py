@@ -235,8 +235,17 @@ def _click(state: Any, doc: Any, obj: Any) -> None:
 
 
 def _range(doc: Any, anchor: int, uid: int) -> list[int]:
-    """Every object between two uids in document order, inclusive."""
-    order = [o.uid for o in doc.objects]
+    """Every uid visually between two rows, inclusive, in the order the tree
+    actually draws them.
+
+    Built from :func:`_tree_rows`, not ``doc.objects`` -- the 2026-09-20
+    audit's clay-08: ``doc.objects`` is flat insertion order, and
+    ``set_parent`` never reorders it, so once anything has been reparented,
+    the tree's depth-first walk and the flat list disagree about what sits
+    "between" two rows. A range built from the flat list silently omitted or
+    included rows the user never saw between the two they Shift-clicked.
+    """
+    order = [o.uid for o, _depth, _has_children in _tree_rows(doc)]
     try:
         lo, hi = sorted((order.index(anchor), order.index(uid)))
     except ValueError:

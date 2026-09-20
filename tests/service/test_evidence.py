@@ -19,6 +19,7 @@ Three claims, and they are separable on purpose:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from realmspinner.service import evidence
 from realmspinner.service import jobs as svc_jobs
@@ -192,6 +193,35 @@ def test_an_interrupted_archive_cannot_look_complete(svc, monkeypatch):
     assert written, "the artifacts were copied before the failure"
     assert not any(evidence.is_complete(d) for d in written)
     assert _archived(svc) == {}
+
+
+def test_a_job_json_left_truncated_mid_write_is_still_reported_as_incomplete(svc, monkeypatch):
+    """service-03, the 2026-09-20 audit: ``job.json`` was written with a plain
+    ``write_text`` straight onto the served name, unlike ``journal._write_pair``
+    and ``findings.refresh``'s tmp+``os.replace`` idiom for exactly this
+    pattern. A kill mid-write left a file at the served name that
+    ``is_complete()`` reported present and that does not parse. Staged, the
+    served name only ever appears whole or not at all.
+    """
+    job_id = svc_jobs.create_job(svc, kind="text", prompt="a barrel")["id"]
+    _finished(svc, job_id)
+    svc_verdicts.record_verdict(svc, job_id, grade=-3)
+
+    real_write_text = Path.write_text
+
+    def truncated_write_and_die(self, data, *args, **kwargs):
+        # Simulate a kill mid-write: half the bytes land on disk, then the
+        # process dies before anything else -- in particular, before any
+        # os.replace that would otherwise stand between this write and the
+        # served name.
+        real_write_text(self, data[: len(data) // 2], *args, **kwargs)
+        raise OSError("process killed mid-write")
+
+    monkeypatch.setattr(Path, "write_text", truncated_write_and_die)
+    assert evidence.archive_job(svc, job_id, reason="prune") is None
+
+    archive_dir = _archive_dir(svc, job_id)
+    assert not evidence.is_complete(archive_dir)
 
 
 def test_an_archive_that_cannot_be_written_does_not_stop_the_delete(svc, monkeypatch):

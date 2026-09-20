@@ -495,7 +495,24 @@ def _resource_prompt_method(
             )
         if read_resource is None:
             return _error_bytes(msg_id, -32601, f"unknown method: {method}") if has_id else None
-        found = read_resource(uri)
+        try:
+            # The 2026-09-20 audit (agents-01): unlike the four sibling
+            # callbacks (`call_tool_task`, `get_task`, `cancel_task`,
+            # `call_tool`), this call site had no exception backstop, so
+            # a malformed Realmspinner reply's plain `ValueError`
+            # (`bridge.py`'s `read_resource` catches only
+            # `(EOFError, OSError)` around `rpc.split_reply`) propagated
+            # straight out of `bridge_dispatch` and, since `bridge.py::main`'s
+            # run loop catches only `(EOFError, KeyboardInterrupt)`, killed
+            # the whole `realmspinner mcp` process instead of failing one
+            # request. Same guard below for `get_prompt`.
+            found = read_resource(uri)
+        except Exception as exc:  # noqa: BLE001 -- see the comment above
+            return (
+                _error_bytes(msg_id, -32603, f"read_resource failed: {type(exc).__name__}: {exc}")
+                if has_id
+                else None
+            )
         if found is None:
             code = -32602 if modern else -32002
             return (
@@ -542,7 +559,17 @@ def _resource_prompt_method(
             )
         if get_prompt is None:
             return _error_bytes(msg_id, -32601, f"unknown method: {method}") if has_id else None
-        found = get_prompt(name, arguments)
+        try:
+            # The 2026-09-20 audit (agents-01): see the matching comment on
+            # the `read_resource` call site above -- same missing backstop,
+            # same fix.
+            found = get_prompt(name, arguments)
+        except Exception as exc:  # noqa: BLE001 -- see the comment above
+            return (
+                _error_bytes(msg_id, -32603, f"get_prompt failed: {type(exc).__name__}: {exc}")
+                if has_id
+                else None
+            )
         if found is None:
             code = -32602 if modern else -32002
             return (

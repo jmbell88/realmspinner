@@ -142,6 +142,14 @@ class SpriteOps:
         grids: list[dict[str, Any]] = []
         try:
             for band in plan:
+                if self._cancel is not None and self._cancel.event.is_set():
+                    # The 2026-09-20 audit, finding troupe-03: _sprite_synthesis
+                    # already checks between bands (its own docstring gives the
+                    # reason -- eight bands is minutes of GPU), and this loop is
+                    # the same shape. Without this, a cancel landing between two
+                    # bands still paid for the next band's hint render and
+                    # conditioning setup before the cancel was ever read.
+                    return
                 self.progress.update(
                     job_id, phase="restyle", label="Restyling sheet",
                     inner=band.index / len(plan),

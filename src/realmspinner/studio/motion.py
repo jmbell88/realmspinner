@@ -242,6 +242,18 @@ def spring(key: str, target: float, *, duration: float = tokens.DUR_BASE) -> flo
         _FRAME[key] = clock[1] if clock is not None else -1
         return target
     dt, frame = clock
+    # The substep loop below bounds substep *count* at 64 but not substep
+    # *size* -- past roughly a 2.2 s ``dt`` each of those 64 explicit-Euler
+    # steps grows too large to stay stable, and the integrator returns an
+    # astronomic value that then decays over hundreds of frames (measured
+    # -5e16 at ``dt=2.5``, the 2026-09-20 audit's shell-10). This was safe
+    # only because ``shell/frame.py``'s ``_tick`` separately clamps ``dt`` to
+    # 0.25 s three files away -- a clamp the screenshot harness bypasses by
+    # calling this module directly. Matched to that same ceiling rather than
+    # inventing a second number: the two must not disagree about what "one
+    # frame" can be, and it keeps the 64-step loop's per-step size at or
+    # under ``_SPRING_STEP`` for any ``dt`` this function can now see.
+    dt = min(dt, 0.25)
     current = _STATE.get(key)
     _TARGET[key] = target
     _FRAME[key] = frame

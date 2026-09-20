@@ -40,7 +40,9 @@ to the one it was.
 its silhouette with fbm scrolled along the rise, and fbm is not periodic, so the
 last frame of a short loop does not hand back to the first. At 16-64px and 32
 colours it reads as a flicker in the tongues rather than a pop, which is why it
-ships; ``characters.effects`` and ``docs/manual/34-troupe.md`` both say so.
+ships; ``characters.effects`` and ``docs/manual/26-poser.md`` both say so (the
+chapter's own ``docs/manual/34-troupe.md`` before P9 (2026-09-18) folded
+Troupe's manual coverage into Poser's).
 
 CPU and an EEVEE render throughout: nothing here touches the resident models or
 the VRAM handoff, and the serial queue is what keeps it from overlapping a

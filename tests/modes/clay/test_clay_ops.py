@@ -109,6 +109,23 @@ def test_a_key_resolves_to_the_op_the_menu_shows_for_it() -> None:
     assert clay_ops.by_key("face", "nope") is None
 
 
+def test_select_none_carries_no_key_that_by_key_can_never_resolve() -> None:
+    """The 2026-09-20 audit's clay-22: ``select-none`` used to register
+    ``key="Esc"``, but ``by_key`` is only ever called with
+    ``pygame.key.name(...).upper()`` -- which spells the escape key
+    ``"ESCAPE"``, never ``"Esc"`` -- so that binding could never actually
+    fire and the context menu's "Select None  Esc" claimed a shortcut this
+    op never had. Escape is genuinely handled by ``mode._escape`` outside
+    this registry, so the fix is dropping the dead metadata rather than
+    aliasing it: this asserts neither spelling resolves to any op, and that
+    ``select-none`` itself carries no key at all.
+    """
+    for mode in clay_ops.ELEMENT_MODES:
+        assert clay_ops.by_key(mode, "Esc") is None
+        assert clay_ops.by_key(mode, "ESCAPE") is None
+    assert clay_ops.get("select-none").key == ""
+
+
 def test_the_registry_imports_no_gui() -> None:
     """``clay_ops`` is testable precisely because it draws nothing.
 
@@ -1399,6 +1416,53 @@ def test_align_is_one_undo_step_for_the_whole_selection() -> None:
 
 def test_align_appears_in_the_object_menu() -> None:
     assert "align" in [op.name for op in clay_ops.menu("object")]
+
+
+def test_align_does_not_double_move_a_descendant_whose_ancestor_is_also_selected() -> None:
+    """The 2026-09-20 audit's clay-06: ``_apply_deltas`` used to read
+    ``doc.world_matrix(uid)`` live, mid-loop, so a child already sitting at
+    the align target rode along again for free once its own parent's
+    ``set_transform`` had landed earlier in the same call -- the parent's
+    delta got applied twice: once through ordinary parent-child inheritance,
+    once more baked into the child's own recomputed local transform.
+
+    Parent (A) starts *above* the target (needs to move down); child (B) is
+    parented under it with ``keep_world=False`` so its own world box already
+    sits exactly on the align target and needs no delta at all. A correct
+    Align leaves B's world box untouched; the bug moved it by A's own delta
+    on top.
+    """
+    doc = bd.ClayDoc()
+    a = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box(size=(2, 2, 2)), translation=[0, 10, 0])
+    )
+    b = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(size=(2, 2, 2)), translation=[0, -10, 0])
+    )
+    # keep_world=False: B's local translation is left exactly as authored, so
+    # its true world box (through A's [0, 10, 0]) already sits at the [-1, 1]
+    # the "min" align below will pick as its target -- the whole point being
+    # that B needs zero delta of its own.
+    doc.set_parent(b.uid, a.uid, keep_world=False)
+    doc.select([a.uid, b.uid])
+    b_lo_before, _b_hi_before = clay_ops_geom.world_box(
+        doc.by_uid(b.uid), world=doc.world_matrix(b.uid)
+    )
+    assert float(b_lo_before[1]) == pytest.approx(-1.0), "B is already at the align target"
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("align"), axis=1, mode=0) is True
+
+    a_lo_after, _a_hi_after = clay_ops_geom.world_box(
+        doc.by_uid(a.uid), world=doc.world_matrix(a.uid)
+    )
+    b_lo_after, _b_hi_after = clay_ops_geom.world_box(
+        doc.by_uid(b.uid), world=doc.world_matrix(b.uid)
+    )
+    assert float(a_lo_after[1]) == pytest.approx(-1.0), "A (the ancestor) reached the target"
+    assert float(b_lo_after[1]) == pytest.approx(-1.0), (
+        "B (the descendant) must stay exactly on the target, not be carried "
+        "further by A's own delta on top of it"
+    )
 
 
 def test_distribute_leaves_equal_edge_gaps_and_holds_the_extremes() -> None:

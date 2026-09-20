@@ -136,3 +136,78 @@ def test_a_custom_elevation_writes_a_null_preset():
     # The worker stamps it on every sheet, beside the layout snapshot.
     source = inspect.getsource(_q_troupe.TroupeOps._charsheet)
     assert 'meta["camera"] = _camera_meta(' in source
+
+
+# --- camera_line --------------------------------------------------------
+#
+# The 2026-09-20 audit, finding troupe-04: a pure, branching string builder
+# with no test of its own, unlike its directly-tested neighbours in the same
+# file (``_pixel_report_lines``). Every branch below.
+
+
+def test_camera_line_is_empty_with_no_camera_and_no_elevation():
+    assert poser_sheet.camera_line({}) == ""
+
+
+def test_camera_line_falls_back_to_elevation_with_no_camera_block():
+    """A sheet old enough to predate ``camera`` still says what it was framed
+    at, off the bare top-level ``elevation`` key."""
+    assert poser_sheet.camera_line({"elevation": 34.0}) == "framed at 34 degrees"
+
+
+def test_camera_line_names_a_known_preset():
+    record = {"camera": {"preset": "isometric", "elevation": 30.0}}
+    assert poser_sheet.camera_line(record) == "Isometric, 30 degrees"
+
+
+def test_camera_line_calls_an_unknown_preset_custom():
+    record = {"camera": {"preset": "", "elevation": 34.0}}
+    assert poser_sheet.camera_line(record) == "custom, 34 degrees"
+
+
+def test_camera_line_defaults_a_missing_elevation_to_zero():
+    record = {"camera": {"preset": "side"}}
+    assert poser_sheet.camera_line(record) == "Side, 0 degrees"
+
+
+def test_camera_line_appends_front_yaw_when_present():
+    record = {"camera": {"preset": "side", "elevation": 0.0, "front_yaw": 90.0}}
+    assert poser_sheet.camera_line(record) == (
+        "Side, 0 degrees -- front at 90 degrees"
+    )
+
+
+def test_camera_line_appends_projection_when_set():
+    record = {
+        "camera": {"preset": "top_down", "elevation": 60.0, "projection": "orthographic"}
+    }
+    assert poser_sheet.camera_line(record) == (
+        "Top-down, 60 degrees -- orthographic"
+    )
+
+
+def test_camera_line_appends_pixel_size_when_set():
+    record = {
+        "camera": {
+            "preset": "three_quarter_top_down", "elevation": 35.0, "pixel_size": 32,
+        }
+    }
+    assert poser_sheet.camera_line(record) == (
+        "3/4 top-down, 35 degrees -- 32 px sprite"
+    )
+
+
+def test_camera_line_joins_every_optional_part_in_order():
+    record = {
+        "camera": {
+            "preset": "isometric",
+            "elevation": 30.0,
+            "front_yaw": 180.0,
+            "projection": "orthographic",
+            "pixel_size": 64,
+        }
+    }
+    assert poser_sheet.camera_line(record) == (
+        "Isometric, 30 degrees -- front at 180 degrees -- orthographic "
+        "-- 64 px sprite"
+    )

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import math
+import time
 from typing import Any
 
 import numpy as np
@@ -2014,6 +2015,48 @@ def test_render_ids_reports_a_zero_pixel_count_for_an_object_this_view_cannot_se
     uid, _hexcolor, px = rows[0]
     assert uid == doc.objects[0].uid
     assert px == 0
+
+
+def test_render_ids_object_id_scan_time_does_not_scale_with_object_count_on_the_frame_thread(
+    view,
+) -> None:
+    """The 2026-09-20 audit's clay-07: ``_count_color`` did one full
+    ``np.all(pixels == color)`` pass over the *whole* rendered image per
+    visible object, synchronously on the frame thread that must never block
+    (this module's own header) -- reproduced at ~1.07s for 100 objects at
+    the default 1024 size. A single ``np.unique(..., return_counts=True)``
+    pass over the pixels, done once, then a dict lookup per uid, costs
+    about what one object's own scan used to cost, however many objects the
+    document holds.
+
+    Measured as a scaling ratio, not an absolute bound, the way
+    ``test_ops_dissolve.py``'s dissolve-scaling regression is (that
+    docstring's own reasoning): not sensitive to the machine running it. A
+    small size keeps the *unfixed* per-object scan's absolute cost, and this
+    test's own running time, down -- the scaling is what damns it, not the
+    size.
+    """
+    small = _doc(count=5)
+    large = _doc(count=100)
+
+    def _time_render_ids(doc: bd.ClayDoc) -> float:
+        view.frame_selection(doc)
+        view.render_ids(doc, size=256)  # warm any one-time setup cost
+        start = time.perf_counter()
+        view.render_ids(doc, size=256)
+        return time.perf_counter() - start
+
+    small_time = _time_render_ids(small)
+    large_time = _time_render_ids(large)
+    # 20x the objects. The unfixed per-object full-image scan measured
+    # ~13-14x slower here; one pass over the pixels regardless of object
+    # count should not even get close to that. 6x gives real margin above a
+    # roughly-flat cost while still catching a straight reintroduction of
+    # the per-object scan.
+    assert large_time < max(small_time * 6.0, 0.05), (
+        f"100 objects took {large_time:.4f}s against {small_time:.4f}s at 5 -- "
+        "still one full-image scan per object?"
+    )
 
 
 # --- Camera.look_angles: the split that keeps look_along's coupling in one place --

@@ -7,6 +7,13 @@ collapsed Engine header. A good reference could never become a mesh, and the
 log said nothing, because a refusal is toasted rather than logged. Band, two
 controls above it in the same header, had the identical defect (1..64 at the
 door, only >= 0 at the field).
+
+The 2026-09-20 audit, finding create-01: the other three of the five Engine
+fields (Token budget, Decimation, Atlas resolution) had the same shape of
+defect and no clamp helper at all -- ``settings_3d.py`` committed them with a
+floor-only ``max(...)`` and no ceiling, so every one of them could hold a
+value ``check_trellis_max_tokens``/``check_trellis_decim``/
+``check_trellis_atlas`` refuses at every Accept.
 """
 
 import contextlib
@@ -15,11 +22,18 @@ import pytest
 
 from realmspinner.service.errors import Invalid
 from realmspinner.service.validation import (
+    MAX_TRELLIS_ATLAS,
     MAX_TRELLIS_BAND,
+    MAX_TRELLIS_DECIM,
+    MAX_TRELLIS_MAX_TOKENS,
     MAX_TRELLIS_TEX_RES,
+    MIN_TRELLIS_ATLAS,
     MIN_TRELLIS_BAND,
     MIN_TRELLIS_TEX_RES,
+    check_trellis_atlas,
     check_trellis_band,
+    check_trellis_decim,
+    check_trellis_max_tokens,
     check_trellis_tex_res,
 )
 from realmspinner.studio import forms
@@ -133,3 +147,79 @@ def test_a_saved_out_of_range_band_restores_as_unset(stored):
 def test_a_saved_in_range_band_survives_a_restore(stored):
     form = restore_form(DEFAULT_FORM_3D, {**DEFAULT_FORM_3D, "trellis_band": stored})
     assert form["trellis_band"] == stored
+
+
+# -- Token budget / Decimation / Atlas resolution (the 2026-09-20 audit, ------
+# finding create-01: the three siblings that shipped with no clamp at all) ---
+
+
+def test_engine_advanced_numeric_fields_clamp_to_the_doors_ceiling_like_band_and_tex_res():
+    # Token budget: sentinel is 0 (like band/tex_res), door range is 1..MAX.
+    assert create_mesh.clamp_max_tokens(-5) == 0
+    assert create_mesh.clamp_max_tokens(0) == 0
+    assert create_mesh.clamp_max_tokens(1) == 1
+    assert create_mesh.clamp_max_tokens(MAX_TRELLIS_MAX_TOKENS) == MAX_TRELLIS_MAX_TOKENS
+    assert create_mesh.clamp_max_tokens(MAX_TRELLIS_MAX_TOKENS + 1) == MAX_TRELLIS_MAX_TOKENS
+    check_trellis_max_tokens(create_mesh.clamp_max_tokens(10**9))
+
+    # Decimation: sentinel is -1 (engine_kwargs' own comment -- 0 is "off", a
+    # real value the exe must receive), door range is 0..MAX_TRELLIS_DECIM.
+    assert create_mesh.clamp_decim(-5) == -1
+    assert create_mesh.clamp_decim(-1) == -1
+    assert create_mesh.clamp_decim(0) == 0
+    assert create_mesh.clamp_decim(MAX_TRELLIS_DECIM) == MAX_TRELLIS_DECIM
+    assert create_mesh.clamp_decim(MAX_TRELLIS_DECIM + 1) == MAX_TRELLIS_DECIM
+    check_trellis_decim(create_mesh.clamp_decim(10**9))
+
+    # Atlas resolution: sentinel is 0 (like band/tex_res), door range is
+    # MIN_TRELLIS_ATLAS..MAX_TRELLIS_ATLAS.
+    assert create_mesh.clamp_atlas(-5) == 0
+    assert create_mesh.clamp_atlas(0) == 0
+    assert create_mesh.clamp_atlas(1) == MIN_TRELLIS_ATLAS
+    assert create_mesh.clamp_atlas(MAX_TRELLIS_ATLAS) == MAX_TRELLIS_ATLAS
+    assert create_mesh.clamp_atlas(MAX_TRELLIS_ATLAS + 1) == MAX_TRELLIS_ATLAS
+    check_trellis_atlas(create_mesh.clamp_atlas(10**9))
+
+
+def test_the_values_that_blocked_the_donut_are_still_refused_at_the_three_new_doors():
+    # The clamp is the UI's half; the doors keep their own bounds, so the fix
+    # must not have been made by loosening any of them.
+    with pytest.raises(Invalid):
+        check_trellis_max_tokens(MAX_TRELLIS_MAX_TOKENS + 1)
+    with pytest.raises(Invalid):
+        check_trellis_decim(MAX_TRELLIS_DECIM + 1)
+    with pytest.raises(Invalid):
+        check_trellis_atlas(MAX_TRELLIS_ATLAS + 1)
+
+
+@pytest.mark.parametrize(
+    ("field", "stored"),
+    [
+        ("trellis_max_tokens", MAX_TRELLIS_MAX_TOKENS + 1),
+        ("trellis_decim", MAX_TRELLIS_DECIM + 1),
+        ("trellis_atlas", MAX_TRELLIS_ATLAS + 1),
+        ("trellis_atlas", 1),  # below MIN_TRELLIS_ATLAS but above the sentinel
+    ],
+)
+def test_a_saved_out_of_range_engine_field_restores_as_unset(field, stored):
+    form = restore_form(DEFAULT_FORM_3D, {**DEFAULT_FORM_3D, field: stored})
+    assert form[field] == DEFAULT_FORM_3D[field]
+
+
+@pytest.mark.parametrize(
+    ("field", "stored"),
+    [
+        ("trellis_max_tokens", 0),
+        ("trellis_max_tokens", 1),
+        ("trellis_max_tokens", MAX_TRELLIS_MAX_TOKENS),
+        ("trellis_decim", -1),
+        ("trellis_decim", 0),
+        ("trellis_decim", MAX_TRELLIS_DECIM),
+        ("trellis_atlas", 0),
+        ("trellis_atlas", MIN_TRELLIS_ATLAS),
+        ("trellis_atlas", MAX_TRELLIS_ATLAS),
+    ],
+)
+def test_a_saved_in_range_engine_field_survives_a_restore(field, stored):
+    form = restore_form(DEFAULT_FORM_3D, {**DEFAULT_FORM_3D, field: stored})
+    assert form[field] == stored

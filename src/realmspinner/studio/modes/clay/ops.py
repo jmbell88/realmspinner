@@ -1202,16 +1202,35 @@ def _apply_deltas(doc: Any, deltas: dict[int, np.ndarray]) -> bool:
     measured in, so its *world* matrix is shifted by the delta instead and
     the result converted back through ``doc.local_from_world``, the same
     door every other parented write in this file uses.
+
+    **Every target world is read once, before any write, and applied
+    ancestor-first.** The 2026-09-20 audit's clay-06: a parented uid used to
+    read ``doc.world_matrix(uid)`` live, mid-loop -- once its own ancestor's
+    ``set_transform`` had already landed earlier in the same call, that read
+    was no longer the pre-move box ``_world_boxes`` measured the delta
+    against, but one that already carried the ancestor's own shift for free,
+    so adding the descendant's delta on top moved it twice. Freezing every
+    selected uid's world matrix up front, before the loop writes anything,
+    fixes what each object's own *target* world is; sorting the write order
+    by ancestor depth (roots, then their children, and so on) then
+    guarantees that by the time a parented object's own target is converted
+    back with ``doc.local_from_world`` -- which walks its *live* parent
+    chain -- every ancestor of it that is also in this same batch has
+    already reached its own final position, so the conversion lands on the
+    frozen target exactly once, however ``deltas`` happened to iterate.
     """
     ran = False
-    for uid, delta in deltas.items():
+    world_before = {uid: np.array(doc.world_matrix(uid), dtype="f8", copy=True) for uid in deltas}
+    order = sorted(deltas, key=lambda uid: len(doc.ancestors(uid)))
+    for uid in order:
+        delta = deltas[uid]
         obj = doc.by_uid(uid)
         if obj.parent is None:
             translation = np.asarray(obj.translation, dtype="f8") + delta
             if doc.set_transform(uid, translation=translation):
                 ran = True
             continue
-        world = np.array(doc.world_matrix(uid), dtype="f8", copy=True)
+        world = world_before[uid].copy()
         world[:3, 3] = world[:3, 3] + np.asarray(delta, dtype="f8")
         t, r, s = doc.local_from_world(uid, world)
         if doc.set_transform(uid, translation=t, rotation=r, scale=s):
@@ -3532,7 +3551,13 @@ def _register_defaults() -> None:
             run=_select_none,
             enabled=has_elements,
             reason=_has_elements_reason,
-            key="Esc",
+            # No `key` here: the 2026-09-20 audit's clay-22 -- `by_key` is only
+            # ever called with `pygame.key.name(...).upper()`, which yields
+            # "ESCAPE", so a registered "Esc" never resolved and the popup's
+            # "Select None  Esc" claimed a binding this op never had. Escape
+            # is genuinely owned by `mode._escape`, hand-dispatched outside
+            # the registry (and its undo fold); an alias here would just
+            # relabel the same lie rather than fix it.
         )
     )
     register(

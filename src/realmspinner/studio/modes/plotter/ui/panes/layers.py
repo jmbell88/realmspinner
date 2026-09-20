@@ -1559,6 +1559,32 @@ def _prop_children(
             replace_value(items)
 
 
+def _prop_remove_target(selected: str, props: dict[str, Prop]) -> tuple[str, str]:
+    """Whether ``selected`` names a property the remove button can act on.
+
+    -> ``(name, reason)``. ``name`` is the top-level key to remove, empty
+    when the button must stay disabled; ``reason`` is what it says then.
+
+    ``enabled`` used to be computed as ``bool(name) and name in props`` right
+    at the button call, alongside a *two*-way reason ("nothing selected" vs.
+    "only a top-level property can be removed here") built from ``selected``
+    and ``top_level`` alone -- three conditions feeding a binary message. A
+    selection that is genuinely top-level but whose property has since gone
+    (removed elsewhere, e.g. by undo, while this form still names it) is
+    top-level, so it fell into the *else* branch and reported "Only a
+    top-level property can be removed here" -- false; that is exactly what it
+    is. The 2026-09-20 audit, finding plotter-05. Folding the stale case into
+    "nothing selected" keeps the message that is actually true either way.
+    """
+    top_level = selected.startswith("/") and selected.count("/") == 1
+    name = selected[1:] if top_level else ""
+    if not selected or (name and name not in props):
+        return "", "Select a property to remove it."
+    if not name:
+        return "", "Only a top-level property can be removed here."
+    return name, ""
+
+
 def _prop_footer(ctx: Any, form: dict, props: dict[str, Prop], on_change: Any) -> None:
     """The new-key row and the remove button, under the table.
 
@@ -1574,8 +1600,7 @@ def _prop_footer(ctx: Any, form: dict, props: dict[str, Prop], on_change: Any) -
     from imgui_bundle import imgui
 
     selected = str(form.get("selected") or "")
-    top_level = selected.startswith("/") and selected.count("/") == 1
-    name = selected[1:] if top_level else ""
+    name, remove_reason = _prop_remove_target(selected, props)
 
     form["name"] = widgets.input_text(
         "##prop-name", form["name"], max_length=48, hint="new key"
@@ -1601,12 +1626,8 @@ def _prop_footer(ctx: Any, form: dict, props: dict[str, Prop], on_change: Any) -
     imgui.same_line()
     if widgets.disabled_button(
         f"{icons.MINUS}##remove-prop",
-        bool(name) and name in props,
-        reason=(
-            "Select a property to remove it."
-            if not selected
-            else "Only a top-level property can be removed here."
-        ),
+        bool(name),
+        reason=remove_reason,
         tooltip=f"Remove {name}" if name else "Remove the selected property",
     ):
         replacement = dict(props)

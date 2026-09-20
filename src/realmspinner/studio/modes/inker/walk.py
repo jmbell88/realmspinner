@@ -84,6 +84,17 @@ class WalkSession:
     #: The last render, and the ``(rig.rev, settings)`` it was made from.
     _frames: list[np.ndarray] = field(default_factory=list)
     _stamp: tuple[Any, ...] = ()
+    #: The last *raw*, per-part render (``walk.frames``, pre-composite) and the
+    #: stamp it was made from. Kept as its own memo rather than read off
+    #: ``_frames`` above: ``clipping`` needs the per-part boxes, the preview
+    #: needs composited pixels, and the two are built from separate kernel
+    #: calls over the same rig -- caching only the composite left the raw half
+    #: re-rendering on every read (the 2026-09-20 audit, finding inker-05: the
+    #: setup panel's clipping note re-ran the full cycle every frame a session
+    #: was open, ~9.9 ms/call on the 8-part, 64x64 test rig -- 59% of a 60 fps
+    #: budget, and real rigs are larger).
+    _raw: list[Any] = field(default_factory=list)
+    _raw_stamp: tuple[Any, ...] = ()
 
 
 # -- opening and closing ---------------------------------------------------------------
@@ -438,8 +449,23 @@ def frames(open_session: WalkSession) -> list[np.ndarray]:
 def clipping(open_session: WalkSession) -> tuple[int, int, int, int]:
     if not ready(open_session):
         return (0, 0, 0, 0)
-    rendered = walk.frames(open_session.rig, open_session.settings)
-    return walk.clipping(rendered, open_session.size)
+    return walk.clipping(_raw_frames(open_session), open_session.size)
+
+
+def _raw_frames(open_session: WalkSession) -> list[Any]:
+    """The per-part render ``clipping`` reads, memoized like ``frames`` above.
+
+    Read only by ``clipping`` today, but kept as a real cache rather than an
+    inline call: the setup panel calls ``clipping`` on every draw while a
+    session is open (the clipping note has to say it before the bake, which
+    crops silently), and a re-render on a stamp that has not moved is a cost
+    with no reader (the 2026-09-20 audit, finding inker-05).
+    """
+    stamp = (open_session.rig.rev, open_session.settings)
+    if stamp != open_session._raw_stamp or not open_session._raw:
+        open_session._raw = walk.frames(open_session.rig, open_session.settings)
+        open_session._raw_stamp = stamp
+    return open_session._raw
 
 
 def tick(open_session: WalkSession, *, now: float | None = None) -> int:

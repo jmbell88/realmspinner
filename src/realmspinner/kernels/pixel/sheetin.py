@@ -40,6 +40,7 @@ from .layers import Layer, LayerStack
 
 __all__ = [
     "MAX_SHEET_FRAMES",
+    "MAX_SHEET_PIXELS",
     "document_from_atlas",
     "document_from_grid",
     "document_from_sheet",
@@ -61,6 +62,20 @@ __all__ = [
 # import with room to spare, while stopping a fat-fingered cell size well
 # short of the point where the editor stops being usable on the result.
 MAX_SHEET_FRAMES = 4096
+
+# The 2026-09-20 audit (inker-01): MAX_SHEET_FRAMES bounds the *count* of
+# cells document_from_sheet reads from a rendered sheet's on-disk sidecar,
+# but nothing bounded count times cell area -- 800 identical 512x512 cells,
+# well under that ceiling, allocated 800 MiB with no refusal, and the real
+# ceilings reach terabytes. The figure is 8192 squared, the same one
+# ``core.safeio.pixelguard.MAX_DECODE_PIXELS`` is set to and for the
+# identical reason (this package's own largest atlas/canvas) -- written here
+# rather than imported, because this module's whole claim
+# (``tests/modes/inker/test_inker_imports.py``, which pins its outward
+# reaches exactly) is that it "reaches for nothing at all", and a first
+# outward import for one shared constant is a worse trade than one number
+# written twice on purpose.
+MAX_SHEET_PIXELS = 8192 * 8192
 
 
 def span_tags(spans: Sequence[Mapping[str, Any]]) -> list[Tag]:
@@ -223,6 +238,15 @@ def _document_from_rects(
     cell_w, cell_h = sizes.pop()
     if cell_w < 1 or cell_h < 1:
         raise ValueError("a cell has a positive size")
+    # The 2026-09-20 audit, finding inker-01: see MAX_SHEET_PIXELS above.
+    # Charged here, before the copy loop below pays for it.
+    total_pixels = len(rects) * cell_w * cell_h
+    if total_pixels > MAX_SHEET_PIXELS:
+        raise ValueError(
+            f"that sheet is {len(rects)} cells of {cell_w}x{cell_h}, "
+            f"{total_pixels} pixels past the {MAX_SHEET_PIXELS} this build "
+            "will hold"
+        )
     for x, y, w, h in rects:
         if x < 0 or y < 0 or x + w > width or y + h > height:
             raise ValueError(

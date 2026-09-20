@@ -430,15 +430,23 @@ def _card_pos(
 
     ``bottom_offset`` -- already-scaled design pixels -- lifts the card clear
     of ``panes.bottom_pane``, which anchors to the same edge.
+
+    **``bottom_offset`` only ever touches ``y``.** It used to be folded into
+    one ``margin`` shared with the horizontal inset, so opening the Familiar
+    dock -- a nonzero ``bottom_offset`` -- shifted every card sideways too, by
+    the pane's own height (the 2026-09-20 audit, finding tour-01, reproduced
+    at a 200 px offset moving ``x`` by exactly 200). ``inset`` below is the
+    edge margin alone, read by both ``x`` branches; the lift is added only
+    into ``y``.
     """
-    margin = sp(tokens.SP_4) + bottom_offset
-    y = viewport.work_pos.y + viewport.work_size.y - margin
-    right = viewport.work_pos.x + viewport.work_size.x - margin
+    inset = sp(tokens.SP_4)
+    y = viewport.work_pos.y + viewport.work_size.y - inset - bottom_offset
+    right = viewport.work_pos.x + viewport.work_size.x - inset
     if hole is not None:
         hx, _hy, hw, _hh = hole
         centre = viewport.work_pos.x + viewport.work_size.x * 0.5
         if hx + hw * 0.5 > centre:
-            return (viewport.work_pos.x + margin + sp(CARD_W), y)
+            return (viewport.work_pos.x + inset + sp(CARD_W), y)
     return (right, y)
 
 

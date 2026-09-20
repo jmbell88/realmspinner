@@ -335,7 +335,16 @@ def summary(children: Iterable[int] | None = None) -> str | None:
         parts.append(f"private {proc.private:.1f} GiB, ws {proc.working_set:.1f} GiB")
     if children is not None:
         kids = children_private(children)
-        if kids:
+        # Branched on `kids is None` separately from `not kids`: the
+        # 2026-09-20 audit, finding service-05. `children_private` documents
+        # and is tested on the None-("cannot read")-vs-0.0-("no children")
+        # distinction, but this was the module's only caller and it rendered
+        # both the same way -- omitted -- so a read failure during exactly
+        # the host-commit investigation this module exists for looked
+        # identical to a clean bill of health.
+        if kids is None:
+            parts.append("children unknown")
+        elif kids:
             parts.append(f"children {kids:.1f} GiB")
     if sysmem is not None:
         parts.append(

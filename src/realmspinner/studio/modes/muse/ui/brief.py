@@ -449,8 +449,14 @@ def _clamp_duration(value: int) -> int:
     duplicates nothing: it only stops a spinner from displaying a number
     ``create_music_job`` was always going to refuse, which is a worse moment
     to learn the bound than while still typing it. The bound itself is
-    imported lazily, exactly as ``_max_prompt``/``_max_lyrics``/``_max_seed``
-    below do, so this file never holds a second copy of it.
+    imported lazily, exactly as ``_max_prompt``/``_max_lyrics`` below do (and
+    as ``panes/recipe.py``'s own ``_max_seed`` does for its field), so this
+    file never holds a second copy of it.
+
+    The 2026-09-20 audit, finding muse-05: this docstring used to name
+    ``_max_seed`` as a sibling defined in this module; it has never lived
+    here -- it is ``panes/recipe.py``'s, for the Seed control that panel
+    draws.
     """
     return int(min(max(value, _min_duration()), _max_duration()))
 

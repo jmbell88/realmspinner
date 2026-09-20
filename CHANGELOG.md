@@ -134,6 +134,80 @@ were in code that change wrote. What follows is what you would actually have run
   them. And the Godot collider suffix was given as `-colonly` where the exporter only
   ever writes `-convcolonly`.
 
+**A full audit of every subsystem, and the 104 things it found.** Seventy-four readers went
+over the whole tree — every mode, the shell, the service layer, the pipelines, the agent
+surface, Familiar, the tour and the documentation — and what they found has been built.
+Every fix carries a regression test that was proven to fail against the old code first.
+
+The seven worst were all silent: each destroyed work or crashed the app without saying
+anything.
+
+- **Locking an object protected it from everything except Join.** Union, Difference,
+  Intersection and Merge all read the lock and ignored it, so a locked object could have
+  its mesh silently overwritten, or be deleted outright as one of the shapes absorbed by a
+  merge. Seven other doors in the same file had refused a locked object for months; this
+  one never had.
+- **The inspector's Pose tab quietly threw away a pose's root offset.** Applying a saved
+  pose there dropped the offset, and saving over that pose then erased it from the file on
+  disk — so a pose authored with **Move root** in Poser lost that part of itself
+  permanently the first time it was touched from the inspector.
+- **An edit made while Familiar was thinking was reverted when you pressed Apply.** The
+  comparison Familiar uses to work out what it changed was taken *after* the model
+  finished rather than before it started, so anything you did in that window looked to it
+  like something it had removed — and Apply removed it. Apply now refuses and asks for a
+  fresh preview the moment the document moves underneath it.
+- **Three ways to make the app run out of memory by opening a file.** A rendered sheet's
+  sidecar had a cap on how many cells it could name but none on how large they were, so
+  800 ordinary-looking cells could ask for 800 MB. An `.ora` with a tile layer paid a
+  full-canvas rebuild for every entry in a list, before the step that throws the duplicates
+  away — 8.5 seconds for a file describing one layer. Both now price what they are about to
+  allocate before allocating it.
+- **Nesting groups deeply enough in Plotter crashed the app outright**, and could do it
+  from the canvas draw or on export, through nothing more exotic than making groups and
+  dragging them into each other. The tree now refuses past 64 levels.
+- **One malformed reply killed an agent's whole session.** The MCP bridge answered
+  resource and prompt requests with no guard around them, so a single bad frame ended the
+  process and every call in flight with it — while the four neighbouring call types had
+  been given exactly that guard already.
+
+**Work that ran with nothing stopping it.** Fourteen operations could stall the app for
+seconds with no refusal and nothing to cancel, each now measured and given a ceiling: a
+single many-cornered face being triangulated for the screen (10.7 s at 12,800 corners),
+Extrude, Separate — which turned out to be doing the same expensive scan twice over, 26 s
+for a mesh in many pieces — Solidify's rim, Check mesh over a whole scene (15 s at 3,200
+objects, and it ran on the frame thread), and the object-ID render, which walked the entire
+picture once per object. Check mesh now runs in the background like every other long press.
+
+**Fixes that were applied to some places and not others.** A recurring shape this pass:
+the quit warning knew about six modes' exports and missed Clay's, Mason's and every mode's
+*save*; a Delete in Plotter's right-click menu was the one of three delete paths never
+wired to the shared fix; the reference-image step corrupted soft edges with a `paste` misuse
+already fixed twice elsewhere, and it did it to the file every mesh is reconstructed from;
+Create's Engine panel clamped two of its five fields; Muse's **Queue it** skipped the
+model check its two siblings make; and two agent tools could half-apply a change to several
+objects and then report that nothing had happened.
+
+**Honest controls.** Sirens' **Add to the order** stayed clickable at its 256-step limit
+and broke the panel when pressed — its own greyed-out reason already knew better, and the
+two had simply drifted apart. Mason's **Make prefab** looked pressable over the ground or
+an existing prefab and did nothing. Clay's Scale gizmo has had a centre handle for uniform
+scale all along; it was never drawn. Three live Clay shortcuts were in no list anywhere.
+Packwright said "add some images" while it was busy packing the ones you had just added.
+
+**Quieter correctness.** Spin and Screw painted new geometry with the palette's first
+material instead of the profile's own. Shift+click in Clay's outliner selected by the
+document's internal order rather than the order on screen, so a range across a reparented
+object took the wrong set. Editing a saved pose moved it to the end of the list. A rig or
+pose file with a misspelled `space` field applied every pose in the wrong frame, silently —
+the same class of bug as the one that once left a character lying down. Library **Clean**
+could delete a job's folder while a newly submitted job was writing into it.
+
+**The manual and the record.** Chapter 16 told you Muse has no loop points, while chapter
+35 documents the four controls that make one. `SECURITY.md`'s list of formats worth
+attacking omitted five importers. `THIRD-PARTY-NOTICES.md`'s own arithmetic did not add up.
+A batch of internal notes still described Troupe as a separate mode two days after it was
+folded into Poser, and still named files by their pre-rename spellings.
+
 ## 0.0.51 — 2026-09-18
 
 Two audit passes over the whole app in one day, 130 findings closed, every one

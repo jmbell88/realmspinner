@@ -92,9 +92,13 @@ Every take is a job row like any other, so it is in the [library](36-library-and
 prompt, its seed and its recipe, and the file itself is `track.wav` in that job's directory. Export
 it the way you export anything else.
 
-There are no loop points. ACE-Step does not produce seamless loops, and a generated track that ends
-where it began is luck rather than a feature — so for looping game music, either fade it in your
-engine or use it as material in Sirens rather than as a finished loop.
+ACE-Step does not produce seamless loops on its own: a generated track that ends where it began is
+luck rather than a feature. So Muse gives you the loop as a second step rather than hoping for it.
+**Find loop points** on the player strip searches the take for the two positions that join most
+cleanly, **Play the loop** lets you hear the join before you commit, and **Export the loop** or
+**Export with loop points** writes it out — the latter keeping the whole take and marking the join
+for an engine that reads loop markers. **Make it loop**, under *Make more*, rewrites the join
+itself. [Looping a take](35-muse.md#looping-a-take) walks through all four.
 
 ## What to read next
 

@@ -149,6 +149,26 @@ class FamiliarUIState:
     #: preview again" spirit ``_staleness_refusal`` keeps, one plan at a time.
     plan: dict[str, Any] | None = None
 
+    def on_tab_closed(self, mode: str, uid: str) -> None:
+        """:data:`~..docmodes.TAB_CLOSED` listener (registered by
+        :func:`install`): drop a pending preview that belonged to the tab
+        which just closed.
+
+        The 2026-09-20 audit's familiar-03: ``clay_mode.close_tab``'s own
+        ``release`` already clears the GL ghost (``view.clear_preview()``,
+        unconditionally, on every close) but never touched this dataclass's
+        four preview fields, so the bottom pane kept drawing Apply/Discard
+        for a tab that was gone -- and Apply, reading ``ui.preview_tab_uid``
+        against a ``state.get`` that now returns ``None``, refused "the
+        document changed" forever with no Discard-shaped way out beyond
+        guessing. *mode* is accepted (the listener signature every
+        ``TAB_CLOSED`` entry shares) but not checked -- ``preview_tab_uid``
+        is a bare uid with no mode of its own, the same way
+        ``_staleness_refusal`` compares tab uids alone.
+        """
+        if self.preview_tab_uid == uid:
+            _clear_preview(self)
+
 
 def ensure(ctx: Any) -> FamiliarUIState:
     """The pane's state, built on first use -- ``AppState`` deliberately
@@ -162,7 +182,8 @@ def ensure(ctx: Any) -> FamiliarUIState:
 
 
 def install(ctx: Any) -> None:
-    """Attach ``ctx.familiar_threads`` and register its ``drop`` with
+    """Attach ``ctx.familiar_threads`` and register its ``drop``, plus the
+    pane's own :meth:`FamiliarUIState.on_tab_closed`, with
     ``docmodes.TAB_CLOSED``, once. Called by the App at startup; a test that
     wants the same wiring calls this too, rather than appending to
     ``TAB_CLOSED`` itself, so "the listener is registered" is always proven
@@ -172,7 +193,11 @@ def install(ctx: Any) -> None:
     same instance and function (``MethodType.__eq__``), so calling this
     twice on the same ``ctx`` does not double-register -- the guard a second
     ``App`` in one process (or a test that calls ``install`` more than once)
-    needs.
+    needs. ``ensure(ctx)`` is called here (rather than leaving ``ui.on_tab_
+    closed`` to be bound lazily) precisely so that guarantee holds: the same
+    ``FamiliarUIState`` instance backs every ``ensure(ctx)`` call afterwards,
+    so its bound method keeps comparing equal to itself the same way
+    ``ctx.familiar_threads.drop`` already does.
     """
     from ...familiar import threads
 
@@ -182,6 +207,14 @@ def install(ctx: Any) -> None:
 
     if ctx.familiar_threads.drop not in docmodes.TAB_CLOSED:
         docmodes.TAB_CLOSED.append(ctx.familiar_threads.drop)
+
+    # familiar-03 (2026-09-20 audit): see ``FamiliarUIState.on_tab_closed``'s
+    # own docstring -- without this, closing the previewed tab left Apply/
+    # Discard drawn (and Apply refusing forever) for a document that no
+    # longer existed.
+    ui = ensure(ctx)
+    if ui.on_tab_closed not in docmodes.TAB_CLOSED:
+        docmodes.TAB_CLOSED.append(ui.on_tab_closed)
 
 
 # --- thread key --------------------------------------------------------------
@@ -725,9 +758,15 @@ def _log_preview(exchange_id: Any, *, diff: Any = None, refusal: str | None = No
 
 
 def _staleness_refusal(
-    state: Any, tab: Any, tab_uid: str, ui: FamiliarUIState, refine: Any
+    state: Any,
+    tab: Any,
+    tab_uid: str,
+    ui: FamiliarUIState,
+    refine: Any,
+    base_doc_id: int | None = None,
+    base_head: int | None = None,
 ) -> str | None:
-    """The two facts a build preview's landing depends on, both re-asked by
+    """The facts a build preview's landing depends on, both re-asked by
     :func:`_land_build_preview` after the worker returns as well as checked
     here by :func:`_submit_build_preview` before it ever submits -- the
     2026-09-17 audit (familiar-01) split what used to be one inline check
@@ -736,6 +775,20 @@ def _staleness_refusal(
     be applied/discarded during the time the batch spends off the frame
     thread, none of which the pre-submit check alone could still see by the
     time the result lands.
+
+    *base_doc_id*/*base_head* -- ``id(tab.doc)``/``tab.doc.history.head`` as
+    :func:`_submit_build_preview` snapshotted them at clone time, passed only
+    by :func:`_land_build_preview` (the pre-submit call has no snapshot yet,
+    since the clone has not been taken). The 2026-09-20 audit's familiar-01:
+    without this, an edit made *while the batch was running on the worker*
+    was invisible here -- ``_land_build_preview`` used to stamp
+    ``clay_scratch.diff``'s own ``base_head``/``base_doc_id`` from ``tab.doc``
+    as it stood *after* the edit, so a concurrently added object landed in
+    ``diff.removed`` and ``apply``'s own staleness check (``preview.py``'s
+    ``_refusal``) agreed with a baseline that was never the one the clone was
+    actually taken from -- Apply silently deleted the user's edit instead of
+    refusing. Checking identity and head *here*, against the phase-one
+    snapshot, closes that window before the diff is ever computed.
     """
     if tab is None or tab_uid != state.active_uid:
         # The tab this build was requested against closed, or the user
@@ -757,6 +810,16 @@ def _staleness_refusal(
         # written against a ghost that is gone, and on the real document they
         # would address objects that are not there.
         return "the preview changed -- preview again"
+    if base_doc_id is not None and (
+        id(tab.doc) != base_doc_id or tab.doc.history.head != base_head
+    ):
+        # The 2026-09-20 audit's familiar-01 (see the docstring above): the
+        # real document moved -- a new object, an undo, a redo, anything
+        # that bumps ``history.head`` or swaps the document outright -- in
+        # the window between the clone and this landing, so the batch that
+        # is about to be diffed was run against a base that no longer
+        # describes what is on screen.
+        return "the document changed -- preview again"
     return None
 
 
@@ -805,6 +868,16 @@ def _submit_build_preview(
         _say(ctx, thread_key, refusal)
         return
 
+    # Snapshotted *now*, before the clone -- not read back from ``tab.doc``
+    # once the worker returns. The 2026-09-20 audit's familiar-01 (see
+    # ``_staleness_refusal``'s own docstring): the batch runs off the frame
+    # thread between here and ``_land_build_preview``, and the real document
+    # is free to move in that window -- these two facts are what "moved"
+    # means, carried in :data:`LAND_KEY`'s own tag so the second phase can
+    # refuse against the state that was actually cloned, not whatever
+    # ``tab.doc`` happens to be by the time it looks.
+    base_doc_id = id(tab.doc)
+    base_head = tab.doc.history.head
     scratch_ctx = familiar_preview.build(refine if refine is not None else tab.doc)
 
     # One clay_batch, never call by call: the model names objects made earlier
@@ -826,6 +899,8 @@ def _submit_build_preview(
         "refine": refine,
         "calls": calls,
         "scratch_ctx": scratch_ctx,
+        "base_doc_id": base_doc_id,
+        "base_head": base_head,
     }
     if not ctx.submit(LAND_KEY, run, tag=tag):
         # A second build already landing on this same key -- CHAT_KEY and
@@ -862,10 +937,16 @@ def _land_build_preview(ctx: Any, ui: FamiliarUIState, done: Any) -> None:
     thread_key, exchange = tag.get("thread_key"), tag.get("exchange")
     tab_uid, refine = tag.get("tab_uid", ""), tag.get("refine")
     scratch_ctx, calls = tag.get("scratch_ctx"), tag.get("calls") or []
+    base_doc_id, base_head = tag.get("base_doc_id"), tag.get("base_head")
 
     state = clay_mode.ensure(ctx)
     tab = state.get(tab_uid) if tab_uid else None
-    refusal = _staleness_refusal(state, tab, tab_uid, ui, refine)
+    # The 2026-09-20 audit's familiar-01: this must run, with the phase-one
+    # snapshot, *before* the diff below is computed -- see
+    # ``_staleness_refusal``'s own docstring for why a check made only after
+    # the diff already exists is too late (the diff's own ``base_head`` would
+    # already have been stamped from the moved document).
+    refusal = _staleness_refusal(state, tab, tab_uid, ui, refine, base_doc_id, base_head)
     if refusal is not None:
         ui.message = refusal
         ui.reason = None

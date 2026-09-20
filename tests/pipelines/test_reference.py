@@ -202,6 +202,58 @@ def test_normalise_never_invents_or_strips_an_alpha_channel():
     assert rgba.mode == "RGBA"
 
 
+def test_normalise_does_not_square_the_alpha_and_darken_a_soft_matte_rim():
+    """2026-09-20 audit, pipelines-01: ``normalise`` used to paste the resized
+    RGBA subject onto its canvas with ``canvas.paste(subject, box, subject)``
+    -- the subject handed to ``paste`` as its own mask -- the exact
+    RGBA-as-its-own-mask misuse ``asset2d.icon``/``sprite`` were already fixed
+    for (see their comments). PIL then blends *every* band, alpha included,
+    by the mask's alpha value: a soft (non-binary) rim pixel comes back with
+    its alpha squared (``a*a/255``) and its RGB dragged toward the canvas
+    behind it, instead of landing untouched the way a straight paste with no
+    mask argument does. The existing alpha-channel test's fixture is fully
+    opaque everywhere, so it never exercises a mask value between 0 and 255
+    and cannot see this.
+
+    The fixture below draws a soft, ten-pixel rim (alpha=128) around an
+    opaque core, in the same fill colour, and picks occupancy/pad so the crop
+    is pasted back at scale 1.0 -- no resampling to blur the arithmetic.
+    """
+    from PIL import Image
+
+    size = 256
+    fill_rgb = (40, 90, 160)
+    # A transparent background, not an opaque one: subject_mask() trusts the
+    # alpha channel here (_alpha_is_meaningful sees a non-opaque minimum), and
+    # an opaque backdrop would make every pixel pass its alpha > 8 test,
+    # handing the whole frame back as the bbox instead of just the rectangle.
+    im = Image.new("RGBA", (size, size), BG + (0,))
+    draw = ImageDraw.Draw(im)
+    # Outer rectangle: the soft rim, alpha=128, non-binary on purpose.
+    draw.rectangle([58, 58, 197, 197], fill=fill_rgb + (128,))
+    # Inner rectangle: the opaque core.
+    draw.rectangle([68, 68, 187, 187], fill=fill_rgb + (255,))
+
+    # bbox comes out to (58, 58, 198, 198) -- a 140x140 subject. This
+    # occupancy/pad pair makes normalise()'s target exactly 140, so
+    # scale == 1.0 and the paste is not resampled (checked directly: PIL's
+    # LANCZOS resize at scale 1.0 is the identity here).
+    out, report = reference.normalise(im, occupancy=(140 / size) ** 2, pad=0.0)
+    assert report.bbox == (58, 58, 198, 198)
+
+    # (60, 60) sits in the rim (outer rectangle only, x in [58, 68)) and, at
+    # scale 1.0, the crop's box lands back at (58, 58) -- the same offset it
+    # was cropped from -- so this pixel is untouched by the resize and any
+    # change in it comes from the paste alone.
+    r, g, b, a = out.getpixel((60, 60))
+    # The bug: alpha squared (128*128/255 ~= 64) and RGB pulled toward the
+    # canvas's own colour (BG, light grey) instead of the straight overwrite
+    # a paste with no mask argument gives, which would leave this pixel at
+    # its original (40, 90, 160, 128).
+    assert a > 100, f"alpha {a} looks squared toward ~64, not preserved at ~128"
+    assert (r, g, b) == fill_rgb, f"rim RGB {(r, g, b)} was dragged toward the canvas colour"
+
+
 def test_normalise_carries_the_machine_codes_with_the_reasons():
     """``vectors`` turns codes into refused_<code> rates; a rebuilt report that
     dropped them would record a prep-enabled refusal with every bucket at zero,

@@ -448,6 +448,17 @@ def test_a_creature_word_is_reported_even_when_it_is_supported():
     assert resolve("ogre walking").creature_words == ("ogre",)
 
 
+def test_every_kin_string_names_a_real_species_key():
+    """The 2026-09-20 audit (troupe-05): ``dragon`` and ``wyrm`` both listed
+    ``"drake"`` as kin, but ``"drake"`` is a silhouette stem and family alias,
+    never a species key in the registry -- ``_offer_for`` filters ``kin``
+    against real registry keys (``pool``/``registry`` in ``resolve.py``), so
+    it was dropped on every call. Dead data with nothing pinning it, until now."""
+    for word, creature in KNOWN_CREATURES.items():
+        for kin in creature.kin:
+            assert kin in FAMILIES, f"{word!r}'s kin names {kin!r}, not a real species key"
+
+
 # --- the module's dependencies -------------------------------------------------
 
 

@@ -1014,6 +1014,55 @@ def test_material_is_one_undo_step_however_many_objects_it_paints() -> None:
     assert tab.doc.undo()
 
 
+def test_clay_material_reports_changed_false_even_though_a_material_was_added_and_an_earlier_uid_repainted_when_a_later_named_uid_is_locked() -> None:  # noqa: E501
+    """The 2026-09-20 audit's clay-10. This handler used to run straight
+    into ``add_material``/``_repaint`` for every named uid in order -- so
+    with the locked uid named *second*, ``add_material`` genuinely appended
+    a palette entry and ``_repaint`` genuinely repainted the first
+    (eligible) uid before its own ``set_mesh`` hit ``document``'s locked
+    refusal on the second uid. That raised ``OpError`` past this handler
+    into ``call()``'s generic ``except OpError``, whose ``fail()`` defaults
+    ``changed`` to ``False`` -- a reply claiming nothing moved while a
+    material had been added and an object repainted. Every named uid's lock
+    state is now resolved and refused before either mutation runs, the same
+    pre-check ``_h_delete`` already applies before removing anything.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid_free = _new_agent_tab(ctx, session, "box")
+    uid_locked = _payload(
+        agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
+    )["uid"]
+    locked_result = agent_clay.call(
+        ctx, session, "clay_lock", {"uids": [uid_locked], "locked": True}
+    )
+    assert locked_result["isError"] is False, locked_result
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    before_material = {u: tab.doc.by_uid(u).material for u in (uid_free, uid_locked)}
+    before_mesh = {u: tab.doc.by_uid(u).mesh for u in (uid_free, uid_locked)}
+    palette_len_before = len(tab.doc.materials)
+    history_before = _history_len(ctx, session)
+
+    # The locked uid named *second* is the shape that used to let
+    # ``_repaint`` paint ``uid_free`` for real before ever reaching
+    # ``uid_locked``.
+    result = agent_clay.call(
+        ctx, session, "clay_material", {"uids": [uid_free, uid_locked], "color": [1.0, 0.0, 0.0]}
+    )
+    assert result["isError"] is True
+    structured = result.get("structuredContent") or {}
+    assert structured.get("changed") is False
+
+    # All-or-nothing: no material appended to the palette, and neither
+    # object's material slot or mesh moved.
+    assert len(tab.doc.materials) == palette_len_before
+    for u in (uid_free, uid_locked):
+        assert tab.doc.by_uid(u).material == before_material[u]
+        assert tab.doc.by_uid(u).mesh is before_mesh[u]
+    assert _history_len(ctx, session) == history_before
+
+
 def test_transform_is_one_undo_step_and_undo_reverts_it_completely() -> None:
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -1244,6 +1293,53 @@ def test_clay_set_params_frozen_object_among_several_refuses_and_names_it() -> N
     assert str(uid_frozen) in result["content"][0]["text"]
 
     for u in (uid_normal, uid_frozen):
+        assert tab.doc.by_uid(u).mesh is before[u]
+    assert _history_len(ctx, session) == history_before
+
+
+def test_clay_set_params_reports_changed_false_even_though_an_earlier_uid_was_already_rebuilt_when_a_later_named_uid_is_locked() -> None:  # noqa: E501
+    """The 2026-09-20 audit's clay-09. Pass 1 already refused a frozen
+    object or an unknown params key for every named uid before pass 2
+    touched anything, but never checked ``locked`` -- so with the locked
+    uid named *second*, pass 2 rebuilt the first (eligible) uid for real,
+    then hit ``document.set_generator_params``'s own locked refusal on the
+    second uid. That raised ``OpError`` past this handler into ``call()``'s
+    generic ``except OpError``, whose ``fail()`` defaults ``changed`` to
+    ``False`` -- a reply claiming nothing moved while the first uid's
+    rebuild had already been pushed onto history. ``_h_delete`` already
+    resolves every named uid's lock state and refuses before touching any
+    of them; pass 1 here now does the same before pass 2 runs at all.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid_free = _new_agent_tab(ctx, session, "box")
+    uid_locked = _payload(
+        agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
+    )["uid"]
+    locked_result = agent_clay.call(
+        ctx, session, "clay_lock", {"uids": [uid_locked], "locked": True}
+    )
+    assert locked_result["isError"] is False, locked_result
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    before = {u: tab.doc.by_uid(u).mesh for u in (uid_free, uid_locked)}
+    history_before = _history_len(ctx, session)
+
+    # The locked uid named *second* is the shape that used to let pass 2
+    # rebuild ``uid_free`` for real before ever reaching ``uid_locked``.
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_set_params",
+        {"uids": [uid_free, uid_locked], "params": {"size": [2.0, 1.0, 1.0]}},
+    )
+    assert result["isError"] is True
+    structured = result.get("structuredContent") or {}
+    assert structured.get("changed") is False
+
+    # All-or-nothing: neither object's mesh moved, and nothing was pushed
+    # onto history -- the same shape the frozen-object case above proves.
+    for u in (uid_free, uid_locked):
         assert tab.doc.by_uid(u).mesh is before[u]
     assert _history_len(ctx, session) == history_before
 

@@ -36,12 +36,14 @@ class FakeCtx:
         self.cache = _Cache()
         self.accept = accept
         self.result: Any = None
+        self.tag: Any = None
 
-    def submit(self, key: str, run: Any, *args: Any) -> bool:
+    def submit(self, key: str, run: Any, *args: Any, tag: Any = None, **kwargs: Any) -> bool:
         self.submitted.append(key)
+        self.tag = tag
         if not self.accept:
             return False
-        self.result = run(*args)
+        self.result = run(*args, **kwargs)
         return True
 
     def toast(self, message: str, kind: str = "info") -> None:
@@ -82,9 +84,10 @@ class _Cache:
 
 
 class _Done:
-    def __init__(self, key: str, result: Any = None) -> None:
+    def __init__(self, key: str, result: Any = None, *, tag: Any = None) -> None:
         self.key = key
         self.result = result
+        self.tag = tag
 
 
 def _tab(ctx: FakeCtx, *, dirty: bool = False) -> clay_state.ClayTab:
@@ -181,6 +184,60 @@ def test_an_edit_during_a_save_leaves_the_tab_dirty(svc, tmp_path) -> None:
 
     assert tab.saving is False
     assert tab.dirty is True
+
+
+# --- readiness runs off the frame thread (2026-09-20 audit, clay-05) --------
+
+
+def test_check_readiness_submits_rather_than_blocking(svc) -> None:
+    """Before this fix, ``check_readiness`` called ``readiness.validate``
+    directly on the calling thread; the 2026-09-20 audit's clay-05 measured
+    that call at up to 15.1 s on an ordinary (if large) document. It must now
+    go through ``ctx.submit``, keyed like every other per-tab task in this
+    module (``clay-bg:<tab uid>``'s own shape)."""
+    ctx = FakeCtx(svc)
+    tab = _tab(ctx)
+
+    clay_mode.check_readiness(ctx, tab, "godot-desktop")
+
+    assert ctx.submitted == [f"clay-readiness:{tab.uid}"]
+
+
+def test_check_readiness_result_lands_on_the_tab_through_on_task_done(svc) -> None:
+    """``check_readiness`` no longer writes ``readiness_report``/
+    ``readiness_head`` itself -- applying a task's result is always
+    ``on_task_done``'s job in this module (see ``_save``'s own docstring)."""
+    ctx = FakeCtx(svc)
+    tab = _tab(ctx)
+    assert tab.readiness_report is None
+
+    clay_mode.check_readiness(ctx, tab, "godot-desktop")
+    clay_mode.on_task_done(ctx, _Done(f"clay-readiness:{tab.uid}", ctx.result, tag=ctx.tag))
+
+    assert tab.readiness_report is not None
+    assert tab.readiness_report.profile == "godot-desktop"
+    assert tab.readiness_head == tab.doc.history.head
+
+
+def test_check_readiness_head_is_captured_before_the_task_runs(svc) -> None:
+    """The head landed on the tab must be the one the document had when Check
+    was pressed, not whatever it is by the time the now-backgrounded result
+    comes back -- an edit landing in between is genuinely not part of what
+    was checked, the same reasoning ``test_an_edit_during_a_save_leaves_the_
+    tab_dirty`` already applies to saving."""
+    ctx = FakeCtx(svc)
+    tab = _tab(ctx)
+    head_before = tab.doc.history.head
+
+    clay_mode.check_readiness(ctx, tab, "godot-desktop")
+    # An edit lands after the (fake, inline) task already ran but before its
+    # result is applied -- exactly the ordering a real background thread
+    # allows.
+    tab.doc.add_object(bd.Obj(uid=bd.new_uid(), name="Late", mesh=bp.box()))
+    clay_mode.on_task_done(ctx, _Done(f"clay-readiness:{tab.uid}", ctx.result, tag=ctx.tag))
+
+    assert tab.readiness_head == head_before
+    assert tab.readiness_head != tab.doc.history.head
 
 
 # --- keys --------------------------------------------------------------------

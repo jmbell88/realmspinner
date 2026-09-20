@@ -414,6 +414,19 @@ def test_an_undated_row_says_so_rather_than_landing_in_today():
     assert library.date_group(None) == "Undated"
 
 
+def test_usable_only_filter_warns_when_it_only_covers_the_loaded_window():
+    """The 2026-09-20 audit, finding shell-02: ``usable_only`` narrows to the
+    loaded newest-N window exactly as ``kind`` and the size sort already do
+    (grade lives in the ``verdicts`` table, not a ``jobs`` column, so
+    ``JobsCache.request_widen``'s SQL predicates cannot reach it any more
+    than they can ``kind``) -- but only ``kind``/``sort`` tripped
+    ``_narrows_the_window``, so turning the toggle on silently hid older
+    usable rows with no "Load older" prompt telling the user their view is
+    partial."""
+    assert library._narrows_the_window(Filters(usable_only=True))
+    assert not library._narrows_the_window(Filters())
+
+
 def test_the_window_can_be_reset(svc):
     cache = cache_mod.JobsCache(svc)
     assert cache.limit == cache_mod.LIST_LIMIT

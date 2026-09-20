@@ -1616,8 +1616,22 @@ def weights_problem(ctx: Any, form: dict[str, Any]) -> problem_types.Problem | N
                 "output",
             )
         return None
+    # The 2026-09-20 audit, finding create-02: picking an uninstalled
+    # checkpoint under Advanced and switching the Model combo back to
+    # Automatic leaves ``form["base_model"]`` holding that stale Advanced
+    # pick -- ``_model()``'s switch-to-Automatic branch moves the *notes* to
+    # the resolved recipe and never touches the field itself. ``validate()``
+    # already resolves through :func:`resolved_recipe` for exactly this
+    # staleness (its own docstring, "the 2026-09-15 audit, finding
+    # create-03"); this walk did not, and so refused Generate over a
+    # checkpoint Automatic will never load.
+    resolved_base = form.get("base_model")
+    if ctx is not None and str(form.get("model_mode") or "auto") == "auto":
+        resolved = resolved_recipe(ctx, form)
+        if resolved is not None:
+            resolved_base = resolved.base_model
     for field, kind, noun in _WEIGHT_FIELDS:
-        chosen = str(form.get(field) or "")
+        chosen = str((resolved_base if field == "base_model" else form.get(field)) or "")
         if not chosen:
             continue
         row = by_key.get(f"{kind}:{chosen}")

@@ -36,6 +36,7 @@ three quarters of the registry the moment somebody picks a wolf.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -609,6 +610,54 @@ def reroll_character(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
     )
 
 
+#: How many distinct recipes' previews ``_sweep_stale_previews`` lets pile up
+#: under ``data_dir/tmp`` before it starts reclaiming the oldest. Generous
+#: rather than tight -- dragging a slider back and forth revisits recent
+#: values often, and a cap this size costs at most a few dozen small GLBs --
+#: but finite, which is the one property the tree had none of before.
+_PREVIEW_CACHE_CAP = 20
+
+
+def _sweep_stale_previews(tmp_dir: Path, *, keep: Path) -> None:
+    """Reclaim old ``character-preview-*.glb`` files. Never raises.
+
+    The 2026-09-20 audit, finding service-04: every distinct recipe a slider
+    drag produces mints its own file here and nothing ever deleted one, so the
+    exact workflow the preview button exists for -- iterating on a recipe --
+    was the one that grew ``data_dir/tmp`` without bound. Opportunistic, at
+    the start of the *next* preview build, the same shape
+    ``downloads._sweep_staging`` uses for the fetch tree: the leak is bounded
+    by "the user previews another character", it costs one directory listing,
+    and a sweep that raised would turn a harmless cache into a refusal to
+    preview anything.
+
+    ``keep`` is the digest this call is about to build or already found --
+    spared even if it is the oldest entry, so a sweep can never delete the
+    very file its own caller is about to return.
+    """
+    try:
+        entries = [
+            p
+            for p in tmp_dir.iterdir()
+            if p.is_file()
+            and p.name.startswith("character-preview-")
+            and p.suffix == ".glb"
+            and p != keep
+        ]
+    except OSError:
+        return
+    if len(entries) < _PREVIEW_CACHE_CAP:
+        return
+    try:
+        entries.sort(key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return
+    overflow = len(entries) - _PREVIEW_CACHE_CAP + 1
+    for path in entries[:overflow]:
+        with contextlib.suppress(OSError):
+            path.unlink()
+
+
 def preview_character(svc: RealmspinnerService, recipe: Mapping[str, Any]) -> Path:
     """Build one character into a temp GLB for the viewer. **No row.**
 
@@ -628,6 +677,7 @@ def preview_character(svc: RealmspinnerService, recipe: Mapping[str, Any]) -> Pa
     dest = tmp_dir / f"character-preview-{digest}.glb"
     if dest.exists():
         return dest
+    _sweep_stale_previews(tmp_dir, keep=dest)
     # Built into a scratch directory and then moved: ``instantiate`` writes
     # three files under one name, and the served name here is the GLB alone.
     work = tmp_dir / f".character-preview-{digest}.{uuid.uuid4().hex[:8]}"
@@ -1384,6 +1434,22 @@ def sheet_preview_png(
             )
         except ValueError as exc:
             raise invalid_from(exc, "that sheet's sidecar is corrupted", field="sheet_id") from exc
+        # The 2026-09-20 audit, finding troupe-01: this branch sized the canvas
+        # from the movement's *declared* ``frames`` and pasted each run into it
+        # by its own start/end, never checking the two against each other --
+        # a run whose actual span was shorter than the declared count left the
+        # tail of its row silently blank, and a longer one clipped rather than
+        # refused. The single-run branch above never has this gap because its
+        # own ``frame_count`` *is* the run's span; here it is asserted instead.
+        for run in ordered_runs:
+            start, end = int(run["start"]), int(run["end"])
+            if end - start + 1 != frame_count:
+                raise Invalid(
+                    f"movement {movement!r} declares {frame_count} frames but its "
+                    f"{run.get('direction')!r} run spans {end - start + 1}; "
+                    "its sidecar is corrupted",
+                    field="sheet_id",
+                )
 
     # service-queue-03 (the 2026-09-16 audit): everything above this point
     # bounds the *composed* preview built from the sidecar's own numbers --

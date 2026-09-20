@@ -26,6 +26,9 @@ from .render import DrawItem
 # three's TransformControls colours, and its 0.6 size scalar.
 AXIS_COLORS = {"x": 0xFF3653, "y": 0x8ADB00, "z": 0x2C8FFF}
 HOVER_COLOR = 0xFFFF00
+# three's own TransformControls colours its uniform-scale handle white,
+# because it belongs to no single axis.
+CENTRE_COLOR = 0xFFFFFF
 GIZMO_PIXELS = 90.0
 SIZE = 0.6
 RING_SEGMENTS = 48
@@ -103,6 +106,32 @@ def scale_handle(axis: str) -> np.ndarray:
     ]
     verts = [np.zeros(3), centre]
     # The twelve edges of the box: every pair of corners differing in one axis.
+    for i, a in enumerate(corners):
+        for j, b in enumerate(corners):
+            if j > i and np.count_nonzero(~np.isclose(a, b)) == 1:
+                verts += [a, b]
+    return np.array(verts, dtype="f4")
+
+
+def centre_handle(radius: float = CENTRE_RADIUS) -> np.ndarray:
+    """-> (n, 3) line vertices: a small cube centred on the origin.
+
+    The uniform-scale handle. ``ScaleGizmo.hit`` already tests a sphere of
+    this same radius and ``begin``/``update`` already drag it -- the class
+    docstring says "a uniform one at the centre" and chapter 30 of the manual
+    repeats the claim -- but until the 2026-09-20 audit (finding create-03)
+    ``draws()`` only ever looped the three axis handles, so the handle was
+    clickable and invisible. Edges, not a solid, for the same reason
+    ``scale_handle``'s box is: the overlay pass is unlit and depth-less, and a
+    shaded box reads as a flat blob.
+    """
+    corners = [
+        np.array([a, b, c]) * radius
+        for a in (-1.0, 1.0)
+        for b in (-1.0, 1.0)
+        for c in (-1.0, 1.0)
+    ]
+    verts = []
     for i, a in enumerate(corners):
         for j, b in enumerate(corners):
             if j > i and np.count_nonzero(~np.isclose(a, b)) == 1:
@@ -403,6 +432,18 @@ class ScaleGizmo(Gizmo):
                     mode=moderngl.LINES,
                 )
             )
+        # The uniform handle: see ``centre_handle`` and the 2026-09-20 audit,
+        # finding create-03. "xyz" is the same identifier ``hit()``/``begin()``
+        # already use for it, not a fourth entry in ``AXES``, because it has
+        # no single axis to scale.
+        items.append(
+            DrawItem(
+                vao=self._geometry("scale:xyz", centre_handle()),
+                color=(*_rgb(HOVER_COLOR if active == "xyz" else CENTRE_COLOR), 1.0),
+                model=model,
+                mode=moderngl.LINES,
+            )
+        )
         return items
 
 

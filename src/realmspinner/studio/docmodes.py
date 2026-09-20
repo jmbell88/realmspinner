@@ -564,12 +564,53 @@ def release_prefix(ctx: Any, prefix: str) -> None:
             forget_texture(value)
 
 
-#: The document modes, by the ``AppState`` attribute each keeps its tabs
-#: on. The quit chain walks these in order; :func:`any_unsaved` asks each of
-#: them the one question the window caption is about. (Not counted by number
-#: in prose: the 2026-09-13 audit's shell-12 found this comment stuck at
-#: "five" after Mason's addition made it six.)
-DOC_MODES: tuple[str, ...] = ("inker", "clay", "mason", "plotter", "packwright", "sirens")
+def _doc_modes() -> tuple[str, ...]:
+    """The document modes, by the ``AppState`` attribute each keeps its tabs
+    on. The quit chain walks these in order; :func:`any_unsaved` asks each of
+    them the one question the window caption is about.
+
+    **Derived from** :data:`mode_manifest.DOC_MODES`, **not a second
+    hand-written tuple** (the 2026-09-20 audit, finding shell-05): this used
+    to be a literal ``("inker", "clay", "mason", "plotter", "packwright",
+    "sirens")`` that happened to agree with the manifest minus "poser", with
+    a comment recording that the 2026-09-13 audit (shell-12) had already once
+    found it stuck at "five" after Mason's addition made it six -- the same
+    hand-list drifting the same way twice. ``status_bar._document_modes``
+    carried the identical twin and was fixed for it in the 2026-09-08 audit
+    (shell-08); this is that fix applied to its sibling.
+
+    Poser is excluded: its unsaved work lives in a ``PoseEditor``, not a
+    ``DocTabs`` with an ``any_dirty`` property, so there is nothing here for
+    :func:`any_unsaved` to ask -- :func:`viewer_guard` asks the equivalent
+    question over the pose viewer instead. The same exclusion
+    ``status_bar._document_modes`` makes off the same registry.
+
+    ``mode_manifest`` is imported here, at the call site, rather than at
+    module scope -- this module's own import-discipline rule (see the module
+    docstring): stdlib, typing and numpy only at the top, and every
+    intra-package lookup lazy where it is used. Read fresh on every call
+    (not cached) so a mode a test injects into ``mode_manifest.DOC_MODES``
+    via ``monkeypatch`` is seen immediately, the same way
+    ``status_bar._document_modes`` re-reads the manifest each time it runs.
+    """
+    from . import mode_manifest
+
+    return tuple(m.key for m in mode_manifest.DOC_MODES if m.key != "poser")
+
+
+def __getattr__(name: str) -> Any:
+    """PEP 562 module-level fallback: ``docmodes.DOC_MODES`` used to be a
+    plain tuple built once at import time. Callers outside this module (a
+    dozen ``state.py``/``mode.py`` modules and several tests) spell it as a
+    bare attribute, ``docmodes.DOC_MODES``, so turning it into a function
+    would mean chasing down every one of those call sites across files this
+    fix does not own. Routing the attribute through :func:`_doc_modes`
+    instead keeps every existing ``docmodes.DOC_MODES`` read working
+    unchanged while making the value live rather than a snapshot.
+    """
+    if name == "DOC_MODES":
+        return _doc_modes()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def any_unsaved(ctx: Any) -> bool:
@@ -579,7 +620,7 @@ def any_unsaved(ctx: Any) -> bool:
     asking must not create the state that says no.
     """
 
-    for attr in DOC_MODES:
+    for attr in _doc_modes():
         state = getattr(ctx.state, attr, None)
         if state is not None and state.any_dirty:
             return True

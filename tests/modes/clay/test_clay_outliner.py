@@ -82,6 +82,26 @@ def test_range_orders_a_descending_pair():
     assert clay_outliner._range(doc, c, a) == [a, b, c]
 
 
+def test_shift_click_range_selects_what_is_visually_between_two_rows_once_the_document_has_any_parenting():  # noqa: E501
+    """The 2026-09-20 audit's clay-08: ``_range`` used to build the range from
+    ``doc.objects`` -- flat insertion order -- while the tree the outliner
+    actually draws is ``_tree_rows``'s depth-first walk, and ``set_parent``
+    never reorders ``doc.objects``. Reparent the *last*-added object under the
+    *first* and the tree draws it second, directly under its new parent, even
+    though it is still last in ``doc.objects`` -- so a Shift+click from the
+    first row to the second used to silently drop the reparented row from the
+    range, because it sat nowhere near "between index 0 and index 1" in the
+    flat list the old code measured against.
+    """
+    doc, a, b, c = _doc_with_three_boxes()
+    d = doc.add_object(bd.Obj(uid=bd.new_uid(), name="D", mesh=bp.box())).uid
+    doc.set_parent(d, a)
+
+    # Tree order is now A, D, B, C: D sits visually between A and B, though
+    # doc.objects (flat insertion order) still reads A, B, C, D.
+    assert clay_outliner._range(doc, a, b) == [a, d, b]
+
+
 def test_range_falls_back_to_the_clicked_row_when_its_anchor_is_gone():
     """The 2026-09-18 audit's clay-04: ``_range``'s ``ValueError`` fallback
     (the anchor was deleted since it was set) had no test anywhere in the

@@ -712,6 +712,24 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     # fix its ``uid`` would be told to fix an argument it never sent.
     uid_field = "uids" if uids_arg is not None else "uid"
 
+    # Tranche 3: locking, checked for *every* named uid before any of them is
+    # rebuilt -- the 2026-09-20 audit's clay-09: pass 1 below already refused
+    # a frozen (generator-less) object or an unknown params key per object,
+    # but never checked ``locked``, so a locked uid named *after* an eligible
+    # one in the list let pass 2 rebuild the eligible one for real before
+    # ``document.set_generator_params``'s own locked refusal ever fired on
+    # the second uid -- raising ``OpError`` past this handler into ``call``'s
+    # generic handler, whose ``fail()`` defaults ``changed`` to ``False``
+    # while the first uid's rebuild had already been pushed onto history.
+    # ``_h_delete`` (below, in this file) already resolves every named uid's
+    # lock state and refuses before any of them is touched, with this exact
+    # failure mode named in its own comment; this is that same pre-check.
+    locked = [obj for obj in objects if obj.locked]
+    if locked:
+        return fail(
+            f"{locked[0].name!r} is locked.", field=uid_field, uids=[o.uid for o in locked]
+        )
+
     # Pass 1: every object's own legality, checked in full before pass 2
     # rebuilds anything -- see the docstring's all-or-nothing paragraph.
     for obj in objects:
@@ -867,6 +885,26 @@ def _h_material(ctx: Any, session: Session, args: dict) -> dict:
         metallic_factor=metallic,
         roughness_factor=roughness,
     )
+
+    # Tranche 3: locking, resolved for every named uid and refused before
+    # either mutation below -- the 2026-09-20 audit's clay-10: this used to
+    # run straight into ``add_material``/``_repaint`` for every uid in
+    # order, so a locked uid named *after* an eligible one left a material
+    # genuinely appended to the palette and the eligible uid genuinely
+    # repainted before ``_repaint``'s own ``set_mesh`` hit the locked
+    # refusal on the second uid -- raising ``OpError`` past this handler
+    # into ``call``'s generic handler, whose ``fail()`` defaults ``changed``
+    # to ``False`` while both of those mutations had already happened.
+    # ``_h_delete`` (below, in this file) already resolves every named
+    # uid's lock state and refuses before any of them is touched, with this
+    # exact failure mode named in its own comment; this is that same
+    # pre-check, run here before ``add_material``/``_repaint`` rather than
+    # before a delete.
+    locked = [obj for obj in (doc.by_uid(u) for u in uids) if obj.locked]
+    if locked:
+        return fail(
+            f"{locked[0].name!r} is locked.", field="uids", uids=[o.uid for o in locked]
+        )
 
     # One material for the whole call -- never one per object -- folded into
     # one undo step the way ``add_material_and_assign`` folds its own pair,

@@ -270,7 +270,7 @@ def test_a_rescan_keeps_the_sweep_that_is_open(ctx, svc):
     review_mode.open_sweep(ctx, sweep_id)
     assert state.sweep_id == sweep_id
 
-    _scanned(ctx)
+    state = _scanned(ctx)
     assert ctx.state.review.sweep_id == sweep_id
     assert len(ctx.state.review.units) == 2
 
@@ -808,7 +808,7 @@ def test_a_rescan_keeps_the_blind_order_it_was_showing(ctx, svc):
     review_mode.open_sweep(ctx, sweep_id)
     shown = [u["job_id"] for u in state.units]
 
-    _scanned(ctx)
+    state = _scanned(ctx)
 
     assert [u["job_id"] for u in state.units] == shown
 
@@ -2274,6 +2274,23 @@ def test_accept_and_reject_file_the_binary_grades(ctx, svc):
     assert grades == [BINARY_GRADES["reject"], BINARY_GRADES["accept"]]
 
 
+def test_record_tells_the_inspector_the_mesh_is_graded(ctx, svc):
+    """shell-11 (the 2026-09-20 audit): shell-05 (2026-09-14) added
+    ``inspector.mark_graded`` to ``record`` because the inspector's own
+    ``is_graded`` memo is a separate cache from this module's state, and a
+    verdict filed here never touched it -- so the "Was this any good?"
+    section kept re-opening for a mesh this pass had just graded. Nothing
+    asserted the call stayed in place; this is that assertion, an *evidence
+    gap* the audit found with no reproduction needed."""
+    sweep_id, ids = _sweep(svc, n=1)
+    _scanned(ctx)
+    review_mode.open_sweep(ctx, sweep_id)
+
+    review_mode.record(ctx, 5)
+
+    assert ctx.state.inspector_graded[ids[0]] is True
+
+
 def test_a_bare_a_outside_a_pass_still_records_nothing(ctx, svc):
     """The pin the pass must not weaken. ``a`` is bound because a loop the user
     entered on purpose says on screen what it does -- not because the key is
@@ -2368,6 +2385,32 @@ def test_escape_ends_a_pass_early_and_counts_what_is_left(ctx, svc):
     assert report["remaining"] == 3
 
 
+def test_finish_judging_reports_only_verdicts_filed_during_this_pass_not_pre_existing_ones(
+    ctx, svc
+):
+    """shell-03 (the 2026-09-20 audit): the closing sentence tallies every
+    verdict on the sweep's units, including ones filed long before this pass
+    opened, so a sweep that already carried accepts inflates a pass that
+    touched only its one remaining unit. 3 filed, 5 accepted reported was the
+    reproduction; here two units are accepted outside any pass and the pass
+    itself files only the third."""
+    from realmspinner.vectors import BINARY_GRADES
+
+    sweep_id, ids = _sweep(svc, n=3)
+    svc_verdicts.record_verdict(svc, ids[0], grade=BINARY_GRADES["accept"], source="human")
+    svc_verdicts.record_verdict(svc, ids[1], grade=BINARY_GRADES["accept"], source="human")
+    state = _scanned(ctx)
+    review_mode.start_judging(ctx)
+    assert state.judging.total == 1, "only the ungraded unit is this pass's work"
+
+    _press(ctx, "a")
+    review_mode.end_judging(ctx)
+
+    report = state.judging_report
+    assert report["filed"] == 1
+    assert report["accepted"] == 1
+
+
 def test_escape_outside_a_pass_still_only_disarms(ctx, svc):
     sweep_id, _ = _sweep(svc, n=2)
     state = _scanned(ctx)
@@ -2418,7 +2461,7 @@ def test_a_blind_report_stays_blind(ctx, svc):
 
 def test_dismissing_the_report_clears_it(ctx, svc):
     _sweep(svc, n=1)
-    _scanned(ctx)
+    state = _scanned(ctx)
     review_mode.start_judging(ctx)
     _press(ctx, "a")
     state = ctx.state.review

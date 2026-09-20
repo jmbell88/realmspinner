@@ -112,6 +112,13 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             # bound it -- including here, where the popup and the manual are
             # the only record a user has of what a keyboard-only toggle does.
             ("Alt+Z", "X-ray, so an element behind the surface can be picked"),
+            # The 2026-09-20 audit's clay-21: the same clay-08 gap recurring
+            # for three more bare letters that ``clay_ops.by_key`` has fired
+            # since each was registered -- P, V and T were never a chord
+            # anyone typed to find here or in chapter 38.
+            ("P", "Separate Selection (face mode)"),
+            ("V", "Rip (edge mode)"),
+            ("T", "Triangulate Faces (face mode)"),
             # The keyboard's half of a drag. G and S rather than G, R and S:
             # R is the Scale tool's letter and E is Rotate's, both taken long
             # before this, so rotate is reached mid-drag instead.

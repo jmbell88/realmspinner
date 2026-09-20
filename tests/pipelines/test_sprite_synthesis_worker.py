@@ -902,3 +902,68 @@ async def test_the_bar_walks_one_window_across_every_band(worker):
     ]
     assert sum(1 for p, _d in seen if p == "assemble") == 1
     assert [p for p, _d in seen][0] == "condition"
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_between_pixel_sheet_bands_publishes_nothing(worker, monkeypatch):
+    """``_pixel_sheet``'s band loop, the 2026-09-20 audit's finding troupe-03:
+    its sibling ``_sprite_synthesis`` above checks the cancel event before
+    every band, and its own docstring gives the reason -- eight bands is
+    minutes of GPU that a cancelled job should not spend. This loop used to
+    read the cancel only once the whole sheet was assembled, so a cancel
+    between bands still paid for the next band's hint render and conditioning
+    setup. Asked deterministically through the per-band lattice measurement,
+    the same trick the test above uses: it runs once per band, right after
+    that band's image comes back, so setting the cancel event there is a
+    cancel arriving exactly between two bands.
+    """
+    import json
+
+    from realmspinner.pipelines import pixel
+
+    source = _reference(worker)
+    source_dir = worker.config.job_dir(source)
+    sheet_id = rig_store.new_id()
+    png = rig_store.sheet_png_path(source_dir, sheet_id)
+    png.parent.mkdir(parents=True, exist_ok=True)
+    # Two bands of eight rows each: BAND_PX (1024) // frame_size (128) is 8
+    # rows per generation, so sixteen rows is the smallest grid that forces a
+    # second band.
+    frame, columns, rows = 128, 8, 16
+    Image.new("RGBA", (frame * columns, frame * rows), (0, 0, 0, 0)).save(png)
+    meta = {
+        "version": 1, "id": sheet_id, "name": "turnaround", "source_job": source,
+        "created": 1.0, "image": png.name, "frame_size": frame,
+        "columns": columns, "rows": rows,
+        "width": frame * columns, "height": frame * rows,
+        "elevation": 30.0, "lighting": "flat",
+        "yaws": [i * 360.0 / columns for i in range(columns)],
+        "poses": [{"id": None, "name": "rest"}],
+        "cells": [],
+    }
+    rig_store.sheet_path(source_dir, sheet_id).write_text(
+        json.dumps(meta), encoding="utf-8"
+    )
+    job_id = worker.store.create(
+        "pixel_sheet", "a knight",
+        {"source_job": source, "sheet_id": sheet_id, "logical_size": 32,
+         "colors": 8, "seed": 3},
+    )
+
+    real = pixel.lattice
+
+    def _lattice(image):
+        if worker._cancel is not None:
+            worker._cancel.event.set()
+        return real(image)
+
+    monkeypatch.setattr(pixel, "lattice", _lattice)
+
+    row = await _run(worker, job_id)
+
+    assert row["status"] == "cancelled"
+    assert not rig_store.sheet_pixel_path(source_dir, sheet_id).exists()
+    # One band's worth of generation, not two: the check at the top of the
+    # band loop is what stopped it, rather than the second band's own
+    # ``generate`` refusing partway through.
+    assert len(worker._text2image.seeds) == 1

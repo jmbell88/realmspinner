@@ -328,3 +328,46 @@ def test_the_manual_prompt_fits_one_slot_at_the_retrieval_budget():
         f"{contract.SAMPLING['manual']['max_tokens']}-token reply is {total:.0f} -- "
         f"over the {contract.TRAINED_WINDOW}-token slot"
     )
+
+
+def test_build_chat_messages_maps_familiar_turns_to_the_assistant_role():
+    """The 2026-09-20 audit (familiar-07): ``build_chat_messages`` had no
+    test at all -- its two call sites in the whole test tree are in the gpu
+    lane and neither passes ``history``. A ``threads.Turn`` with
+    ``role="familiar"`` must map to chat-completions' own ``"assistant"``
+    role; a ``role="user"`` turn passes through unchanged."""
+    from realmspinner.familiar import threads
+
+    history = (
+        threads.Turn(role="user", text="hello"),
+        threads.Turn(role="familiar", text="hi there"),
+    )
+
+    messages = contract.build_chat_messages("what can you do?", history)
+
+    assert messages[0] == {"role": "system", "content": contract.CHAT_SYSTEM}
+    assert messages[1] == {"role": "user", "content": "hello"}
+    assert messages[2] == {"role": "assistant", "content": "hi there"}
+    assert messages[3] == {"role": "user", "content": "what can you do?"}
+
+
+def test_build_chat_messages_keeps_only_the_last_history_turns_window():
+    """A thread longer than :data:`contract.HISTORY_TURNS` must degrade by
+    forgetting its oldest turns -- the module docstring's own contract --
+    never by overrunning the trained-window budget the way an oversized Clay
+    prompt is refused for instead."""
+    from realmspinner.familiar import threads
+
+    # Twice the window, each turn uniquely identifiable by its ordinal.
+    history = tuple(
+        threads.Turn(role="user" if i % 2 == 0 else "familiar", text=f"turn {i}")
+        for i in range(contract.HISTORY_TURNS * 2)
+    )
+
+    messages = contract.build_chat_messages("the latest question", history)
+
+    # system + HISTORY_TURNS history turns + the final prompt turn.
+    assert len(messages) == 1 + contract.HISTORY_TURNS + 1
+    kept = [m["content"] for m in messages[1:-1]]
+    expected_kept = [f"turn {i}" for i in range(contract.HISTORY_TURNS, contract.HISTORY_TURNS * 2)]
+    assert kept == expected_kept, "must keep the most recent turns, not the oldest ones"

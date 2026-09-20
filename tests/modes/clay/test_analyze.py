@@ -323,6 +323,49 @@ def test_analyze_refuses_before_triangulating_past_max_analyze_triangles(monkeyp
         analyze.analyze([obj])
 
 
+def test_analyze_refuses_before_evaluating_a_modifier_stack_past_max_analyze_triangles(
+    monkeypatch,
+) -> None:
+    """The 2026-09-20 audit's clay-19: MAX_ANALYZE_OBJECTS is checked first
+    (the 2026-09-19 audit's clay-22 fix), but MAX_ANALYZE_TRIANGLES still ran
+    only after ``_evaluated_world(obj, doc)`` had already evaluated every
+    object's whole modifier stack -- so a document whose *base* meshes
+    already clear the triangle ceiling still paid to run every object's
+    modifiers (``doc.evaluated`` -> ``modifiers.evaluate``, unbounded and
+    modifier-kind-dependent cost: cheap for ``array``, unmeasured for
+    ``boolean``/``subdivide``) before ever being refused. One n-gon face's
+    triangle count (``n - 2``) is knowable straight from ``mesh.loops``/
+    ``face_count`` alone, the same fact the 2026-09-14 audit's clay-04 fix
+    already uses for the no-modifier path -- so the refusal below must beat
+    ``_evaluated_world`` to the punch even with a real modifier attached.
+    """
+    n = analyze.MAX_ANALYZE_TRIANGLES + 3
+    positions = [(float(i), 0.0, 0.0) for i in range(n)]
+    mesh = bm.from_faces(positions, [list(range(n))])
+
+    doc = bd.ClayDoc()
+    obj = bd.Obj(
+        uid=bd.new_uid(),
+        name="obj",
+        mesh=mesh,
+        translation=[0.0, 0.0, 0.0],
+        rotation=m3.quat_identity(),
+    )
+    doc.add_object(obj)
+    doc.set_modifiers(obj.uid, (mod.make("subdivide", {"levels": 2}, id=1),))
+    objs = list(doc.objects)
+
+    def _boom(obj: object, doc: object) -> None:
+        raise AssertionError(
+            "_evaluated_world ran before the MAX_ANALYZE_TRIANGLES refusal"
+        )
+
+    monkeypatch.setattr(analyze, "_evaluated_world", _boom)
+
+    with pytest.raises(OpError):
+        analyze.analyze(objs, doc=doc)
+
+
 def _scattered_triangles(n_tris: int, extent: float, tri_size: float, seed: int) -> np.ndarray:
     """`n_tris` ordinary-sized triangles (`tri_size` across, comparable to a
     real prop's face size) scattered over an `extent`-sized bounding region

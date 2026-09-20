@@ -239,6 +239,50 @@ def _region_offsets(
     return vertex_direction[used]
 
 
+#: The largest selected-corner count :func:`extrude_faces` will build new
+#: geometry for. The 2026-09-20 audit's clay-03 found extrude had no ceiling
+#: at all, unlike the nine sibling growth ops in this package
+#: (``MAX_INSET_CORNERS``, ``MAX_COLLAPSED_PAIRS``, ``MAX_BRIDGED_RING`` among
+#: them): reproduced at 504 ms for 800k corners, 2.65s for 3.2M, linear, no
+#: refusal.
+#:
+#: Measured on this machine with the same flat-grid-of-independent-quads
+#: shape ``MAX_INSET_CORNERS``'s own table uses (so corners = 4 * face
+#: count), selected whole with a non-zero offset (the case that actually pays
+#: for :func:`_region_offsets`'s connected-components pass, not the offset-
+#: zero shortcut that returns before it):
+#:
+#: | corners    | extrude_faces() |
+#: |-----------:|-----------------:|
+#: |    160,000 |           319 ms |
+#: |    640,000 |           404 ms |
+#: |  1,597,696 |         1,118 ms |
+#: |  3,240,000 |         2,412 ms |
+#:
+#: ...close to linear, about 0.6-0.9us/corner, matching the audit's own
+#: figures (0.63us/corner at 800k, 0.83us/corner at 3.2M) almost exactly. Set
+#: at the same value as ``MAX_INSET_CORNERS`` -- the two ops cost about the
+#: same per corner and inset's own table already establishes 800,000 as
+#: comfortably under the point (~1.6M here) where "well under a second" stops
+#: being true.
+MAX_EXTRUDE_CORNERS = 800_000
+
+
+def _refuse_extrude_size(n_corners: int) -> None:
+    """Refuse from the selection's own corner count, **before**
+    :func:`_region_offsets` runs -- the same "refuse before the allocation"
+    pattern :func:`_refuse_inset_size` follows for the sibling op right below
+    this one. See :data:`MAX_EXTRUDE_CORNERS` for the measurements.
+    """
+    if n_corners > MAX_EXTRUDE_CORNERS:
+        raise OpError(
+            f"Extruding this selection means building {n_corners:,} new "
+            f"corners, past the {MAX_EXTRUDE_CORNERS:,} extrude works with "
+            "before it would stall the frame it runs on. Extrude a smaller "
+            "selection."
+        )
+
+
 def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[Mesh, ElementSel]:
     """Pull the selected faces off the surface, walling in the gap they leave.
 
@@ -277,6 +321,8 @@ def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[
     grew from rather than with garbage.
     """
     faces = _require_faces(sel, "extrude")
+    face_starts = mesh.starts.astype("i8")
+    _refuse_extrude_size(int((face_starts[faces + 1] - face_starts[faces]).sum()))
     a = adjacency(mesh)
     n_verts = len(mesh.positions)
 

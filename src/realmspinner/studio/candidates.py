@@ -115,10 +115,18 @@ def pending_cached(cache: Any) -> Group | None:
     generation -- a headless stand-in with no real cache, as most tests here
     build -- never memoizes, since there is nothing behind it that can go
     stale to avoid re-scanning.
+
+    The key holds ``cache`` itself, not ``id(cache)``. The 2026-09-20 audit,
+    finding create-05: CPython reuses a freed object's address, so a bare id
+    can name a cache that no longer exists -- reproduced in 19,993 of 20,000
+    create-destroy-create cycles against a fresh cache at generation 0. A
+    strong reference to the actual object can never be fooled that way, and
+    it costs nothing extra here: this module already keeps the one cache
+    Create ever shows alive for as long as the app runs.
     """
     global _PENDING_CACHE
     generation = getattr(cache, "_generation", None)
-    key = (id(cache), generation)
+    key = (cache, generation)
     if generation is not None and _PENDING_CACHE is not None and _PENDING_CACHE[0] == key:
         return _PENDING_CACHE[1]
     result = pending(cache.jobs)

@@ -474,4 +474,22 @@ def _safe_form_value(key: str, value: Any) -> bool:
         from ..service.validation import MAX_TRELLIS_BAND, MIN_TRELLIS_BAND
 
         return value == 0 or MIN_TRELLIS_BAND <= value <= MAX_TRELLIS_BAND
+    if key == "trellis_max_tokens":
+        # The 2026-09-20 audit, finding create-01: the same rule and history
+        # as trellis_tex_res/trellis_band above, for the third of five Engine
+        # fields that shipped with no ceiling at all.
+        from ..service.validation import MAX_TRELLIS_MAX_TOKENS
+
+        return value == 0 or 1 <= value <= MAX_TRELLIS_MAX_TOKENS
+    if key == "trellis_decim":
+        # The 2026-09-20 audit, finding create-01. Its sentinel is -1, not 0
+        # (0 is "decimation off", a real value the exe must receive).
+        from ..service.validation import MAX_TRELLIS_DECIM
+
+        return value == -1 or 0 <= value <= MAX_TRELLIS_DECIM
+    if key == "trellis_atlas":
+        # The 2026-09-20 audit, finding create-01.
+        from ..service.validation import MAX_TRELLIS_ATLAS, MIN_TRELLIS_ATLAS
+
+        return value == 0 or MIN_TRELLIS_ATLAS <= value <= MAX_TRELLIS_ATLAS
     return True

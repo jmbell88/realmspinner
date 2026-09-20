@@ -61,6 +61,21 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 # where it is", and those are two different gestures.
 _KEEP = object()
 
+#: The ceiling every attach or reparent refuses past. The 2026-09-20 audit,
+#: finding plotter-01: ``_walk``, ``move_layer``, ``scene.resolve`` and the
+#: ``.rmap`` writer's ``_layer_entries`` are all plain recursion with no depth
+#: cap, so an ordinary sequence of ``add_group_layer`` + ``move_layer`` calls
+#: -- nothing needing a hand-edited file -- reproduced an uncaught
+#: ``RecursionError`` at ~990 levels, on the frame thread's own canvas draw or
+#: an export. Capping the two doors a layer's depth can change through
+#: (:func:`LayerOps._add_layer`, :func:`LayerOps.move_layer`) is smaller than
+#: rewriting four walkers onto an explicit stack, and it refuses by name
+#: instead of crashing. 64 is not tuned to the deepest legitimate map -- no
+#: human-authored layer stack nests anywhere near this deep -- it matches this
+#: repo's other structural ceiling of the same shape: ``core.undo.UNDO_MAX_DEPTH``
+#: and Mason's ``engine.nodes.MAX_DEPTH`` are both 64 for the same reason.
+MAX_GROUP_DEPTH = 64
+
 
 def _walk(
     layers: list[Layer], parent_uid: int | None, depth: int
@@ -134,6 +149,35 @@ class LayerOps:
         if found is None:
             raise KeyError(f"no layer {uid}")
         return found[1]
+
+    def _depth_of(self: MapDoc, uid: int) -> int:
+        """How many groups a layer sits inside; 0 at the root.
+
+        Walks from the root rather than tracking depth incrementally, the
+        same trade :meth:`_locate` and everything built on it already makes:
+        one full walk beats a second, independently-maintained notion of
+        position that could drift out of step with the tree.
+        """
+        for entry, _parent, _index, depth in self.walk():
+            if entry.uid == uid:
+                return depth
+        raise KeyError(f"no layer {uid}")
+
+    def _refuse_if_too_deep(self: MapDoc, parent_uid: int | None, layer: Any) -> None:
+        """Refuse an attach or reparent that would nest past :data:`MAX_GROUP_DEPTH`.
+
+        Called from the two doors a layer's depth can change through --
+        :meth:`_add_layer` and :meth:`move_layer` -- before either pushes its
+        edit, so a refusal never leaves a half-made step on the undo stack.
+        See :data:`MAX_GROUP_DEPTH` for the incident this guards against.
+        """
+        new_depth = 0 if parent_uid is None else self._depth_of(int(parent_uid)) + 1
+        deepest = new_depth + _subtree_height(layer) - 1
+        if deepest > MAX_GROUP_DEPTH:
+            raise ValueError(
+                f"{layer.name!r} would nest {deepest} groups deep, past the "
+                f"{MAX_GROUP_DEPTH}-deep limit on the layer tree"
+            )
 
     def tile_layers(self: MapDoc) -> list[TileLayer]:
         """The tile leaves, depth-first, in paint order.
@@ -233,6 +277,7 @@ class LayerOps:
     ) -> Any:
         siblings = self.children_of(parent_uid)
         at = len(siblings) if index is None else max(0, min(int(index), len(siblings)))
+        self._refuse_if_too_deep(parent_uid, layer)
         self.history.push(LayerAddEdit(layer=layer, index=at, parent_uid=parent_uid))
         self._attach_layer(layer, at, parent_uid)
         self.active_layer = layer.uid
@@ -388,6 +433,13 @@ class LayerOps:
             # because there is no nearby position that is what was asked for.
             if after_parent == uid or _contains(layer, after_parent):
                 raise ValueError("a group cannot be moved inside itself")
+        # Only a genuine reparent can change how deep this subtree's deepest
+        # descendant sits -- a same-parent reorder leaves every depth in it
+        # exactly as it was, so it is skipped rather than possibly refusing a
+        # harmless drag inside a group that (through some other door) already
+        # sits deep. See ``MAX_GROUP_DEPTH``.
+        if after_parent != before_parent:
+            self._refuse_if_too_deep(after_parent, layer)
         siblings = self.children_of(after_parent)
         # The layer is still in the tree while this clamps, so its own slot
         # counts as a position only when it is not about to leave the list.
@@ -569,3 +621,18 @@ def _contains(group: Any, uid: int) -> bool:
         if child.uid == uid or _contains(child, uid):
             return True
     return False
+
+
+def _subtree_height(layer: Any) -> int:
+    """1 for a leaf; 1 + the tallest child's height for a group.
+
+    Walks ``children`` alone, the same funnel :func:`_contains` uses, and is
+    only ever asked of a layer already living in the tree -- bounded by
+    :data:`MAX_GROUP_DEPTH` -- or a freshly-minted one with no children yet.
+    So this recursion is never the unbounded kind the 2026-09-20 audit found
+    in ``_walk``, ``scene.resolve`` and the ``.rmap`` writer.
+    """
+    children = getattr(layer, "children", None)
+    if not children:
+        return 1
+    return 1 + max(_subtree_height(child) for child in children)

@@ -429,13 +429,21 @@ def _narrows_the_window(filters: Any) -> bool:
     ``kind`` (the combo, and a ``kind:`` field term), because ``card_kind`` is
     a Python derivation over a job's ``params`` blob rather than a column; the
     size sort, because it reads the storage walk rather than anything in the
-    row; and ``status:``/``stage:``/``id:`` field terms typed in the box
-    itself -- unlike the ``status`` *combo*, those are not (yet) turned into a
-    column predicate, only into ``Filters.matches``' own substring check.
+    row; ``usable_only``, because a grade lives in the ``verdicts`` table
+    (joined onto a job row in ``service._jobs_list``) rather than a ``jobs``
+    column, so ``JobsCache.request_widen``'s SQL predicates cannot reach it
+    any more than they can reach ``kind`` -- teaching ``request_widen`` to
+    widen on grade is a deliberate join it does not attempt today (the
+    2026-09-20 audit, finding shell-02); and ``status:``/``stage:``/``id:``
+    field terms typed in the box itself -- unlike the ``status`` *combo*,
+    those are not (yet) turned into a column predicate, only into
+    ``Filters.matches``' own substring check.
     """
     if filters.kind != "all":
         return True
     if filters.sort == "size":
+        return True
+    if filters.usable_only:
         return True
     if filters.text:
         _terms, fields = parse_query(filters.text)
@@ -2139,7 +2147,13 @@ def _export_popup_body(ctx: Any, popup: _ExportPopup) -> None:
             enabled=reveal_target.exists(),
             reason="Nothing has been written here yet.",
         ):
-            ctx.submit("open-log", app_ctx.reveal_in_explorer, str(reveal_target))
+            # "open-folder:" keyed per target, not "open-log" -- the
+            # 2026-09-20 audit, finding shell-04, found this action sharing
+            # its task key with three unrelated ones, so pressing this while
+            # another was in flight silently dropped one of the two.
+            ctx.submit(
+                f"open-folder:{reveal_target}", app_ctx.reveal_in_explorer, str(reveal_target)
+            )
         existing = popup.plan.existing
         if existing:
             imgui.dummy((0, sp(tokens.SP_2)))

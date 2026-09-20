@@ -531,7 +531,14 @@ class TileSetOps:
                 dither=dither,
             ),
         }
-        if has_reference:
+        # The 2026-09-20 audit, finding plotter-04, sharing plotter-03's
+        # condition: ``later_cond`` above hands the first material to the
+        # adapter whenever ``style_lock and count > 1``, whether or not the
+        # user uploaded a reference -- so the sidecar has to say the encoder
+        # ran under that condition too, not only under ``has_reference``, or a
+        # style-locked, reference-less set's own recipe cannot show that its
+        # later materials were conditioned at all.
+        if has_reference or (style_lock and count > 1):
             recipe["ip_adapter"] = "plus"
             recipe["ip_scale"] = ip_scale
         if lora is not None:

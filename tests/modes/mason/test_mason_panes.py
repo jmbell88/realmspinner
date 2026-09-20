@@ -331,6 +331,48 @@ def test_the_make_prefab_gesture_is_not_in_the_pane_that_needs_one_to_exist():
     assert "define_prefab_from_selection" in inspect.getsource(mason_outliner)
 
 
+def test_make_prefab_is_disabled_over_a_terrain_or_prefab_instance_selection_rather_than_silently_inert():  # noqa: E501
+    """The 2026-09-20 audit's mason-02: both context-menu rows enabled
+    "Make prefab" on "exactly one node selected" alone, with no kind check,
+    while ``mason_mode.prompt_define_prefab_from_selection`` (and
+    ``define_prefab_from_selection`` beneath it) silently return for a
+    ``TerrainNode`` or an existing ``PrefabNode`` -- an enabled row that does
+    nothing when pressed, the docstring's own claim that a disabled row
+    prevents it notwithstanding. Chapter 17 tells the reader to select and
+    right-click, so a row that lights up over exactly the selection it will
+    then ignore is the only feedback the reader gets. Both rows now share one
+    predicate -- the shape ``groupish`` was already fixed into by the
+    2026-09-15 audit's mason-03 -- gated on the same kinds the handler
+    refuses.
+
+    Against the unfixed rows, ``len(doc.selection) == 1`` is the whole gate,
+    so this reports "enabled" for a lone terrain or prefab-instance
+    selection.
+    """
+    from realmspinner.studio.modes.mason.ui.panes import menu as mason_menu
+    from realmspinner.studio.modes.mason.ui.panes import outliner as mason_outliner
+
+    d = md.MasonDoc()
+    terrain = nd.TerrainNode(uid=nd.new_uid(), name="Terrain")
+    d.add_node(terrain)
+    d.select([terrain.uid])
+    assert mason_outliner.prefabbable(d) is False
+    assert mason_menu.prefabbable(d) is False
+
+    prefab = nd.PrefabNode(uid=nd.new_uid(), template="post")
+    d.add_node(prefab)
+    d.select([prefab.uid])
+    assert mason_outliner.prefabbable(d) is False
+    assert mason_menu.prefabbable(d) is False
+
+    # The positive case: an ordinary node still lights the row up.
+    mesh = nd.MeshNode(uid=nd.new_uid())
+    d.add_node(mesh)
+    d.select([mesh.uid])
+    assert mason_outliner.prefabbable(d) is True
+    assert mason_menu.prefabbable(d) is True
+
+
 def test_an_outliner_drop_reparents_rather_than_reordering_among_the_targets_siblings():
     """The drag used to insert the dropped node at the target's own index under
     the target's *parent*, which is a reorder dressed as a tree drag: dropping a

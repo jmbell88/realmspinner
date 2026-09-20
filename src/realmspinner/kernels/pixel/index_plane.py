@@ -349,6 +349,14 @@ def histogram(indices: np.ndarray, count: int) -> list[int]:
     The transparent slot is counted like any other. It is a real slot holding
     real pixels; whether the user considers those pixels "used" is a question
     for the pane, which knows which index is transparent.
+
+    Out-of-range indices are **clamped into the last slot, not dropped** --
+    the same rule :func:`materialize` and :func:`apply_remap` already apply,
+    and for the same reason (the 2026-09-20 audit, finding inker-04): a plane
+    can outlive its table by one operation during the documented stale-plane
+    window, and ``bincount(...)[:count]`` silently discarded those pixels'
+    counts instead of folding them in, so a slot actually holding real
+    pixels could report zero and "delete unused colours" would call it safe.
     """
     if indices.dtype != np.uint8 or indices.ndim != 2:
         raise ValueError("an index plane is (H, W) uint8")
@@ -357,4 +365,6 @@ def histogram(indices: np.ndarray, count: int) -> list[int]:
         raise ValueError("a palette has at least one slot")
     if indices.size == 0:
         return [0] * count
-    return np.bincount(indices.ravel(), minlength=count)[:count].astype(np.int64).tolist()
+    raveled = indices.ravel()
+    safe = raveled if count >= 256 else np.minimum(raveled, count - 1)
+    return np.bincount(safe, minlength=count)[:count].astype(np.int64).tolist()

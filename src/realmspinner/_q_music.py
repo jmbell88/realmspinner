@@ -437,11 +437,20 @@ class MusicOps:
         """The VRAM handoff a music stage makes, asked once. -> (client, handoff)
 
         ``_acquire_t2i``'s shape and its ordering -- stop trellis if the flag
-        demands it, then check host commit immediately before the load, so the
-        answer is about the allocation that is actually about to happen. What it
-        does *not* have is a stale-pipe eviction: there is one music model, so
-        there is no key for a resident pipe to be wrong about, and the
-        base-model cache-generation logic has nothing to key on either.
+        demands it, then evict a stale client, then check host commit
+        immediately before the load, so the answer is about the allocation
+        that is actually about to happen.
+
+        **muse-03 (2026-09-20 audit).** This used to skip the stale-pipe
+        eviction ``_acquire_t2i`` has, on the stated grounds that "there is
+        one music model, so there is no key for a resident pipe to be wrong
+        about" -- true only while ``models.MUSIC_MODELS`` held exactly the one
+        row it holds today, and ``models.py``'s own comment on
+        ``ace_step_v1`` promises the table is real and a second row "costs no
+        reshaping of the worker". Evicted here, before the headroom check
+        (``_evict_stale_t2i``'s own reason): the check should measure a host
+        that has already given the old client's weights back, not one still
+        charged for a client this call is about to replace.
         """
         from . import queue as queue_mod
 
@@ -449,6 +458,7 @@ class MusicOps:
         if handoff:
             await asyncio.to_thread(self.trellis.stop)
             queue_mod._log_mem("after trellis stop")
+        await self._evict_stale_music_client(spec)
         if self._music_client is None or not self._music_client.loaded:
             await queue_mod._require_commit_headroom_settled(
                 f" before loading {spec.label}",
@@ -456,6 +466,22 @@ class MusicOps:
                 need_gib=queue_mod._host_peak_gib(spec),
             )
         return await self._get_music_client(spec), handoff
+
+    async def _evict_stale_music_client(self: Worker, spec: models.MusicModel) -> None:
+        """Unload the resident music child if the job wants a different model.
+
+        ``queue._evict_stale_t2i``'s key check, mirrored for the music child:
+        the resident client already carries its own ``spec`` (``MusicClient``
+        stores it at construction), so there is nothing new to track on
+        ``Worker`` itself -- comparing ``.spec.key`` is enough, the same way
+        ``_evict_stale_t2i`` compares ``self._t2i_key``. See muse-03
+        (2026-09-20 audit) on ``_acquire_music`` above for why this exists at
+        all now.
+        """
+        client = self._music_client
+        if client is not None and client.spec.key != spec.key:
+            await asyncio.to_thread(client.unload)
+            self._music_client = None
 
     async def _get_music_client(self: Worker, spec: models.MusicModel):
         """The resident music child, constructed on first use.
@@ -469,7 +495,14 @@ class MusicOps:
         startup")`` instead of the guidance below. ``packs.installed`` answers
         the same question the import used to, cheaply and without spawning
         anything.
+
+        Backstop eviction below -- normally a no-op: ``_acquire_music`` (the
+        only current caller) already evicts a stale client before its
+        commit-headroom check. Kept so the staleness predicate has one owner,
+        mirroring ``_get_text2image``'s own backstop call to
+        ``_evict_stale_t2i`` for the same reason (muse-03, 2026-09-20 audit).
         """
+        await self._evict_stale_music_client(spec)
         if self._music_client is None:
             pack = packs_mod.find("music")
             if pack is not None and not packs_mod.installed(pack):

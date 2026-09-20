@@ -277,6 +277,22 @@ def test_document_from_sheet_refuses_a_cell_count_past_max_sheet_frames():
         sheetin.document_from_sheet(atlas, cells)
 
 
+def test_document_from_sheet_refuses_a_frame_count_times_cell_area_past_a_document_pixel_ceiling():
+    """The 2026-09-20 audit, finding inker-01: ``MAX_SHEET_FRAMES`` bounds the
+    *count* of cells a sidecar can name, but nothing bounded count times cell
+    area -- 800 identical 512x512 cells, well under that 4096-cell ceiling,
+    allocated 800 MiB with no refusal, and the real ceilings (4096 cells at a
+    generous cell size) reach terabytes. ``_document_from_rects`` now charges
+    ``len(rects) * cell_w * cell_h`` against ``pixelguard.MAX_DECODE_PIXELS``,
+    the one pixel budget every other decoded-image door in this build shares,
+    before the copy loop that would otherwise pay for it."""
+    atlas = np.zeros((512, 512, 4), dtype=np.uint8)
+    cells = [{"x": 0, "y": 0, "w": 512, "h": 512} for _ in range(800)]
+    assert len(cells) < sheetin.MAX_SHEET_FRAMES
+    with pytest.raises(ValueError, match=str(sheetin.MAX_SHEET_PIXELS)):
+        sheetin.document_from_sheet(atlas, cells)
+
+
 def _striped(width: int, height: int) -> np.ndarray:
     """An atlas whose every column is a different red, so a mis-sliced cell is
     visible as the wrong number rather than as the wrong shape."""

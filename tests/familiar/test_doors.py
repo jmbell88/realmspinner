@@ -40,6 +40,21 @@ def test_the_navigate_schema_offers_exactly_the_destinations_plus_none():
     assert schema["additionalProperties"] is False
 
 
+def test_the_create_schema_offers_exactly_the_asset_types_and_caps_the_prompt():
+    """The 2026-09-20 audit (familiar-06): ``doors.create_schema`` was
+    exercised only in the gpu lane -- its enum and 1000-char prompt cap had
+    no CPU-lane assertion, while the sibling ``navigate_schema`` already had
+    one (``test_the_navigate_schema_offers_exactly_the_destinations_plus_
+    none``, above). Mirrors that test's own shape for ``create``."""
+    asset_types = (("image", "Image"), ("3d_model", "3D Model"))
+    schema = doors.create_schema(asset_types)
+    assert schema["properties"]["asset_type"]["enum"] == ["image", "3d_model"]
+    assert schema["properties"]["prompt"]["type"] == "string"
+    assert schema["properties"]["prompt"]["maxLength"] == 1000
+    assert schema["required"] == ["asset_type", "prompt"]
+    assert schema["additionalProperties"] is False
+
+
 def test_a_draft_with_an_unknown_asset_type_is_refused():
     asset_types = (("image", "Image"), ("3d_model", "3D Model"))
 

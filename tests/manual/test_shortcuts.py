@@ -239,6 +239,46 @@ def test_poser_sheet_shortcuts_sheet_lists_the_checkerboard_and_pivot_keys():
     )
 
 
+def test_clay_shortcuts_table_lists_every_bare_letter_the_registry_binds():
+    """The reverse gate for Clay, mirroring the Poser one above.
+
+    2026-09-20 audit, finding clay-21: Separate Selection (``P``), Rip
+    (``V``) and Triangulate (``T``) have fired through ``clay_ops.by_key``
+    since each was added, and the Ctrl+/ sheet's Clay table said nothing
+    about any of the three -- the 2026-09-07 audit's clay-08 gap (``Alt+Z``,
+    the X-ray toggle) recurring for three more keys, with nothing gating
+    ``Op.key`` against either surface. Read straight off the registry rather
+    than a hand list, so the next bare-letter op added to an element mode
+    cannot go missing from the sheet the same way.
+
+    ``clay_mode._registry_key`` only ever fires a bare letter while
+    ``doc.element_mode`` is vertex, edge or face (object mode returns before
+    reaching ``by_key``), so the ops worth checking are the ones whose
+    ``modes`` intersects :data:`clay_ops.ELEMENT_MODES` -- not every op with
+    a single-letter key, and not every op in the registry.
+    """
+    import re
+
+    from realmspinner.studio.modes.clay import ops as clay_ops
+
+    bare_letter = re.compile(r"^[A-Z]$")
+    letters = {
+        op.key
+        for op in clay_ops.OPS
+        if bare_letter.fullmatch(op.key) and set(op.modes) & set(clay_ops.ELEMENT_MODES)
+    }
+    assert letters, (
+        "no bare-letter op binds in an element mode any more -- this gate "
+        "has nothing left to check"
+    )
+    clay = _popup_atoms().get("Clay", set())
+    missing = sorted(letters - clay)
+    assert not missing, (
+        f"clay_ops.OPS binds {missing} to a bare letter in an element mode "
+        f"and the Ctrl+/ sheet's Clay table does not list them"
+    )
+
+
 def test_the_chapter_does_not_send_the_reader_to_a_control_that_was_deleted():
     """Finding 4, as a ratchet. The header and its ``?`` button went in the
     UI redesign; the chapter went on naming both for three waves."""

@@ -56,3 +56,28 @@ def test_a_pixel_art_report_with_no_style_key_still_reports():
 
 def test_an_empty_report_draws_nothing():
     assert poser_sheet._pixel_report_lines({}) == []
+
+
+# --- _front_helper (ui/panes/send.py) ------------------------------------
+#
+# The 2026-09-20 audit, finding troupe-04: a pure, branching string builder
+# with no test of its own, unlike its directly-tested neighbours -- this
+# file's own docstring calls it out as ``camera_line``'s own argument,
+# applied to its neighbour. Both branches, here rather than in a dedicated
+# ``send`` test module: this is the pair of test files the finding named.
+
+
+def test_front_helper_with_no_front_set():
+    from realmspinner.studio.modes.poser.ui.panes import send as poser_send
+
+    assert poser_send._front_helper(0.0) == (
+        "This mesh has no front set; sheets are rendered from yaw 0."
+    )
+
+
+def test_front_helper_with_a_front_set():
+    from realmspinner.studio.modes.poser.ui.panes import send as poser_send
+
+    assert poser_send._front_helper(90.0) == (
+        "This mesh's front is set to 90 degrees; sheets are rendered from it."
+    )

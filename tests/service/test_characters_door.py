@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -531,6 +532,31 @@ def test_preview_character_lands_atomically_even_when_a_concurrent_build_won_the
     result = svc_characters.preview_character(svc, recipe)
     assert result == dest
     assert dest.read_bytes() != b"the earlier racer's build"
+
+
+def test_character_preview_cache_is_swept_or_bounded(svc):
+    """service-04 (the 2026-09-20 audit): ``preview_character`` writes one
+    ``character-preview-<hash>.glb`` per recipe under ``data_dir/tmp`` and
+    nothing in the tree ever deleted one -- unbounded growth from exactly the
+    iterate-on-a-recipe workflow the preview button exists for.
+    """
+    tmp_dir = svc.config.data_dir / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    # Seed more stale previews than the cache is ever meant to hold, each
+    # with its own mtime so a sweep has an oldest and a newest to tell apart.
+    stale_total = svc_characters._PREVIEW_CACHE_CAP + 10
+    for i in range(stale_total):
+        stale = tmp_dir / f"character-preview-stale{i:04d}.glb"
+        stale.write_bytes(b"stale")
+        os.utime(stale, (i, i))
+
+    svc_characters.preview_character(svc, _recipe("slime"))
+
+    remaining = list(tmp_dir.glob("character-preview-*.glb"))
+    assert len(remaining) <= svc_characters._PREVIEW_CACHE_CAP + 1
+    # The oldest stale files are the ones a bounded cache must have reclaimed.
+    names = {p.name for p in remaining}
+    assert "character-preview-stale0000.glb" not in names
 
 
 def test_the_estimate_grows_with_the_cells_and_is_never_zero(svc):

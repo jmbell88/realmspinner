@@ -679,7 +679,12 @@ def modal_open(ctx: Any) -> bool:
     Ctrl+Enter submitted the form the modal was a *question about*; a mode key
     left the app somewhere else with the modal still up. Ownership is a
     property of "a modal is up", not of which queue happens to hold it, so the
-    predicate asks all seven.
+    predicate asks every one of them below -- a count is deliberately not
+    stated in this sentence, since the 2026-09-20 audit (shell-07) found it
+    still saying "seven" two additions after the eighth and ninth had already
+    been folded in below it, the same stuck-digit shape shell-12 caught in a
+    sibling comment on 2026-09-13. Read the ``return`` for how many there
+    are today.
 
     Muse's derive popup is the sixth, added for the 2026-09-16 audit: it is
     also a real ``imgui.begin_popup_modal`` (``modes/muse/ui/panes/results.derive_popup``),

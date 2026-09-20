@@ -152,13 +152,21 @@ def _skin_steps(merged: int) -> tuple[tuple[str, bool], ...]:
     everything around it needs bpy, so this is the part of the fallback chain a
     test can reach.
 
-    A weld that merged *nothing* leaves exactly the mesh the heat solve would
-    have seen anyway, so it is reported as plain ``automatic`` and there is no
-    second, identical attempt to fall back to -- retrying it would be two
-    minutes of Laplacian solve for a guaranteed repeat of the same answer.
+    A weld that merged *nothing* is reported as plain ``automatic`` and there
+    is no second, identical attempt to fall back to -- retrying it would be
+    two minutes of Laplacian solve for a guaranteed repeat of the same
+    answer. It is *restored* first rather than trusted as a no-op: ``_weld``
+    runs ``normals_make_consistent`` unconditionally, which can flip a face
+    normal by itself even when ``remove_doubles`` merged nothing (the
+    2026-09-20 audit, finding poser-05, reproduced against real Blender --
+    the fake ``bpy`` the old test used had a no-op ``normals_make_consistent``
+    stub, which is why it survived). This function used to claim the
+    zero-merge mesh already *was* "exactly the mesh the heat solve would have
+    seen anyway"; that was a claim about intent, not a fact about the mesh,
+    so the restore is what makes it true rather than asserted.
     """
     if merged <= 0:
-        return (("automatic", False),)
+        return (("automatic", True),)
     return (("automatic-welded", False), ("automatic", True))
 
 

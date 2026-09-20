@@ -234,6 +234,63 @@ def test_a_repeated_check_rehashes_when_a_payload_file_changes_without_touching_
     )
 
 
+def test_a_transient_fingerprint_failure_does_not_poison_the_cache_with_none(
+    tmp_path, monkeypatch
+):
+    """The 2026-09-20 audit (familiar-04): ``_manifest_fingerprint`` returns
+    ``None`` on any ``OSError`` (a file briefly locked, a race with an
+    in-progress copy), and ``_verify_manifest_cached`` used to store that
+    ``None`` verbatim as the cached fingerprint. A ``None`` fingerprint can
+    never equal a real one, so that poisoned the comparison twice over: the
+    call that hit the transient failure always had to re-hash (unavoidable
+    -- there is nothing to compare a ``None`` fingerprint against), but the
+    *next*, fully healthy call also re-hashed, because the freshly computed
+    real fingerprint could never equal the ``None`` now sitting in the
+    cache. One hiccup cost two several-hundred-millisecond-to-second stalls
+    against Familiar's ~4.9 GB runtime+weights pair instead of one. The fix
+    only ever overwrites the cache with a real fingerprint, keeping the
+    last-known-good one across a transient failure so the very next healthy
+    call can still hit the cache."""
+    srv = _srv(tmp_path)
+    srv._resolve_exe().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_exe().write_bytes(b"")
+    dest = srv._resolve_exe().parent
+
+    call_count = 0
+
+    def _fake_verify(d):
+        nonlocal call_count
+        call_count += 1
+        return fetch.Verification(dest=d, status=fetch.VERIFY_UNKNOWN)
+
+    monkeypatch.setattr(llama_mod.fetch, "verify_manifest", _fake_verify)
+
+    real_fingerprint = LlamaServer._manifest_fingerprint(dest)
+    # First call sees the real fingerprint (populating the cache), second
+    # call simulates the transient OSError, third call is back to normal --
+    # the same directory, genuinely unchanged, on either side of the hiccup.
+    fingerprints = iter([real_fingerprint, None, real_fingerprint])
+    monkeypatch.setattr(srv, "_manifest_fingerprint", lambda d: next(fingerprints))
+
+    srv._verify_manifest_cached(dest)
+    assert call_count == 1
+
+    # The transient failure: nothing to compare against, so this re-hash is
+    # unavoidable...
+    srv._verify_manifest_cached(dest)
+    assert call_count == 2
+
+    # ...but the directory never actually changed, so the very next call
+    # (back to the same real fingerprint as before the hiccup) must hit the
+    # cache rather than pay for a second unnecessary re-hash.
+    srv._verify_manifest_cached(dest)
+    assert call_count == 2, (
+        "a transient fingerprint failure must not poison the cache with "
+        "None -- the next healthy call should still hit the last-known-"
+        "good fingerprint"
+    )
+
+
 @pytest.mark.asyncio
 async def test_a_card_sha_mismatch_refuses_to_start(tmp_path, monkeypatch):
     srv = _srv(tmp_path, expected_card_shas=lambda: ())

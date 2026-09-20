@@ -18,7 +18,15 @@ system and no network listener beyond `127.0.0.1`, so the realistic threat is
 
 - **Any file the app opens.** `.ora`, `.aseprite`, `.tmx`/`.tsx` and their JSON
   spellings `.tmj`/`.tsj`, `.rmap`, `.rblk`, `.rpack`, `.rscn`, `.rsng`, `.glb`, and
-  every image format Pillow handles.
+  every image format Pillow handles. Also the import-only formats two parsers
+  read but never write: Clay's mesh importer takes `.obj`, `.stl` and `.ply`
+  (`kernels.mesh.meshimport.SUPPORTED_SUFFIXES`, alongside the `.glb` already
+  named above), and Poser's clip importer takes `.fbx` and `.gltf`
+  (`service.clip_import.SOURCE_EXTENSIONS`) — the 2026-09-20 audit, finding
+  docs-01: an import-only parser is exactly as reachable by a crafted
+  third-party file as a native document format, and the inventory above had
+  only ever been swept from `service.files`'s save-format constants, which a
+  read-only importer never appears in.
   These are files people download from asset sites, so a crafted one reaching
   code execution, a decompression bomb, or a write outside the chosen directory
   is a real finding. So is a hang or an unbounded allocation.

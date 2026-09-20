@@ -892,6 +892,29 @@ def test_a_merge_that_absorbs_nothing_and_changes_nothing_pushes_no_step() -> No
     assert not doc.dirty
 
 
+def test_join_objects_refuses_a_locked_target_and_refuses_a_locked_absorbed_object() -> None:
+    """The 2026-09-20 audit's clay-01: locking gave an object no protection at
+    all against Join or any boolean -- ``join_objects`` never called
+    ``_refuse_if_locked``, for the target whose mesh it replaces or for the
+    absorbed objects it deletes, so a locked object was silently overwritten
+    or removed through ordinary clicks and through ``clay_join``/
+    ``clay_boolean`` alike. Both halves must refuse before either mutates.
+    """
+    a, b = _obj("A", locked=True), _obj("B")
+    doc = bd.ClayDoc([a, b])
+    with pytest.raises(el.OpError):
+        doc.join_objects(a.uid, _merged(doc, a.uid, [b.uid]), [b.uid])
+    assert [o.name for o in doc.objects] == ["A", "B"]
+    assert doc.by_uid(a.uid).mesh is a.mesh
+
+    c, d = _obj("C"), _obj("D", locked=True)
+    doc2 = bd.ClayDoc([c, d])
+    with pytest.raises(el.OpError):
+        doc2.join_objects(c.uid, _merged(doc2, c.uid, [d.uid]), [d.uid])
+    assert [o.name for o in doc2.objects] == ["C", "D"]
+    assert doc2.by_uid(d.uid).mesh is d.mesh
+
+
 # --- the palette as a list (Clay15) -------------------------------------------
 
 

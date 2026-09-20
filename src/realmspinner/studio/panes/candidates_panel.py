@@ -111,12 +111,18 @@ def _grades(ctx: Any, group: Any) -> dict[str, int | None]:
     test here builds -- never memoizes: nothing behind it can go stale to
     avoid re-reading, and a test asking "did this cost one query" builds a
     real ``JobsCache`` to get an answer that means anything.
+
+    The key holds ``cache`` itself rather than ``id(cache)``, for the same
+    reason ``candidates.pending_cached`` does (the 2026-09-20 audit, finding
+    create-05): a bare id can be a freed object's address handed to a new
+    one, and a strong reference to the real object can never collide that
+    way.
     """
     global _GRADES_CACHE
     member_ids = [m["id"] for m in group.members]
     cache = getattr(ctx, "cache", None)
     generation = getattr(cache, "_generation", None)
-    key = (id(cache), generation, group.group, tuple(member_ids))
+    key = (cache, generation, group.group, tuple(member_ids))
     if generation is not None and _GRADES_CACHE is not None and _GRADES_CACHE[0] == key:
         return _GRADES_CACHE[1]
     try:

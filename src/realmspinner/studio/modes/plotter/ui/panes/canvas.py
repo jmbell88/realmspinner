@@ -2840,9 +2840,13 @@ def object_menu_rows(ctx: Any, state: Any, tab: Any, layer: Any) -> None:
     if controls.menu_item("Delete", "Delete", False, editable, reason=reason)[0]:
         # Every selected object, in one step -- the row sits on the same verb
         # the Delete key runs, and a menu that removed one of five would need a
-        # different label.
-        doc.remove_objects(layer.uid, state.selected_objects)
-        state.select_object(None)
+        # different label. A dock-built selection can span more than this
+        # popup's own layer (the 2026-09-20 audit, finding plotter-02), so this
+        # goes through ``remove_selected_objects`` -- which groups by the layer
+        # each uid actually lives on -- rather than calling ``doc.remove_objects``
+        # against ``layer`` alone, which silently dropped every other layer's
+        # share of the selection.
+        plotter_mode.remove_selected_objects(ctx, doc, state)
 
 
 def _object_input(ctx: Any, state: Any, tab: Any, origin, hovered: bool) -> None:

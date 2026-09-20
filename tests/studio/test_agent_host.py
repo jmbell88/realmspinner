@@ -1876,6 +1876,47 @@ def test_a_working_task_survives_eviction_even_when_every_remembered_operation_i
     assert len(calls._ops) == agent_host.MAX_REMEMBERED_CALLS
 
 
+def test_a_blocking_call_mint_does_not_evict_a_still_working_protected_task_mode_operation() -> (
+    None
+):
+    """agents-02 (2026-09-20 audit): the test just above proves a task-mode
+    mint refuses rather than evicting a protected operation, because
+    `AgentHost._call_task` checked `saturated()` before its own `mint` --
+    but `AgentHost._call`'s ordinary blocking mint (`task_mode=False`)
+    never consulted it, so it reached `_Calls.mint`'s own eviction fallback
+    unguarded and evicted the oldest entry regardless of protection --
+    someone else's still-`QUEUED` task-mode operation -- to make room for
+    an unrelated blocking call. `mint` now raises `_Saturated` for either
+    caller instead of falling through to that fallback, so this ordinary
+    call must come back refused, and the oldest still-working task-mode
+    operation must still be there afterwards."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    oldest_id = None
+    for i in range(agent_host.MAX_REMEMBERED_CALLS):
+        # Never pumped: every one of these stays QUEUED -- working, and
+        # therefore protected -- for the whole test.
+        header = host._call_task(session, calls, "clay_scene", {"tag": i})
+        if oldest_id is None:
+            oldest_id = header["operation_id"]
+
+    assert len(calls._ops) == agent_host.MAX_REMEMBERED_CALLS
+    assert calls.saturated() is True
+
+    result = host._call(session, calls, "clay_scene", {"tag": "an-ordinary-blocking-call"})
+
+    assert result.get("isError") is True, "a saturated store must refuse an ordinary call too"
+    text = result["content"][0]["text"]
+    assert isinstance(text, str) and text
+    assert calls.get(oldest_id) is not None, (
+        "the oldest still-working task-mode operation must survive an ordinary "
+        "blocking call's own mint"
+    )
+    assert len(calls._ops) == agent_host.MAX_REMEMBERED_CALLS
+
+
 def test_a_cancelled_tasks_operation_does_not_permanently_saturate_the_connection() -> None:
     """agents-01 (2026-09-18 audit, second run): `_cancel_task` set `DROPPED`
     but never `fetched`, and `_protected` keeps any task-mode op with

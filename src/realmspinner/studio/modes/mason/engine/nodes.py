@@ -73,7 +73,7 @@ import numpy as np
 
 from .....kernels.geom3d import gltf
 from .....kernels.geom3d import math3d as m3
-from .refs import Ref
+from .refs import Ref, ref_bytes
 
 # A process-wide counter behind one lock, exactly the shape
 # ``clay/document.py``'s ``new_uid``/``reserve_uid`` already use -- restated
@@ -478,14 +478,24 @@ def subtree_bytes(node: Node) -> int:
 
     Honest rather than exhaustive: the three owned f8 arrays every node
     carries, plus a shallow accounting of ``properties`` (see
-    :func:`_props_bytes`). A ``MeshNode``'s ``ref`` and ``material`` are not
-    counted -- a ``Ref`` is a handful of scalars and a ``gltf.Material`` is
-    shared by identity with whatever else in the document already holds it
-    (see :func:`copy_subtree`), so charging a removed node for it would tax
-    the same bytes twice.
+    :func:`_props_bytes`), plus -- for a :class:`MeshNode` -- its ``ref``
+    through :func:`~.refs.ref_bytes`. ``material`` is still not counted: a
+    ``gltf.Material`` is shared by identity with whatever else in the
+    document already holds it (see :func:`copy_subtree`), so charging a
+    removed node for it would tax the same bytes twice.
+
+    **The ``ref`` charge is new** (the 2026-09-20 audit's mason-01): this used
+    to skip a ``MeshNode``'s ``ref`` entirely on the theory that "a ``Ref`` is
+    a handful of scalars", which held for a ``LibraryRef`` (a job id and a
+    filename) but not for a ``PrimitiveRef`` whose ``params`` can carry a
+    lathe or sweep profile of thousands of points -- unlike ``material``,
+    which is always shared by identity, a ``Ref`` is a value type held once
+    by the one node naming it, so there is no double-charge to avoid here.
     """
     total = 0
     for n, _parent, _index, _depth in walk([node]):
         total += n.translation.nbytes + n.rotation.nbytes + n.scale.nbytes
         total += _props_bytes(n.properties)
+        if isinstance(n, MeshNode):
+            total += ref_bytes(n.ref)
     return total

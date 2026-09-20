@@ -984,6 +984,26 @@ def on_task_done(ctx: Any, done: Any) -> None:
             _adopt_import(ctx, result)
         return
 
+    if name == "clay-readiness":
+        # The 2026-09-20 audit's clay-05: check_readiness now backgrounds
+        # readiness.validate rather than calling it on the frame thread, so
+        # the result lands here instead of directly on the tab. A closed tab
+        # (state.get returns None) has nowhere to put it -- the same "the tab
+        # may be gone by the time this comes back" reading every other
+        # per-tab task key in this function already has to handle.
+        tab = state.get(key.split(":", 1)[1]) if ":" in key else None
+        if tab is not None:
+            from ....kernels.mesh import readiness
+
+            if isinstance(result, readiness.Report):
+                tab.readiness_report = result
+                # ``done.tag`` is the head check_readiness captured *before*
+                # submitting -- see that function's own comment on why this
+                # is read from the tag rather than from tab.doc.history.head
+                # now that the call is asynchronous.
+                tab.readiness_head = done.tag
+        return
+
     if name == "clay-bg":
         # Clay's background ops -- Decimate (tranche 1) and, since tranche 4,
         # Retopologize/Smart Unwrap/Bake Detail -- all land here; see
@@ -1193,20 +1213,43 @@ def redo(ctx: Any, tab: Any) -> None:
 
 
 def check_readiness(ctx: Any, tab: ClayTab, profile: str) -> None:
-    """Run ``readiness.validate`` against *tab*'s document, on demand.
+    """Run ``readiness.validate`` against *tab*'s document, on a task thread.
 
     O(corners) -- a BFS per visible object, see that module's own cost section
     -- so this runs once per press of the bridge's "Check" button, never per
-    frame. The result and the document's own history head land on the tab
-    (``readiness_report``/``readiness_head``) so the pane can tell a caller
-    "out of date" rather than quietly showing a verdict the document has since
-    moved past.
-    """
-    from ....kernels.mesh import readiness
+    frame. Submitted through ``ctx.submit`` rather than called here directly:
+    the 2026-09-20 audit's clay-05 measured ``readiness.validate`` at 522 ms
+    for 50 visible objects, 3.7 s for 800, 15.1 s for 3,200, all of it on the
+    frame thread before this fix -- the same "nothing blocking runs on the
+    main thread" rule every other document-changing call in this module
+    already follows (this module's own docstring). The result lands on the
+    tab in :func:`on_task_done` once it comes back, keyed
+    ``clay-readiness:<tab uid>`` like ``clay-bg``'s own per-tab keys, so a
+    tab closed while the check is still running has nowhere to land it.
 
+    ``readiness.validate`` can also refuse outright now
+    (``readiness.MAX_VALIDATE_OBJECTS``, the same audit's other half): raised
+    inside ``run()``, on the task thread, it reaches the user as an ordinary
+    task-failure toast (``tasks.CARRIES_ITS_OWN_MESSAGE`` already lists
+    ``OpError``) rather than needing its own handling here.
+    """
     tab.readiness_profile = profile
-    tab.readiness_report = readiness.validate(tab.doc, profile)
-    tab.readiness_head = tab.doc.history.head
+    doc = tab.doc
+    # Captured *before* the task ever runs, not after it returns: once this
+    # is backgrounded, an edit landing while the check is still on the pool
+    # would otherwise get the *new* head attached to a report computed
+    # against the *old* one -- the exact "stale but marked fresh" reading
+    # ``readiness_head`` exists to prevent (see ``ClayTab``'s own comment),
+    # just moved to a different point in time than the old, synchronous call
+    # had to worry about.
+    head = doc.history.head
+
+    def run() -> Any:
+        from ....kernels.mesh import readiness
+
+        return readiness.validate(doc, profile)
+
+    ctx.submit(f"clay-readiness:{tab.uid}", run, tag=head)
 
 
 def step_history(ctx: Any, tab: Any, index: int) -> bool:

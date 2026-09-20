@@ -589,3 +589,49 @@ def test_quit_summary_warns_while_an_update_download_is_in_flight():
 
     assert summary, "an update download in flight must not pass through silently"
     assert "update" in summary.lower()
+
+
+# --- shell-01 (2026-09-20 audit): the export/save predicate missed every key
+# that does not spell "export" or "save" immediately before the colon --------
+
+
+def test_quit_summary_warns_while_a_clay_mesh_export_or_a_mason_scene_export_is_busy():
+    """shell-01 (2026-09-20 audit): ``_quit_summary`` matched "-export:" as a
+    literal substring, which only ever matched keys spelled exactly
+    "<mode>-export:<uid>" -- Clay's own file export queues as
+    "clay-exportfile:<uid>" and Mason's two export buttons queue as
+    "mason-exportglb:<uid>"/"mason-exportobj:<uid>", none of which have a
+    colon immediately after "export", so quitting mid-write through any of
+    the three gave no warning at all.
+    """
+    from realmspinner.studio import main as main_mod
+
+    app = main_mod.App.__new__(main_mod.App)
+    app.runtime = SimpleNamespace(current_job_id=None)
+
+    for key in ("clay-exportfile:tab-1", "mason-exportglb:tab-1", "mason-exportobj:tab-1"):
+        app.app_ctx = SimpleNamespace(
+            cache=SimpleNamespace(active=None),
+            tasks=SimpleNamespace(busy_keys={key}),
+        )
+        assert app._quit_summary(), key
+
+
+def test_quit_summary_warns_while_a_packwright_save_task_is_busy():
+    """shell-01 (2026-09-20 audit): the same predicate checked a bare
+    "save:" prefix, which no real key has -- every mode queues its save as
+    "<mode>-save:<uid>" (and Packwright's "Save As" as
+    "packwright-saveas:<uid>"), so quitting mid-save gave no warning in any
+    mode, not just Packwright.
+    """
+    from realmspinner.studio import main as main_mod
+
+    app = main_mod.App.__new__(main_mod.App)
+    app.runtime = SimpleNamespace(current_job_id=None)
+
+    for key in ("packwright-save:tab-1", "packwright-saveas:tab-1", "clay-save:tab-1"):
+        app.app_ctx = SimpleNamespace(
+            cache=SimpleNamespace(active=None),
+            tasks=SimpleNamespace(busy_keys={key}),
+        )
+        assert app._quit_summary(), key

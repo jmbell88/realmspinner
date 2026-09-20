@@ -538,6 +538,53 @@ def test_style_lock_is_carried_rather_than_interpreted(svc):
     assert _sheet(svc, _materials(svc))["style_lock"] is False
 
 
+@pytest.mark.asyncio
+async def test_a_style_locked_reference_less_sheets_recipe_records_the_ip_adapter(
+    svc, fake_pipelines
+):
+    """The 2026-09-20 audit, finding plotter-04, sharing plotter-03's
+    condition: ``_q_tileset._tile_set``'s ``later_cond`` hands the first
+    material to the IP-Adapter as every pass after it whenever
+    ``style_lock and count > 1``, whether or not a reference was uploaded --
+    so the published sidecar's ``recipe`` block has to say the encoder ran
+    under that same condition. Before this fix it was written only when
+    ``has_reference``, so a style-locked, reference-less set's own recipe
+    could not show that its later materials were conditioned through the
+    adapter at all.
+
+    Runs the real door (this file's own convention) and then a real worker
+    over the door's own store and config -- the recipe is built deep inside
+    ``_q_tileset._tile_set`` and there is no shortcut to it that would not
+    also test the fix by construction."""
+    import asyncio
+    import json
+    import time
+
+    from realmspinner.queue import Worker
+
+    made = _materials(svc, style_lock=True)
+    job_id = made["id"]
+
+    worker = Worker(svc.config, svc.store)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 60.0
+        while time.monotonic() < deadline:
+            if svc.store.get(job_id)["status"] in ("done", "error", "cancelled"):
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("job did not finish before timeout")
+    finally:
+        await worker.shutdown()
+
+    row = svc.store.get(job_id)
+    assert row["error"] is None and row["status"] == "done"
+    doc = json.loads((svc.config.job_dir(job_id) / "sheet.json").read_text())
+    assert doc["recipe"].get("ip_adapter") == "plus"
+    assert doc["recipe"].get("ip_scale") == models.DEFAULT_IP_SCALE
+
+
 # -- the palette ------------------------------------------------------------
 
 

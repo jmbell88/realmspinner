@@ -430,6 +430,30 @@ def test_compound_refuses_an_empty_face_group_list():
         cl.compound(mesh, face_groups=[])
 
 
+def test_compound_with_an_out_of_range_face_index_raises_op_error_not_index_error():
+    """The 2026-09-20 audit, finding clay-14: an out-of-range face id in a
+    hand-supplied ``face_groups`` used to reach ``_corners_of_faces``'s
+    ``mesh.starts[f]`` indexing as a bare ``IndexError``, not this module's
+    own named :class:`OpError` refusal every other malformed input raises.
+    """
+    mesh = bp.box((1.0, 1.0, 1.0))
+    n_faces = bm.face_count(mesh)
+    with pytest.raises(OpError):
+        cl.compound(mesh, face_groups=[[0, n_faces]])
+
+
+def test_compound_with_a_negative_face_index_raises_op_error_not_silently_wrapping():
+    """Same finding, the other half: a negative face id did not raise at
+    all -- ``_corners_of_faces`` indexed ``mesh.starts`` (one longer than the
+    face count) directly with it, so ``-2`` silently returned the *last*
+    face's corners instead of the second-to-last one a caller would expect,
+    with no error anywhere to say the id was never checked.
+    """
+    mesh = bp.box((1.0, 1.0, 1.0))
+    with pytest.raises(OpError):
+        cl.compound(mesh, face_groups=[[0, -2]])
+
+
 # --- registry -----------------------------------------------------------------
 
 

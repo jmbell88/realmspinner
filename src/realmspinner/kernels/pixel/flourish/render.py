@@ -177,6 +177,18 @@ def render(
         if plane is None:
             continue
         if mod.REPLACES_BELOW:
+            # The 2026-09-20 audit, finding inker-07: the Opacity slider is
+            # drawn identically for every layer kind, but a REPLACES_BELOW
+            # layer (distortion, today the only one) took this branch
+            # unconditionally and never read ``layer.opacity`` at all -- the
+            # slider changed the stored value but nothing the renderer drew.
+            # Lerp between what was below before this layer ran and what it
+            # produced, so 0 is "as if this layer were not here" (matching
+            # every non-replacing layer's own opacity=0) and 1 is the
+            # unchanged full effect.
+            if running is not None and layer.opacity < 1.0:
+                weight = np.float32(max(0.0, layer.opacity))
+                plane = running * (np.float32(1.0) - weight) + plane * weight
             running = plane
             out[layer.uid] = plane
             continue

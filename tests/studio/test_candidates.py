@@ -538,6 +538,82 @@ def test_the_picker_reads_grades_once_per_group_not_per_frame(svc):
     assert len(calls) == 1
 
 
+def test_pending_cached_and_grades_never_answer_for_a_different_cache_object_that_reused_a_freed_ids_address(  # noqa: E501
+    svc,
+):
+    """The 2026-09-20 audit, finding create-05: both memos key on
+    ``id(cache)`` alone, and CPython is free to hand a freed object's
+    address to a brand new one -- the audit reproduced this in 19,993 of
+    20,000 create-destroy-create cycles. Because neither cache holds a
+    strong reference to the object the id came from, nothing keeps a
+    destroyed cache's memo from being served to an unrelated live cache that
+    happens to occupy the address it left behind.
+
+    An actual GC-timed address collision is flaky to force in a single
+    test, so this plants the exact situation an address reuse produces: an
+    entry keyed on the id of a cache that is very much alive, but which was
+    not the cache that produced the memoized answer. If the memo trusts the
+    bare id, it hands back the wrong object's answer; if it holds the cache
+    itself (or another strong reference) it can never be fooled this way,
+    because the planted key can never compare equal to one built from a
+    live, different object.
+    """
+    from types import SimpleNamespace
+
+    from realmspinner.studio import candidates as candidates_mod
+    from realmspinner.studio.panes import candidates_panel
+
+    class _FakeCache:
+        def __init__(self, jobs, generation):
+            self.jobs = jobs
+            self._generation = generation
+
+    # --- candidates.pending_cached ---
+    live = _FakeCache([_row("real", "real-group", 0)], 0)
+    stale_group = candidates_mod.Group("stale", [_row("ghost", "stale-group", 0)])
+    saved_pending_cache = candidates_mod._PENDING_CACHE
+    try:
+        # What a destroyed cache's memo looks like if its id is reused: a
+        # key built from a bare id, planted under the id the *live* object
+        # now happens to occupy.
+        candidates_mod._PENDING_CACHE = ((id(live), 0), stale_group)
+        result = candidates_mod.pending_cached(live)
+        assert result is not None
+        assert result.group == "real-group", (
+            "pending_cached served a different cache's stale memo because "
+            "the key trusted a bare id(cache) instead of a strong reference"
+        )
+    finally:
+        candidates_mod._PENDING_CACHE = saved_pending_cache
+
+    # --- candidates_panel._grades ---
+    source = _reference(svc)
+    result = svc_jobs.promote_candidates(svc, source, count=2)
+    for job_id in result["ids"]:
+        svc.store.set_status(job_id, "done")
+    from realmspinner.studio.jobs_cache import JobsCache
+
+    live_jobs_cache = JobsCache(svc)
+    live_jobs_cache.tick()
+    group = candidates_mod.pending(live_jobs_cache.jobs)
+    member_ids = [m["id"] for m in group.members]
+    stale_grades = {"someone-elses-job": 5}
+    saved_grades_cache = candidates_panel._GRADES_CACHE
+    try:
+        candidates_panel._GRADES_CACHE = (
+            (id(live_jobs_cache), 0, group.group, tuple(member_ids)),
+            stale_grades,
+        )
+        ctx = SimpleNamespace(svc=svc, cache=live_jobs_cache)
+        grades = candidates_panel._grades(ctx, group)
+        assert grades != stale_grades, (
+            "_grades served a different cache's stale memo because the key "
+            "trusted a bare id(cache) instead of a strong reference"
+        )
+    finally:
+        candidates_panel._GRADES_CACHE = saved_grades_cache
+
+
 def test_pending_group_lookup_is_not_recomputed_per_frame_for_an_unchanged_job_list(
     svc, monkeypatch
 ):

@@ -392,6 +392,36 @@ def test_alt_drag_orbits_even_when_the_press_lands_on_a_pose_marker(monkeypatch)
     assert stub.editor.selected is None, "Alt+drag must not select the marker it started over"
 
 
+def test_pose_mode_right_click_menu_waits_for_a_clean_release():
+    """``_press`` used to open the joint menu straight from the button-3
+    *press*, bypassing ``FrameOps._rmb_release``'s four-pixel slop rule -- so
+    a right-drag (grabbing button 3 mid-orbit, say) still popped the menu.
+    The 2026-09-20 audit, finding create-04. ``_rmb_release`` is exercised for
+    real here, the same unbound-method-over-a-stub pattern the Alt+drag test
+    above uses, because the slop arithmetic lives there and a second copy of
+    it in this test would only prove the copy agrees with itself."""
+    stub = SimpleNamespace(
+        pose_mode=True,
+        menu_request=None,
+        _rmb_at=None,
+        _last_mouse=(0.0, 0.0),
+    )
+
+    consumed = Viewer._press(stub, 3, (10.0, 10.0))
+    assert consumed is True
+    assert stub.menu_request is None, "the menu must not open on the press itself"
+
+    # A release more than the four-pixel slop away is a drag: no menu.
+    assert Viewer._rmb_release(stub, (40.0, 10.0)) is True
+    assert stub.menu_request is None
+
+    # A second press, released within the slop, is a clean click: the menu
+    # opens, at the release position ``_rmb_release`` records.
+    Viewer._press(stub, 3, (10.0, 10.0))
+    assert Viewer._rmb_release(stub, (12.0, 11.0)) is True
+    assert stub.menu_request == (12.0, 11.0)
+
+
 def test_a_ghost_puts_unnamed_bones_at_rest_not_at_the_live_pose():
     """A key lists only the bones it moves, so a ghost of that key is what
     ``apply_preset`` would show -- everything else back at rest. Reading the

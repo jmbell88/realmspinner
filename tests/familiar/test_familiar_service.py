@@ -264,6 +264,32 @@ def test_a_key_file_deleted_mid_request_is_a_familiar_refusal_not_an_unclassifie
     assert excinfo.value.reason == "unhealthy"
 
 
+def test_a_key_file_absent_when_the_request_starts_is_an_unhealthy_refusal_not_an_http_one(
+    monkeypatch,
+):
+    """The 2026-09-20 audit (familiar-02): ``llama_client._headers`` raises a
+    plain ``RuntimeError("llama-server has no key file -- it is not
+    running")`` when ``server.key_path`` is already ``None`` at the start of
+    a request -- a stopped server, the same story as the sibling race the
+    test above covers (a raw ``FileNotFoundError`` when the key *file*
+    vanishes mid-read). That sibling was mapped to ``"unhealthy"`` by the
+    2026-09-18 familiar-01 fix, but ``_reason_for`` had no branch matching
+    this RuntimeError's own sentence, so it fell through to the catch-all
+    ``"http"`` bucket instead -- the same stopped-server failure classified
+    two different ways depending on which side of the race a request landed
+    on, and the pane picks its icon/action off ``reason``."""
+
+    async def fake_chat(*args, **kwargs):
+        raise RuntimeError("llama-server has no key file -- it is not running")
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    with pytest.raises(FamiliarRefusal) as excinfo:
+        svc_familiar.chat_reply(_FakeSvc(), "hello")
+
+    assert excinfo.value.reason == "unhealthy"
+
+
 def test_an_unparseable_reply_is_a_parse_refusal(monkeypatch):
     """A reply with no fenced ``{"calls": [...]}}`` JSON must surface as a
     ``FamiliarRefusal`` with reason ``"parse"`` -- ``contract.parse_calls``'s

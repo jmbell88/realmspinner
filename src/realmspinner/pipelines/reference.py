@@ -579,7 +579,14 @@ def normalise(
 
     canvas = Image.new(src.mode, (side, side), background + ((0,) if src.mode == "RGBA" else ()))
     box = ((side - nw) // 2, (side - nh) // 2)
-    canvas.paste(subject, box, subject if src.mode == "RGBA" else None)
+    # No mask argument. The 2026-09-20 audit (pipelines-01): handing an RGBA
+    # image to paste as its own mask does not composite it -- PIL blends
+    # every band, alpha included, by the mask's own alpha value, so a soft
+    # (non-binary) rim pixel comes back with its alpha squared and its RGB
+    # dragged toward the canvas underneath. This is the exact misuse
+    # asset2d.icon()/sprite() were already fixed for; a straight paste with
+    # no mask copies the pixel as-is instead.
+    canvas.paste(subject, box)
 
     out_report = measure(canvas)
     # The 2026-09-11 audit (pipelines-02): this used to replace ``extra``

@@ -364,6 +364,39 @@ def test_an_edit_with_one_field_left_blank_sends_none_for_it_not_empty_string(
     assert seen["edit_lyrics"] == "[verse]\nreal words"
 
 
+def test_derive_is_blocked_with_recipe_panel_toast_when_the_music_model_is_missing(
+    ctx, monkeypatch
+):
+    """The 2026-09-20 audit, finding muse-01. ``generate`` and
+    ``compose_from_sirens`` both call ``model_gate.missing`` before reaching
+    the door, and ``generate``'s own docstring claims every entry into a
+    music job inherits that check -- but ``derive`` (the "Make more" popup's
+    Queue it) never did, so deriving with the ACE-Step weights gone reached
+    ``derive_music_job``'s own refusal, which names a field no control in the
+    derive popup carries, instead of the mode's own gate pointing at the
+    Recipe panel.
+
+    Fails against the unfixed code, which has no ``model_gate`` check in
+    ``derive`` at all and calls ``derive_music_job`` regardless of
+    ``ctx.model_rows``.
+    """
+    from realmspinner.service import jobs as svc_jobs
+
+    called: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        svc_jobs,
+        "derive_music_job",
+        lambda svc, job_id, **kw: called.append(kw) or {"ids": ["x"]},
+    )
+    ctx.model_rows = [{"row_key": svc_jobs.MUSIC_ROWS[0], "present": False}]
+    muse_mode.open_derive(ctx, "parent123", "retake")
+
+    assert muse_mode.derive(ctx) is False
+    assert called == [], "the model gate must refuse before the door is ever asked"
+    assert ctx.toasts and ctx.toasts[-1][1] == "warn"
+    assert "music model" in ctx.toasts[-1][0].lower()
+
+
 def test_derive_with_no_take_selected_is_a_no_op(ctx, monkeypatch):
     from realmspinner.service import jobs as svc_jobs
 

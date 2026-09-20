@@ -56,6 +56,37 @@ __all__ = ["concave_faces", "corner_triangles", "fan_corners"]
 # subdivided geometry.
 TURN_EPS = 1e-6
 
+#: The largest corner count of one *suspect* (concave) face
+#: :func:`corner_triangles` will hand to :func:`_earclip`, its O(n^2)
+#: pure-Python ear search. The 2026-09-20 audit's clay-02 found no ceiling of
+#: any kind here -- unlike every sibling growth/walk op in this package --
+#: reachable from the frame thread on every draw and every pick
+#: (:func:`~.adjacency.cached_triangulation`), from an MCP ``sweep`` outline
+#: (whose length ``validate.py`` documents as "the caller's to choose"), and
+#: from any imported GLB with a concave n-gon in it: 671 ms at 3,200 corners,
+#: 2.67 s at 6,400, 10.7 s at 12,800.
+#:
+#: Measured on this machine with a comb-shaped polygon (alternating near/far
+#: teeth, reflex at every other vertex -- close to the worst case the O(n^2)
+#: containment scan can see) fed straight to :func:`_earclip`:
+#:
+#: | corners | _earclip() |
+#: |--------:|-----------:|
+#: |     503 |      63 ms |
+#: |   1,003 |     241 ms |
+#: |   1,503 |     547 ms |
+#: |   2,003 |     984 ms |
+#: |   2,503 |   1,528 ms |
+#:
+#: ...quadratic, crossing a second around 2,000 corners. Past this ceiling,
+#: :func:`corner_triangles` leaves the face as the plain fan
+#: :func:`fan_corners` already computed for it rather than raising -- the
+#: module's own stated rule ("rendering never raises"): a wrong triangulation
+#: on one oversized face is a visible defect the user can fix (weld it,
+#: subdivide it, split it), while an exception here would take the frame loop
+#: down from inside a draw.
+MAX_EARCLIP_FACE_CORNERS = 1_200
+
 
 def fan_corners(starts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """``(tri_corners, tri_face)`` fanning every face from its first corner.
@@ -140,6 +171,11 @@ def corner_triangles(
     unit_n = _unit(normals.astype("f8"))
     for f in suspect.tolist():
         lo, hi = int(starts[f]), int(starts[f + 1])
+        if hi - lo > MAX_EARCLIP_FACE_CORNERS:
+            # See MAX_EARCLIP_FACE_CORNERS: past the ceiling, leave this face
+            # as the fan `fan_corners` already wrote into `corners` above,
+            # rather than running the O(n^2) ear search on the frame thread.
+            continue
         pts = _flatten(positions[loops[lo:hi]].astype("f8"), unit_n[f])
         local = _earclip(pts)
         corners[offsets[f] : offsets[f] + per_face[f]] = lo + local

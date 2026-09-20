@@ -716,7 +716,10 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         ),
     )
     if changed:
-        form["trellis_max_tokens"] = max(0, int(value))
+        # Third of three siblings with no ceiling (the 2026-09-20 audit,
+        # finding create-01): band and tex_res were fixed 2026-09-18, this
+        # one and its two neighbours below still committed with a floor only.
+        form["trellis_max_tokens"] = create_mesh.clamp_max_tokens(int(value))
     _hint(ctx, form, "trellis_max_tokens", form["trellis_max_tokens"])
 
     changed, value = form_ui.number(
@@ -729,7 +732,8 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         ),
     )
     if changed:
-        form["trellis_decim"] = max(-1, int(value))
+        # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
+        form["trellis_decim"] = create_mesh.clamp_decim(int(value))
     _hint(ctx, form, "trellis_decim", form["trellis_decim"])
 
     changed, value = form_ui.number(
@@ -740,7 +744,8 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         ),
     )
     if changed:
-        form["trellis_atlas"] = max(0, int(value))
+        # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
+        form["trellis_atlas"] = create_mesh.clamp_atlas(int(value))
     _hint(ctx, form, "trellis_atlas", form["trellis_atlas"])
 
 

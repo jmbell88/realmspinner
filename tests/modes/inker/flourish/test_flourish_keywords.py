@@ -43,6 +43,35 @@ def test_a_colour_word_that_recognises_smoke_reports_it_has_no_colour_rather_tha
     assert not any("No words I know" in n for n in notes)
 
 
+def test_a_colour_word_naming_sprite_does_not_also_recolour_every_other_layer():
+    """The 2026-09-20 audit, finding inker-08: ``sprite`` has a real colour
+    slot (``_COLOUR_SLOTS["sprite"]``) but was missing from ``_KIND_WORDS``,
+    so ``_kind_after`` could never resolve "sprite" to a target kind --
+    "green sprite" left ``target`` at ``None``, which the colour loop reads
+    as "repaint every coloured layer", silently recolouring the Core layer
+    too. Reproduced against the unfixed code: "green sprite" recoloured 2
+    layer(s) although only the sprite was named."""
+    rec = flourish.from_dict(
+        {
+            "name": "test",
+            "seed": 1,
+            "size": [32, 32],
+            "supersample": 1,
+            "fps": 12,
+            "phases": [{"name": "p", "frames": 1}],
+            "layers": [
+                {"kind": "core", "name": "Core", "params": {"radius": 8.0}},
+                {"kind": "sprite", "name": "Sprite", "params": {"texture": "tex", "size": 14.0}},
+            ],
+        }
+    )
+    core_before = _layer(rec, "core", "Core").params
+    after, notes = keywords.apply(rec, "green sprite")
+    assert _layer(after, "sprite", "Sprite").params["tint"] == keywords.COLOURS["green"][0]
+    assert _layer(after, "core", "Core").params == core_before, "the untargeted layer must not move"
+    assert any("recoloured 1 layer" in n for n in notes)
+
+
 def test_more_and_no_change_counts_and_visibility():
     before = _fireball()
     rec, notes = keywords.apply(before, "more sparks, no smoke")
@@ -140,6 +169,35 @@ def test_apply_diff_drops_a_malformed_curve_value_instead_of_raising():
     assert core.params["radius"] == prims.params_of("core")["radius"].default
     assert core.params["intensity"] == 1.5
     assert any("radius" in n for n in notes)
+
+
+def test_apply_diff_cannot_reach_a_layer_whose_name_a_shipped_preset_duplicates():
+    """The 2026-09-20 audit, finding inker-06: ``apply_diff``'s ``by_name``
+    dict comprehension kept only the *last* match for a duplicate name -- the
+    shipped ``buff`` preset used to ship two layers literally named "Glow"
+    (fixed alongside this: the second is now named "Outer glow") -- so a diff
+    naming "Glow" could never reach the first layer while still reporting
+    success. Reproduced here against a recipe with the same shape, since the
+    preset itself no longer duplicates the name: two layers sharing a name
+    must be refused, not silently resolved to whichever the dict kept last.
+    """
+    before = flourish.from_dict(
+        {
+            "name": "test",
+            "seed": 1,
+            "size": [32, 32],
+            "supersample": 1,
+            "fps": 12,
+            "phases": [{"name": "p", "frames": 1}],
+            "layers": [
+                {"kind": "core", "name": "Glow", "params": {"radius": 6.0}},
+                {"kind": "glow", "name": "Glow", "params": {"radius": 10.0}},
+            ],
+        }
+    )
+    rec, notes = keywords.apply_diff(before, {"layers": {"Glow": {"radius": 99}}})
+    assert rec == before, "an ambiguous name must change nothing, not silently pick the last"
+    assert any("Glow" in n and "2 layers" in n for n in notes)
 
 
 def test_the_model_view_has_no_uids_and_names_every_range():

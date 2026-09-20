@@ -17,11 +17,14 @@ of thing that gets "simplified" back into a bug, so it is also in
 ``dev/INVARIANTS.md``.
 
 **Importing ``wavout`` from here is the existing pattern, not an exception.**
-``tests/modes/sirens/test_sirens_imports.py`` pins what files *inside* that package
-import, and ``sirens_io.export_plan`` already does ``from .sirens import
-wavout`` from a ``studio/`` module. It is a RIFF encoder misfiled under
-``sirens/`` because Sirens was its first caller; if a third one ever appears it
-should be promoted to ``studio/wavout.py``.
+The 2026-09-20 audit, finding muse-04: this paragraph used to say ``wavout``
+was still misfiled under ``sirens/`` and "should be promoted to
+``studio/wavout.py``" if a third caller ever turned up. That move already
+happened -- it now lives at ``kernels/audio/wavout.py``, and both this module
+and ``sirens/fileio.py`` import it from there (``from ....kernels.audio import
+wavout``), which is the RIFF encoder finding the layer a headless kernel is
+allowed to live in rather than staying misfiled under the mode that happened
+to write it first.
 """
 
 from __future__ import annotations

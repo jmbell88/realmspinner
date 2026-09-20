@@ -197,6 +197,26 @@ def test_a_matrix_node_decomposes_to_the_same_transform(tmp_path):
     assert node.world[:3, 3] == pytest.approx([1, 2, 3])
 
 
+def test_a_sheared_node_matrix_is_refused_rather_than_silently_misdecomposed():
+    """The 2026-09-20 audit, finding clay-16: ``m3.decompose``'s own
+    docstring assumes no shear, but a hand-authored node matrix is untrusted
+    and can carry one -- and decompose has no way to represent a shear, so it
+    used to load silently with a wrong rotation and scale. A shear (here: X
+    sheared along Y, on top of an ordinary scale) must now be refused rather
+    than distorted.
+    """
+    shear = np.eye(4)
+    shear[0, 1] = 1.5  # shears X as a function of Y -- decompose cannot see this
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"name": "n", "matrix": list(shear.T.flatten())}],
+    }
+    with pytest.raises(ValueError, match="shear"):
+        gltf.load(_glb(doc, b""))
+
+
 # --- materials --------------------------------------------------------------
 
 
@@ -613,6 +633,65 @@ def test_an_accessor_missing_count_or_componenttype_raises_the_named_valueerror(
     )
     with pytest.raises(ValueError, match="type"):
         gltf.load(missing_type)
+
+
+def test_a_non_numeric_accessor_count_raises_the_named_valueerror_not_a_bare_typeerror():
+    """The 2026-09-20 audit, finding clay-15: ``count`` was read straight off
+    untrusted JSON into ``int(...)`` with no type check, unlike every sibling
+    index-shaped field this loader validates via ``_check_int_index`` -- a
+    non-numeric value (a list, here) raised a bare ``TypeError`` instead of
+    this loader's own named ``ValueError`` refusal.
+    """
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "type": "VEC3", "count": [3]}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+    )
+    with pytest.raises(ValueError, match="count"):
+        gltf.load(data)
+
+
+def test_a_non_numeric_bufferview_byteoffset_raises_the_named_valueerror_not_a_bare_typeerror():  # noqa: E501
+    """The 2026-09-20 audit, finding clay-17: ``byteOffset``/``byteStride``
+    were used in arithmetic with no numeric type check at all. A string
+    ``byteOffset`` used to raise a bare ``TypeError`` here, before
+    ``_check_span`` ever got a chance to bound it against the buffer.
+    """
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "type": "VEC3", "count": 3}],
+        [{"buffer": 0, "byteOffset": "0", "byteLength": len(binary)}],
+        binary,
+    )
+    with pytest.raises(ValueError, match="byteOffset"):
+        gltf.load(data)
+
+
+def test_a_numeric_looking_string_bytestride_does_not_silently_repeat_bytes():
+    """Same finding, the other half: a numeric-looking string ``byteStride``
+    is truthy, so it survived the ``stride = view.get("byteStride") or item``
+    fallback, then reached ``stride * (count - 1)`` below as Python string
+    repetition rather than an offset computation -- wrong geometry with no
+    error anywhere, instead of this loader's own named ``ValueError``.
+    """
+    positions = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype="<f4")
+    stride = 16
+    binary = b"".join(p.tobytes() + b"\x00\x00\x00\x00" for p in positions)
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [
+            {
+                "buffer": 0,
+                "byteOffset": 0,
+                "byteLength": len(binary),
+                "byteStride": str(stride),
+            }
+        ],
+        binary,
+    )
+    with pytest.raises(ValueError, match="byteStride"):
+        gltf.load(data)
 
 
 def test_a_required_extension_this_loader_does_not_implement_is_refused():
