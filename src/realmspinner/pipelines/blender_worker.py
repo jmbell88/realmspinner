@@ -681,14 +681,23 @@ def _evaluated_corners(bpy: Any, meshes: Sequence[Any]) -> list[tuple[float, flo
 
 def _socket_world_point(
     arm_obj: Any, socket: Mapping[str, Any]
-) -> tuple[float, float, float] | None:
+) -> tuple[tuple[float, float, float], float] | None:
     """Where a named socket sits in the world, in the pose that is applied now.
 
-    A socket is ``{"bone", "offset": [along, lateral, up], "reach"}`` with the
-    offset in *bone-length* units, so it survives a re-fit onto a character of
-    a different size -- the same reasoning ``delta`` pose space is authored
-    under. Blender puts a bone's own +Y along the bone, +X lateral and +Z up,
-    which is the order the offset is written in.
+    -> ``(point, bone_length)``, because **both** of a socket's measurements are
+    in bone-length units and one bone lookup has to answer for both. ``offset``
+    is ``(along, lateral, up)`` in those units and so is ``reach``
+    (``characters.family.Socket``: "the radius, in the same units"), so a caller
+    that converts the offset here and the radius somewhere else is one rename
+    away from converting them against two different scales -- which is exactly
+    the defect the 2026-09-20 P28 sitting found, where ``_pose_union`` scaled
+    ``reach`` by the character's *height* instead and framed a 2.6 m ogre into a
+    25-unit window, rendering it 6 px tall in a 64 px cell.
+
+    The offset survives a re-fit onto a character of a different size -- the
+    same reasoning ``delta`` pose space is authored under. Blender puts a bone's
+    own +Y along the bone, +X lateral and +Z up, which is the order the offset is
+    written in.
 
     An unknown bone costs the socket and never the sheet, the rule
     ``_apply_pose`` and ``_apply_root_translation`` already follow: a socket
@@ -704,7 +713,7 @@ def _socket_world_point(
     local = (float(lateral) * length, float(along) * length, float(up) * length)
     # pose-bone matrix is armature-object space; the object's own transform
     # carries it the rest of the way.
-    return _transform(arm_obj.matrix_world, _transform(pbone.matrix, local))
+    return _transform(arm_obj.matrix_world, _transform(pbone.matrix, local)), length
 
 
 def _sphere_corners(
@@ -815,8 +824,6 @@ def _pose_union(
     armature: Any,
     cells: Sequence[Mapping[str, Any]],
     sockets: Sequence[Mapping[str, Any]],
-    *,
-    rest_height: float,
 ) -> tuple[
     list[tuple[float, float, float]],
     dict[Any, dict[str, tuple[float, float, float]]],
@@ -866,11 +873,19 @@ def _pose_union(
         if sockets and armature is not None:
             points: dict[str, tuple[float, float, float]] = {}
             for socket in sockets:
-                point = _socket_world_point(armature, socket)
-                if point is None:
+                found = _socket_world_point(armature, socket)
+                if found is None:
                     continue
+                point, bone_length = found
                 points[str(socket.get("name") or socket.get("bone"))] = point
-                reach = float(socket.get("reach") or 0.0) * float(rest_height)
+                # **Bone lengths, not character heights** -- see
+                # ``_socket_world_point``. ``reach`` shares ``offset``'s unit by
+                # ``characters.family.Socket``'s own definition, and the shipped
+                # humanoid asks for 3.0 at each hand: read as heights that is a
+                # 7.8 m sphere on a 2.6 m ogre, and the union below dutifully
+                # framed for it. Found 2026-09-20 by the P28 sitting, which
+                # could not judge a 64 px character that rendered 6 px tall.
+                reach = float(socket.get("reach") or 0.0) * bone_length
                 if reach > 0.0:
                     corners.extend(_sphere_corners(point, reach))
             socket_points[key] = points
@@ -1648,9 +1663,7 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     # is why it is that constant and not a literal here.
     margin = float(spec.get("margin") or sheet.FRAME_MARGIN)
     progress(0.07, "Measuring poses")
-    union, socket_points, body_centres = _pose_union(
-        bpy, armature, cells, sockets, rest_height=max(hi[2] - lo[2], 1e-6)
-    )
+    union, socket_points, body_centres = _pose_union(bpy, armature, cells, sockets)
     if not union:
         # An empty cell list -- nothing to pose, so the union is the rest box.
         union = [(x, y, z) for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]

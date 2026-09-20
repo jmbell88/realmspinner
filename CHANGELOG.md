@@ -169,6 +169,16 @@ anything.
   resource and prompt requests with no guard around them, so a single bad frame ended the
   process and every call in flight with it — while the four neighbouring call types had
   been given exactly that guard already.
+- **Every generated character's sprite sheet was framed for a weapon ten times too big.**
+  A character's attachment points carry a *reach* — how far out from the hand a held thing
+  can swing — and the sheet renderer widened its camera to take that reach in. It read the
+  figure in the wrong unit: bone lengths, as every shipped character writes it, scaled
+  instead by the character's full height. The shipped humanoid asks for 3.0 at each hand,
+  which on a 2.6 m ogre is a 7.8 m sphere rather than a 20 cm one, so the camera framed a
+  window six times wider than the character and rendered it a handful of pixels tall in the
+  middle of an otherwise empty cell — on every direction of every animation, with the
+  sheet's own validation reporting no problem, because the checks look for cells that are
+  clipped or blank and a subject that small is neither.
 
 **Work that ran with nothing stopping it.** Fourteen operations could stall the app for
 seconds with no refusal and nothing to cancel, each now measured and given a ceiling: a

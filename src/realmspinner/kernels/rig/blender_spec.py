@@ -129,11 +129,15 @@ def sheet_spec(
     not clip rendering exactly as it did.
 
     ``sockets`` is ``[{"name", "bone", "offset": [along, lateral, up],
-    "reach"}]``: attachment points to project per cell, offsets in bone-length
-    units and reach in character heights so a socket list survives a re-fit
-    onto a character of another size. Written only when given, for the same
-    reason, and its presence is what makes the worker emit a ``sockets`` block
-    at all.
+    "reach"}]``: attachment points to project per cell, offset **and reach both
+    in bone-length units** -- ``characters.family.Socket``'s own definition, and
+    what the worker converts them by -- so a socket list survives a re-fit onto
+    a character of another size. This sentence used to say reach was in
+    character heights, which is the wrong unit and the one ``_pose_union``
+    implemented: the 2026-09-20 P28 sitting found every generated character
+    framed about ten times too wide as a result. Written only when given, for
+    the same reason as ``margin``, and its presence is what makes the worker
+    emit a ``sockets`` block at all.
     """
     spec: dict[str, Any] = {
         "op": "sheet",

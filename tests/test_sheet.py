@@ -1363,7 +1363,13 @@ def test_sockets_are_projected_per_cell_with_a_depth_order(tmp_path, monkeypatch
         {"index": 0, "yaw": 0.0, "pose": None, "frame": 0, "bones": {}},
         {"index": 1, "yaw": 180.0, "pose": None, "frame": 0, "bones": {}},
     ]
-    sockets = [{"name": "hand_r", "bone": "hand_r", "offset": [1.0, 0.0, 0.0], "reach": 0.2}]
+    # ``reach`` is the shipped humanoid's own weapon figure, in bone-length
+    # units (``characters.family.Socket``). It used to be 0.2 here, which is
+    # too small to widen the window once it is scaled by the 0.25 bone rather
+    # than by the character's height -- so the last assertion below would have
+    # passed on arithmetic nothing ships. See
+    # ``test_a_socket_reach_is_scaled_by_its_bone_not_the_character_height``.
+    sockets = [{"name": "hand_r", "bone": "hand_r", "offset": [1.0, 0.0, 0.0], "reach": 3.0}]
     bpy, cameras = _fake_sheet_render(monkeypatch, [_FakeMesh(rig, REST_BOX), rig])
     result = blender_worker.op_sheet(bpy, _sheet_spec_for(tmp_path, cells, sockets=sockets))
 
@@ -1378,6 +1384,47 @@ def test_sockets_are_projected_per_cell_with_a_depth_order(tmp_path, monkeypatch
     # The socket's own reach is part of the window: framing to the body alone
     # would clip an effect drawn at the hand.
     assert cameras[0].extent > _rest_extent()
+
+
+def test_a_socket_reach_is_scaled_by_its_bone_not_the_character_height(tmp_path, monkeypatch):
+    """The defect, found 2026-09-20 by the P28 sitting: ``_pose_union`` scaled a
+    socket's ``reach`` by the character's *height* while every shipped value is
+    in *bone-length* units, so the ortho window was framed for spheres about ten
+    times too big and the character rendered into a corner of its own cell. A
+    2.6 m ogre came back 6 px tall in a 64 px cell, on every direction of every
+    animation, with ``validation.ok`` true throughout -- the structural check
+    looks for clipped and blank cells, and a subject that small is neither.
+
+    One hand socket at the shipped humanoid's own ``reach`` of 3.0, on a 0.25
+    bone, inside a 2.0-tall rest box:
+
+    * correct: radius ``3.0 * 0.25 = 0.75`` about the socket at
+      ``(0.4, -0.25, 1.2)``, so the furthest corner from the orbit axis is
+      ``hypot(1.15, 1.0) = 1.5240``, the window is ``2 * 1.5240`` against a
+      2.0 height, and the extent is ``3.0480 * 1.12 = 3.4138``.
+    * the bug: radius ``3.0 * 2.0 = 6.0``, corner ``hypot(6.4, 6.25) = 8.9455``,
+      extent ``17.8910 * 1.12 = 20.0379`` -- a window 5.9x too wide.
+
+    Asserted as the exact extent rather than a bound: "not absurd" is what
+    shipped for three weeks, and the number is the claim.
+    """
+    from realmspinner.pipelines import blender_worker
+
+    hand = _FakePoseBone(
+        ((1.0, 0.0, 0.0, 0.4), (0.0, 1.0, 0.0, -0.5), (0.0, 0.0, 1.0, 1.2), (0.0, 0.0, 0.0, 1.0)),
+        0.25,
+    )
+    rig = _FakeArmature({"hand_r": hand})
+    cells = [{"index": 0, "yaw": 0.0, "pose": None, "frame": 0, "bones": {}}]
+    sockets = [{"name": "hand_r", "bone": "hand_r", "offset": [1.0, 0.0, 0.0], "reach": 3.0}]
+    bpy, cameras = _fake_sheet_render(monkeypatch, [_FakeMesh(rig, REST_BOX), rig])
+    blender_worker.op_sheet(bpy, _sheet_spec_for(tmp_path, cells, sockets=sockets))
+
+    assert cameras[0].extent == pytest.approx(3.4138, abs=1e-4)
+    # And the subject still occupies most of its cell, which is the thing a
+    # human is asked to judge and the thing the defect took away.
+    rest_height = REST_BOX[1][2] - REST_BOX[0][2]
+    assert 64.0 * rest_height / cameras[0].extent > 32.0
 
 
 def _rest_extent():

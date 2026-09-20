@@ -12,7 +12,7 @@ known-bad tree.
 
 Four checks, in the order that fails cheapest first:
 
-1. **Version lockstep** across four files, read directly rather than through
+1. **Version lockstep** across five files, read directly rather than through
    pytest -- it is the one failure that has actually happened, and it should be
    the first line of output rather than one assertion inside a six-minute run.
 2. **ruff**, seconds.
@@ -49,13 +49,13 @@ def _ok(what: str, detail: str = "") -> bool:
 
 
 def check_versions() -> bool:
-    """The four places a version is written, and they must agree.
+    """The five places a version is written, and they must agree.
 
     Read with regexes rather than by importing the package: this has to work
     before an install, and the failure it guards is *textual* -- one file edited
     and three forgotten.
 
-    ``INSTALL.md`` is the fourth and it was added late, on 2026-09-03, after it
+    ``INSTALL.md`` was the fourth and it was added late, on 2026-09-03, after it
     had sat two releases behind: it names the installer by filename
     (``RealmspinnerSetup-vN.N.N.exe``) twice, and being prose rather than a manifest
     it was outside every check here and in the suite. The other three surfaces
