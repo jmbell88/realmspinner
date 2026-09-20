@@ -20,10 +20,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio.modes.plotter import mode as plotter_mode
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
-from warlock.studio.modes.plotter.ui.panes import canvas as canvas
-from warlock.studio.shell import paintview
+from realmspinner.studio.modes.plotter import mode as plotter_mode
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.ui.panes import canvas as canvas
+from realmspinner.studio.shell import paintview
 
 
 class FakeDrawList:
@@ -172,8 +172,8 @@ def test_both_view_surfaces_offer_the_toggle_beside_the_grid():
     present in both -- which is more than the old assertion could say."""
     import inspect
 
-    from warlock.studio.modes.plotter.ui.panes import menu as plotter_menu
-    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
+    from realmspinner.studio.modes.plotter.ui.panes import menu as plotter_menu
+    from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     rows = {key: (label, chord) for key, label, chord in plotter_tools.VIEW_TOGGLES}
     assert rows["rulers"] == ("Rulers", "Ctrl+R")

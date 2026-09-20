@@ -1,6 +1,6 @@
 /* Selection contours: closed boundary loops around a thresholded mask.
  *
- * The reference (warlock.studio.inker.selection.contours + _chain) builds the
+ * The reference (realmspinner.studio.inker.selection.contours + _chain) builds the
  * four exposed-edge planes with numpy and then runs one Python iteration per
  * boundary pixel per direction, collecting unit segments that a dict/set walk
  * stitches into loops. On a 2048-square lasso that is tens of thousands of
@@ -9,10 +9,10 @@
  *
  * This is a grid-edge tracer instead: it walks the boundary directly on the
  * (w+1) by (h+1) vertex lattice, so every loop comes out already ordered and
- * nothing is hashed. See warlockc_contours in warlockc.h for the contract.
+ * nothing is hashed. See realmspinnerc_contours in realmspinnerc.h for the contract.
  */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
 /* Directions, indexed by the arrays below: +x, +y, -x, -y. Image coordinates,
  * so +y is down, which is what makes "left" (dy, -dx) come out as the table
@@ -84,7 +84,7 @@ static int edge_out(const tracer *t, int64_t x, int64_t y, int dir,
   }
 }
 
-int64_t warlockc_contours(const uint8_t *mask, int64_t stride, int64_t h,
+int64_t realmspinnerc_contours(const uint8_t *mask, int64_t stride, int64_t h,
                           int64_t w, uint8_t threshold, uint8_t *scratch,
                           int32_t *points_out, int64_t cap_pts,
                           int32_t *loop_lens_out, int64_t cap_loops) {

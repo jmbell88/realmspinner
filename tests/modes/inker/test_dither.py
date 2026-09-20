@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import dither
+from realmspinner.kernels.pixel import dither
 
 BLACK = (0, 0, 0, 255)
 WHITE = (255, 255, 255, 255)

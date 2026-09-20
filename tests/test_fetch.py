@@ -20,11 +20,11 @@ from pathlib import Path
 
 import pytest
 
-from warlock import config as config_module
-from warlock import fetch, models
-from warlock.config import Config
+from realmspinner import config as config_module
+from realmspinner import fetch, models
+from realmspinner.config import Config
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "warlock"
+SRC = Path(__file__).resolve().parents[1] / "src" / "realmspinner"
 
 
 # --- the record and the string it derives ------------------------------------
@@ -41,7 +41,7 @@ def test_a_fetch_renders_the_command_it_stands_for():
         "uvx hf download acme/thing "
         '--include "*.json" --include "*fp16.safetensors" '
         '--exclude "big.safetensors" '
-        "--local-dir $HOME/.warlock/models/thing"
+        "--local-dir $HOME/.realmspinner/models/thing"
     )
     # The default is *display only*. Given a resolved destination it renders
     # that instead, which is what ``fetch.download_text`` hands it and what
@@ -61,7 +61,7 @@ def test_the_download_text_is_what_doctor_prints():
         "uvx hf download stabilityai/sdxl-turbo "
         "--revision 71153311d3dbb46851df1931d3ca6e939de83304 "
         '--include "*.json" --include "*.txt" --include "*fp16.safetensors" '
-        '--exclude "sd_xl_turbo_1.0*" --local-dir $HOME/.warlock/models/sdxl-turbo'
+        '--exclude "sd_xl_turbo_1.0*" --local-dir $HOME/.realmspinner/models/sdxl-turbo'
     )
     # Two commands, joined by the two-space continuation doctor's
     # "download with:\n  " prefix lines up with.
@@ -69,15 +69,15 @@ def test_the_download_text_is_what_doctor_prints():
         "uvx hf download stabilityai/stable-diffusion-xl-base-1.0 "
         "--revision 462165984030d82259a11f4367a4eed129e94a7b "
         '--include "*.json" --include "*.txt" --include "*fp16.safetensors" '
-        "--local-dir $HOME/.warlock/models/sdxl-base-1.0\n"
+        "--local-dir $HOME/.realmspinner/models/sdxl-base-1.0\n"
         "  uvx hf download ByteDance/Hyper-SD "
         "--revision bc08d970a87c74c71209491d64e3525845698863 "
         "Hyper-SDXL-4steps-lora.safetensors "
-        "--local-dir $HOME/.warlock/models/loras"
+        "--local-dir $HOME/.realmspinner/models/loras"
     )
     # The rename, which is why the string could never simply be executed.
     assert models.BASE_MODELS["pixel"].download.endswith(
-        "  then rename $HOME/.warlock/models/loras/pytorch_lora_weights.safetensors "
+        "  then rename $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors "
         "to lcm-lora-sdxl.safetensors"
     )
     # The non-shell step, which the button deliberately does not run.
@@ -362,7 +362,7 @@ def test_the_readme_counts_the_registered_base_models():
     out here and read back off the registry."""
     from pathlib import Path
 
-    from warlock import models
+    from realmspinner import models
 
     words = {
         9: "Nine", 10: "Ten", 11: "Eleven", 12: "Twelve", 13: "Thirteen",
@@ -460,7 +460,7 @@ def test_only_turbo_honours_the_legacy_override(tmp_path):
 
 def test_a_plan_resolves_under_the_model_root_not_the_literal_models_dir(tmp_path):
     """The hardcoded ``--local-dir models/...`` is the README's spelling of the
-    default root; WARLOCK_T2I_ROOT has to relocate a fetch the way it already
+    default root; REALMSPINNER_T2I_ROOT has to relocate a fetch the way it already
     relocates a load."""
     cfg = _config(tmp_path)
     entry = fetch.find("base:sdxl")
@@ -500,7 +500,7 @@ def test_a_rendered_command_names_the_directory_the_fetch_actually_lands_in(tmp_
 
 
 def test_a_rendered_command_honours_the_turbo_only_override(tmp_path):
-    """``WARLOCK_T2I_DIR`` moves one entry, and the text has to move with it."""
+    """``REALMSPINNER_T2I_DIR`` moves one entry, and the text has to move with it."""
     elsewhere = tmp_path / "elsewhere"
     cfg = _config(tmp_path, turbo=elsewhere)
     turbo = fetch.download_text(cfg, "base", models.BASE_MODELS["turbo"])
@@ -511,7 +511,7 @@ def test_a_rendered_command_honours_the_turbo_only_override(tmp_path):
 
 
 def test_a_rendered_command_survives_a_space_in_the_path(tmp_path):
-    """`C:\\Users\\Jane Doe\\.warlock\\models` is an ordinary Windows home, and an
+    """`C:\\Users\\Jane Doe\\.realmspinner\\models` is an ordinary Windows home, and an
     unquoted path with a space in it is a command that silently downloads into
     the wrong directory (or fails, if you are lucky)."""
     cfg = _config(tmp_path / "a directory")
@@ -600,7 +600,7 @@ def test_a_plan_that_fits_is_not_refused(tmp_path, monkeypatch):
 def test_disk_admission_is_per_volume_not_charged_to_the_first_one(tmp_path, monkeypatch):
     """MDL-09: the plan's whole size was compared against ``jobs[0].dest``.
 
-    Right only while every fetch lands on one drive -- and ``WARLOCK_T2I_DIR``
+    Right only while every fetch lands on one drive -- and ``REALMSPINNER_T2I_DIR``
     relocates the ``turbo`` entry by itself, so a plan can straddle two. A roomy
     first volume approved a large write to a nearly full second one; the inverse
     falsely refused.
@@ -719,7 +719,7 @@ def test_create_mode_gate_admits_a_zero_byte_engine_download(tmp_path):
 
 
 def test_doctor_and_the_planner_share_one_probe():
-    from warlock import doctor
+    from realmspinner import doctor
 
     assert doctor._base_model_dir is fetch.base_model_dir
 
@@ -749,13 +749,13 @@ def test_only_the_fetch_worker_ever_clears_hf_hub_offline():
             continue
         offenders.append(str(path.relative_to(SRC)))
     assert not offenders, (
-        "only warlock/__init__.py (which sets it to 1) and "
+        "only realmspinner/__init__.py (which sets it to 1) and "
         f"pipelines/fetch_worker.py (a child process) may touch it: {offenders}"
     )
 
 
 def test_the_package_still_sets_hf_hub_offline_to_one():
-    import warlock  # noqa: F401  -- the import is what sets it
+    import realmspinner  # noqa: F401  -- the import is what sets it
 
     assert os.environ["HF_HUB_OFFLINE"] == "1"
 
@@ -821,7 +821,7 @@ def _run_worker_stub(spec, body):
         + body
         + "mod.snapshot_download = snapshot_download\n"
         "sys.modules['huggingface_hub'] = mod\n"
-        "from warlock.pipelines import fetch_worker\n"
+        "from realmspinner.pipelines import fetch_worker\n"
         "raise SystemExit(fetch_worker.main())\n"
     )
     return subprocess.run(
@@ -963,7 +963,7 @@ def test_a_successful_fetch_moves_the_files_in_and_renames(tmp_path):
         "    (root / '.cache' / 'junk').write_text('x')\n"
         "mod.snapshot_download = snapshot_download\n"
         "sys.modules['huggingface_hub'] = mod\n"
-        "from warlock.pipelines import fetch_worker\n"
+        "from realmspinner.pipelines import fetch_worker\n"
         "raise SystemExit(fetch_worker.main())\n"
     )
     proc = subprocess.run(
@@ -1010,7 +1010,7 @@ def test_a_rename_whose_source_never_arrived_fails_the_fetch(tmp_path):
         "    (root / 'something_else.safetensors').write_bytes(b'w')\n"
         "mod.snapshot_download = snapshot_download\n"
         "sys.modules['huggingface_hub'] = mod\n"
-        "from warlock.pipelines import fetch_worker\n"
+        "from realmspinner.pipelines import fetch_worker\n"
         "raise SystemExit(fetch_worker.main())\n"
     )
     proc = subprocess.run(
@@ -1047,7 +1047,7 @@ def test_progress_is_only_recorded_while_the_key_is_in_flight():
     the bar; a report landing after that would leave a bar on screen for a task
     that has finished, with nothing to clear it.
     """
-    from warlock.studio.tasks import TaskRunner
+    from realmspinner.studio.tasks import TaskRunner
 
     runner = TaskRunner(workers=1)
     try:
@@ -1068,7 +1068,7 @@ def test_progress_is_only_recorded_while_the_key_is_in_flight():
 
 
 def test_resubmitting_a_key_starts_from_no_progress():
-    from warlock.studio.tasks import TaskRunner
+    from realmspinner.studio.tasks import TaskRunner
 
     runner = TaskRunner(workers=1)
     try:
@@ -1083,7 +1083,7 @@ def test_resubmitting_a_key_starts_from_no_progress():
 
 
 def test_a_percentage_is_clamped():
-    from warlock.studio.tasks import TaskRunner
+    from realmspinner.studio.tasks import TaskRunner
 
     runner = TaskRunner(workers=1)
     try:
@@ -1105,8 +1105,8 @@ class _Svc:
 
 
 def test_a_download_that_does_not_fit_never_spawns_anything(tmp_path, monkeypatch):
-    from warlock.service import downloads
-    from warlock.service.errors import Invalid
+    from realmspinner.service import downloads
+    from realmspinner.service.errors import Invalid
 
     monkeypatch.setattr(fetch, "free_gib", lambda _path: 1.0)
     monkeypatch.setattr(
@@ -1120,15 +1120,15 @@ def test_a_download_that_does_not_fit_never_spawns_anything(tmp_path, monkeypatc
 
 
 def test_an_unknown_row_is_refused_by_name(tmp_path):
-    from warlock.service import downloads
-    from warlock.service.errors import NotFound
+    from realmspinner.service import downloads
+    from realmspinner.service.errors import NotFound
 
     with pytest.raises(NotFound):
         downloads.plan_for(_Svc(_config(tmp_path)), ["base:nope"])
 
 
 def test_a_download_reports_overall_progress_across_its_fetches(tmp_path, monkeypatch):
-    from warlock.service import downloads
+    from realmspinner.service import downloads
 
     monkeypatch.setattr(fetch, "free_gib", lambda _path: 5000.0)
     seen: list[float] = []
@@ -1163,7 +1163,7 @@ def snapshot_download(**kw):
     (root / 'pixel-art-xl.safetensors').write_bytes(b'weights')
 mod.snapshot_download = snapshot_download
 sys.modules['huggingface_hub'] = mod
-from warlock.pipelines import fetch_worker
+from realmspinner.pipelines import fetch_worker
 raise SystemExit(fetch_worker.main())
 """
 
@@ -1175,7 +1175,7 @@ def test_a_download_runs_end_to_end_through_a_real_child(tmp_path, monkeypatch):
     this project may make a network call, and the machinery either side of that
     one function is the whole of what this package added.
     """
-    from warlock.service import downloads
+    from realmspinner.service import downloads
 
     cfg = _config(tmp_path)
     monkeypatch.setattr(fetch, "free_gib", lambda _path: 5000.0)
@@ -1202,7 +1202,7 @@ def test_a_real_child_in_no_publish_mode_stages_and_installs_nothing(tmp_path, m
     old behaviour with the new code around it, and every parent-level test
     would still pass.
     """
-    from warlock import publish
+    from realmspinner import publish
 
     # Imported here *and* the flag put back: importing ``fetch_worker`` sets
     # ``HF_HUB_OFFLINE=0``, which is the whole point of the module and correct
@@ -1210,7 +1210,7 @@ def test_a_real_child_in_no_publish_mode_stages_and_installs_nothing(tmp_path, m
     # one thing the offline invariant forbids -- huggingface_hub reads that
     # variable at import time -- and the guard two tests below catches it.
     _before = os.environ.get("HF_HUB_OFFLINE")
-    from warlock.pipelines import fetch_worker
+    from realmspinner.pipelines import fetch_worker
 
     if _before is None:
         os.environ.pop("HF_HUB_OFFLINE", None)
@@ -1263,7 +1263,7 @@ def test_the_publish_marker_is_not_itself_published(tmp_path):
     """It belongs to the staging tree. Published into a model directory it
     would be a stray file every presence probe has to learn to ignore -- the
     same reason ``.cache`` is removed before the move."""
-    from warlock import publish
+    from realmspinner import publish
 
     staging = tmp_path / "staging"
     staging.mkdir()
@@ -1279,8 +1279,8 @@ def test_the_publish_marker_is_not_itself_published(tmp_path):
 
 
 def test_a_child_that_fails_is_reported_in_its_own_words(tmp_path, monkeypatch):
-    from warlock.service import downloads
-    from warlock.service.errors import Invalid
+    from realmspinner.service import downloads
+    from realmspinner.service.errors import Invalid
 
     stub = _STUB_WORKER.replace(
         "(root / 'pixel-art-xl.safetensors').write_bytes(b'weights')",
@@ -1298,7 +1298,7 @@ def test_a_child_that_fails_is_reported_in_its_own_words(tmp_path, monkeypatch):
 
 
 def test_rows_carry_a_flag_rather_than_the_word_missing(tmp_path):
-    from warlock.service import downloads
+    from realmspinner.service import downloads
 
     rows = downloads.rows(_Svc(_config(tmp_path)))
     assert rows and all("present" in row for row in rows)
@@ -1318,8 +1318,8 @@ def test_the_child_clears_the_flag_only_in_its_own_environment(tmp_path):
         [
             sys.executable,
             "-c",
-            "import warlock, os; "
-            "from warlock.pipelines import fetch_worker; "
+            "import realmspinner, os; "
+            "from realmspinner.pipelines import fetch_worker; "
             "print(os.environ['HF_HUB_OFFLINE'])",
         ],
         capture_output=True,
@@ -1334,13 +1334,13 @@ def test_a_malformed_progress_line_does_not_abandon_the_download(tmp_path, monke
     child printing a non-numeric percent -- or a bare JSON scalar, which
     huggingface_hub can put down the same stream -- would raise inside the
     loop, kill the child and report a download that was working as failed."""
-    from warlock.service import downloads
+    from realmspinner.service import downloads
 
     stub = _STUB_WORKER.replace(
-        "from warlock.pipelines import fetch_worker",
+        "from realmspinner.pipelines import fetch_worker",
         "print('5'); print('{\"percent\": \"wat\", \"label\": \"x\"}');"
         " print('[1, 2]'); sys.stdout.flush()\n"
-        "from warlock.pipelines import fetch_worker",
+        "from realmspinner.pipelines import fetch_worker",
     )
     cfg = _config(tmp_path)
     monkeypatch.setattr(fetch, "free_gib", lambda _path: 5000.0)
@@ -1416,7 +1416,7 @@ def test_a_directory_the_env_var_points_at_is_never_deleted(tmp_path):
     removal = fetch.removal_plan(cfg, _entries("base:turbo"))
     assert removal.paths == ()
     assert removal.freed_gib == 0.0
-    assert any("WARLOCK_T2I_DIR" in reason for reason in removal.blocked)
+    assert any("REALMSPINNER_T2I_DIR" in reason for reason in removal.blocked)
 
 
 def test_nothing_outside_the_model_root_may_be_removed(tmp_path):
@@ -1462,8 +1462,8 @@ def test_the_doctors_gguf_hint_names_the_commit_the_registry_pins(tmp_path):
     """The hint is rendered, not a literal, so the document scan above cannot
     see it -- and the two rows that used to scan ``doctor.py`` passed on zero
     matches once the literal went."""
-    from warlock import doctor
-    from warlock.config import Config
+    from realmspinner import doctor
+    from realmspinner.config import Config
 
     text = doctor.trellis_gguf_hint(Config(data_dir=tmp_path))
     found = re.findall(
@@ -1497,7 +1497,7 @@ def _import_fetch_worker():
     above, needed again here because these tests call ``fetch_one`` directly.
     """
     before = os.environ.get("HF_HUB_OFFLINE")
-    from warlock.pipelines import fetch_worker
+    from realmspinner.pipelines import fetch_worker
 
     if before is None:
         os.environ.pop("HF_HUB_OFFLINE", None)
@@ -1692,7 +1692,7 @@ def test_fetch_pack_and_update_worker_report_an_unreadable_spec_as_a_sentence_no
     """
     for module in ("fetch_worker", "pack_worker", "update_worker"):
         stub = (
-            f"from warlock.pipelines import {module}\n"
+            f"from realmspinner.pipelines import {module}\n"
             f"raise SystemExit({module}.main())\n"
         )
         proc = subprocess.run(

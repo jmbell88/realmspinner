@@ -20,9 +20,9 @@ import ast
 import inspect
 from pathlib import Path
 
-from warlock.studio.modes.library.ui.panes import full as library_full
+from realmspinner.studio.modes.library.ui.panes import full as library_full
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "warlock" / "studio"
+SRC = Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "studio"
 
 
 def _section_literals() -> list[tuple[str, int, str]]:

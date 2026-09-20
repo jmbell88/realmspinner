@@ -12,10 +12,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.viewer import picking
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.viewer import picking
 
 # A unit quad in the z = 0 plane, spanning x and y in [0, 1].
 QUAD = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype="f8")

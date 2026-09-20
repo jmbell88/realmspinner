@@ -16,9 +16,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio.modes.create.engine import mesh as create_mesh
-from warlock.studio.modes.create.ui.panes import settings_3d
-from warlock.studio.state import DEFAULT_FORM_3D, AppState
+from realmspinner.studio.modes.create.engine import mesh as create_mesh
+from realmspinner.studio.modes.create.ui.panes import settings_3d
+from realmspinner.studio.state import DEFAULT_FORM_3D, AppState
 
 
 class _Ctx:
@@ -39,7 +39,7 @@ class _Ctx:
         self.cache = SimpleNamespace(get=lambda job_id: self._jobs.get(job_id))
         self.svc = SimpleNamespace(
             config=SimpleNamespace(
-                bench_dir=Path(tempfile.gettempdir()) / "warlock-test-settings-3d-no-bench"
+                bench_dir=Path(tempfile.gettempdir()) / "realmspinner-test-settings-3d-no-bench"
             )
         )
         self.guidance = guidance or {
@@ -144,7 +144,7 @@ def test_the_engine_disclosure_hints_each_axis_it_draws(monkeypatch, ui):
     pane -- and the header opens (``controls.collapsing_header`` forced true
     here, the way a click would leave it) rather than staying collapsed, or
     nothing below it would ever run."""
-    from warlock.studio import forms, probe
+    from realmspinner.studio import forms, probe
 
     monkeypatch.setattr(settings_3d.controls, "collapsing_header", lambda *a, **k: True)
     seen: list[str] = []
@@ -179,7 +179,7 @@ def test_the_engine_disclosure_hints_each_axis_it_draws(monkeypatch, ui):
 def test_the_engine_disclosure_draws_nothing_while_collapsed(monkeypatch, ui):
     """Collapsed by default (module docstring: a restart nobody asked for),
     so an unopened header must hint nothing and touch no form field."""
-    from warlock.studio import forms, probe
+    from realmspinner.studio import forms, probe
 
     monkeypatch.setattr(settings_3d.controls, "collapsing_header", lambda *a, **k: False)
     calls: list[str] = []

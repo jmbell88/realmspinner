@@ -16,11 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from warlock import config as config_module
-from warlock import models, vram
-from warlock.config import Config
+from realmspinner import config as config_module
+from realmspinner import models, vram
+from realmspinner.config import Config
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "warlock"
+SRC = Path(__file__).resolve().parents[1] / "src" / "realmspinner"
 
 
 # -- the plan -----------------------------------------------------------------
@@ -206,7 +206,7 @@ def test_a_retexture_has_no_ip_encoder_term_because_no_door_writes_one():
     """
     import inspect
 
-    from warlock.service import _jobs_rework
+    from realmspinner.service import _jobs_rework
 
     assert "ip_adapter" not in inspect.getsource(_jobs_rework.retexture_job)
     plain = vram.estimate("retexture", "model", {}, exclusive=True)
@@ -218,7 +218,7 @@ def test_a_retexture_has_no_ip_encoder_term_because_no_door_writes_one():
 def test_a_retexture_is_priced_from_the_registry_not_from_sdxl():
     """It is exactly the job somebody points at an offloaded checkpoint, so the
     spec's own figure has to be the one charged."""
-    from warlock import models
+    from realmspinner import models
 
     spec = models.BASE_MODELS["flux_klein"]
     assert spec.vram_gib != vram.SDXL_GIB
@@ -231,7 +231,7 @@ def test_an_image_model_is_charged_its_own_footprint():
     """Not every checkpoint is 7 GB any more. flux_klein is offloaded and
     records 10.0, and charging it SDXL's number would admit a job the card
     cannot hold."""
-    from warlock import models
+    from realmspinner import models
 
     spec = models.BASE_MODELS["flux_klein"]
     assert spec.vram_gib != vram.SDXL_GIB
@@ -257,8 +257,8 @@ def test_the_dispatch_credit_reads_the_registry_when_torch_cannot_answer():
     offloaded klein entry's 10.0, which under-credits the headroom and refuses
     a job the card actually holds. A key the registry no longer carries keeps
     the SDXL figure, the tolerance the estimate above already applies."""
-    from warlock import models
-    from warlock.queue import _resident_t2i_gib
+    from realmspinner import models
+    from realmspinner.queue import _resident_t2i_gib
 
     klein = models.BASE_MODELS["flux_klein_distilled"]
     assert klein.vram_gib != vram.SDXL_GIB
@@ -303,20 +303,20 @@ def test_the_refusal_names_something_the_user_can_change():
 
 def test_the_exclusive_remedy_is_only_offered_when_it_is_available():
     already = vram.plan(exclusive=True, total_gib=8.0)
-    assert "WARLOCK_VRAM_EXCLUSIVE" not in vram.shortfall_message(20.0, already, {})
+    assert "REALMSPINNER_VRAM_EXCLUSIVE" not in vram.shortfall_message(20.0, already, {})
     not_yet = vram.plan(exclusive=False, total_gib=8.0)
-    assert "WARLOCK_VRAM_EXCLUSIVE=1" in vram.shortfall_message(20.0, not_yet, {})
+    assert "REALMSPINNER_VRAM_EXCLUSIVE=1" in vram.shortfall_message(20.0, not_yet, {})
 
 
 # -- config wiring ------------------------------------------------------------
 
 
 def test_the_env_flag_is_tri_state(monkeypatch):
-    monkeypatch.delenv("WARLOCK_VRAM_EXCLUSIVE", raising=False)
+    monkeypatch.delenv("REALMSPINNER_VRAM_EXCLUSIVE", raising=False)
     assert Config().vram_exclusive is None
-    monkeypatch.setenv("WARLOCK_VRAM_EXCLUSIVE", "off")
+    monkeypatch.setenv("REALMSPINNER_VRAM_EXCLUSIVE", "off")
     assert Config().vram_exclusive is False
-    monkeypatch.setenv("WARLOCK_VRAM_EXCLUSIVE", "1")
+    monkeypatch.setenv("REALMSPINNER_VRAM_EXCLUSIVE", "1")
     assert Config().vram_exclusive is True
 
 
@@ -324,10 +324,10 @@ def test_a_resolved_config_stops_claiming_an_env_var_nobody_set(monkeypatch):
     """``Runtime._resolve_vram`` writes a plain bool back onto the tri-state,
     so every later ``plan()`` -- every health poll, the doctor row -- saw a set
     value and reported the auto-selected mode as "set explicitly by
-    WARLOCK_VRAM_EXCLUSIVE"."""
-    from warlock import doctor
+    REALMSPINNER_VRAM_EXCLUSIVE"."""
+    from realmspinner import doctor
 
-    monkeypatch.delenv("WARLOCK_VRAM_EXCLUSIVE", raising=False)
+    monkeypatch.delenv("REALMSPINNER_VRAM_EXCLUSIVE", raising=False)
     config = Config(vram_total_gib=32.0)
 
     first = vram.plan(
@@ -343,13 +343,13 @@ def test_a_resolved_config_stops_claiming_an_env_var_nobody_set(monkeypatch):
     config.vram_budget_gib = first.budget_gib
     config.vram_exclusive_explicit = first.explicit
 
-    assert "WARLOCK_VRAM_EXCLUSIVE" not in doctor._vram_check(config).detail
+    assert "REALMSPINNER_VRAM_EXCLUSIVE" not in doctor._vram_check(config).detail
 
 
 def test_an_explicit_choice_still_says_so_after_it_is_resolved(monkeypatch):
-    from warlock import doctor
+    from realmspinner import doctor
 
-    monkeypatch.setenv("WARLOCK_VRAM_EXCLUSIVE", "1")
+    monkeypatch.setenv("REALMSPINNER_VRAM_EXCLUSIVE", "1")
     config = Config(vram_total_gib=32.0)
     plan = vram.plan(
         exclusive=config.vram_exclusive,
@@ -359,17 +359,17 @@ def test_an_explicit_choice_still_says_so_after_it_is_resolved(monkeypatch):
     assert plan.explicit is True
     config.vram_exclusive, config.vram_exclusive_explicit = plan.exclusive, plan.explicit
 
-    assert "WARLOCK_VRAM_EXCLUSIVE" in doctor._vram_check(config).detail
+    assert "REALMSPINNER_VRAM_EXCLUSIVE" in doctor._vram_check(config).detail
 
 
 def test_the_total_and_budget_overrides_parse(monkeypatch):
-    monkeypatch.setenv("WARLOCK_VRAM_TOTAL", "12")
-    monkeypatch.setenv("WARLOCK_VRAM_BUDGET", "10.5")
+    monkeypatch.setenv("REALMSPINNER_VRAM_TOTAL", "12")
+    monkeypatch.setenv("REALMSPINNER_VRAM_BUDGET", "10.5")
     config = Config()
     assert config.vram_total_gib == 12.0
     assert config.vram_budget_gib == 10.5
     # Unparseable is unset, not a crash at import time on every later run.
-    monkeypatch.setenv("WARLOCK_VRAM_TOTAL", "lots")
+    monkeypatch.setenv("REALMSPINNER_VRAM_TOTAL", "lots")
     assert Config().vram_total_gib is None
 
 
@@ -599,7 +599,7 @@ def test_the_spawn_scan_still_sees_the_call_sites_it_is_guarding():
 def test_winjob_run_is_shaped_like_subprocess_run():
     import sys as _sys
 
-    from warlock import winjob
+    from realmspinner import winjob
 
     proc = winjob.run(
         [_sys.executable, "-c", "print('hi')"], capture_output=True, text=True
@@ -611,7 +611,7 @@ def test_winjob_run_is_shaped_like_subprocess_run():
 
 
 def test_armed_answers_without_raising():
-    from warlock import winjob
+    from realmspinner import winjob
 
     assert isinstance(winjob.armed(), bool)
 
@@ -620,7 +620,7 @@ def test_an_offloaded_base_is_priced_sequentially_whatever_the_flag_says():
     """The accounting half of the mandatory offload handoff.
 
     ``queue._needs_handoff`` stops trellis before an OFFLOAD checkpoint loads
-    whether or not WARLOCK_VRAM_EXCLUSIVE is set, so the estimate has to agree
+    whether or not REALMSPINNER_VRAM_EXCLUSIVE is set, so the estimate has to agree
     -- otherwise the gate charges the sum of two stages that are never resident
     together and refuses the one job that is careful about VRAM.
     """
@@ -850,7 +850,7 @@ def test_a_plan_offers_the_cheaper_checkpoint_before_the_environment_variable():
     params = {"base_model": "flux_klein"}
     text = vram.remedies(params, exclusive=plan.exclusive, plan_=plan)
     assert "smaller base model" in text
-    assert text.index("smaller base model") < text.index("WARLOCK_VRAM_EXCLUSIVE")
+    assert text.index("smaller base model") < text.index("REALMSPINNER_VRAM_EXCLUSIVE")
 
 
 def test_the_cheaper_remedy_is_silent_when_the_pick_is_already_the_cheapest():
@@ -919,11 +919,11 @@ def test_nvml_init_runs_once_under_concurrent_callers(monkeypatch):
 
 def test_dispatch_shortfall_held_is_clamped_when_free_exceeds_headroom():
     """``held`` is ``headroom_gib - free_gib``: "how much of the headroom is
-    tied up in models Warlock already holds". free_gib is a fresh reading
+    tied up in models Realmspinner already holds". free_gib is a fresh reading
     taken at dispatch and can exceed the headroom_gib computed at submission
     (another process exited in between, or the WDDM figure moved) -- and an
     unclamped subtraction would print a negative figure for a quantity that
     can never be negative."""
     message = vram.dispatch_shortfall_message(10.0, 4.0, 6.0, {}, exclusive=False)
-    assert "0.0 GiB in models Warlock already holds" in message
+    assert "0.0 GiB in models Realmspinner already holds" in message
     assert "-0.0" not in message

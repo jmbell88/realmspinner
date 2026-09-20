@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.studio.modes.inker.ui.panes import textures as inker_textures
+from realmspinner.studio.modes.inker.ui.panes import textures as inker_textures
 
 
 class _Texture:

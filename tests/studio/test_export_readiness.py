@@ -1,4 +1,4 @@
-"""The Export stage's engine-readiness checklist (:mod:`warlock.studio.readiness`).
+"""The Export stage's engine-readiness checklist (:mod:`realmspinner.studio.readiness`).
 
 Pure: every row is a function of the job's already-recorded params, so the
 claims here are assertable without a GL context and without ever building a
@@ -7,7 +7,7 @@ GLB. The 2026-09-07 Create review, item 3.3.
 
 from __future__ import annotations
 
-from warlock.studio import readiness
+from realmspinner.studio import readiness
 
 
 def _report(**over):
@@ -252,8 +252,8 @@ def test_a_rig_that_was_never_retargeted_is_not_flagged_stale():
 
 
 def test_the_export_stage_draws_readiness_first():
-    """:mod:`warlock.studio.panes.inspector`'s own stage-section table."""
-    from warlock.studio.panes import inspector
+    """:mod:`realmspinner.studio.panes.inspector`'s own stage-section table."""
+    from realmspinner.studio.panes import inspector
 
     assert inspector._STAGE_SECTIONS["export"][0] == "_readiness"
 
@@ -261,7 +261,7 @@ def test_the_export_stage_draws_readiness_first():
 def test_the_export_stage_body_knows_how_to_draw_readiness():
     import inspect
 
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     source = inspect.getsource(inspector._stage_body)
     assert '"_readiness": lambda: _readiness(ctx, job)' in source

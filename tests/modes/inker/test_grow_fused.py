@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel import filters
+from realmspinner.kernels.pixel import filters
 
 
 def _old_shift(mask: np.ndarray, dy: int, dx: int, *, wrap: bool) -> np.ndarray:

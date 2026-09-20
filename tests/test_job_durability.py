@@ -25,11 +25,11 @@ from typing import Any
 
 import pytest
 
-from warlock import db as db_mod
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.kernels.rig import store as rig_store
-from warlock.queue import Worker
+from realmspinner import db as db_mod
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.kernels.rig import store as rig_store
+from realmspinner.queue import Worker
 
 
 @pytest.fixture
@@ -68,7 +68,7 @@ async def test_a_store_that_never_answers_stops_the_worker_and_says_so(worker):
     ``main._check_worker`` already knew how to report a dead worker exactly
     once and well -- it simply had nothing to read.
     """
-    from warlock import queue as queue_mod
+    from realmspinner import queue as queue_mod
 
     calls = []
 
@@ -119,7 +119,7 @@ async def test_a_terminal_write_that_loses_a_race_is_retried(worker, monkeypatch
     launch's ``reconcile_startup`` calls that "interrupted by shutdown" -- so a
     mesh that generated perfectly was reported to the user as a crash, with
     nothing but the presence of a model.glb to tell the two apart."""
-    from warlock import queue as queue_mod
+    from realmspinner import queue as queue_mod
 
     monkeypatch.setattr(queue_mod, "POLL_INTERVAL", 0.001)
     real_finish = worker.store.finish
@@ -145,7 +145,7 @@ async def test_a_terminal_write_that_never_lands_is_reported_rather_than_swallow
     """Nothing here can save the row. What it must not do is fail quietly:
     the exception goes back to the dispatch loop, whose counter is what turns
     a persistently unwritable store into a visible dead worker."""
-    from warlock import queue as queue_mod
+    from realmspinner import queue as queue_mod
 
     monkeypatch.setattr(queue_mod, "POLL_INTERVAL", 0.001)
 
@@ -228,15 +228,15 @@ PUBLISHERS = [
     # ``_discard_artifacts``'s fallback branch, never a different job's served
     # artifact. Neither site joins this list because neither is the point of
     # no return ``_remesh``'s rename is.
-    ("warlock._q_mesh", "_remesh", "os.replace"),
-    ("warlock._q_rig", "_rig", "finalize_rig"),
-    ("warlock._q_rig", "_sheet", "_publish_text"),
-    ("warlock._q_sprite", "_pixel_sheet", "_publish_text"),
-    ("warlock._q_sprite", "_sprite_synthesis", "_publish_text"),
-    ("warlock._q_sprite", "_retexture", "os.replace"),
-    ("warlock._q_tilesheet", "_tile_sheet", "_publish_text"),
-    ("warlock._q_tileset", "_tile_set", "_publish_text"),
-    ("warlock._q_troupe", "_charsheet", "_publish_text"),
+    ("realmspinner._q_mesh", "_remesh", "os.replace"),
+    ("realmspinner._q_rig", "_rig", "finalize_rig"),
+    ("realmspinner._q_rig", "_sheet", "_publish_text"),
+    ("realmspinner._q_sprite", "_pixel_sheet", "_publish_text"),
+    ("realmspinner._q_sprite", "_sprite_synthesis", "_publish_text"),
+    ("realmspinner._q_sprite", "_retexture", "os.replace"),
+    ("realmspinner._q_tilesheet", "_tile_sheet", "_publish_text"),
+    ("realmspinner._q_tileset", "_tile_set", "_publish_text"),
+    ("realmspinner._q_troupe", "_charsheet", "_publish_text"),
     # muse-02 (the 2026-09-15 audit): ``_music`` and ``_separate`` publish and
     # commit correctly -- ``client.generate`` writes ``track.wav`` before
     # ``self._cancel.commit()``, and ``blender_run.run_worker`` writes the stem
@@ -246,8 +246,8 @@ PUBLISHERS = [
     # ``blender_run.run_worker``, the call that produces the served stems (the
     # sidecar ``_write_stems_sidecar`` writes after the commit is metadata
     # about them, not the artifact itself -- see that function's docstring).
-    ("warlock._q_music", "_music", "client.generate"),
-    ("warlock._q_music", "_separate", "blender_run.run_worker"),
+    ("realmspinner._q_music", "_music", "client.generate"),
+    ("realmspinner._q_music", "_separate", "blender_run.run_worker"),
 ]
 
 
@@ -303,7 +303,7 @@ def test_deform_qa_runs_after_the_rig_commits_the_cancel_token():
     perfectly good rig nobody points at (the exact failure ``_rig``'s own
     comment above ``self._cancel.commit()`` describes).
     """
-    from warlock import _q_rig
+    from realmspinner import _q_rig
 
     body = _function_source(_q_rig, "_rig")
     commit_at = body.find("_cancel.commit()")
@@ -331,10 +331,10 @@ async def test_a_cancel_after_a_character_sheet_is_published_records_it_as_done(
     """
     from PIL import Image
 
-    from warlock import queue as queue_mod
-    from warlock.kernels import charsheet
-    from warlock.kernels import sheet as sheetlib
-    from warlock.pipelines import pixelize, pixelsheet
+    from realmspinner import queue as queue_mod
+    from realmspinner.kernels import charsheet
+    from realmspinner.kernels import sheet as sheetlib
+    from realmspinner.pipelines import pixelize, pixelsheet
 
     source = worker.store.create("image", "a ranger", {"seed": 1}, stage="model")
     source_dir = worker.config.job_dir(source)
@@ -420,7 +420,7 @@ async def test_separate_job_discards_stems_when_cancelled_after_the_split_finish
     instant it would return ``ok=True`` -- which is exactly the race window
     the fix closes.
     """
-    from warlock.pipelines import blender_run
+    from realmspinner.pipelines import blender_run
 
     source = worker.store.create("music", "dark ambient", {}, stage="music")
     source_dir = worker.config.job_dir(source)
@@ -488,7 +488,7 @@ async def test_a_sheet_row_without_an_id_is_refused_rather_than_given_one(
 def test_no_worker_mints_a_sheet_id_of_its_own() -> None:
     """The rule, as a scan, because the refusals above only cover the two
     spellings that exist today."""
-    root = Path(__file__).resolve().parents[1] / "src" / "warlock"
+    root = Path(__file__).resolve().parents[1] / "src" / "realmspinner"
     offenders = []
     for path in sorted(root.glob("_q_*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -518,8 +518,8 @@ def test_an_autosave_failure_says_it_was_the_autosave() -> None:
     was "Something went wrong; see the log for details", which names neither
     the autosave nor what to do about it.
     """
-    from warlock.studio import main
-    from warlock.studio.state import AppState
+    from realmspinner.studio import main
+    from realmspinner.studio.state import AppState
 
     toasts: list[tuple[str, str, Any]] = []
     done = SimpleNamespace(
@@ -609,7 +609,7 @@ def test_the_viewport_has_no_write_in_place_helper() -> None:
     opposite of the rule every real capture path follows -- and the only caller
     it had anywhere was the test that tested it. A trap sitting in a module
     four callers import."""
-    from warlock.studio.viewer import capture
+    from realmspinner.studio.viewer import capture
 
     assert not hasattr(capture, "save_png")
     assert hasattr(capture, "png_bytes")

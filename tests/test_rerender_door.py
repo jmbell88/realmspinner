@@ -12,9 +12,9 @@ import time
 
 import pytest
 
-from warlock.kernels import charsheet
-from warlock.service import troupe as svc_troupe
-from warlock.service.errors import Invalid, NotFound
+from realmspinner.kernels import charsheet
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.service.errors import Invalid, NotFound
 
 
 def _rigged_mesh(svc, template="humanoid"):
@@ -130,7 +130,7 @@ def test_the_runs_come_back_named(svc):
 
 
 def test_a_name_may_be_given_and_is_capped(svc):
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     job_id = _rigged_mesh(svc)
     _row_id, sheet_id = _published(svc, job_id)
@@ -170,7 +170,7 @@ def test_every_refusal_names_the_field_it_is_about(svc):
 
 
 def test_a_sheet_that_is_not_on_disk_is_refused(svc):
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     job_id = _rigged_mesh(svc)
     with pytest.raises(NotFound) as caught:
@@ -235,8 +235,8 @@ def test_rerender_charsheets_strip_list_is_derived_from_derived_params_not_hand_
     pass a test that only checked today's four keys. Only a strip that reads
     ``DERIVED_PARAMS`` itself, whatever it contains, survives this.
     """
-    from warlock.service import troupe as svc_troupe
-    from warlock.service.validation import DERIVED_PARAMS
+    from realmspinner.service import troupe as svc_troupe
+    from realmspinner.service.validation import DERIVED_PARAMS
 
     sentinel = "future_derived_key_2026_09_11"
     assert sentinel not in DERIVED_PARAMS

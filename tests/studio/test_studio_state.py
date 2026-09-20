@@ -11,10 +11,10 @@ import json
 
 import pytest
 
-from warlock.studio import settings as settingslib
-from warlock.studio import state as statelib
-from warlock.studio.jobs_cache import JobsCache, transition_message
-from warlock.studio.state import (
+from realmspinner.studio import settings as settingslib
+from realmspinner.studio import state as statelib
+from realmspinner.studio.jobs_cache import JobsCache, transition_message
+from realmspinner.studio.state import (
     AppState,
     Eta,
     Filters,
@@ -238,7 +238,7 @@ def test_a_long_name_is_shortened_for_the_toast():
 
 
 def test_the_cache_reports_a_transition_only_once(svc):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
     cache = JobsCache(svc)
@@ -263,7 +263,7 @@ def test_the_cache_does_not_re_read_on_every_frame(svc):
 
 
 def test_the_cache_finds_the_job_worth_narrating(svc):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     done = svc_jobs.create_job(svc, kind="text", prompt="old")["id"]
     svc.store.set_status(done, "done")
@@ -278,7 +278,7 @@ def test_the_cache_finds_the_job_worth_narrating(svc):
 def test_the_cache_exposes_how_much_history_it_is_not_showing(svc):
     """The window used to be a hard 200 with no way to know it was a window --
     filters then silently applied to a truncated set."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     for i in range(5):
         svc_jobs.create_job(svc, kind="text", prompt=f"j{i}")
@@ -388,8 +388,8 @@ def test_the_paint_migration_never_overwrites_an_existing_inker_block(tmp_path):
 
 
 def test_ui_scale_round_trips_and_a_junk_value_cannot_brick_the_window(tmp_path):
-    from warlock.studio.shell.frame import _ui_scale
-    from warlock.studio.tokens import UI_SCALE_RANGE
+    from realmspinner.studio.shell.frame import _ui_scale
+    from realmspinner.studio.tokens import UI_SCALE_RANGE
 
     s = settingslib.Settings.load(tmp_path)
     assert _ui_scale(s) == 1.0  # nothing stored
@@ -408,8 +408,8 @@ def test_the_ui_scale_preference_never_reaches_the_minimum_window_size():
     preference demand a 2200x1400 window: bigger than a 1080p display, snapped
     back to on every resize, unrecoverable without editing the settings file.
     """
-    from warlock.studio import tokens
-    from warlock.studio.main import MIN_SIZE, _min_window_size
+    from realmspinner.studio import tokens
+    from realmspinner.studio.main import MIN_SIZE, _min_window_size
 
     before = tokens.SCALE
     try:
@@ -432,8 +432,8 @@ def test_the_zoom_is_five_named_steps_and_a_stored_odd_value_snaps_to_one():
     the set that is offered, and that an existing install carrying a slider's
     value is moved onto one of them rather than honoured.
     """
-    from warlock.studio import tokens
-    from warlock.studio.shell.frame import _ui_scale
+    from realmspinner.studio import tokens
+    from realmspinner.studio.shell.frame import _ui_scale
 
     assert tokens.UI_SCALE_STEPS == (0.5, 0.75, 1.0, 1.25, 1.5)
     # Every step is a value the product clamp will actually honour on an
@@ -466,7 +466,7 @@ def test_the_ui_scale_slider_can_only_offer_a_zoom_that_survives_the_clamp():
     back under the cursor. Bounding the control by what the product can hold is
     what makes what it shows the value that is applied.
     """
-    from warlock.studio import tokens
+    from realmspinner.studio import tokens
 
     before = tokens.SCALE
     try:
@@ -492,7 +492,7 @@ def test_every_mode_has_exactly_one_place_that_draws_it():
     version -- a workspace is not one pane, and calling it one would leave the
     name lying about four of the five modes it covers.
     """
-    from warlock.studio import main, modes
+    from realmspinner.studio import main, modes
 
     single = set(main._SINGLE_PANE_MODES)
     categories = [single, set(modes.VIEWPORT_MODES), set(modes.WORKSPACE_MODES)]
@@ -524,7 +524,7 @@ def test_quit_is_never_a_mode_and_has_no_control_in_the_shell():
     """
     import inspect
 
-    from warlock.studio import main, modes
+    from realmspinner.studio import main, modes
 
     assert not hasattr(modes, "QUIT")
     assert "quit" not in modes.KEYS
@@ -554,7 +554,7 @@ def test_the_rail_groups_are_the_modes_in_order():
     stating it -- but a hand-written list *can* drift from ``MODES``, so the
     flattening is asserted instead.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     flat = [key for group in modes.RAIL_GROUPS for key in group]
     assert tuple(flat) == modes.KEYS
@@ -582,7 +582,7 @@ def test_the_rail_groups_are_the_modes_in_order():
 def test_the_app_opens_on_home_and_only_the_work_modes_take_shortcuts():
     """Home, the Manual, Clay and Settings are places you pass through: no form
     to submit and no viewport to frame, so they take no keyboard shortcuts."""
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     assert modes.WORK_MODES.issubset(modes.KEYS)
     assert set(modes.KEYS) - modes.WORK_MODES
@@ -605,7 +605,7 @@ def test_no_mode_is_persisted_anywhere():
     import re
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[2] / "src" / "warlock" / "studio"
+    root = Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "studio"
     files = sorted(root.rglob("*.py"))
     assert len(files) > 200, f"only {len(files)} files under {root} -- did the sweep root break?"
     offenders = [
@@ -773,10 +773,10 @@ def test_two_different_failures_both_survive():
     the first, so a launch that failed two checks reported one of them."""
     state = AppState()
     state.note_error("trellis port: 17971 is already held")
-    state.note_error("The GPU worker stopped. Restart Warlock.")
+    state.note_error("The GPU worker stopped. Restart Realmspinner.")
     assert state.errors == [
         "trellis port: 17971 is already held",
-        "The GPU worker stopped. Restart Warlock.",
+        "The GPU worker stopped. Restart Realmspinner.",
     ]
 
 
@@ -927,7 +927,7 @@ def test_every_action_the_ladder_returns_is_one_the_library_can_run():
     feature is broken rather than missing."""
     import inspect
 
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     source = inspect.getsource(library.run_action)
     for action in sorted(_primary_action_returns()):

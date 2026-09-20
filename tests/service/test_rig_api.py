@@ -7,14 +7,14 @@ import json
 
 import pytest
 
-from warlock import doctor
-from warlock.kernels.rig import skeleton, store, templates
-from warlock.pipelines import blender_run
-from warlock.service import Invalid, NotFound, NotReady
-from warlock.service import derive as svc_derive
-from warlock.service import jobs as svc_jobs
-from warlock.service import rig as svc_rig
-from warlock.service import system as svc_system
+from realmspinner import doctor
+from realmspinner.kernels.rig import skeleton, store, templates
+from realmspinner.pipelines import blender_run
+from realmspinner.service import Invalid, NotFound, NotReady
+from realmspinner.service import derive as svc_derive
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import rig as svc_rig
+from realmspinner.service import system as svc_system
 
 IDENTITY = [0.0, 0.0, 0.0, 1.0]
 
@@ -213,7 +213,7 @@ def test_rig_glb_is_not_ready_when_absent(svc, assets):
 
 def _rigged_job(svc, assets) -> tuple[str, list[dict]]:
     """A job with a rig on disk, and the fitted bones the editor would show."""
-    from warlock.kernels.rig import skeleton, templates
+    from realmspinner.kernels.rig import skeleton, templates
 
     job_id = _finished_mesh_job(svc, assets)
     job_dir = assets / job_id

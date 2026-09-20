@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel import Document
-from warlock.kernels.pixel import index_plane as ixp
-from warlock.kernels.pixel.ora import read_ora, write_ora
+from realmspinner.kernels.pixel import Document
+from realmspinner.kernels.pixel import index_plane as ixp
+from realmspinner.kernels.pixel.ora import read_ora, write_ora
 
 BLACK = (0, 0, 0, 255)
 MID = (120, 120, 120, 255)

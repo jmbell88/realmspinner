@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from warlock.bench import findings as findings_mod
+from realmspinner.bench import findings as findings_mod
 
 
 def _write(path, doc):
@@ -805,8 +805,8 @@ def test_a_v4_reader_is_unchanged_by_the_corpus_section(svc):
     unfixed code that key is simply absent, which a hand-built fixture could
     not have shown.
     """
-    from warlock.service import findings as svc_findings
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import findings as svc_findings
+    from realmspinner.service import verdicts as svc_verdicts
 
     for _ in range(6):
         job_id = svc.store.create(

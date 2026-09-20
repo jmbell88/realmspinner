@@ -13,7 +13,7 @@ import json
 import httpx
 import pytest
 
-from warlock.familiar import contract, llama_client
+from realmspinner.familiar import contract, llama_client
 
 
 class _FakeServer:
@@ -252,7 +252,7 @@ async def test_a_malformed_json_reply_is_not_classified_as_too_large(tmp_path):
     ``service.familiar._reason_for`` then falls through to ``"http"`` for --
     never the too-large bucket a request that was never oversized has no
     business landing in."""
-    from warlock.service.familiar import _reason_for
+    from realmspinner.service.familiar import _reason_for
 
     server = _server(tmp_path)
 

@@ -11,8 +11,8 @@ which has no owned test module of its own.
 
 from __future__ import annotations
 
-from warlock.kernels.pixel import groups as gp
-from warlock.kernels.pixel.document import Document
+from realmspinner.kernels.pixel import groups as gp
+from realmspinner.kernels.pixel.document import Document
 
 
 def _doc(layers: int = 4) -> Document:

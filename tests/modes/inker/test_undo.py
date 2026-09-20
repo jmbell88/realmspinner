@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import undo as U
-from warlock.kernels.pixel.layers import Layer, LayerStack
+from realmspinner.kernels.pixel import undo as U
+from realmspinner.kernels.pixel.layers import Layer, LayerStack
 
 
 class FakeDoc:
@@ -346,7 +346,7 @@ def test_one_step_leaves_a_lone_edit_unwrapped():
     reads as "compound" -- which is why every one of the nine call sites this
     replaces had to make the same choice, and why nine copies of a choice is how
     one of them comes to differ."""
-    from warlock.kernels.pixel.undo import CompoundEdit, LayerFlagEdit, one_step
+    from realmspinner.kernels.pixel.undo import CompoundEdit, LayerFlagEdit, one_step
 
     lone = LayerFlagEdit(1, {"background": False}, {"background": True})
     assert one_step([lone]) is lone
@@ -363,7 +363,7 @@ def test_one_step_refuses_an_empty_list():
     happen."""
     import pytest
 
-    from warlock.kernels.pixel.undo import one_step
+    from realmspinner.kernels.pixel.undo import one_step
 
     with pytest.raises(ValueError):
         one_step([])
@@ -375,7 +375,7 @@ def test_the_idiom_is_not_written_out_anywhere_any_more():
     root = (
         pathlib.Path(__file__).resolve().parents[3]
         / "src"
-        / "warlock"
+        / "realmspinner"
         / "kernels"
         / "pixel"
     )

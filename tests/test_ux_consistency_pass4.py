@@ -195,7 +195,7 @@ def test_settings_2d_sub_fields_each_get_their_own_name_line():
     Style LoRA), so each gets one small-caps name line of its own rather than
     an indented half-line -- the same shape ``field_label`` already draws for
     every full field in this pane."""
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     source = Path(settings_2d.__file__).read_text(encoding="utf-8")
     for ident in ("##Strength##ip", "##Strength##init", "##Strength##cn", "##Until##cn"):
@@ -230,7 +230,7 @@ def test_poser_xyz_triples_are_one_label_above_short_letters():
     """Rotate X/Y/Z and Offset X/Y/Z are coordinate rows, not three fields --
     one ``field_label`` above, ``X``/``Y``/``Z`` beside each box, the
     ``plotter_canvas._setup_body`` precedent this pass's brief pointed at."""
-    from warlock.studio.modes.poser.ui.panes import controls as poser_controls
+    from realmspinner.studio.modes.poser.ui.panes import controls as poser_controls
 
     source = Path(poser_controls.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label("Rotate")' in source
@@ -251,7 +251,7 @@ def test_plotter_goto_popup_matches_its_own_files_precedent():
     file's ``_setup_body`` -- three lines away in the same module -- already
     drew a coordinate row as one field_label above short letters. Now they
     agree."""
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     source = Path(plotter_canvas.__file__).read_text(encoding="utf-8")
     assert '"Column##goto-x"' not in source
@@ -269,7 +269,7 @@ def test_clay_props_generator_params_are_each_named():
     generator and none per param, so every checkbox/input in it read as a bare
     box. Each param now gets its own name line, and ``_widget``'s id keeps the
     old ``##gen{key}`` suffix that undo/patch call sites are keyed on."""
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     source = Path(clay_props.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label(key.replace("_", " "))' in source
@@ -286,7 +286,7 @@ def _clay_props_scratch_reverted() -> str:
     to produce it (the working tree has four other agents editing it right
     now).
     """
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     source = Path(clay_props.__file__).read_text(encoding="utf-8")
     source = source.replace(
@@ -315,7 +315,7 @@ def test_settings_3d_size_keeps_its_unit_and_gets_a_label():
     """"Size" moved to a field_label; the unit stays in the drag's own printf
     format (K96's reason for a drag over a slider), not duplicated into the
     label."""
-    from warlock.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     source = Path(settings_3d.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label("Size")' in source
@@ -327,7 +327,7 @@ def test_settings_3d_size_keeps_its_unit_and_gets_a_label():
 
 def test_clay_header_popover_units_stay_in_the_label():
     """"grid (m)"/"angle (deg)"/"radius (m)" keep their units, moved above."""
-    from warlock.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 
     source = Path(clay_header.__file__).read_text(encoding="utf-8")
     for label, hidden in (
@@ -343,7 +343,7 @@ def test_clay_menu_op_params_are_each_labelled():
     """The generic op-param popup loop names each field above its box, one
     ``field_label`` per iteration -- so a five-param op reads as five named
     fields, not five bare boxes under the op's own title."""
-    from warlock.studio.modes.clay.ui.panes import menu as clay_menu
+    from realmspinner.studio.modes.clay.ui.panes import menu as clay_menu
 
     source = Path(clay_menu.__file__).read_text(encoding="utf-8")
     body = source[source.index("def params_popup") :]
@@ -356,7 +356,7 @@ def test_packwright_cell_pair_matches_inker_bridges_fixed_shape():
     same line; moved above, to agree with ``inker_bridge._pair``'s fix landing
     the same day (that file is owned by another agent -- not asserted here,
     only that this file's own half of the agreement is done)."""
-    from warlock.studio.modes.packwright.ui.panes import sources as packwright_sources
+    from realmspinner.studio.modes.packwright.ui.panes import sources as packwright_sources
 
     source = Path(packwright_sources.__file__).read_text(encoding="utf-8")
     body = source[source.index("def _cell_pair") : source.index("def _tileset_popup")]
@@ -371,8 +371,8 @@ def test_plotter_tileset_probability_fields_are_each_labelled():
     fixed copy apart from the wang-colour list row's deliberately-left one
     (same literal string, different function), so this test scopes to the
     function each copy actually lives in."""
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
-    from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
 
     tileset_source = Path(plotter_tileset.__file__).read_text(encoding="utf-8")
     form_start = tileset_source.index("def _tile_form")
@@ -398,7 +398,7 @@ def test_plotter_tileset_probability_fields_are_each_labelled():
 
 
 def test_library_prune_dialog_keeps_the_newest_field_labelled():
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     source = Path(library.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label("Keep the newest")' in source

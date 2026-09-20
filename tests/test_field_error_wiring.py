@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 from _panes import pane_files
 
-from warlock.studio import forms
+from realmspinner.studio import forms
 
 #: Every pane's source file, keyed by its pre-restructure filename -- the
 #: three ``modes/create/ui/settings_*.py`` entries below moved under
@@ -64,7 +64,7 @@ def _source(rel: str) -> str:
     name = Path(rel).name
     if name in _PANES:
         return _PANES[name].read_text(encoding="utf-8")
-    from warlock import studio
+    from realmspinner import studio
 
     return (Path(studio.__file__).parent / rel).read_text(encoding="utf-8")
 
@@ -171,7 +171,7 @@ LAYOUT_ONLY = {
 def test_every_form_is_either_wired_or_listed():
     """The durable half: a new form with fields and no ``errors`` is the defect
     this file closes, and it must not be possible to add one quietly."""
-    from warlock import studio
+    from realmspinner import studio
 
     root = Path(studio.__file__).parent
     known = {form_id for _rel, form_id in FIELD_FORMS} | set(LAYOUT_ONLY)
@@ -229,7 +229,7 @@ def test_the_character_panes_own_refusals_name_its_own_controls():
     """
     import inspect
 
-    from warlock.studio.modes.create.engine import character as character_engine
+    from realmspinner.studio.modes.create.engine import character as character_engine
 
     drawn = _form_field_ids("modes/create/ui/settings_character.py")
     source = inspect.getsource(character_engine.problems)
@@ -253,9 +253,9 @@ def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
     """
     from types import SimpleNamespace
 
-    from warlock.characters.errors import CharacterError
-    from warlock.characters.recipe import DEFAULT_RECIPE, Recipe
-    from warlock.studio.modes.create.engine import character as character_engine
+    from realmspinner.characters.errors import CharacterError
+    from realmspinner.characters.recipe import DEFAULT_RECIPE, Recipe
+    from realmspinner.studio.modes.create.engine import character as character_engine
 
     #: One request per address, each wrong in exactly the way that address
     #: names. Provoked rather than pattern-matched out of the source: several
@@ -342,7 +342,7 @@ def _form_field_ids(rel: str) -> set[str]:
 
 
 def test_every_refusal_a_pane_can_provoke_names_something_that_pane_draws():
-    from warlock.service import _jobs_rework, sheets, sprites, troupe
+    from realmspinner.service import _jobs_rework, sheets, sprites, troupe
 
     cases = (
         ("panes/sheet_panel.py", sheets.create_sheet),
@@ -432,8 +432,8 @@ def test_changing_the_rig_stage_skeleton_clears_its_field_error_ring():
     """
     import inspect
 
-    from warlock.studio.modes.create.ui.panes import settings_3d
-    from warlock.studio.panes import stage_rig
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.panes import stage_rig
 
     field_src = inspect.getsource(stage_rig.skeleton_field)
     assert 'clear_field_error("rig_template")' in field_src, (
@@ -498,7 +498,7 @@ def test_every_field_create_music_jobs_ranges_check_is_one_of_the_six():
     added to ``create_music_job``'s numeric bounds table with no matching
     control here would refuse silently, same as a listed-but-gone form above.
     """
-    from warlock.service._jobs_music import _RANGES
+    from realmspinner.service._jobs_music import _RANGES
 
     ranged = {field for field, _low, _high in _RANGES}
     assert ranged <= set(MUSE_RECIPE_FIELDS)

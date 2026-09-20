@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from warlock import guidance
-from warlock.bench import recipe as recipe_mod
-from warlock.bench import suite as suite_mod
+from realmspinner import guidance
+from realmspinner.bench import recipe as recipe_mod
+from realmspinner.bench import suite as suite_mod
 
 # The item ids, frozen. A suite file is never edited in place -- a run's
 # manifest records its fingerprint, so changing a prompt after the fact
@@ -155,7 +155,7 @@ def test_job_kwargs_is_exactly_what_create_job_takes():
     submitted differently from the app would measure a path no user reaches."""
     import inspect
 
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     s, r = suite_mod.load(), recipe_mod.load("sdxl-hyper-render3d")
     kwargs = recipe_mod.job_kwargs(r, s.items[0], 42)

@@ -12,7 +12,7 @@ import struct
 
 import pytest
 
-from warlock.kernels.geom3d.glbio import (
+from realmspinner.kernels.geom3d.glbio import (
     CHUNK_BIN,
     CHUNK_JSON,
     GLB_MAGIC,

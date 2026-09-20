@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.service import _jobs_music as door
-from warlock.service.errors import Invalid
+from realmspinner.service import _jobs_music as door
+from realmspinner.service.errors import Invalid
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +61,7 @@ def test_the_stage_is_its_own_rather_than_model(svc):
     A music row wearing it would be graded on a scale that has no meaning for
     audio, and would join the findings corpus as evidence about a mesh.
     """
-    from warlock.service import library
+    from realmspinner.service import library
 
     job_id = _make(svc)["id"]
     assert svc.store.get(job_id)["stage"] == "music"
@@ -200,8 +200,8 @@ def test_missing_weights_are_refused_at_the_door_with_the_download(svc, monkeypa
     Unlike a missing pose or matting model, which degrade, this is a refusal --
     so it has to name the thing that fixes it or the user is simply stuck.
     """
-    from warlock import fetch
-    from warlock.service import validation
+    from realmspinner import fetch
+    from realmspinner.service import validation
 
     # ``undo`` first, because the autouse fixture above stubbed out the very
     # check this test is about; the vram stub is then put back, since a machine
@@ -222,7 +222,7 @@ def test_a_music_job_is_priced_rather_than_admitted_for_free():
     Priced at zero, ``check_vram`` admits a job that OOMs at load, which is the
     exact failure the door exists to prevent.
     """
-    from warlock import models, vram
+    from realmspinner import models, vram
 
     total, checkpoint = vram.estimate_parts("music", "music", {}, exclusive=True)
     spec = models.MUSIC_MODELS[models.DEFAULT_MUSIC_MODEL]
@@ -233,7 +233,7 @@ def test_a_music_job_is_priced_rather_than_admitted_for_free():
 
 
 def test_coexisting_with_trellis_is_priced_as_such():
-    from warlock import vram
+    from realmspinner import vram
 
     exclusive, _ = vram.estimate_parts("music", "music", {}, exclusive=True)
     coexist, _ = vram.estimate_parts("music", "music", {}, exclusive=False)
@@ -251,7 +251,7 @@ def test_what_the_worker_records_about_the_output_is_stripped_on_a_rerun():
     the recipe knobs -- deliberately stay: they are the request normalised, and
     "run that again" means running that.
     """
-    from warlock.service.validation import DERIVED_PARAMS
+    from realmspinner.service.validation import DERIVED_PARAMS
 
     assert "actual_duration" in DERIVED_PARAMS
     for echo in ("duration", "lyrics", "music_model", "scheduler_type"):
@@ -265,6 +265,6 @@ def test_music_adds_nothing_to_the_vector_params_allowlist():
     aggregator reading it is dead weight a future music-findings module would
     have to un-teach itself from.
     """
-    from warlock.vectors import VECTOR_PARAMS
+    from realmspinner.vectors import VECTOR_PARAMS
 
     assert not {p for p in VECTOR_PARAMS if "music" in p or "lyric" in p}

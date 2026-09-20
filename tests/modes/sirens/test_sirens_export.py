@@ -1,6 +1,6 @@
 """Sirens' export: ``song.wav``, ``stems/`` and ``sfx/`` into a chosen folder.
 
-**The invariant this file is here for.** A ``.wsng`` is the composition and every
+**The invariant this file is here for.** A ``.rsng`` is the composition and every
 WAV is a pure function of it (``dev/INVARIANTS.md``), which is a claim with two
 halves: the bytes must not depend on when they were written, and the *names* must
 not depend on anything but the document either. So the byte-identity assertion
@@ -8,7 +8,7 @@ below is not a nicety about diffs -- it is the statement that an export is
 reproducible, which is what lets a build script check one in and a reviewer
 diff two.
 
-**Filenames come from user text**, which is the one shape ``wsng.py`` refused
+**Filenames come from user text**, which is the one shape ``rsng.py`` refused
 outright: it numbers its archive members precisely so that ``../`` and ``CON``
 cannot reach a filesystem through a name somebody typed. An export cannot take
 that way out -- ``sfx/coin.wav`` is the point of the folder -- so the names come
@@ -31,11 +31,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.audio import wavout
-from warlock.studio.modes.sirens import fileio as sirens_io
-from warlock.studio.modes.sirens import mode as sirens_mode
-from warlock.studio.modes.sirens.engine import document as D
-from warlock.studio.modes.sirens.engine import notes, synth
+from realmspinner.kernels.audio import wavout
+from realmspinner.studio.modes.sirens import fileio as sirens_io
+from realmspinner.studio.modes.sirens import mode as sirens_mode
+from realmspinner.studio.modes.sirens.engine import document as D
+from realmspinner.studio.modes.sirens.engine import notes, synth
 
 from .test_sirens_mode import FakeCtx, _Done, _tab
 
@@ -147,7 +147,7 @@ def test_an_export_does_not_mark_the_song_saved(tmp_path):
 
 
 def test_the_export_task_reads_a_snapshot_rather_than_the_document(tmp_path):
-    """``wsng.wsng_bytes`` is taken on the frame thread and the task re-reads a
+    """``rsng.rsng_bytes`` is taken on the frame thread and the task re-reads a
     document from it, so an edit made while an export is running cannot tear a
     numpy view out from under it -- ``request_render``'s rule."""
     ctx = FakeCtx(accept=False)
@@ -296,7 +296,7 @@ def test_a_failed_encode_leaves_no_partial_folder_behind(monkeypatch, tmp_path):
     a refusal halfway through leave nothing at all -- rather than a ``stems/``
     holding three of five WAVs that a user would reasonably believe was an
     export."""
-    from warlock.service.errors import ServiceError
+    from realmspinner.service.errors import ServiceError
 
     ctx = FakeCtx()
     tab = _song(ctx)
@@ -325,7 +325,7 @@ def test_a_failed_export_unlocks_the_tab():
 def test_a_cancelled_folder_picker_unlocks_the_tab(monkeypatch, tmp_path):
     """``None`` out of the picker is a cancel and nothing else, so the tab has
     to come back rather than reading as busy for the rest of the session."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _song(ctx)
@@ -340,7 +340,7 @@ def test_a_cancelled_folder_picker_unlocks_the_tab(monkeypatch, tmp_path):
 def test_a_song_with_nothing_to_render_is_refused_before_the_picker(monkeypatch):
     """A brand-new document would otherwise open a folder picker and then write
     a folder of empty WAVs into whatever the user picked."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _song(ctx)
@@ -365,7 +365,7 @@ def test_a_busy_tab_does_not_export():
 
 
 def test_an_effect_named_dot_dot_cannot_write_outside_the_folder(tmp_path):
-    """``../evil`` is the shape ``wsng.py`` refuses to let anywhere near a path.
+    """``../evil`` is the shape ``rsng.py`` refuses to let anywhere near a path.
     Here the name has to survive into a filename, so it is sanitised instead --
     and what lands is one file, inside the folder the user picked."""
     ctx = FakeCtx()

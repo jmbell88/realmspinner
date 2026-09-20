@@ -16,9 +16,9 @@ read the two lengths, which is exactly what ``corners - 2*faces`` needs.
 
 from __future__ import annotations
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
 
 
 class _RefusesToBeScanned:

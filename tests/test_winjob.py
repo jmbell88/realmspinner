@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from warlock import winjob
+from realmspinner import winjob
 
 windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Job Objects")
 

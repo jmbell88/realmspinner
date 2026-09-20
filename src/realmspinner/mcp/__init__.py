@@ -1,0 +1,43 @@
+"""MCP (Model Context Protocol) support for Realmspinner.
+
+**A leaf, on purpose.** Every module under here (`protocol.py`, `rpc.py`,
+`pipe.py`, `bridge.py`) is stdlib-only and imports nothing else from
+`realmspinner` -- `bridge.py`'s one exception, `realmspinner.config`, is display-free
+and does not pull in pygame, moderngl or torch. That is what lets `realmspinner
+mcp` run as a tiny child process on a machine with no GPU and no window,
+exactly like `doctor` and `sweep`, and it is enforced the same way those
+constraints usually are in this codebase: don't add an import here that
+would break it.
+
+The layering this buys:
+
+- `protocol.py` speaks MCP over JSON-RPC 2.0 and knows nothing about Clay,
+  Inker or any other mode -- it takes a tool list and a call function as
+  arguments and has no opinion about what they do.
+- `rpc.py` speaks a second, private wire format -- Realmspinner's own versioned
+  RPC v1 -- over the same pipe; `Tool`, `ok`, `fail`, `text`, `image_png` and
+  `MAX_FRAME` live here and `protocol.py` re-exports them, since both wire
+  formats share that vocabulary. See its module docstring for the shape and
+  the versioning rule.
+- `pipe.py` is the transport: a named pipe (Windows) or a Unix socket
+  (everywhere else) via `multiprocessing.connection`, guarded by a token so
+  a stray local connection cannot drive Realmspinner.
+- `bridge.py` is `realmspinner mcp` itself -- the real MCP server, and the
+  *only* MCP server: `studio/agent_host.py` answers RPC v1 exclusively now,
+  never bare MCP JSON-RPC (`dev/INVARIANTS.md`'s agent paragraph; enforced
+  by `tests/mcp/test_mcp_imports.py`, which pins that nothing under
+  `realmspinner.studio` imports `realmspinner.mcp.protocol` at all). `bridge.py`
+  speaks `rpc.py`'s private RPC v1 to Realmspinner (`hello`, `catalogue`, `call`)
+  and dual-era MCP (`protocol.bridge_dispatch`) to whatever client dialled
+  its stdio: legacy, `initialize`-first JSON-RPC (with batching only for the
+  one legacy revision that still had it) and a newer "modern" era that drops
+  `initialize` for `server/discover` and versions each request through
+  `params._meta`. Realmspinner keeps all per-call state (dedup, replay,
+  `realmspinner_status`, transcript, timeouts) behind the RPC v1 `call` op; this
+  module never re-parses a tool result, only splices its raw bytes into
+  whichever MCP envelope the connection's era calls for. There is no relay
+  hatch back to a dumb byte relay -- Realmspinner's pipe has nothing left that
+  would answer one.
+"""
+
+from __future__ import annotations

@@ -25,10 +25,10 @@ import inspect
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay.ui.panes import props as clay_props
-from warlock.studio.tasks import Done
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.studio.tasks import Done
 
 
 @pytest.fixture
@@ -231,7 +231,7 @@ def test_a_stale_tab_or_material_index_is_a_quiet_no_op(monkeypatch: pytest.Monk
 
 
 def test_pick_texture_returns_none_on_a_cancelled_dialog(monkeypatch: pytest.MonkeyPatch) -> None:
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     monkeypatch.setattr(dialogs, "open_file", lambda *a, **kw: None)
     assert clay_props._pick_texture("base_color") is None
@@ -243,7 +243,7 @@ def test_pick_texture_decodes_through_the_pixel_guard(
     import numpy as np
     from PIL import Image
 
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     path = tmp_path / "swatch.png"
     Image.frombytes("RGBA", (3, 2), bytes(np.full((2, 3, 4), 128, dtype=np.uint8))).save(path)

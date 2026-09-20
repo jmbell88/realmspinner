@@ -25,10 +25,10 @@ import json
 import zipfile
 from io import BytesIO
 
-from warlock.kernels.pixel import ora
-from warlock.kernels.pixel import transform as tf
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.slices import Slice, SliceKey
+from realmspinner.kernels.pixel import ora
+from realmspinner.kernels.pixel import transform as tf
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.slices import Slice, SliceKey
 
 
 def _doc(width: int = 32, height: int = 16) -> Document:
@@ -40,7 +40,7 @@ def _exported(doc: Document) -> list[dict]:
     an inverted rectangle is invisible in the model's tuple and unmistakable as
     a negative ``w`` in the file every other program reads."""
     with zipfile.ZipFile(BytesIO(ora.ora_bytes(doc))) as zf:
-        return json.loads(zf.read(ora.WARLOCK_MEMBER))["slices"]
+        return json.loads(zf.read(ora.REALMSPINNER_MEMBER))["slices"]
 
 
 # --- the model ----------------------------------------------------------------
@@ -201,7 +201,7 @@ def test_a_key_survives_a_frame_delete_and_its_undo():
 def test_a_centre_dragged_past_the_opposite_corner_is_ordered_not_inverted():
     """Dragging the centre's north-west handle beyond the south-east one stored
     a rectangle with a negative extent, which reached the ORA member, the sheet
-    sidecar, the TexturePacker block and the ``.wpack`` as ``w: -16``."""
+    sidecar, the TexturePacker block and the ``.rpack`` as ``w: -16``."""
     doc = _doc(64, 64)
     entry = doc.add_slice((0, 0, 64, 64), name="panel", center=(20, 20, 44, 44))
 

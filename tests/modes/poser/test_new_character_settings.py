@@ -24,11 +24,11 @@ import inspect
 import pytest
 from _ui_context import imgui_context
 
-from warlock.service import troupe as svc_troupe
-from warlock.studio import probe, widgets
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
-from warlock.studio.state import AppState
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.studio import probe, widgets
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
+from realmspinner.studio.state import AppState
 
 
 class _Ctx:

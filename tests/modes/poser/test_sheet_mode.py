@@ -32,10 +32,10 @@ from types import SimpleNamespace
 import pygame
 import pytest
 
-from warlock.kernels import charsheet
-from warlock.kernels.rig import store
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.modes.poser.engine import spec as sheet_spec
+from realmspinner.kernels import charsheet
+from realmspinner.kernels.rig import store
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.modes.poser.engine import spec as sheet_spec
 
 
 class _Ctx:
@@ -276,7 +276,7 @@ def test_the_sheet_directory_is_not_re_read_every_frame(ctx, svc, monkeypatch):
     and the panes call it from their draw; ``active_sheet`` is another read.
     Between them Troupe hit the disk three or four times a frame for a
     directory that changes when a sheet is *built*."""
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     job_id, listed = _character(svc, sheets=2)
     _bind(ctx, job_id)
@@ -465,7 +465,7 @@ def test_the_sheet_section_is_not_journal_tracked():
     """
     import dataclasses
 
-    from warlock.studio.modes.poser.mode import PoserState
+    from realmspinner.studio.modes.poser.mode import PoserState
 
     sheet_fields = {
         f.name for f in dataclasses.fields(PoserState) if f.name.startswith("sheet")
@@ -482,7 +482,7 @@ def test_the_sheet_section_is_not_journal_tracked():
 def test_entering_from_home_creates_nothing(ctx, svc):
     """Unlike the four document modes: entering Plotter *was* the act of
     creating a map, silently and at whatever the default happened to be."""
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     before = len(svc.store.list())
     landing.start_poser(ctx)
@@ -506,7 +506,7 @@ def test_every_reserved_nav_key_does_something_in_the_sheet_section():
     Asserted over the reserved set rather than over a list written here, so a
     tenth key joining ``_NAV_KEYS`` fails until somebody decides what it means
     here."""
-    from warlock.studio import imgui_backend, modes
+    from realmspinner.studio import imgui_backend, modes
 
     assert "poser" in modes.NAV_KEY_MODES
     source = inspect.getsource(poser_mode.sheet_handle_key)
@@ -630,7 +630,7 @@ def test_handle_key_only_delegates_to_the_sheet_transport_while_viewing_a_sheet(
 def _preview_source() -> str:
     import pathlib
 
-    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
     return pathlib.Path(poser_sheet.__file__).read_text(encoding="utf-8")
 
@@ -648,7 +648,7 @@ def test_playback_speed_has_a_control_at_last() -> None:
     """``sheet_advance`` has divided the frame interval by ``state.sheet_speed``
     since Troupe was written and nothing could ever change it, so every
     preview played at exactly 1x."""
-    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
     assert "##poser-sheet-speed" in _preview_source()
     keys = [float(key) for key, _ in poser_sheet._SPEEDS]
@@ -750,7 +750,7 @@ def test_a_sheet_can_be_named_from_the_form(ctx, svc):
     source = inspect.getsource(poser_mode.build_sheet)
     assert "name=" in source, "build_sheet must carry the form's name to the door"
 
-    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
     pane = inspect.getsource(poser_sheet)
     assert '"name"' in pane, "the form needs a name field for build_sheet to carry"
@@ -764,7 +764,7 @@ def test_the_cell_caps_are_read_from_charsheet_not_restated(ctx, svc):
     restated number goes stale the day the door's moves, because nothing but
     the number itself would then disagree.
     """
-    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
     source = inspect.getsource(poser_sheet)
     assert "<= 512" not in source
@@ -1163,8 +1163,8 @@ def test_export_frames_asks_for_a_folder_on_the_task_thread(svc, monkeypatch):
     rather than pressing a button is what proves "on the task thread", since a
     picker invoked while ``export_frames`` itself runs would have fired before
     this line."""
-    from warlock.service import characters as svc_characters
-    from warlock.studio import dialogs
+    from realmspinner.service import characters as svc_characters
+    from realmspinner.studio import dialogs
 
     def _boom(*_a, **_k):
         raise AssertionError("the picker must not run before the task thread")
@@ -1206,8 +1206,8 @@ def test_export_frames_uses_the_configured_folder_without_asking(svc, monkeypatc
     is mocked here: what this test pins is the mode's own choice of
     destination, not the service's PNG cropping, which
     ``tests/service/test_character_exports.py`` already owns."""
-    from warlock.service import characters as svc_characters
-    from warlock.studio import dialogs
+    from realmspinner.service import characters as svc_characters
+    from realmspinner.studio import dialogs
 
     def _boom(*_a, **_k):
         raise AssertionError("the picker must not run when a folder is configured")
@@ -1240,8 +1240,8 @@ def test_a_cancelled_frame_export_writes_nothing(svc, monkeypatch):
     at simulating the result -- to pin that a cancelled pick never reaches
     ``service.characters.export_frames`` at all, and that a toast naming a
     folder nobody wrote would be the app claiming a write it did not make."""
-    from warlock.service import characters as svc_characters
-    from warlock.studio import dialogs
+    from realmspinner.service import characters as svc_characters
+    from realmspinner.studio import dialogs
 
     monkeypatch.setattr(dialogs, "select_folder", lambda *_a, **_k: None)
 
@@ -1267,7 +1267,7 @@ def test_the_bridge_offers_export_frames_beside_the_package_export():
     ``poser_mode.export_frames`` and gated the same way -- ready and not
     busy on the frames key, one call sharing the busy check with the button
     it sits beside."""
-    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
     source = inspect.getsource(poser_sheet._bridge)
     package_at = source.index('"Export package..."')
@@ -1286,9 +1286,9 @@ def test_varying_a_character_loads_its_recipe_as_the_users_own_choices(ctx, svc,
     override marks would have its species, theme and camera silently rewritten
     on the next keystroke, by a brief that is not about this character. The
     press of the button *is* the touch."""
-    from warlock.studio.modes.create.engine import character as character_engine
-    from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.state import default_form_2d
+    from realmspinner.studio.modes.create.engine import character as character_engine
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.state import default_form_2d
 
     went: list[str] = []
     monkeypatch.setattr(create_stages, "go", lambda c, stage, **kw: went.append(stage))

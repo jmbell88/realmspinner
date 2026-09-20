@@ -16,9 +16,9 @@ would pass against an empty directory is not a pin, and it is the one failure
 mode none of the assertions below can report on their own.
 
 ``test_sheetout.py`` keeps the one check that is genuinely about *it*: which
-name inside ``warlock.kernels`` its export reaches for (``sheet`` -- it used
+name inside ``realmspinner.kernels`` its export reaches for (``sheet`` -- it used
 to be ``pipelines.sheet`` until P4 of ``dev/RESTRUCTURE.md`` moved that
-module to ``warlock.kernels.sheet``).
+module to ``realmspinner.kernels.sheet``).
 """
 
 from __future__ import annotations
@@ -26,13 +26,13 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.kernels import pixel as inker
+from realmspinner.kernels import pixel as inker
 
 # Located through the package rather than by climbing ``__file__``, which is how
 # the other three do it: a moved test file must not silently start pinning a
 # directory that does not exist.
 ENGINE = Path(inker.__file__).parent
-PACKAGE = "warlock.kernels.pixel"
+PACKAGE = "realmspinner.kernels.pixel"
 
 #: ``(module, imported name)`` for every import that leaves the package.
 #:
@@ -42,7 +42,7 @@ PACKAGE = "warlock.kernels.pixel"
 #: undo engine and the native kernel loader, both as headless as this package is.
 #:
 #: ``tiles.py``'s two entries are the tile model reaching for the *other*
-#: shared leaf, ``warlock.kernels.grid2d`` (``studio/tilegrid/`` before P3 of
+#: shared leaf, ``realmspinner.kernels.grid2d`` (``studio/tilegrid/`` before P3 of
 #: ``dev/RESTRUCTURE.md`` moved it) -- the gid word and the sliced-atlas
 #: type. Same reasoning as ``undo.py``'s entry above: a shared leaf is not a
 #: sibling engine (``SIBLING_PACKAGES`` says so explicitly), so this is a
@@ -89,18 +89,18 @@ OUTWARD_IMPORTS = {
     # reason the algebra moved there rather than being copied: two engines
     # needed one table, and a second copy of a group-theory rule is the
     # kind of thing that drifts without either half noticing.
-    ("_doc_ranges.py", "warlock.kernels.grid2d"),
-    ("_doc_tiles.py", "warlock.kernels.grid2d"),
-    ("anim_edits.py", "warlock.core.undo"),
-    ("asein.py", "warlock.kernels.grid2d"),
-    ("asein.py", "warlock.kernels.grid2d.tileset"),
-    ("aseout.py", "warlock.kernels.grid2d"),
-    ("composite.py", "warlock.native"),
-    ("dither.py", "warlock.native"),
+    ("_doc_ranges.py", "realmspinner.kernels.grid2d"),
+    ("_doc_tiles.py", "realmspinner.kernels.grid2d"),
+    ("anim_edits.py", "realmspinner.core.undo"),
+    ("asein.py", "realmspinner.kernels.grid2d"),
+    ("asein.py", "realmspinner.kernels.grid2d.tileset"),
+    ("aseout.py", "realmspinner.kernels.grid2d"),
+    ("composite.py", "realmspinner.native"),
+    ("dither.py", "realmspinner.native"),
     # The shared nearest-palette search: one definition for ``snap``,
     # ``resolve`` and both of ``_ordered``'s searches, with the numpy fallback
     # beside it as the kernel's reference.
-    ("index_plane.py", "warlock.native"),
+    ("index_plane.py", "realmspinner.native"),
     # The shared bounded zip reader. One rule for four container doors, and a
     # leaf for ``grid2d``/``undo``'s reason exactly: the ``file_size`` sum
     # each of these carried is written by whoever wrote the archive, and a
@@ -126,27 +126,27 @@ OUTWARD_IMPORTS = {
     # ``aseout.py`` imports ``atomic`` through its own fully-qualified
     # ``core.safeio.atomic`` line (a separate statement from the rest), so it
     # keeps its own, more specific entry.
-    ("ora.py", "warlock.core.safeio"),
-    ("aseout.py", "warlock.core.safeio.atomic"),
-    ("asein.py", "warlock.core.safeio"),
-    ("gifin.py", "warlock.core.safeio"),
+    ("ora.py", "realmspinner.core.safeio"),
+    ("aseout.py", "realmspinner.core.safeio.atomic"),
+    ("asein.py", "realmspinner.core.safeio"),
+    ("gifin.py", "realmspinner.core.safeio"),
     # Reachable by *typing*: the surface is measured from the string in the
     # text field at the size in the size field, and nothing stood between a
     # 4000-point paste and ``Image.new``.
-    ("textstamp.py", "warlock.core.safeio"),
-    ("document.py", "warlock.core.safeio"),
-    ("ora.py", "warlock.kernels.grid2d"),
-    ("ora.py", "warlock.kernels.grid2d.tileset"),
-    ("selection.py", "warlock.native"),
-    ("sheetout.py", "warlock.kernels.sheet"),
-    ("tile_edits.py", "warlock.core.undo"),
-    ("tiles.py", "warlock.kernels.grid2d"),
-    ("tiles.py", "warlock.kernels.grid2d.tileset"),
-    ("undo.py", "warlock.core.undo"),
+    ("textstamp.py", "realmspinner.core.safeio"),
+    ("document.py", "realmspinner.core.safeio"),
+    ("ora.py", "realmspinner.kernels.grid2d"),
+    ("ora.py", "realmspinner.kernels.grid2d.tileset"),
+    ("selection.py", "realmspinner.native"),
+    ("sheetout.py", "realmspinner.kernels.sheet"),
+    ("tile_edits.py", "realmspinner.core.undo"),
+    ("tiles.py", "realmspinner.kernels.grid2d"),
+    ("tiles.py", "realmspinner.kernels.grid2d.tileset"),
+    ("undo.py", "realmspinner.core.undo"),
     # RotSprite's kernel: the same native-loader door composite.py, dither.py,
     # index_plane.py and selection.py already use, with the numpy path kept
     # beside it as the reference.
-    ("transform.py", "warlock.native"),
+    ("transform.py", "realmspinner.native"),
 }
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
@@ -162,13 +162,13 @@ LAZY_ONLY = {"PIL"}
 #: shrunk by the ``grid2d`` promotion to just ``tsx`` and ``pngio``, since the
 #: gid word, the sliced atlas and the blob collapse moved to the shared leaf
 #: both packages now reach for instead -- and it runs the other way, so nothing
-#: here may point at any of them. ``warlock.kernels.grid2d`` is not one of
+#: here may point at any of them. ``realmspinner.kernels.grid2d`` is not one of
 #: these: it is a shared leaf, not a sibling engine, and this package is free to
 #: import it.
 SIBLING_PACKAGES = (
-    "warlock.kernels.mesh",
-    "warlock.studio.modes.plotter.engine",
-    "warlock.studio.modes.packwright.engine",
+    "realmspinner.kernels.mesh",
+    "realmspinner.studio.modes.plotter.engine",
+    "realmspinner.studio.modes.packwright.engine",
 )
 
 
@@ -235,12 +235,12 @@ def test_the_engine_never_imports_a_window():
 def test_the_engine_never_imports_the_service_layer():
     for path in _modules():
         for name in _outward(path):
-            assert "warlock.service" not in name, f"{path.name} imports {name}"
+            assert "realmspinner.service" not in name, f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_queue():
     """The one pin this file did not have, and its three siblings did. Both
-    spellings: ``warlock.queue`` is the front door and ``warlock._q_*`` are the
+    spellings: ``realmspinner.queue`` is the front door and ``realmspinner._q_*`` are the
     worker halves behind it, and importing either would put a job queue and
     torch under a headless test of what a brush does to a pixel.
 
@@ -250,8 +250,8 @@ def test_the_engine_never_imports_the_queue():
     """
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.queue"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.queue"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_other_pure_packages():
@@ -267,7 +267,7 @@ def test_the_only_outward_imports_are_the_ones_written_down():
         (path.name, name)
         for path in _modules()
         for name in _outward(path)
-        if name.split(".")[0] == "warlock"
+        if name.split(".")[0] == "realmspinner"
     }
     assert found == OUTWARD_IMPORTS
 

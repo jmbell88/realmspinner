@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import socket
 
-from warlock import doctor, fetch, instance
-from warlock import models as model_registry
-from warlock.config import Config
-from warlock.doctor import run_checks
-from warlock.pipelines import matting
+from realmspinner import doctor, fetch, instance
+from realmspinner import models as model_registry
+from realmspinner.config import Config
+from realmspinner.doctor import run_checks
+from realmspinner.pipelines import matting
 
 
 def _free_port() -> int:
@@ -139,7 +139,7 @@ def test_gguf_check_reports_missing_weights_as_a_pending_install(tmp_path):
     """Absent weights are a download not made, not a broken install.
 
     This asserted ``fatal is True`` until 2026-09-04. Fatal put a red banner on
-    every fresh launch and made ``warlock doctor`` exit 1 on a machine with
+    every fresh launch and made ``realmspinner doctor`` exit 1 on a machine with
     nothing wrong with it -- the weights are a first-run download, and
     Settings -> Models is the button that fixes it. The exe beside it stays
     fatal, because the installer ships that one.
@@ -161,7 +161,7 @@ def test_a_check_may_not_be_both_broken_and_merely_uninstalled(tmp_path):
     """
     import pytest
 
-    from warlock.doctor import Check
+    from realmspinner.doctor import Check
 
     with pytest.raises(ValueError):
         Check("both", False, "", fatal=True, pending_install=True)
@@ -207,7 +207,7 @@ def test_birefnet_check_reports_a_directory_distinctly_from_a_missing_file(tmp_p
     a broken unpack, the same shape L01 fixed for ``_exe_check`` and
     ``_gltfpack_check`` -- read as installed rather than as the damaged,
     non-file state it is."""
-    from warlock.guidance import BIREFNET_WEIGHTS
+    from realmspinner.guidance import BIREFNET_WEIGHTS
 
     models_dir = tmp_path / "models"
     models_dir.mkdir(parents=True)
@@ -238,10 +238,10 @@ def test_run_checks_returns_every_check(tmp_path):
     # Fourteen fixed checks plus one row per registry entry -- derived rather
     # than hardcoded so adding a model doesn't fail an unrelated assertion.
     # The twelfth is "single instance", which RUN-01 added alongside the
-    # startup lock: the refusal fires once, and two Warlocks over one job
+    # startup lock: the refusal fires once, and two Realmspinners over one job
     # database is exactly what somebody goes looking for in diagnostics
     # afterwards. The thirteenth is "environment", RUN-03's single surface for
-    # every WARLOCK_* value that would not parse. The fourteenth is "host
+    # every REALMSPINNER_* value that would not parse. The fourteenth is "host
     # memory" (2026-08-21): the queue refuses jobs on a percentage of
     # system-wide commit and that refusal used to arrive with no context, on a
     # machine with 24 GiB of RAM free. The fifteenth is "job database": the
@@ -298,12 +298,12 @@ def test_instance_check_probes_the_shared_database_and_model_root(tmp_path, monk
     holder = instance.InstanceLocks(instance.lock_paths(first_config))
     assert holder.acquire()
     try:
-        # Simulate ``warlock doctor`` in another process rather than the Studio
+        # Simulate ``realmspinner doctor`` in another process rather than Realmspinner
         # process that owns ``holder``.
         monkeypatch.setattr(instance, "held_by_us", lambda: False)
         check = doctor._instance_check(second_config)
         assert check.ok is False
-        assert "warlock-db.lock" in check.detail
+        assert "realmspinner-db.lock" in check.detail
     finally:
         holder.release()
 
@@ -404,7 +404,7 @@ def test_a_probe_driven_row_checks_every_file_it_names(tmp_path):
 
 
 def test_turbo_dir_override_is_still_honoured(tmp_path):
-    # WARLOCK_T2I_DIR predates the registry; existing setups point it at an
+    # REALMSPINNER_T2I_DIR predates the registry; existing setups point it at an
     # arbitrary diffusers dir and must keep working.
     override = tmp_path / "elsewhere"
     (override / "unet").mkdir(parents=True)
@@ -416,11 +416,11 @@ def test_turbo_dir_override_is_still_honoured(tmp_path):
 
 
 def test_gltfpack_check_is_non_fatal_when_missing(tmp_path, monkeypatch):
-    from warlock import doctor
-    from warlock.config import Config
+    from realmspinner import doctor
+    from realmspinner.config import Config
 
-    monkeypatch.setenv("WARLOCK_GLTFPACK", str(tmp_path / "nope.exe"))
-    monkeypatch.setenv("WARLOCK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("REALMSPINNER_GLTFPACK", str(tmp_path / "nope.exe"))
+    monkeypatch.setenv("REALMSPINNER_DATA_DIR", str(tmp_path))
     check = doctor._gltfpack_check(Config())
     assert check.ok is False
     assert check.fatal is False
@@ -430,13 +430,13 @@ def test_gltfpack_check_reports_a_directory_distinctly_from_a_missing_file(
     tmp_path, monkeypatch
 ):
     """L01, ``gltfpack``'s half."""
-    from warlock import doctor
-    from warlock.config import Config
+    from realmspinner import doctor
+    from realmspinner.config import Config
 
     directory = tmp_path / "gltfpack.exe"
     directory.mkdir()
-    monkeypatch.setenv("WARLOCK_GLTFPACK", str(directory))
-    monkeypatch.setenv("WARLOCK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("REALMSPINNER_GLTFPACK", str(directory))
+    monkeypatch.setenv("REALMSPINNER_DATA_DIR", str(tmp_path))
     check = doctor._gltfpack_check(Config())
     assert check.ok is False
     assert "exists but is not a file" in check.detail
@@ -449,13 +449,13 @@ def test_gltfpack_check_reports_a_zero_byte_binary_as_broken(tmp_path, monkeypat
     ``_exe_check`` beside it (M04's zero-byte downgrade) -- a killed download
     or unpack leaves a zero-byte binary that this row read as healthy.
     """
-    from warlock import doctor
-    from warlock.config import Config
+    from realmspinner import doctor
+    from realmspinner.config import Config
 
     exe = tmp_path / "gltfpack.exe"
     exe.write_bytes(b"")
-    monkeypatch.setenv("WARLOCK_GLTFPACK", str(exe))
-    monkeypatch.setenv("WARLOCK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("REALMSPINNER_GLTFPACK", str(exe))
+    monkeypatch.setenv("REALMSPINNER_DATA_DIR", str(tmp_path))
     check = doctor._gltfpack_check(Config())
     assert check.ok is False
     assert "0 bytes" in check.detail
@@ -608,7 +608,9 @@ def test_no_probe_can_raise_out_of_run_checks(tmp_path):
     # The probe runs at startup, before anything is on screen. A module whose
     # metadata is broken enough that find_spec raises must cost a red row and
     # not the app.
-    assert doctor._missing_modules(["warlock", "einops.no.such.thing", "definitely_not_here"]) == [
+    assert doctor._missing_modules(
+        ["realmspinner", "einops.no.such.thing", "definitely_not_here"]
+    ) == [
         "einops.no.such.thing",
         "definitely_not_here",
     ]
@@ -647,8 +649,8 @@ def test_a_base_model_missing_its_distillation_lora_is_not_reported_ready(tmp_pa
     """A base LoRA raises at load where a style LoRA is skipped, so it is part
     of the checkpoint as far as this file is concerned. Reporting the model
     ready meant finding out at job time with the weights already in VRAM."""
-    from warlock import doctor, models
-    from warlock.config import Config
+    from realmspinner import doctor, models
+    from realmspinner.config import Config
 
     spec = next(s for s in models.BASE_MODELS.values() if s.base_lora)
     config = Config(t2i_model_root=tmp_path)
@@ -681,7 +683,7 @@ def test_pose_model_row_is_not_fatal_and_names_the_consequence(tmp_path):
     for."""
     spec = model_registry.POSE_MODELS[model_registry.DEFAULT_POSE_MODEL]
     # The model root pinned empty rather than left at PROJECT_ROOT/models,
-    # which is the rule dev/INVARIANTS.md states for warlockc.dll and gltfpack: a test
+    # which is the rule dev/INVARIANTS.md states for realmspinnerc.dll and gltfpack: a test
     # about what happens when weights are *missing* must own that they are.
     # Downloading vitpose on 2026-08-07 duly turned this red.
     config = _config(tmp_path, t2i_model_root=tmp_path / "no-models")
@@ -731,7 +733,7 @@ def test_a_checkpoint_that_will_not_load_is_red_once_the_probe_runs(tmp_path):
 def test_the_load_probe_is_keyed_on_the_weights_directory(tmp_path, monkeypatch):
     """Not on the kind. The bpy answer can be a bare global because it is a
     fact about the interpreter; this is a fact about a path, and
-    ``WARLOCK_T2I_ROOT`` moves it -- so a kind-keyed cache would answer the
+    ``REALMSPINNER_T2I_ROOT`` moves it -- so a kind-keyed cache would answer the
     second config with the first one's result.
 
     The probe itself is stubbed. Letting the real one run spawned a child
@@ -784,7 +786,7 @@ def test_the_load_probe_is_keyed_on_the_weights_directory(tmp_path, monkeypatch)
 def test_the_load_probe_child_reports_a_failure_as_a_sentence(tmp_path):
     """It must never raise out of the child: a probe that does turns a red row
     into a traceback in a log nobody is reading yet."""
-    from warlock.pipelines import loadprobe
+    from realmspinner.pipelines import loadprobe
 
     ok, detail = loadprobe.probe("pose", tmp_path / "nothing-here")
     assert ok is False
@@ -793,7 +795,7 @@ def test_the_load_probe_child_reports_a_failure_as_a_sentence(tmp_path):
 
 
 def test_the_load_probe_child_refuses_an_unknown_kind(capsys):
-    from warlock.pipelines import loadprobe
+    from realmspinner.pipelines import loadprobe
 
     assert loadprobe.main(["nonsense", "x"]) == 2
     assert capsys.readouterr().out.startswith("fail usage:")
@@ -829,7 +831,7 @@ def test_the_probe_does_not_run_at_all_without_weights(monkeypatch, tmp_path):
 
 def test_the_gguf_remedy_downloads_into_the_configured_models_dir(tmp_path):
     """The command is pasted from whatever directory the user's shell happens
-    to be in, so a relative ``--local-dir`` put 16 GB somewhere Warlock never
+    to be in, so a relative ``--local-dir`` put 16 GB somewhere Realmspinner never
     inspects and left the fatal row standing (audit 2026-08-19)."""
     config = _config(tmp_path)
     checks = {c.name: c for c in run_checks(config)}
@@ -857,7 +859,7 @@ def test_the_exe_remedy_names_the_exact_release_asset_and_its_digest(tmp_path):
 
 
 def _sysmem(total: float, limit: float):
-    from warlock import memlog
+    from realmspinner import memlog
 
     return memlog.SystemMemory(commit_total=total, commit_limit=limit)
 
@@ -872,7 +874,7 @@ def test_commit_headroom_row_warns_when_the_pagefile_is_the_constraint(monkeypat
     normal GPU-driver and allocator commit puts the fraction at the wall while
     memory itself is plentiful.
     """
-    from warlock import doctor, memlog
+    from realmspinner import doctor, memlog
 
     monkeypatch.setattr(memlog, "system_memory", lambda: _sysmem(75.1, 77.7))
     monkeypatch.setattr(doctor, "_physical_ram_gib", lambda: 63.5)
@@ -887,7 +889,7 @@ def test_commit_headroom_row_is_quiet_on_a_healthy_machine(monkeypatch):
     """A roomy limit and a modest charge is the ordinary case and must not
     grow a warning row -- the doctor is read by eye and a row that is always
     amber is a row nobody reads."""
-    from warlock import doctor, memlog
+    from realmspinner import doctor, memlog
 
     monkeypatch.setattr(memlog, "system_memory", lambda: _sysmem(30.0, 128.0))
     monkeypatch.setattr(doctor, "_physical_ram_gib", lambda: 64.0)
@@ -902,7 +904,7 @@ def test_commit_headroom_row_does_not_blame_the_pagefile_when_it_is_generous(
     """High commit with a large pagefile is a different diagnosis: something is
     genuinely using the memory, and telling the user to grow a pagefile that is
     already 2x their RAM would be advice that does nothing."""
-    from warlock import doctor, memlog
+    from realmspinner import doctor, memlog
 
     monkeypatch.setattr(memlog, "system_memory", lambda: _sysmem(180.0, 192.0))
     monkeypatch.setattr(doctor, "_physical_ram_gib", lambda: 64.0)
@@ -915,7 +917,7 @@ def test_commit_headroom_row_says_so_when_it_cannot_measure(monkeypatch):
     """Off Windows, or when the call fails. The row must not claim a healthy
     machine it did not read -- every other doctor row states its own
     unavailability rather than passing by default."""
-    from warlock import doctor, memlog
+    from realmspinner import doctor, memlog
 
     monkeypatch.setattr(memlog, "system_memory", lambda: None)
     row = doctor._commit_check()
@@ -927,7 +929,7 @@ def test_commit_headroom_row_says_so_when_it_cannot_measure(monkeypatch):
 def test_the_commit_row_is_in_the_volatile_set(tmp_path):
     """Commit changes minute to minute -- it is exactly a volatile row, and a
     static one would report the figure at startup forever."""
-    from warlock import doctor
+    from realmspinner import doctor
 
     config = _config(tmp_path)
     names = [c.name for c in doctor.volatile_checks(config)]
@@ -952,7 +954,7 @@ def test_the_vram_row_is_not_fatal_on_a_carded_host_that_has_no_torch(tmp_path, 
     Pinned to a fake reading rather than the real driver so the verdict does
     not move with the machine running the suite.
     """
-    from warlock import vram
+    from realmspinner import vram
 
     reading = vram.DeviceMemory(total_gib=32.0, free_gib=30.0, name="NVML GPU")
     monkeypatch.setattr(vram, "live_memory", lambda: reading)
@@ -971,7 +973,7 @@ def test_the_vram_row_is_still_fatal_when_there_really_is_no_card(tmp_path, monk
     A host with no card genuinely cannot reconstruct -- there is no CPU
     fallback -- and an amber "admission control is off" row reads as good news.
     """
-    from warlock import vram
+    from realmspinner import vram
 
     monkeypatch.setattr(vram, "live_memory", lambda: None)
     monkeypatch.setattr(vram, "probe", lambda: None)

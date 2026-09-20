@@ -13,9 +13,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.studio import docmodes
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.panes import pose_panel
+from realmspinner.studio import docmodes
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.panes import pose_panel
 
 
 class _Confirms:
@@ -147,7 +147,7 @@ def _cross_ctx(*, dirty: bool):
     ``submit``/``busy`` are stubs that decline every submit -- ``open_asset``
     asks the Poser library/clips/asset-poses to refresh on arrival, and this
     test cares only that the trip lands, not that the refresh completes."""
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     viewer = _viewer(dirty=dirty)
     viewer.exit_pose_mode = lambda: setattr(viewer, "pose_mode", False)

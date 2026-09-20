@@ -23,14 +23,14 @@ import math
 import numpy as np
 import pytest
 
-from warlock import _q_troupe
-from warlock.kernels import charsheet
-from warlock.kernels import sheet as sheetlib
-from warlock.pipelines import sheetcheck
-from warlock.service import jobs as svc_jobs
-from warlock.service import sheets as svc_sheets
-from warlock.service import troupe as svc_troupe
-from warlock.service.errors import Invalid
+from realmspinner import _q_troupe
+from realmspinner.kernels import charsheet
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.pipelines import sheetcheck
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import sheets as svc_sheets
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.service.errors import Invalid
 
 
 def _mesh(svc, *, rigged: bool = True, template: str = "humanoid") -> str:
@@ -61,8 +61,8 @@ def test_the_viewport_camera_and_the_sheet_camera_are_the_same_angle():
     ``front_yaw`` needs no sign flip and no origin shift -- and here that
     stops being an assertion and becomes a measurement.
     """
-    from warlock.studio.viewer import camera as viewer_camera
-    from warlock.studio.viewer import sheet as viewer_sheet
+    from realmspinner.studio.viewer import camera as viewer_camera
+    from realmspinner.studio.viewer import sheet as viewer_sheet
 
     centre = np.zeros(3)
     for degrees in (0.0, 45.0, 137.5, 270.0, 359.0):

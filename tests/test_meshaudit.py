@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 import trimesh
 
-from warlock import native
-from warlock.meshaudit import DEFAULT_VIEWS, hole_fraction
+from realmspinner import native
+from realmspinner.meshaudit import DEFAULT_VIEWS, hole_fraction
 
 
 @pytest.fixture
@@ -94,7 +94,7 @@ def test_the_request_path_measures_at_full_resolution():
     """Pinned because it is a corpus decision rather than a tuning constant:
     changing it changes what every stored hole fraction means, so it should
     take a test edit and the measurement that justifies it."""
-    from warlock.meshaudit import REQUEST_PATH_RESOLUTION
+    from realmspinner.meshaudit import REQUEST_PATH_RESOLUTION
 
     assert REQUEST_PATH_RESOLUTION == 1024
 
@@ -155,7 +155,7 @@ def _fixpoint_blobs(mask: np.ndarray) -> int:
 
 
 def _assert_matches_the_fixpoints(covered: np.ndarray) -> None:
-    from warlock.meshaudit import _enclosed_gaps
+    from realmspinner.meshaudit import _enclosed_gaps
 
     holes, blobs = _enclosed_gaps(covered)
     assert np.array_equal(holes, _fixpoint_gaps(covered))
@@ -174,7 +174,7 @@ def test_a_ring_encloses_exactly_one_hole():
     covered[8:24, 8:24] = True
     covered[12:20, 12:20] = False
     _assert_matches_the_fixpoints(covered)
-    from warlock.meshaudit import _enclosed_gaps
+    from realmspinner.meshaudit import _enclosed_gaps
 
     holes, blobs = _enclosed_gaps(covered)
     assert blobs == 1
@@ -188,7 +188,7 @@ def test_two_holes_touching_only_at_a_corner_stay_two():
     covered[0, :] = covered[-1, :] = covered[:, 0] = covered[:, -1] = False
     covered[6, 6] = covered[7, 7] = False
     _assert_matches_the_fixpoints(covered)
-    from warlock.meshaudit import _enclosed_gaps
+    from realmspinner.meshaudit import _enclosed_gaps
 
     assert _enclosed_gaps(covered)[1] == 2
 
@@ -205,7 +205,7 @@ def test_a_gap_touching_the_border_is_background_not_a_hole():
     covered = np.ones((16, 16), dtype=bool)
     covered[0:4, 7] = False  # a slot cut in from the top edge
     _assert_matches_the_fixpoints(covered)
-    from warlock.meshaudit import _enclosed_gaps
+    from realmspinner.meshaudit import _enclosed_gaps
 
     holes, blobs = _enclosed_gaps(covered)
     assert blobs == 0
@@ -230,7 +230,7 @@ def test_chunking_the_rasteriser_is_bit_identical_to_one_pass(
     500k-triangle mesh. `covered` is written in place, so the chunk size must
     be invisible in the result -- forcing it down to one triangle per pass is
     the strongest version of that claim."""
-    import warlock.meshaudit as meshaudit
+    import realmspinner.meshaudit as meshaudit
 
     unchunked = hole_fraction(sphere_glb, resolution=256)
     monkeypatch.setattr(meshaudit, "_BATCH_MAX_CELLS", 1)
@@ -246,11 +246,11 @@ def test_chunking_the_rasteriser_is_bit_identical_to_one_pass(
 # and the stored numbers feed observations and findings, so a drift would
 # quietly make old and new corpus entries incomparable.
 
-needs_dll = pytest.mark.skipif(not native.available(), reason="warlockc.dll not built")
+needs_dll = pytest.mark.skipif(not native.available(), reason="realmspinnerc.dll not built")
 
 
 def _both_paths(positions, faces, direction, resolution, monkeypatch):
-    import warlock.meshaudit as meshaudit
+    import realmspinner.meshaudit as meshaudit
 
     monkeypatch.setattr(native, "available", lambda: True)
     fast = meshaudit._coverage(positions, faces, direction, resolution)
@@ -262,7 +262,7 @@ def _both_paths(positions, faces, direction, resolution, monkeypatch):
 @needs_dll
 @pytest.mark.parametrize("resolution", [64, 256, 512])
 def test_the_native_rasteriser_matches_numpy_bit_for_bit(sphere_glb, monkeypatch, resolution):
-    from warlock.meshaudit import load_mesh
+    from realmspinner.meshaudit import load_mesh
 
     positions, faces = load_mesh(sphere_glb)
     fast, slow = _both_paths(positions, faces, (0.3, 0.7, 1.0), resolution, monkeypatch)
@@ -273,7 +273,7 @@ def test_the_native_rasteriser_matches_numpy_bit_for_bit(sphere_glb, monkeypatch
 def test_the_two_rasterisers_agree_on_a_pierced_mesh(tmp_path, monkeypatch):
     """The mesh the measurement exists for: the disagreement that matters is
     one at a hole boundary, and a solid sphere has no boundaries to disagree at."""
-    from warlock.meshaudit import load_mesh
+    from realmspinner.meshaudit import load_mesh
 
     sphere = trimesh.creation.icosphere(subdivisions=4, radius=0.5)
     keep = np.abs(sphere.face_normals[:, 2]) < 0.9
@@ -319,7 +319,7 @@ def test_a_mesh_with_no_faces_is_empty_on_both_paths(monkeypatch):
 @needs_dll
 def test_the_whole_measurement_agrees_end_to_end(sphere_glb, monkeypatch):
     """Not just the mask: the dict that gets stored on the job."""
-    import warlock.meshaudit as meshaudit
+    import realmspinner.meshaudit as meshaudit
 
     monkeypatch.setattr(native, "available", lambda: True)
     fast = meshaudit.hole_fraction(sphere_glb, resolution=256)

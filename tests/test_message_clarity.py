@@ -12,15 +12,15 @@ import dataclasses
 
 import pytest
 
-from warlock import guidance
-from warlock.config import SETTINGS, Config, effective
-from warlock.service.errors import Invalid
+from realmspinner import guidance
+from realmspinner.config import SETTINGS, Config, effective
+from realmspinner.service.errors import Invalid
 
 # --- S136: a sweep refusal names the unit, the field and the value ----------
 
 
 def test_a_bad_sweep_unit_names_itself_and_the_offending_value(svc):
-    from warlock.service import sweeps as sweeps_mod
+    from realmspinner.service import sweeps as sweeps_mod
 
     plan = sweeps_mod.SweepPlan(
         label="bad",
@@ -65,8 +65,8 @@ def test_every_config_field_is_either_listed_or_deliberately_not():
     assert named - fields == set()
 
 
-def test_every_entry_names_a_warlock_variable():
-    assert all(env.startswith("WARLOCK_") for _, env in SETTINGS)
+def test_every_entry_names_a_realmspinner_variable():
+    assert all(env.startswith("REALMSPINNER_") for _, env in SETTINGS)
     assert len({env for _, env in SETTINGS}) == len(SETTINGS)
 
 
@@ -74,7 +74,7 @@ def test_a_set_variable_is_reported_as_set_even_at_its_default(monkeypatch):
     """The case the obvious implementation gets wrong. Comparing against a
     fresh ``Config`` would call this "default" -- and it is exactly the moment
     a user is asking whether their setting took effect."""
-    monkeypatch.setenv("WARLOCK_TRELLIS_PORT", "17971")
+    monkeypatch.setenv("REALMSPINNER_TRELLIS_PORT", "17971")
     config = Config()
     row = next(s for s in effective(config) if s.name == "trellis_port")
     assert row.from_env is True
@@ -82,7 +82,7 @@ def test_a_set_variable_is_reported_as_set_even_at_its_default(monkeypatch):
 
 
 def test_an_unset_optional_reads_as_unset_rather_than_none(monkeypatch):
-    monkeypatch.delenv("WARLOCK_EXPORT_DIR", raising=False)
+    monkeypatch.delenv("REALMSPINNER_EXPORT_DIR", raising=False)
     row = next(s for s in effective(Config()) if s.name == "export_dir")
     assert row.value == "(unset)"
     assert row.from_env is False
@@ -98,8 +98,8 @@ def test_every_switch_is_actually_read_somewhere():
     is a row in the readout that means nothing."""
     import inspect
 
-    from warlock import migrate, native
-    from warlock.config import SWITCHES
+    from realmspinner import migrate, native
+    from realmspinner.config import SWITCHES
 
     sources = inspect.getsource(migrate) + inspect.getsource(native)
     for _, env in SWITCHES:
@@ -109,7 +109,7 @@ def test_every_switch_is_actually_read_somewhere():
 def test_a_switch_is_not_also_a_config_field():
     """The two tables partition the environment; an overlap would print the
     same variable twice with two different answers."""
-    from warlock.config import SWITCHES
+    from realmspinner.config import SWITCHES
 
     fields = {f.name for f in dataclasses.fields(Config)}
     assert {name for name, _ in SWITCHES} & fields == set()
@@ -117,8 +117,8 @@ def test_a_switch_is_not_also_a_config_field():
 
 
 def test_an_unset_switch_reads_as_unset_and_a_set_one_carries_its_value(monkeypatch):
-    monkeypatch.delenv("WARLOCK_NATIVE_DLL", raising=False)
-    monkeypatch.setenv("WARLOCK_NATIVE", "0")
+    monkeypatch.delenv("REALMSPINNER_NATIVE_DLL", raising=False)
+    monkeypatch.setenv("REALMSPINNER_NATIVE", "0")
     rows = {s.name: s for s in effective(Config())}
     assert rows["native_dll"].value == "(unset)"
     assert rows["native_dll"].from_env is False
@@ -131,7 +131,7 @@ def test_effective_is_pure():
     on a machine with no display."""
     import inspect
 
-    from warlock import config as config_mod
+    from realmspinner import config as config_mod
 
     source = inspect.getsource(config_mod)
     for forbidden in ("from .service", "from .studio", "from .queue"):

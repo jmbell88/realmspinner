@@ -35,8 +35,8 @@ def _pane_sources() -> dict[str, str]:
 def test_no_pane_answers_an_empty_viewport_with_a_muted_sentence():
     """Packwright's preview said "Add a sprite to see the atlas." in muted
     body text where the other nine viewports drew the icon-title-hint form."""
-    from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.modes.packwright.ui.panes import preview as packwright_preview
+    from realmspinner.studio.panes import overlay
 
     source = inspect.getsource(packwright_preview)
     assert "Add a sprite to see the atlas." not in source
@@ -63,7 +63,7 @@ _POINTERS = {"create/mesh", "create/rig", "create/export", "poser", "review", "m
 
 
 def test_every_imperative_placeholder_offers_the_thing_it_asks_for():
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     for key, (_icon, _title, hint) in overlay.PLACEHOLDERS.items():
         if key in _POINTERS:
@@ -77,7 +77,7 @@ def test_every_imperative_placeholder_offers_the_thing_it_asks_for():
 def test_every_pointer_hint_really_is_a_pointer():
     """The exemption list is not a place to park work: an exempt entry must
     actually be pointing somewhere else."""
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     for key in _POINTERS:
         hint = overlay.PLACEHOLDERS[key][2]
@@ -87,7 +87,7 @@ def test_every_pointer_hint_really_is_a_pointer():
 def test_the_placeholder_table_stays_data():
     """The action is resolved at draw time. A callable in the table would drag
     every mode module in behind an import of the sentences."""
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     for key, entry in overlay.PLACEHOLDERS.items():
         assert len(entry) == 3, key
@@ -95,8 +95,8 @@ def test_the_placeholder_table_stays_data():
 
 
 def test_centred_empty_forwards_its_action_to_the_one_empty_state():
-    from warlock.studio import widgets
-    from warlock.studio.panes import overlay
+    from realmspinner.studio import widgets
+    from realmspinner.studio.panes import overlay
 
     assert "action" in inspect.signature(overlay.centred_empty).parameters
     assert "action=action" in inspect.getsource(overlay.centred_empty)
@@ -104,7 +104,7 @@ def test_centred_empty_forwards_its_action_to_the_one_empty_state():
 
 
 def test_action_for_binds_the_ctx_and_is_none_where_there_is_nothing_to_do():
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     ctx = SimpleNamespace(state=SimpleNamespace(focus_key={}, focus_moved=False))
     label, run = overlay.action_for(ctx, "create/reference")
@@ -117,8 +117,8 @@ def test_action_for_binds_the_ctx_and_is_none_where_there_is_nothing_to_do():
 
 def test_the_packwright_button_opens_the_picker_that_exists():
     """``ask_add_image`` does not exist; ``ask_add_sources`` is the picker."""
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.panes import overlay
 
     assert callable(packwright_mode.ask_add_sources)
     assert "packwright_mode.ask_add_sources(ctx)" in inspect.getsource(overlay._packwright_add)
@@ -127,8 +127,8 @@ def test_the_packwright_button_opens_the_picker_that_exists():
 def test_the_clay_button_never_names_a_generator():
     """The registry is data (``clay_props``' rule), and the button that adds a
     primitive lives under the same rule."""
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.panes import overlay
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.panes import overlay
 
     source = inspect.getsource(overlay._clay_box)
     for name in bp.GENERATORS:
@@ -145,7 +145,7 @@ def _clay_props_ctx(monkeypatch, selection: set[str]):
     is drawn rather than about the frame surviving -- the smoke suite owns
     that half.
     """
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     drawn: list[tuple[str, str]] = []
     doc = SimpleNamespace(
@@ -182,7 +182,7 @@ def test_clay_still_says_nothing_selected_when_nothing_is(monkeypatch):
 def test_the_multi_selection_refusal_itself_is_unchanged(monkeypatch):
     """Only the sentence changed: ``_selected`` still refuses to edit one of
     many, which is the whole reason the branch exists."""
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     doc = SimpleNamespace(selection={"a", "b"}, by_uid=lambda uid: "an object")
     assert clay_props._selected(doc) is None
@@ -251,7 +251,7 @@ def test_no_sidebar_sentence_is_drawn_with_the_helper_that_cannot_wrap():
     """
     import ast
 
-    from warlock import studio
+    from realmspinner import studio
 
     root = Path(inspect.getfile(studio)).resolve().parent
     offenders = []
@@ -314,7 +314,7 @@ def test_the_licence_box_is_a_switch_because_the_form_has_no_checkbox():
     imgui checkbox is ELEV_1 on ELEV_1 and vanishes when off. ``forms.Form``
     records that where it declines to grow a ``checkbox`` method, and this is
     the claim that the record still holds."""
-    from warlock.studio import forms
+    from realmspinner.studio import forms
 
     assert not hasattr(forms.Form, "checkbox")
     assert callable(forms.Form.switch) and callable(forms.Form.slider)
@@ -342,9 +342,9 @@ def test_settings_draws_no_bare_imgui_text_as_a_name_column():
 
 
 def _modal_sources() -> dict[str, str]:
-    from warlock.studio import dialogs
-    from warlock.studio.modes.create.ui.panes import settings_3d
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio import dialogs
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     return {
         name: inspect.getsource(module)
@@ -357,7 +357,7 @@ def _modal_sources() -> dict[str, str]:
 
 
 def test_modal_max_height_is_a_fraction_of_the_viewport():
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     assert widgets.MODAL_MAX_FRACTION == 0.85
     assert widgets.modal_max_height(800.0) == 680.0
@@ -368,7 +368,7 @@ def test_modal_max_height_is_a_fraction_of_the_viewport():
 
 
 def test_modal_body_height_reserves_the_action_row():
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     # 800 px viewport -> 680 for the modal, less a 40 px button row and 60 px
     # of title bar and padding.
@@ -397,8 +397,8 @@ def test_every_bounded_modal_scrolls_its_body():
 
 def test_plotter_presets_do_not_all_share_one_row():
     """Five presets at ``grid_width(5)`` truncated every label."""
-    from warlock.studio.modes.plotter import setup as plotter_setup
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio.modes.plotter import setup as plotter_setup
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     assert len(plotter_setup.PRESETS) == 5
     assert len(plotter_setup.PRESETS) > plotter_canvas.PRESET_COLUMNS
@@ -421,7 +421,7 @@ def test_no_modal_centres_only_on_the_appearing_frame():
 
 
 def test_modal_bounds_centres_every_frame():
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     source = inspect.getsource(widgets.modal_bounds)
     assert "set_next_window_pos(" in source
@@ -544,7 +544,7 @@ def test_flourish_generic_param_widget_labels_above_its_field():
     ``controls.*``, so ``_INKER_LABELLED_RAW`` never sees the call at all --
     pinned by name instead.
     """
-    from warlock.studio.modes.inker.ui.panes import flourish as inker_flourish
+    from realmspinner.studio.modes.inker.ui.panes import flourish as inker_flourish
 
     param_source = inspect.getsource(inker_flourish._param_control)
     assert 'widgets.field_label(name, tip or None)' in param_source

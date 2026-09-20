@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel import selection
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.selection import SelectionMask
+from realmspinner.kernels.pixel import selection
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.selection import SelectionMask
 
 
 def _animated(frames: int = 2, *, link: bool = True) -> Document:
@@ -267,7 +267,7 @@ def test_space_mid_stroke_no_longer_cancels_its_own_pan():
     """Keyboard state is not gesture state. Pressing Space during a stroke
     ends the stroke, and ``clear_drag`` then cleared the very flag the press
     had just set."""
-    from warlock.studio.modes.inker.state import InkerState
+    from realmspinner.studio.modes.inker.state import InkerState
 
     state = InkerState()
     state.space_held = True
@@ -289,7 +289,7 @@ def test_the_three_writing_selection_ops_wait_for_a_save():
     thread is exactly the moment they may not run."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     doc = Document.blank(4, 4)
     doc.select_all()
@@ -310,7 +310,7 @@ def test_every_remappable_modifier_has_a_reader():
     import inspect
     from pathlib import Path
 
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     canvas = (
         Path(inspect.getfile(inker_ops)).parent / "ui" / "panes" / "canvas.py"
@@ -329,7 +329,7 @@ def test_every_remappable_modifier_has_a_reader():
 
 
 def test_a_lossy_aseprite_write_is_reported_rather_than_called_a_save():
-    from warlock.kernels.pixel import aseout
+    from realmspinner.kernels.pixel import aseout
 
     plain = Document.blank(4, 4)
     assert aseout.dropped_by_aseprite(plain) == []
@@ -347,7 +347,7 @@ def test_dropped_by_aseprite_reports_a_non_default_group_opacity():
     opacity byte as 255 (``aseout.py``'s ``_layer_chunk``, and docs/COMPAT.md's
     "Group opacity" row), so a group dimmed below full opacity must show up
     here or the save loses it with no warning at all."""
-    from warlock.kernels.pixel import aseout
+    from realmspinner.kernels.pixel import aseout
 
     doc = Document.blank(4, 4)
     doc.stack[0].pixels[:, :] = (255, 0, 0, 255)
@@ -361,7 +361,7 @@ def test_dropped_by_aseprite_reports_a_non_default_group_opacity():
 
 def test_a_fractional_wheel_notch_does_not_leave_the_zoom_lattice():
     """A 0.3 notch took the view to 101.5% and carried that fraction forever."""
-    from warlock.studio.shell.paintview import PaintView, zoom_step
+    from realmspinner.studio.shell.paintview import PaintView, zoom_step
 
     view = PaintView()
     for _ in range(3):
@@ -375,7 +375,7 @@ def test_a_fractional_wheel_notch_does_not_leave_the_zoom_lattice():
 def test_a_layer_drag_follows_the_layer_and_not_the_slot():
     """A drag spans frames; an index is a position, and an undo landing while
     the button is held leaves it naming whichever layer moved into that slot."""
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = Document.blank(4, 4)
     doc.add_layer()
@@ -394,7 +394,7 @@ def test_a_frame_duration_is_clamped_on_every_write():
     """``__post_init__`` clamped the value a frame was *born* with, so the two
     importers that set it from a file could put a number past the format's
     ``<H`` on one -- and ``aseout`` then died packing it."""
-    from warlock.kernels.pixel.animation import MAX_DURATION_MS, MIN_DURATION_MS, Frame
+    from realmspinner.kernels.pixel.animation import MAX_DURATION_MS, MIN_DURATION_MS, Frame
 
     frame = Frame()
     frame.duration_ms = 10**9
@@ -408,7 +408,7 @@ def test_a_frame_duration_is_clamped_on_every_write():
 def test_a_cel_is_built_from_the_copied_down_set_rather_than_a_hand_list():
     import inspect
 
-    from warlock.kernels.pixel import animation, ora
+    from realmspinner.kernels.pixel import animation, ora
 
     assert "track.props()" in inspect.getsource(ora)
     props = animation.Track(name="x", background=True, reference=True).props()
@@ -421,7 +421,7 @@ def test_the_transparent_slot_has_one_answer_for_every_reader():
     a table row that does not exist while its cels decoded against slot 0."""
     import inspect
 
-    from warlock.kernels.pixel import asein
+    from realmspinner.kernels.pixel import asein
 
     body = inspect.getsource(asein)
     assert "_lut(sprite.palette or [], sprite.transparent_index)" not in body
@@ -431,7 +431,7 @@ def test_the_transparent_slot_has_one_answer_for_every_reader():
 def test_both_document_writers_stage_through_the_one_helper():
     import inspect
 
-    from warlock.kernels.pixel import aseout, ora
+    from realmspinner.kernels.pixel import aseout, ora
 
     for module in (aseout, ora):
         body = inspect.getsource(module)
@@ -442,8 +442,8 @@ def test_both_document_writers_stage_through_the_one_helper():
 def test_a_text_stamp_cannot_ask_for_an_unbounded_surface():
     """The surface is measured from the string in the field at the size in the
     field, and nothing stood between a 4000-point paste and ``Image.new``."""
-    from warlock.kernels.pixel import textstamp
-    from warlock.studio import fonts
+    from realmspinner.kernels.pixel import textstamp
+    from realmspinner.studio import fonts
 
     font = str(fonts.FONT_DIR / "Inter-Regular.ttf")
     # ``MAX_SIZE`` caps the point size; the *string* was never capped, and at
@@ -467,7 +467,7 @@ def test_a_text_stamp_cannot_ask_for_an_unbounded_surface():
 def test_the_brush_footprint_is_where_the_engine_will_stamp():
     """The cursor was a circle at the raw mouse position, which says how wide
     the brush is and nothing about which pixels it will hit."""
-    from warlock.kernels.pixel import brush
+    from realmspinner.kernels.pixel import brush
 
     # A pixel nib anchors on the pixel it is on: odd centred, even down-right.
     assert brush.footprint((4.5, 4.5), 1, "pixel") == (4, 4, 5, 5)
@@ -480,7 +480,7 @@ def test_the_brush_footprint_is_where_the_engine_will_stamp():
 def test_a_two_frame_clip_draws_one_onion_ghost_and_not_two():
     """The span wraps, so -1 and +1 are the same frame on a two-frame clip and
     it was drawn twice -- two tints and two fades on one picture."""
-    from warlock.studio.modes.inker.state import onion_index
+    from realmspinner.studio.modes.inker.state import onion_index
 
     assert onion_index(0, -1, (0, 1)) == 1
     assert onion_index(0, 1, (0, 1)) == 1
@@ -490,7 +490,7 @@ def test_a_two_frame_clip_draws_one_onion_ghost_and_not_two():
 def test_the_picker_holds_its_own_triple():
     """A grey has no hue, so dragging Hue moved nothing and the slider snapped
     back to 0."""
-    from warlock.studio.modes.inker.state import InkerState
+    from realmspinner.studio.modes.inker.state import InkerState
 
     state = InkerState()
     assert state.picker_space is None
@@ -518,7 +518,7 @@ def test_an_idle_filter_popup_writes_nothing():
 
 
 def test_a_selection_change_drops_the_written_filter_signature():
-    from warlock.kernels.pixel.selection import SelectionMask
+    from realmspinner.kernels.pixel.selection import SelectionMask
 
     doc = Document.blank(8, 8)
     doc.select_all()
@@ -555,7 +555,7 @@ def test_the_content_box_cache_forgets_a_document_that_is_gone():
     nothing pruned the dict."""
     import gc
 
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     doc = Document.blank(4, 4)
     doc.stack[0].pixels[1, 1] = (1, 2, 3, 255)
@@ -569,7 +569,7 @@ def test_the_content_box_cache_forgets_a_document_that_is_gone():
 
 
 def test_the_mirror_preview_draws_runs_rather_than_pixels():
-    from warlock.studio.modes.inker.ui.panes.canvas import _runs
+    from realmspinner.studio.modes.inker.ui.panes.canvas import _runs
 
     assert _runs([1, 2, 3, 7], [0, 0, 0, 0], None) == [
         (1, 0, 3, False),
@@ -582,7 +582,7 @@ def test_the_mirror_preview_draws_runs_rather_than_pixels():
 def test_the_gif_palette_map_is_over_distinct_colours():
     import numpy as np
 
-    from warlock.kernels.pixel import gifout
+    from realmspinner.kernels.pixel import gifout
 
     palette = [(0, 0, 0, 255), (255, 0, 0, 255), (0, 255, 0, 255)]
     frame = np.zeros((2, 2, 4), dtype=np.uint8)

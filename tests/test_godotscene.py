@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 from _tscn import by_id, parse, parse_stringname, parse_subresource, parse_transitions, sections
 
-from warlock import godotscene
-from warlock.godotscene import animation_reference, godot_clip_name, scene_text
+from realmspinner import godotscene
+from realmspinner.godotscene import animation_reference, godot_clip_name, scene_text
 
 # The set used by most tests: one of everything the brief names.
 FULL_CLIPS = [

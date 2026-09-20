@@ -16,8 +16,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.packwright import mode as packwright_mode
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.packwright import mode as packwright_mode
 
 
 class _Ctx:
@@ -121,16 +121,16 @@ def _sheet(tmp_path, columns: int = 4, rows: int = 2, size: int = 16) -> dict[st
 
 def _serve(monkeypatch, tmp_path, record: dict[str, Any]) -> None:
     monkeypatch.setattr(
-        "warlock.service.sheets.get_sheet", lambda svc, job, sid: record
+        "realmspinner.service.sheets.get_sheet", lambda svc, job, sid: record
     )
     monkeypatch.setattr(
-        "warlock.service.sheets.sheet_png", lambda svc, job, sid: tmp_path / "sheet.png"
+        "realmspinner.service.sheets.sheet_png", lambda svc, job, sid: tmp_path / "sheet.png"
     )
     monkeypatch.setattr(
-        "warlock.service.sheets.get_pixel_sheet", lambda svc, job, sid: record
+        "realmspinner.service.sheets.get_pixel_sheet", lambda svc, job, sid: record
     )
     monkeypatch.setattr(
-        "warlock.service.sheets.sheet_pixel_png",
+        "realmspinner.service.sheets.sheet_pixel_png",
         lambda svc, job, sid: tmp_path / "sheet.png",
     )
 
@@ -224,7 +224,7 @@ def _charsheet(tmp_path, size: int = 8) -> dict[str, Any]:
     ``charsheet.animation_block`` existed -- cells that carry only an index,
     and no animation at all -- which is why the two doors both have to work.
     """
-    from warlock.kernels import charsheet
+    from realmspinner.kernels import charsheet
 
     block = charsheet.animation_block()
     columns, rows = 16, 16
@@ -312,7 +312,7 @@ def test_a_pixel_artifact_opens_unlinked_and_derives_itself(tmp_path, monkeypatc
         seen.update({"job": job_id, "name": name, **kwargs})
         return png
 
-    monkeypatch.setattr("warlock.service.derive.get_file", _get_file)
+    monkeypatch.setattr("realmspinner.service.derive.get_file", _get_file)
     ctx = _Ctx()
 
     inker_mode.open_pixel_artifact(

@@ -15,10 +15,10 @@ import os
 import pytest
 from PIL import Image, ImageDraw
 
-from warlock.service import derive as svc_derive
-from warlock.service import export as svc_export
-from warlock.service import files as svc_files
-from warlock.service.errors import Invalid, NotFound, NotReady
+from realmspinner.service import derive as svc_derive
+from realmspinner.service import export as svc_export
+from realmspinner.service import files as svc_files
+from realmspinner.service.errors import Invalid, NotFound, NotReady
 
 
 def _draw(job_dir, box):
@@ -577,7 +577,7 @@ def test_a_failed_roll_leaves_no_staging_file_behind(svc, monkeypatch):
     # Nothing ever looks at a dotfile again, so one stranded by a failure sits
     # in the job directory until the job is pruned. The cutout branch stages
     # the same way and now cleans up the same way.
-    from warlock.pipelines import seam
+    from realmspinner.pipelines import seam
 
     def boom(src, dest):
         dest.write_bytes(b"half a png")
@@ -694,7 +694,7 @@ def test_a_reference_has_no_material_to_derive(svc):
 def test_the_material_zip_carries_every_map_the_albedo_and_the_gltf(svc):
     import zipfile
 
-    from warlock.pipelines import material as material_lib
+    from realmspinner.pipelines import material as material_lib
 
     job_id = _reference(svc, stage="tile")
     path = svc_derive.get_file(svc, job_id, "material.zip")
@@ -729,7 +729,7 @@ def test_a_material_map_is_re_derived_after_a_hand_edit(svc):
 
 
 def test_a_failed_material_derivation_leaves_no_staging_file_behind(svc, monkeypatch):
-    from warlock.pipelines import material as material_lib
+    from realmspinner.pipelines import material as material_lib
 
     def boom(src, dest, name, **kwargs):
         dest.write_bytes(b"half a png")
@@ -833,7 +833,7 @@ def test_a_tile_can_derive_an_image_conversion_of_its_own_texture(svc):
 def test_a_failed_zip_leaves_neither_its_own_staging_file_nor_a_maps(svc, monkeypatch):
     # The zip stages the maps *beside* its own tmp, so a failure part way
     # through has two kinds of leftover to clean up rather than one.
-    from warlock.pipelines import material as material_lib
+    from realmspinner.pipelines import material as material_lib
 
     real = material_lib.write_map
     calls = {"n": 0}

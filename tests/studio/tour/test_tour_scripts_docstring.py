@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio.tour import TOURS, scripts
+from realmspinner.studio.tour import TOURS, scripts
 
 SCRIPTS_PATH = Path(scripts.__file__)
 

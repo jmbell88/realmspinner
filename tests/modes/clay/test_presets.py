@@ -3,8 +3,8 @@ them one.
 
 ``studio/clay/presets.py`` is pure -- numpy and nothing else -- so the labels
 and the landmarks it is built on are hard-coded there rather than read out of
-``warlock/templates/``. That is only safe while something compares the two, and
-this file is that something: the *test* may import ``warlock.kernels.rig``, and
+``realmspinner/templates/``. That is only safe while something compares the two, and
+this file is that something: the *test* may import ``realmspinner.kernels.rig``, and
 it fails the moment a template is renamed, a bone is renamed, or a part drifts
 off the joint it was roughed out on.
 """
@@ -14,11 +14,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import presets
-from warlock.kernels.mesh.mesh import bounds, transformed, validate
-from warlock.kernels.mesh.primitives import GENERATORS
-from warlock.kernels.rig.templates import templates
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import presets
+from realmspinner.kernels.mesh.mesh import bounds, transformed, validate
+from realmspinner.kernels.mesh.primitives import GENERATORS
+from realmspinner.kernels.rig.templates import templates
 
 #: How far a part's centre may sit from its bone's midpoint, in the templates'
 #: normalised units (the figure is one unit tall). Every part here is placed
@@ -346,7 +346,7 @@ def test_a_bodys_torso_is_one_form_rather_than_stacked_balls(key: str):
     measures, however much the balls overlap.
 
     Run against the pre-fix module (``git show
-    HEAD:src/warlock/kernels/mesh/presets.py``, i.e. before this file's own
+    HEAD:src/realmspinner/kernels/mesh/presets.py``, i.e. before this file's own
     edit), this fails on (b) for every pair in all three chains. For
     humanoid Hips/Spine, concretely: both collapsed to spheres (a collapsed
     capsule is spherical to float noise, so ``sphere_like`` is true for each),

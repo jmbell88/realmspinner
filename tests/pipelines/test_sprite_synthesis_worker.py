@@ -14,11 +14,11 @@ import time
 import pytest
 from PIL import Image
 
-from warlock import models
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.kernels.rig import store as rig_store
-from warlock.queue import Worker
+from realmspinner import models
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.kernels.rig import store as rig_store
+from realmspinner.queue import Worker
 
 
 @pytest.fixture
@@ -190,7 +190,7 @@ async def test_each_candidate_records_the_lattice_its_own_generation_drew_on(wor
     the two seeds can land on different lattices, which is a large part of what
     the number is for. Measurement only -- nothing reduces on it, and recording
     it does not bump ``SPRITE_DRAFT_VERSION``."""
-    from warlock.pipelines import spritesynth
+    from realmspinner.pipelines import spritesynth
 
     source = _reference(worker)
     job_id, draft_id = _queue(worker, source)
@@ -421,7 +421,7 @@ def palettes(worker, tmp_path):
     """A palette directory the worker's own lookup will find.
 
     Pointed at ``tmp_path`` rather than left at the default, which is the real
-    user's ``~/.warlock/palettes`` -- a test that read that would pass or fail
+    user's ``~/.realmspinner/palettes`` -- a test that read that would pass or fail
     on what the machine happens to have in it.
     """
     directory = tmp_path / "palettes"
@@ -438,7 +438,7 @@ async def test_a_named_palette_is_the_only_colours_in_either_candidate(
     """Re-read in the worker, not carried from the door: params outlive the
     door that wrote them, so the name is what travels and the file is what is
     read."""
-    from warlock.pipelines import pixel
+    from realmspinner.pipelines import pixel
 
     source = _reference(worker)
     job_id, draft_id = _queue(worker, source, palette="ramp", outline="none")
@@ -490,8 +490,8 @@ async def test_a_palette_deleted_since_the_door_fails_before_the_gpu(
 async def test_the_sidecar_records_the_options_that_actually_ran(worker):
     """Including the ones nobody asked for. ``outline`` absent from params means
     "the path's default", and a sidecar that left the key out would make "no
-    outline" and "an older Warlock" the same reading."""
-    from warlock.pipelines import spritesynth
+    outline" and "an older Realmspinner" the same reading."""
+    from realmspinner.pipelines import spritesynth
 
     source = _reference(worker)
     job_id, draft_id = _queue(worker, source)
@@ -564,7 +564,7 @@ async def test_an_outer_outline_is_only_ever_drawn_when_asked_for(worker):
 
 def _plan_queue(worker, source, kind="idle8", **overrides):
     """A planned-kind job at a size that kind actually fits."""
-    from warlock.service import sprites as svc_sprites
+    from realmspinner.service import sprites as svc_sprites
 
     sizes = svc_sprites.kind_logical_sizes(kind)
     params = {"sheet_type": kind, "logical_size": max(sizes)}
@@ -592,7 +592,7 @@ async def test_one_generation_per_direction_all_on_one_seed(worker):
 async def test_each_band_is_asked_for_at_its_own_rectangle(worker):
     """The size is the plan's, not the pipe's default. A four-frame direction
     at 64px is 2x2 cells of 512px, and nothing but the plan knows that."""
-    from warlock.pipelines import spritesynth
+    from realmspinner.pipelines import spritesynth
 
     source = _reference(worker)
     job_id, _ = _plan_queue(worker, source, candidates=1)
@@ -631,7 +631,7 @@ async def test_each_band_is_conditioned_on_its_own_guide_and_its_own_subject(wor
     assert len(set(hints)) == 8
     assert len(set(pipe.prompts)) == 8
     # The direction clause of each band, in the order the sheet lays them out.
-    from warlock.pipelines import spritesynth
+    from realmspinner.pipelines import spritesynth
 
     for prompt, name in zip(pipe.prompts, spritesynth.SPRITE_DIRECTIONS[8], strict=True):
         assert spritesynth._DIRECTION_CLAUSE[name] in prompt
@@ -700,7 +700,7 @@ async def test_the_sheet_is_matted_aligned_and_reduced_once_over_the_whole_atlas
     which is precisely what that function exists to prevent. So it runs once,
     on the composed atlas, and the geometry it is handed is the composed one.
     """
-    from warlock.pipelines import spritesynth
+    from realmspinner.pipelines import spritesynth
 
     seen: list[tuple[tuple[int, int], int]] = []
     real = spritesynth.baseline_align
@@ -746,7 +746,7 @@ async def test_the_published_atlas_is_frames_across_by_directions_down(worker):
 async def test_the_published_record_carries_the_animation_block(worker):
     """The gap this closes for the 2D path: a sprite draft used to reach an
     engine as frame indices with no fps and no loop tags."""
-    from warlock.pipelines import spritesynth
+    from realmspinner.pipelines import spritesynth
 
     source = _reference(worker)
     job_id, draft_id = _plan_queue(worker, source, candidates=1)
@@ -807,7 +807,7 @@ async def test_a_cancel_between_bands_publishes_nothing(worker, monkeypatch):
     the same event for this phase, and racing a real one against a fake pipe
     would test the sleep rather than the check.
     """
-    from warlock.pipelines import pixel
+    from realmspinner.pipelines import pixel
 
     source = _reference(worker)
     job_id, draft_id = _plan_queue(worker, source, candidates=1)
@@ -867,8 +867,8 @@ async def test_the_bar_walks_one_window_across_every_band(worker):
     """``PHASES_SPRITE`` is three phases and none of them per candidate: it was
     ``generate_a``/``generate_b``, so a single-candidate sheet finished at 52%
     and a multi-band one had nowhere to say which band it was on."""
-    from warlock.pipelines import spritesynth
-    from warlock.progress import phases_for
+    from realmspinner.pipelines import spritesynth
+    from realmspinner.progress import phases_for
 
     seen: list[tuple[str, str]] = []
     real = worker.progress.update

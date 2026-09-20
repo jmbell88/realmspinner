@@ -12,7 +12,7 @@ import time
 
 from PIL import Image
 
-from warlock.studio.textures import ThumbnailCache
+from realmspinner.studio.textures import ThumbnailCache
 
 
 class _FakeTexture:

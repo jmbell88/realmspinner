@@ -5,14 +5,14 @@ import inspect
 
 import pytest
 
-import warlock._q_jobs as q_jobs
-from warlock import followups
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.queue import Worker
-from warlock.service.validation import DERIVED_PARAMS
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.panes import inspector
+import realmspinner._q_jobs as q_jobs
+from realmspinner import followups
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.queue import Worker
+from realmspinner.service.validation import DERIVED_PARAMS
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.panes import inspector
 
 
 def test_persist_keeps_parent_params_and_each_followup(tmp_path):

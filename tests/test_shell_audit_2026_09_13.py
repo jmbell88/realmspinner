@@ -13,11 +13,11 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import state as state_mod
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.panes import inspector
-from warlock.studio.shell import events as events_mod
-from warlock.studio.state import AppState
+from realmspinner.studio import state as state_mod
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.panes import inspector
+from realmspinner.studio.shell import events as events_mod
+from realmspinner.studio.state import AppState
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +38,7 @@ def _leave(ctx: Any, old: str, new: str) -> None:
 
 
 def test_leaving_muse_mode_stops_a_sounding_take(monkeypatch):
-    from warlock.studio.modes.muse import mode as muse_mode
+    from realmspinner.studio.modes.muse import mode as muse_mode
 
     stopped: list[Any] = []
     monkeypatch.setattr(muse_mode, "stop", lambda ctx: stopped.append(ctx))
@@ -50,7 +50,7 @@ def test_leaving_muse_mode_stops_a_sounding_take(monkeypatch):
 
 
 def test_leaving_plotter_mode_mid_drag_closes_the_open_edit_session(monkeypatch):
-    from warlock.studio.modes.plotter import state as plotter_state
+    from realmspinner.studio.modes.plotter import state as plotter_state
 
     ended: list[str] = []
     doc = SimpleNamespace(
@@ -82,7 +82,7 @@ def test_measure_trash_does_not_write_state_from_the_task_thread():
 
     svc = SimpleNamespace()
     ctx = SimpleNamespace(state=AppState(), svc=svc, submit=submit)
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     real = svc_jobs.trash_size
     svc_jobs.trash_size = lambda _svc: {"count": 1, "bytes": 10}

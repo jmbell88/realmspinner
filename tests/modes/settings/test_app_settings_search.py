@@ -7,7 +7,7 @@ happy-path synonyms already ("bigger text" -> UI scale); this file is for the
 
 from __future__ import annotations
 
-from warlock.studio.modes.settings.ui.panes import app_settings
+from realmspinner.studio.modes.settings.ui.panes import app_settings
 
 
 def test_settings_search_synonym_matches_partial_phrasing():

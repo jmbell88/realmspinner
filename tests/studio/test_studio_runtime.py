@@ -13,20 +13,20 @@ import time
 
 import pytest
 
-from warlock.service.errors import Invalid
-from warlock.studio.fps import FpsMeter
-from warlock.studio.runtime import Runtime
-from warlock.studio.tasks import TaskRunner, _threads_queues
+from realmspinner.service.errors import Invalid
+from realmspinner.studio.fps import FpsMeter
+from realmspinner.studio.runtime import Runtime
+from realmspinner.studio.tasks import TaskRunner, _threads_queues
 
 
 @pytest.fixture
 def runtime(tmp_path, monkeypatch, fake_pipelines):
-    import warlock.config as config_mod
-    from warlock.config import get_config
+    import realmspinner.config as config_mod
+    from realmspinner.config import get_config
 
-    monkeypatch.setenv("WARLOCK_DATA_DIR", str(tmp_path / "assets"))
-    monkeypatch.setenv("WARLOCK_DB", str(tmp_path / "assets" / "jobs.sqlite"))
-    monkeypatch.setenv("WARLOCK_TRELLIS_EXE", str(tmp_path / "missing.exe"))
+    monkeypatch.setenv("REALMSPINNER_DATA_DIR", str(tmp_path / "assets"))
+    monkeypatch.setenv("REALMSPINNER_DB", str(tmp_path / "assets" / "jobs.sqlite"))
+    monkeypatch.setenv("REALMSPINNER_TRELLIS_EXE", str(tmp_path / "missing.exe"))
     monkeypatch.setattr(config_mod, "_config", None)
     rt = Runtime(get_config())
     yield rt
@@ -64,8 +64,8 @@ def test_the_vram_mode_is_resolved_before_the_worker_exists(runtime, monkeypatch
 
 def test_the_worker_runs_on_its_own_thread(runtime):
     runtime.start()
-    assert threading.current_thread().name != "warlock-loop"
-    assert any(t.name == "warlock-loop" for t in threading.enumerate())
+    assert threading.current_thread().name != "realmspinner-loop"
+    assert any(t.name == "realmspinner-loop" for t in threading.enumerate())
 
 
 def test_waking_the_worker_from_the_main_thread_does_not_explode(runtime):
@@ -77,7 +77,7 @@ def test_waking_the_worker_from_the_main_thread_does_not_explode(runtime):
 
 
 def test_a_job_still_running_at_startup_is_reconciled(runtime, tmp_path):
-    from warlock.db import JobStore
+    from realmspinner.db import JobStore
 
     store = JobStore(runtime.config.db_path)
     job_id = store.create("text", "x", {}, "aaaaaaaaaaaa")
@@ -92,7 +92,7 @@ def test_a_job_still_running_at_startup_is_reconciled(runtime, tmp_path):
 
 def test_an_error_on_the_worker_loop_is_logged_not_printed(runtime, caplog):
     """asyncio's default handler writes to a stderr nobody keeps."""
-    from warlock.studio.runtime import _loop_error
+    from realmspinner.studio.runtime import _loop_error
 
     runtime.start()
     assert runtime._loop.get_exception_handler() is _loop_error
@@ -139,13 +139,13 @@ def test_a_failed_start_leaves_nothing_running(runtime):
     # The connection really is closed, not just dropped.
     with pytest.raises(sqlite3.ProgrammingError):
         store["conn"]._conn.execute("select 1")
-    assert not any(t.name == "warlock-loop" and t.is_alive() for t in threading.enumerate())
+    assert not any(t.name == "realmspinner-loop" and t.is_alive() for t in threading.enumerate())
 
 
 def test_run_tears_down_when_setup_fails(runtime, monkeypatch):
     """setup() starts the runtime before it touches pygame or GL, so a failure
     past that point must still unwind it."""
-    from warlock.studio.main import App
+    from realmspinner.studio.main import App
 
     app = App.__new__(App)
     app.runtime = runtime
@@ -162,7 +162,7 @@ def test_run_tears_down_when_setup_fails(runtime, monkeypatch):
     # the splash can be drawn over the middle one, which makes an `app.setup`
     # stub a silent no-op that lets run() reach the real pygame init.
     app.setup_window = setup
-    # Reported, not re-raised: the traceback goes to warlock.log, and the exit
+    # Reported, not re-raised: the traceback goes to realmspinner.log, and the exit
     # code is what the caller acts on.
     assert app.run() == 1
     assert runtime.store is None and runtime.worker is None
@@ -177,8 +177,8 @@ def test_the_crash_report_offers_the_real_log_folder(runtime, monkeypatch):
     be honoured. The right spelling is ``self.runtime.config``."""
     from pathlib import Path
 
-    from warlock import instance
-    from warlock.studio.main import App
+    from realmspinner import instance
+    from realmspinner.studio.main import App
 
     seen: dict[str, object] = {}
 
@@ -326,7 +326,7 @@ def test_the_store_is_left_open_when_the_task_pool_did_not_drain(tmp_path):
     future nobody will ever poll."""
     from types import SimpleNamespace
 
-    from warlock.studio import runtime as runtime_mod
+    from realmspinner.studio import runtime as runtime_mod
 
     closed: list[str] = []
     rt = runtime_mod.Runtime.__new__(runtime_mod.Runtime)
@@ -392,7 +392,7 @@ def test_a_worker_that_survives_shutdown_cannot_hold_the_process_open():
         import sys
         import threading
 
-        from warlock.studio.tasks import TaskRunner, hard_exit_if_leaked
+        from realmspinner.studio.tasks import TaskRunner, hard_exit_if_leaked
 
         runner = TaskRunner(workers=1)
         runner.submit("parked", threading.Event().wait)

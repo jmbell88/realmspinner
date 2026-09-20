@@ -26,10 +26,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import sheetout
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import sheetout
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -84,7 +84,7 @@ def _tagged(frames: int = 4) -> Any:
 
 
 def _saved(monkeypatch, dest) -> None:
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: dest)
 

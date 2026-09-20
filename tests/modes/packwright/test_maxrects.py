@@ -15,8 +15,8 @@ import random
 
 import pytest
 
-from warlock.studio.modes.packwright.engine import maxrects
-from warlock.studio.modes.packwright.engine.maxrects import Rect, order, pack
+from realmspinner.studio.modes.packwright.engine import maxrects
+from realmspinner.studio.modes.packwright.engine.maxrects import Rect, order, pack
 
 
 def _items(sizes):

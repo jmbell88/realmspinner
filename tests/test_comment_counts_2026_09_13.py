@@ -15,7 +15,7 @@ import ast
 import re
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
+SRC = Path(__file__).resolve().parents[1] / "src" / "realmspinner" / "studio"
 
 _NUMBER_WORDS = {
     "zero": 0,
@@ -119,7 +119,7 @@ def test_rail_comment_row_count_matches_rail_groups():
     for an expression that evaluates to fourteen (``sum(len(g) for g in
     modes.RAIL_GROUPS)``)."""
 
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     actual = sum(len(g) for g in modes.RAIL_GROUPS)
 

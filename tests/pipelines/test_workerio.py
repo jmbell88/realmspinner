@@ -84,7 +84,7 @@ def test_lines_from_caps_a_single_read_at_the_pipes_reported_size(monkeypatch):
     A byte count far past any request line this protocol actually sends must
     not be requested from the OS in a single call.
     """
-    from warlock.pipelines import _workerio as workerio
+    from realmspinner.pipelines import _workerio as workerio
 
     class _FakeStdin:
         def fileno(self):

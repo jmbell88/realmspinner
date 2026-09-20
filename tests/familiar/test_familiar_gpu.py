@@ -21,8 +21,8 @@ VRAM measurement regardless. Every test constructs its own
 ``pipelines.llama.LlamaServer`` (or shares one module-scoped instance) rather
 than going through ``queue.Worker`` -- ``key_dir``/``log_path`` point at a
 throwaway directory this session owns, never at ``config.data_dir`` under the
-real ``~/.warlock``, because this lane is the one exemption from conftest's
-``WARLOCK_HOME`` pin and genuinely reads the real model library. The exe and
+real ``~/.realmspinner``, because this lane is the one exemption from conftest's
+``REALMSPINNER_HOME`` pin and genuinely reads the real model library. The exe and
 weights paths, by contrast, *do* come from the real ``get_config()`` -- there
 is nothing to download here, and reading them is all this file ever does to
 that directory.
@@ -49,14 +49,14 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from warlock import fetch, models, vram
-from warlock.config import get_config
-from warlock.familiar import character_plan, contract, doors, llama_client, router
-from warlock.pipelines.llama import LlamaServer
-from warlock.service import familiar as familiar_service
-from warlock.studio import modes
-from warlock.studio.modes.create.engine import assets as create_assets
-from warlock.studio.modes.settings.ui.panes import app_settings
+from realmspinner import fetch, models, vram
+from realmspinner.config import get_config
+from realmspinner.familiar import character_plan, contract, doors, llama_client, router
+from realmspinner.pipelines.llama import LlamaServer
+from realmspinner.service import familiar as familiar_service
+from realmspinner.studio import modes
+from realmspinner.studio.modes.create.engine import assets as create_assets
+from realmspinner.studio.modes.settings.ui.panes import app_settings
 
 pytestmark = [pytest.mark.gpu, pytest.mark.timeout(1800)]
 
@@ -80,7 +80,7 @@ def _free_port() -> int:
 def _new_server(tmp_dir) -> LlamaServer:
     """One more ``LlamaServer`` against the real pinned exe/weights, mirroring
     ``queue.Worker.__init__``'s own construction except for the three fields
-    a test must never point at the real ``~/.warlock``: port, key_dir and
+    a test must never point at the real ``~/.realmspinner``: port, key_dir and
     log_path."""
     config = get_config()
     return LlamaServer(
@@ -236,12 +236,12 @@ def _character_options_from_service(svc: Any) -> dict[str, Any]:
     ``character_engine.options(ctx)``, a frame-thread cache keyed on a
     palette-directory stamp, and there is no ``ctx`` (no window, no App) in a
     headless gpu test to hand it. ``svc`` is a throwaway
-    ``WarlockService`` (the ``svc`` fixture from ``tests/conftest.py``, tmp
-    ``WARLOCK_HOME``), so this reads only the registries, never the real
+    ``RealmspinnerService`` (the ``svc`` fixture from ``tests/conftest.py``, tmp
+    ``REALMSPINNER_HOME``), so this reads only the registries, never the real
     library.
     """
-    from warlock.kernels.rig import cliplib
-    from warlock.service import characters as svc_characters
+    from realmspinner.kernels.rig import cliplib
+    from realmspinner.service import characters as svc_characters
 
     raw = svc_characters.character_options(svc)
     families = [

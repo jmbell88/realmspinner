@@ -12,8 +12,8 @@ from __future__ import annotations
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import controls, probe, toolbar, widgets
-from warlock.studio.toolbar import FULL, ICON, MENU
+from realmspinner.studio import controls, probe, toolbar, widgets
+from realmspinner.studio.toolbar import FULL, ICON, MENU
 
 # Four items: two important (priority 0) and two extras (priority 1). 100 px
 # each with a label, 30 as a glyph; the overflow button is 30 too.

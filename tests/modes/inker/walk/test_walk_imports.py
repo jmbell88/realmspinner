@@ -23,26 +23,26 @@ import ast
 import sys
 from pathlib import Path
 
-from warlock.kernels.pixel import walk
+from realmspinner.kernels.pixel import walk
 
 ENGINE = Path(walk.__file__).parent
-PACKAGE = "warlock.kernels.pixel.walk"
+PACKAGE = "realmspinner.kernels.pixel.walk"
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 DETERMINISM_ROOTS = {"scipy"}
-ALLOWED_ROOTS = {"numpy", "warlock"}
+ALLOWED_ROOTS = {"numpy", "realmspinner"}
 
 #: ``(module, imported package)`` for every import that leaves this subpackage.
 #: All four are ``inker`` itself, and each is the app's single copy of something
 #: this package must not re-spell: the transform kernel, the blend arithmetic,
 #: the animation model and the document.
 OUTWARD_IMPORTS = {
-    ("bake.py", "warlock.kernels.pixel.animation"),
-    ("bake.py", "warlock.kernels.pixel.composite"),
-    ("bake.py", "warlock.kernels.pixel.document"),
-    ("bake.py", "warlock.kernels.pixel.layers"),
-    ("bake.py", "warlock.kernels.pixel.undo"),
-    ("render.py", "warlock.kernels.pixel.selection"),
+    ("bake.py", "realmspinner.kernels.pixel.animation"),
+    ("bake.py", "realmspinner.kernels.pixel.composite"),
+    ("bake.py", "realmspinner.kernels.pixel.document"),
+    ("bake.py", "realmspinner.kernels.pixel.layers"),
+    ("bake.py", "realmspinner.kernels.pixel.undo"),
+    ("render.py", "realmspinner.kernels.pixel.selection"),
 }
 
 #: Modules that may import Pillow, and only inside a function. None do: the one
@@ -105,9 +105,9 @@ def test_the_engine_never_imports_a_window():
 def test_the_engine_never_imports_the_service_layer_or_the_queue():
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.service"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock.queue"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.service"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.queue"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_other_pure_packages():
@@ -116,7 +116,7 @@ def test_the_engine_never_imports_the_other_pure_packages():
     for path in _modules():
         for name in _outward(path):
             for sibling in ("clay", "plotter", "packwright", "sirens", "muse", "troupe"):
-                assert not name.startswith(f"warlock.studio.{sibling}"), f"{path.name}: {name}"
+                assert not name.startswith(f"realmspinner.studio.{sibling}"), f"{path.name}: {name}"
 
 
 def test_the_kernels_are_not_borrowed_from_scipy():
@@ -136,7 +136,7 @@ def test_the_only_outward_imports_are_the_ones_written_down():
     found = set()
     for path in _modules():
         for name in _outward(path):
-            if name.startswith(PACKAGE) or name.split(".")[0] != "warlock":
+            if name.startswith(PACKAGE) or name.split(".")[0] != "realmspinner":
                 continue
             found.add((path.name, name))
     assert found == OUTWARD_IMPORTS
@@ -158,7 +158,7 @@ def test_the_package_imports_with_no_optional_dependency_present():
 def test_every_part_names_joints_that_exist():
     """The spec table is data, so a typo in it is a runtime ``KeyError`` on a
     user's drawing rather than an import error. Caught here instead."""
-    from warlock.kernels.pixel.walk import rig as R
+    from realmspinner.kernels.pixel.walk import rig as R
 
     for spec in R.PARTS:
         assert spec.pivot in R.JOINTS, spec.name
@@ -171,7 +171,7 @@ def test_every_part_names_joints_that_exist():
 def test_every_part_and_joint_has_a_label():
     """Refusals name parts, and a refusal that named ``near_upper_arm`` would be
     the internal key leaking onto the screen."""
-    from warlock.kernels.pixel.walk import rig as R
+    from realmspinner.kernels.pixel.walk import rig as R
 
     for name in (*R.PART_NAMES, *R.JOINTS):
         assert R.label(name) == R.LABELS[name]

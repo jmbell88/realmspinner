@@ -20,9 +20,9 @@ from __future__ import annotations
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
 
 @pytest.fixture

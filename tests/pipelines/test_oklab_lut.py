@@ -9,7 +9,7 @@ reference these tests check the LUT path against.
 import numpy as np
 import pytest
 
-from warlock.pipelines import pixel
+from realmspinner.pipelines import pixel
 
 
 def test_uint8_path_matches_float_reference_for_random_frame():

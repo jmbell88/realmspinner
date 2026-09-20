@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.pipelines import matting, matting_worker
+from realmspinner.pipelines import matting, matting_worker
 
 
 @pytest.fixture(autouse=True)
@@ -81,7 +81,7 @@ def test_a_checkpoint_that_will_not_load_is_reported_as_a_load_failure(tmp_path,
     # checkpoint does not map onto the vendored architecture" as well as a
     # missing package. Both are permanent for the session, which is what the
     # memo below is about.
-    from warlock.pipelines import birefnet
+    from realmspinner.pipelines import birefnet
 
     monkeypatch.setattr(birefnet, "load", boom)
     resp = matting_worker.handle(_request(tmp_path))

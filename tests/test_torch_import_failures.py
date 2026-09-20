@@ -21,7 +21,7 @@ import builtins
 
 import pytest
 
-from warlock import doctor, vram
+from realmspinner import doctor, vram
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def torch_raises(monkeypatch):
 DLL_FAILURES = [
     OSError(
         'The specified module could not be found. Error loading '
-        '"C:/Warlock Studio/python/Lib/site-packages/torch/lib/caffe2_nvrtc.dll"'
+        '"C:/Realmspinner/python/Lib/site-packages/torch/lib/caffe2_nvrtc.dll"'
     ),
     PermissionError(
         "The process cannot access the file because it is being used by another "

@@ -11,10 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import config as config_module
-from warlock import doctor, fetch
-from warlock.config import Config
-from warlock.service.errors import Invalid
+from realmspinner import config as config_module
+from realmspinner import doctor, fetch
+from realmspinner.config import Config
+from realmspinner.service.errors import Invalid
 
 # --- F54: every failing check still names a way forward ---------------------
 
@@ -62,7 +62,7 @@ def test_every_failing_check_names_a_remedy(tmp_path):
     for check in failing:
         assert any(
             word in check.detail
-            for word in ("download", "unpack", "install", "WARLOCK_")
+            for word in ("download", "unpack", "install", "REALMSPINNER_")
         ), f"{check.name} names no remedy: {check.detail!r}"
 
 
@@ -89,8 +89,8 @@ def test_the_gguf_remedy_is_the_command_from_the_install_instructions(tmp_path):
 def test_a_text_job_whose_checkpoint_is_absent_is_refused_with_its_command(svc):
     """Refused before the queue, in the shape ``check_vram`` set: name the
     problem and a thing the user can do about it."""
-    from warlock import fetch, models
-    from warlock.service import jobs as svc_jobs
+    from realmspinner import fetch, models
+    from realmspinner.service import jobs as svc_jobs
 
     spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     (fetch.base_model_dir(svc.config, spec) / "model_index.json").unlink()
@@ -114,8 +114,8 @@ def test_a_missing_style_lora_is_refused_rather_than_silently_skipped(svc):
     missing style adapter, so the job would finish looking wrong while its
     params claimed a style that never ran -- and that row would then join the
     findings corpus as evidence about it."""
-    from warlock import fetch, models
-    from warlock.service import jobs as svc_jobs
+    from realmspinner import fetch, models
+    from realmspinner.service import jobs as svc_jobs
 
     key, lora = next(iter(models.STYLE_LORAS.items()))
     (svc.config.t2i_model_root / "loras" / lora.filename).unlink()
@@ -134,8 +134,8 @@ def test_an_image_job_is_not_asked_about_image_models(svc):
     """An image job never touches SDXL, so its checkpoint is irrelevant --
     and refusing one for a missing image model would be a refusal the user
     could not act on, since no control of theirs chose it."""
-    from warlock import fetch, models
-    from warlock.service import jobs as svc_jobs
+    from realmspinner import fetch, models
+    from realmspinner.service import jobs as svc_jobs
 
     for spec in models.BASE_MODELS.values():
         index = fetch.base_model_dir(svc.config, spec) / "model_index.json"
@@ -150,8 +150,8 @@ def test_an_image_job_is_not_asked_about_image_models(svc):
 def test_a_refused_job_leaves_nothing_behind(svc):
     """The ordering rule ``create_job`` states: the guard sits with the other
     door checks, before ``input.png`` is written."""
-    from warlock import fetch, models
-    from warlock.service import jobs as svc_jobs
+    from realmspinner import fetch, models
+    from realmspinner.service import jobs as svc_jobs
 
     spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     (fetch.base_model_dir(svc.config, spec) / "model_index.json").unlink()
@@ -178,7 +178,7 @@ def _tiny_png() -> bytes:
 
 
 def test_troubleshooting_is_named_once_and_resolves():
-    from warlock.kernels.manual import loader, targets
+    from realmspinner.kernels.manual import loader, targets
 
     chapter, anchor = targets.TROUBLESHOOTING
     assert anchor is None
@@ -189,7 +189,7 @@ def test_troubleshooting_is_not_a_help_target():
     """It is the same shape and deliberately not in that dict: HELP_TARGETS is
     asserted against the pane (?) call sites in both directions, and none of
     the three surfaces that lead here is a pane with a (?)."""
-    from warlock.kernels.manual.targets import HELP_TARGETS
+    from realmspinner.kernels.manual.targets import HELP_TARGETS
 
     assert "diagnostics" not in HELP_TARGETS
 
@@ -198,11 +198,11 @@ def test_troubleshooting_is_not_a_help_target():
 
 
 def test_dismissing_the_banner_keeps_the_text_reachable():
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     state = AppState()
     state.note_error("trellis-server.exe: not found at C:/x")
-    state.note_error("The GPU worker stopped: boom. Restart Warlock.")
+    state.note_error("The GPU worker stopped: boom. Restart Realmspinner.")
     state.dismiss_errors()
 
     assert state.errors == []
@@ -211,7 +211,7 @@ def test_dismissing_the_banner_keeps_the_text_reachable():
 
 
 def test_dismissing_twice_does_not_duplicate():
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     state = AppState()
     state.note_error("boom")
@@ -237,7 +237,7 @@ def _gated_ctx(*, model_rows=(), pack_rows=(), total=0):
     """A ctx with just enough on it for ``model_gate.mode_gate`` and a real
     ``state.set_mode`` to answer -- the same shape ``test_mode_gate.py``'s own
     ``_ctx`` builds, plus the bits Home's actions touch."""
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     return SimpleNamespace(
         state=AppState(),
@@ -264,9 +264,9 @@ def test_homes_new_3d_model_does_not_open_create_through_a_shut_gate(monkeypatch
     ``state.set_mode``, which refused silently, leaving the reader back on
     Home with no explanation. The rail and the palette both turn the same
     refusal into a trip to Settings; Home's menu must now do the same."""
-    from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.modes.home.ui.panes import landing
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     ctx = _gated_ctx(model_rows=_MISSING_CREATE_ROWS)
     called = []
@@ -283,9 +283,9 @@ def test_homes_new_2d_image_routes_to_packs_before_models(monkeypatch):
     """Packs first, same ordering as ``model_gate.mode_gate``: Home's menu
     must agree with the rail about which door a gated Create actually points
     at, or a user sent to Models here buys nothing without the pack too."""
-    from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.modes.home.ui.panes import landing
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     pack_row = {
         "key": "text2image",
@@ -308,8 +308,8 @@ def test_homes_new_2d_image_routes_to_packs_before_models(monkeypatch):
 def test_homes_new_menu_still_opens_create_once_the_door_is_open(monkeypatch):
     """The gate check must not itself become a new way to refuse a healthy
     install: with everything present, the New... menu still opens Create."""
-    from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     present_rows = [dict(row, present=True) for row in _MISSING_CREATE_ROWS]
     ctx = _gated_ctx(model_rows=present_rows)
@@ -327,8 +327,8 @@ def test_a_tour_whose_mode_is_gated_is_not_offered():
     step waits on ``Condition("mode_is", "muse")`` -- which ``state.set_mode``
     refuses outright while the ACE-Step weights are missing (H14). Offered
     anyway, the card would sit on step 1 forever with no way forward."""
-    from warlock.studio.modes.home.ui.panes import landing
-    from warlock.studio.tour import scripts as tour_scripts
+    from realmspinner.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.tour import scripts as tour_scripts
 
     row = {"row_key": "music:ace_step_v1", "present": False, "size_gib": 8.3}
     ctx = _gated_ctx(model_rows=[row])
@@ -343,8 +343,8 @@ def test_a_tour_whose_mode_is_gated_is_not_offered():
 def test_an_ungated_tour_is_offered_once_its_door_is_open():
     """The other direction: a gate check that never lifts is as wrong as one
     that never falls."""
-    from warlock.studio.modes.home.ui.panes import landing
-    from warlock.studio.tour import scripts as tour_scripts
+    from realmspinner.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.tour import scripts as tour_scripts
 
     row = {"row_key": "music:ace_step_v1", "present": True, "size_gib": 8.3}
     ctx = _gated_ctx(model_rows=[row])
@@ -359,7 +359,7 @@ def test_a_tour_spanning_more_than_one_mode_derives_no_single_mode():
     """``first-hour`` starts on Home and walks the reader into Create -- it
     must not be gated on either mode alone, which is what a hand-picked "the
     tour's mode is its first step's mode" would have done."""
-    from warlock.studio.tour import scripts as tour_scripts
+    from realmspinner.studio.tour import scripts as tour_scripts
 
     assert tour_scripts.MUSE_BASICS.mode == "muse"
     assert tour_scripts.INKER_BASICS.mode == "inker"
@@ -372,7 +372,7 @@ def test_starting_a_gated_tour_toasts_the_reason_instead_of_hanging_on_step_one(
     different tour). ``panes.tour.start`` must refuse the same way
     ``landing._offerable_tour`` does, or a caller that skips the offer still
     lands the reader on a card that will never advance."""
-    from warlock.studio.panes import tour as tour_pane
+    from realmspinner.studio.panes import tour as tour_pane
 
     toasts = []
     row = {"row_key": "music:ace_step_v1", "present": False, "size_gib": 8.3}

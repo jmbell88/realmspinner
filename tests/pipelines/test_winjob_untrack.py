@@ -15,8 +15,8 @@ import sys
 
 import pytest
 
-from warlock import winjob
-from warlock.pipelines import blender_run, matting
+from realmspinner import winjob
+from realmspinner.pipelines import blender_run, matting
 
 
 @pytest.fixture

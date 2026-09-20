@@ -1,8 +1,8 @@
 """Tranche 3: separate -- splitting one object's mesh into several, by loose
 parts, by material, or by a selection.
 
-The kernel (:mod:`warlock.kernels.mesh.separate`) and the document door
-(:meth:`~warlock.kernels.mesh.document.ClayDoc.separate`) are tested
+The kernel (:mod:`realmspinner.kernels.mesh.separate`) and the document door
+(:meth:`~realmspinner.kernels.mesh.document.ClayDoc.separate`) are tested
 separately, the way this package always splits geometry from bookkeeping:
 the kernel answers "how would this split", the door answers "what happens to
 the document when it does" -- one undo step, the same parent/transform/
@@ -14,13 +14,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import modifiers as mod
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import separate
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import modifiers as mod
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import separate
+from realmspinner.kernels.mesh.elements import OpError
 
 
 def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:

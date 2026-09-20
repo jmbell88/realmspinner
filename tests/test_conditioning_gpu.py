@@ -13,10 +13,10 @@ from __future__ import annotations
 import pytest
 from PIL import Image, ImageDraw
 
-from warlock import models
-from warlock.config import get_config
-from warlock.pipelines.conditioning import Conditioning
-from warlock.pipelines.text2image import Text2Image
+from realmspinner import models
+from realmspinner.config import get_config
+from realmspinner.pipelines.conditioning import Conditioning
+from realmspinner.pipelines.text2image import Text2Image
 
 pytestmark = pytest.mark.gpu
 

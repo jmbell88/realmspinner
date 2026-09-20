@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.pipelines import pixelsheet
+from realmspinner.pipelines import pixelsheet
 
 
 def _meta(frame_size=128, columns=8, rows=1, cells=None):
@@ -262,7 +262,7 @@ def test_the_shared_property_survives_a_designed_palette():
     that differ by a hair still collapse onto the same entries when the palette
     is designed, exactly as they do when it is derived.
     """
-    from warlock.pipelines import pixel
+    from realmspinner.pipelines import pixel
 
     meta = _meta(columns=4)
     atlas = Image.new("RGBA", (meta["width"], meta["height"]), (0, 0, 0, 0))
@@ -383,7 +383,7 @@ def test_recording_the_lattice_moved_no_sidecar_version():
     comparison for free, which is a real cost paid for a tidier-looking number.
     The literals are the pin: they are what fails if somebody bumps one.
     """
-    from warlock.pipelines import spritesynth, tileatlas, tilesheet
+    from realmspinner.pipelines import spritesynth, tileatlas, tilesheet
 
     assert pixelsheet.PIXEL_SHEET_VERSION == 1
     # 2, and *not* because of the lattice. The sprite draft's reduction changed

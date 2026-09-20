@@ -73,7 +73,7 @@ through untouched rather than mistaking it for one; only the batch handler
 itself ever learns ``$ref`` exists, exactly as that commit's own docstring
 says.
 
-**These four functions moved to ``warlock.studio.modes.clay.agent.transcript``.**
+**These four functions moved to ``realmspinner.studio.modes.clay.agent.transcript``.**
 Tier two's recorder needs exactly the same two rules -- which argument names
 carry a uid, and which uids a result surfaced -- and a second, private copy
 of them here would be the hand-kept-duplicate drift CLAUDE.md refuses
@@ -117,12 +117,12 @@ empty lists non-empty and fail the exact comparison -- which is the entire
 reason this is asserted per object rather than as one blanket "the document
 is clean" boolean.
 
-**The ``wblk_bytes`` round trip.** Assertion 5 below is a stand-in for "the
+**The ``rblk_bytes`` round trip.** Assertion 5 below is a stand-in for "the
 document exports", not a proof of it: a real GLB export
 (``clay_mode.build_asset``) needs ``ctx.svc`` and a Library row, neither of
 which this file's ``_Ctx`` double provides (see ``tests/modes/clay/test_agent_clay.py``'s
 own module docstring for why that double has no ``svc`` by default). Round-
-tripping through ``serialize.wblk_bytes``/``serialize.read_wblk`` instead
+tripping through ``serialize.rblk_bytes``/``serialize.read_rblk`` instead
 proves the finished document's meshes, materials and scene graph survive a
 real serialization format with no service layer involved -- cheap, and
 enough to catch a corrupted mesh or a scene-graph cycle, but it says nothing
@@ -161,12 +161,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from warlock.kernels.mesh import diagnose as clay_diagnose
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import serialize
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
-from warlock.studio.modes.clay.agent import transcript as agent_transcript
+from realmspinner.kernels.mesh import diagnose as clay_diagnose
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import serialize
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.studio.modes.clay.agent import transcript as agent_transcript
 
 from .test_agent_clay import _Ctx  # see module docstring -- shared rather than duplicated
 
@@ -210,7 +210,7 @@ def test_every_program_step_kinds_uid_bearing_keys_are_within_uid_and_uids() -> 
     pins -- so the compiler and the transcript tooling cannot quietly
     disagree about what counts as a reference.
     """
-    from warlock.studio.modes.clay.agent import program as ap
+    from realmspinner.studio.modes.clay.agent import program as ap
 
     assert set(ap.UID_BEARING_KEYS) <= set(ap.STEP_KINDS)
     for kind, keys in ap.UID_BEARING_KEYS.items():
@@ -312,7 +312,7 @@ def _replay(name: str) -> dict[int, int]:
 
     # Assertion 5: the cheap, service-free export stand-in -- see the module
     # docstring's own paragraph on what this does and does not prove.
-    restored = serialize.read_wblk(serialize.wblk_bytes(doc))
+    restored = serialize.read_rblk(serialize.rblk_bytes(doc))
     assert len(restored.objects) == len(doc.objects)
     # Handed back so a caller can assert on the remap itself -- see
     # ``test_a_transcript_replays_even_though_its_recorded_uids_cannot_exist``,

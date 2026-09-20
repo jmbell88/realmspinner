@@ -77,12 +77,12 @@ def test_readme_sdxl_recipe_count_matches_the_registry():
     `sdxl_cfg_pag` ("SDXL 1.0 + PAG") -- shares the identical `sdxl-base-1.0`
     dir_name at zero extra download, and "PAG" appeared nowhere in README.md.
 
-    Derived from `warlock.models.BASE_MODELS` rather than hardcoded a second
+    Derived from `realmspinner.models.BASE_MODELS` rather than hardcoded a second
     time, the way docs-19's own fix instruction requires: the registry is the
     count that can change under this sentence, so the sentence must read it
     rather than restate it.
     """
-    from warlock.models import BASE_MODELS
+    from realmspinner.models import BASE_MODELS
 
     sdxl_dir = BASE_MODELS["sdxl_cfg"].dir_name  # the default recipe's own weights
     sharing = [m for m in BASE_MODELS.values() if m.dir_name == sdxl_dir]
@@ -114,7 +114,7 @@ def test_install_md_states_the_installer_download_size_once():
     text = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
     sized_under_needs = re.search(r"Installer download:\s*\*\*about (\d+) MB\*\*", text)
     sized_in_step_one = re.search(
-        r"download `WarlockSetup-[^`]*`[^.]*?\*\*about (\d+) MB\*\*", text
+        r"download `RealmspinnerSetup-[^`]*`[^.]*?\*\*about (\d+) MB\*\*", text
     )
     assert sized_under_needs and sized_in_step_one, (
         "couldn't find both of INSTALL.md's installer-size sentences -- "
@@ -153,9 +153,9 @@ def test_invariants_asein_ud_owner_citation_matches_the_code():
     file, which stays public.
     """
     # P3 of the restructure (dev/RESTRUCTURE.md) moved studio/inker/ to
-    # warlock/kernels/pixel/, asein.py included.
+    # realmspinner/kernels/pixel/, asein.py included.
     asein_src = (
-        ROOT / "src" / "warlock" / "kernels" / "pixel" / "asein.py"
+        ROOT / "src" / "realmspinner" / "kernels" / "pixel" / "asein.py"
     ).read_text(encoding="utf-8")
     assert "self.ud_owner" in asein_src, (
         "sanity: asein.py's _Parse no longer has a ud_owner field"

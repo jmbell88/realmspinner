@@ -14,13 +14,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.core.undo import CompoundEdit
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import modifiers as mod
-from warlock.kernels.mesh import ops as clay_ops_geom
-from warlock.kernels.mesh import primitives as bp
+from realmspinner.core.undo import CompoundEdit
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import modifiers as mod
+from realmspinner.kernels.mesh import ops as clay_ops_geom
+from realmspinner.kernels.mesh import primitives as bp
 
 
 def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:

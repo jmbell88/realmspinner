@@ -16,8 +16,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
 
 # ``plotter_state.layer_kind`` dispatches on the class *name*, which is what
 # lets this file stay free of a real document: three empty types named after the
@@ -126,7 +126,7 @@ def test_the_tool_field_outranks_the_transforms_when_the_row_is_short():
 def test_every_transform_names_a_real_plotter_mode_transform():
     """The bar and the keyboard press one door. A row naming a transform the
     mode does not have would be a button that silently did nothing."""
-    from warlock.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
 
     for _key, _label, _glyph, name, _back, _tip in plotter_tools.BRUSH_TRANSFORMS:
         assert name in plotter_mode._BRUSH_TRANSFORMS

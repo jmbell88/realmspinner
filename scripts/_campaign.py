@@ -2,7 +2,7 @@
 
 A campaign script is a *submitter*, not a runner: it writes ``queued`` rows
 through ``service.sweeps.create_sweep`` and exits. The app's worker drains them
-the next time Warlock is launched, and Review mode lists the sweeps for the
+the next time Realmspinner is launched, and Review mode lists the sweeps for the
 verdict loop. This is the ``worker=None`` path ``service/core.py`` documents --
 "a test (or a headless tool) can exercise the pure-DB half without standing up
 the GPU queue" -- so nothing here touches the card, the trellis port, or the
@@ -34,11 +34,11 @@ _SRC = Path(__file__).resolve().parent.parent / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from warlock.config import Config  # noqa: E402
-from warlock.db import JobStore  # noqa: E402
-from warlock.service import sweeps as sweeps_mod  # noqa: E402
-from warlock.service.core import WarlockService  # noqa: E402
-from warlock.service.errors import ServiceError  # noqa: E402
+from realmspinner.config import Config  # noqa: E402
+from realmspinner.db import JobStore  # noqa: E402
+from realmspinner.service import sweeps as sweeps_mod  # noqa: E402
+from realmspinner.service.core import RealmspinnerService  # noqa: E402
+from realmspinner.service.errors import ServiceError  # noqa: E402
 
 
 def require_no_live_writer(db_path: Path) -> None:
@@ -58,14 +58,14 @@ def require_no_live_writer(db_path: Path) -> None:
     except sqlite3.OperationalError as exc:
         raise SystemExit(
             f"{db_path} is locked by another process ({exc}).\n"
-            "Close Warlock Studio and run this again: two processes writing "
+            "Close Realmspinner and run this again: two processes writing "
             "one rollback-journal sqlite file is how a submit gets lost."
         ) from exc
     finally:
         probe.close()
 
 
-def plan_and_validate(svc: WarlockService, plan: sweeps_mod.SweepPlan) -> int:
+def plan_and_validate(svc: RealmspinnerService, plan: sweeps_mod.SweepPlan) -> int:
     """-> the unit count, having run the same admission ``create_sweep`` will."""
     units = sweeps_mod.expand(plan)
     sweeps_mod._validate(svc, plan, units)
@@ -88,7 +88,7 @@ def main(plans: tuple[sweeps_mod.SweepPlan, ...], description: str = "") -> int:
     require_no_live_writer(db_path)
 
     store = JobStore(db_path)
-    svc = WarlockService(config, store)
+    svc = RealmspinnerService(config, store)
     try:
         counts = []
         for plan in plans:
@@ -113,7 +113,7 @@ def main(plans: tuple[sweeps_mod.SweepPlan, ...], description: str = "") -> int:
             result = sweeps_mod.create_sweep(svc, plan)
             print(f"queued {result['units']} units as sweep {result['id']} ({plan.label})")
         print(
-            f"\n{total} jobs queued. Launch Warlock Studio; the worker drains them "
+            f"\n{total} jobs queued. Launch Realmspinner; the worker drains them "
             "and Review mode lists the sweep(s)."
         )
     finally:

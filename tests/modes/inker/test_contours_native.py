@@ -19,10 +19,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import native
-from warlock.kernels.pixel import selection as sel
+from realmspinner import native
+from realmspinner.kernels.pixel import selection as sel
 
-needs_dll = pytest.mark.skipif(not native.available(), reason="warlockc.dll not built")
+needs_dll = pytest.mark.skipif(not native.available(), reason="realmspinnerc.dll not built")
 
 
 def _both(mask: sel.SelectionMask, monkeypatch):

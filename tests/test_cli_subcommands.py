@@ -26,7 +26,7 @@ from __future__ import annotations
 import ast
 import inspect
 
-from warlock import cli
+from realmspinner import cli
 
 
 def _main_tree() -> ast.FunctionDef:

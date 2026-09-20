@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.modes.muse import fileio as muse_io
-from warlock.studio.modes.muse import mode as muse_mode
-from warlock.studio.modes.muse import state as muse_state
+from realmspinner.studio.modes.muse import fileio as muse_io
+from realmspinner.studio.modes.muse import mode as muse_mode
+from realmspinner.studio.modes.muse import state as muse_state
 
 
 class _AppState:
@@ -107,7 +107,7 @@ def test_the_default_form_is_one_the_door_would_accept():
     to hold is that a user who presses Generate without touching anything is not
     refused.
     """
-    from warlock.service import _jobs_music as door
+    from realmspinner.service import _jobs_music as door
 
     form = muse_state.DEFAULT_FORM
     assert door.MIN_DURATION <= form["duration"] <= door.MAX_DURATION
@@ -126,8 +126,8 @@ def test_the_recipe_columns_scheduler_and_cfg_options_match_the_door():
     whole set agrees. A scheduler/guidance-type key added or removed at the
     door could otherwise leave the Recipe combo silently stale.
     """
-    from warlock.service import _jobs_music as door
-    from warlock.studio.modes.muse.ui.panes import recipe as muse_recipe
+    from realmspinner.service import _jobs_music as door
+    from realmspinner.studio.modes.muse.ui.panes import recipe as muse_recipe
 
     assert {key for key, _label in muse_recipe._SCHEDULERS} == set(door._SCHEDULERS)
     assert {key for key, _label in muse_recipe._CFG_TYPES} == set(door._CFG_TYPES)
@@ -155,7 +155,7 @@ def test_generate_reaches_the_service_with_the_form_the_user_filled_in(
         seen.update(kw)
         return {"id": "abc123", "ids": ["abc123"]}
 
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(svc_jobs, "create_music_job", _create)
     form = muse_mode.ensure(ctx).form
@@ -193,7 +193,7 @@ def test_generate_goes_through_the_shared_submit_key(ctx, monkeypatch):
     is one "am I submitting" at a time -- and a mode-specific key would let a
     Muse press and a Create press race each other at the door.
     """
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(svc_jobs, "create_music_job", lambda svc, **kw: {"ids": ["a"]})
     muse_mode.ensure(ctx).form["prompt"] = "x"
@@ -227,7 +227,7 @@ def test_ctrl_enter_generate_is_blocked_when_the_music_model_is_missing(
     """
     import pygame
 
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     called: list[dict[str, Any]] = []
     monkeypatch.setattr(
@@ -247,7 +247,7 @@ def test_ctrl_enter_generate_is_blocked_when_the_music_model_is_missing(
 def test_a_press_clears_the_rings_the_last_refusal_left(ctx, monkeypatch):
     # They describe a request that no longer exists, and leaving them up has
     # the app pointing at a control while it works on the value in it.
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(svc_jobs, "create_music_job", lambda svc, **kw: {"ids": ["a"]})
     ctx.state.note_field_error("duration", "too long")
@@ -318,7 +318,7 @@ def test_queue_it_reaches_derive_music_job_with_the_right_kwargs_for_every_task(
         seen.update(kw)
         return {"ids": ["derived123"]}
 
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(svc_jobs, "derive_music_job", _derive)
 
@@ -350,7 +350,7 @@ def test_an_edit_with_one_field_left_blank_sends_none_for_it_not_empty_string(
         seen.update(kw)
         return {"ids": ["derived123"]}
 
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(svc_jobs, "derive_music_job", _derive)
 
@@ -365,7 +365,7 @@ def test_an_edit_with_one_field_left_blank_sends_none_for_it_not_empty_string(
 
 
 def test_derive_with_no_take_selected_is_a_no_op(ctx, monkeypatch):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     called = False
 
@@ -420,7 +420,7 @@ def test_a_decoded_take_is_handed_to_the_mixer_tagged_with_its_job_id(
         played.update(pcm=pcm, rate=rate, tag=tag)
         return True
 
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "play", _play)
     # M11: a completed decode is only adopted while it still matches the
@@ -438,7 +438,7 @@ def test_a_decoded_take_is_handed_to_the_mixer_tagged_with_its_job_id(
 
 
 def test_a_device_that_refuses_leaves_nothing_claiming_to_play(ctx, monkeypatch):
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: False)
     monkeypatch.setattr(sirens_audio, "unavailable_reason", lambda: "no device")
@@ -454,7 +454,7 @@ def test_a_device_that_refuses_leaves_nothing_claiming_to_play(ctx, monkeypatch)
 
 
 def test_a_take_that_ran_to_its_end_stops_being_the_playing_one(ctx, monkeypatch):
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     muse_mode.ensure(ctx).playing_job = "abc123"
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -471,7 +471,7 @@ def test_an_older_decode_that_lands_after_a_newer_one_does_not_override_it(
     against the unfixed code, which adopts every successful ``LOAD_PREFIX``
     result with no check against what the user asked for most recently.
     """
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     _finished(ctx, "a")
     _finished(ctx, "b")
@@ -522,7 +522,7 @@ def test_stop_before_a_decode_completes_cancels_it_rather_than_starting_playback
 def test_is_playing_asks_the_mixers_tag_rather_than_the_stored_pointer(
     ctx, monkeypatch
 ):
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "playing", lambda: True)
     monkeypatch.setattr(sirens_audio, "tag", lambda: "other")
@@ -551,7 +551,7 @@ def test_precompute_loop_cache_does_not_land_on_a_different_take_with_the_same_r
     Fails against the unfixed code, which has no id check in this branch at
     all and adopts the result onto whatever player is current.
     """
-    from warlock.studio.modes.muse.state import Player
+    from realmspinner.studio.modes.muse.state import Player
 
     state = muse_mode.ensure(ctx)
     state.player = Player(job="a", pcm=[0] * 100, rate=100, duration=1.0)
@@ -596,8 +596,8 @@ def test_open_in_sirens_goes_through_the_real_import_door(ctx, monkeypatch):
     _finished(ctx, "abc123")
     imported: list[Any] = []
 
-    from warlock.studio.modes.sirens import fileio as sirens_io
-    from warlock.studio.modes.sirens import mode as sirens
+    from realmspinner.studio.modes.sirens import fileio as sirens_io
+    from realmspinner.studio.modes.sirens import mode as sirens
 
     monkeypatch.setattr(
         sirens_io,
@@ -618,8 +618,8 @@ def test_the_bridge_does_not_switch_modes_before_the_take_has_landed(ctx, monkey
     about. The switch rides the task instead."""
     _finished(ctx, "abc123")
 
-    from warlock.studio.modes.sirens import fileio as sirens_io
-    from warlock.studio.modes.sirens import mode as sirens
+    from realmspinner.studio.modes.sirens import fileio as sirens_io
+    from realmspinner.studio.modes.sirens import mode as sirens
 
     monkeypatch.setattr(sirens, "active", lambda c: object())
     monkeypatch.setattr(
@@ -639,8 +639,8 @@ def test_the_bridge_starts_a_song_when_there_is_nowhere_to_put_the_sample(
     _finished(ctx, "abc123")
     made: list[str] = []
 
-    from warlock.studio.modes.sirens import fileio as sirens_io
-    from warlock.studio.modes.sirens import mode as sirens
+    from realmspinner.studio.modes.sirens import fileio as sirens_io
+    from realmspinner.studio.modes.sirens import mode as sirens
 
     monkeypatch.setattr(sirens, "active", lambda c: None)
     monkeypatch.setattr(sirens, "new_document", lambda c: made.append("new") or object())
@@ -677,7 +677,7 @@ def test_compose_from_sirens_is_blocked_when_the_music_model_is_missing(
     and would instead reach the "nothing in the order list" refusal (since no
     tab exists), never mind ``create_music_job``.
     """
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     called: list[dict[str, Any]] = []
     monkeypatch.setattr(
@@ -775,7 +775,7 @@ def test_select_with_no_takes_is_a_no_op(ctx):
 
 
 def test_muse_is_a_work_mode_and_a_workspace_but_not_a_viewport_mode():
-    from warlock.studio import main, modes
+    from realmspinner.studio import main, modes
 
     assert "muse" in modes.KEYS
     assert "muse" in modes.WORK_MODES
@@ -792,7 +792,7 @@ def test_muse_sits_before_sirens_in_the_workspaces_group():
     ``test_sirens_mode.py`` asserts -- but the ordering was chosen for the
     first reason and this pins the first reason.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     group = modes.RAIL_GROUPS[1]
     assert group.index("muse") == group.index("sirens") - 1
@@ -804,10 +804,10 @@ def test_muse_is_not_a_document_mode():
     A mode in ``_DOC_MODES`` grows a File menu whose every item is disabled,
     which reads as a broken app rather than as a fact about the mode.
     """
-    from warlock.studio import docmodes
+    from realmspinner.studio import docmodes
 
     assert "muse" not in getattr(docmodes, "DOC_MODES", ()) or True
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     assert "muse" not in getattr(menus, "_DOC_MODES", ())
 
@@ -832,7 +832,7 @@ def test_the_palette_offers_a_go_command_for_free():
     """
     from types import SimpleNamespace
 
-    from warlock.studio import palette
+    from realmspinner.studio import palette
 
     ctx = SimpleNamespace(model_rows=[], pack_rows=[], cache=SimpleNamespace(total=0))
     commands = {cmd.key: cmd for cmd in palette._mode_commands(ctx)}
@@ -851,8 +851,8 @@ def test_the_counts_top_pill_matches_the_doors_max_count():
     A future ``MAX_COUNT`` change could otherwise silently desync the Takes
     control from the door with no test catching it.
     """
-    from warlock.service import _jobs_music as door
-    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.service import _jobs_music as door
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
 
     assert max(muse_brief._COUNTS) == door.MAX_COUNT
 
@@ -863,7 +863,7 @@ def test_the_take_count_stays_on_screen_when_its_control_is_dropped():
     rows -- they cannot see. Against the unfixed code the label is plain
     "Generate" at every width, which is what made the number vanish.
     """
-    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
 
     assert muse_brief.generate_label(None) == "Generate"
     assert muse_brief.generate_label(1) == "Generate", "one take does not apologise"
@@ -878,8 +878,8 @@ def test_instrumental_is_a_choice_not_an_empty_field():
     ``muse_brief`` has no ``_set_instrumental`` to flip it and clear the
     field it describes.
     """
-    from warlock.studio.modes.muse import state as muse_state
-    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.studio.modes.muse import state as muse_state
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
 
     assert muse_state.DEFAULT_FORM["instrumental"] is True, (
         "empty lyrics has always meant instrumental -- the default form must say so"
@@ -904,8 +904,8 @@ def test_the_lyric_field_can_expand():
     so the field's height is the fixed ``LYRICS_H`` regardless of what space
     is actually left.
     """
-    from warlock.studio.modes.muse import state as muse_state
-    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.studio.modes.muse import state as muse_state
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
 
     state = muse_state.MuseState()
     assert state.lyrics_expanded is False
@@ -925,7 +925,7 @@ def test_the_duration_pill_text_reads_seconds_below_five_minutes_and_minutes_at_
     restates rather than misses. Fails against the unfixed code, which has no
     ``_duration_label`` at all.
     """
-    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
 
     presets = muse_brief._DURATIONS
     assert muse_brief._duration_label(presets[0]) == "30s"
@@ -943,8 +943,8 @@ def test_clamp_duration_holds_a_typed_value_inside_the_doors_range():
     against the unfixed code, which has no ``_clamp_duration`` to hold
     anything.
     """
-    from warlock.service._jobs_music import MAX_DURATION, MIN_DURATION
-    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.service._jobs_music import MAX_DURATION, MIN_DURATION
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
 
     assert muse_brief._clamp_duration(int(MIN_DURATION) - 5) == int(MIN_DURATION)
     assert muse_brief._clamp_duration(int(MAX_DURATION) + 500) == int(MAX_DURATION)
@@ -958,8 +958,8 @@ def test_picking_a_preset_writes_the_number_and_custom_leaves_it_where_it_was():
     unfixed code, which has no ``_pick_duration`` and decided which pill lit
     from ``duration``'s membership in ``_DURATIONS`` alone.
     """
-    from warlock.studio.modes.muse import state as muse_state
-    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.studio.modes.muse import state as muse_state
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
 
     state = muse_state.MuseState()
     form = state.form
@@ -985,8 +985,8 @@ def test_an_off_preset_duration_lights_custom_even_with_the_flag_unset():
     else _DURATIONS[1])``, which drew "60s" as selected the instant
     ``duration`` held anything else.
     """
-    from warlock.studio.modes.muse import state as muse_state
-    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.studio.modes.muse import state as muse_state
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
 
     state = muse_state.MuseState()
     form = state.form
@@ -1007,7 +1007,7 @@ def test_step_walks_the_duration_options_and_wraps_onto_custom(monkeypatch):
     own rule, stated at its head, is that nothing here touches imgui -- so
     only ``_step``'s own index arithmetic is exercised.
     """
-    from warlock.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
 
     class _Key:
         left_arrow = "left"
@@ -1046,8 +1046,8 @@ def test_switching_takes_keeps_the_playback_position(ctx, monkeypatch):
     """
     import numpy as np
 
-    from warlock.studio.modes.muse import mode as muse_mode
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.muse import mode as muse_mode
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: True)
     state = muse_mode.ensure(ctx)
@@ -1084,8 +1084,8 @@ def test_a_take_switch_gives_the_first_takes_loop_points_back(ctx, monkeypatch):
     """
     import numpy as np
 
-    from warlock.studio.modes.muse import mode as muse_mode
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.muse import mode as muse_mode
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: True)
     state = muse_mode.ensure(ctx)
@@ -1119,8 +1119,8 @@ def test_the_loop_memory_is_bounded(ctx):
     ``Player`` docstring refuses, but it is still not allowed to grow without
     bound while somebody works through a tray.
     """
-    from warlock.studio.modes.muse import mode as muse_mode
-    from warlock.studio.modes.muse import state as muse_state
+    from realmspinner.studio.modes.muse import mode as muse_mode
+    from realmspinner.studio.modes.muse import state as muse_state
 
     state = muse_mode.ensure(ctx)
     for index in range(muse_state.LOOP_MEMORY + 10):
@@ -1198,7 +1198,7 @@ def test_export_with_points_refuses_a_region_that_rounds_to_zero_width_samples(
     """
     import numpy as np
 
-    from warlock.studio.modes.muse.engine import waveform
+    from realmspinner.studio.modes.muse.engine import waveform
 
     rate = 44100
     pcm = np.zeros((int(10.0 * rate), 2), dtype=np.int16)
@@ -1229,7 +1229,7 @@ def test_export_with_points_still_writes_an_ordinary_region(tmp_path, monkeypatc
     guard."""
     import numpy as np
 
-    from warlock.studio.modes.muse.engine import waveform
+    from realmspinner.studio.modes.muse.engine import waveform
 
     rate = 44100
     pcm = np.zeros((int(10.0 * rate), 2), dtype=np.int16)

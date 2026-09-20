@@ -12,15 +12,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from warlock.kernels.mesh import presets
+from realmspinner.kernels.mesh import presets
 
 TEMPLATE_PATH = (
-    Path(__file__).resolve().parents[3] / "src" / "warlock" / "templates" / "insect.json"
+    Path(__file__).resolve().parents[3] / "src" / "realmspinner" / "templates" / "insect.json"
 )
 CLAY_TOOLS_PATH = (
     Path(__file__).resolve().parents[3]
     / "src"
-    / "warlock"
+    / "realmspinner"
     / "studio"
     / "modes"
     / "clay"

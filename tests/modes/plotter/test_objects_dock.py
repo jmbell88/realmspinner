@@ -14,12 +14,12 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio.modes.plotter import mode as plotter_mode
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.engine import layer_rows
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
-from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
-from warlock.studio.modes.plotter.ui.panes import objects as plotter_objects
+from realmspinner.studio.modes.plotter import mode as plotter_mode
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.engine import layer_rows
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
+from realmspinner.studio.modes.plotter.ui.panes import objects as plotter_objects
 
 
 @pytest.fixture

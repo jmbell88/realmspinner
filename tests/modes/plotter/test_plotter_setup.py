@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.modes.plotter import setup as plotter_setup
-from warlock.studio.modes.plotter.engine import project
+from realmspinner.studio.modes.plotter import setup as plotter_setup
+from realmspinner.studio.modes.plotter.engine import project
 
 
 def test_a_blank_form_is_a_preset_rather_than_an_invention():

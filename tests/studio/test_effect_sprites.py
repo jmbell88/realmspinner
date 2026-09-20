@@ -25,7 +25,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from warlock.studio import (
+from realmspinner.studio import (
     imgui_backend,
     ninepatch,
     shadows,
@@ -379,9 +379,9 @@ def test_no_effect_module_reaches_the_service_layer_or_the_queue():
             else:
                 continue
             for module in found:
-                assert not module.startswith("warlock.service"), f"{name} imports {module}"
-                assert not module.startswith("warlock.queue"), f"{name} imports {module}"
-                # ``warlock._q_*`` too: the queue's worker halves are the same
+                assert not module.startswith("realmspinner.service"), f"{name} imports {module}"
+                assert not module.startswith("realmspinner.queue"), f"{name} imports {module}"
+                # ``realmspinner._q_*`` too: the queue's worker halves are the same
                 # dependency wearing a different name, and the pin named only
                 # the front door.
-                assert not module.startswith("warlock._q"), f"{name} imports {module}"
+                assert not module.startswith("realmspinner._q"), f"{name} imports {module}"

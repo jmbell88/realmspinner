@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.service import jobs as svc_jobs
-from warlock.service import judge as svc_judge
-from warlock.service import system as svc_system
-from warlock.service import verdicts as svc_verdicts
-from warlock.service.errors import Invalid, NotFound
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import judge as svc_judge
+from realmspinner.service import system as svc_system
+from realmspinner.service import verdicts as svc_verdicts
+from realmspinner.service.errors import Invalid, NotFound
 
 
 def test_a_directory_named_like_the_trellis_log_is_treated_as_absent(svc):

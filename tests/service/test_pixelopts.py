@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.service import troupe
-from warlock.service.errors import Invalid
-from warlock.service.pixelopts import check_pixel_options
+from realmspinner.service import troupe
+from realmspinner.service.errors import Invalid
+from realmspinner.service.pixelopts import check_pixel_options
 
 # A caller that is *not* Troupe, which is the whole point of the parameters.
 SIZES = (16, 32, 64)

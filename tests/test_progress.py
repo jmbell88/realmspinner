@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.progress import (
+from realmspinner.progress import (
     PHASES_IMAGE,
     PHASES_TEXT,
     SUBSTEPS,
@@ -154,7 +154,7 @@ def test_flow_steps_always_advance_the_bar(monkeypatch):
     stage 6 that milestone sits at 0.98, so creep saturated within a second and
     every one of the 12 denoise lines then fell below it -- the bar sat frozen
     for the whole stage while the detail text counted up."""
-    import warlock.progress as mod
+    import realmspinner.progress as mod
 
     t = [1000.0]
     monkeypatch.setattr(mod.time, "monotonic", lambda: t[0])
@@ -181,7 +181,7 @@ def test_cold_model_load_keeps_moving(monkeypatch):
     """Stage 1 on a cold server absorbs the ~8 GB CUDA load (~14 s) and prints
     nothing until stage 2. It is the first thing a user sees, so a frozen bar
     there is the worst case."""
-    import warlock.progress as mod
+    import realmspinner.progress as mod
 
     t = [1000.0]
     monkeypatch.setattr(mod.time, "monotonic", lambda: t[0])
@@ -206,7 +206,7 @@ def test_cold_model_load_keeps_moving(monkeypatch):
 
 def test_silence_after_a_flow_run_still_creeps(monkeypatch):
     """Stage 6 spends ~3.5 s in a silent PBR decode once its flow run ends."""
-    import warlock.progress as mod
+    import realmspinner.progress as mod
 
     t = [1000.0]
     monkeypatch.setattr(mod.time, "monotonic", lambda: t[0])
@@ -367,7 +367,7 @@ def test_update_never_regresses():
 
 def test_creep_moves_the_bar_without_new_lines(monkeypatch):
     """A silent stage must still visibly advance, but never past the next milestone."""
-    import warlock.progress as mod
+    import realmspinner.progress as mod
 
     t = [1000.0]
     monkeypatch.setattr(mod.time, "monotonic", lambda: t[0])
@@ -446,7 +446,7 @@ def test_pump_skips_empty_lines():
 
 
 def test_the_sprite_phases_cover_the_whole_bar_contiguously():
-    from warlock.progress import PHASES_SPRITE
+    from realmspinner.progress import PHASES_SPRITE
 
     spans = sorted(PHASES_SPRITE.values())
     assert spans[0][0] == 0.0
@@ -459,7 +459,7 @@ def test_every_phase_the_sprite_worker_emits_is_declared():
     """``update()`` falls back to (0.0, 1.0) for an unknown phase, which would
     drag the bar back to zero twice per job -- which is exactly why
     ``_sprite_synthesis`` does not reuse ``_t2i_state``."""
-    from warlock.progress import phases_for
+    from realmspinner.progress import phases_for
 
     table = phases_for("sprite_synthesis")
     # Three, and none of them per candidate: a sheet may be drawn as one
@@ -475,7 +475,7 @@ def test_the_worker_never_hands_the_sprite_bar_a_t2i_phase():
     by copying ``_pixel_sheet``: passing ``self._t2i_state`` as ``on_state``."""
     import inspect
 
-    from warlock.queue import Worker
+    from realmspinner.queue import Worker
 
     source = inspect.getsource(Worker._sprite_synthesis)
     # Comments stripped, because the method *explains* the trap in one -- and a
@@ -510,7 +510,7 @@ def test_the_multi_pass_kinds_have_their_own_contiguous_tables(kind):
     pinned it there for the rest of a multi-minute job. The bar said finished
     while five more views were still to render.
     """
-    from warlock.progress import PHASES_IMAGE, phases_for
+    from realmspinner.progress import PHASES_IMAGE, phases_for
 
     table = phases_for(kind)
     assert table is not PHASES_IMAGE, f"{kind} still falls back to the image table"
@@ -545,7 +545,7 @@ def test_every_phase_these_kinds_emit_is_declared(kind, emitted):
     """The names are the ones ``_q_sprite`` actually passes to
     ``progress.update`` -- including the two the shared ``_t2i_state`` callback
     emits, which is how these kinds acquired the fallback in the first place."""
-    from warlock.progress import phases_for
+    from realmspinner.progress import phases_for
 
     table = phases_for(kind)
     for phase in emitted:
@@ -556,7 +556,7 @@ def test_every_phase_these_kinds_emit_is_declared(kind, emitted):
 def test_the_first_sampling_pass_does_not_reach_the_end_of_the_bar(kind):
     """The failure in its own terms: finishing the first pass's last step must
     leave room for the passes after it."""
-    from warlock.progress import ProgressBus
+    from realmspinner.progress import ProgressBus
 
     bus = ProgressBus()
     bus.begin("job", kind)
@@ -577,7 +577,7 @@ def test_a_charsheet_render_does_not_reach_the_end_of_the_bar():
     ``on_progress(1.0, ...)`` is the call that used to finish the bar with 256
     frames still to reduce, pack and quantise.
     """
-    from warlock.progress import ProgressBus
+    from realmspinner.progress import ProgressBus
 
     bus = ProgressBus()
     bus.begin("job", "charsheet")

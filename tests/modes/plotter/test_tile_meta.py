@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid as gidlib
-from warlock.kernels.grid2d.tileset import (
+from realmspinner.kernels.grid2d import gid as gidlib
+from realmspinner.kernels.grid2d.tileset import (
     TileEllipse,
     TileFrame,
     TileMeta,
@@ -22,8 +22,8 @@ from warlock.kernels.grid2d.tileset import (
     TileRect,
     Tileset,
 )
-from warlock.studio.modes.plotter.engine import tools
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.engine import tools
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 def _pixels(size: int = 64) -> np.ndarray:
@@ -133,7 +133,7 @@ def test_an_out_of_range_tileset_is_refused() -> None:
 
 
 def _weights(doc: MapDoc):
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     return plotter_canvas._tile_weights(doc)
 
@@ -212,7 +212,7 @@ def _animated(doc: MapDoc, value: int, clock_ms: int) -> int:
     the arrangement that produces it -- these tests outlived one change of
     arrangement already, from a scalar called per cell to this.
     """
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     subs = plotter_canvas.animated_substitutions(doc, clock_ms)
     block = np.array([[value]], dtype=gidlib.DTYPE)
@@ -265,7 +265,7 @@ def test_the_document_bytes_are_identical_across_animation_frames() -> None:
 def test_the_flat_renderer_draws_frame_one() -> None:
     """An export is a still -- the parallax precedent, where the canvas and the
     export deliberately disagree and the disagreement is stated."""
-    from warlock.studio.modes.plotter.engine import render
+    from realmspinner.studio.modes.plotter.engine import render
 
     doc = _doc({0: TileMeta(animation=(TileFrame(0, 100), TileFrame(1, 100)))})
     layer = doc.tile_layers()[0]
@@ -280,7 +280,7 @@ def test_the_flat_renderer_draws_frame_one() -> None:
 
 
 def test_collision_shapes_are_tilegrids_own_records() -> None:
-    """The shared leaf imports nothing under ``warlock``, so it cannot hold a
+    """The shared leaf imports nothing under ``realmspinner``, so it cannot hold a
     plotter shape -- the codec converts instead."""
     meta = TileMeta(
         collision=(

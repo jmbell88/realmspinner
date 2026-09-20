@@ -22,14 +22,14 @@ import json
 import numpy as np
 import pytest
 
-from warlock import clips as clipslib
-from warlock.characters import DEFAULT_RECIPE, CharacterError, Recipe, families
-from warlock.characters import family as familylib
-from warlock.characters.humanoid import generate
-from warlock.characters.instantiate import instantiate
-from warlock.kernels import charsheet
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.rig import cliplib, skeleton, templates
+from realmspinner import clips as clipslib
+from realmspinner.characters import DEFAULT_RECIPE, CharacterError, Recipe, families
+from realmspinner.characters import family as familylib
+from realmspinner.characters.humanoid import generate
+from realmspinner.characters.instantiate import instantiate
+from realmspinner.kernels import charsheet
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.rig import cliplib, skeleton, templates
 
 SILHOUETTES = sorted(familylib.silhouettes("humanoid"))
 SPECIES = sorted(familylib.families_of("humanoid"))
@@ -66,7 +66,7 @@ def _stacked(model: gltf.Model) -> np.ndarray:
 
 
 def _mesh_of(baked: generate.Baked):
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import mesh as bm
 
     return bm.Mesh(
         positions=baked.positions.astype("f4"),
@@ -79,7 +79,7 @@ def _mesh_of(baked: generate.Baked):
 
 
 def _triangles(baked: generate.Baked) -> np.ndarray:
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import mesh as bm
 
     tris, _face = bm.triangulate(_mesh_of(baked))
     return np.asarray(tris, dtype="i8")
@@ -202,7 +202,7 @@ def test_every_baked_mesh_is_one_closed_solid(silhouette, rebuilt):
     """The union, the smoothing and the weld all have to leave it closed:
     Blender's bone-heat solve refuses non-manifold input, and the fallback is
     envelope weighting, which the inspector reports as needing review."""
-    from warlock.kernels.mesh import adjacency
+    from realmspinner.kernels.mesh import adjacency
 
     report = adjacency.check_manifold(_mesh_of(rebuilt[silhouette]))
     assert report.clean, (
@@ -296,8 +296,8 @@ def test_a_displaced_mesh_is_still_the_same_closed_solid(silhouette, rebuilt):
     fail by arithmetic -- it can only fail if a channel ever stops being a
     displacement and starts being an edit, which is exactly the change that
     would need noticing."""
-    from warlock.kernels.mesh import adjacency
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import adjacency
+    from realmspinner.kernels.mesh import mesh as bm
 
     baked = rebuilt[silhouette]
     for channel, field in baked.displacements.items():
@@ -590,7 +590,7 @@ def test_transformed_joints_uses_the_same_convention_clay_does(tmp_path):
     """``M @ v``, column vectors -- so one matrix moves a mesh through
     ``clay.mesh.transformed`` and its skeleton through this, and nobody has to
     remember which of the two wanted the transpose."""
-    from warlock.characters.instantiate import transformed_joints
+    from realmspinner.characters.instantiate import transformed_joints
 
     inst = instantiate(DEFAULT_RECIPE, tmp_path)
     matrix = np.array(

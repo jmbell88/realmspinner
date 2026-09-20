@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.grid2d import blob
-from warlock.kernels.grid2d import gid as gidlib
-from warlock.kernels.grid2d.tileset import TilesetRef
-from warlock.studio.modes.plotter.engine import terrain
+from realmspinner.kernels.grid2d import blob
+from realmspinner.kernels.grid2d import gid as gidlib
+from realmspinner.kernels.grid2d.tileset import TilesetRef
+from realmspinner.studio.modes.plotter.engine import terrain
 
 from ._terrainset import terrain_ref
 

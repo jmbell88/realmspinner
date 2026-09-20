@@ -4,8 +4,8 @@ import subprocess
 
 import pytest
 
-from warlock import winjob
-from warlock.pipelines import optimize
+from realmspinner import winjob
+from realmspinner.pipelines import optimize
 
 
 def test_profiles_cover_the_named_tiers():

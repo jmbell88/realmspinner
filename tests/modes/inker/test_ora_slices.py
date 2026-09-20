@@ -1,4 +1,4 @@
-"""``warlock.json``: what an ``.ora`` carries about slices, and what it does not.
+"""``realmspinner.json``: what an ``.ora`` carries about slices, and what it does not.
 
 The member is additive in the strict sense -- written only when there is
 something to write, read with ``.get``, versioned so a future shape cannot be
@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from warlock.kernels.pixel import ora
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.slices import SliceKey
+from realmspinner.kernels.pixel import ora
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.slices import SliceKey
 
 
 def _doc() -> Document:
@@ -42,16 +42,16 @@ def _members(doc: Document) -> set[str]:
 
 def _payload(doc: Document) -> dict:
     with zipfile.ZipFile(BytesIO(ora.ora_bytes(doc))) as zf:
-        return json.loads(zf.read(ora.WARLOCK_MEMBER))
+        return json.loads(zf.read(ora.REALMSPINNER_MEMBER))
 
 
 def _rewritten(doc: Document, member: bytes, path: Path) -> Document:
-    """The same archive with ``warlock.json`` replaced, on disk."""
+    """The same archive with ``realmspinner.json`` replaced, on disk."""
     original = ora.ora_bytes(doc)
     out = BytesIO()
     with zipfile.ZipFile(BytesIO(original)) as src, zipfile.ZipFile(out, "w") as dst:
         for info in src.infolist():
-            data = member if info.filename == ora.WARLOCK_MEMBER else src.read(info.filename)
+            data = member if info.filename == ora.REALMSPINNER_MEMBER else src.read(info.filename)
             dst.writestr(info, data, info.compress_type)
     path.write_bytes(out.getvalue())
     return ora.read_ora(path)
@@ -63,16 +63,16 @@ def _rewritten(doc: Document, member: bytes, path: Path) -> Document:
 def test_a_document_with_no_slices_writes_no_member_at_all():
     """Which is what keeps every archive this build wrote before slices existed
     byte-for-byte what it was."""
-    assert ora.WARLOCK_MEMBER not in _members(_doc())
+    assert ora.REALMSPINNER_MEMBER not in _members(_doc())
 
 
 def test_a_document_with_slices_writes_one():
-    assert ora.WARLOCK_MEMBER in _members(_sliced())
+    assert ora.REALMSPINNER_MEMBER in _members(_sliced())
 
 
 def test_the_member_is_versioned_and_holds_rectangles_engines_recognise():
     payload = _payload(_sliced())
-    assert payload["version"] == ora.WARLOCK_VERSION
+    assert payload["version"] == ora.REALMSPINNER_VERSION
     body = payload["slices"][0]
     assert body["name"] == "body"
     assert body["bounds"] == {"x": 2, "y": 3, "w": 8, "h": 6}
@@ -257,7 +257,7 @@ def test_keys_are_dropped_when_the_grid_read_fell_back_flat(tmp_path: Path):
 
 def test_the_slices_list_refuses_past_a_metadata_ceiling(tmp_path: Path):
     """The 2026-09-16 audit found "slices" had no ceiling at all, unlike every
-    sibling list this module already bounds -- a crafted ``warlock.json``
+    sibling list this module already bounds -- a crafted ``realmspinner.json``
     could name hundreds of thousands of slices and build one ``Slice`` per
     entry with no refusal. Past ``ora.MAX_ORA_METADATA_ENTRIES`` the whole
     member is refused, the same as any other malformed shape it carries."""
@@ -265,7 +265,7 @@ def test_the_slices_list_refuses_past_a_metadata_ceiling(tmp_path: Path):
         {"name": f"s{i}", "bounds": {"x": 0, "y": 0, "w": 1, "h": 1}}
         for i in range(ora.MAX_ORA_METADATA_ENTRIES + 1)
     ]
-    member = json.dumps({"version": ora.WARLOCK_VERSION, "slices": slices}).encode()
+    member = json.dumps({"version": ora.REALMSPINNER_VERSION, "slices": slices}).encode()
     back = _rewritten(_sliced(), member, tmp_path / "too_many_slices.ora")
     assert back.slices == []
     # The pixels the member's own contract protects are untouched.
@@ -284,7 +284,7 @@ def test_a_slices_keys_list_refuses_past_a_metadata_ceiling(tmp_path: Path):
     ]
     member = json.dumps(
         {
-            "version": ora.WARLOCK_VERSION,
+            "version": ora.REALMSPINNER_VERSION,
             "slices": [
                 {
                     "name": "k",
@@ -294,7 +294,7 @@ def test_a_slices_keys_list_refuses_past_a_metadata_ceiling(tmp_path: Path):
             ],
         }
     ).encode()
-    # ``_rewritten`` swaps ``warlock.json`` in an archive that already carries
+    # ``_rewritten`` swaps ``realmspinner.json`` in an archive that already carries
     # one -- a document with no slices writes no member at all for it to
     # replace, which is what let this exact test pass with the ceiling
     # disabled the first time around.
@@ -306,11 +306,11 @@ def test_a_journal_copy_carries_the_slices():
     """The journal encodes a drawing through ``ora_bytes``, so it rides along --
     asserted rather than trusted, because "it uses the same writer" is exactly
     the kind of claim that stops being true in one edit."""
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker.state import InkerDoc
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker.state import InkerDoc
 
     doc = _sliced()
     raw = inker_mode._journal_encode(InkerDoc(doc=doc))
     with zipfile.ZipFile(BytesIO(raw)) as zf:
-        payload = json.loads(zf.read(ora.WARLOCK_MEMBER))
+        payload = json.loads(zf.read(ora.REALMSPINNER_MEMBER))
     assert [entry["name"] for entry in payload["slices"]] == ["body", "plain"]

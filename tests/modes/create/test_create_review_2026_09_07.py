@@ -13,12 +13,12 @@ import inspect
 import re
 from types import SimpleNamespace
 
-from warlock.service import matte as svc_matte
-from warlock.studio import matte_preview
-from warlock.studio.modes.create.engine import mesh as create_mesh
-from warlock.studio.modes.create.ui.panes import settings_3d
-from warlock.studio.panes import sheet_panel, stage_rig
-from warlock.studio.state import DEFAULT_FORM_3D, AppState
+from realmspinner.service import matte as svc_matte
+from realmspinner.studio import matte_preview
+from realmspinner.studio.modes.create.engine import mesh as create_mesh
+from realmspinner.studio.modes.create.ui.panes import settings_3d
+from realmspinner.studio.panes import sheet_panel, stage_rig
+from realmspinner.studio.state import DEFAULT_FORM_3D, AppState
 
 
 class _Settings:

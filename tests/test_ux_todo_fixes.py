@@ -25,10 +25,10 @@ from types import SimpleNamespace
 import pytest
 from _panes import pane_files
 
-from warlock.studio.modes.plotter import mode as plotter_mode
-from warlock.studio.state import TOAST_LEVELS
+from realmspinner.studio.modes.plotter import mode as plotter_mode
+from realmspinner.studio.state import TOAST_LEVELS
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "warlock"
+SRC = Path(__file__).resolve().parents[1] / "src" / "realmspinner"
 STUDIO = SRC / "studio"
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 # dev/scripts/ holds the bench/calibration/campaign scripts moved out of the
@@ -423,7 +423,7 @@ def test_a_key_up_that_is_not_space_is_still_ignored(plotter_ctx):
 def _passes(key_name: str, mods: int, monkeypatch) -> bool:
     import pygame
 
-    from warlock.studio.main import App
+    from realmspinner.studio.main import App
 
     # The modifiers go on the *event*, which is where the filter now reads them
     # from: ``event.mod`` is the state at the instant the key went down, and
@@ -496,7 +496,7 @@ def test_clay_state_close_has_a_caller():
     """``ClayState.close`` existed, closed to the neighbour, and nothing ever
     called it: Clay could open documents and never shut one, so a dirty-quit
     prompt asked about documents the user had no way to see."""
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     assert hasattr(clay_mode, "close_tab")
     text = (STUDIO / "modes/clay/mode.py").read_text(encoding="utf-8")
@@ -517,8 +517,8 @@ def test_poser_saves_from_the_keyboard_and_the_palette():
     button in one pane and nothing else."""
     import inspect
 
-    from warlock.studio import palette
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio import palette
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     assert "poser" in palette._DOC_MODES
     assert callable(poser_mode.active)
@@ -531,8 +531,8 @@ def test_clays_frame_key_lives_with_clays_other_keys():
     -- the one Clay binding that did not live with the others."""
     import inspect
 
-    from warlock.studio import main
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio import main
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     assert "frame_pending" in inspect.getsource(clay_mode.handle_key)
     shortcut = inspect.getsource(main.App._shortcut)
@@ -544,7 +544,7 @@ def test_the_right_button_means_one_thing_in_both_viewports():
     so which the user got depended on which viewport they were over."""
     import inspect
 
-    from warlock.studio import viewer_embed
+    from realmspinner.studio import viewer_embed
 
     source = inspect.getsource(viewer_embed.Viewer._press)
     assert "button in (2, 3)" not in source

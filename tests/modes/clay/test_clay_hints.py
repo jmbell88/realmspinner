@@ -11,10 +11,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio import viewport_hints as clay_hints
-from warlock.studio.modes.clay import ops as clay_ops
-from warlock.studio.modes.clay import state as clay_state
-from warlock.studio.viewer.camera import Camera
+from realmspinner.studio import viewport_hints as clay_hints
+from realmspinner.studio.modes.clay import ops as clay_ops
+from realmspinner.studio.modes.clay import state as clay_state
+from realmspinner.studio.viewer.camera import Camera
 
 SIZE = 84.0
 CENTRE = SIZE * 0.5
@@ -184,7 +184,7 @@ def test_keys_named_does_not_read_english_as_a_binding():
 def test_every_key_the_line_names_is_a_key_the_mode_listens_to():
     """The parity that matters: a hint naming a binding nothing implements is
     worse than no hint, because it is read as a promise."""
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     letters = set()
     for mode in clay_ops.ALL_MODES:
@@ -211,7 +211,7 @@ def test_the_hint_line_names_no_multi_character_binding_nothing_implements():
     and every element mode's line, and "Tab" is not a key ``mode.handle_key``
     binds anything to.
     """
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     # The two named tokens Clay's own key handler answers to outside a drag
     # (the mouse buttons and the wheel are always true; a bare press never

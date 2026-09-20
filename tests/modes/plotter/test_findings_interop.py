@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
 # --- a tileset is "in use" wherever a gid of it is ------------------------------
 
@@ -22,7 +22,7 @@ def test_a_tileset_painted_inside_a_group_counts_as_used():
     """``tileset_usage`` walked ``doc.layers`` -- the *root* list -- so a tile
     layer inside a folder was invisible to it and ``remove_tileset`` renumbered
     every one of those cells."""
-    from warlock.kernels.grid2d.tileset import Tileset
+    from realmspinner.kernels.grid2d.tileset import Tileset
 
     doc = MapDoc(4, 4, 16, 16)
     pixels = np.zeros((16, 32, 4), dtype=np.uint8)
@@ -43,8 +43,8 @@ def test_a_tileset_painted_inside_a_group_counts_as_used():
 
 def test_a_tile_object_counts_as_used_too():
     """A ``TileShape`` holds a gid exactly as a cell does."""
-    from warlock.kernels.grid2d.tileset import Tileset
-    from warlock.studio.modes.plotter.engine.tilemap import MapObject, TileShape, new_uid
+    from realmspinner.kernels.grid2d.tileset import Tileset
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapObject, TileShape, new_uid
 
     doc = MapDoc(4, 4, 16, 16)
     pixels = np.zeros((16, 32, 4), dtype=np.uint8)
@@ -73,7 +73,7 @@ def test_a_foreign_wang_set_keeps_its_representative_tile_and_class():
     somebody's file."""
     import xml.etree.ElementTree as ET
 
-    from warlock.studio.modes.plotter.engine import tsx
+    from realmspinner.studio.modes.plotter.engine import tsx
 
     xml = (
         '<tileset><wangsets>'
@@ -103,7 +103,7 @@ def test_the_deprecated_image_layer_offsets_fold_on_both_spellings():
     ``.tmx`` and at the origin from the ``.tmj`` beside it."""
     import inspect
 
-    from warlock.studio.modes.plotter.engine import tmx
+    from realmspinner.studio.modes.plotter.engine import tmx
 
     body = inspect.getsource(tmx._read_tmj_layer_list)
     assert 'common["offset_x"] += json_number(entry, "x", 0)' in body
@@ -112,7 +112,7 @@ def test_the_deprecated_image_layer_offsets_fold_on_both_spellings():
 def test_an_image_layer_cannot_overwrite_the_map_document():
     """The export writes ``map.tmx`` into the same dict, and a source that
     spelt it replaced the map with PNG bytes."""
-    from warlock.studio.modes.plotter.engine import tmx
+    from realmspinner.studio.modes.plotter.engine import tmx
 
     doc = MapDoc(4, 4, 16, 16)
     pixels = np.zeros((8, 8, 4), dtype=np.uint8)
@@ -130,7 +130,7 @@ def test_an_unknown_stagger_value_is_said_out_loud(caplog):
     value was not understood."""
     import xml.etree.ElementTree as ET
 
-    from warlock.studio.modes.plotter.engine import tmx
+    from realmspinner.studio.modes.plotter.engine import tmx
 
     node = ET.fromstring('<map staggeraxis="diagonal" staggerindex="middle"/>')
     with caplog.at_level("WARNING"):
@@ -146,10 +146,10 @@ def test_an_unknown_stagger_value_is_said_out_loud(caplog):
 
 
 def test_a_sprite_key_carries_no_directory(tmp_path):
-    """It was ``str(path)``, written into the ``.wpack`` -- so a shared atlas
+    """It was ``str(path)``, written into the ``.rpack`` -- so a shared atlas
     document carried the author's directory layout, and the same file added on
     two machines was two sprites."""
-    from warlock.studio.modes.packwright.engine.sources import file_key
+    from realmspinner.studio.modes.packwright.engine.sources import file_key
 
     one = tmp_path / "barrel.png"
     other = tmp_path / "sub" / "barrel.png"
@@ -166,7 +166,7 @@ def test_a_sprite_key_carries_no_directory(tmp_path):
 
 def test_a_quoted_boolean_in_a_hand_edited_manifest_is_read_as_written():
     """``bool("false")`` is True, and this file is hand-editable."""
-    from warlock.studio.modes.packwright.engine.wpack import _json_bool
+    from realmspinner.studio.modes.packwright.engine.rpack import _json_bool
 
     assert _json_bool("false", True) is False
     assert _json_bool("true", False) is True
@@ -178,7 +178,7 @@ def test_a_quoted_boolean_in_a_hand_edited_manifest_is_read_as_written():
 def test_the_size_search_can_reach_a_limit_that_is_not_a_power_of_two():
     """The doubling walked past a 1500px ceiling, so a set that fits in 1500
     square was refused as "does not fit in a 1500px atlas"."""
-    from warlock.studio.modes.packwright.engine.layout import _candidate_sizes
+    from realmspinner.studio.modes.packwright.engine.layout import _candidate_sizes
 
     sizes = _candidate_sizes(area=1_600_000, floor_w=200, floor_h=200, limit=1500)
 
@@ -189,8 +189,8 @@ def test_the_size_search_can_reach_a_limit_that_is_not_a_power_of_two():
 def test_a_pivot_can_be_set_cleared_and_undone():
     """It was modelled end to end and could only be *set* by importing an Inker
     document that already carried one."""
-    from warlock.studio.modes.packwright.engine.document import PackDoc
-    from warlock.studio.modes.packwright.engine.sources import Sprite
+    from realmspinner.studio.modes.packwright.engine.document import PackDoc
+    from realmspinner.studio.modes.packwright.engine.sources import Sprite
 
     doc = PackDoc()
     pixels = np.zeros((8, 8, 4), dtype=np.uint8)

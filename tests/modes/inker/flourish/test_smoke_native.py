@@ -16,25 +16,25 @@ import os
 import numpy as np
 import pytest
 
-from warlock import native
-from warlock.kernels.pixel.flourish.prims import smoke
-from warlock.kernels.pixel.flourish.recipe import Layer, Phase
-from warlock.kernels.pixel.flourish.render import FrameCtx
+from realmspinner import native
+from realmspinner.kernels.pixel.flourish.prims import smoke
+from realmspinner.kernels.pixel.flourish.recipe import Layer, Phase
+from realmspinner.kernels.pixel.flourish.render import FrameCtx
 
 pytestmark = pytest.mark.skipif(
-    not native.available(), reason="warlockc is not built in this checkout"
+    not native.available(), reason="realmspinnerc is not built in this checkout"
 )
 
 
 def _numpy_render(layer, ctx):
     """The reference path, forced -- ``smoke.render`` with the kernel disabled
     for the duration of the call."""
-    os.environ["WARLOCK_NATIVE"] = "0"
+    os.environ["REALMSPINNER_NATIVE"] = "0"
     native.reset()
     try:
         return smoke.render(layer, ctx, None)
     finally:
-        os.environ.pop("WARLOCK_NATIVE", None)
+        os.environ.pop("REALMSPINNER_NATIVE", None)
         native.reset()
 
 
@@ -136,14 +136,14 @@ def test_a_too_small_scratch_buffer_is_refused_and_python_still_falls_back(monke
     reference = _numpy_render(layer, ctx)
 
     real_handle = native.lib()
-    real_fn = real_handle.warlockc_smoke_blob
+    real_fn = real_handle.realmspinnerc_smoke_blob
 
     def starved(*args):
         args = list(args)
         args[-1] = ctypes.c_size_t(0)
         return real_fn(*args)
 
-    monkeypatch.setattr(real_handle, "warlockc_smoke_blob", starved)
+    monkeypatch.setattr(real_handle, "realmspinnerc_smoke_blob", starved)
     assert (
         native.smoke_blob(
             np.zeros((ctx.height, ctx.width, 3), dtype=np.float32),

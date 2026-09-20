@@ -22,19 +22,28 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import dialogs, filetypes, fonts, main, palette, theme, tokens, viewer_embed
-from warlock.studio import state as state_mod
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.packwright import fileio as packwright_io
-from warlock.studio.modes.packwright import mode as packwright_mode
-from warlock.studio.modes.plotter import fileio as plotter_io
-from warlock.studio.modes.plotter import mode as plotter_mode
-from warlock.studio.modes.plotter import tilesets as plotter_tilesets
-from warlock.studio.modes.review import mode as review_mode
-from warlock.studio.modes.sirens import fileio as sirens_io
-from warlock.studio.modes.sirens import mode as sirens_mode
-from warlock.studio.state import AppState, Filters
+from realmspinner.studio import (
+    dialogs,
+    filetypes,
+    fonts,
+    main,
+    palette,
+    theme,
+    tokens,
+    viewer_embed,
+)
+from realmspinner.studio import state as state_mod
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.packwright import fileio as packwright_io
+from realmspinner.studio.modes.packwright import mode as packwright_mode
+from realmspinner.studio.modes.plotter import fileio as plotter_io
+from realmspinner.studio.modes.plotter import mode as plotter_mode
+from realmspinner.studio.modes.plotter import tilesets as plotter_tilesets
+from realmspinner.studio.modes.review import mode as review_mode
+from realmspinner.studio.modes.sirens import fileio as sirens_io
+from realmspinner.studio.modes.sirens import mode as sirens_mode
+from realmspinner.studio.state import AppState, Filters
 
 
 class FakeSettings:
@@ -75,7 +84,7 @@ def _teardown_app(ctx: Any) -> main.App:
     app.app_ctx = ctx
     app._running = False
     app._last_frame = app._started_at = 0.0
-    from warlock.studio.fps import FpsMeter
+    from realmspinner.studio.fps import FpsMeter
 
     app.fps = FpsMeter()
     return app
@@ -107,11 +116,11 @@ def test_teardown_persists_every_mode_that_has_a_persist(fake_pygame, monkeypatc
     """
     import importlib
 
-    from warlock.studio import mode_manifest
+    from realmspinner.studio import mode_manifest
 
     called: list[str] = []
     for entry in mode_manifest.persisting_modes():
-        module = importlib.import_module(f"warlock.studio.{entry.module}")
+        module = importlib.import_module(f"realmspinner.studio.{entry.module}")
         assert callable(module.persist)
         monkeypatch.setattr(module, "persist", lambda ctx, _k=entry.key: called.append(_k))
 
@@ -126,16 +135,16 @@ def test_the_plotter_and_packwright_recents_survive_a_teardown(fake_pygame):
     ctx = _ctx(settings, state)
 
     plotter_mode.ensure(ctx)
-    plotter_mode.remember_path(ctx, "D:/maps/one.wmap")
+    plotter_mode.remember_path(ctx, "D:/maps/one.rmap")
     packwright_mode.ensure(ctx)
-    packwright_mode.remember_path(ctx, "D:/atlases/one.wpack")
+    packwright_mode.remember_path(ctx, "D:/atlases/one.rpack")
     # The list is written by ``recents`` on the spot rather than flushed at
     # teardown -- which is the point: a mutation that forgot to persist used to
     # survive only because quitting wrote whatever the state happened to hold.
     _teardown_app(ctx).teardown()
 
-    assert plotter_mode.recent_paths(ctx) == ["D:/maps/one.wmap"]
-    assert packwright_mode.recent_paths(ctx) == ["D:/atlases/one.wpack"]
+    assert plotter_mode.recent_paths(ctx) == ["D:/maps/one.rmap"]
+    assert packwright_mode.recent_paths(ctx) == ["D:/atlases/one.rpack"]
 
 
 # --- H71: one write, and a label that names what it does ---------------------
@@ -246,7 +255,7 @@ def test_the_palette_and_the_shortcut_agree_on_every_mode():
     A property rather than a case: the two were four lines each and differed in
     one of them, which no single example would have caught.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     for start in modes.KEYS:
         for target in modes.KEYS:
@@ -313,7 +322,7 @@ def test_review_mode_does_not_carry_its_own_copy_of_the_image_names():
 
 
 def test_the_reference_lookup_reads_the_service_tuple():
-    from warlock.service import verdicts as verdicts_mod
+    from realmspinner.service import verdicts as verdicts_mod
 
     source = inspect.getsource(review_mode.reference_path)
     assert "verdicts_mod.IMAGE_NAMES" in source
@@ -324,7 +333,7 @@ def test_the_reference_lookup_reads_the_service_tuple():
 def test_the_reference_lookup_prefers_the_first_name_the_service_lists(tmp_path):
     """Order is the meaningful part: a text job writes both, and
     ``reference.png`` is what trellis actually saw."""
-    from warlock.service import verdicts as verdicts_mod
+    from realmspinner.service import verdicts as verdicts_mod
 
     for name in verdicts_mod.IMAGE_NAMES:
         (tmp_path / name).write_bytes(b"x")
@@ -346,7 +355,7 @@ def test_the_pane_skips_a_label_through_the_public_surface():
     # ``App`` inherits Review's pane drawing from ``review_panes.ReviewPanes``
     # since 2026-09-04 (T7), and ``getsource`` on a class shows only its own
     # body -- so the call lives in the mixin now.
-    from warlock.studio.modes.review.ui import workspace as review_panes
+    from realmspinner.studio.modes.review.ui import workspace as review_panes
 
     assert "review_mode.advance_labels" in inspect.getsource(review_panes.ReviewPanes)
     assert issubclass(main.App, review_panes.ReviewPanes)
@@ -632,7 +641,7 @@ def test_the_spacing_scale_carries_only_the_steps_in_use():
 
 
 def test_a_pending_task_carries_no_unread_timestamp():
-    from warlock.studio.tasks import _Pending
+    from realmspinner.studio.tasks import _Pending
 
     assert "started" not in _Pending.__dataclass_fields__
 
@@ -642,7 +651,7 @@ def test_a_pending_task_carries_no_unread_timestamp():
 
 def test_the_diagnostics_popup_is_not_exposed():
     """Health warnings remain visible, but no modal or command opens them."""
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     assert not hasattr(main.App, "_diagnostics_popup")
     assert "diagnostics" not in inspect.getsource(palette.commands)
@@ -655,6 +664,6 @@ def test_the_diagnostics_popup_is_not_exposed():
 def test_the_icon_module_says_it_is_a_catalogue():
     """Its numbers come from a named Lucide release and are never guessed, so
     an unreferenced constant here is correct rather than dead."""
-    from warlock.studio import icons
+    from realmspinner.studio import icons
 
     assert "catalogue" in (icons.__doc__ or "")

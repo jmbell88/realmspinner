@@ -1,7 +1,7 @@
 # Modelling
 
 Clay is a polygon modeller: primitives, element editing, booleans and materials, saving to its own
-`.wblk` format and exporting into the library like anything else.
+`.rblk` format and exporting into the library like anything else.
 
 It needs no GPU and no weights. It is also the answer to a question the generators raise — what to
 do when reconstruction gets a shape *nearly* right, or when the thing you want is a crate and asking
@@ -9,7 +9,7 @@ a diffusion model for a crate is the long way round.
 
 ## Getting a document
 
-`Ctrl+N` starts one, `Ctrl+O` opens a `.wblk`. A finished mesh in the library has **Open in Clay** in
+`Ctrl+N` starts one, `Ctrl+O` opens a `.rblk`. A finished mesh in the library has **Open in Clay** in
 its menu, and a `.glb` dropped onto the window is imported.
 
 Two limits on import, both about memory rather than taste: past about 200,000 triangles Clay asks
@@ -101,7 +101,7 @@ panel to visit when a Union refuses.
 
 One material palette per document, with slots referenced per face. Base colour, metallic and
 roughness are editable. Texture slots are **read-only**: Clay carries baked maps through import,
-the viewport, `.wblk` and export without damaging them, but it does not paint them. That is Inker's
+the viewport, `.rblk` and export without damaging them, but it does not paint them. That is Inker's
 job.
 
 Adding a material always appends and never inserts, because inserting would renumber every face
@@ -138,7 +138,7 @@ applied downstream, on the finished asset, in the retarget panel.
 ## Round trips
 
 Export to the library, then use **Open in Clay** on the resulting card, and you get your objects back —
-names, generator parameters and all. That works because the export keeps a `.wblk` beside the mesh.
+names, generator parameters and all. That works because the export keeps a `.rblk` beside the mesh.
 Opening a mesh that was *not* authored in Clay instead gives you one frozen object per material,
 which is the honest answer to "what were the objects in this file" for a file that never had any.
 

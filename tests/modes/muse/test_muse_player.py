@@ -19,9 +19,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.modes.muse import fileio as muse_io
-from warlock.studio.modes.muse import mode as muse_mode
-from warlock.studio.modes.muse import state as muse_state
+from realmspinner.studio.modes.muse import fileio as muse_io
+from realmspinner.studio.modes.muse import mode as muse_mode
+from realmspinner.studio.modes.muse import state as muse_state
 
 from .test_muse_mode import FakeCtx
 
@@ -96,7 +96,7 @@ def ctx(tmp_path):
 
 def _loaded(ctx, seconds: float = 10.0, job: str = "a"):
     """Put a decoded take on the state, the way ``on_task_done`` would."""
-    from warlock.studio.modes.muse.engine import waveform
+    from realmspinner.studio.modes.muse.engine import waveform
 
     pcm = np.zeros((int(seconds * RATE), 2), dtype=np.int16)
     state = muse_mode.ensure(ctx)
@@ -400,7 +400,7 @@ def test_playing_the_loop_hands_the_mixer_the_export_buffer_not_a_raw_slice(
     controls usually do too: the marker grip and the crossfade slider both
     call ``precompute_loop`` on release, well before a user's next Play.
     """
-    from warlock.studio.modes.muse.engine import loops as loops_mod
+    from realmspinner.studio.modes.muse.engine import loops as loops_mod
 
     one = _loaded(ctx, seconds=10.0)
     rng = np.random.default_rng(0)
@@ -575,7 +575,7 @@ def test_clearing_takes_both_markers(ctx, device):
 
 def test_choosing_a_candidate_adopts_it_as_the_region(ctx, device):
     one = _loaded(ctx, seconds=10.0)
-    from warlock.studio.modes.muse.engine.loops import Candidate
+    from realmspinner.studio.modes.muse.engine.loops import Candidate
 
     one.candidates = [Candidate(RATE, RATE * 5, 0.1), Candidate(0, RATE * 3, 0.2)]
     muse_mode.choose_candidate(ctx, 1)
@@ -597,7 +597,7 @@ def test_the_finder_runs_on_a_task_and_its_answer_lands_in_on_task_done(ctx, dev
     assert ctx.submitted[-1] == f"{muse_io.FIND_PREFIX}a"
     assert one.finding is True
 
-    from warlock.studio.modes.muse.engine.loops import Candidate
+    from realmspinner.studio.modes.muse.engine.loops import Candidate
 
     done = type("_Done", (), {"key": f"{muse_io.FIND_PREFIX}a", "result": [
         Candidate(0, RATE * 2, 0.1)
@@ -632,7 +632,7 @@ def test_a_stale_find_loops_result_does_not_override_a_region_set_after_the_sear
     one.finding = False
     muse_mode.set_region(ctx, 5.0, 9.0)  # restored/hand-set after the search
 
-    from warlock.studio.modes.muse.engine.loops import Candidate
+    from realmspinner.studio.modes.muse.engine.loops import Candidate
 
     done = type("_Done", (), {
         "key": f"{muse_io.FIND_PREFIX}a", "result": [Candidate(0, RATE * 2, 0.1)],
@@ -668,7 +668,7 @@ def test_no_candidates_says_so_rather_than_leaving_a_spinner(ctx, device):
 
 
 def test_a_decoded_take_becomes_the_player(ctx, device):
-    from warlock.studio.modes.muse.engine import waveform
+    from realmspinner.studio.modes.muse.engine import waveform
 
     muse_mode.ensure(ctx).audition_job = "a"
     pcm = np.zeros((RATE, 2), dtype=np.int16)
@@ -831,7 +831,7 @@ def test_grip_at_picks_the_nearer_marker_when_both_are_in_reach():
     returns "start" because it is checked first and is still, barely, within
     reach.
     """
-    from warlock.studio.modes.muse.ui.panes import player as muse_player
+    from realmspinner.studio.modes.muse.ui.panes import player as muse_player
 
     one = muse_state.Player(job="a", duration=100.0, loop_start=10.0, loop_end=10.6)
     width = 1000.0  # 10 design pixels per second, at the tokens.SCALE default
@@ -841,7 +841,7 @@ def test_grip_at_picks_the_nearer_marker_when_both_are_in_reach():
 def test_grip_at_breaks_an_exact_tie_toward_start():
     """The mirror of the case above: equidistant from both grips, the pick
     must still be deterministic rather than whichever the loop visits last."""
-    from warlock.studio.modes.muse.ui.panes import player as muse_player
+    from realmspinner.studio.modes.muse.ui.panes import player as muse_player
 
     one = muse_state.Player(job="a", duration=100.0, loop_start=10.0, loop_end=10.6)
     width = 1000.0
@@ -861,8 +861,8 @@ def test_muse_disabled_control_reasons_are_pure_and_testable():
     and ``overlay.cancel_reason`` were. These are asserted with no imgui frame
     at all, which is the point.
     """
-    from warlock.studio.modes.muse.ui import brief as muse_brief
-    from warlock.studio.modes.muse.ui.panes import player as muse_player
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.studio.modes.muse.ui.panes import player as muse_player
 
     assert muse_player._no_region_reason(True) == ""
     assert muse_player._no_region_reason(False) == "no loop region yet"
@@ -886,7 +886,7 @@ def test_the_trays_disabled_reasons_are_pure_and_testable():
     edit to the tray's sentence, or a bug that greys a card button for the
     wrong reason, has nothing else in the suite to catch it.
     """
-    from warlock.studio.modes.muse.ui.panes import results as muse_results
+    from realmspinner.studio.modes.muse.ui.panes import results as muse_results
 
     assert muse_results._ready_reason(True) == ""
     not_ready = muse_results._ready_reason(False)
@@ -901,7 +901,7 @@ def test_the_stems_already_split_reason_is_a_pure_testable_function():
     disabled-control sentence in this mode into a pure function. Fails
     against the unfixed code, which has no ``_stems_reason`` at all.
     """
-    from warlock.studio.modes.muse.ui.panes import results as muse_results
+    from realmspinner.studio.modes.muse.ui.panes import results as muse_results
 
     assert muse_results._stems_reason(True, False) == ""
     not_ready = muse_results._stems_reason(False, False)
@@ -965,7 +965,7 @@ def test_the_extend_menu_item_reason_is_a_pure_testable_function():
     the "Make more" menu, in the same shape this file's other
     ``*_reason`` tests already hold every other disabled control to.
     """
-    from warlock.studio.modes.muse.ui.panes import results as muse_results
+    from realmspinner.studio.modes.muse.ui.panes import results as muse_results
 
     assert muse_results._extend_reason(0.0) == ""
     assert muse_results._extend_reason(60.0) == ""
@@ -1000,8 +1000,8 @@ def test_dragging_a_grip_past_the_other_marker_keeps_the_untouched_one_fixed(
     """
     from imgui_bundle import imgui
 
-    from warlock.studio.modes.muse.engine import waveform
-    from warlock.studio.modes.muse.ui.panes import player as muse_player
+    from realmspinner.studio.modes.muse.engine import waveform
+    from realmspinner.studio.modes.muse.ui.panes import player as muse_player
 
     one = _loaded(ctx, seconds=20.0)
     muse_mode.set_region(ctx, 8.0, 12.0)
@@ -1058,7 +1058,7 @@ def test_the_drawn_playhead_does_not_move_until_a_seek_drag_releases(ctx, monkey
     """
     from imgui_bundle import imgui
 
-    from warlock.studio.modes.muse.ui.panes import player as muse_player
+    from realmspinner.studio.modes.muse.ui.panes import player as muse_player
 
     one = _loaded(ctx, seconds=20.0)
     width = 1000.0

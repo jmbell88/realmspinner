@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
 
 def test_the_drag_source_allows_a_null_id():

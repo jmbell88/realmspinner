@@ -234,8 +234,8 @@ asset to the next: there is no separate store of saved styles to keep in step.
 
 ## Storage and pruning
 
-Every job owns a directory under `~/.warlock/assets/`, named for its job id, and the SQLite job
-store lives at `~/.warlock/assets/jobs.sqlite`. That home directory is outside the source tree on
+Every job owns a directory under `~/.realmspinner/assets/`, named for its job id, and the SQLite job
+store lives at `~/.realmspinner/assets/jobs.sqlite`. That home directory is outside the source tree on
 purpose; see [Data locations](41-configuration.md#data-locations). A job directory holds:
 
 - `input.png` — the reference image the mesh was made from.

@@ -15,8 +15,8 @@ from __future__ import annotations
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import probe
-from warlock.studio.modes.inker import state as inker_state
+from realmspinner.studio import probe
+from realmspinner.studio.modes.inker import state as inker_state
 
 #: The label the manual bold-quotes (chapters 06 and 29). Kept as a
 #: constant, not inlined, so the one place this test would need editing if
@@ -48,7 +48,7 @@ def _frame(imgui, build):
 
 
 def test_onion_current_layer_checkbox_label_matches_manual_citation(ui):
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     state = inker_state.InkerState()
     state.onion = True

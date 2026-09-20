@@ -33,7 +33,7 @@ Settings → Health holds:
 an environment variable named and highlighted first — lives under Settings → Advanced instead, a
 category of its own rather than one of Health's four things: an install whose behaviour disagrees
 with the manual almost always disagrees because something in its environment says so, and this is
-the fastest way to see it. `warlock doctor` prints the same block.
+the fastest way to see it. `realmspinner doctor` prints the same block.
 
 **Health Checks** is worth knowing about. Most of the checks are only computed once, at startup —
 they cannot change without the disk changing — so having just installed something a row complained
@@ -54,7 +54,7 @@ resident together. That fits a 32 GB card and does not fit a smaller one. Geomet
 raises the engine's own peak allocation, and an unusually large image model such as a local FLUX
 raises the other side.
 
-**Fix.** Set `WARLOCK_VRAM_EXCLUSIVE=1` and restart. Text jobs then run sequentially — the engine is
+**Fix.** Set `REALMSPINNER_VRAM_EXCLUSIVE=1` and restart. Text jobs then run sequentially — the engine is
 stopped, the image model loads, generates and unloads, and the engine restarts. It costs seconds per
 job and buys back roughly 7 GB of headroom. See [VRAM modes](41-configuration.md#vram-modes).
 
@@ -63,7 +63,7 @@ than "3D" — see
 [the mapping](23-generating-meshes.md#mesh-parameters).
 
 **Afterwards.** A hard crash inside CUDA or the allocator never reaches a Python handler, so it will
-not be in `warlock.log`. Look in `crash.log` instead — see
+not be in `realmspinner.log`. Look in `crash.log` instead — see
 [Where everything lives](#where-everything-lives).
 
 ## Missing weights
@@ -94,15 +94,15 @@ whole download is present and its digests check out.
 socket error. A connection that is closed part-way through (`WinError 10054` and its relatives) is
 most often antivirus, a firewall, a VPN or a workplace proxy inspecting a large transfer rather than
 a problem with your internet — pausing them, or trying another network, is the usual fix. The full
-technical detail is written to `warlock.log` every time.
+technical detail is written to `realmspinner.log` every time.
 
-**Or from a terminal**, which is the only route on a headless box: `uv run warlock doctor` lists each
+**Or from a terminal**, which is the only route on a headless box: `uv run realmspinner doctor` lists each
 missing item individually with the exact command that fetches it, and the same commands are
 collected in [Model weights](40-installation.md#model-weights).
 
 None of these rows is **fatal**. `trellis-server.exe` and the TRELLIS GGUF weights were once, back
 when the installer shipped the engine; both are downloads now, so a machine that has not fetched
-them yet reports them as ordinary setup rows and `warlock doctor` still exits 0. Mesh jobs will not
+them yet reports them as ordinary setup rows and `realmspinner doctor` still exits 0. Mesh jobs will not
 run until you fetch them, and the row tells you the command — but a fresh install is not a broken
 one. One row can still be fatal, on a small card: **VRAM budget**, when the budget cannot hold even
 a lone reconstruction, because there is nothing to degrade to. On a card with room it is an
@@ -117,7 +117,7 @@ knew at startup.
 **What you see.** The rig controls are simply not there: no rig checkbox on the generate form, no
 sprite sheets, and the FBX export button explains itself with "needs Blender". The **Pose** panel
 is not hidden, though — it says "Posing needs Blender, which is not installed." **Settings →
-Health** names the failing check, "Blender (rigging)", and prints its detail; `warlock doctor` says
+Health** names the failing check, "Blender (rigging)", and prints its detail; `realmspinner doctor` says
 the same thing in a terminal.
 
 **Why.** Almost always the Python version. `bpy` ships CPython 3.13 wheels only, so on anything
@@ -146,7 +146,7 @@ mid-session worker death was invisible outside the log file.
 **Fix.** Restart the app. There is no in-place recovery, and the banner says so rather than
 pretending there might be.
 
-**Then find out why.** `warlock.log` has the run's logging, including the VRAM instrumentation, and
+**Then find out why.** `realmspinner.log` has the run's logging, including the VRAM instrumentation, and
 `crash.log` has native tracebacks. The crash toast's own **Open the log** button opens the first
 of those directly.
 
@@ -160,19 +160,19 @@ the one non-fatal check that gets a fatal check's banner.
 fatal — but every 3D job will fail until the port is free, or worse, be served by the orphan.
 
 **Fix.** Usually nothing. The first 3D job after the banner looks at who holds the port: if it is a
-`trellis-server.exe` started from this Warlock's own vendored copy — the only case where the answer
+`trellis-server.exe` started from this Realmspinner's own vendored copy — the only case where the answer
 is certain — it is an orphan, and it is ended and replaced automatically, with a warning line in
-`warlock.log` saying so. Anything else is left strictly alone and the job fails naming the process
-and its path; end that program, or move Warlock by setting `WARLOCK_TRELLIS_PORT`.
+`realmspinner.log` saying so. Anything else is left strictly alone and the job fails naming the process
+and its path; end that program, or move Realmspinner by setting `REALMSPINNER_TRELLIS_PORT`.
 
 **If the engine keeps failing to start.** Repeated failures are spaced out rather than retried at
 once — each attempt waits longer than the last, up to five minutes, and the job that triggered it
 still fails immediately with the reason. That is deliberate: a burst of identical restarts buries
 the first failure, which is the only one that says what actually went wrong. `trellis.log` has it.
 
-## Warlock says the previous session did not shut down cleanly
+## Realmspinner says the previous session did not shut down cleanly
 
-**What you see.** A warning in `warlock.log` at startup naming the previous run's process id and
+**What you see.** A warning in `realmspinner.log` at startup naming the previous run's process id and
 start time.
 
 **Why.** Every session writes a marker file when it starts and removes it on the way out. A marker
@@ -181,10 +181,10 @@ kill, or a power loss.
 
 **Fix.** Nothing to repair; the message is evidence, not a fault. It is worth acting on only in that
 it says where to look: `crash.log` for a native traceback with a matching session line, and
-`warlock.log` for the run's final entries. A run that ended normally logs `teardown complete`, so
+`realmspinner.log` for the run's final entries. A run that ended normally logs `teardown complete`, so
 the absence of that line is the sharpest confirmation of a hard death.
 
-A variant of the same warning says another Warlock **appears to be running**. Two instances share
+A variant of the same warning says another Realmspinner **appears to be running**. Two instances share
 one job database and one engine port, and the second will lose fights over both.
 
 ## Holes or artifacts in a mesh
@@ -196,9 +196,9 @@ patches you can see through when you orbit.
 as good as the picture it was handed, and a subject that is cropped, partly occluded, sitting on a
 busy background or ambiguous from one angle reconstructs badly no matter what the engine is told.
 
-It is tempting to reach for `WARLOCK_TRELLIS_BAND` — the width of the band the mesh extraction runs
+It is tempting to reach for `REALMSPINNER_TRELLIS_BAND` — the width of the band the mesh extraction runs
 over — on the theory that a wider band closes holes. **It does not.** That was measured with
-`warlock sweep` on one reference at a fixed seed, geometry resolution 1024, and the worst-view
+`realmspinner sweep` on one reference at a fixed seed, geometry resolution 1024, and the worst-view
 see-through fraction came out like this:
 
 | Band | See-through fraction | Faces | Time |
@@ -211,7 +211,7 @@ see-through fraction came out like this:
 
 Two conclusions, both against the guess. The engine's own heuristic is already the best of the
 ladder, and widening the band makes the surface *more* perforated while adding faces and time. So
-leave `WARLOCK_TRELLIS_BAND` unset. The run also puts a floor under what counts as a real difference:
+leave `REALMSPINNER_TRELLIS_BAND` unset. The run also puts a floor under what counts as a real difference:
 `auto` and `2` are the same setting and still disagreed by 728 faces, so anything under about 0.3% is
 noise.
 
@@ -241,27 +241,27 @@ seconds, the mean frame time and the slowest single frame in that window — the
 one that catches a stutter, since one 100 ms stall barely moves an average. Green is at target, amber
 is degraded, red is badly behind. Press F10 again to hide it; the choice is remembered.
 
-**Afterwards.** The rate is also written to `warlock.log` every 30 seconds beside the memory sample,
+**Afterwards.** The rate is also written to `realmspinner.log` every 30 seconds beside the memory sample,
 and once more when the app closes, so a session that felt slow can be checked after the fact — see
 [Where everything lives](#where-everything-lives).
 
 ## Where everything lives
 
-Everything the app generates lives under `~/.warlock`, the `.warlock` folder inside your user
+Everything the app generates lives under `~/.realmspinner`, the `.realmspinner` folder inside your user
 profile. When something needs investigating, these are the places to look:
 
-- `~/.warlock/assets/warlock.log` — the rotating application log, 5 MB with three backups.
-- `~/.warlock/assets/crash.log` — native crash tracebacks, appended, for the failures Python logging
+- `~/.realmspinner/assets/realmspinner.log` — the rotating application log, 5 MB with three backups.
+- `~/.realmspinner/assets/crash.log` — native crash tracebacks, appended, for the failures Python logging
   cannot catch. Each run writes a `=== session … ===` line on startup, so a traceback can be tied to
   the run that produced it.
-- `~/.warlock/assets/session.marker` — present only while the app is running; left behind by a
+- `~/.realmspinner/assets/session.marker` — present only while the app is running; left behind by a
   crash, which is what produces the unclean-shutdown warning above.
-- `~/.warlock/assets/jobs.sqlite` — the job store: every job row, its parameters and its status.
-- `~/.warlock/assets/` plus the job id — the job's own directory, with its images, meshes, rigs,
+- `~/.realmspinner/assets/jobs.sqlite` — the job store: every job row, its parameters and its status.
+- `~/.realmspinner/assets/` plus the job id — the job's own directory, with its images, meshes, rigs,
   poses and sheets.
-- `~/.warlock/MIGRATED.txt` — written once, if an older install's data was moved here out of the
+- `~/.realmspinner/MIGRATED.txt` — written once, if an older install's data was moved here out of the
   project folder. It records what came from where.
 
-All of those move with `WARLOCK_DATA_DIR` except the note, which sits at the top of `WARLOCK_HOME`,
-and the store, which has its own `WARLOCK_DB`. The full layout, and the one-time move, are in
+All of those move with `REALMSPINNER_DATA_DIR` except the note, which sits at the top of `REALMSPINNER_HOME`,
+and the store, which has its own `REALMSPINNER_DB`. The full layout, and the one-time move, are in
 [Data locations](41-configuration.md#data-locations).

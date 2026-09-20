@@ -11,12 +11,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.geom3d.gltf import Material, Primitive
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import pick, refs
-from warlock.studio.modes.mason.engine import terrain as T
-from warlock.studio.modes.mason.engine.scene import Placed
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.geom3d.gltf import Material, Primitive
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import pick, refs
+from realmspinner.studio.modes.mason.engine import terrain as T
+from realmspinner.studio.modes.mason.engine.scene import Placed
 
 IDENTITY = m3.identity()
 

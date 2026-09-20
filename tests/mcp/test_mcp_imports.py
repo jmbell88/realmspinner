@@ -1,10 +1,10 @@
-"""What ``src/warlock/mcp/`` is allowed to reach for, pinned exactly.
+"""What ``src/realmspinner/mcp/`` is allowed to reach for, pinned exactly.
 
-``warlock/mcp/__init__.py``'s own docstring states the constraint this file
+``realmspinner/mcp/__init__.py``'s own docstring states the constraint this file
 enforces for the first time: "Every module under here (`protocol.py`,
-`pipe.py`, `bridge.py`) is stdlib-only and imports nothing else from `warlock`
--- `bridge.py`'s one exception, `warlock.config`, is display-free and does not
-pull in pygame, moderngl or torch. That is what lets `warlock mcp` run as a
+`pipe.py`, `bridge.py`) is stdlib-only and imports nothing else from `realmspinner`
+-- `bridge.py`'s one exception, `realmspinner.config`, is display-free and does not
+pull in pygame, moderngl or torch. That is what lets `realmspinner mcp` run as a
 tiny child process on a machine with no GPU and no window, exactly like
 `doctor` and `sweep`". Nothing has ever checked that this stays true; this is
 what does.
@@ -17,9 +17,9 @@ direction for this package is the app reaching back down into it becoming the
 
 That direction used to be allowed one way: ``studio/agent_host.py`` imported
 ``protocol`` lazily, inside methods, to answer bare MCP JSON-RPC directly on
-Studio's own pipe. It no longer does -- Studio speaks RPC v1 exclusively now
+Realmspinner's own pipe. It no longer does -- Realmspinner speaks RPC v1 exclusively now
 (``dev/INVARIANTS.md``'s agent paragraph), and nothing under
-``warlock.studio`` may import ``warlock.mcp.protocol`` at all, lazily or
+``realmspinner.studio`` may import ``realmspinner.mcp.protocol`` at all, lazily or
 otherwise (the second half of this file, below the package's own outward-
 import pins, checks the studio side of that same line). A lazy import the
 wrong way round would be exactly as easy to write and just as real a
@@ -35,19 +35,19 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock import mcp
+from realmspinner import mcp
 
 PACKAGE_DIR = Path(mcp.__file__).parent
-PACKAGE = "warlock.mcp"
+PACKAGE = "realmspinner.mcp"
 
-#: The one ``warlock`` import this package may make, per ``warlock/mcp/
+#: The one ``realmspinner`` import this package may make, per ``realmspinner/mcp/
 #: __init__.py``'s own docstring, quoted above rather than reinvented here.
-ALLOWED_WARLOCK_IMPORTS = {
-    ("bridge.py", "warlock.config"),
+ALLOWED_REALMSPINNER_IMPORTS = {
+    ("bridge.py", "realmspinner.config"),
 }
 
 #: Everything ``doctor``/``sweep`` also stay clear of, for the same reason
-#: this package does: a machine running `warlock mcp` has no GPU and no
+#: this package does: a machine running `realmspinner mcp` has no GPU and no
 #: window, and any of these roots would need one or the other.
 THIRD_PARTY_ROOTS = {
     "numpy", "PIL", "moderngl", "imgui", "imgui_bundle", "pygame", "torch", "OpenGL",
@@ -55,9 +55,9 @@ THIRD_PARTY_ROOTS = {
 
 #: The three layers a leaf must never reach into -- the app's UI, its
 #: business logic, and its job scheduler -- named separately from
-#: ``ALLOWED_WARLOCK_IMPORTS`` so a violation reads as "imported the studio"
+#: ``ALLOWED_REALMSPINNER_IMPORTS`` so a violation reads as "imported the studio"
 #: rather than "not the one allowed import".
-FORBIDDEN_WARLOCK_ROOTS = {"warlock.studio", "warlock.service", "warlock.queue"}
+FORBIDDEN_REALMSPINNER_ROOTS = {"realmspinner.studio", "realmspinner.service", "realmspinner.queue"}
 
 
 def _outward(path: Path, *, package: str = PACKAGE) -> set[str]:
@@ -76,7 +76,7 @@ def _outward(path: Path, *, package: str = PACKAGE) -> set[str]:
     ``a.b`` -- unlike the sirens scan this is modelled on, which never needed
     the distinction because every outward import in that package is written
     relative (``from ..undo import UndoStack``). This package's own violation
-    to catch is exactly the opposite shape, ``from warlock.studio import
+    to catch is exactly the opposite shape, ``from realmspinner.studio import
     agent_clay``, and losing ``agent_clay`` off the end would make
     ``test_the_scan_would_catch_a_lazy_studio_import`` catch nothing.
     """
@@ -108,14 +108,14 @@ def test_there_are_modules_to_check():
     assert len(_modules()) >= 5  # __init__.py, protocol.py, pipe.py, bridge.py, rpc.py
 
 
-def test_the_only_warlock_import_in_the_mcp_package_is_bridges_config():
+def test_the_only_realmspinner_import_in_the_mcp_package_is_bridges_config():
     found = {
         (path.name, name)
         for path in _modules()
         for name in _outward(path)
-        if name.split(".")[0] == "warlock"
+        if name.split(".")[0] == "realmspinner"
     }
-    assert found == ALLOWED_WARLOCK_IMPORTS
+    assert found == ALLOWED_REALMSPINNER_IMPORTS
 
 
 def test_no_third_party_root_is_imported_anywhere_in_the_package():
@@ -127,7 +127,7 @@ def test_no_third_party_root_is_imported_anywhere_in_the_package():
 def test_the_studio_service_and_queue_layers_are_never_imported():
     for path in _modules():
         for name in _outward(path):
-            for forbidden in FORBIDDEN_WARLOCK_ROOTS:
+            for forbidden in FORBIDDEN_REALMSPINNER_ROOTS:
                 assert not name.startswith(forbidden), f"{path.name} imports {name}"
 
 
@@ -136,27 +136,27 @@ def test_the_scan_would_catch_a_lazy_studio_import(tmp_path):
     function, the exact shape ``agent_host``'s own (allowed-direction) lazy
     imports of ``protocol`` already take. Planted in a throwaway module
     rather than asserted against a real file, so this proves the *scan*
-    catches the shape rather than proving today's ``src/warlock/mcp/`` files
+    catches the shape rather than proving today's ``src/realmspinner/mcp/`` files
     happen to be clean."""
     planted = tmp_path / "not_actually_in_mcp.py"
     planted.write_text(
         "def f():\n"
-        "    from warlock.studio import agent_clay\n"
+        "    from realmspinner.studio import agent_clay\n"
         "    return agent_clay\n",
         encoding="utf-8",
     )
     found = _outward(planted)
-    assert "warlock.studio.agent_clay" in found
+    assert "realmspinner.studio.agent_clay" in found
 
 
 def test_every_module_imports():
-    from warlock import mcp  # noqa: F401
-    from warlock.mcp import bridge, pipe, protocol, rpc  # noqa: F401
+    from realmspinner import mcp  # noqa: F401
+    from realmspinner.mcp import bridge, pipe, protocol, rpc  # noqa: F401
 
 
 # =============================================================================
-# The other side of the same line: nothing under ``warlock.studio`` may
-# import ``warlock.mcp.protocol`` -- Studio's own pipe answers RPC v1 only
+# The other side of the same line: nothing under ``realmspinner.studio`` may
+# import ``realmspinner.mcp.protocol`` -- Realmspinner's own pipe answers RPC v1 only
 # now (``dev/INVARIANTS.md``'s agent paragraph), and the bare-MCP dispatcher
 # that module used to expose was deleted along with the last caller of it in
 # ``studio/agent_host.py``. A regression here would be a lazy, function-local
@@ -164,7 +164,7 @@ def test_every_module_imports():
 # ``ast.walk`` shape as ``_outward`` above, not a narrower ``tree.body`` one.
 # =============================================================================
 
-import warlock.studio as _studio  # noqa: E402
+import realmspinner.studio as _studio  # noqa: E402
 
 STUDIO_PACKAGE_DIR = Path(_studio.__file__).parent
 
@@ -174,8 +174,8 @@ def _studio_modules() -> list[Path]:
 
 
 def _imports_mcp_protocol(path: Path) -> bool:
-    """Whether *path* imports ``warlock.mcp.protocol`` (module or attribute
-    access via ``from warlock.mcp import protocol`` / ``from ..mcp import
+    """Whether *path* imports ``realmspinner.mcp.protocol`` (module or attribute
+    access via ``from realmspinner.mcp import protocol`` / ``from ..mcp import
     protocol`` / ``from .. import mcp`` used as ``mcp.protocol`` is not
     tracked here -- every real call site in this codebase uses one of the
     first two forms, and a rename to dodge this pin would be its own,
@@ -184,23 +184,25 @@ def _imports_mcp_protocol(path: Path) -> bool:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name == "warlock.mcp.protocol" or alias.name.endswith(".mcp.protocol"):
+                if alias.name == "realmspinner.mcp.protocol" or alias.name.endswith(
+                    ".mcp.protocol"
+                ):
                     return True
         elif isinstance(node, ast.ImportFrom):
-            if node.module in ("warlock.mcp", "mcp") and any(
+            if node.module in ("realmspinner.mcp", "mcp") and any(
                 alias.name == "protocol" for alias in node.names
             ):
                 return True
-            if node.module in ("warlock.mcp.protocol", "mcp.protocol"):
+            if node.module in ("realmspinner.mcp.protocol", "mcp.protocol"):
                 return True
     return False
 
 
-def test_no_studio_module_imports_warlock_mcp_protocol():
+def test_no_studio_module_imports_realmspinner_mcp_protocol():
     offenders = [str(p) for p in _studio_modules() if _imports_mcp_protocol(p)]
     assert not offenders, (
-        "warlock.studio must speak only RPC v1 to warlock.mcp -- "
-        f"these modules still import warlock.mcp.protocol: {offenders}"
+        "realmspinner.studio must speak only RPC v1 to realmspinner.mcp -- "
+        f"these modules still import realmspinner.mcp.protocol: {offenders}"
     )
 
 

@@ -15,16 +15,16 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d.tileset import TerrainSpec, Tileset
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.tiles import strip
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
-from warlock.studio.modes.plotter import mode as plotter_mode
-from warlock.studio.modes.plotter import tilesets as plotter_tilesets
-from warlock.studio.modes.plotter.engine import tsx as tsxlib
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
-from warlock.studio.modes.plotter.state import PlotterDoc, PlotterState
+from realmspinner.kernels.grid2d.tileset import TerrainSpec, Tileset
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.tiles import strip
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.studio.modes.plotter import mode as plotter_mode
+from realmspinner.studio.modes.plotter import tilesets as plotter_tilesets
+from realmspinner.studio.modes.plotter.engine import tsx as tsxlib
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.state import PlotterDoc, PlotterState
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -51,7 +51,7 @@ def _strip_tileset(*colours: tuple[int, int, int, int], w: int = 4, h: int = 4) 
 
 
 def _terrain_tileset(terrains: int = 2, k: int = 1) -> Tileset:
-    from warlock.kernels.grid2d import blob
+    from realmspinner.kernels.grid2d import blob
 
     tile = 4
     specs = tuple(
@@ -122,7 +122,7 @@ def _plotter_tab(ctx: _Ctx) -> PlotterDoc:
 
 
 def test_tsx_bytes_of_an_inker_authored_strip_open_back_bit_exact(monkeypatch, tmp_path):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx, state, tab, slot = _open(RED, BLUE)
     dest = tmp_path / "atlas.tsx"
@@ -143,7 +143,7 @@ def test_tsx_bytes_of_an_inker_authored_strip_open_back_bit_exact(monkeypatch, t
 
 
 def test_export_writes_both_files_as_a_consistent_pair(monkeypatch, tmp_path):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx, state, tab, slot = _open(RED)
     dest = tmp_path / "mine.tsx"
@@ -160,7 +160,7 @@ def test_export_writes_both_files_as_a_consistent_pair(monkeypatch, tmp_path):
 def test_export_reads_the_tileset_before_the_picker(monkeypatch, tmp_path):
     """``export_palette``'s own rule: serialising after an unbounded modal
     would write whatever the document changed to while it was up."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx, state, tab, slot = _open(RED)
     dest = tmp_path / "atlas.tsx"
@@ -181,7 +181,7 @@ def test_export_reads_the_tileset_before_the_picker(monkeypatch, tmp_path):
 
 
 def test_a_cancelled_export_picker_writes_nothing(monkeypatch, tmp_path):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx, state, tab, slot = _open(RED)
     monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: None)
@@ -202,13 +202,13 @@ def test_exporting_with_no_document_is_refused():
 
 
 def test_import_places_a_terrain_set_with_terrains_intact(monkeypatch, tmp_path):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     source = _terrain_tileset(terrains=2, k=1)
     tsx_path = tmp_path / "ground.tsx"
     png_path = tmp_path / "ground.png"
     tsx_path.write_bytes(tsxlib.tsx_bytes(source, image_name="ground.png"))
-    from warlock.studio.modes.plotter.engine import pngio
+    from realmspinner.studio.modes.plotter.engine import pngio
 
     png_path.write_bytes(pngio.png_bytes(source.pixels))
     monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: tsx_path)
@@ -228,7 +228,7 @@ def test_import_places_a_terrain_set_with_terrains_intact(monkeypatch, tmp_path)
 
 
 def test_a_cancelled_import_picker_changes_nothing(monkeypatch):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: None)
     ctx, state, tab, _slot = _open(RED)
@@ -251,8 +251,8 @@ def test_importing_with_no_document_is_refused():
 
 
 def test_an_unsupported_tsx_is_refused_by_name(monkeypatch, tmp_path):
-    from warlock.service.errors import Invalid
-    from warlock.studio import dialogs
+    from realmspinner.service.errors import Invalid
+    from realmspinner.studio import dialogs
 
     tsx_path = tmp_path / "weird.tsx"
     tsx_path.write_text(

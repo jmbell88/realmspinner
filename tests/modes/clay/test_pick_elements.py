@@ -10,10 +10,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import adjacency as adj
-from warlock.kernels.mesh import pick as bp
-from warlock.kernels.mesh import primitives as prim
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import adjacency as adj
+from realmspinner.kernels.mesh import pick as bp
+from realmspinner.kernels.mesh import primitives as prim
 
 WIDTH, HEIGHT = 400, 300
 

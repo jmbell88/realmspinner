@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 import trimesh
 
-from warlock.kernels.mesh import adjacency, meshimport
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.mesh import adjacency, meshimport
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh.elements import OpError
 
 
 def _cube_bytes(file_type: str) -> bytes:

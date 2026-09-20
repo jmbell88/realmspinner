@@ -14,11 +14,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.guidance import DEFAULT_NEGATIVE_PROMPT
-from warlock.studio import state as state_mod
-from warlock.studio.modes.create.engine import mesh as create_mesh
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui.panes import settings_3d
+from realmspinner.guidance import DEFAULT_NEGATIVE_PROMPT
+from realmspinner.studio import state as state_mod
+from realmspinner.studio.modes.create.engine import mesh as create_mesh
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui.panes import settings_3d
 
 
 def test_the_form_starts_with_the_default_negative_prompt_visible():
@@ -36,7 +36,7 @@ def test_an_emptied_avoid_box_is_sent_as_an_explicit_empty_string():
 
 
 def test_the_door_keeps_an_explicit_empty_negative_prompt(svc):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     none = svc_jobs.create_job(
         svc, kind="text", prompt="a chest", output="reference", negative_prompt=""

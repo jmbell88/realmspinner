@@ -23,9 +23,9 @@ import re
 
 import pytest
 
-from warlock import clipmaps, cliptransfer
-from warlock.kernels import sheet
-from warlock.kernels.rig import cliplib, templates
+from realmspinner import clipmaps, cliptransfer
+from realmspinner.kernels import sheet
+from realmspinner.kernels.rig import cliplib, templates
 
 TEMPLATE = templates.get_template("humanoid")
 TARGET_BONES = {b["name"]: b for b in TEMPLATE.bones}
@@ -652,7 +652,7 @@ def test_cliptransfer_report_names_a_duplicate_normalized_source_bone():
 # --- bounds shared with kernels.sheet / poselib ------------------------
 #
 # ``MAX_CLIP_FRAMES`` and ``_slerp`` stopped being restated copies in the
-# 2026-09-17 restructure (``sheet.py`` moved to ``warlock.kernels.sheet``,
+# 2026-09-17 restructure (``sheet.py`` moved to ``realmspinner.kernels.sheet``,
 # which this import-pinned module may now reach), so the two tests below are
 # now trivially true by construction -- kept anyway as a guard against a
 # future edit rebinding either name to a divergent value.
@@ -666,7 +666,7 @@ def test_max_clip_frames_matches_sheets_own_ceiling():
 
 
 def test_max_root_translation_matches_poselibs_own_bound():
-    from warlock import poselib
+    from realmspinner import poselib
 
     assert cliptransfer.MAX_ROOT_TRANSLATION == poselib.MAX_ROOT_TRANSLATION
 

@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import readiness
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import readiness
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
 
 
 def test_validator_rows_maps_every_check_to_a_tuple() -> None:
@@ -49,7 +49,7 @@ def test_validator_rows_names_a_real_fix_op_for_every_fixable_check() -> None:
     """Every non-empty ``fix`` in ``readiness.FIX_OPS`` -- checked at the
     registry, not merely at the constant, so a name that stops being a real
     op is caught here rather than only when a user presses the button."""
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
@@ -71,7 +71,7 @@ class _Ctx:
 
 
 def _tab() -> Any:
-    from warlock.studio.modes.clay import state as clay_state
+    from realmspinner.studio.modes.clay import state as clay_state
 
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
@@ -119,7 +119,7 @@ def test_a_fresh_tab_has_a_readiness_profile_before_any_check_runs() -> None:
     It was declared on ``ClayState`` instead, and only ``check_readiness``
     ever set it on a tab, so drawing the pane before pressing Check raised
     ``AttributeError`` and took the whole Clay side panel down with it."""
-    from warlock.studio.modes.clay import state as clay_state
+    from realmspinner.studio.modes.clay import state as clay_state
 
     names = {f.name for f in __import__("dataclasses").fields(clay_state.ClayTab)}
     assert "readiness_profile" in names

@@ -16,11 +16,11 @@ import inspect
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.geom3d.gltf import Material
-from warlock.studio.modes.mason.engine import document as doc
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import refs, scene
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.geom3d.gltf import Material
+from realmspinner.studio.modes.mason.engine import document as doc
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import refs, scene
 
 
 def _box_ref(**params) -> refs.PrimitiveRef:
@@ -225,7 +225,7 @@ def test_a_prefab_node_naming_a_missing_template_yields_nothing_rather_than_rais
 
 
 def test_a_prefab_cycle_costs_its_own_branch_and_terminates():
-    """``define_prefab`` refuses this at the door; a hand-edited ``.wscn``
+    """``define_prefab`` refuses this at the door; a hand-edited ``.rscn``
     bypasses the door the same way it bypasses every other one, so the
     resolver has to survive a template graph that names itself indirectly."""
     d = doc.MasonDoc()

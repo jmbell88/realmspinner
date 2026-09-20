@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import config as config_module
-from warlock import doctor, fetch, models, vram
-from warlock.service import downloads
-from warlock.studio.modes.settings.ui.panes import app_settings
-from warlock.studio.panes import first_run, model_gate
-from warlock.studio.state import AppState
+from realmspinner import config as config_module
+from realmspinner import doctor, fetch, models, vram
+from realmspinner.service import downloads
+from realmspinner.studio.modes.settings.ui.panes import app_settings
+from realmspinner.studio.panes import first_run, model_gate
+from realmspinner.studio.state import AppState
 
 
 def _ctx(svc, *, checks=(), rows=(), plan=None, rigging=False, pack_rows=()):

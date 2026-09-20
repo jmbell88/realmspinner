@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import sheetmerge
+from realmspinner.kernels.pixel import sheetmerge
 
 
 def _cell(value: int = 0, size: int = 4) -> np.ndarray:
@@ -223,7 +223,7 @@ def test_a_copy_does_not_alias_the_live_base():
 def test_read_sheet_base_refuses_a_cells_list_past_the_ceiling(monkeypatch):
     from types import SimpleNamespace
 
-    from warlock.kernels.pixel import ora
+    from realmspinner.kernels.pixel import ora
 
     calls: list[int] = []
     original = sheetmerge.base_from_payload
@@ -257,7 +257,7 @@ def test_read_sheet_base_refuses_a_cells_list_past_the_ceiling(monkeypatch):
 def test_read_sheet_base_refuses_a_conflicts_list_past_the_ceiling(monkeypatch):
     from types import SimpleNamespace
 
-    from warlock.kernels.pixel import ora
+    from realmspinner.kernels.pixel import ora
 
     calls: list[int] = []
     original = sheetmerge.base_from_payload

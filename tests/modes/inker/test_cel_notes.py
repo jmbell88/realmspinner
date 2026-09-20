@@ -21,10 +21,10 @@ import zipfile
 
 import pytest
 
-from warlock.kernels.pixel import asein, aseout, ora
-from warlock.kernels.pixel.animation import Note
-from warlock.kernels.pixel.asein import _UD_PROPERTIES, _UD_TEXT
-from warlock.kernels.pixel.document import Document
+from realmspinner.kernels.pixel import asein, aseout, ora
+from realmspinner.kernels.pixel.animation import Note
+from realmspinner.kernels.pixel.asein import _UD_PROPERTIES, _UD_TEXT
+from realmspinner.kernels.pixel.document import Document
 
 from .test_asein import _chunk as _ase_chunk
 from .test_asein import _file as _ase_file

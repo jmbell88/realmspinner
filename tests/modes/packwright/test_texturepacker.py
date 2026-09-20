@@ -2,7 +2,7 @@
 
 Two things are being defended. The schema is the one every 2D engine already
 has a loader for -- an atlas nobody can read is not an export -- and it is
-**not** ``kernels.sheet.sidecar``, which stays Warlock's own versioned format
+**not** ``kernels.sheet.sidecar``, which stays Realmspinner's own versioned format
 with exactly one writer.
 """
 
@@ -16,9 +16,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.studio.modes.packwright.engine import texturepacker
-from warlock.studio.modes.packwright.engine.layout import PackSettings, layout
-from warlock.studio.modes.packwright.engine.sources import Sprite
+from realmspinner.studio.modes.packwright.engine import texturepacker
+from realmspinner.studio.modes.packwright.engine.layout import PackSettings, layout
+from realmspinner.studio.modes.packwright.engine.sources import Sprite
 
 
 def _sprite(key: str, w: int, h: int, *, mark=None) -> Sprite:
@@ -186,8 +186,8 @@ def test_two_hash_serializations_of_one_layout_are_byte_identical():
     assert first == second
 
 
-def test_this_module_never_reaches_for_the_warlock_sheet_sidecar():
-    """``kernels.sheet`` stays the sole writer of Warlock's own versioned
+def test_this_module_never_reaches_for_the_realmspinner_sheet_sidecar():
+    """``kernels.sheet`` stays the sole writer of Realmspinner's own versioned
     sheet format, so ``version: 1`` cannot come to mean two documents. This
     module writes a *different* format and must not blur into it."""
     tree = ast.parse(Path(inspect.getfile(texturepacker)).read_text(encoding="utf-8"))

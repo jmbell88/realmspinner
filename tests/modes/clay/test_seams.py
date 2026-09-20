@@ -8,8 +8,8 @@ unwrap has ever run cannot be derived from anything else on the object.
 
 The restriction policy a mesh-replacing door applies is the other half this
 file pins, one test per door named in ``document.py``'s own docstring:
-``set_mesh``/``set_generator_params`` range-check (:func:`~warlock.kernels.
-mesh.document._restrict_seams`, the same trade :func:`~warlock.kernels.mesh.
+``set_mesh``/``set_generator_params`` range-check (:func:`~realmspinner.kernels.
+mesh.document._restrict_seams`, the same trade :func:`~realmspinner.kernels.mesh.
 elements.restrict` already makes for an element selection), while
 ``separate``/``join_objects``/``apply_modifiers`` drop every seam outright
 because each hands the document a mesh with no known correspondence to the
@@ -24,11 +24,11 @@ import json
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import modifiers as mod
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import modifiers as mod
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.elements import OpError
 
 
 def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
@@ -41,7 +41,7 @@ def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
 
 
 def _merged(doc: bd.ClayDoc, target: int, others: list[int]) -> bm.Mesh:
-    from warlock.kernels.mesh import ops as clay_ops_geom
+    from realmspinner.kernels.mesh import ops as clay_ops_geom
 
     return clay_ops_geom.join([doc.by_uid(u) for u in [target, *others]], eps=0.0)
 
@@ -214,7 +214,7 @@ def test_separate_drops_every_seam_on_every_piece() -> None:
     a = doc.add_object(_obj("A", mesh=two_toned))
     doc.set_seams(a.uid, [(0, 1), (2, 3)])
 
-    from warlock.kernels.mesh import separate as sep
+    from realmspinner.kernels.mesh import separate as sep
 
     pieces = sep.by_material(two_toned)
     new_objs = doc.separate(a.uid, pieces)
@@ -236,7 +236,7 @@ def test_separate_still_carries_role_and_collider_kind() -> None:
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A", mesh=two_toned, role="collider", collider_kind="compound"))
 
-    from warlock.kernels.mesh import separate as sep
+    from realmspinner.kernels.mesh import separate as sep
 
     new_objs = doc.separate(a.uid, sep.by_material(two_toned))
     assert all(o.role == "collider" and o.collider_kind == "compound" for o in new_objs)
@@ -289,22 +289,22 @@ def test_apply_modifiers_keeps_seams_when_the_baked_prefix_is_only_disabled() ->
     assert doc.by_uid(a.uid).seams == ((0, 1),)
 
 
-# --- .wblk v3: seams ---------------------------------------------------------
+# --- .rblk v3: seams ---------------------------------------------------------
 
 
-def test_wblk_round_trips_seams() -> None:
-    from warlock.kernels.mesh import serialize as ser
+def test_rblk_round_trips_seams() -> None:
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A"))
     doc.set_seams(a.uid, [(0, 1), (3, 5)])
 
-    out = ser.read_wblk(ser.wblk_bytes(doc))
+    out = ser.read_rblk(ser.rblk_bytes(doc))
     assert out.by_uid(a.uid).seams == ((0, 1), (3, 5))
 
 
 def test_an_object_with_no_seams_writes_no_seams_key() -> None:
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     doc.add_object(_obj("A"))
@@ -313,23 +313,23 @@ def test_an_object_with_no_seams_writes_no_seams_key() -> None:
 
 
 def test_a_document_with_seams_is_still_byte_identical_when_repeated() -> None:
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A"))
     doc.set_seams(a.uid, [(0, 1)])
-    assert ser.wblk_bytes(doc) == ser.wblk_bytes(doc)
+    assert ser.rblk_bytes(doc) == ser.rblk_bytes(doc)
 
 
-def test_wblk_refuses_a_seam_naming_a_vertex_the_mesh_does_not_have() -> None:
+def test_rblk_refuses_a_seam_naming_a_vertex_the_mesh_does_not_have() -> None:
     import zipfile
     from io import BytesIO
 
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     doc.add_object(_obj("A"))  # box(): 8 vertices
-    data = ser.wblk_bytes(doc)
+    data = ser.rblk_bytes(doc)
     out = BytesIO()
     with zipfile.ZipFile(BytesIO(data)) as src, zipfile.ZipFile(out, "w") as dst:
         for name in src.namelist():
@@ -341,4 +341,4 @@ def test_wblk_refuses_a_seam_naming_a_vertex_the_mesh_does_not_have() -> None:
                 dst.writestr(name, src.read(name))
 
     with pytest.raises(ValueError, match="vertices"):
-        ser.read_wblk(out.getvalue())
+        ser.read_rblk(out.getvalue())

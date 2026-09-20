@@ -18,9 +18,9 @@ from types import SimpleNamespace
 import imgui_bundle
 import pytest
 
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
-from warlock.studio.modes.plotter.ui.panes import canvas as canvas
-from warlock.studio.shell import paintview
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.ui.panes import canvas as canvas
+from realmspinner.studio.shell import paintview
 
 
 class _ClosedValue:

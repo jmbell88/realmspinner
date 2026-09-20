@@ -17,8 +17,8 @@ import sqlite3
 
 import pytest
 
-from warlock.service import library
-from warlock.service.errors import Invalid
+from realmspinner.service import library
+from realmspinner.service.errors import Invalid
 
 
 def _job(svc, job_id, *, kind="text", stage="model", status="done", params=None):
@@ -146,7 +146,7 @@ def test_the_app_s_own_files_are_not_mistaken_for_orphans(svc):
     """``JOB_ID_RE`` rather than an exclusion list, so a new sibling directory
     needs no maintenance here to stay unreported."""
     (svc.config.data_dir / "autosave").mkdir(parents=True, exist_ok=True)
-    (svc.config.data_dir / "warlock.log").write_text("hello", encoding="utf-8")
+    (svc.config.data_dir / "realmspinner.log").write_text("hello", encoding="utf-8")
     (svc.config.data_dir / "some-future-thing").mkdir(exist_ok=True)
     assert library.verify(svc)["orphan_dirs"] == []
 

@@ -17,8 +17,8 @@ def main() -> int:
     # The same functions the test uses, imported from it so they cannot drift.
     from test_flourish_render import _digest, _frames  # noqa: PLC0415
 
-    from warlock.kernels.pixel import flourish
-    from warlock.kernels.pixel.flourish import prims
+    from realmspinner.kernels.pixel import flourish
+    from realmspinner.kernels.pixel.flourish import prims
 
     got = {"fireball": _digest(_frames(FIREBALL)), "fireball@90": _digest(_frames(FIREBALL, 90.0))}
     for kind in prims.KINDS:

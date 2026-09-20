@@ -15,12 +15,12 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels.pixel.sheetin import document_from_sheet
-from warlock.studio import probe, widgets
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import sheet as inker_sheet
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import sheet as strip
+from realmspinner.kernels.pixel.sheetin import document_from_sheet
+from realmspinner.studio import probe, widgets
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import sheet as inker_sheet
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import sheet as strip
 
 CELL = 16
 DIRECTIONS = ("front", "left", "back", "right")
@@ -81,7 +81,7 @@ def test_every_strip_op_is_registered_in_the_sheet_menu():
 
 
 def test_the_strip_is_absent_on_an_ordinary_animation(ui, monkeypatch):
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     doc.add_frame()

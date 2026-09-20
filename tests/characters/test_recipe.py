@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.characters import DEFAULT_RECIPE, CharacterError, Recipe
-from warlock.characters import recipe as recipelib
-from warlock.kernels import charsheet
+from realmspinner.characters import DEFAULT_RECIPE, CharacterError, Recipe
+from realmspinner.characters import recipe as recipelib
+from realmspinner.kernels import charsheet
 
 
 def test_the_default_recipe_is_the_brief():
@@ -174,13 +174,13 @@ def test_the_size_and_direction_ladders_are_charsheets():
 
 
 def test_the_colour_ladder_is_troupes():
-    from warlock.service import troupe
+    from realmspinner.service import troupe
 
     assert recipelib.COLOR_CHOICES == troupe.TROUPE_COLOR_CHOICES
 
 
 def test_the_outline_and_reduce_modes_are_pixelizes():
-    from warlock.pipelines import pixelize
+    from realmspinner.pipelines import pixelize
 
     assert set(recipelib.OUTLINE_MODES) == set(pixelize.OUTLINE_MODES)
     assert set(recipelib.REDUCE_MODES) == set(pixelize.REDUCE_MODES)
@@ -242,7 +242,7 @@ def test_a_recipe_clip_named_after_a_direction_is_refused():
 
 
 def test_every_species_offers_a_look_and_every_look_paints_every_region():
-    from warlock.characters import families
+    from realmspinner.characters import families
 
     for key, fam in families().items():
         assert fam.themes, key
@@ -257,7 +257,7 @@ def test_every_nearest_hint_names_a_real_species():
     """A resolver offers ``nearest`` when the creature asked for is not one we
     make. A hint naming nothing would turn "we don't do dragons, want a troll?"
     into a dead end."""
-    from warlock.characters import families
+    from realmspinner.characters import families
 
     known = set(families())
     for key, fam in families().items():
@@ -266,7 +266,7 @@ def test_every_nearest_hint_names_a_real_species():
 
 
 def test_every_species_default_is_inside_its_own_channel_range():
-    from warlock.characters import families
+    from realmspinner.characters import families
 
     for key, fam in families().items():
         for channel in fam.channels:
@@ -276,7 +276,7 @@ def test_every_species_default_is_inside_its_own_channel_range():
 def test_no_two_species_share_an_alias():
     """A resolver keyed on aliases has to have one answer per word. Two species
     claiming "orc" would make which one you got depend on dict order."""
-    from warlock.characters import families
+    from realmspinner.characters import families
 
     seen: dict[str, str] = {}
     for key, fam in families().items():
@@ -286,7 +286,7 @@ def test_no_two_species_share_an_alias():
 
 
 def test_a_species_reads_its_rig_off_its_archetype_and_not_off_itself():
-    from warlock.characters import families, get_family
+    from realmspinner.characters import families, get_family
 
     for fam in families().values():
         assert fam.template == fam.arch.template

@@ -10,7 +10,7 @@ class.
 
 from __future__ import annotations
 
-from warlock.studio import filetypes
+from realmspinner.studio import filetypes
 
 
 def test_describe_docstring_example_matches_image_suffixes():

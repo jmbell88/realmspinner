@@ -54,7 +54,7 @@ def test_manual_ch28_zoom_ceiling_matches_inker_state_constant():
     chapter's Zooming section was never revisited and still says the zoom
     "stops ... at 1000%" (six times below the real 6400% ceiling).
     """
-    from warlock.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.inker import state as inker_state
 
     ceiling_pct = inker_state.zoom_key(inker_state.INKER_MAX_ZOOM)
     floor_pct = inker_state.zoom_key(inker_state.INKER_MIN_ZOOM)
@@ -79,8 +79,8 @@ def test_manual_ch28_zoom_ladder_matches_ZOOM_LADDER():
     ``shell.paintview.py``, formerly ``inker_state.py:96-99``) runs six rungs
     further, to 6400%.
     """
-    from warlock.studio.modes.inker import state as inker_state
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.shell import paintview
 
     zooming = _section(_chapter("28-inker.md"), "Zooming")
     missing = [
@@ -100,7 +100,7 @@ def test_manual_ch28_status_bar_picker_matches_ZOOM_PRESETS():
     ZOOM_PRESETS. The chapter's list currently ends at 800%; ZOOM_PRESETS
     (inker_state.py:105) runs to 6400%.
     """
-    from warlock.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.inker import state as inker_state
 
     status_bar = _section(_chapter("28-inker.md"), "The status bar")
     missing = [
@@ -143,7 +143,7 @@ def test_templates_table_lists_all_eight_shipped_skeletons_including_blob():
     template added alongside the other seven. The chapter's table and its
     "seven" still enumerate only the original seven.
     """
-    from warlock.kernels.rig import templates
+    from realmspinner.kernels.rig import templates
 
     catalog = templates.catalog()
     assert len(catalog) == 8, f"sanity: expected eight shipped templates, found {len(catalog)}"
@@ -179,7 +179,7 @@ def test_create_viewport_placeholder_is_not_the_only_place_ctrl_n_appears():
     names neither shortcut. The chapter's "only place in the app" claim is
     false in both directions and must not survive.
     """
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     mesh_hint = overlay.PLACEHOLDERS["create/mesh"][2]
     assert "Ctrl+N" not in mesh_hint and "Ctrl+O" not in mesh_hint, (
@@ -221,7 +221,7 @@ def test_rig_stage_offers_no_measured_joints_control():
     """
     import inspect
 
-    from warlock.service import rig as rig_service
+    from realmspinner.service import rig as rig_service
 
     signature = inspect.signature(rig_service.create_rig)
     assert "joints" not in signature.parameters, (
@@ -231,7 +231,7 @@ def test_rig_stage_offers_no_measured_joints_control():
 
     stage_rig_src = (
         Path(__file__).resolve().parents[2]
-        / "src" / "warlock" / "studio" / "panes" / "stage_rig.py"
+        / "src" / "realmspinner" / "studio" / "panes" / "stage_rig.py"
     ).read_text(encoding="utf-8")
     assert "Measured joints" not in stage_rig_src, (
         "sanity: stage_rig.py now draws a 'Measured joints' control -- "
@@ -261,7 +261,7 @@ def test_chapter_02_names_all_five_other_asset_types_including_character():
     out, which is exactly what a reader without a capable card most needs
     to know.
     """
-    from warlock.studio.modes.create.engine import assets as create_assets
+    from realmspinner.studio.modes.create.engine import assets as create_assets
 
     others = [item for item in create_assets._ORDERED if item.key != "3d_model"]
     assert len(others) == 5, (
@@ -294,7 +294,7 @@ def test_manual_ch04_and_ch37_name_the_labelling_section_teach_the_judge():
     """
     review_panes_src = (
         Path(__file__).resolve().parents[2]
-        / "src" / "warlock" / "studio" / "modes/review/ui/workspace.py"
+        / "src" / "realmspinner" / "studio" / "modes/review/ui/workspace.py"
     ).read_text(encoding="utf-8")
     assert 'widgets.section("Teach the judge")' in review_panes_src, (
         "sanity: review_panes.py no longer draws a 'Teach the judge' "
@@ -324,7 +324,7 @@ def test_chapter_03_and_32_quote_the_real_add_to_packwright_label():
     stale wording was also sitting in chapter 32, fixed alongside it since
     both are owned by this pass.
     """
-    from warlock.studio import verbs
+    from realmspinner.studio import verbs
 
     label = verbs.add_to("packwright", "as an atlas source")
     assert label == "Add to Packwright as an atlas source", (
@@ -356,7 +356,7 @@ def test_manual_26_does_not_claim_clip_root_offsets_are_refused():
     ``test_sheet.py::test_a_clip_end_with_a_root_offset_is_accepted_and_interpolated``.
     Stale since 2026-08-19, through a 2026-09-04 edit of the same page.
     """
-    from warlock.kernels import sheet as sheet_pipeline
+    from realmspinner.kernels import sheet as sheet_pipeline
 
     keys = [
         {"id": "a", "name": "A", "bones": {}, "root_translation": [0.0, 0.0, 0.0]},
@@ -392,8 +392,8 @@ def test_the_packwright_manual_chapter_lists_every_source_door_the_code_has():
     section, unrenamed -- ``add_to_packwright`` is exactly the function it
     was.
     """
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     assert hasattr(packwright_mode, "add_rendered_sheet"), (
         "sanity: packwright_mode lost its rendered-sheet door"
@@ -430,7 +430,7 @@ def test_manual_home_status_rows_match_landing_HOME_STATUS():
     rail badge and the startup banner already carry it, and a third rendering
     is a third place to keep in step. The "setup" row Home *does* draw was
     documented nowhere."""
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     assert "health" not in landing.HOME_STATUS, (
         "sanity: Home grew a health row, so this pin is now backwards"
@@ -459,7 +459,7 @@ def test_manual_ui_scale_paragraph_matches_the_ui_scale_steps():
     drag; it has been a named-step combo since the 2026-09-10 pass, whose own
     comment says "a slider used to stand here and it was the wrong control" --
     and the commit that made the change touched this very chapter."""
-    from warlock.studio import tokens
+    from realmspinner.studio import tokens
 
     top = max(tokens.UI_SCALE_STEPS)
     appearance = _section(_chapter("42-app-settings.md"), "Appearance")
@@ -500,7 +500,7 @@ def test_manual_does_not_call_the_engine_or_gguf_rows_fatal():
     )
     assert "Missing it is a fatal check." not in ch40, (
         "docs/manual/41-configuration.md still calls a missing "
-        "WARLOCK_TRELLIS_EXE a fatal check"
+        "REALMSPINNER_TRELLIS_EXE a fatal check"
     )
 
 
@@ -509,7 +509,7 @@ def test_chapter05_tool_group_prose_matches_actual_key_bindings():
     again cycles within the group -- so B is the brush, B again is the spray".
     No such gesture exists: every tool has its own letter, and spray answers to
     ``A`` and ``Shift+B``."""
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     chords: dict[str, list[str]] = {}
     for binding in inker_ops._TOOL_BINDINGS:
@@ -563,7 +563,7 @@ def test_the_shortcuts_chapter_does_not_send_the_reader_to_a_rail_button_that_do
     docstring says utilities live in the global menu or the status bar and
     names shortcuts as one of them; ``modes.RAIL_GROUPS``' footer group is
     only ("review", "settings")."""
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     footer = modes.RAIL_GROUPS[-1]
     assert "shortcuts" not in footer, (

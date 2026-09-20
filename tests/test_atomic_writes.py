@@ -15,7 +15,7 @@ because "remember to stage this one" is not a mechanism -- the same argument
 of the archive object rather than a rule 18 call sites must remember").
 
 **2026-09-17 decision (dev/RESTRUCTURE.md P3 sweep-coverage pass):** widened
-from ``studio/`` to all of ``src/warlock``. The rule is about the app's code,
+from ``studio/`` to all of ``src/realmspinner``. The rule is about the app's code,
 not the UI: any layer that receives a user-picked destination and writes it
 in place has the same bug, and the ``studio/{atomic,...}`` -> ``core/safeio``
 move already proved the picking/writing pair does not have to stay inside
@@ -31,14 +31,14 @@ from pathlib import Path
 import pytest
 
 # 2026-09-17 restructure sweep-coverage pass (dev/RESTRUCTURE.md P3): widened
-# from ``.../src/warlock/studio`` to the whole package. The rule this test
+# from ``.../src/realmspinner/studio`` to the whole package. The rule this test
 # holds -- a destination the user picked is staged and replaced, never
 # truncated in place -- is a property of every layer, not of the shell; it
 # was studio-scoped only because that is where the rule was first broken.
 # P3 moved 129 modules out of ``studio/`` into ``core/``/``kernels/``/
 # ``familiar/`` with no change to this test's root, which quietly dropped
 # every one of them from the 315-case parametrize with no red test to notice.
-SRC = Path(__file__).resolve().parents[1] / "src" / "warlock"
+SRC = Path(__file__).resolve().parents[1] / "src" / "realmspinner"
 
 #: Methods that write a file where they are pointed, in place.
 WRITERS = {"write_bytes", "write_text", "save"}
@@ -158,7 +158,7 @@ def test_the_sweep_found_the_whole_package() -> None:
     as files moved out from under them, and none of them noticed because an
     empty (or merely smaller) file list still passes every one of these
     per-file assertions -- there is nothing left to fail. 600 is comfortably
-    below today's ~640 files under ``src/warlock`` and comfortably above the
+    below today's ~640 files under ``src/realmspinner`` and comfortably above the
     310 that would remain if this root quietly slid back to ``studio/`` alone.
     """
     files = _studio_files()
@@ -239,7 +239,7 @@ def test_overlapping_stagings_of_one_destination_get_different_temp_names(tmp_pa
     ``os.replace`` raised ``FileNotFoundError`` against a temp file the other
     side had already renamed away.
     """
-    from warlock.core.safeio import atomic
+    from realmspinner.core.safeio import atomic
 
     dest = tmp_path / "shared.bin"
     cm_a = atomic.staged(dest)
@@ -280,7 +280,7 @@ def test_staged_set_gives_every_call_its_own_temp_name(tmp_path, monkeypatch) ->
     staging file, and the first call then publishes the *second* call's bytes
     under its own name.
     """
-    from warlock.core.safeio import atomic
+    from realmspinner.core.safeio import atomic
 
     dest = tmp_path / "atlas.png"
     real_write_bytes = Path.write_bytes
@@ -324,7 +324,7 @@ def test_staged_set_cleans_up_its_temp_when_a_write_partway_through_the_set_fail
     bytes have already landed rather than one that never opens the file at
     all -- the shape a real full-disk failure takes.
     """
-    from warlock.core.safeio import atomic
+    from realmspinner.core.safeio import atomic
 
     first = tmp_path / "one.bin"
     second = tmp_path / "two.bin"

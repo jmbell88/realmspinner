@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import main, splash
+from realmspinner.studio import main, splash
 
 
 class Clock:
@@ -190,7 +190,7 @@ def test_a_failure_during_startup_reaches_the_could_not_start_branch(monkeypatch
         raise RuntimeError("no GL")
 
     monkeypatch.setattr(app, "setup_window", boom)
-    with caplog.at_level(logging.ERROR, logger="warlock.studio.main"):
+    with caplog.at_level(logging.ERROR, logger="realmspinner.studio.main"):
         assert app.run() == 1
     assert "could not start" in caplog.text
     assert "mid-session" not in caplog.text
@@ -208,7 +208,7 @@ def test_a_failure_after_the_splash_is_still_a_startup_failure(monkeypatch, capl
         raise RuntimeError("no textures")
 
     monkeypatch.setattr(app, "setup_context", boom)
-    with caplog.at_level(logging.ERROR, logger="warlock.studio.main"):
+    with caplog.at_level(logging.ERROR, logger="realmspinner.studio.main"):
         assert app.run() == 1
     assert "could not start" in caplog.text
     assert "mid-session" not in caplog.text
@@ -226,7 +226,7 @@ def test_a_failure_in_the_frame_loop_is_still_reported_as_mid_session(monkeypatc
         raise RuntimeError("a pane exploded")
 
     monkeypatch.setattr(app, "frame", boom)
-    with caplog.at_level(logging.ERROR, logger="warlock.studio.main"):
+    with caplog.at_level(logging.ERROR, logger="realmspinner.studio.main"):
         assert app.run() == 1
     assert "mid-session" in caplog.text
     assert "could not start" not in caplog.text

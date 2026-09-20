@@ -33,11 +33,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.geom3d.glbio import CHUNK_BIN, CHUNK_JSON, GLB_MAGIC
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.kernels.pixel import asein, gpl, ora, sheetout
-from warlock.studio.modes.plotter.engine import tmx, tsx, wmap
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.geom3d.glbio import CHUNK_BIN, CHUNK_JSON, GLB_MAGIC
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.kernels.pixel import asein, gpl, ora, sheetout
+from realmspinner.studio.modes.plotter.engine import rmap, tmx, tsx
 
 # --- fixtures -----------------------------------------------------------------
 
@@ -257,24 +257,24 @@ def test_a_glb_accessor_with_no_buffer_view_cannot_declare_a_terabyte():
         gltf.load(_glb(document))
 
 
-def test_a_wmap_layer_is_sized_from_its_npy_header_before_it_is_read():
+def test_a_rmap_layer_is_sized_from_its_npy_header_before_it_is_read():
     """``read_array`` sizes the buffer from the header; the shape check that
     would refuse it is the line after."""
-    doc = wmap.read_wmap(_wmap_with_layer(None))
+    doc = rmap.read_rmap(_rmap_with_layer(None))
     assert doc.layers  # the honest file still opens
-    hostile = _wmap_with_layer(_npy((1 << 20, 1 << 20), "<u4"))
+    hostile = _rmap_with_layer(_npy((1 << 20, 1 << 20), "<u4"))
     assert len(hostile) < 4096
     with pytest.raises(ValueError, match="allocate"):
-        wmap.read_wmap(hostile)
+        rmap.read_rmap(hostile)
 
 
-def _wmap_with_layer(payload: bytes | None) -> bytes:
-    """A real ``.wmap``, with its layer member replaced by *payload* or left be."""
-    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+def _rmap_with_layer(payload: bytes | None) -> bytes:
+    """A real ``.rmap``, with its layer member replaced by *payload* or left be."""
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(2, 2, 16, 16)
     doc.add_tile_layer("L")
-    data = wmap.wmap_bytes(doc)
+    data = rmap.rmap_bytes(doc)
     out = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(data)) as src, zipfile.ZipFile(out, "w") as dst:
         for info in src.infolist():
@@ -285,10 +285,10 @@ def _wmap_with_layer(payload: bytes | None) -> bytes:
     return out.getvalue()
 
 
-def test_an_npz_inside_a_wblk_is_read_through_the_bounded_zip():
+def test_an_npz_inside_a_rblk_is_read_through_the_bounded_zip():
     """``np.load`` on an ``.npz`` opens a nested zip with numpy's own plain
     ``zipfile``, so the outer ``BoundedZip`` is not in the path at all."""
-    from warlock.core.safeio import npyguard
+    from realmspinner.core.safeio import npyguard
 
     inner = io.BytesIO()
     with zipfile.ZipFile(inner, "w") as zf:
@@ -302,7 +302,7 @@ def test_an_npz_whose_members_each_pass_alone_but_sum_past_the_ceiling_is_refuse
 ):
     """shell-03, the 2026-09-18 audit: ``read_array`` bounds one member at a
     time against ``MAX_ARRAY_BYTES``; nothing bounded their *sum*, unlike the
-    outer ``.wblk`` zip's own ``claimed`` check in ``read_wblk``. A 252 KB
+    outer ``.rblk`` zip's own ``claimed`` check in ``read_rblk``. A 252 KB
     crafted inner ``.npz`` of 40 zero-filled members, each individually under
     the ceiling, materialised 240 MB at scaled-down ceilings -- 30x the
     single-array ceiling, and many GB at the real one. Reproduced at a
@@ -311,7 +311,7 @@ def test_an_npz_whose_members_each_pass_alone_but_sum_past_the_ceiling_is_refuse
     -- the sum's own ceiling, deliberately not ``MAX_ARRAY_BYTES`` (which this
     test leaves untouched, at its real 256 MiB, precisely to show each member
     passes on its own)."""
-    from warlock.core.safeio import npyguard
+    from realmspinner.core.safeio import npyguard
 
     monkeypatch.setattr(npyguard, "MAX_ARCHIVE_BYTES", 1000)
     member = io.BytesIO()
@@ -329,7 +329,7 @@ def test_an_npz_whose_members_each_pass_alone_but_sum_past_the_ceiling_is_refuse
 
 def test_an_npy_declaring_object_dtype_is_refused_by_name():
     """``allow_pickle=False``'s refusal, made from the header instead."""
-    from warlock.core.safeio import npyguard
+    from realmspinner.core.safeio import npyguard
 
     with pytest.raises(ValueError, match="unpickle"):
         npyguard.read_array(_npy((2,), "|O"), "a mesh")
@@ -352,7 +352,7 @@ def test_an_ora_layer_count_has_a_ceiling(tmp_path, monkeypatch):
     tiny PNG asks for five hundred full canvases."""
     from PIL import Image
 
-    from warlock.kernels.pixel import transform
+    from realmspinner.kernels.pixel import transform
 
     tiny = io.BytesIO()
     Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(tiny, "PNG")
@@ -506,7 +506,7 @@ def test_read_animation_refuses_a_frame_palette_past_the_colour_ceiling(tmp_path
     grid degrades to the flat read with a log line, never opening thousands of
     entries for one frame.
     """
-    from warlock.kernels.pixel import index_plane as ixp
+    from realmspinner.kernels.pixel import index_plane as ixp
 
     n_colours = 100_000
     animation = json.dumps(
@@ -553,7 +553,7 @@ def test_a_single_frame_aseprite_with_many_empty_layers_has_a_ceiling(monkeypatc
     every empty slot for exactly this reason, and a still document had no
     equivalent bound at all: a 2,544-byte file naming 100 empty layers at
     1024x1024 cost 424 MiB."""
-    from warlock.kernels.pixel import composite
+    from realmspinner.kernels.pixel import composite
 
     count = 100
     data = _aseprite_with_empty_layers(1024, 1024, count)
@@ -587,7 +587,7 @@ def test_a_moved_linked_cel_is_charged_against_the_decoded_pixel_budget(monkeypa
     cels could allocate without limit, scaling with cel count and never
     refused.
     """
-    from warlock.core.safeio import pixelguard
+    from realmspinner.core.safeio import pixelguard
 
     width = height = 8
     # One real cel is allowed; the first moved-link cel on top of it is not.
@@ -608,13 +608,13 @@ def test_a_single_frame_aseprite_with_many_empty_tilemap_layers_has_a_ceiling(
     inker-02: the identical amplification through the one branch that fix
     missed.
     """
-    from warlock.kernels.pixel import asein as asein_module
+    from realmspinner.kernels.pixel import asein as asein_module
 
     width = height = 8
     count = 5
     # Budget for two full-canvas layers; the third must be refused.
     monkeypatch.setattr(
-        "warlock.core.safeio.pixelguard.MAX_DECODE_PIXELS", (width * height) * 2
+        "realmspinner.core.safeio.pixelguard.MAX_DECODE_PIXELS", (width * height) * 2
     )
     data = _aseprite_with_empty_tilemap_layers(width, height, count)
     assert len(data) < 1024
@@ -640,8 +640,8 @@ def test_a_gif_is_bounded_by_composed_pixels_and_not_by_its_file_size(
     costs. The budget is spent on what is built."""
     from PIL import Image
 
-    from warlock.core.safeio import pixelguard
-    from warlock.kernels.pixel import gifin
+    from realmspinner.core.safeio import pixelguard
+    from realmspinner.kernels.pixel import gifin
 
     frames = [Image.new("RGBA", (8, 8), (i, 0, 0, 255)) for i in range(6)]
     path = tmp_path / "clip.gif"
@@ -732,7 +732,7 @@ def test_a_map_cannot_declare_more_chunks_than_this_build_reads(monkeypatch):
 
 
 def test_read_tmx_refuses_an_object_layer_past_the_object_ceiling(monkeypatch):
-    """The 2026-09-18 audit, finding plotter-04: ``wmap.py``'s ``_ReadBudget``
+    """The 2026-09-18 audit, finding plotter-04: ``rmap.py``'s ``_ReadBudget``
     caps a document's total object count at ``MAX_OBJECTS`` (a manifest a few
     kilobytes deep can still name one object layer a million objects long, and
     each one costs a dataclass built per object well before any byte ceiling
@@ -853,7 +853,7 @@ def test_an_ora_stack_hides_its_dtd_the_same_two_ways(tmp_path):
 def test_xml_nesting_is_capped_at_the_door(monkeypatch):
     """``ET.fromstring`` will build a 20,001-deep tree out of 300 KB, and the
     recursion limit is 1000."""
-    from warlock.core.safeio import xmlguard
+    from realmspinner.core.safeio import xmlguard
 
     monkeypatch.setattr(xmlguard, "MAX_DEPTH", 8)
     deep = b"<a>" + b"<b>" * 20 + b"</b>" * 20 + b"</a>"
@@ -865,7 +865,7 @@ def test_xml_nesting_is_capped_at_the_door(monkeypatch):
 def test_a_deeply_nested_tmx_is_refused_rather_than_opened():
     """The nastier half is the *shallow* one: a document nested a few hundred
     deep loads, and then the frame-thread walkers blow up once a frame."""
-    from warlock.core.safeio import xmlguard
+    from realmspinner.core.safeio import xmlguard
 
     depth = xmlguard.MAX_DEPTH + 5
     body = "<group>" * depth + "</group>" * depth
@@ -878,16 +878,16 @@ def test_a_deeply_nested_tmx_is_refused_rather_than_opened():
 def test_the_plotter_open_path_frames_a_recursion_error(tmp_path, monkeypatch):
     """``_load`` caught only ``ValueError``, so a ``RecursionError`` from any
     walker left the task thread raw."""
-    from warlock.service.errors import ServiceError
-    from warlock.studio.modes.plotter import fileio as plotter_io
+    from realmspinner.service.errors import ServiceError
+    from realmspinner.studio.modes.plotter import fileio as plotter_io
 
-    path = tmp_path / "m.wmap"
+    path = tmp_path / "m.rmap"
     path.write_bytes(b"not a map")
 
     def boom(*_args, **_kwargs):
         raise RecursionError("too deep")
 
-    monkeypatch.setattr("warlock.studio.modes.plotter.engine.wmap.read_wmap", boom)
+    monkeypatch.setattr("realmspinner.studio.modes.plotter.engine.rmap.read_rmap", boom)
     with pytest.raises(ServiceError, match="nested deeper"):
         plotter_io._load(path)
 
@@ -898,34 +898,34 @@ def test_the_plotter_open_path_frames_a_recursion_error(tmp_path, monkeypatch):
 def test_clay_refuses_a_document_past_its_own_ceiling(tmp_path, monkeypatch):
     """Clay had no size ceiling anywhere, though the number has existed since
     the format did -- applied at the upload and at neither door a user reaches."""
-    from warlock.service.errors import TooLarge
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.service.errors import TooLarge
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
-    path = tmp_path / "big.wblk"
+    path = tmp_path / "big.rblk"
     path.write_bytes(b"x" * 4096)
-    monkeypatch.setattr("warlock.service.files.MAX_CLAY_SOURCE_BYTES", 1024)
+    monkeypatch.setattr("realmspinner.service.files.MAX_CLAY_SOURCE_BYTES", 1024)
     with pytest.raises(TooLarge):
         clay_mode._load(path)
 
 
 def test_inker_refuses_an_aseprite_past_its_ceiling(tmp_path, monkeypatch):
-    from warlock.service.errors import TooLarge
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.service.errors import TooLarge
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     path = tmp_path / "big.aseprite"
     path.write_bytes(_aseprite(8, 8))
-    monkeypatch.setattr("warlock.service.files.MAX_INKER_BYTES", 8)
+    monkeypatch.setattr("realmspinner.service.files.MAX_INKER_BYTES", 8)
     with pytest.raises(TooLarge):
         inker_mode._load_aseprite(path)
 
 
 def test_the_pixel_ceiling_is_asked_before_convert(monkeypatch):
-    """``packwright/wpack.py``'s rule, verbatim, at the door every other mode
+    """``packwright/rpack.py``'s rule, verbatim, at the door every other mode
     reaches an image through. Pillow's own default only *warns* between one and
     two times itself, and nothing in this repo ever set it."""
     from PIL import Image
 
-    from warlock.core.safeio import pixelguard
+    from realmspinner.core.safeio import pixelguard
 
     buf = io.BytesIO()
     Image.new("RGB", (64, 64)).save(buf, "PNG")
@@ -937,8 +937,8 @@ def test_the_pixel_ceiling_is_asked_before_convert(monkeypatch):
 def test_the_pixel_ceiling_reaches_the_shared_document_decoder(tmp_path, monkeypatch):
     from PIL import Image
 
-    from warlock.core.safeio import pixelguard
-    from warlock.studio import docmodes
+    from realmspinner.core.safeio import pixelguard
+    from realmspinner.studio import docmodes
 
     path = tmp_path / "p.png"
     Image.new("RGB", (64, 64)).save(path)
@@ -954,7 +954,7 @@ def test_the_pixel_ceiling_reaches_the_shared_document_decoder(tmp_path, monkeyp
 def test_an_alternate_data_stream_source_is_refused(tmp_path):
     """``PureWindowsPath("sheet.png:secret").drive`` is ``''``, so the
     absolute/UNC filter passed an NTFS stream straight through."""
-    from warlock.studio.modes.plotter import fileio as plotter_io
+    from realmspinner.studio.modes.plotter import fileio as plotter_io
 
     with pytest.raises(ValueError, match="colon"):
         plotter_io._resolve_source(tmp_path, "sheet.png:$DATA")
@@ -965,7 +965,7 @@ def test_an_alternate_data_stream_source_is_refused(tmp_path):
 def test_an_overlong_composed_path_is_a_framed_refusal(tmp_path):
     """It used to raise a bare ``OSError`` from the open, which leaves this
     module's refusal contract by the back door."""
-    from warlock.studio.modes.plotter import fileio as plotter_io
+    from realmspinner.studio.modes.plotter import fileio as plotter_io
 
     with pytest.raises(ValueError, match="too long"):
         plotter_io._resolve_source(tmp_path, "a" * 300 + ".png")
@@ -997,11 +997,11 @@ def test_the_guard_leaves_are_where_the_engines_can_reach_them():
     format module, so a renamed leaf would fail here rather than everywhere.
 
     P3 of the restructure (``dev/RESTRUCTURE.md``) moved the six safeio
-    guards from ``studio/`` to ``warlock/core/safeio/`` so they sit beside
+    guards from ``studio/`` to ``realmspinner/core/safeio/`` so they sit beside
     the other shared, no-GL kernels rather than under the studio package the
     engines that use them were themselves being moved out of.
     """
-    from warlock.core.safeio import npyguard, pixelguard, xmlguard
+    from realmspinner.core.safeio import npyguard, pixelguard, xmlguard
 
     for module in (npyguard, pixelguard, xmlguard):
         assert Path(module.__file__).parent.name == "safeio"

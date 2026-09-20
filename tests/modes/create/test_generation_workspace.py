@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.modes.create.engine import assets as create_assets
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui import workspace as generation_workspace
-from warlock.studio.state import default_form_2d
+from realmspinner.studio.modes.create.engine import assets as create_assets
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui import workspace as generation_workspace
+from realmspinner.studio.state import default_form_2d
 
 
 @pytest.mark.parametrize(
@@ -65,7 +65,7 @@ def test_the_tray_shows_one_whole_row_rather_than_two_half_rows():
     """
     import inspect
 
-    from warlock.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.create.ui import workspace as gw
 
     assert gw._RESULT_COLUMNS == 3
     source = inspect.getsource(gw._recent_results)
@@ -79,7 +79,7 @@ def test_the_result_actions_are_two_per_row():
     the strip that holds it."""
     import inspect
 
-    from warlock.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.create.ui import workspace as gw
 
     source = inspect.getsource(gw._result_card)
     assert "_half_width()" in source
@@ -99,7 +99,7 @@ def test_make_3d_always_pairs_with_a_neighbour_on_a_candidate_card():
     """
     import inspect
 
-    from warlock.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.create.ui import workspace as gw
 
     source = inspect.getsource(gw._result_card)
 
@@ -125,7 +125,7 @@ def test_the_candidate_grid_scrolls_rather_than_truncating():
     grid is."""
     import inspect
 
-    from warlock.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.create.ui import workspace as gw
 
     source = inspect.getsource(gw._candidate_grid)
     assert 'begin_child("generation-candidate-scroll"' in source
@@ -157,7 +157,7 @@ def test_the_keeper_pill_is_not_the_ranker():
 
 
 def _model_form(prompt):
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     form = default_form_2d()
     form["asset_type"] = form["generation_type"] = "3d_model"
@@ -185,7 +185,7 @@ def test_open_form_prompt_is_advisory_and_does_not_block_generate():
     # Never a verdict.
     assert "will fail" not in str(advisories[0]).lower()
     # And it is a different type from the thing that stops a press.
-    from warlock.studio import problems
+    from realmspinner.studio import problems
 
     assert isinstance(advisories[0], problems.Advisory)
     assert not isinstance(advisories[0], problems.Problem)
@@ -206,7 +206,7 @@ def test_the_lint_is_only_about_the_reconstruction_arm():
 
 
 def test_the_words_are_matched_whole_and_named_back():
-    from warlock.studio.modes.create.engine import recipe as create_recipe
+    from realmspinner.studio.modes.create.engine import recipe as create_recipe
 
     assert create_recipe.open_form_words("a cart wheel with spokes") == ("wheel", "spokes")
     # "netting" is a word in the list; "vignetting" is not this word.

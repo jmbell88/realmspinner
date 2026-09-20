@@ -17,10 +17,10 @@ import json
 
 import pytest
 
-from warlock import provenance
-from warlock.bench import manifest as manifest_mod
-from warlock.bench import runner as runner_mod
-from warlock.bench import score as score_mod
+from realmspinner import provenance
+from realmspinner.bench import manifest as manifest_mod
+from realmspinner.bench import runner as runner_mod
+from realmspinner.bench import score as score_mod
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def scored(monkeypatch):
     def fake_score_view(reference, render, config=None):
         return {"silhouette_iou": scores.get(render.parent.parent.name, 0.5)}
 
-    from warlock.bench import metrics as metrics_mod
+    from realmspinner.bench import metrics as metrics_mod
 
     monkeypatch.setattr(metrics_mod, "available", fake_available)
     monkeypatch.setattr(metrics_mod, "score_view", fake_score_view)
@@ -99,7 +99,7 @@ def test_a_reference_stage_run_is_scored_rather_than_skipped(tmp_path, scored, m
     """The pixel metrics measure the generated picture, which is the only thing
     a reference-stage run produces. It used to be skipped for having no views,
     so the whole stage was unmeasurable."""
-    from warlock.bench import metrics as metrics_mod
+    from realmspinner.bench import metrics as metrics_mod
 
     monkeypatch.setattr(
         metrics_mod,
@@ -220,7 +220,7 @@ def test_a_unit_whose_metrics_all_came_back_none_is_not_counted_as_scored(
     the render has no subject -- and a non-empty dict is truthy. So a run where
     every mesh rendered empty reported "N of N scored" with every mean None,
     and __main__'s "rerun with --render" guard never fired."""
-    from warlock.bench import metrics as metrics_mod
+    from realmspinner.bench import metrics as metrics_mod
 
     monkeypatch.setattr(metrics_mod, "available", lambda config=None: ("silhouette_iou",))
     monkeypatch.setattr(
@@ -239,7 +239,7 @@ def test_one_unscorable_unit_does_not_discard_the_whole_pass(tmp_path, monkeypat
     """A CUDA OOM on unit 900 of 1280 threw out 900 units of GPU work and wrote
     no scores.json at all -- the opposite of the runner's own rule that a
     render failure costs *that item* its score, not the run."""
-    from warlock.bench import metrics as metrics_mod
+    from realmspinner.bench import metrics as metrics_mod
 
     monkeypatch.setattr(metrics_mod, "available", lambda config=None: ("silhouette_iou",))
 
@@ -373,7 +373,7 @@ def test_reading_a_version_does_not_import_the_library():
         [
             sys.executable,
             "-c",
-            "import sys; from warlock import provenance; v = provenance.versions();"
+            "import sys; from realmspinner import provenance; v = provenance.versions();"
             " print(bool(v.get('torch')), 'torch' in sys.modules)",
         ],
         capture_output=True,

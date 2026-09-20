@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import layers
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import layers
 
 
 def _doc(**kw):
@@ -137,7 +137,7 @@ def test_solo_writes_the_ordinary_visibility_flags():
 
 
 def test_both_flags_survive_an_ora_round_trip(tmp_path):
-    from warlock.kernels.pixel import ora
+    from realmspinner.kernels.pixel import ora
 
     doc = _doc()
     doc.add_layer()
@@ -155,14 +155,14 @@ def test_an_ordinary_document_writes_the_xml_it_always_did(tmp_path):
 
     import zipfile
 
-    from warlock.kernels.pixel import ora
+    from realmspinner.kernels.pixel import ora
 
     path = tmp_path / "plain.ora"
     ora.write_ora(_doc(), path)
     with zipfile.ZipFile(path) as archive:
         xml = archive.read("stack.xml").decode("utf-8")
-    assert "warlock-background" not in xml
-    assert "warlock-reference" not in xml
+    assert "realmspinner-background" not in xml
+    assert "realmspinner-reference" not in xml
 
 
 # --- 6.8: trim, the 45-degree mirrors, grid from selection -------------------
@@ -198,7 +198,7 @@ def test_the_diagonal_mirrors_reflect_about_the_forty_five_degree_lines():
     """Neither is expressible as a combination of the axis-aligned pair, which
     is why they are two more modes rather than a flag on the existing ones."""
 
-    from warlock.kernels.pixel import brush
+    from realmspinner.kernels.pixel import brush
 
     size = (9, 9)
     axis = (4.0, 4.0)
@@ -209,7 +209,7 @@ def test_the_diagonal_mirrors_reflect_about_the_forty_five_degree_lines():
 
 
 def test_every_symmetry_mode_reflects_the_axis_onto_itself():
-    from warlock.kernels.pixel import brush
+    from realmspinner.kernels.pixel import brush
 
     for mode in brush.SYMMETRY:
         points = brush._mirror((4.0, 4.0), (9, 9), mode, axis=(4.0, 4.0))
@@ -325,7 +325,7 @@ def test_cel_props_is_every_property_copied_down_onto_a_layer():
     track's properties onto a materialised cel, so the flag was on in the panel
     and off at the door. Both lists are asserted against each other here rather
     than left to four hand-maintained copies."""
-    from warlock.kernels.pixel.animation import CEL_PROPS, Track
+    from realmspinner.kernels.pixel.animation import CEL_PROPS, Track
 
     assert set(CEL_PROPS) == set(Track().props())
     for key in CEL_PROPS:
@@ -365,7 +365,7 @@ def test_drawing_on_a_fresh_frame_of_a_background_track_keeps_the_background_fla
     one leaves the new frame a placeholder and lets ``_ensure_active_cel``
     autovivify it -- the path the 2026-09-16 audit found hand-writing only 6 of
     ``CEL_PROPS``' 8 fields and dropping ``background``."""
-    from warlock.kernels.pixel.animation import Frame
+    from realmspinner.kernels.pixel.animation import Frame
 
     doc = inker.Document.blank(8, 8)
     anim = doc.ensure_animation()
@@ -380,7 +380,7 @@ def test_drawing_on_a_fresh_frame_of_a_background_track_keeps_the_background_fla
 
 
 def _second_frame(doc, anim):
-    from warlock.kernels.pixel.animation import Frame
+    from realmspinner.kernels.pixel.animation import Frame
 
     frame = Frame()
     anim.frames.append(frame)
@@ -420,7 +420,7 @@ def test_a_canvas_op_and_undo_keep_the_background_flag():
 def test_a_tilemap_cel_copy_keeps_the_layer_flags():
     import numpy as np
 
-    from warlock.kernels.pixel.tiles import TilemapCel
+    from realmspinner.kernels.pixel.tiles import TilemapCel
 
     cel = TilemapCel(
         pixels=np.zeros((8, 8, 4), np.uint8),

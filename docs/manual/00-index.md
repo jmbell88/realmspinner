@@ -1,6 +1,6 @@
-# Warlock Studio Manual
+# Realmspinner Manual
 
-Warlock Studio is a local, fully offline desktop application that turns a text prompt or a
+Realmspinner is a local, fully offline desktop application that turns a text prompt or a
 reference image into a game-ready, textured 3D asset on your own GPU. This manual is written for
 three kinds of reader at once: the person making assets, the person installing and configuring the
 app, and the person changing its code.
@@ -30,7 +30,7 @@ Part IV explains how it is built.
 - [Generating a soundtrack](16-generating-a-soundtrack.md) — Muse: a description to a finished track, and into Sirens as a sample.
 - [Dressing a scene](17-dressing-a-scene.md) — Mason: a room built from library assets and primitives, lit, and exported to an engine.
 
-## Using Warlock Studio
+## Using Realmspinner
 
 - [Overview](20-overview.md) — what the app is, the two-stage pipeline, and what each part of the window does.
 - [The Home screen](21-home.md) — the chooser the app opens on, and the diagnostics row under it.
@@ -63,4 +63,4 @@ Part IV explains how it is built.
 
 - [Architecture](44-architecture.md) — the process, the threads, the job store and the service layer.
 - [Pipelines](45-pipelines.md) — how a job travels from prompt to GLB.
-- [Extending Warlock Studio](46-extending.md) — adding a model, a style or a skeleton.
+- [Extending Realmspinner](46-extending.md) — adding a model, a style or a skeleton.

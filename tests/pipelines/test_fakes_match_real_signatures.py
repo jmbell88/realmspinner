@@ -9,8 +9,8 @@ from inspect import Parameter, Signature, signature
 
 from conftest import FakeText2Image, FakeTrellisServer
 
-from warlock.pipelines.text2image import Text2Image
-from warlock.pipelines.trellis import TrellisServer
+from realmspinner.pipelines.text2image import Text2Image
+from realmspinner.pipelines.trellis import TrellisServer
 
 
 def _bare_signature(func) -> Signature:

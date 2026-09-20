@@ -27,10 +27,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import native
-from warlock.kernels.pixel import dither
+from realmspinner import native
+from realmspinner.kernels.pixel import dither
 
-needs_dll = pytest.mark.skipif(not native.available(), reason="warlockc.dll not built")
+needs_dll = pytest.mark.skipif(not native.available(), reason="realmspinnerc.dll not built")
 
 
 def _numpy(image: np.ndarray, table: np.ndarray, monkeypatch) -> np.ndarray:

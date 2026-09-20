@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from warlock.pipelines import imageout
+from realmspinner.pipelines import imageout
 
 
 def _save(tmp_path: Path, name: str, image: Image.Image) -> Path:
@@ -139,13 +139,13 @@ def test_no_module_under_pipelines_imports_the_service_layer():
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 # Relative: level 1 is a sibling in ``pipelines``, level 2 is
-                # ``warlock.<x>`` -- ``service`` reached either way is the same
+                # ``realmspinner.<x>`` -- ``service`` reached either way is the same
                 # inversion.
                 name = node.module or ""
                 if name == "service" or name.startswith("service."):
                     offenders.append(f"{module.name}:{node.lineno} from ..{name}")
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name.startswith("warlock.service"):
+                    if alias.name.startswith("realmspinner.service"):
                         offenders.append(f"{module.name}:{node.lineno} import {alias.name}")
     assert not offenders, f"pipelines reaches into service: {offenders}"

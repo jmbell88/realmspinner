@@ -13,9 +13,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.modes.sirens import mode as sirens_mode
-from warlock.studio.modes.sirens.engine import document as D
-from warlock.studio.modes.sirens.engine import notes
+from realmspinner.studio.modes.sirens import mode as sirens_mode
+from realmspinner.studio.modes.sirens.engine import document as D
+from realmspinner.studio.modes.sirens.engine import notes
 
 from .test_sirens_keys import _at, _cells, _press
 from .test_sirens_mode import FakeCtx, _tab

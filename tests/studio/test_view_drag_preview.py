@@ -24,10 +24,10 @@ from typing import Any
 
 import numpy as np
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay.ui._view_drag import DragOps, _ElementDrag
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay.ui._view_drag import DragOps, _ElementDrag
 
 
 class _FakeGPU:

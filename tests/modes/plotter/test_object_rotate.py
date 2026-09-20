@@ -19,9 +19,9 @@ import math
 
 import pytest
 
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.ui.panes import canvas as canvas
-from warlock.studio.shell import paintview
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.ui.panes import canvas as canvas
+from realmspinner.studio.shell import paintview
 
 from ._drive import Scene
 
@@ -63,7 +63,7 @@ def test_the_grip_floats_above_the_top_edge_and_follows_the_rotation(scene):
 def test_a_point_and_a_polygon_get_no_grip(scene):
     """``_handle_at``'s gate, shared: a point has no extent to turn and a
     polygon is reshaped by its vertices."""
-    from warlock.studio.modes.plotter.engine.tilemap import Polygon
+    from realmspinner.studio.modes.plotter.engine.tilemap import Polygon
 
     point = scene.add(kind="point", x=10.0, y=10.0)
     assert canvas._rotate_grip(scene.tab.view, (0.0, 0.0), point) is None

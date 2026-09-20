@@ -10,15 +10,15 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import sheetout
-from warlock.kernels.pixel.flourish import bake as B
-from warlock.kernels.pixel.flourish import engines, presets
-from warlock.studio import probe
-from warlock.studio.modes.inker import flourish as inker_flourish
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import flourish as pane
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import sheetout
+from realmspinner.kernels.pixel.flourish import bake as B
+from realmspinner.kernels.pixel.flourish import engines, presets
+from realmspinner.studio import probe
+from realmspinner.studio.modes.inker import flourish as inker_flourish
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import flourish as pane
 
 
 class _Ctx:
@@ -69,7 +69,7 @@ def test_export_runs_the_per_tag_export_once(monkeypatch):
     # (T7): ``inker_mode`` serves the name through ``__getattr__``, and a
     # module-level ``setattr`` on a name that module does not define would be
     # shadowing rather than replacing what the caller reaches.
-    from warlock.studio.modes.inker import export as inker_export
+    from realmspinner.studio.modes.inker import export as inker_export
 
     monkeypatch.setattr(
         inker_export, "export_per_tag", lambda c, t, kind: calls.append((t, kind))

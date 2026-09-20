@@ -1,13 +1,13 @@
 """`protocol.py`'s own leaf pieces, plus `bridge_dispatch` -- the dual-era
 dispatcher `bridge.py` calls.
 
-The in-app `dispatch` this file used to pin was deleted the day Studio's
+The in-app `dispatch` this file used to pin was deleted the day Realmspinner's
 listener stopped speaking bare MCP JSON-RPC over the pipe (`studio/
 agent_host.py` answers RPC v1 only now, per `dev/INVARIANTS.md`'s agent
 paragraph) -- there is no longer a caller inside the app for it to be. What
 remains here: the framing (`encode`/`decode`) and content helpers (`text`,
 `image_png`, `ok`, `fail`) both wire formats share, and `bridge_dispatch`
-itself, the real MCP server logic `warlock mcp` speaks to a third-party
+itself, the real MCP server logic `realmspinner mcp` speaks to a third-party
 client. The distinction `bridge_dispatch`'s own tests still pin: a tool that
 runs and fails its job is a **successful** JSON-RPC response whose
 `result.isError` is `True`, never a JSON-RPC `error`; a malformed request
@@ -23,7 +23,7 @@ import json
 
 import pytest
 
-from warlock.mcp import protocol as p
+from realmspinner.mcp import protocol as p
 
 # --- encode / decode -----------------------------------------------------------
 
@@ -138,7 +138,7 @@ def _catalogue(**overrides):
             }
         ],
         "instructions": "Clay measures in metres.",
-        "server": {"name": "warlock-studio", "version": "1.2.3"},
+        "server": {"name": "realmspinner", "version": "1.2.3"},
     }
     base.update(overrides)
     return base
@@ -343,7 +343,7 @@ def test_tasks_get_with_a_malformed_body_becomes_an_error_not_broken_json() -> N
     `splice_tool_result`, whose identical bug (a malformed body going onto
     the wire unchecked) was already fixed twice for `tools/call`
     (2026-09-14/agents-03, 2026-09-16/agents-02). A malformed body (what
-    Studio's RPC v1 `status` reply looks like truncated or otherwise not a
+    Realmspinner's RPC v1 `status` reply looks like truncated or otherwise not a
     JSON object) used to become `"result":not-a-json-object` -- literally
     invalid JSON on the wire, which this test's own `_dispatch` helper
     cannot even `json.loads`."""
@@ -398,7 +398,7 @@ def test_tasks_cancel_ok() -> None:
 
 
 def test_tasks_update_is_refused() -> None:
-    """No Warlock tool ever needs mid-run input, so `tasks/update` always
+    """No Realmspinner tool ever needs mid-run input, so `tasks/update` always
     refuses -- there is never an outstanding input request to answer."""
     state = p.BridgeEra()
     discover_params = {
@@ -423,7 +423,7 @@ def test_tasks_update_is_refused() -> None:
 
 def test_tasks_list_is_refused_rather_than_answered_empty_while_tasks_exist() -> None:
     """The bridge keeps no task registry; an empty list would claim no tasks
-    exist when Studio may be running several."""
+    exist when Realmspinner may be running several."""
     state = p.BridgeEra()
     _dispatch(
         {
@@ -448,10 +448,10 @@ def test_bridge_dispatch_survives_a_call_tool_task_that_raises() -> None:
     `_dispatch_one` -- had no exception backstop, unlike the ordinary
     `tools/call` path (`_dispatch_tools_call`'s own try/except), so an
     exception one of them raised (e.g. `rpc.split_reply`'s plain `ValueError`
-    on a malformed/truncated Studio reply) propagated straight out of
+    on a malformed/truncated Realmspinner reply) propagated straight out of
     `bridge_dispatch`. `bridge.py::main`'s run loop wraps
     `protocol.bridge_dispatch` in `except (EOFError, KeyboardInterrupt): pass`
-    only, so an uncaught exception here used to crash the whole `warlock mcp`
+    only, so an uncaught exception here used to crash the whole `realmspinner mcp`
     process instead of becoming a JSON-RPC-safe reply."""
     state = p.BridgeEra()
     _dispatch(
@@ -711,7 +711,7 @@ def test_bridge_dispatch_refuses_deeply_nested_json_without_crashing() -> None:
     `decode()` -- caught only `(UnicodeDecodeError, json.JSONDecodeError)`,
     so a deeply nested JSON frame well under MAX_FRAME raised RecursionError
     straight out of this function and, uncaught by bridge.py's run loop's
-    own `except (EOFError, KeyboardInterrupt)`, killed `warlock mcp`. It
+    own `except (EOFError, KeyboardInterrupt)`, killed `realmspinner mcp`. It
     must instead answer an ordinary JSON-RPC -32700 parse error, the same
     as any other unparseable frame."""
     depth = 20000
@@ -740,7 +740,7 @@ def test_server_discover_shape() -> None:
     assert result["ttlMs"] == 60000
     assert result["cacheScope"] == "public"
     assert result["resultType"] == "complete"
-    assert result["_meta"]["serverInfo"] == {"name": "warlock-studio", "version": "1.2.3"}
+    assert result["_meta"]["serverInfo"] == {"name": "realmspinner", "version": "1.2.3"}
     assert result["instructions"] == "Clay measures in metres."
     assert state.era == "modern"
 
@@ -819,7 +819,7 @@ def test_modern_tools_list_carries_cache_hints_and_result_type() -> None:
     assert result["ttlMs"] == 60000
     assert result["cacheScope"] == "public"
     assert result["resultType"] == "complete"
-    assert result["_meta"]["serverInfo"] == {"name": "warlock-studio", "version": "1.2.3"}
+    assert result["_meta"]["serverInfo"] == {"name": "realmspinner", "version": "1.2.3"}
 
 
 # --- splicing tools/call results: never json.loads the body --------------------
@@ -883,7 +883,7 @@ def test_modern_tools_call_splices_meta_in_front_of_the_body() -> None:
     )
     result = reply["result"]
     assert result["resultType"] == "complete"
-    assert result["_meta"]["serverInfo"] == {"name": "warlock-studio", "version": "1.2.3"}
+    assert result["_meta"]["serverInfo"] == {"name": "realmspinner", "version": "1.2.3"}
     assert result["content"] == []
     assert result["isError"] is False
     assert result["structuredContent"] == {"n": 1}
@@ -1031,12 +1031,16 @@ def _catalogue_with_resources_and_prompts():
     return _catalogue(
         resources=[
             {
-                "uri": "warlock://clay/conventions",
+                "uri": "realmspinner://clay/conventions",
                 "name": "clay-conventions",
                 "mimeType": "text/markdown",
                 "text": "units are metres",
             },
-            {"uri": "warlock://clay/scene", "name": "clay-scene", "mimeType": "application/json"},
+            {
+                "uri": "realmspinner://clay/scene",
+                "name": "clay-scene",
+                "mimeType": "application/json",
+            },
         ],
         prompts=[
             {
@@ -1050,7 +1054,7 @@ def _catalogue_with_resources_and_prompts():
 
 
 def _ok_read_resource(uri):
-    if uri == "warlock://clay/scene":
+    if uri == "realmspinner://clay/scene":
         return {"contents": [{"uri": uri, "mimeType": "application/json", "text": "{}"}]}
     return None
 
@@ -1075,7 +1079,7 @@ def test_legacy_resources_list_strips_inline_content() -> None:
         catalogue=_catalogue_with_resources_and_prompts(),
     )
     resources = reply["result"]["resources"]
-    assert {r["uri"] for r in resources} == {"warlock://clay/conventions", "warlock://clay/scene"}
+    assert {r["uri"] for r in resources} == {"realmspinner://clay/conventions", "realmspinner://clay/scene"}
     for r in resources:
         assert "text" not in r
     assert "ttlMs" not in reply["result"]
@@ -1131,12 +1135,12 @@ def test_legacy_resources_read_ok() -> None:
             "jsonrpc": "2.0",
             "id": 2,
             "method": "resources/read",
-            "params": {"uri": "warlock://clay/scene"},
+            "params": {"uri": "realmspinner://clay/scene"},
         },
         state,
         read_resource=_ok_read_resource,
     )
-    assert reply["result"]["contents"][0]["uri"] == "warlock://clay/scene"
+    assert reply["result"]["contents"][0]["uri"] == "realmspinner://clay/scene"
     assert "ttlMs" not in reply["result"]
 
 
@@ -1148,13 +1152,13 @@ def test_legacy_resources_read_not_found_is_minus_32002_with_uri() -> None:
             "jsonrpc": "2.0",
             "id": 2,
             "method": "resources/read",
-            "params": {"uri": "warlock://nonsense"},
+            "params": {"uri": "realmspinner://nonsense"},
         },
         state,
         read_resource=_ok_read_resource,
     )
     assert reply["error"]["code"] == -32002
-    assert reply["error"]["data"] == {"uri": "warlock://nonsense"}
+    assert reply["error"]["data"] == {"uri": "realmspinner://nonsense"}
 
 
 def test_legacy_prompts_list() -> None:
@@ -1238,13 +1242,13 @@ def test_modern_resources_read_not_found_is_minus_32602() -> None:
             "jsonrpc": "2.0",
             "id": 2,
             "method": "resources/read",
-            "params": {"uri": "warlock://nonsense", **_modern_meta()},
+            "params": {"uri": "realmspinner://nonsense", **_modern_meta()},
         },
         state,
         read_resource=_ok_read_resource,
     )
     assert reply["error"]["code"] == -32602
-    assert reply["error"]["data"] == {"uri": "warlock://nonsense"}
+    assert reply["error"]["data"] == {"uri": "realmspinner://nonsense"}
 
 
 def test_modern_prompts_get_missing_required_argument_is_minus_32602() -> None:
@@ -1280,7 +1284,7 @@ def test_modern_prompts_get_ok_carries_meta() -> None:
         state,
         get_prompt=_ok_get_prompt,
     )
-    assert reply["result"]["_meta"]["serverInfo"] == {"name": "warlock-studio", "version": "1.2.3"}
+    assert reply["result"]["_meta"]["serverInfo"] == {"name": "realmspinner", "version": "1.2.3"}
 
 
 def test_no_read_resource_or_get_prompt_configured_is_unknown_method() -> None:
@@ -1295,7 +1299,7 @@ def test_no_read_resource_or_get_prompt_configured_is_unknown_method() -> None:
             "jsonrpc": "2.0",
             "id": 2,
             "method": "resources/read",
-            "params": {"uri": "warlock://clay/scene"},
+            "params": {"uri": "realmspinner://clay/scene"},
         },
         state,
     )

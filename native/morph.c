@@ -1,6 +1,6 @@
 /* Selection grow/shrink: greyscale morphology with an octagonal element.
  *
- * The reference (warlock.studio.inker.selection._morph + _spread) runs one
+ * The reference (realmspinner.studio.inker.selection._morph + _spread) runs one
  * pass per unit of radius, and each pass is an np.pad of the whole mask plus
  * four or eight full-frame np.maximum/np.minimum calls, none of them with
  * out=, so a radius of 10 on a 2048-square mask is ~50 whole-array allocations
@@ -8,7 +8,7 @@
  *
  * This keeps two buffers and ping-pongs between them, one pass per radius unit,
  * reading each neighbourhood once. Same passes, same order, same alternation --
- * see warlockc_morph_u8 in warlockc.h for why the element is an octagon and why
+ * see realmspinnerc_morph_u8 in realmspinnerc.h for why the element is an octagon and why
  * that ruled out handing the whole thing to a library.
  *
  * BIT-PARITY is arithmetic here rather than a rounding argument: min and max
@@ -16,7 +16,7 @@
  * neighbourhood, the same edge rule and the same number of passes.
  */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
 #define MORPH_MAX 0
 #define MORPH_MIN 1
@@ -104,7 +104,7 @@ static void spread(const uint8_t *src, int64_t src_stride, uint8_t *dst,
   }
 }
 
-void warlockc_morph_u8(const uint8_t *src, int64_t src_stride, uint8_t *scratch,
+void realmspinnerc_morph_u8(const uint8_t *src, int64_t src_stride, uint8_t *scratch,
                        uint8_t *out, int64_t out_stride, int64_t h, int64_t w,
                        int64_t radius, int32_t op) {
   /* Ping-pong so that the final pass lands in `out`. With an even radius the

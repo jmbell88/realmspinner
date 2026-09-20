@@ -13,15 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from warlock.mcp import rpc
-from warlock.studio import agent_character_resources as acr
+from realmspinner.mcp import rpc
+from realmspinner.studio import agent_character_resources as acr
 
 
 def test_the_vocabulary_resource_is_process_stable() -> None:
     """Same call, same bytes -- a pure function of the shipped registries,
     never of wall-clock time, randomness or a mutable module-level cache
     that could drift between two reads in the same process."""
-    from warlock.service import troupe as svc_troupe
+    from realmspinner.service import troupe as svc_troupe
 
     mime1, body1 = acr.read_static(acr.VOCABULARY_URI)
     mime2, body2 = acr.read_static(acr.VOCABULARY_URI)
@@ -41,13 +41,14 @@ def test_the_vocabulary_resource_is_process_stable() -> None:
 
 def test_a_uri_outside_the_strict_sheet_pattern_is_not_owned() -> None:
     assert acr.owns_uri(acr.VOCABULARY_URI)
-    assert acr.owns_uri("warlock://character/sheet/" + "a" * 12 + "/" + "b" * 12 + "/atlas.png")
-    assert acr.owns_uri("warlock://character/sheet/" + "a" * 12 + "/" + "b" * 12 + "/sidecar.json")
+    stem = "realmspinner://character/sheet/" + "a" * 12 + "/" + "b" * 12
+    assert acr.owns_uri(stem + "/atlas.png")
+    assert acr.owns_uri(stem + "/sidecar.json")
     # Not a sheet id shape, not the vocabulary uri, not a known part name.
-    assert not acr.owns_uri("warlock://character/sheet/short/short/atlas.png")
-    assert not acr.owns_uri("warlock://character/sheet/" + "a" * 12 + "/" + "b" * 12 + "/model.glb")
-    assert not acr.owns_uri("warlock://clay/scene")
-    assert not acr.owns_uri("warlock://character/vocabulary/")
+    assert not acr.owns_uri("realmspinner://character/sheet/short/short/atlas.png")
+    assert not acr.owns_uri(stem + "/model.glb")
+    assert not acr.owns_uri("realmspinner://clay/scene")
+    assert not acr.owns_uri("realmspinner://character/vocabulary/")
 
 
 def test_a_sheet_resource_reads_the_published_sidecar_and_atlas(
@@ -59,7 +60,7 @@ def test_a_sheet_resource_reads_the_published_sidecar_and_atlas(
     fake ``Path`` that only implements ``read_bytes`` fails that call
     outright rather than reading a real (small, well-under-the-cap) size.
     """
-    from warlock.service import sheets as svc_sheets
+    from realmspinner.service import sheets as svc_sheets
 
     job_id = "a" * 12
     sheet_id = "b" * 12
@@ -90,8 +91,8 @@ def test_a_sheet_resource_reads_the_published_sidecar_and_atlas(
 
 
 def test_an_unpublished_sheet_reads_as_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
-    from warlock.service import sheets as svc_sheets
-    from warlock.service.errors import NotFound
+    from realmspinner.service import sheets as svc_sheets
+    from realmspinner.service.errors import NotFound
 
     def raise_not_found(svc, jid, sid):
         raise NotFound("no such sheet")
@@ -103,7 +104,7 @@ def test_an_unpublished_sheet_reads_as_not_found(monkeypatch: pytest.MonkeyPatch
     assert acr.read_dynamic(object(), uris["sidecar"]) is None
     assert acr.read_dynamic(object(), uris["atlas"]) is None
     # And a uri this module does not own at all is also None, never a raise.
-    assert acr.read_dynamic(object(), "warlock://clay/scene") is None
+    assert acr.read_dynamic(object(), "realmspinner://clay/scene") is None
 
 
 def test_a_huge_atlas_resource_is_refused_and_points_to_the_preview(
@@ -118,7 +119,7 @@ def test_a_huge_atlas_resource_is_refused_and_points_to_the_preview(
     monkeypatched ``.stat()``, so the size this test relies on is the same
     one production code would actually see.
     """
-    from warlock.service import sheets as svc_sheets
+    from realmspinner.service import sheets as svc_sheets
 
     job_id = "a" * 12
     sheet_id = "b" * 12

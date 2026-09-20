@@ -19,15 +19,15 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel.sheetin import document_from_sheet
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import sheet as inker_sheet
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
-from warlock.studio.state import AppState
+from realmspinner.kernels.pixel.sheetin import document_from_sheet
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import sheet as inker_sheet
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.studio.state import AppState
 
 CELL = 8
-WORKER = "warlock-task-test"
+WORKER = "realmspinner-task-test"
 
 
 def _cell(value: int) -> np.ndarray:

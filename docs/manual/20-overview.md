@@ -1,8 +1,8 @@
 # Overview
 
-## What Warlock Studio is
+## What Realmspinner is
 
-Warlock Studio generates game-ready 3D assets on your own machine. You give it a text prompt or an
+Realmspinner generates game-ready 3D assets on your own machine. You give it a text prompt or an
 image; it gives you back a textured GLB — a base colour texture plus a combined
 metallic/roughness texture, with surface detail carried on vertex normals rather than a normal map
 — ready to import into Godot, Blender, Unity or Unreal.
@@ -12,7 +12,7 @@ your prompt. A reconstruction engine, Microsoft TRELLIS.2-4B running natively th
 `trellis-server.exe`, turns that picture into a mesh. Both run on your GPU.
 
 The app is **fully offline**. Model weights are downloaded once, by hand, before you start; after
-that Warlock Studio never touches the network. There is no provider API, no account, no upload of
+that Realmspinner never touches the network. There is no provider API, no account, no upload of
 your prompts or your images. If a set of weights is missing, the app tells you the exact command
 to fetch it rather than fetching anything itself.
 
@@ -100,7 +100,7 @@ Then the eight workspaces:
   finished track, one job row per take, auditioned in the mode and openable in Sirens as a sample
   instrument. Covered in [Muse](35-muse.md).
 - **Sirens.** A chiptune tracker: NES-era pulse, triangle, noise and sample voices written into a
-  pattern grid, stitched into a song by an order list, and saved as a `.wsng`. Instruments carry
+  pattern grid, stitched into a song by an order list, and saved as a `.rsng`. Instruments carry
   four envelope sequences you drag into shape, a `.wav` dropped on the window becomes a sample, and
   the whole thing exports as a mix, one WAV per channel and one per sound effect. Covered in
   [Sirens](34-sirens.md).
@@ -233,14 +233,15 @@ text depends on whether Familiar's weights are downloaded: **✦ Familiar isn't 
 **Install…** button that opens Settings → Models, or once every row is present, a clickable **▸ ✦
 Familiar** row that expands into a short conversation: a scrollback of what you and Familiar have
 said, an input line, and **Send**. Drag the thin handle along the top edge of the expanded pane to make
-it taller or shorter; Warlock remembers the height you leave it at. The per-item readouts that used to sit
+it taller or shorter; Realmspinner remembers the height you leave it at. The per-item readouts that used to sit
 here (workspace, document, tool, zoom, queue, health) moved to the menu bar's own right-aligned group,
 described above.
 
 Familiar reads a sent message before answering it: a short router decision picks what the message is actually asking
-for — build something in Clay, edit what's already there, a question about Warlock itself, or just conversation — and
-answers accordingly, without you having to say which. A question about Warlock (**"how do I export a GLB"**, **"what
-does the band setting do"**) is answered from the Manual itself, with a small **[1]**, **[2]**… link under the reply
+for — build something in Clay, edit what's already there, a question about Realmspinner itself, or just
+conversation — and answers accordingly, without you having to say which. A question about Realmspinner
+(**"how do I export a GLB"**, **"what does the band setting do"**) is answered from the Manual itself, with a
+small **[1]**, **[2]**… link under the reply
 for each section it actually used; clicking one opens the Manual at that section. If the Manual has nothing on the
 question, Familiar says so plainly rather than guessing. Familiar can also take you somewhere — say "open Mason" or
 "take me to Settings" and it switches modes, opens the right Settings page, opens the Manual, a tour, the keyboard
@@ -268,7 +269,7 @@ skipping the toast. Building
 needs the trained Clay model (`familiar_v1.0`); until that model replaces the
 testing pin, a Clay build answers with a plain sentence saying so rather than a ghost, however it was asked for. Each
 document tab keeps its own conversation, the same way it keeps its own undo stack — closing a tab ends its thread, and
-every other mode without a document of its own shares one Studio-wide thread.
+every other mode without a document of its own shares one Realmspinner-wide thread.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
 the command palette, and it is reproduced in [Keyboard shortcuts](38-shortcuts.md).

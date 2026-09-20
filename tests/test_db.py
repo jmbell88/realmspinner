@@ -5,8 +5,8 @@ import inspect
 
 import pytest
 
-import warlock.db as db_mod
-from warlock.db import JobStore
+import realmspinner.db as db_mod
+from realmspinner.db import JobStore
 
 
 def test_create_and_get(store):

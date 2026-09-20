@@ -17,9 +17,9 @@ import threading
 
 import pytest
 
-from warlock import doctor, fetch, models, vram
-from warlock.pipelines import llama as llama_mod
-from warlock.pipelines.llama import LlamaServer
+from realmspinner import doctor, fetch, models, vram
+from realmspinner.pipelines import llama as llama_mod
+from realmspinner.pipelines.llama import LlamaServer
 
 
 def _srv(tmp_path, **kwargs) -> LlamaServer:
@@ -122,7 +122,7 @@ async def test_ensure_started_runs_manifest_verification_off_the_loop_thread(
 ):
     """The 2026-09-18 audit (familiar-01): ``_check_manifest`` SHA-256-hashes
     the runtime and weights directories (about 4.9 GB) synchronously inside
-    ``ensure_started``, on the ``warlock-loop`` thread -- ``before_gpu_job``
+    ``ensure_started``, on the ``realmspinner-loop`` thread -- ``before_gpu_job``
     stops Familiar ahead of every GPU job, so a chat message right after
     generating an asset stalled job dispatch, progress and cancel for as
     long as the hash took (263 ms for a 315 MB directory alone, the
@@ -354,9 +354,9 @@ async def test_a_gpu_lease_taken_while_familiar_is_still_spawning_still_prevents
 
 
 def test_an_idle_familiar_is_stopped_after_its_timeout(tmp_path, monkeypatch):
-    from warlock.config import Config
-    from warlock.db import JobStore
-    from warlock.queue import Worker
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
+    from realmspinner.queue import Worker
 
     config = Config(
         data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
@@ -375,9 +375,9 @@ def test_an_idle_familiar_is_stopped_after_its_timeout(tmp_path, monkeypatch):
 
 
 def test_a_gpu_job_dispatch_kills_familiar_before_check_resources(tmp_path, monkeypatch):
-    from warlock.config import Config
-    from warlock.db import JobStore
-    from warlock.queue import Worker
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
+    from realmspinner.queue import Worker
 
     config = Config(
         data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
@@ -396,9 +396,9 @@ def test_a_gpu_job_dispatch_kills_familiar_before_check_resources(tmp_path, monk
 
 
 def test_a_rig_job_does_not_evict_familiar(tmp_path, monkeypatch):
-    from warlock.config import Config
-    from warlock.db import JobStore
-    from warlock.queue import Worker
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
+    from realmspinner.queue import Worker
 
     config = Config(
         data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
@@ -416,7 +416,7 @@ def test_a_rig_job_does_not_evict_familiar(tmp_path, monkeypatch):
 
 
 def test_deleting_familiar_rows_stops_the_child_first(tmp_path, monkeypatch):
-    from warlock.service import downloads as downloads_mod
+    from realmspinner.service import downloads as downloads_mod
 
     class FakeFamiliar:
         running = True
@@ -445,9 +445,9 @@ def test_touch_resets_the_idle_clock_so_a_live_conversation_is_not_evicted(tmp_p
     calls ``touch()`` -- this proves the door itself works: without it a
     long-running conversation's server would be evicted mid-reply because
     ``last_used`` is otherwise only written at spawn and on the health poll."""
-    from warlock.config import Config
-    from warlock.db import JobStore
-    from warlock.queue import Worker
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
+    from realmspinner.queue import Worker
 
     config = Config(
         data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
@@ -478,9 +478,9 @@ async def test_a_cold_start_still_loading_its_weights_is_not_evicted_as_idle(
     exactly that moment, between a 503 and the 200 that would follow."""
     import httpx
 
-    from warlock.config import Config
-    from warlock.db import JobStore
-    from warlock.queue import Worker
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
+    from realmspinner.queue import Worker
 
     srv = _srv(tmp_path, idle_timeout=300.0)
     srv._resolve_exe().parent.mkdir(parents=True, exist_ok=True)
@@ -536,9 +536,9 @@ def test_shutdown_stops_familiar_and_removes_its_key_and_owner_files(tmp_path, m
     what deletes ``familiar-<port>.key`` and ``familiar-<port>.owner``, so a
     normal exit left both behind and the next ``ensure_started`` walked the
     orphaned-llama-server reclaim path even though nothing had crashed."""
-    from warlock.config import Config
-    from warlock.db import JobStore
-    from warlock.queue import Worker
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
+    from realmspinner.queue import Worker
 
     config = Config(
         data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
@@ -562,7 +562,7 @@ def test_shutdown_stops_familiar_and_removes_its_key_and_owner_files(tmp_path, m
 
 
 def test_a_familiar_row_not_downloaded_is_pending_install_not_a_fault(tmp_path):
-    from warlock.config import Config
+    from realmspinner.config import Config
 
     config = Config(
         data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",

@@ -22,9 +22,9 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
 
 
 class _Ctx:
@@ -63,7 +63,7 @@ def _erase_a_hole(doc: Any) -> None:
 
 
 def _export(monkeypatch, tmp_path: Path, doc: Any) -> np.ndarray:
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     dest = tmp_path / "out.png"
     monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: dest)

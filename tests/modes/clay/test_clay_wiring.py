@@ -20,12 +20,12 @@ from typing import Any
 
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio import main
-from warlock.studio.app_ctx import Ctx
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay import state as clay_state
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio import main
+from realmspinner.studio.app_ctx import Ctx
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay import state as clay_state
 
 
 @pytest.fixture(autouse=True)
@@ -79,7 +79,7 @@ def test_the_ctx_declares_a_clay_view_field_defaulting_to_none() -> None:
 def test_ensure_build_view_mirrors_the_view_onto_the_ctx(monkeypatch) -> None:
     """The App owns the view; the panes and clay_mode only ever see the ctx.
     Without the mirror the two disagree for the life of the process."""
-    from warlock.studio.modes.clay.ui import view as cv
+    from realmspinner.studio.modes.clay.ui import view as cv
 
     built: list[Any] = []
 
@@ -193,7 +193,7 @@ def test_camera_of_without_a_view_still_answers_from_the_tab() -> None:
 
 
 def test_a_gpu_entry_holds_the_mesh_its_key_names(monkeypatch) -> None:
-    from warlock.studio.modes.clay.ui import view as cv
+    from realmspinner.studio.modes.clay.ui import view as cv
 
     monkeypatch.setattr(
         cv.scenelib, "GpuModel", lambda ctx, model: SimpleNamespace(release=lambda: None)
@@ -220,7 +220,7 @@ def test_primitive_icons_covers_every_generator_exactly() -> None:
     generator would silently wear a box forever. This is the coverage check the
     fallback cannot be: one icon per generator, and no icon for a generator
     that no longer exists."""
-    from warlock.studio import tool_palette
+    from realmspinner.studio import tool_palette
 
     assert set(tool_palette.PRIMITIVE_ICONS) == set(bp.GENERATORS)
 
@@ -233,7 +233,7 @@ def test_every_camera_attribute_the_clay_view_reaches_exists():
     import inspect
     import re
 
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.viewer.camera import Camera
 
     source = inspect.getsource(clay_state.CameraView.read_from) + inspect.getsource(
         clay_state.CameraView.write_to
@@ -255,7 +255,7 @@ def test_the_add_panel_draws_every_generator_in_the_registry():
     builds, still has properties and still exports. ``_sections`` sweeps the
     unfiled ones into a trailing group for that reason, which makes this
     equality hold whatever the table says."""
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     drawn = [name for _label, names in clay_tools._sections() for name in names]
     assert sorted(drawn) == sorted(bp.GENERATORS)
@@ -273,8 +273,8 @@ def test_every_assembly_preset_is_reachable_as_a_button():
     failing test rather than a button that raises under the user's cursor."""
     import inspect
 
-    from warlock.kernels.mesh import presets
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.kernels.mesh import presets
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     assert "presets.ASSEMBLIES" in inspect.getsource(clay_tools._figures)
     assert presets.ASSEMBLIES
@@ -292,8 +292,8 @@ def test_a_whole_figure_is_one_undo_step():
     that show a dismembered figure. One gesture is one step: ``add_objects``
     folds them into a single ``CompoundEdit``, and undoing it takes the whole
     figure away."""
-    from warlock.kernels.mesh import presets
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.kernels.mesh import presets
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     key = next(iter(presets.ASSEMBLIES))
     doc = bd.ClayDoc()
@@ -313,8 +313,8 @@ def test_the_figure_step_is_named_after_the_figure():
     """``CompoundEdit`` reads as "compound" in the history panel, which tells a
     reader nothing about what they are about to undo -- the exact case
     ``Edit.label`` exists for."""
-    from warlock.kernels.mesh import presets
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.kernels.mesh import presets
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     key = next(iter(presets.ASSEMBLIES))
     label = presets.ASSEMBLIES[key][0]
@@ -331,8 +331,8 @@ def test_a_figure_whose_parts_share_a_name_still_places_them_apart(monkeypatch):
     uniquely, which is exactly why this is asserted against a preset that does
     not: the guard would otherwise be checked by nothing until the first
     template that repeats a name."""
-    from warlock.kernels.mesh import presets
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.kernels.mesh import presets
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     part = presets.Part(name="Leg", bone=None, generator="box", params={}, translation=(0, 0, 0))
     monkeypatch.setitem(

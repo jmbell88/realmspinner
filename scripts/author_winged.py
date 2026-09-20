@@ -3,7 +3,7 @@
     uv run python scripts/author_winged.py            # measure, write nothing
     uv run python scripts/author_winged.py --write    # regenerate the assets
 
-The assets under ``src/warlock/characters/winged/`` are **checked in**, for
+The assets under ``src/realmspinner/characters/winged/`` are **checked in**, for
 ``scripts/author_humanoid.py``'s two reasons and they are both about somebody
 else's build rather than this one: ``manifold3d`` does not promise byte-stable
 output across versions, and Blender has to import a file whatever we do. So the
@@ -33,10 +33,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", default="", help="one silhouette key")
     args = parser.parse_args(argv)
 
-    from warlock.characters import family as familylib
-    from warlock.characters.winged import generate
+    from realmspinner.characters import family as familylib
+    from realmspinner.characters.winged import generate
 
-    directory = ROOT / "src" / "warlock" / "characters" / ARCHETYPE
+    directory = ROOT / "src" / "realmspinner" / "characters" / ARCHETYPE
     groups = familylib.silhouettes(ARCHETYPE)
     wanted = [args.only] if args.only else sorted(groups)
 

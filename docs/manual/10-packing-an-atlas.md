@@ -98,7 +98,7 @@ through never leaves you with a new PNG beside a stale sidecar.
 beside it, so **Open in Packwright** on that card later gives you back the real editable atlas rather
 than a flattened picture.
 
-`Ctrl+S` saves the document itself as `.wpack`. The atlas and the layout are never stored in it, only
+`Ctrl+S` saves the document itself as `.rpack`. The atlas and the layout are never stored in it, only
 derived, which is why an unchanged save is byte-identical.
 
 ## Shortcuts

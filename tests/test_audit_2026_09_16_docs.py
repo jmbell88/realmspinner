@@ -29,7 +29,7 @@ def test_derived_params_comment_cites_the_real_test_file():
     )
     assert (ROOT / "tests" / "test_rerun_regressions.py").exists()
 
-    validation = (ROOT / "src" / "warlock" / "service" / "validation.py").read_text(
+    validation = (ROOT / "src" / "realmspinner" / "service" / "validation.py").read_text(
         encoding="utf-8"
     )
     assert "tests/test_jobs_resubmit.py" not in validation, (

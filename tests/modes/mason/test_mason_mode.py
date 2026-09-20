@@ -14,11 +14,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.modes.mason import mode as mason_mode
-from warlock.studio.modes.mason import state as mason_state
-from warlock.studio.modes.mason.engine import document as md
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import scene as msc
+from realmspinner.studio.modes.mason import mode as mason_mode
+from realmspinner.studio.modes.mason import state as mason_state
+from realmspinner.studio.modes.mason.engine import document as md
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import scene as msc
 
 
 class FakeCtx:
@@ -96,7 +96,7 @@ def test_ask_open_focuses_an_already_open_scene_instead_of_forking_a_second_tab(
     gap in its own dialog arm on 2026-09-12 (clay-02). Two tabs over one path
     race on save; whichever writes last silently discards the other's edits."""
     ctx = FakeCtx()
-    path = tmp_path / "scene.wscn"
+    path = tmp_path / "scene.rscn"
     path.write_bytes(b"")
     existing = _tab(ctx)
     existing.path = path
@@ -166,10 +166,10 @@ def test_a_completed_save_clears_it_and_marks_the_tab_saved(tmp_path) -> None:
     tab = _tab(ctx, dirty=True)
     assert tab.dirty is True
 
-    _save(ctx, tab, tmp_path / "scene.wscn")
+    _save(ctx, tab, tmp_path / "scene.rscn")
     assert tab.saving is False
     assert tab.dirty is False
-    assert (tmp_path / "scene.wscn").exists()
+    assert (tmp_path / "scene.rscn").exists()
 
 
 def test_save_submits_under_a_mason_key_and_never_encodes_on_the_calling_thread(
@@ -180,7 +180,7 @@ def test_save_submits_under_a_mason_key_and_never_encodes_on_the_calling_thread(
     never before ``ctx.submit`` is called."""
     ctx = FakeCtx()
     tab = _tab(ctx)
-    path = tmp_path / "scene.wscn"
+    path = tmp_path / "scene.rscn"
 
     mason_mode.save_to(ctx, tab, path)
     assert ctx.submitted == [f"mason-save:{tab.uid}"]
@@ -302,9 +302,9 @@ def test_the_journal_provider_round_trips_a_document() -> None:
     encoded = mason_mode.JOURNAL.encode(tab)
     assert isinstance(encoded, bytes) and encoded
 
-    from warlock.studio.modes.mason.engine import serialize
+    from realmspinner.studio.modes.mason.engine import serialize
 
-    doc = serialize.read_wscn(encoded)
+    doc = serialize.read_rscn(encoded)
     assert len(doc.roots) == len(tab.doc.roots)
 
 

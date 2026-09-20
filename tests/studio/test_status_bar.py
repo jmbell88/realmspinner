@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio import mode_manifest, palette, status_bar
+from realmspinner.studio import mode_manifest, palette, status_bar
 
 
 def test_status_bar_document_modes_match_the_doc_mode_registry(monkeypatch):
@@ -78,7 +78,7 @@ def test_resource_item_docstring_does_not_claim_protection_status_drop_order_den
     from what the docstring argued for. The 2026-09-16 audit found the
     docstring stale against ``STATUS_DROP_ORDER``.
     """
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     # The real priority the docstring must not contradict: "resources" is the
     # *first* key given up, not the reserved one.

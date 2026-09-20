@@ -12,10 +12,10 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.studio import state as state_mod
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio import state as state_mod
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
 
 
 def _session(frames=1):

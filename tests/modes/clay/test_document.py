@@ -12,13 +12,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.core.undo import CompoundEdit
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops_topo, selection
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.edits import MeshEdit, TransformEdit, _texture_bytes, mesh_bytes
+from realmspinner.core.undo import CompoundEdit
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops_topo, selection
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.edits import MeshEdit, TransformEdit, _texture_bytes, mesh_bytes
 
 
 def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
@@ -802,7 +802,7 @@ def test_clearing_the_element_selection_clears_the_objects_too() -> None:
 
 
 def _merged(doc: bd.ClayDoc, target: int, others: list[int]) -> bm.Mesh:
-    from warlock.kernels.mesh import ops as clay_ops_geom
+    from realmspinner.kernels.mesh import ops as clay_ops_geom
 
     return clay_ops_geom.join([doc.by_uid(u) for u in [target, *others]], eps=0.0)
 
@@ -1020,7 +1020,7 @@ def test_shading_that_changes_nothing_pushes_no_step() -> None:
 
 def test_auto_shading_smooths_a_closed_curved_surface() -> None:
     """A sphere's bands are 22 degrees apart, well inside the threshold."""
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(
@@ -1032,7 +1032,7 @@ def test_auto_shading_smooths_a_closed_curved_surface() -> None:
 
 
 def test_auto_shading_leaves_a_box_flat() -> None:
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))
@@ -1051,7 +1051,7 @@ def test_a_capped_cylinder_comes_out_flat_and_that_is_the_right_answer() -> None
     very edge the caps define -- Blender avoids this with per-edge split
     normals, which is a different mesh format.
     """
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="C", mesh=bp.cylinder(segments=24)))
@@ -1061,7 +1061,7 @@ def test_a_capped_cylinder_comes_out_flat_and_that_is_the_right_answer() -> None
 
 
 def test_auto_shading_at_a_wide_angle_smooths_everything() -> None:
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))

@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
 
 def _fold_precedes(source: str, field_marker: str, write_marker: str) -> None:

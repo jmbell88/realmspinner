@@ -26,13 +26,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import native
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives
-from warlock.studio.viewer import picking as pk
+from realmspinner import native
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives
+from realmspinner.studio.viewer import picking as pk
 
 needs_dll = pytest.mark.skipif(
-    not native.available(), reason="warlockc.dll not built"
+    not native.available(), reason="realmspinnerc.dll not built"
 )
 
 

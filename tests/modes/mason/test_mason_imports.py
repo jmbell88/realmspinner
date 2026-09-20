@@ -37,18 +37,18 @@ from pathlib import Path
 import pytest
 from _pure_packages import dotted_root, siblings_of
 
-from warlock.studio.modes.mason import engine as mason
+from realmspinner.studio.modes.mason import engine as mason
 
 ENGINE = Path(mason.__file__).parent
-PACKAGE = "warlock.studio.modes.mason.engine"
+PACKAGE = "realmspinner.studio.modes.mason.engine"
 
 #: Everything this package may *ever* reach for. The contract, not the tally.
 #:
-#: :mod:`~warlock.core.undo` is the shared history engine, reached for the
+#: :mod:`~realmspinner.core.undo` is the shared history engine, reached for the
 #: same way Clay and Plotter reach for it -- a scene's undo step is a pair of
 #: callbacks and a byte cost like every other, and a fourth private notion of
 #: what one step is would be a fourth place for a gesture to fold wrongly.
-#: (2026-09-17: this moved from ``studio/undo.py`` to ``warlock/core/undo.py``
+#: (2026-09-17: this moved from ``studio/undo.py`` to ``realmspinner/core/undo.py``
 #: in P3 of ``dev/RESTRUCTURE.md`` -- it needs no justification as a
 #: sibling-engine exception any more, since a scene engine reaching down into
 #: ``core`` is just the ordinary shape of the layer table now, not a reach
@@ -66,7 +66,7 @@ PACKAGE = "warlock.studio.modes.mason.engine"
 #: BVH, picking a scene being picking each of its items -- did not move (it is
 #: GL-adjacent state, not a pure kernel) and this package still reaches it.
 #:
-#: ``warlock.kernels.geom3d.glbio`` is the container-level GLB parser, for the
+#: ``realmspinner.kernels.geom3d.glbio`` is the container-level GLB parser, for the
 #: reason ``mesh/glbimport.py`` reaches for it: a declared-count preflight has
 #: to read the JSON chunk before anything decodes it, and there is one such
 #: parser. Reserved here, unused today -- see the module docstring's
@@ -76,51 +76,51 @@ PACKAGE = "warlock.studio.modes.mason.engine"
 #: eighteen call sites have to remember is a bound that holds at seventeen --
 #: and they are leaves rather than sibling engines, so this package is free to
 #: reach for them. Recorded as the one package they now are
-#: (``warlock.core.safeio``) rather than three private module names: P3 folded
+#: (``realmspinner.core.safeio``) rather than three private module names: P3 folded
 #: ``studio/{zipguard,npyguard,pixelguard}.py`` into ``core/safeio/`` and
 #: ``serialize.py`` reaches all three through one ``from ... import`` line, so
 #: there is exactly one outward edge to record, not three.
 CEILING = frozenset(
     {
-        "warlock.core.undo",
-        "warlock.studio.viewer",
-        "warlock.kernels.geom3d",
-        "warlock.kernels.geom3d.glbio",
-        "warlock.core.safeio",
+        "realmspinner.core.undo",
+        "realmspinner.studio.viewer",
+        "realmspinner.kernels.geom3d",
+        "realmspinner.kernels.geom3d.glbio",
+        "realmspinner.core.safeio",
     }
 )
 
 #: ``(module, imported name)`` for every import that leaves the package, today.
 OUTWARD_IMPORTS = {
-    ("nodes.py", "warlock.kernels.geom3d"),
-    ("refs.py", "warlock.kernels.geom3d"),
-    ("terrain.py", "warlock.kernels.geom3d"),
-    ("edits.py", "warlock.core.undo"),
-    ("edits.py", "warlock.kernels.geom3d"),
-    ("document.py", "warlock.core.undo"),
-    ("document.py", "warlock.kernels.geom3d"),
-    ("scene.py", "warlock.kernels.geom3d"),
-    ("ops.py", "warlock.kernels.geom3d"),
-    ("pick.py", "warlock.studio.viewer"),
-    ("serialize.py", "warlock.kernels.geom3d"),
+    ("nodes.py", "realmspinner.kernels.geom3d"),
+    ("refs.py", "realmspinner.kernels.geom3d"),
+    ("terrain.py", "realmspinner.kernels.geom3d"),
+    ("edits.py", "realmspinner.core.undo"),
+    ("edits.py", "realmspinner.kernels.geom3d"),
+    ("document.py", "realmspinner.core.undo"),
+    ("document.py", "realmspinner.kernels.geom3d"),
+    ("scene.py", "realmspinner.kernels.geom3d"),
+    ("ops.py", "realmspinner.kernels.geom3d"),
+    ("pick.py", "realmspinner.studio.viewer"),
+    ("serialize.py", "realmspinner.kernels.geom3d"),
     # P3 folded the three guard modules into ``core/safeio/``; ``serialize.py``
     # reaches all three through one import statement, which is one outward
     # edge, not three -- see :data:`CEILING`'s comment for the same collapse.
-    ("serialize.py", "warlock.core.safeio"),
+    ("serialize.py", "realmspinner.core.safeio"),
     # The three exporters. ``gltfout`` is the row that moved
     # :data:`VIEWER_MODULES` from three names to four -- see its comment
     # below -- and ``objout`` and ``manifest`` reach for the kernel only for
     # the types they are writing out (``gltf.Primitive``/``gltf.Material``,
     # and ``math3d.decompose`` for the manifest's world TRS).
-    ("gltfout.py", "warlock.kernels.geom3d"),
-    ("manifest.py", "warlock.kernels.geom3d"),
-    ("objout.py", "warlock.kernels.geom3d"),
+    ("gltfout.py", "realmspinner.kernels.geom3d"),
+    ("manifest.py", "realmspinner.kernels.geom3d"),
+    ("objout.py", "realmspinner.kernels.geom3d"),
 }
 
 #: Which modules of the viewer or of ``kernels.geom3d``, since the entry above
 #: is recorded at package granularity the way ``test_clay_imports`` records
 #: it. Three of these four moved from ``studio/viewer/`` to
-#: ``warlock/kernels/geom3d/`` in P3 of ``dev/RESTRUCTURE.md``; ``picking``
+#: ``realmspinner/kernels/geom3d/`` in P3 of ``dev/RESTRUCTURE.md``; ``picking``
 #: stayed behind because it is ray/BVH arithmetic against the live GL scene,
 #: not a pure kernel. The viewer package also still holds the GL-side model,
 #: the renderer's programs and the offscreen context, and reaching for one of
@@ -212,7 +212,7 @@ def test_the_engine_never_imports_the_service_layer():
     """
     for path in _modules():
         for name in _outward(path):
-            assert "warlock.service" not in name, f"{path.name} imports {name}"
+            assert "realmspinner.service" not in name, f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_queue_or_the_pipelines():
@@ -220,11 +220,11 @@ def test_the_engine_never_imports_the_queue_or_the_pipelines():
     torch and a job queue behind a test of what a group's override reaches."""
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.queue"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock.pipelines"), f"{path.name} imports {name}"
-            # ``warlock._q_*`` too: the queue's worker halves are the same
+            assert not name.startswith("realmspinner.queue"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.pipelines"), f"{path.name} imports {name}"
+            # ``realmspinner._q_*`` too: the queue's worker halves are the same
             # dependency wearing a different name.
-            assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{path.name} imports {name}"
 
 
 #: ``geom3d`` is a shared kernel leaf Mason legitimately imports (see
@@ -268,7 +268,7 @@ def test_the_sibling_ban_is_not_empty():
     would make it a test that runs zero cases and reports green."""
     siblings = siblings_of("mason", allowed=SHARED_LEAVES)
     # 2026-09-17: P3 of dev/RESTRUCTURE.md renamed Clay's engine to ``mesh``
-    # (it moved to warlock/kernels/mesh/) -- the sibling this test is really
+    # (it moved to realmspinner/kernels/mesh/) -- the sibling this test is really
     # about, per the function docstring above, is still Clay's engine, just
     # under its new name.
     assert "mesh" in siblings and "plotter" in siblings
@@ -280,7 +280,7 @@ def test_nothing_is_reached_for_outside_the_pinned_ceiling():
     """The contract, which does not move as the stages land."""
     for path in _modules():
         for name in _outward(path):
-            if name.split(".")[0] != "warlock":
+            if name.split(".")[0] != "realmspinner":
                 continue
             assert name in CEILING, f"{path.name} imports {name}, which is outside the ceiling"
 
@@ -290,7 +290,7 @@ def test_the_only_outward_imports_are_the_ones_written_down():
         (path.name, name)
         for path in _modules()
         for name in _outward(path)
-        if name.split(".")[0] == "warlock"
+        if name.split(".")[0] == "realmspinner"
     }
     assert found == OUTWARD_IMPORTS
 

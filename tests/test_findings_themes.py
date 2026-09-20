@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 
 def test_the_progress_card_cancel_says_why_it_is_grey():
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     assert overlay.cancel_reason(True, False) == ""
     assert "Cancelling" in overlay.cancel_reason(True, True)
@@ -24,7 +24,7 @@ def test_the_progress_card_cancel_says_why_it_is_grey():
 def test_the_plotter_layer_menu_does_not_blame_a_save_for_a_missing_layer():
     """It passed ``BUSY`` for the ``active``/``many`` gates, so "Delete layer"
     on a one-layer map said the map was being written."""
-    from warlock.studio.modes.plotter.ui.panes import menu as menu
+    from realmspinner.studio.modes.plotter.ui.panes import menu as menu
 
     idle = SimpleNamespace(busy=False)
     busy = SimpleNamespace(busy=True)
@@ -51,7 +51,7 @@ def test_the_plotter_layer_menu_does_not_blame_a_save_for_a_missing_layer():
 
 
 def test_the_inker_tileset_doors_do_not_say_open_a_drawing_while_one_is_open():
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     assert inker_mode._no_document_reason(None) == "Open a drawing first."
     saving = SimpleNamespace(saving=True)
@@ -66,8 +66,8 @@ def test_clay_greys_a_refused_op_with_the_gate_that_refused_it():
     currently refused. ``reason_for`` is asserted here with no imgui frame,
     the same way ``plotter_menu._layer_reason`` and
     ``inker_mode._no_document_reason`` are above."""
-    from warlock.kernels.mesh import document as bd
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     join = clay_ops.get("join")
@@ -84,7 +84,7 @@ def test_a_failed_result_row_says_it_failed_and_can_be_rerun():
     """The tray said "not ready yet" and disabled Rerun on rows that had
     already stopped, while the library card offered "Try again" on the same
     ones."""
-    from warlock.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.create.ui import workspace as gw
 
     assert "not ready yet" in gw._why_not_finished({}, "running")
     assert "cancelled" in gw._why_not_finished({}, "cancelled")
@@ -99,7 +99,7 @@ def test_the_tray_opens_a_result_through_the_one_door():
     and every "Open" goes through it."""
     import inspect
 
-    from warlock.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.create.ui import workspace as gw
 
     body = inspect.getsource(gw._result_card)
     assert "asset_open.open_asset(ctx, job)" in body
@@ -112,7 +112,7 @@ def test_the_tray_opens_a_result_through_the_one_door():
 def test_the_menu_bar_evaluates_no_gate_until_a_menu_is_open():
     """Every command's ``enabled`` ran sixty times a second at a closed bar --
     including "Empty the trash", which scans the whole job cache page."""
-    from warlock.studio import menus, palette
+    from realmspinner.studio import menus, palette
 
     asked: list[str] = []
 
@@ -143,9 +143,9 @@ def test_the_menu_bar_evaluates_no_gate_until_a_menu_is_open():
 def test_home_builds_its_resume_list_once_per_job_page():
     """Three things index this list every frame -- the count, the grid and the
     keyboard -- and the asset half walks the whole cache page for each."""
-    from warlock.studio import recents
-    from warlock.studio.modes.home.ui.panes import landing
-    from warlock.studio.state import AppState
+    from realmspinner.studio import recents
+    from realmspinner.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.state import AppState
 
     class Settings:
         def get(self, key, default=None):
@@ -171,7 +171,7 @@ def test_home_builds_its_resume_list_once_per_job_page():
 
 
 def test_the_review_inspector_does_not_stat_the_reference_every_frame(tmp_path):
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     review_mode._REFERENCE_CACHE.clear()
     (tmp_path / "reference.png").write_bytes(b"x")
@@ -185,7 +185,7 @@ def test_the_review_inspector_does_not_stat_the_reference_every_frame(tmp_path):
 
 
 def test_a_missing_reference_is_re_asked_rather_than_remembered(tmp_path):
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     review_mode._REFERENCE_CACHE.clear()
     unit = {"dir": str(tmp_path)}
@@ -198,9 +198,9 @@ def test_a_missing_reference_is_re_asked_rather_than_remembered(tmp_path):
 def test_the_reference_stage_validates_once_a_frame_not_twice():
     """The command bar and the plan block under it both ask what is wrong, and
     both answers have to agree -- which one evaluation guarantees."""
-    from warlock.studio.modes.create.engine import assets as create_assets
-    from warlock.studio.modes.create.engine import recipe as create_recipe
-    from warlock.studio.state import AppState, default_form_2d
+    from realmspinner.studio.modes.create.engine import assets as create_assets
+    from realmspinner.studio.modes.create.engine import recipe as create_recipe
+    from realmspinner.studio.state import AppState, default_form_2d
 
     calls: list[int] = []
     original = create_recipe.validate
@@ -235,7 +235,7 @@ def test_a_primitive_measures_its_own_box_once():
     did not, but the ``min``/``max`` behind it did, on every frame."""
     import numpy as np
 
-    from warlock.kernels.geom3d.gltf import Primitive
+    from realmspinner.kernels.geom3d.gltf import Primitive
 
     prim = Primitive(
         positions=np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 3.0]], dtype="f4"),
@@ -261,7 +261,7 @@ def test_a_draw_buffer_reaches_the_gpu_without_being_copied_first():
     frame."""
     import ctypes
 
-    from warlock.studio import imgui_backend
+    from realmspinner.studio import imgui_backend
 
     payload = (ctypes.c_ubyte * 4)(1, 2, 3, 4)
     view = imgui_backend._as_bytes(ctypes.addressof(payload), 4)
@@ -276,8 +276,8 @@ def _shell(mode: str = "create"):
     ``_shortcut`` needs to route a key."""
     from types import MethodType
 
-    from warlock.studio import main
-    from warlock.studio.state import AppState
+    from realmspinner.studio import main
+    from realmspinner.studio.state import AppState
 
     state = AppState()
     state.mode = state.mode_observed = state.previous_mode = mode
@@ -299,7 +299,7 @@ def _shell(mode: str = "create"):
 def _press(app, key, mod=0):
     import pygame
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     main.App._shortcut(app, pygame.event.Event(pygame.KEYDOWN, key=key, mod=mod))
 
@@ -325,7 +325,7 @@ def test_ctrl_k_is_the_one_key_the_palette_does_not_swallow():
     """It is the way out, which is the whole argument for exempting it."""
     import pygame
 
-    from warlock.studio.panes import palette
+    from realmspinner.studio.panes import palette
 
     app = _shell()
     app.app_ctx.state.palette_open = True
@@ -350,7 +350,7 @@ def test_the_manual_overlay_owns_the_keyboard_except_for_the_exempt_keys():
     """
     import pygame
 
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     app = _shell()
     state = app.app_ctx.state
@@ -394,7 +394,7 @@ def test_delete_is_bound_in_library_mode_as_well_as_the_create_sidebar():
     """The shortcuts sheet advertised it in both and only one had it."""
     import pygame
 
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     app = _shell("library")
     app.app_ctx.state.selected = "job-1"
@@ -409,8 +409,8 @@ def test_delete_is_bound_in_library_mode_as_well_as_the_create_sidebar():
 
 
 def test_the_caption_is_marked_by_any_unsaved_document_not_only_a_pose():
-    from warlock.studio import docmodes
-    from warlock.studio.state import AppState
+    from realmspinner.studio import docmodes
+    from realmspinner.studio.state import AppState
 
     state = AppState()
     ctx = SimpleNamespace(state=state)
@@ -437,7 +437,7 @@ def test_the_prompt_dialog_grabs_the_keyboard_once_so_tab_can_leave_it():
     which is every frame after a Tab: the focus snapped straight back."""
     import inspect
 
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     body = inspect.getsource(dialogs.PromptQueue.draw)
     assert "if not prompt._focused:" in body
@@ -452,7 +452,7 @@ def test_the_three_host_scope_popups_draw_under_a_guard():
     frame down -- and the layouts popup is where finding 1 shipped from."""
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     body = inspect.getsource(main.App._build_ui)
     for key in ("shell/layouts", "shell/gallery", "shell/shortcuts"):
@@ -460,7 +460,7 @@ def test_the_three_host_scope_popups_draw_under_a_guard():
 
 
 def test_one_rule_routes_the_pointer_into_all_three_viewports():
-    from warlock.studio.shell import frame
+    from realmspinner.studio.shell import frame
 
     assert frame._takes_pointer(None, True) is True
     assert frame._takes_pointer(None, False) is False
@@ -472,7 +472,7 @@ def test_the_persistence_half_clamps_a_width_the_way_the_splitter_does():
     """``layouts`` cannot import ``layout``, so it had re-spelled the range as
     literals in three places -- and a splitter and the file it saves into
     disagreeing about the ceiling is a width that will not round-trip."""
-    from warlock.studio import layout, tokens
+    from realmspinner.studio import layout, tokens
 
     assert layout.PANEL_MIN is tokens.PANEL_MIN
     assert layout.PANEL_MAX is tokens.PANEL_MAX
@@ -512,7 +512,7 @@ def test_a_revert_reloads_the_picture_off_the_frame_thread():
     lands -- which is exactly the frame something was pressed on."""
     from pathlib import Path
 
-    from warlock.studio import viewer_embed
+    from realmspinner.studio import viewer_embed
 
     submitted: list[tuple] = []
     viewer = SimpleNamespace(pending=None, parse_reference=lambda p: (p, b""))
@@ -532,7 +532,7 @@ def test_a_revert_reloads_the_picture_off_the_frame_thread():
 
 
 def test_the_key_the_frame_loop_lands_is_the_one_a_mode_submits_under():
-    from warlock.studio import main, viewer_embed
+    from realmspinner.studio import main, viewer_embed
 
     assert main.VIEWER_KEY == viewer_embed.LOAD_KEY
 
@@ -541,7 +541,7 @@ def test_a_vram_refusal_survives_long_enough_to_be_read():
     """It was a fading toast while the plan block a few pixels away went on
     saying "Ready to generate" -- and ``vram.shortfall_message`` is a
     multi-remedy sentence a toast cannot hold."""
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     state = AppState()
     assert state.create.submit_refusal == ""
@@ -550,7 +550,7 @@ def test_a_vram_refusal_survives_long_enough_to_be_read():
 def test_the_remesh_line_is_not_a_ranking():
     """INVARIANTS forbids presenting ``hole_worst`` as a quality scale, and
     "kept the best of 12.3%, 4.5%" is exactly that."""
-    from warlock.studio import quality
+    from realmspinner.studio import quality
 
     lines = quality.remesh_line([{"worst": 0.123}, {"worst": 0.045}])
     joined = " ".join(lines)
@@ -571,8 +571,8 @@ def test_the_remesh_line_is_not_a_ranking():
 
 
 def test_one_caveat_wording_in_one_headless_place():
-    from warlock.studio import quality, widgets
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio import quality, widgets
+    from realmspinner.studio.modes.review import mode as review_mode
 
     # No re-export: P4 of the restructure killed ``widgets.AUDIT_UNINFORMATIVE``
     # (a straight alias of ``quality.AUDIT_UNINFORMATIVE``), which is the shim
@@ -596,8 +596,8 @@ def inspect_source(fn):
 def test_every_sweep_axis_explains_itself():
     """Three of fourteen had tooltips -- the three that had just been added --
     which teaches the reader that the tooltips are decoration."""
-    from warlock.service.sweeps import KWARG_AXES
-    from warlock.studio.modes.review.mode import AXIS_HELP
+    from realmspinner.service.sweeps import KWARG_AXES
+    from realmspinner.studio.modes.review.mode import AXIS_HELP
 
     assert set(AXIS_HELP) == set(KWARG_AXES)
     assert all(len(text) > 30 for text in AXIS_HELP.values())
@@ -608,7 +608,7 @@ def test_the_tray_and_the_shell_agree_about_whether_there_is_a_tray():
     viewer lost ``tray_height`` permanently and the tray's own empty state was
     unreachable -- while a corpus of candidate rows reserved the strip and drew
     that empty state into it."""
-    from warlock.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.create.ui import workspace as gw
 
     empty = SimpleNamespace(cache=SimpleNamespace(jobs=[], active=None))
     assert gw.should_draw(empty) is False
@@ -633,8 +633,8 @@ def test_the_tray_and_the_shell_agree_about_whether_there_is_a_tray():
 def test_deleting_several_losers_is_one_toast_and_one_undo():
     """Choosing between eight attempts finished with seven stacked toasts and
     no way to put them all back at once."""
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.state import AppState
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.state import AppState
 
     toasts: list[tuple] = []
     ctx = SimpleNamespace(
@@ -659,8 +659,8 @@ def test_the_export_rail_segment_does_not_import_imgui_to_answer():
     reached ``widgets`` -- which imports imgui at module scope -- per frame."""
     import inspect
 
-    from warlock.studio import artifacts
-    from warlock.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio import artifacts
+    from realmspinner.studio.modes.create.ui import stages as create_stages
 
     assert "widgets" not in inspect.getsource(create_stages._reached_export)
     assert artifacts.artifacts_for({"stage": "reference"})
@@ -677,8 +677,8 @@ def test_the_export_rail_segment_does_not_import_imgui_to_answer():
 
 
 def test_the_two_public_names_the_tray_and_the_footer_share():
-    from warlock.studio.modes.create.ui import workspace as gw
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.library.ui.panes import library
 
     assert callable(gw.queue_position)
     assert callable(library.copy_settings)
@@ -692,7 +692,7 @@ def test_the_two_colours_a_wash_and_a_knob_paint_with_are_in_the_palette():
     for the knob, and invisible over a light viewport for the wash.
     ``test_accessibility`` measures ``tokens.PALETTES`` and nothing else, so a
     literal is a colour no test can see."""
-    from warlock.studio import tokens
+    from realmspinner.studio import tokens
 
     for name, palette in tokens.PALETTES.items():
         assert "KNOB" in palette, name
@@ -703,8 +703,8 @@ def test_the_two_colours_a_wash_and_a_knob_paint_with_are_in_the_palette():
 def test_no_pane_paints_a_toggle_knob_with_a_literal():
     import inspect
 
-    from warlock.studio import controls, widgets
-    from warlock.studio.modes.clay.ui.panes import hud as clay_hud
+    from realmspinner.studio import controls, widgets
+    from realmspinner.studio.modes.clay.ui.panes import hud as clay_hud
 
     for module in (controls, widgets, clay_hud):
         assert "0xFFFFFF" not in inspect.getsource(module)
@@ -714,7 +714,7 @@ def test_no_pane_paints_a_toggle_knob_with_a_literal():
 def test_the_tour_welcome_step_mentions_music_and_the_rail_step_a_key():
     """Sirens shipped and the welcome step still listed four things, and the
     "click the rail" step had no keyboard path at all."""
-    from warlock.studio.tour import scripts
+    from realmspinner.studio.tour import scripts
 
     steps = {step.id: step for tour in scripts.TOURS for step in tour.steps}
     assert "music" in steps["welcome"].body
@@ -725,7 +725,7 @@ def test_the_tour_welcome_step_mentions_music_and_the_rail_step_a_key():
 def test_the_tour_card_can_be_driven_from_the_keyboard():
     import inspect
 
-    from warlock.studio.panes import tour
+    from realmspinner.studio.panes import tour
 
     body = inspect.getsource(tour)
     assert "imgui.Key.right_arrow" in body
@@ -734,16 +734,16 @@ def test_the_tour_card_can_be_driven_from_the_keyboard():
 
 
 def test_the_engines_do_not_have_stale_top_level_packages():
-    """``src/warlock/{sirens,plotter,packwright}`` held nothing but
+    """``src/realmspinner/{sirens,plotter,packwright}`` held nothing but
     ``__pycache__``; the engines live under ``studio/modes/<name>/engine/``
     (restructure P6). The second half used to ask for ``studio/<name>/``,
     and after P6 it went on passing on a directory holding nothing but
     ``__pycache__`` -- the shape the first half exists to refuse."""
     from pathlib import Path
 
-    import warlock
+    import realmspinner
 
-    root = Path(warlock.__file__).parent
+    root = Path(realmspinner.__file__).parent
     for name in ("sirens", "plotter", "packwright"):
         assert not (root / name).exists()
         assert (root / "studio" / "modes" / name / "engine" / "__init__.py").is_file()

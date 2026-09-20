@@ -15,18 +15,18 @@ from pathlib import Path
 
 import pytest
 
-from warlock import followups, progress
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.kernels.rig import blender_spec
-from warlock.kernels.rig import store as rig_store
-from warlock.pipelines import blender_run, blender_worker, remesh
-from warlock.queue import Worker
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Conflict, Invalid
-from warlock.service.validation import DERIVED_PARAMS
-from warlock.studio import asset_open
-from warlock.studio.panes import remesh_panel
+from realmspinner import followups, progress
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.kernels.rig import blender_spec
+from realmspinner.kernels.rig import store as rig_store
+from realmspinner.pipelines import blender_run, blender_worker, remesh
+from realmspinner.queue import Worker
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Conflict, Invalid
+from realmspinner.service.validation import DERIVED_PARAMS
+from realmspinner.studio import asset_open
+from realmspinner.studio.panes import remesh_panel
 
 # --- the pure module -------------------------------------------------------------
 
@@ -98,8 +98,8 @@ def test_the_worker_side_constants_match_the_host_side():
 
 
 def test_the_derived_list_is_the_services_own():
-    from warlock.pipelines import retexture
-    from warlock.service import files
+    from realmspinner.pipelines import retexture
+    from realmspinner.service import files
 
     assert set(remesh.GEOMETRY_DERIVED) == set(files.DERIVED)
     assert set(retexture.SURFACE_DERIVED) <= set(remesh.GEOMETRY_DERIVED)
@@ -145,7 +145,7 @@ def _finished_mesh(svc, **params):
 
 @pytest.fixture
 def blender_present(monkeypatch):
-    from warlock import doctor
+    from realmspinner import doctor
 
     class _Ok:
         ok = True
@@ -178,7 +178,7 @@ def test_the_door_reports_the_rig_it_will_orphan(svc, blender_present):
 
 
 def test_the_door_refuses_without_blender(svc, monkeypatch):
-    from warlock import doctor
+    from realmspinner import doctor
 
     class _No:
         ok = False
@@ -273,7 +273,7 @@ def _fake_worker_run(monkeypatch, *, write=True, side_effect=None, hold=None):
 @pytest.fixture
 def _no_normalize(monkeypatch):
     # The fake GLB is bytes, not a glTF: grounding is not the subject here.
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     monkeypatch.setattr(postprocess, "normalize_glb", lambda *a, **k: {"scale": 1.0})
 

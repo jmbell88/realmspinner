@@ -21,11 +21,11 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.studio import state as state_mod
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio import state as state_mod
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
 SIZE = (32, 32)
 
@@ -225,9 +225,9 @@ def test_a_read_only_tool_is_told_nothing_about_either(tool: str) -> None:
 def _op_session():
     from types import MethodType, SimpleNamespace
 
-    from warlock.kernels import pixel as inker
-    from warlock.studio import state as state_mod
-    from warlock.studio.modes.inker import state as inker_state
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio import state as state_mod
+    from realmspinner.studio.modes.inker import state as inker_state
 
     tab = inker_state.InkerDoc(doc=inker.Document.blank(8, 8), uid="t1", title="t")
     state = inker_state.InkerState()
@@ -243,7 +243,7 @@ def test_a_paste_with_an_empty_clipboard_says_so():
     """``enabled`` cannot see the clipboard, so this refusal can only be made at
     the runtime door -- and a Ctrl+V that does nothing and says nothing is the
     shape ``run``'s docstring calls out."""
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     ctx, state, tab = _op_session()
     assert inker_ops.run(ctx, inker_ops.get("paste")) is False
@@ -252,7 +252,7 @@ def test_a_paste_with_an_empty_clipboard_says_so():
 
 
 def test_selecting_unused_colours_with_none_unused_says_so():
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     ctx, state, tab = _op_session()
     tab.doc.set_palette([(1, 2, 3, 255)])
@@ -266,7 +266,7 @@ def test_the_restructuring_ops_are_refused_while_the_tab_is_busy():
     """The keyboard has always refused ``_MUTATING_CTRL`` on a busy tab; the
     menu rows for the same verbs stayed live, so a click could restructure the
     stack while the ORA writer walked it on a task thread."""
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     ctx, state, tab = _op_session()
     tab.doc.add_layer()

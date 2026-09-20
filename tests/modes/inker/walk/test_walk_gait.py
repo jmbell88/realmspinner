@@ -13,8 +13,8 @@ import math
 import pytest
 from _figure import figure
 
-from warlock.kernels.pixel.walk import gait
-from warlock.kernels.pixel.walk import rig as R
+from realmspinner.kernels.pixel.walk import gait
+from realmspinner.kernels.pixel.walk import rig as R
 
 SIDES = ("near", "far")
 

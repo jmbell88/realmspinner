@@ -16,11 +16,11 @@ import io
 import pytest
 import trimesh
 
-from warlock.kernels.geom3d import glbwrite
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.service import files, jobs
-from warlock.service.errors import Invalid, TooLarge
+from realmspinner.kernels.geom3d import glbwrite
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.service import files, jobs
+from realmspinner.service.errors import Invalid, TooLarge
 
 
 def _glb(mesh=None, translation=(0.0, 0.0, 0.0)) -> bytes:
@@ -102,7 +102,7 @@ def test_a_size_is_applied_when_one_is_asked_for(svc) -> None:
 def test_a_normalize_failure_is_swallowed_rather_than_failing_the_job(svc, monkeypatch) -> None:
     """The GLB is already on disk by then. The same rule ``_audit_mesh`` and the
     mesh report follow: a job that produced a mesh does not fail afterwards."""
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     monkeypatch.setattr(
         postprocess, "normalize_glb", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no"))
@@ -114,7 +114,7 @@ def test_a_normalize_failure_is_swallowed_rather_than_failing_the_job(svc, monke
 
 
 def test_a_mesh_report_failure_is_swallowed_too(svc, monkeypatch) -> None:
-    from warlock import meshreport
+    from realmspinner import meshreport
 
     monkeypatch.setattr(
         meshreport, "build", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no"))
@@ -151,7 +151,7 @@ def test_promote_to_model_still_refuses_and_needed_no_change(svc) -> None:
 
 
 def test_oversize_bytes_are_refused_before_anything_is_written(svc) -> None:
-    from warlock.service import validation
+    from realmspinner.service import validation
 
     before = set(svc.config.data_dir.iterdir()) if svc.config.data_dir.exists() else set()
     with pytest.raises(TooLarge):
@@ -169,7 +169,7 @@ def test_a_glb_with_no_mesh_in_it_is_refused(svc) -> None:
     """Belt and braces -- we author these bytes -- but "inputs are bounded at
     the door" is the invariant, and this is the door. A GLB of nothing would
     mint a done row whose every downstream export produced an empty file."""
-    from warlock.kernels.geom3d import gltf
+    from realmspinner.kernels.geom3d import gltf
 
     empty = glbwrite.write_glb(gltf.Model([gltf.Node(name="nothing")], [0], [], []))
     with pytest.raises(Invalid, match="no mesh"):
@@ -177,7 +177,7 @@ def test_a_glb_with_no_mesh_in_it_is_refused(svc) -> None:
 
 
 def test_a_prompt_over_the_limit_is_refused(svc) -> None:
-    from warlock.service.validation import MAX_PROMPT
+    from realmspinner.service.validation import MAX_PROMPT
 
     with pytest.raises(Invalid, match="prompt"):
         jobs.import_mesh(svc, _glb(), prompt="x" * (MAX_PROMPT + 1))
@@ -197,14 +197,14 @@ def test_a_failed_insert_leaves_no_job_directory(svc, monkeypatch) -> None:
     assert after == before
 
 
-# --- the .wblk sidecar -------------------------------------------------------
+# --- the .rblk sidecar -------------------------------------------------------
 
 
 def test_the_clay_source_is_stored_beside_the_mesh(svc) -> None:
     out = jobs.import_mesh(svc, _glb())
     assert files.clay_source_status(svc, out["id"]) == {"exists": False}
 
-    files.save_clay_source(svc, out["id"], b"PK\x03\x04" + b"stand-in wblk bytes")
+    files.save_clay_source(svc, out["id"], b"PK\x03\x04" + b"stand-in rblk bytes")
     assert files.clay_source_status(svc, out["id"]) == {"exists": True}
     assert (svc.job_dir(out["id"]) / files.CLAY_SOURCE).exists()
 
@@ -233,7 +233,7 @@ def test_an_oversize_build_source_is_refused(svc) -> None:
 def test_the_sidecar_has_no_staleness_rule(svc) -> None:
     """Unlike ``paint.ora``. That rule exists because a revert can rewrite
     ``input.png`` behind the layers; a build export writes the GLB and the
-    ``.wblk`` in one operation, and a later retarget does not make the authored
+    ``.rblk`` in one operation, and a later retarget does not make the authored
     source wrong -- it makes ``model.glb`` differ from it, which is the point."""
     out = jobs.import_mesh(svc, _glb())
     files.save_clay_source(svc, out["id"], b"PK\x03\x04" + b"authored")

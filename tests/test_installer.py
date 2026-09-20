@@ -16,7 +16,7 @@ MANIFEST = INSTALLER / "runtime-manifest.json"
 
 def _verifier():
     spec = importlib.util.spec_from_file_location(
-        "warlock_installer_verify", INSTALLER / "verify_runtime.py"
+        "realmspinner_installer_verify", INSTALLER / "verify_runtime.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -30,7 +30,7 @@ def test_runtime_manifest_covers_every_shipped_vendor_file_once() -> None:
     assert len(named) == len(set(named))
     assert set(named) == {
         "vendor/gltfpack/gltfpack.exe",
-        "vendor/warlockc/warlockc.dll",
+        "vendor/realmspinnerc/realmspinnerc.dll",
     }
     assert payload["python"] == {
         "implementation": "CPython",
@@ -41,7 +41,7 @@ def test_runtime_manifest_covers_every_shipped_vendor_file_once() -> None:
     }
     assert payload["roots"] == [
         "vendor/gltfpack",
-        "vendor/warlockc",
+        "vendor/realmspinnerc",
     ]
     assert all(entry["size"] > 0 for entry in payload["files"])
     assert all(re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) for entry in payload["files"])
@@ -89,7 +89,7 @@ def test_the_provisioned_native_runtime_matches_every_size_and_hash_pin() -> Non
     assert all(path.is_file() for path in targets), "a provisioned runtime may not be partial"
     actual = {
         path.relative_to(ROOT).as_posix()
-        for directory in ("gltfpack", "warlockc")
+        for directory in ("gltfpack", "realmspinnerc")
         for path in (ROOT / "vendor" / directory).rglob("*")
         if path.is_file()
     }
@@ -107,7 +107,11 @@ def test_a_stage_without_the_trellis_engine_verifies_clean(tmp_path: Path) -> No
     verifier = _verifier()
     for directory, name, payload in (
         ("gltfpack", "gltfpack.exe", (ROOT / "vendor/gltfpack/gltfpack.exe").read_bytes()),
-        ("warlockc", "warlockc.dll", (ROOT / "vendor/warlockc/warlockc.dll").read_bytes()),
+        (
+            "realmspinnerc",
+            "realmspinnerc.dll",
+            (ROOT / "vendor/realmspinnerc/realmspinnerc.dll").read_bytes(),
+        ),
     ):
         target_dir = tmp_path / "vendor" / directory
         target_dir.mkdir(parents=True)
@@ -205,11 +209,11 @@ def test_build_script_stages_and_verifies_the_checkout_without_downloading_model
         "uv export --frozen --no-dev --no-emit-project",
         "uv pip sync --python $StagedPython",
         "torch.version.cuda == '12.8'",
-        'Set-Content -LiteralPath (Join-Path $SitePackages "warlock_app.pth")',
+        'Set-Content -LiteralPath (Join-Path $SitePackages "realmspinner_app.pth")',
         'runtime_manifest_sha256 = $ManifestHash',
         'uv_lock_sha256 = $LockHash',
         "-m compileall",
-        "-m warlock doctor",
+        "-m realmspinner doctor",
         '"/DAppVersion=$Version"',
         '"/DStageDir=$Stage"',
     ):
@@ -223,16 +227,16 @@ def test_build_script_stages_and_verifies_the_checkout_without_downloading_model
 
 
 def test_the_build_ships_a_launcher_an_mcp_client_can_spawn() -> None:
-    """46-extending.md tells an agent's MCP client to run `uv run warlock mcp`,
+    """46-extending.md tells an agent's MCP client to run `uv run realmspinner mcp`,
     which only exists in a source checkout with `uv` installed. An installed
-    Warlock has neither, and until this launcher existed the only generated
-    entry point under `bin\\` was warlock-doctor.cmd -- so an installed
-    Warlock, the whole closed-beta audience, had no command an MCP client
+    Realmspinner has neither, and until this launcher existed the only generated
+    entry point under `bin\\` was realmspinner-doctor.cmd -- so an installed
+    Realmspinner, the whole closed-beta audience, had no command an MCP client
     could point at and the bridge was unreachable."""
     source = (INSTALLER / "build.ps1").read_text(encoding="utf-8")
-    assert 'Set-Content -LiteralPath (Join-Path $Stage "bin\\warlock-mcp.cmd")' in source
-    assert "-m warlock mcp" in source
-    assert '"%~dp0..\\python\\python.exe" -m warlock mcp %*' in source
+    assert 'Set-Content -LiteralPath (Join-Path $Stage "bin\\realmspinner-mcp.cmd")' in source
+    assert "-m realmspinner mcp" in source
+    assert '"%~dp0..\\python\\python.exe" -m realmspinner mcp %*' in source
 
 
 def test_the_build_collects_the_packs_and_then_ships_the_base_runtime() -> None:
@@ -265,15 +269,15 @@ def test_the_installer_carries_the_wheels_that_cannot_be_downloaded() -> None:
     previous version's copies, whose filenames no manifest will name again."""
     source = (INSTALLER / "build.ps1").read_text(encoding="utf-8")
     assert 'Join-Path $Stage "packs"' in source
-    iss = (INSTALLER / "warlock.iss").read_text(encoding="utf-8")
+    iss = (INSTALLER / "realmspinner.iss").read_text(encoding="utf-8")
     assert r'Type: filesandordirs; Name: "{app}\packs"' in iss
 
 
 def test_inno_setup_is_per_user_relocatable_and_leaves_user_data_alone() -> None:
-    source = (INSTALLER / "warlock.iss").read_text(encoding="utf-8")
+    source = (INSTALLER / "realmspinner.iss").read_text(encoding="utf-8")
     assert re.search(r"AppId=\{\{[0-9A-F-]{36}\}", source)
     assert "PrivilegesRequired=lowest" in source
-    assert r"DefaultDirName={localappdata}\Programs\Warlock Studio" in source
+    assert r"DefaultDirName={localappdata}\Programs\Realmspinner" in source
     assert "Compression=lzma2" in source and "SolidCompression=yes" in source
     # Inverted on 2026-08-26, by the first compile this file ever described.
     # The spanning was a prediction -- a ~4 GB payload was assumed not to fit
@@ -281,14 +285,14 @@ def test_inno_setup_is_per_user_relocatable_and_leaves_user_data_alone() -> None
     # compresses to a single 2.91 GB exe in 855 s, and a one-file download is
     # strictly better for the people this installer exists for: the three-file
     # variant fails partway through if any .bin is renamed or left behind.
-    # DiskSliceSize is deliberately left in warlock.iss and deliberately not
+    # DiskSliceSize is deliberately left in realmspinner.iss and deliberately not
     # asserted here -- it is inert while spanning is off, and keeping it makes
     # the decision one line to reverse if the payload ever outgrows one file.
     assert "DiskSpanning=no" in source
-    assert r'Filename: "{app}\python\pythonw.exe"; Parameters: "-m warlock"' in source
+    assert r'Filename: "{app}\python\pythonw.exe"; Parameters: "-m realmspinner"' in source
     assert "Flags: unchecked" in source
     assert r'Name: "{app}\python"' in source
-    assert ".warlock" in source and "downloaded models remain" in source
+    assert ".realmspinner" in source and "downloaded models remain" in source
     # Inverted on 2026-08-24. This used to assert ``LicenseFile`` was *absent*,
     # which was an accurate record of the fact that no licence had been chosen
     # -- not a decision that the wizard should show none. The project is
@@ -297,16 +301,16 @@ def test_inno_setup_is_per_user_relocatable_and_leaves_user_data_alone() -> None
     assert r"LicenseFile={#ProjectRoot}\LICENSE" in source
 
 
-def test_the_uninstaller_reads_warlock_home_before_the_userprofile_default() -> None:
+def test_the_uninstaller_reads_realmspinner_home_before_the_userprofile_default() -> None:
     """pipelines-08 (2026-09-07 audit): the post-uninstall message always
-    named %USERPROFILE%\\.warlock, ignoring WARLOCK_HOME -- so a user who
-    relocated their data root (config._home()'s WARLOCK_HOME override) was
-    told it survived at a path it never lived at. GetEnv('WARLOCK_HOME') must
+    named %USERPROFILE%\\.realmspinner, ignoring REALMSPINNER_HOME -- so a user who
+    relocated their data root (config._home()'s REALMSPINNER_HOME override) was
+    told it survived at a path it never lived at. GetEnv('REALMSPINNER_HOME') must
     be read, and read before the USERPROFILE fallback is ever built.
     """
-    source = (INSTALLER / "warlock.iss").read_text(encoding="utf-8")
-    home_read = source.index("GetEnv('WARLOCK_HOME')")
+    source = (INSTALLER / "realmspinner.iss").read_text(encoding="utf-8")
+    home_read = source.index("GetEnv('REALMSPINNER_HOME')")
     fallback_built = source.index("GetEnv('USERPROFILE')")
     assert home_read < fallback_built, (
-        "WARLOCK_HOME must be checked before the USERPROFILE default is built"
+        "REALMSPINNER_HOME must be checked before the USERPROFILE default is built"
     )

@@ -1,7 +1,7 @@
 """Clay's material library (``studio/modes/clay/matlib.py``, tranche 6).
 
 Pure and imgui-free by the module's own rule, so every test here drives it
-directly against a sandboxed ``tmp_path`` standing in for ``WARLOCK_HOME`` --
+directly against a sandboxed ``tmp_path`` standing in for ``REALMSPINNER_HOME`` --
 never the real one (``dev/audits/audit-2026-09-13.md``'s own lesson, restated
 in this session's brief).
 """
@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import gltf
-from warlock.studio.modes.clay import matlib
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.studio.modes.clay import matlib
 
 
 def _texture(width: int = 2, height: int = 2, value: int = 200) -> tuple[int, int, bytes]:

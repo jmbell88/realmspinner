@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from warlock import provenance
-from warlock.config import Config
+from realmspinner import provenance
+from realmspinner.config import Config
 
 
 def test_a_missing_path_says_so_rather_than_raising(tmp_path):
@@ -82,7 +82,7 @@ def test_versions_never_imports_anything(monkeypatch):
 
 
 def test_versions_records_the_prompt_compiler(monkeypatch):
-    from warlock.pipelines import prompt  # noqa: F401  (ensures it is imported)
+    from realmspinner.pipelines import prompt  # noqa: F401  (ensures it is imported)
 
     assert provenance.versions()["prompt"] == str(prompt.PROMPT_VERSION)
 

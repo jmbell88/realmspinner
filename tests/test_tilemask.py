@@ -21,8 +21,8 @@ import hashlib
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import blob
-from warlock.pipelines import tilemask
+from realmspinner.kernels.grid2d import blob
+from realmspinner.pipelines import tilemask
 
 TILE = 32
 CELLS = 12

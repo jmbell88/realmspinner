@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from warlock.kernels.manual import loader
-from warlock.studio.state import AppState, ManualState
+from realmspinner.kernels.manual import loader
+from realmspinner.studio.state import AppState, ManualState
 
 
 @pytest.fixture
 def tree(tmp_path: Path) -> Path:
-    (tmp_path / "00-index.md").write_text("# Warlock Studio Manual\n", encoding="utf-8")
+    (tmp_path / "00-index.md").write_text("# Realmspinner Manual\n", encoding="utf-8")
     (tmp_path / "20-overview.md").write_text("# Overview\n\nHello.\n", encoding="utf-8")
     (tmp_path / "40-installation.md").write_text("# Installation\n", encoding="utf-8")
     (tmp_path / "44-architecture.md").write_text("# Architecture\n", encoding="utf-8")
@@ -25,7 +25,7 @@ def test_chapters_sorted_titled_and_grouped(tree: Path):
     by_key = {c.key: c for c in chapters}
     assert by_key["20-overview"].title == "Overview"
     assert by_key["00-index"].part == ""
-    assert by_key["20-overview"].part == "Using Warlock Studio"
+    assert by_key["20-overview"].part == "Using Realmspinner"
     assert by_key["40-installation"].part == "Setup & operations"
     assert by_key["44-architecture"].part == "Architecture"
 
@@ -50,7 +50,7 @@ def test_load_rejects_unknown_key(tree: Path):
 
 
 def test_dev_checkout_fallback_finds_repo_docs():
-    # In this checkout warlock/manual is not packaged, so manual_dir() must
+    # In this checkout realmspinner/manual is not packaged, so manual_dir() must
     # resolve to <repo>/docs/manual.
     assert loader.manual_dir().name == "manual"
     assert loader.manual_dir().parent.name == "docs"

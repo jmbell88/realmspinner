@@ -18,9 +18,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc, MapObject, new_uid
-from warlock.studio.shell import paintview
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc, MapObject, new_uid
+from realmspinner.studio.shell import paintview
 
 
 class Mouse:
@@ -86,9 +86,9 @@ class TileScene:
     ) -> None:
         import numpy as np
 
-        from warlock.kernels.grid2d.picking import TileView
-        from warlock.kernels.grid2d.tileset import Tileset
-        from warlock.studio.modes.plotter.ui.panes.tileset_editor import COLLISION_VIEW
+        from realmspinner.kernels.grid2d.picking import TileView
+        from realmspinner.kernels.grid2d.tileset import Tileset
+        from realmspinner.studio.modes.plotter.ui.panes.tileset_editor import COLLISION_VIEW
 
         pixels = np.zeros((tile, tile * tiles, 4), dtype=np.uint8)
         pixels[..., 3] = 255
@@ -154,7 +154,9 @@ class TileScene:
 
     def add(self, kind: Any) -> Any:
         """Press the real *Add* button's handler. -> the shape it selected."""
-        from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
+        from realmspinner.studio.modes.plotter.ui.panes import (
+            tileset_editor as plotter_tileset_editor,
+        )
 
         plotter_tileset_editor._add_shape(
             self.state, self.tab, 0, self.local, self.meta, kind
@@ -168,7 +170,7 @@ class TileScene:
         aimed at its own idea of the position would pass while the drawn grip
         sat somewhere unclickable.
         """
-        from warlock.kernels.grid2d import picking
+        from realmspinner.kernels.grid2d import picking
 
         return picking.box_handles(self.selected())[name]
 
@@ -186,7 +188,9 @@ class TileScene:
         alt: bool = False,
         hovered: bool = True,
     ) -> None:
-        from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
+        from realmspinner.studio.modes.plotter.ui.panes import (
+            tileset_editor as plotter_tileset_editor,
+        )
 
         self.mouse.at = self.screen(*at)
         self.mouse.clicked = {0: click, 1: False, 2: False}
@@ -266,7 +270,7 @@ class Scene:
         shift: bool = False,
         hovered: bool = True,
     ) -> None:
-        from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+        from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
         self.mouse.at = (float(at[0]), float(at[1]))
         self.mouse.clicked = {0: click, 1: False, 2: False}

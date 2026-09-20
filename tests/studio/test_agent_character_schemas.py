@@ -63,7 +63,7 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import agent_character as ac
+from realmspinner.studio import agent_character as ac
 
 Args = dict[str, Any]
 Mutate = Callable[[Args], Args]
@@ -74,12 +74,12 @@ Mutate = Callable[[Args], Args]
 
 @pytest.fixture(autouse=True)
 def _stub_doors(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    from warlock.kernels.rig import store
-    from warlock.service import _jobs_lifecycle
-    from warlock.service import characters as svc_characters
-    from warlock.service import export as svc_export
-    from warlock.service import rig as svc_rig
-    from warlock.service import troupe as svc_troupe
+    from realmspinner.kernels.rig import store
+    from realmspinner.service import _jobs_lifecycle
+    from realmspinner.service import characters as svc_characters
+    from realmspinner.service import export as svc_export
+    from realmspinner.service import rig as svc_rig
+    from realmspinner.service import troupe as svc_troupe
 
     # cliplib.shipped_clip_templates/shipped_clip_library/shipped_clip_names
     # and clips.shipped_clip_timing are real on this branch (see
@@ -393,7 +393,7 @@ def _all_cases() -> list[tuple[str, Mutate, str]]:
     # reads only module-level registries. Movements is read straight off
     # the shipped clip vocabulary so the fixture above need not be active
     # at collection time.
-    from warlock.kernels.rig import cliplib, templates
+    from realmspinner.kernels.rig import cliplib, templates
 
     templates = tuple(
         row["key"] for row in templates.catalog() if cliplib.clip_library(row["key"]).get("clips")

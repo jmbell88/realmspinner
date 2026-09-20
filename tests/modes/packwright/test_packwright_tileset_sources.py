@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.packwright.engine.layout import MAX_SPRITES
-from warlock.studio.modes.packwright.engine.sources import (
+from realmspinner.studio.modes.packwright.engine.layout import MAX_SPRITES
+from realmspinner.studio.modes.packwright.engine.sources import (
     sprites_from_tileset,
     tile_key,
     tileset_occupancy,

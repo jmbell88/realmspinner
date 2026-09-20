@@ -18,8 +18,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.service import files
-from warlock.studio.modes.clay.agent import refs as agent_refs
+from realmspinner.service import files
+from realmspinner.studio.modes.clay.agent import refs as agent_refs
 
 
 def _png(size, mode="RGB", color=(255, 0, 0)):

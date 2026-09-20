@@ -12,8 +12,8 @@ import dataclasses
 
 import pytest
 
-from warlock import fetch, models
-from warlock.config import Config
+from realmspinner import fetch, models
+from realmspinner.config import Config
 
 
 def test_the_pag_row_is_a_recipe_not_a_download():
@@ -52,7 +52,7 @@ def test_every_other_recipe_keeps_the_upgrades_off():
 
 
 def test_the_loader_refuses_pag_on_a_non_sdxl_family(tmp_path):
-    from warlock.pipelines.text2image import Text2Image
+    from realmspinner.pipelines.text2image import Text2Image
 
     wrong = dataclasses.replace(
         models.BASE_MODELS["flux_klein"], pag_scale=3.0, dir_name="fake-flux"
@@ -81,7 +81,7 @@ def test_pag_recipe_loads_and_samples():
     )
     if not (config.t2i_model_root / spec.dir_name / "model_index.json").exists():
         pytest.skip("sdxl-base-1.0 weights not downloaded")
-    from warlock.pipelines.text2image import Text2Image
+    from realmspinner.pipelines.text2image import Text2Image
 
     t2i = Text2Image(spec, config.t2i_model_root)
     try:

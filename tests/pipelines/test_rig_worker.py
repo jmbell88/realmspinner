@@ -16,12 +16,12 @@ from pathlib import Path
 
 import pytest
 
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.kernels.rig import poses, skeleton, templates
-from warlock.kernels.rig import store as rig_store
-from warlock.pipelines import blender_run
-from warlock.queue import Worker
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.kernels.rig import poses, skeleton, templates
+from realmspinner.kernels.rig import store as rig_store
+from realmspinner.pipelines import blender_run
+from realmspinner.queue import Worker
 
 # No module-level asyncio mark: pyproject sets asyncio_mode = "auto", which
 # already collects every async test here. Applying it to the module as well
@@ -448,7 +448,7 @@ async def test_a_rig_job_does_not_recursively_queue_another(worker, monkeypatch)
 
 
 def test_fbx_spec_names_the_op_and_paths(tmp_path):
-    from warlock.kernels.rig import blender_spec
+    from realmspinner.kernels.rig import blender_spec
 
     spec = blender_spec.fbx_spec(tmp_path / "model.glb", tmp_path / "model.fbx", tmp_path)
     assert spec["op"] == "fbx"
@@ -500,7 +500,7 @@ async def test_an_ordinary_rig_job_sends_no_bones_so_the_worker_fits(worker, mon
 
 def _fake_detection(monkeypatch, *, bones="landmarks", available=True, raises=None):
     """Stand in for the whole pose2d model half, recording every call."""
-    from warlock.pipelines import pose2d
+    from realmspinner.pipelines import pose2d
 
     calls: list[Path] = []
 
@@ -719,12 +719,12 @@ async def test_a_detector_that_raises_never_fails_the_rig(worker, monkeypatch):
 
 
 def test_the_kill_switch_reads_the_environment(monkeypatch):
-    import warlock.config as config_mod
+    import realmspinner.config as config_mod
 
-    monkeypatch.setenv("WARLOCK_POSE_FIT", "0")
+    monkeypatch.setenv("REALMSPINNER_POSE_FIT", "0")
     monkeypatch.setattr(config_mod, "_config", None)
     assert config_mod.get_config().pose_fit is False
-    monkeypatch.setenv("WARLOCK_POSE_FIT", "1")
+    monkeypatch.setenv("REALMSPINNER_POSE_FIT", "1")
     monkeypatch.setattr(config_mod, "_config", None)
     assert config_mod.get_config().pose_fit is True
 
@@ -861,12 +861,12 @@ async def test_a_template_with_no_battery_simply_renders_nothing(worker, monkeyp
 
 
 def test_the_battery_kill_switch_reads_the_environment(monkeypatch):
-    import warlock.config as config_mod
+    import realmspinner.config as config_mod
 
-    monkeypatch.setenv("WARLOCK_DEFORM_QA", "0")
+    monkeypatch.setenv("REALMSPINNER_DEFORM_QA", "0")
     monkeypatch.setattr(config_mod, "_config", None)
     assert config_mod.get_config().deform_qa is False
-    monkeypatch.setenv("WARLOCK_DEFORM_QA", "1")
+    monkeypatch.setenv("REALMSPINNER_DEFORM_QA", "1")
     monkeypatch.setattr(config_mod, "_config", None)
     assert config_mod.get_config().deform_qa is True
 
@@ -880,7 +880,7 @@ def test_a_spec_that_is_not_json_exits_two_with_a_sentence(monkeypatch, capsys, 
     import io
     import sys as _sys
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     monkeypatch.setattr(_sys, "stdin", io.StringIO("not json"))
     assert blender_worker.main() == 2
@@ -892,7 +892,7 @@ def test_a_spec_with_no_result_path_exits_two_rather_than_running_the_op(monkeyp
     import io
     import sys as _sys
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     def explode(_bpy, _spec):
         raise AssertionError("the op ran for a spec that could not hand anything back")
@@ -910,7 +910,7 @@ def test_a_good_run_stages_its_result_and_leaves_no_tmp_sibling(monkeypatch, tmp
     import sys as _sys
     import types
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     result = tmp_path / ".blender_result.json"
     monkeypatch.setitem(blender_worker.OPS, "rig", lambda _bpy, _spec: {"ok": True, "bones": 3})

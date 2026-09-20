@@ -17,10 +17,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import packs
-from warlock.service import packs as svc_packs
-from warlock.studio import main as main_mod
-from warlock.studio.modes.settings.ui.panes import app_settings
+from realmspinner import packs
+from realmspinner.service import packs as svc_packs
+from realmspinner.studio import main as main_mod
+from realmspinner.studio.modes.settings.ui.panes import app_settings
 
 
 class FakeService:
@@ -41,7 +41,7 @@ def rows(tmp_path, monkeypatch):
 
 
 def test_the_cost_is_both_volumes_because_they_are_two_drives():
-    """The wheels land in the cache under the user's Warlock home and the
+    """The wheels land in the cache under the user's Realmspinner home and the
     packages land in the application runtime, which on a per-user install is
     routinely another disk -- which is why ``packs.disk_refusal`` budgets both
     and why a row that quoted one figure would be answering half the question.
@@ -71,7 +71,7 @@ def test_an_installed_pack_quotes_no_figures(rows):
 
 def test_a_row_names_the_modes_it_turns_on(rows):
     """``packs.Pack.modes`` is deliberately mode *keys*, so that
-    ``warlock.packs`` imports no ``studio``. The pane is the one place holding
+    ``realmspinner.packs`` imports no ``studio``. The pane is the one place holding
     both tables, and the user reads rail labels rather than keys."""
     assert app_settings.pack_unlocks(rows["rig"]) == "Unlocks Poser"
     assert app_settings.pack_unlocks(rows["music"]) == "Unlocks Muse"
@@ -107,7 +107,7 @@ def test_cancel_is_offered_while_downloading_and_withdrawn_once_pip_starts():
     sample and the child actually calling pip is where a quit used to slip
     through with no warning at all.
     """
-    from warlock.pipelines import pack_worker
+    from realmspinner.pipelines import pack_worker
 
     assert app_settings.pack_cancellable("")
     assert app_settings.pack_cancellable(pack_worker.PHASE_DOWNLOAD)
@@ -322,7 +322,7 @@ def test_lora_and_model_row_buttons_grey_with_a_reason_when_busy():
     """
     import inspect
 
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     def _reasoned(source: str, label: str) -> bool:
         after = source.split(label, 1)[1]

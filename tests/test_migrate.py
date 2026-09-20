@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 
-import warlock.db as db_mod
-from warlock.db import _SCHEMA, MIGRATIONS, JobStore
+import realmspinner.db as db_mod
+from realmspinner.db import _SCHEMA, MIGRATIONS, JobStore
 
 
 def test_fresh_db_lands_on_the_latest_migration_version(tmp_path):

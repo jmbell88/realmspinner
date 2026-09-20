@@ -1,4 +1,4 @@
-"""One Warlock per home, enforced by the OS.
+"""One Realmspinner per home, enforced by the OS.
 
 The behaviour this replaces read a ``session.marker`` file, saw a live pid, and
 wrote a **log warning** -- then carried on into a shared job database and a
@@ -18,7 +18,7 @@ import textwrap
 import time
 from types import SimpleNamespace
 
-from warlock import instance
+from realmspinner import instance
 
 
 def test_the_first_holder_wins_and_a_second_is_refused(tmp_path):
@@ -109,9 +109,9 @@ def test_held_by_us_is_false_when_one_of_several_unsafe_acquired_locks_actually_
 ):
     """service-04 (2026-09-13 audit): ``held_by_us`` used to read the single
     module-level ``_current``, which each ``InstanceLock.acquire`` overwrites
-    -- so in a multi-lock group, under ``WARLOCK_ALLOW_UNSAFE_LOCK``, a later
+    -- so in a multi-lock group, under ``REALMSPINNER_ALLOW_UNSAFE_LOCK``, a later
     lock's *real* success hid an earlier lock's infrastructure failure from
-    ``held_by_us()``, and Health reported ownership Warlock does not actually
+    ``held_by_us()``, and Health reported ownership Realmspinner does not actually
     have."""
     real_lock = instance._lock
 
@@ -196,7 +196,7 @@ def test_a_dead_holders_lock_is_free_again(tmp_path):
         f"""
         import sys
         sys.path.insert(0, {str(__import__("pathlib").Path(instance.__file__).parents[2])!r})
-        from warlock import instance
+        from realmspinner import instance
         lock = instance.InstanceLock(__import__('pathlib').Path({str(path)!r}))
         assert lock.acquire()
         print("held", flush=True)

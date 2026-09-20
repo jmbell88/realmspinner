@@ -13,7 +13,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from warlock import config
+from realmspinner import config
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -24,11 +24,11 @@ def _chapter(name: str) -> str:
 
 def test_manual_config_lists_native_and_migrate_vars_as_reported_by_effective_config():
     """docs-02: config.SWITCHES exists precisely so effective() prints these four
-    vars (marked from_env) after the SETTINGS table -- to `warlock doctor`, the
+    vars (marked from_env) after the SETTINGS table -- to `realmspinner doctor`, the
     Health/Advanced popup and its Copy-as-text. The chapter's "Seeing which of
     these are actually set" section told a reader to distrust all five of
-    WARLOCK_LOG_LEVEL/NATIVE/NATIVE_DLL/NO_MIGRATE/MIGRATE_KEEP as absent from
-    that readout, when only WARLOCK_LOG_LEVEL genuinely is -- the other four are
+    REALMSPINNER_LOG_LEVEL/NATIVE/NATIVE_DLL/NO_MIGRATE/MIGRATE_KEEP as absent from
+    that readout, when only REALMSPINNER_LOG_LEVEL genuinely is -- the other four are
     config.SWITCHES's whole reason to exist.
     """
     chapter = _chapter("41-configuration.md")
@@ -43,7 +43,7 @@ def test_manual_config_lists_native_and_migrate_vars_as_reported_by_effective_co
     absent_sentences = [s for s in re.split(r"(?<=[.])\s+", section) if "absent" in s.lower()]
     assert absent_sentences, (
         "expected the section to still say which variable(s) are absent from "
-        "effective() -- WARLOCK_LOG_LEVEL genuinely is"
+        "effective() -- REALMSPINNER_LOG_LEVEL genuinely is"
     )
 
     # Every var effective() actually prints (config.SWITCHES) must not be
@@ -66,12 +66,12 @@ def test_manual_config_lists_native_and_migrate_vars_as_reported_by_effective_co
             f"set' section"
         )
 
-    # WARLOCK_LOG_LEVEL is in neither table -- effective() genuinely never
+    # REALMSPINNER_LOG_LEVEL is in neither table -- effective() genuinely never
     # prints it -- so the chapter should keep saying so.
-    assert "WARLOCK_LOG_LEVEL" not in settings_vars
-    assert "WARLOCK_LOG_LEVEL" not in switch_vars
-    assert any("WARLOCK_LOG_LEVEL" in s for s in absent_sentences), (
-        "WARLOCK_LOG_LEVEL is not in config.SETTINGS or config.SWITCHES, so "
+    assert "REALMSPINNER_LOG_LEVEL" not in settings_vars
+    assert "REALMSPINNER_LOG_LEVEL" not in switch_vars
+    assert any("REALMSPINNER_LOG_LEVEL" in s for s in absent_sentences), (
+        "REALMSPINNER_LOG_LEVEL is not in config.SETTINGS or config.SWITCHES, so "
         "effective() never prints it -- the chapter should still say it is "
         "absent"
     )

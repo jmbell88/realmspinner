@@ -14,7 +14,7 @@ one module.
 
 **Fourteen, not seventeen, since 2026-09-17.** P3 of ``dev/RESTRUCTURE.md``
 moved this package's three genuinely pure modules -- ``math3d``, ``gltf`` and
-``glbwrite`` -- out to ``warlock/kernels/geom3d/``, where they are pinned by
+``glbwrite`` -- out to ``realmspinner/kernels/geom3d/``, where they are pinned by
 their own layering rather than by this package's "no window toolkit" claim
 (they never needed the ModernGL half of it, only the pygame/imgui half, which
 ``kernels/geom3d`` gets for free by living outside ``studio/`` at all). What
@@ -33,7 +33,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import viewer
+from realmspinner.studio import viewer
 
 ENGINE = Path(viewer.__file__).parent
 
@@ -68,7 +68,7 @@ def test_there_are_fourteen_modules_to_check():
 
     Fourteen since 2026-09-17, not the seventeen this was first written for
     -- P3 of ``dev/RESTRUCTURE.md`` moved ``math3d``, ``gltf`` and
-    ``glbwrite`` to ``warlock/kernels/geom3d/``. See the module docstring.
+    ``glbwrite`` to ``realmspinner/kernels/geom3d/``. See the module docstring.
     """
     assert len(_modules()) == 14
 
@@ -87,18 +87,18 @@ def test_none_of_them_imports_the_service_layer():
     about jobs, sqlite or VRAM admission."""
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.service"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.service"), f"{path.name} imports {name}"
 
 
 def test_none_of_them_imports_the_queue_or_the_pipelines():
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.queue"), f"{path.name} imports {name}"
-            # ``warlock._q_*`` too: the queue's worker halves are the same
+            assert not name.startswith("realmspinner.queue"), f"{path.name} imports {name}"
+            # ``realmspinner._q_*`` too: the queue's worker halves are the same
             # dependency wearing a different name, and importing one of those
             # would drag torch behind a headless test as surely as importing
             # ``queue`` itself.
-            assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{path.name} imports {name}"
 
 
 def test_moderngl_is_allowed_everywhere_here_unlike_the_headless_packages():

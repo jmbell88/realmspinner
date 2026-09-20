@@ -14,12 +14,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import scratch as clay_scratch
-from warlock.kernels.mesh import serialize
-from warlock.studio.assistant import preview as familiar_preview
-from warlock.studio.modes.clay import mode as clay_mode
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import scratch as clay_scratch
+from realmspinner.kernels.mesh import serialize
+from realmspinner.studio.assistant import preview as familiar_preview
+from realmspinner.studio.modes.clay import mode as clay_mode
 
 
 class _FakeCtx:
@@ -117,7 +117,7 @@ def test_apply_with_material_removal_keeps_face_indices_right():
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="multi", mesh=bp.box()))
     extra = doc.add_material()
     third_material = doc.materials[doc.add_material()]
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import mesh as bm
 
     faces = obj.mesh.material.copy()
     third_index = next(i for i, m in enumerate(doc.materials) if m is third_material)
@@ -250,11 +250,11 @@ def test_apply_refuses_against_a_tab_that_is_not_the_active_one():
 
 def test_discard_leaves_the_document_byte_identical():
     doc = _seeded_doc()
-    before_bytes = serialize.wblk_bytes(doc)
+    before_bytes = serialize.rblk_bytes(doc)
     ctx = _FakeCtx(doc)
     scratch, diff, kept_uid, added_uid = _preview_that_adds_and_moves(doc)
 
     familiar_preview.discard(ctx, ctx.tab.uid)
 
-    assert serialize.wblk_bytes(doc) == before_bytes
+    assert serialize.rblk_bytes(doc) == before_bytes
     assert ctx.clay_view.cleared == 1

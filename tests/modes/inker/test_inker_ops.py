@@ -16,11 +16,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.studio import state as state_mod
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import sheet as inker_sheet
-from warlock.studio.modes.inker import state as inker_state
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio import state as state_mod
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import sheet as inker_sheet
+from realmspinner.studio.modes.inker import state as inker_state
 
 SIZE = (32, 32)
 
@@ -303,7 +303,7 @@ def test_the_sprite_menu_offers_the_two_sizes_separately():
 
 
 def test_the_view_toggles_flip_the_persisted_preference(monkeypatch):
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx, state, tab = _session()
     written = []
@@ -382,7 +382,7 @@ def test_a_new_document_from_the_selection_crops_to_it(monkeypatch):
     # ``inker_mode`` serves the name through ``__getattr__``, and a ``setattr``
     # on a name that module does not define would shadow rather than replace
     # what the caller reaches.
-    from warlock.studio.modes.inker import opening as inker_open
+    from realmspinner.studio.modes.inker import opening as inker_open
 
     ctx, state, tab = _session()
     opened: list = []
@@ -395,7 +395,7 @@ def test_a_new_document_from_the_selection_crops_to_it(monkeypatch):
 
 
 def test_making_a_document_of_nothing_says_so_rather_than_making_one():
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx, state, tab = _session()
     assert inker_mode.new_from_selection(ctx, tab) is False
@@ -440,9 +440,9 @@ def test_a_refused_paste_does_not_switch_the_tool():
     ``run`` discards the ``False`` so nothing was said either."""
     from types import SimpleNamespace
 
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker import ops as inker_ops
-    from warlock.studio.modes.inker import state as inker_state
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import state as inker_state
 
     state = inker_state.InkerState()
     state.set_tool("brush")
@@ -460,7 +460,7 @@ def test_selecting_used_colours_is_one_undo_step():
     pushes a ``SelectionEdit`` of its own -- so a sixty-colour palette cost
     sixty-one Ctrl+Z to put back and walked the composite sixty times. One
     gesture is one step, the rule the timeline's row ops already follow."""
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     palette = [(index * 8, 0, 0, 255) for index in range(12)]
@@ -487,7 +487,7 @@ def test_inker_ops_run_turns_a_tile_alignment_refusal_into_a_toast_not_a_crash()
     carries no ``try`` either) and tore the session down. Before the fix this
     call raised ``ValueError`` straight through ``run``.
     """
-    from warlock.kernels.pixel.tiles import strip
+    from realmspinner.kernels.pixel.tiles import strip
 
     doc = inker.Document.blank(100, 16)
     tile = np.zeros((16, 16, 4), dtype=np.uint8)
@@ -503,7 +503,7 @@ def test_inker_ops_run_turns_a_tile_alignment_refusal_into_a_toast_not_a_crash()
 
 
 def test_selecting_slots_with_nothing_to_select_refuses():
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(4, 4)
     assert doc.select_slots([]) is False

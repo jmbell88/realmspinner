@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import asset_workflows, generation, models
-from warlock.pipelines import tileatlas, tilemask
-from warlock.service import tilesheets
-from warlock.service.errors import Invalid
+from realmspinner import asset_workflows, generation, models
+from realmspinner.pipelines import tileatlas, tilemask
+from realmspinner.service import tilesheets
+from realmspinner.service.errors import Invalid
 
 MATERIALS = ("mossy cobblestone", "cracked dry mud", "still dark water")
 
@@ -226,7 +226,7 @@ def test_the_terrain_block_is_what_atlas_sidecar_will_actually_accept(svc):
     could pass both suites and still fail every real job at the sidecar
     write, which is what a ``terrains=(inner, outer)`` door once did. This
     calls the door and then the sidecar it feeds, on the same block."""
-    from warlock import _q_tileset
+    from realmspinner import _q_tileset
 
     block = _sheet(svc, _terrain(svc))
     geom = tileatlas.terrain_geometry(block["tile_w"], block["projection"])
@@ -429,7 +429,7 @@ def test_a_host_with_no_canny_weights_can_still_build_a_seamless_sheet(svc):
     """The bug this is about: ``control:canny`` was a hard requirement of the
     *kind*, so a materials sheet -- which never touches a ControlNet -- was
     refused at the door for a download it would never have opened."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     cn = models.CONTROLNETS["canny"]
     variant = f".{cn.variant}" if cn.variant else ""
@@ -636,7 +636,7 @@ def _request(**tile):
 
 
 def test_the_planner_hands_the_material_list_through_rather_than_joining_it(svc):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     made = svc_jobs.create_generation_request(
         svc, _request(mode="collection", prompt_items=MATERIALS)
@@ -651,7 +651,7 @@ def test_the_planner_hands_the_material_list_through_rather_than_joining_it(svc)
 def test_the_planner_hands_the_two_terrains_through_rather_than_describing_them(svc):
     """This is the sentence that used to be built here: "inner terrain: X;
     outer terrain: Y; Z", handed to one generation."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     made = svc_jobs.create_generation_request(
         svc,
@@ -675,7 +675,7 @@ def test_the_planner_hands_the_two_terrains_through_rather_than_describing_them(
 def test_a_path_set_is_a_terrain_transition_with_the_two_surfaces_renamed(svc):
     """The path is what appears as the blob shapes and the ground is what
     surrounds it, which is exactly inner/outer."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     made = svc_jobs.create_generation_request(
         svc,
@@ -696,7 +696,7 @@ def test_an_unbuildable_target_cell_is_refused_rather_than_quietly_replaced(svc)
     """It used to read ``target if target in TILE_SIZES else DEFAULT_TILE_SIZE``,
     which answered "make me 96px tiles" with 32px tiles and told nobody -- while
     the request document, the row and the sidecar all went on saying 96."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     with pytest.raises(Invalid) as excinfo:
         svc_jobs.create_generation_request(
@@ -707,7 +707,7 @@ def test_an_unbuildable_target_cell_is_refused_rather_than_quietly_replaced(svc)
 
 
 def test_a_buildable_target_cell_is_honoured(svc):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     made = svc_jobs.create_generation_request(
         svc, _request(mode="collection", prompt_items=MATERIALS, target_cell_px=64)
@@ -716,7 +716,7 @@ def test_a_buildable_target_cell_is_honoured(svc):
 
 
 def test_an_unstated_target_cell_takes_the_doors_default(svc):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     made = svc_jobs.create_generation_request(
         svc, _request(mode="collection", prompt_items=MATERIALS)
@@ -761,7 +761,7 @@ def test_the_structured_request_can_name_a_palette(svc, tmp_path):
     through ``create_generation_request`` could not use a capability the pane
     path could -- not because the door refused it, but because there was nowhere
     on the request to say it."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     directory = tmp_path / "palettes"
     directory.mkdir(exist_ok=True)
@@ -779,7 +779,7 @@ def test_the_structured_request_can_name_a_palette(svc, tmp_path):
 
 
 def test_a_palette_the_structured_request_names_is_still_checked_at_the_door(svc):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     with pytest.raises(Invalid) as excinfo:
         svc_jobs.create_generation_request(
@@ -894,10 +894,10 @@ def test_the_grid_planner_is_gone_and_nothing_reaches_for_it():
     """
     from pathlib import Path
 
-    import warlock
+    import realmspinner
 
     for name in ("tile_plan(", "wang_roles(", "path_roles(", "TileRole("):
-        for path in Path(warlock.__file__).parent.rglob("*.py"):
+        for path in Path(realmspinner.__file__).parent.rglob("*.py"):
             source = path.read_text(encoding="utf-8")
             assert name not in source, f"{path.name} still reaches for {name}"
     assert not hasattr(asset_workflows, "tile_plan")

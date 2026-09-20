@@ -23,11 +23,11 @@ from pathlib import Path
 
 import pytest
 
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.kernels.rig import store as rig_store
-from warlock.pipelines import blender_run
-from warlock.queue import Worker
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.kernels.rig import store as rig_store
+from realmspinner.pipelines import blender_run
+from realmspinner.queue import Worker
 
 pytestmark = pytest.mark.asyncio
 

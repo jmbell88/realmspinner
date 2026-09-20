@@ -26,10 +26,10 @@ import asyncio
 
 import pytest
 
-from warlock import doctor as doctor_mod
-from warlock import models as model_registry
-from warlock.config import Config
-from warlock.service import packs as svc_packs
+from realmspinner import doctor as doctor_mod
+from realmspinner import models as model_registry
+from realmspinner.config import Config
+from realmspinner.service import packs as svc_packs
 
 # Not a module-level pytestmark: service-04's test below is plain sync (no
 # child process, no event loop needed), and pytest-asyncio warns on a sync
@@ -54,7 +54,7 @@ async def test_an_unexpected_error_during_the_commit_phase_does_not_force_kill_t
     import textwrap
     import time
 
-    from warlock import packs
+    from realmspinner import packs
 
     manifest = tmp_path / packs.MANIFEST_NAME
     manifest.write_text(
@@ -175,8 +175,8 @@ async def _wait_until(predicate, timeout: float = 10.0) -> None:
 
 
 def _make_worker(tmp_path, **config_overrides):
-    from warlock.db import JobStore
-    from warlock.queue import Worker
+    from realmspinner.db import JobStore
+    from realmspinner.queue import Worker
 
     config = Config(
         data_dir=tmp_path / "assets",
@@ -254,7 +254,7 @@ async def test_worker_loop_does_not_apply_stale_commit_backoff_after_an_unrelate
     *next* job again paid ``COMMIT_REFUSAL_BACKOFF`` even though nothing
     about it had anything to do with commit headroom. Regression for the
     2026-09-15 audit, finding service-06."""
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     backoff = 0.4
     monkeypatch.setattr(queue_mod, "COMMIT_REFUSAL_BACKOFF", backoff)

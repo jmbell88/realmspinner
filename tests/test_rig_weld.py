@@ -19,9 +19,9 @@ import json
 
 import pytest
 
-from warlock import meshreport
-from warlock.kernels.rig import poses, store, templates
-from warlock.pipelines import blender_worker
+from realmspinner import meshreport
+from realmspinner.kernels.rig import poses, store, templates
+from realmspinner.pipelines import blender_worker
 
 # --- the epsilon ------------------------------------------------------------
 
@@ -262,7 +262,7 @@ def test_the_welded_method_joins_the_weighting_vocabulary_rather_than_replacing_
     """0d's inspector line has to render the new value as a success, not fall
     through to the envelope warning or to nothing at all."""
     pytest.importorskip("imgui_bundle")
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     colour, text = inspector.weighting_verdict({"weighting": "automatic-welded"})
     assert text == "weighting: automatic-welded"
@@ -289,7 +289,7 @@ def test_the_welded_method_survives_the_subprocess_boundary_as_rig_json(tmp_path
 
 
 def test_the_battery_is_template_data_not_code():
-    from warlock.kernels.rig import poses as rig_poses
+    from realmspinner.kernels.rig import poses as rig_poses
 
     poses = rig_poses.deform_battery("humanoid")
     assert [p["name"] for p in poses] == [
@@ -349,9 +349,9 @@ def test_a_preset_the_user_picks_still_has_no_id():
 def test_the_battery_plans_a_grid_through_the_one_sheet_planner(tmp_path):
     """Not a second renderer: the QA sheet is the ordinary sheet pipeline with
     a different pose list, which is what keeps one set of camera conventions."""
-    from warlock import queue as queue_mod
-    from warlock.kernels import sheet as sheetlib
-    from warlock.kernels.rig import poses as rig_poses
+    from realmspinner import queue as queue_mod
+    from realmspinner.kernels import sheet as sheetlib
+    from realmspinner.kernels.rig import poses as rig_poses
 
     poses = rig_poses.deform_battery("humanoid")
     layout = sheetlib.plan(
@@ -386,7 +386,7 @@ def test_the_qa_sheet_is_served_only_once_its_sidecar_is_written(tmp_path):
     """The atlas is packed first and the sidecar last, by a job other than the
     one this directory belongs to -- so existence alone hands a reader a file
     still being written."""
-    from warlock.service import files
+    from realmspinner.service import files
 
     job = {"status": "done", "stage": "model"}
     store.rig_qa_png_path(tmp_path).write_bytes(b"png")
@@ -397,7 +397,7 @@ def test_the_qa_sheet_is_served_only_once_its_sidecar_is_written(tmp_path):
 
 
 def test_the_qa_record_is_derived_and_cannot_be_inherited_by_a_reroll():
-    from warlock.service.validation import DERIVED_PARAMS
+    from realmspinner.service.validation import DERIVED_PARAMS
 
     assert "deform_qa" in DERIVED_PARAMS
 

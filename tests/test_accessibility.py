@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio import tokens
+from realmspinner.studio import tokens
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "warlock"
+SRC = Path(__file__).resolve().parents[1] / "src" / "realmspinner"
 
 
 # -- the maths ---------------------------------------------------------------
@@ -241,7 +241,7 @@ def _event(kind: object, **fields: object) -> object:
 
 @pytest.fixture
 def backend(monkeypatch: pytest.MonkeyPatch) -> tuple[object, _FakeIO]:
-    from warlock.studio import imgui_backend
+    from realmspinner.studio import imgui_backend
 
     io = _FakeIO()
     monkeypatch.setattr(imgui_backend.imgui, "get_io", lambda: io)
@@ -391,7 +391,7 @@ def test_the_key_map_covers_the_keyboard() -> None:
     """
     import pygame
 
-    from warlock.studio import imgui_backend
+    from realmspinner.studio import imgui_backend
 
     for char in "abcdefghijklmnopqrstuvwxyz0123456789":
         key = getattr(pygame, f"K_{char}")
@@ -409,7 +409,7 @@ def test_tab_is_never_reserved_away_from_navigation() -> None:
     """
     import pygame
 
-    from warlock.studio import imgui_backend
+    from realmspinner.studio import imgui_backend
 
     assert pygame.K_TAB not in imgui_backend._NAV_KEYS
     assert pygame.K_LEFT in imgui_backend._NAV_KEYS
@@ -477,7 +477,7 @@ def test_every_reserving_mode_is_a_real_mode() -> None:
     a focus ring stepping behind a list -- which nobody would trace back to a
     typo in a frozenset.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     unknown = sorted(modes.NAV_KEY_MODES - set(modes.KEYS))
     assert not unknown, f"not modes: {unknown}"
@@ -490,7 +490,7 @@ def test_the_reserving_modes_are_the_ones_that_bind_arrows() -> None:
     binding Up/Down without joining ``NAV_KEY_MODES`` fails here rather than
     at somebody's keyboard.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     arrows = re.compile(r"K_(UP|DOWN|LEFT|RIGHT|SPACE)\b")
     binders = {
@@ -516,7 +516,7 @@ class _ScaleApp:
     test builds those rather than the app.
     """
 
-    from warlock.studio.main import App
+    from realmspinner.studio.main import App
 
     _resample_display_scale = App._resample_display_scale
 
@@ -535,7 +535,7 @@ class _ScaleApp:
 @pytest.fixture
 def quiet_rescale(monkeypatch: pytest.MonkeyPatch):
     """Stub the two things the method does to the outside world."""
-    from warlock.studio import main, theme
+    from realmspinner.studio import main, theme
 
     monkeypatch.setattr(theme, "apply", lambda _imgui: None)
     return main
@@ -545,7 +545,7 @@ def test_moving_to_another_monitor_rebuilds_the_scale(
     monkeypatch: pytest.MonkeyPatch, quiet_rescale
 ) -> None:
     """The whole of UX-22: a 100% -> 150% move used to change nothing."""
-    from warlock.studio import dpi, tokens
+    from realmspinner.studio import dpi, tokens
 
     monkeypatch.setattr(dpi, "window_scale", lambda _p: 1.5)
     app = _ScaleApp(monitor=1.0, ui_scale=1.0)
@@ -566,7 +566,7 @@ def test_staying_on_the_same_monitor_rebuilds_nothing(
     Rebuilding the font atlas on each would re-bake it whenever the window was
     nudged, which is a visible hitch for no reason.
     """
-    from warlock.studio import dpi
+    from realmspinner.studio import dpi
 
     monkeypatch.setattr(dpi, "window_scale", lambda _p: 1.0)
     app = _ScaleApp(monitor=1.0, ui_scale=1.0)
@@ -591,7 +591,7 @@ def test_a_clamped_zoom_is_not_baked_in_by_moving(
     3.75 and the ceiling no longer bites there. A test whose premise has
     stopped holding passes for the wrong reason, which is worse than failing.
     """
-    from warlock.studio import dpi, tokens
+    from realmspinner.studio import dpi, tokens
 
     try:
         monkeypatch.setattr(dpi, "window_scale", lambda _p: 3.0)
@@ -619,7 +619,7 @@ def test_a_clamped_zoom_is_not_baked_in_by_moving(
 @pytest.fixture
 def unscaled():
     """``fit`` reads ``tokens.SCALE`` through ``sp``; pin it and put it back."""
-    from warlock.studio import tokens
+    from realmspinner.studio import tokens
 
     before = tokens.SCALE
     yield tokens.set_scale
@@ -627,7 +627,7 @@ def unscaled():
 
 
 def test_a_roomy_window_gets_the_full_sidebar(unscaled) -> None:
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     unscaled(1.0)
     assert layout.fit(2400.0, 8.0) == pytest.approx(layout.SIDEBAR_W)
@@ -641,7 +641,7 @@ def test_the_reported_failure_no_longer_overflows(unscaled) -> None:
     them is what pushed the inspector past the window edge, because the
     right-hand column is the one sized from what is left.
     """
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     unscaled(2.0)
     spacing = 8.0
@@ -659,8 +659,8 @@ def test_the_sidebars_give_way_before_the_centre(unscaled) -> None:
     to give, this asserts which. An implementation that shrank the centre
     first would return the full sidebar here.
     """
-    from warlock.studio import layout
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout
+    from realmspinner.studio.tokens import sp
 
     unscaled(1.0)
     # Room for the comfortable centre and two sidebars a little too narrow.
@@ -676,8 +676,8 @@ def test_a_sidebar_is_never_squeezed_past_usefulness(unscaled) -> None:
     So the squeeze stops, and past that point it is the centre that shrinks --
     which ``centre_width``'s lower floor is what allows.
     """
-    from warlock.studio import layout
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout
+    from realmspinner.studio.tokens import sp
 
     unscaled(2.0)
     assert layout.fit(200.0, 8.0) == pytest.approx(sp(layout.SIDEBAR_MIN))
@@ -691,8 +691,8 @@ def test_the_fit_is_unset_until_a_frame_measures_one() -> None:
     an error -- so the measurement is a separate call and this is what the
     world looks like before it has happened.
     """
-    from warlock.studio import layout
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout
+    from realmspinner.studio.tokens import sp
 
     assert layout.SIDEBAR_FIT is None or isinstance(layout.SIDEBAR_FIT, float)
     if layout.SIDEBAR_FIT is None:

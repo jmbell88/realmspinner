@@ -18,17 +18,17 @@ from pathlib import Path
 
 from _pure_packages import dotted_root, siblings_of
 
-from warlock.kernels import mesh as clay
+from realmspinner.kernels import mesh as clay
 
 ENGINE = Path(clay.__file__).parent
-PACKAGE = "warlock.kernels.mesh"
+PACKAGE = "realmspinner.kernels.mesh"
 
 #: ``(module, imported name)`` for every import that leaves the package.
-#: :mod:`~warlock.core.undo` is the history engine the raster editor already
+#: :mod:`~realmspinner.core.undo` is the history engine the raster editor already
 #: shares -- it was extracted out of the raster editor *for* Clay, so a pure
 #: Clay reaching back into the raster editor for its own history would defeat
 #: the move. 2026-09-17: P3 of ``dev/RESTRUCTURE.md`` moved this module from
-#: ``studio/undo.py`` to ``warlock/core/undo.py``, which resolves the reason
+#: ``studio/undo.py`` to ``realmspinner/core/undo.py``, which resolves the reason
 #: this entry needed defending in the first place -- a kernel reaching down
 #: into ``core`` is just the ordinary shape of the layer table now, not a
 #: reach back into the shell for a tool the raster editor happens to also
@@ -52,53 +52,53 @@ OUTWARD_IMPORTS = {
     # folded the three modules into one ``core/safeio/`` package and
     # ``serialize.py`` reaches all three through a single ``from ... import``
     # line, so there is exactly one outward edge to record now, not three.
-    ("serialize.py", "warlock.core.safeio"),
-    ("document.py", "warlock.core.undo"),
-    ("drag.py", "warlock.kernels.geom3d"),
-    ("document.py", "warlock.kernels.geom3d"),
-    ("edits.py", "warlock.core.undo"),
+    ("serialize.py", "realmspinner.core.safeio"),
+    ("document.py", "realmspinner.core.undo"),
+    ("drag.py", "realmspinner.kernels.geom3d"),
+    ("document.py", "realmspinner.kernels.geom3d"),
+    ("edits.py", "realmspinner.core.undo"),
     # Added deliberately on 2026-09-06 (the audit's clay-01): deleting or
     # duplicating a multi-object selection pushed one step per object, so one
     # ``Delete`` took three ``Ctrl+Z`` presses and the first landed on a state
     # the user had never made. Bundling the gesture needs ``CompoundEdit``, from
     # the same shared history engine ``document.py`` and ``edits.py`` already
     # reach for -- not a fourth private notion of what one step is.
-    ("selection.py", "warlock.core.undo"),
+    ("selection.py", "realmspinner.core.undo"),
     # H01: the declared-count preflight reads a GLB's JSON chunk before
     # ``gltf.load`` decodes anything, and ``glbio.split_glb`` is the one
     # container-level parser this project has -- the same one ``gltf``
     # itself is built on, both now siblings inside ``kernels/geom3d/``. One
     # entry, not two: ``glbimport.py`` reaches ``geom3d`` for ``glbio``,
     # ``gltf`` and ``math3d`` through relative imports of the same package.
-    ("glbimport.py", "warlock.kernels.geom3d"),
+    ("glbimport.py", "realmspinner.kernels.geom3d"),
     # 2026-09-19, Clay tranche 1: an OBJ's ``usemtl``/MTL colours become
     # ``gltf.Material`` palette slots, glbimport's reason exactly -- a Clay
     # material is a ``gltf.Material``, never a parallel type.
-    ("objimport.py", "warlock.kernels.geom3d"),
-    ("ops.py", "warlock.kernels.geom3d"),
+    ("objimport.py", "realmspinner.kernels.geom3d"),
+    ("ops.py", "realmspinner.kernels.geom3d"),
     # Added deliberately on 2026-09-06 (the audit's clay-08): grounding a
     # figure preset has to know where its *built* geometry ends, not just
     # where its bone landmark sits, so ``presets.build`` places each part
     # through ``math3d.compose`` the same way ``drag.py``, ``ops.py``
     # and ``document.py`` already do -- one quaternion convention, not a
     # second one invented for this file.
-    ("presets.py", "warlock.kernels.geom3d"),
+    ("presets.py", "realmspinner.kernels.geom3d"),
     # analyze.py composes each object's world transform the same way
     # ops.py/document.py/presets.py already do, via ``math3d.compose`` --
     # not a second quaternion convention for a module that otherwise never
     # touches the viewport.
-    ("analyze.py", "warlock.kernels.geom3d"),
+    ("analyze.py", "realmspinner.kernels.geom3d"),
     # serialize.py writes a material override straight out as a
     # ``gltf.Material`` -- the same "the export is the definition" reasoning
     # as the rest of this list, for the one file that also reaches
     # ``core.safeio`` above.
-    ("serialize.py", "warlock.kernels.geom3d"),
+    ("serialize.py", "realmspinner.kernels.geom3d"),
     # Clay tranche 2, the modifier stack: radial-array spins each copy about
     # the object's own local origin, the same ``math3d.compose``/
     # ``quat_from_axis_angle`` pair ``ops.py``'s ``rotated_about_origin``
     # already reaches for -- one quaternion convention, not a second one for
     # a modifier that happens to rotate too.
-    ("ops_modifiers.py", "warlock.kernels.geom3d"),
+    ("ops_modifiers.py", "realmspinner.kernels.geom3d"),
     # Clay tranche 3, scene structure: readiness's ``scale``/``pivot``/
     # ``transforms`` checks measure a document's *world* placement, not local
     # TRS (a parented object's own fields are relative to its parent, not
@@ -106,14 +106,14 @@ OUTWARD_IMPORTS = {
     # ``doc.world_matrix`` onto a duck-typed copy of each object before any
     # check runs, the same ``math3d.compose``/``decompose`` pair ``ops.py``,
     # ``document.py`` and ``analyze.py`` already reach for.
-    ("readiness.py", "warlock.kernels.geom3d"),
+    ("readiness.py", "realmspinner.kernels.geom3d"),
 }
 
 #: Which modules of ``kernels.geom3d``, since the entry above is recorded at
 #: package granularity the way ``test_packwright_imports`` records
 #: ``pipelines``. ``gltf``/``math3d`` lived under ``studio/viewer/`` until P3
 #: moved them; ``glbio`` was already a standalone top-level module
-#: (``warlock/glbio.py``) that the same move put in the same kernel package,
+#: (``realmspinner/glbio.py``) that the same move put in the same kernel package,
 #: and ``glbimport.py``'s H01 preflight is what reaches for it (see
 #: :data:`OUTWARD_IMPORTS`). The viewer package that remains still holds the
 #: GL-side loader and the renderer's programs, and reaching for one of those
@@ -190,7 +190,7 @@ def test_the_engine_never_imports_a_window():
 def test_the_engine_never_imports_the_service_layer():
     for path in _modules():
         for name in _outward(path):
-            assert "warlock.service" not in name, f"{path.name} imports {name}"
+            assert "realmspinner.service" not in name, f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_queue_or_the_pipelines():
@@ -198,13 +198,13 @@ def test_the_engine_never_imports_the_queue_or_the_pipelines():
     torch and a job queue behind a test of what an extrude does to a UV."""
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.queue"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock.pipelines"), f"{path.name} imports {name}"
-            # ``warlock._q_*`` too: the queue's worker halves are the same
+            assert not name.startswith("realmspinner.queue"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.pipelines"), f"{path.name} imports {name}"
+            # ``realmspinner._q_*`` too: the queue's worker halves are the same
             # dependency wearing a different name, and importing one of those
             # would drag torch behind a headless test as surely as importing
             # ``queue`` itself.
-            assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{path.name} imports {name}"
 
 
 #: ``geom3d`` is a shared kernel leaf this package legitimately imports (see
@@ -222,11 +222,11 @@ def test_the_engine_never_imports_the_other_pure_packages():
     Derived over :func:`_pure_packages.siblings_of` rather than the
     ``("inker", "plotter", "packwright")`` this used to hard-code: that list
     predates P3 of ``dev/RESTRUCTURE.md`` and would have gone silently vacuous
-    for ``inker`` the day it renamed to ``warlock.kernels.pixel`` -- a literal
-    check for ``"warlock.studio.inker"`` bans an import string nothing in the
+    for ``inker`` the day it renamed to ``realmspinner.kernels.pixel`` -- a literal
+    check for ``"realmspinner.studio.inker"`` bans an import string nothing in the
     tree has written since. :func:`_pure_packages.dotted_root` looks up each
     sibling's real import prefix instead of assuming it still hangs off
-    ``warlock.studio``.
+    ``realmspinner.studio``.
     """
     for other in siblings_of("mesh", allowed=SHARED_LEAVES):
         root = dotted_root(other)
@@ -242,7 +242,7 @@ def test_the_only_outward_imports_are_the_ones_written_down():
         (path.name, name)
         for path in _modules()
         for name in _outward(path)
-        if name.split(".")[0] == "warlock"
+        if name.split(".")[0] == "realmspinner"
     }
     assert found == OUTWARD_IMPORTS
 

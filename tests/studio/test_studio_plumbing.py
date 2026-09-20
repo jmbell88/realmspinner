@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import main
-from warlock.studio.state import AppState
+from realmspinner.studio import main
+from realmspinner.studio.state import AppState
 
 
 class FakeCache:
@@ -106,7 +106,7 @@ def test_the_health_ticker_polls_on_the_ttl_and_not_every_frame():
 def test_the_trellis_log_result_is_stored_where_the_inspector_reads_it():
     """The one diagnostic for "the 3D engine stopped unexpectedly". The button
     submitted, the service answered, and nothing ever wrote ``trellis_log``."""
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     app = FakeApp()
     app.dispatch("trellis-log", {"text": "CUDA error: out of memory"})
@@ -188,7 +188,7 @@ def test_announce_still_calls_the_viewer_reload_for_a_finished_remesh(svc):
     instead -- ``ctx.cache.tick`` firing ``announce`` -- the way the existing
     retarget test drives ``_on_task_done``, mirroring
     ``test_studio_frame.py``'s own ``_tick_with`` for the findings recompute."""
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.studio.jobs_cache import JobsCache
 
     class WiredApp(FakeApp):
         # The real methods, not stand-ins: what is under test is whether
@@ -322,7 +322,7 @@ def _calls_to(module: Any, name: str) -> list[ast.Call]:
 def test_rigging_an_existing_mesh_forwards_the_chosen_skeleton():
     """The skeleton combo applied only to rig-on-generate; the library's Rig
     action passed nothing, so the config default always won."""
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     # create_rig is never called directly here -- it is handed to ctx.submit --
     # so the call to inspect is the submit that carries it.
@@ -344,8 +344,8 @@ def test_rigging_an_existing_mesh_forwards_the_chosen_skeleton():
 def test_the_skeleton_comes_from_the_3d_form():
     """The control moved to the Rig stage in wave 5; the *field* did not, so a
     session that picked a skeleton before generating still has it set."""
-    from warlock.studio.panes import stage_rig
-    from warlock.studio.state import AppState
+    from realmspinner.studio.panes import stage_rig
+    from realmspinner.studio.state import AppState
 
     class Ctx:
         state = AppState()
@@ -359,7 +359,7 @@ def test_the_skeleton_comes_from_the_3d_form():
 def test_a_sheet_can_be_named():
     """The service validated, stored and displayed a name that no control could
     ever set."""
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     assert "sheet-name" in inspect.getsource(sheet_panel._controls)
 
@@ -367,8 +367,8 @@ def test_a_sheet_can_be_named():
 def test_the_sheet_form_is_rebuilt_when_the_selection_moves():
     """Half the form is pose ids, and those belong to the rig they were fitted
     to -- carrying them across submits another job's poses."""
-    from warlock.studio.panes import sheet_panel
-    from warlock.studio.state import AppState
+    from realmspinner.studio.panes import sheet_panel
+    from realmspinner.studio.state import AppState
 
     class Ctx:
         state = AppState()
@@ -384,7 +384,7 @@ def test_the_sheet_form_is_rebuilt_when_the_selection_moves():
 
 def test_the_sheet_sidecar_can_be_exported():
     """A PNG with no cell map is a grid an importer cannot address."""
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     assert "Save JSON" in inspect.getsource(sheet_panel._saved)
     assert "get_sheet" in inspect.getsource(sheet_panel._save_sidecar)
@@ -437,7 +437,7 @@ def _strip_ctx() -> Any:
 
 
 def test_the_sheet_strip_uploads_once_per_preview_not_once_per_frame():
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     ctx = _strip_ctx()
     strip = _StripImage()
@@ -462,7 +462,7 @@ def test_the_sheet_strip_uploads_once_per_preview_not_once_per_frame():
 def test_a_resized_sheet_strip_still_gets_a_new_texture():
     """The gate must not swallow the size change: a strip rendered at a
     different yaw count is a different width, and ``write`` cannot resize."""
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     ctx = _strip_ctx()
     ctx.state.preview["sheet_strip_gen"] = 1
@@ -479,7 +479,7 @@ def test_the_strip_stamp_is_a_generation_rather_than_an_object_id():
     """``id(strip)`` is not a stamp. CPython recycles ids, so a freed strip's
     id can land on its replacement and the preview keeps showing the old
     turnaround -- the exact latent bug this gate exists to avoid, not repeat."""
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     tree = ast.parse(inspect.getsource(sheet_panel).lstrip())
     ids = [
@@ -494,7 +494,7 @@ def test_the_strip_stamp_is_a_generation_rather_than_an_object_id():
 def test_releasing_the_strip_texture_drops_its_stamp_too():
     """A stamp outliving its texture is a stale gate: the next texture is
     created and then compared against the *previous* one's generation."""
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     ctx = _strip_ctx()
     ctx.state.preview["sheet_strip_gen"] = 1
@@ -507,7 +507,7 @@ def test_releasing_the_strip_texture_drops_its_stamp_too():
 
 
 def test_the_pose_panel_does_not_ask_for_a_rig_that_cannot_be_made():
-    from warlock.studio.panes import pose_panel
+    from realmspinner.studio.panes import pose_panel
 
     source = inspect.getsource(pose_panel.draw)
     assert "ctx.rigging_available" in source
@@ -520,7 +520,7 @@ def test_the_pose_panel_acts_only_on_the_asset_the_editor_is_bound_to():
     B against A's skeleton. Nothing downstream could catch it: rig validation
     checks bone names, and two jobs on one template have the same ones.
     """
-    from warlock.studio.panes import pose_panel
+    from realmspinner.studio.panes import pose_panel
 
     bound = SimpleNamespace(pose_job_id="a" * 12)
     assert pose_panel._is_bound_job(bound, {"id": "a" * 12}) is True
@@ -533,7 +533,7 @@ def test_the_pose_panel_acts_only_on_the_asset_the_editor_is_bound_to():
 def test_the_bound_check_comes_before_anything_that_writes():
     """A structural assertion, because the *withholding* is the fix: the
     unbound branch must return before any control that names a job id."""
-    from warlock.studio.panes import pose_panel
+    from realmspinner.studio.panes import pose_panel
 
     source = inspect.getsource(pose_panel.draw)
     guard_at = source.index("_is_bound_job")
@@ -542,7 +542,7 @@ def test_the_bound_check_comes_before_anything_that_writes():
 
 
 def test_leaving_pose_mode_forgets_which_job_it_was_bound_to():
-    from warlock.studio.viewer_embed import Viewer
+    from realmspinner.studio.viewer_embed import Viewer
 
     viewer = Viewer.__new__(Viewer)
     viewer.pose_mode = True
@@ -571,7 +571,7 @@ def test_the_pose_dirty_flag_is_cleared_when_the_save_lands():
 
 def test_a_pose_save_that_is_still_in_flight_leaves_the_flag_set():
     """The submit side of the same rule: ``_save`` must not clear it itself."""
-    from warlock.studio.panes import pose_panel
+    from realmspinner.studio.panes import pose_panel
 
     assert "dirty = False" not in inspect.getsource(pose_panel._save)
 
@@ -588,7 +588,7 @@ def test_a_pose_delete_does_not_clear_the_dirty_flag():
 
 def test_a_reference_image_can_be_saved():
     """A promoted job copies input.png and then had no way to give it back."""
-    from warlock.studio import artifacts
+    from realmspinner.studio import artifacts
 
     assert "input.png" in dict(artifacts.ARTIFACTS)
 
@@ -597,7 +597,7 @@ def test_a_reference_image_can_be_saved():
 
 
 def test_copying_settings_fills_the_form_from_a_jobs_params():
-    from warlock.studio.state import form_from_params
+    from realmspinner.studio.state import form_from_params
 
     form = form_from_params(
         {
@@ -620,7 +620,7 @@ def test_copying_settings_fills_the_form_from_a_jobs_params():
 def test_copying_settings_cannot_smuggle_a_derived_value_into_the_form():
     """The form is the allowlist: anything the worker recorded about a finished
     job's artifacts must not come back as a submitted field."""
-    from warlock.studio.state import form_from_params
+    from realmspinner.studio.state import form_from_params
 
     form = form_from_params(
         {
@@ -637,7 +637,7 @@ def test_copying_settings_cannot_smuggle_a_derived_value_into_the_form():
 def _copy_ctx():
     from types import SimpleNamespace
 
-    from warlock.studio.state import default_form_2d
+    from realmspinner.studio.state import default_form_2d
 
     return SimpleNamespace(
         state=SimpleNamespace(
@@ -659,7 +659,7 @@ def test_copying_a_tiles_settings_keeps_it_a_tile():
     means the pane offers a taxonomy the prompt compiler will discard and a
     second stage the job cannot have.
     """
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     ctx = _copy_ctx()
     library.copy_settings(ctx, {"stage": "tile", "params": {"prompt": "cobblestone"}})
@@ -668,7 +668,7 @@ def test_copying_a_tiles_settings_keeps_it_a_tile():
 
 
 def test_copying_a_references_settings_makes_an_object():
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     ctx = _copy_ctx()
     ctx.state.form_2d["output"] = "tile"
@@ -684,7 +684,7 @@ def test_copying_a_materials_sheet_brings_its_list_back():
     """A tile set is the one kind whose request is a nested block rather than
     flat fields, so the key-matching loop finds none of it -- and "another like
     this" reopened the form at its defaults with nothing said."""
-    from warlock.studio.state import form_from_params
+    from realmspinner.studio.state import form_from_params
 
     form = form_from_params(
         _sheet_params(
@@ -711,7 +711,7 @@ def test_copying_a_materials_sheet_brings_its_list_back():
 def test_copying_a_terrain_set_keeps_which_surface_is_which():
     """Order is not a convention here: ``inner`` is the one the forty-seven
     pictures are of."""
-    from warlock.studio.state import form_from_params
+    from realmspinner.studio.state import form_from_params
 
     form = form_from_params(
         _sheet_params(
@@ -735,7 +735,7 @@ def test_copying_a_sheet_from_before_the_layouts_reopens_on_the_grid():
     """A version-2 block names no mode, and the door's own reading of that is
     that it is the grid path and nothing else -- which is also the only layout
     that can reproduce its 48 px isometric tiles."""
-    from warlock.studio.state import form_from_params
+    from realmspinner.studio.state import form_from_params
 
     form = form_from_params(
         {"sheet": {"version": 2, "tile_w": 48, "tile_h": 24, "projection": "isometric"}}
@@ -746,7 +746,7 @@ def test_copying_a_sheet_from_before_the_layouts_reopens_on_the_grid():
 
 
 def test_copying_settings_survives_a_junk_value():
-    from warlock.studio.state import form_from_params
+    from realmspinner.studio.state import form_from_params
 
     form = form_from_params({"seed": "not a number", "prompt": "ok"})
     assert form["prompt"] == "ok"
@@ -759,7 +759,7 @@ def test_copying_settings_survives_a_junk_value():
 def test_the_texture_panel_refuses_an_empty_prompt_before_the_button():
     """The one refusal a control can express -- the numeric ranges are enforced
     by the slider and the combo, which cannot produce an out-of-range value."""
-    from warlock.studio.panes import texture_panel
+    from realmspinner.studio.panes import texture_panel
 
     assert texture_panel.validate({"prompt": "   "})
     assert texture_panel.validate({"prompt": "rusted iron"}) == []
@@ -770,7 +770,7 @@ def test_the_texture_panel_submits_the_default_atlas_size_as_none():
     option holds -- so the untouched form's submit crashed in the draw frame
     before ctx.submit ever ran. The kwargs are built by a pure function now,
     where this can be pinned."""
-    from warlock.studio.panes import texture_panel
+    from realmspinner.studio.panes import texture_panel
 
     kwargs = texture_panel.submit_kwargs(
         {"prompt": " rusted iron ", "strength": 0.45, "texture_size": "",
@@ -782,7 +782,7 @@ def test_the_texture_panel_submits_the_default_atlas_size_as_none():
 
 
 def test_the_texture_panel_carries_the_depth_anchor_when_checked():
-    from warlock.studio.panes import texture_panel
+    from realmspinner.studio.panes import texture_panel
 
     kwargs = texture_panel.submit_kwargs(
         {"prompt": "x", "strength": 0.6, "texture_size": "1024",
@@ -800,8 +800,8 @@ def test_the_texture_panel_defaults_to_the_anchored_run():
     A/B baseline now, not the default."""
     from types import SimpleNamespace
 
-    from warlock import models
-    from warlock.studio.panes import texture_panel
+    from realmspinner import models
+    from realmspinner.studio.panes import texture_panel
 
     ctx = SimpleNamespace(state=SimpleNamespace(preview={}))
     form = texture_panel._form(ctx, "abc123")
@@ -813,14 +813,14 @@ def test_the_texture_panel_warns_about_occlusion_only_when_unanchored():
     """The old warning was unconditional because the limitation was. Now it is
     a property of the run being configured: anchored runs depth-test, so
     warning anyway would teach the user the checkbox does nothing."""
-    from warlock.studio.panes import texture_panel
+    from realmspinner.studio.panes import texture_panel
 
     assert isinstance(texture_panel.occlusion_note(False), str)
     assert texture_panel.occlusion_note(True) is None
 
 
 def test_the_texture_panel_reports_what_the_run_actually_measured():
-    from warlock.studio.panes import texture_panel
+    from realmspinner.studio.panes import texture_panel
 
     line = texture_panel.report_line(
         {"coverage": 0.62, "views": 10, "coverage_effective": 0.55,
@@ -838,8 +838,8 @@ def test_the_texture_panel_reports_what_the_run_actually_measured():
 def test_the_texture_panel_offers_only_atlas_sizes_the_service_accepts():
     """Two spellings of one list is how a combo comes to offer a value the door
     refuses, which reads as the button being broken."""
-    from warlock.pipelines import retexture
-    from warlock.studio.panes import texture_panel
+    from realmspinner.pipelines import retexture
+    from realmspinner.studio.panes import texture_panel
 
     source = pathlib.Path(texture_panel.__file__).read_text(encoding="utf-8")
     assert "retexture.TEXTURE_SIZES" in source
@@ -849,8 +849,8 @@ def test_the_texture_panel_offers_only_atlas_sizes_the_service_accepts():
 def test_the_texture_panel_sits_beside_the_retarget_one():
     """Both are "an operation on a selected done job" -- the shape the closed
     mode list is the reason for. A re-texture is a button, not a mode."""
-    from warlock.studio import modes
-    from warlock.studio.panes import inspector
+    from realmspinner.studio import modes
+    from realmspinner.studio.panes import inspector
 
     source = pathlib.Path(inspector.__file__).read_text(encoding="utf-8")
     assert source.index("retarget_panel.draw") < source.index("texture_panel.draw")
@@ -861,7 +861,7 @@ def test_the_texture_panel_sits_beside_the_retarget_one():
 
 
 def test_the_retarget_panel_offers_only_raw_without_gltfpack():
-    from warlock.studio.panes import retarget_panel
+    from realmspinner.studio.panes import retarget_panel
 
     assert retarget_panel.TIERS[0][0] == "raw"
     assert {t[0] for t in retarget_panel.TIERS} == {
@@ -878,7 +878,7 @@ def test_the_retarget_panel_offers_only_raw_without_gltfpack():
     [(50_000, True), (100, False), (5_000_000, False)],
 )
 def test_the_retarget_panel_states_the_services_own_range(triangles, ok):
-    from warlock.studio.panes import retarget_panel
+    from realmspinner.studio.panes import retarget_panel
 
     problems = retarget_panel.validate(
         {"profile": "custom", "custom_triangles": triangles}
@@ -887,13 +887,13 @@ def test_the_retarget_panel_states_the_services_own_range(triangles, ok):
 
 
 def test_a_named_tier_needs_no_custom_count():
-    from warlock.studio.panes import retarget_panel
+    from realmspinner.studio.panes import retarget_panel
 
     assert retarget_panel.validate({"profile": "raw", "custom_triangles": 0}) == []
 
 
 def test_the_retarget_panel_calls_the_service_function_that_had_no_caller():
-    from warlock.studio.panes import retarget_panel
+    from realmspinner.studio.panes import retarget_panel
 
     source = inspect.getsource(retarget_panel._submit)
     assert "svc_jobs.optimize_job" in source
@@ -903,7 +903,7 @@ def test_the_retarget_panel_calls_the_service_function_that_had_no_caller():
 def test_an_unmeasured_reroll_attempt_is_not_called_a_refusal():
     """The attempts line has three states, not two: a measurement that never
     ran is not a verdict, and labelling it "refused" invents one."""
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     assert inspector._attempt_verdict({"seed": 1, "ok": True, "reasons": []}) == "kept"
     assert inspector._attempt_verdict({"seed": 2, "ok": False, "reasons": ["x"]}) == "refused"
@@ -929,28 +929,28 @@ def test_a_finished_tile_is_not_offered_a_remesh():
     came back as an error toast -- the exact failure the ``rerollable`` check
     beside it exists to prevent.
     """
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     tile = {"id": "a", "stage": "tile", "kind": "text", "files": ["input.png"]}
     assert library._remeshable(tile) is False
 
 
 def test_a_finished_reference_is_still_offered_a_remesh():
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     reference = {"id": "a", "stage": "reference", "kind": "text", "files": ["input.png"]}
     assert library._remeshable(reference) is True
 
 
 def test_a_job_with_no_image_is_not_offered_a_remesh():
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     assert library._remeshable({"id": "a", "stage": "model", "files": []}) is False
 
 
 def test_the_retry_ladder_rerolls_a_tile_rather_than_remeshing_it():
     """The other call site, through the action it actually submits."""
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     calls: list[dict] = []
 
@@ -973,7 +973,7 @@ def test_both_remesh_call_sites_go_through_the_one_predicate():
     the rule: the menu item and the retry ladder held the same expression, one
     of them learned about tiles and the other did not.
     """
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     assert len(_calls_to(library, "_remeshable")) == 2
     source = inspect.getsource(library)
@@ -988,8 +988,8 @@ def test_both_remesh_call_sites_go_through_the_one_predicate():
 
 def test_the_properties_pane_never_lists_a_generator_by_name():
     """The registry is data precisely so the pane is not a chain of names."""
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     source = inspect.getsource(clay_props)
     for name in bp.GENERATORS:
@@ -1000,10 +1000,10 @@ def test_every_clay_pane_gates_its_controls_on_saving():
     """The rule Inker had to learn: a save encodes the live document on a task
     thread, so a control that restructures it mid-encode writes a file
     describing a document that never existed."""
-    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     for pane in (clay_tools, clay_props, clay_outliner, clay_bridge):
         source = inspect.getsource(pane)
@@ -1013,7 +1013,7 @@ def test_every_clay_pane_gates_its_controls_on_saving():
 def test_the_bridge_offers_both_output_paths_and_they_are_different_calls():
     """Two genuinely different things: the exact geometry, or a picture trellis
     reinterprets. A bridge that wired both to one call would look complete."""
-    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
 
     source = inspect.getsource(clay_bridge)
     assert "export_asset" in source
@@ -1028,8 +1028,8 @@ def test_the_tools_pane_mirrors_through_ops_rather_than_negating_a_scale():
     pane stopped keeping its own list of what Clay can do; the guard followed
     it, because the invariant is about the *op* rather than about the button.
     """
-    from warlock.studio.modes.clay import ops as clay_ops
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     source = inspect.getsource(clay_ops)
     assert "clay_ops_geom.mirror" in source
@@ -1040,7 +1040,7 @@ def test_the_tools_pane_mirrors_through_ops_rather_than_negating_a_scale():
 def test_the_outliner_addresses_every_row_by_uid():
     """An index stops naming the thing it named the moment anything moves, and
     the outliner is the thing that moves them."""
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 
     tree = ast.parse(inspect.getsource(clay_outliner))
     calls = [
@@ -1093,8 +1093,8 @@ def test_a_dropped_glb_is_refused_in_clay_mode():
     """Reading a GLB back into editable objects is not Clay Phase 1, and a
     frozen one-object document would be a different feature wearing its name."""
     source = inspect.getsource(main.App._on_drop)
-    assert "WBLK_SUFFIX" in source
-    assert ".wblk" in source
+    assert "RBLK_SUFFIX" in source
+    assert ".rblk" in source
 
 
 def test_clay_persists_its_recent_list_and_no_mode():
@@ -1109,7 +1109,7 @@ def test_clay_persists_its_recent_list_and_no_mode():
     teardown calls. ``tests/studio/test_mode_manifests.py`` is what proves the loop
     itself calls every member of that set.
     """
-    from warlock.studio import mode_manifest
+    from realmspinner.studio import mode_manifest
 
     assert "clay" in {entry.key for entry in mode_manifest.persisting_modes()}
     # The guard the whole app is under; restated here because Clay is the
@@ -1143,8 +1143,8 @@ def test_the_send_to_3d_render_carries_no_grid_gizmo_or_overlay():
     default is ``"unlit"``, and ``"unlit"``'s own row in that table is
     ``flat: True``.
     """
-    from warlock.studio.modes.clay.ui import view as clay_view
-    from warlock.studio.modes.clay.ui.view import ClayView
+    from realmspinner.studio.modes.clay.ui import view as clay_view
+    from realmspinner.studio.modes.clay.ui.view import ClayView
 
     assert inspect.signature(ClayView.render_png).parameters["grid"].default is False
     assert inspect.signature(ClayView.render_png).parameters["shading"].default == "unlit"
@@ -1176,7 +1176,9 @@ def test_the_send_to_3d_render_happens_on_the_frame_thread():
     assert "submit" not in source
     assert "upload_bytes" in source
     assert "submit" in inspect.getsource(
-        __import__("warlock.studio.modes.create.ui.panes.settings_3d", fromlist=["x"]).upload_bytes
+        __import__(
+            "realmspinner.studio.modes.create.ui.panes.settings_3d", fromlist=["x"]
+        ).upload_bytes
     )
 
 
@@ -1188,14 +1190,14 @@ def test_both_upload_paths_read_the_same_form():
     lives in ``modes/create/engine/mesh.py`` now; both of ``settings_3d.py``'s
     upload paths still call it, as ``create_mesh.upload_kwargs``.
     """
-    from warlock.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     assert len(_calls_to(settings_3d, "upload_kwargs")) == 2
 
 
 def test_clay_is_a_workspace_rather_than_a_single_pane():
-    from warlock.studio import main as main_mod
-    from warlock.studio import modes
+    from realmspinner.studio import main as main_mod
+    from realmspinner.studio import modes
 
     assert "clay" in modes.WORKSPACE_MODES
     assert "clay" not in main_mod._SINGLE_PANE_MODES

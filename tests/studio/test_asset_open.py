@@ -19,9 +19,9 @@ import pathlib
 
 import pytest
 
-from warlock.studio import asset_open
+from realmspinner.studio import asset_open
 
-SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "warlock"
+SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "realmspinner"
 
 
 def _row(kind, stage="model", **params):
@@ -93,7 +93,7 @@ def test_a_character_model_row_opens_on_the_mesh_stage_and_its_sheet_in_poser():
     routing table says which is which without either of them knowing about the
     other.
     """
-    from warlock.service import characters as svc_characters
+    from realmspinner.service import characters as svc_characters
 
     body = {
         "id": "CHAR",
@@ -117,7 +117,7 @@ def test_a_character_row_wears_the_placeholder_glyph_of_a_built_mesh():
     framed glyph rather than a hole for exactly that case -- the arrangement an
     imported mesh has always had. Asserted through the file list, which is the
     condition the drawing branches on."""
-    from warlock.studio.panes import thumbs
+    from realmspinner.studio.panes import thumbs
 
     body = {"id": "CHAR", "kind": "image", "stage": "model", "files": ["model.glb"]}
     assert "thumb.png" not in body["files"]

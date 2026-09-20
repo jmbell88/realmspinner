@@ -11,11 +11,11 @@ import inspect
 
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.elements import ElementSel, OpError
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.elements import ElementSel, OpError
 
 
 def _obj(name: str = "A", mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
@@ -55,7 +55,7 @@ def test_face_mode_pick_reaches_an_occluded_object_under_xray():
     back to ``hit.face if hit.uid == obj.uid else None``, which only ever
     named the *nearest* object's face, exactly like it would with X-ray off.
     """
-    from warlock.studio.modes.clay.ui import _view_pick
+    from realmspinner.studio.modes.clay.ui import _view_pick
 
     near = _obj("Near", translation=(0.0, 0.0, 1.0))
     far = _obj("Far", translation=(0.0, 0.0, -1.0))
@@ -159,7 +159,7 @@ def test_output_schema_comment_lists_every_tool_that_declares_one():
     this test moved with it rather than reading ``agent_clay`` itself, which
     no longer carries that banner at all.
     """
-    from warlock.studio.modes.clay.agent import schema as agent_clay_schema
+    from realmspinner.studio.modes.clay.agent import schema as agent_clay_schema
 
     source = inspect.getsource(agent_clay_schema)
     # The dashes are part of the needle on purpose: the module docstring

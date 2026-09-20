@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
 
 class _Ctx:
@@ -140,7 +140,7 @@ def test_reference_get_refuses_a_reply_too_large_for_the_wire_frame(
     multi-megabyte reference to prove the same point. Fails against the
     unfixed handler, which never performs this check at all.
     """
-    from warlock.mcp import rpc
+    from realmspinner.mcp import rpc
 
     ctx = _Ctx()
     session = agent_clay.Session()

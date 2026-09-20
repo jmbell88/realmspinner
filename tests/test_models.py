@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import config as config_module
-from warlock import models
+from realmspinner import config as config_module
+from realmspinner import models
 
 
 def test_keys_match_their_table_entries():
@@ -126,7 +126,7 @@ def test_ip_adapter_is_downloadable(key):
 
 @pytest.mark.parametrize("key", sorted(models.CONTROLNETS))
 def test_controlnet_is_downloadable_and_names_a_real_preprocessor(key):
-    from warlock.pipelines import control
+    from realmspinner.pipelines import control
 
     spec = models.CONTROLNETS[key]
     assert "hf download" in spec.download
@@ -212,7 +212,7 @@ def test_every_named_scheduler_is_one_text2image_can_build():
         LCMScheduler,
     )
 
-    from warlock.pipelines import text2image
+    from realmspinner.pipelines import text2image
 
     base = DDIMScheduler()
     built = {

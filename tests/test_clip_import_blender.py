@@ -2,10 +2,10 @@
 
 **Never called "retarget"** here -- see ``clipmaps``'s module docstring for why
 that word is reserved for triangle-budget re-optimisation in this codebase.
-"Import clip" brings a Mixamo/Rigify animation onto a Warlock template rig;
+"Import clip" brings a Mixamo/Rigify animation onto a Realmspinner template rig;
 this file is Blender SAMPLES only -- it proves the worker reads an external
 file's world bone transforms correctly, picks the right armature, and reports
-the Warlock template's own rest frames the same way ``op_armature`` builds
+the Realmspinner template's own rest frames the same way ``op_armature`` builds
 them. The pure math that converts one onto the other is a later step
 (``cliptransfer.py``) and is not exercised here.
 
@@ -176,7 +176,7 @@ def clip_paths(tmp_path_factory):
 
 
 def _spec(source: Path, tmp_path: Path, **overrides) -> dict:
-    from warlock.kernels.rig import blender_spec
+    from realmspinner.kernels.rig import blender_spec
 
     spec = blender_spec.clip_sample_spec(source, "humanoid", tmp_path / ".clip_result.json")
     spec.pop("result_path", None)  # op_clip_sample never reads it; only run_worker/main do
@@ -187,7 +187,7 @@ def _spec(source: Path, tmp_path: Path, **overrides) -> dict:
 def _run(spec: dict) -> dict:
     import bpy
 
-    from warlock.pipelines import blender_worker as bw
+    from realmspinner.pipelines import blender_worker as bw
 
     return bw.op_clip_sample(bpy, spec)
 
@@ -200,7 +200,7 @@ def _quat_angle_deg(a, b) -> float:
 
 
 def test_clip_sample_is_a_registered_op():
-    from warlock.pipelines import blender_worker as bw
+    from realmspinner.pipelines import blender_worker as bw
 
     assert bw.OPS["clip_sample"] is bw.op_clip_sample
 
@@ -236,14 +236,14 @@ def test_clip_sample_reads_fbx_and_glb_to_the_same_world_rotations(clip_paths, t
     assert checked == len(mapped) * 3
 
 
-def test_clip_sample_reports_the_warlock_target_rest_frames_from_the_armature_builder(
+def test_clip_sample_reports_the_realmspinner_target_rest_frames_from_the_armature_builder(
     clip_paths, tmp_path
 ):
     import bpy
 
-    from warlock import poselib
-    from warlock.kernels.rig import skeleton, templates
-    from warlock.pipelines import blender_worker as bw
+    from realmspinner import poselib
+    from realmspinner.kernels.rig import skeleton, templates
+    from realmspinner.pipelines import blender_worker as bw
 
     result = _run(_spec(clip_paths["glb"], tmp_path))
     assert result["ok"] is True, result

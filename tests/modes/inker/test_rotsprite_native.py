@@ -13,11 +13,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import native
-from warlock.kernels.pixel import transform as tf
+from realmspinner import native
+from realmspinner.kernels.pixel import transform as tf
 
 pytestmark = pytest.mark.skipif(
-    not native.available(), reason="warlockc is not built in this checkout"
+    not native.available(), reason="realmspinnerc is not built in this checkout"
 )
 
 
@@ -26,12 +26,12 @@ def _numpy_rotsprite(pixels: np.ndarray, degrees: float, *, expand: bool = True)
     disabled for the duration of the call."""
     import os
 
-    os.environ["WARLOCK_NATIVE"] = "0"
+    os.environ["REALMSPINNER_NATIVE"] = "0"
     native.reset()
     try:
         return tf.rotsprite(pixels, degrees, expand=expand)
     finally:
-        os.environ.pop("WARLOCK_NATIVE", None)
+        os.environ.pop("REALMSPINNER_NATIVE", None)
         native.reset()
 
 
@@ -126,7 +126,7 @@ def test_a_too_small_scratch_buffer_is_refused_and_python_still_falls_back(monke
     reference = _numpy_rotsprite(plane, 22.0, expand=True)
 
     real_handle = native.lib()
-    real_fn = real_handle.warlockc_rotsprite_u8
+    real_fn = real_handle.realmspinnerc_rotsprite_u8
 
     def starved(*args):
         # Same call, but with a scratch length of 0 -- forces the kernel's own
@@ -136,7 +136,7 @@ def test_a_too_small_scratch_buffer_is_refused_and_python_still_falls_back(monke
         args[-2] = ctypes.c_size_t(0)
         return real_fn(*args)
 
-    monkeypatch.setattr(real_handle, "warlockc_rotsprite_u8", starved)
+    monkeypatch.setattr(real_handle, "realmspinnerc_rotsprite_u8", starved)
     assert native.rotsprite_u8(plane, 22.0) is None
 
     # transform.rotsprite doesn't go through this monkeypatch (it calls

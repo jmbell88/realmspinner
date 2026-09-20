@@ -13,12 +13,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid
-from warlock.kernels.pixel import composite as cp
-from warlock.kernels.pixel.anim_edits import charged, pixel_bytes
-from warlock.kernels.pixel.animation import TRACK_PROPS, Track
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.tiles import (
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.pixel import composite as cp
+from realmspinner.kernels.pixel.anim_edits import charged, pixel_bytes
+from realmspinner.kernels.pixel.animation import TRACK_PROPS, Track
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.tiles import (
     TilemapCel,
     TilesetSlot,
     blank_strip,

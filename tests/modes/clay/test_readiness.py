@@ -11,12 +11,12 @@ from dataclasses import replace
 
 import numpy as np
 
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import ops_clean as oc
-from warlock.kernels.mesh import ops_topo, readiness
-from warlock.kernels.mesh import primitives as prim
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import ops_clean as oc
+from realmspinner.kernels.mesh import ops_topo, readiness
+from realmspinner.kernels.mesh import primitives as prim
 
 
 def _obj(

@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import json
 
-from warlock.service import evidence
-from warlock.service import jobs as svc_jobs
-from warlock.service import sweeps as svc_sweeps
-from warlock.service import verdicts as svc_verdicts
-from warlock.service.sweeps import Axis, SweepPlan
+from realmspinner.service import evidence
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import sweeps as svc_sweeps
+from realmspinner.service import verdicts as svc_verdicts
+from realmspinner.service.sweeps import Axis, SweepPlan
 
 
 def _plan(**kwargs) -> SweepPlan:

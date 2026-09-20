@@ -1,6 +1,6 @@
 """What ``modes/create/engine/`` is allowed to reach for, pinned exactly.
 
-Create's engine is not like Mason's or Clay's: those ban ``warlock.service``
+Create's engine is not like Mason's or Clay's: those ban ``realmspinner.service``
 outright, and this one is *built* to import it -- ``recipe.py``,
 ``mesh.py`` and ``character.py`` are layer 5 by ``dev/RESTRUCTURE.md``'s own
 table and exist precisely so Familiar, Review and Troupe can read "what a
@@ -23,10 +23,10 @@ from pathlib import Path
 import pytest
 from _pure_packages import WINDOW_ROOTS, _module_roots, dotted_root, pure_packages, siblings_of
 
-from warlock.studio.modes import create
+from realmspinner.studio.modes import create
 
 ENGINE = Path(create.__file__).parent / "engine"
-PACKAGE = "warlock.studio.modes.create.engine"
+PACKAGE = "realmspinner.studio.modes.create.engine"
 
 #: ``(module, imported name)`` for every module-scope import that leaves the
 #: package, today. ``problems``/``problems as ...`` is ``studio/problems.py``,
@@ -38,22 +38,22 @@ PACKAGE = "warlock.studio.modes.create.engine"
 #: anyway isn't needed since :func:`_outward` only reports what leaves
 #: ``PACKAGE``, and a same-package relative import never does.
 OUTWARD_IMPORTS = {
-    ("character.py", "warlock.characters"),
-    ("character.py", "warlock.service"),
-    ("character.py", "warlock.studio.problems"),
-    ("mesh.py", "warlock.bench"),
-    ("mesh.py", "warlock.service.validation"),
-    ("mesh.py", "warlock.studio.problems"),
-    ("mesh.py", "warlock.vectors"),
-    ("recipe.py", "warlock.bench"),
-    ("recipe.py", "warlock.generation"),
-    ("recipe.py", "warlock.guidance"),
-    ("recipe.py", "warlock.models"),
-    ("recipe.py", "warlock.pipelines"),
-    ("recipe.py", "warlock.service"),
-    ("recipe.py", "warlock.service.validation"),
-    ("recipe.py", "warlock.studio.problems"),
-    ("recipe.py", "warlock.vectors"),
+    ("character.py", "realmspinner.characters"),
+    ("character.py", "realmspinner.service"),
+    ("character.py", "realmspinner.studio.problems"),
+    ("mesh.py", "realmspinner.bench"),
+    ("mesh.py", "realmspinner.service.validation"),
+    ("mesh.py", "realmspinner.studio.problems"),
+    ("mesh.py", "realmspinner.vectors"),
+    ("recipe.py", "realmspinner.bench"),
+    ("recipe.py", "realmspinner.generation"),
+    ("recipe.py", "realmspinner.guidance"),
+    ("recipe.py", "realmspinner.models"),
+    ("recipe.py", "realmspinner.pipelines"),
+    ("recipe.py", "realmspinner.service"),
+    ("recipe.py", "realmspinner.service.validation"),
+    ("recipe.py", "realmspinner.studio.problems"),
+    ("recipe.py", "realmspinner.vectors"),
 }
 
 #: Reached only inside a function, never at module scope: ``character.py``'s
@@ -63,14 +63,14 @@ OUTWARD_IMPORTS = {
 #: always did: importing ``state`` at module scope from an engine module
 #: that ``state.py`` does not itself depend on would be a needless coupling
 #: for a dataclass factory read once per prompt change.
-LAZY_ONLY = {"warlock.studio.panes", "warlock.studio.state"}
+LAZY_ONLY = {"realmspinner.studio.panes", "realmspinner.studio.state"}
 
 
 def _resolve(node: ast.stmt) -> set[str]:
     """Every fully-qualified module *this statement reaches into* -- not the
     names it binds. ``from ..... import models as modelslib`` and ``from
     .....service.validation import MAX_PROMPT`` both resolve to the module
-    the name comes from (``warlock.models``, ``warlock.service.validation``);
+    the name comes from (``realmspinner.models``, ``realmspinner.service.validation``);
     telling a submodule alias (``panes.stamps``) from a plain name
     (``MAX_PROMPT``) needs the filesystem, which :func:`_outward`'s caller
     does not have and does not need -- the module each statement reaches is
@@ -209,18 +209,18 @@ def test_the_engine_never_imports_a_sibling_mode():
     and below; a sibling mode is neither.
     """
     other_mode_markers = (
-        "warlock.studio.modes.review.mode",
-        "warlock.studio.modes.review.ui.workspace",
-        "warlock.studio.modes.clay",
-        "warlock.studio.modes.mason",
-        "warlock.studio.modes.mason.engine",
-        "warlock.studio.inker",
-        "warlock.studio.modes.plotter.engine",
-        "warlock.studio.modes.packwright.engine",
-        "warlock.studio.modes.sirens.engine",
-        "warlock.studio.modes.sirens.mode",
-        "warlock.studio.modes.muse.mode",
-        "warlock.studio.modes.poser.mode",
+        "realmspinner.studio.modes.review.mode",
+        "realmspinner.studio.modes.review.ui.workspace",
+        "realmspinner.studio.modes.clay",
+        "realmspinner.studio.modes.mason",
+        "realmspinner.studio.modes.mason.engine",
+        "realmspinner.studio.inker",
+        "realmspinner.studio.modes.plotter.engine",
+        "realmspinner.studio.modes.packwright.engine",
+        "realmspinner.studio.modes.sirens.engine",
+        "realmspinner.studio.modes.sirens.mode",
+        "realmspinner.studio.modes.muse.mode",
+        "realmspinner.studio.modes.poser.mode",
     )
     for path in _modules():
         for name in _outward(path) | _lazy_imports(path):

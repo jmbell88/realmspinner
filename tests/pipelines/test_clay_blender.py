@@ -24,9 +24,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import glbwrite, gltf
-from warlock.kernels.rig import blender_spec
-from warlock.pipelines import blender_run, clay_blender
+from realmspinner.kernels.geom3d import glbwrite, gltf
+from realmspinner.kernels.rig import blender_spec
+from realmspinner.pipelines import blender_run, clay_blender
 
 pytestmark = pytest.mark.timeout(600)
 
@@ -162,7 +162,7 @@ class TestClayBakeSpec:
 
 
 def test_the_three_clay_ops_are_registered():
-    from warlock.pipelines import blender_worker as bw
+    from realmspinner.pipelines import blender_worker as bw
 
     assert bw.OPS["clay_retopo"] is bw.op_clay_retopo
     assert bw.OPS["clay_unwrap"] is bw.op_clay_unwrap
@@ -257,7 +257,7 @@ def test_a_worker_failure_cleans_up_its_temp_dir(monkeypatch):
 
 
 def test_available_reflects_a_working_blender(monkeypatch):
-    from warlock import doctor
+    from realmspinner import doctor
 
     monkeypatch.setattr(
         doctor, "blender_check",
@@ -269,7 +269,7 @@ def test_available_reflects_a_working_blender(monkeypatch):
 
 
 def test_available_names_the_rig_extra_when_blender_is_missing(monkeypatch):
-    from warlock import doctor
+    from realmspinner import doctor
 
     monkeypatch.setattr(
         doctor, "blender_check",

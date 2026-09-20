@@ -21,12 +21,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay.ui import _view_drag
-from warlock.studio.modes.clay.ui import view as clay_view
-from warlock.studio.viewer.camera import Camera
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay.ui import _view_drag
+from realmspinner.studio.modes.clay.ui import view as clay_view
+from realmspinner.studio.viewer.camera import Camera
 
 
 class _State:
@@ -212,8 +212,8 @@ def test_the_ghost_frame_is_not_skipped_when_only_the_preview_changed(view) -> N
     ``draw``'s own skip key, the frame that brings up (or clears) a ghost
     would be skipped as "nothing moved" and the preview would never appear
     until something else forced a redraw."""
-    from warlock.kernels.mesh import document as bd_scratch
-    from warlock.kernels.mesh import scratch as clay_scratch
+    from realmspinner.kernels.mesh import document as bd_scratch
+    from realmspinner.kernels.mesh import scratch as clay_scratch
 
     doc = _doc(count=1)
     view.draw(doc, RECT, 0.0)
@@ -236,8 +236,8 @@ def test_the_ghost_frame_is_not_skipped_when_only_the_preview_changed(view) -> N
 
 
 def test_a_ghost_preview_draws_something_and_leaves_the_document_untouched(view) -> None:
-    from warlock.kernels.mesh import document as bd_scratch
-    from warlock.kernels.mesh import scratch as clay_scratch
+    from realmspinner.kernels.mesh import document as bd_scratch
+    from realmspinner.kernels.mesh import scratch as clay_scratch
 
     doc = _doc(count=1)
     before_rev = doc.rev
@@ -261,7 +261,7 @@ def test_a_ghost_preview_draws_something_and_leaves_the_document_untouched(view)
 
 
 def test_a_removed_object_is_filtered_from_the_composite_while_previewed(view) -> None:
-    from warlock.kernels.mesh import scratch as clay_scratch
+    from realmspinner.kernels.mesh import scratch as clay_scratch
 
     doc = _doc(count=2)
     removed_uid = doc.objects[0].uid
@@ -779,7 +779,7 @@ def test_the_screen_cache_reprojects_only_when_something_moved(view) -> None:
 
 
 def test_the_gizmo_sits_at_the_selected_elements_centroid(view) -> None:
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
@@ -793,7 +793,7 @@ def test_the_gizmo_sits_at_the_selected_elements_centroid(view) -> None:
 
 
 def test_the_select_tool_shows_no_gizmo_in_an_element_mode(view) -> None:
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
@@ -805,7 +805,7 @@ def test_the_select_tool_shows_no_gizmo_in_an_element_mode(view) -> None:
 
 
 def test_an_element_drag_previews_without_rebuilding_or_pushing(view) -> None:
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
@@ -828,7 +828,7 @@ def test_an_element_drag_previews_without_rebuilding_or_pushing(view) -> None:
 
 
 def test_releasing_an_element_drag_pushes_one_step_per_object(view) -> None:
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
@@ -859,7 +859,7 @@ def test_releasing_an_element_drag_pushes_one_step_per_object(view) -> None:
 
 
 def test_a_zero_movement_element_drag_pushes_nothing(view) -> None:
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
@@ -882,7 +882,7 @@ def test_a_zero_movement_element_drag_pushes_nothing(view) -> None:
 
 def _moving_face(view, doc) -> int:
     """One face selected in face mode with the move tool, drawn once."""
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     _face_mode(doc)
     uid = doc.objects[0].uid
@@ -937,7 +937,7 @@ def test_a_gizmo_drag_reports_axis_space_and_amount_in_the_hud(view) -> None:
     ``_key_kind`` alone (what the pane used to do) would report nothing at all
     for the drag a mouse-driven modeller actually runs most of the time.
     """
-    from warlock.studio import viewport_hints as clay_hints
+    from realmspinner.studio import viewport_hints as clay_hints
 
     doc = _doc(count=1)
     obj = doc.objects[0]
@@ -1169,7 +1169,7 @@ def test_an_explicit_constraint_beats_a_snap(view) -> None:
 def test_a_soft_falloff_carries_the_neighbours_part_of_the_way(view) -> None:
     """The whole feature in one assertion: the selected corners move fully, the
     ones behind them move less, and the box bends instead of tearing."""
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     uid = _moving_face(view, doc)
@@ -1192,7 +1192,7 @@ def test_a_soft_falloff_carries_the_neighbours_part_of_the_way(view) -> None:
 
 
 def test_a_hard_selection_is_what_a_zero_radius_still_means(view) -> None:
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     uid = _moving_face(view, doc)
@@ -1213,7 +1213,7 @@ def test_a_hard_selection_is_what_a_zero_radius_still_means(view) -> None:
 
 
 def test_element_overlays_are_built_and_released_with_the_mode(view) -> None:
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
@@ -1232,7 +1232,7 @@ def test_repeated_element_draws_reuse_the_overlays_gl_objects(view) -> None:
     an unchanged frame again must mint no GL objects. Each ``indexed`` call
     used to append a fresh IBO and VAO per draw per frame, released only on a
     key change -- a leak at frame rate for as long as the cursor held still."""
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
@@ -1270,7 +1270,7 @@ def test_an_object_with_nothing_selected_keeps_its_overlay_across_frames(view) -
 
 def test_selecting_inside_that_object_does_change_the_key(view) -> None:
     """The other half: the cache must still notice a real change."""
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
@@ -1294,8 +1294,8 @@ def test_a_textured_document_uploads_its_uvs_and_its_maps(view) -> None:
     silently losing one on the way through the Clay-specific half."""
     import numpy as np
 
-    from warlock.kernels.geom3d import gltf
-    from warlock.kernels.mesh import mesh as cm
+    from realmspinner.kernels.geom3d import gltf
+    from realmspinner.kernels.mesh import mesh as cm
 
     plane = bp.plane(size=(2.0, 2.0))
     n = len(plane.loops)
@@ -1395,7 +1395,7 @@ def test_every_element_mode_hovers_without_a_rebuild(view) -> None:
 
 def test_a_selection_change_still_rebuilds_the_overlay(view) -> None:
     """The key lost hover, not its job."""
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
@@ -1450,8 +1450,8 @@ def test_the_nearer_of_two_overlapping_edges_is_picked(view) -> None:
     """Edge mode ranked candidates with a constant key, so with two objects'
     edges under the cursor the earlier one in ``doc.objects`` always won --
     here the far box, added first, one twentieth of a unit behind."""
-    from warlock.kernels.mesh import pick as clay_pick
-    from warlock.kernels.mesh.adjacency import adjacency
+    from realmspinner.kernels.mesh import pick as clay_pick
+    from realmspinner.kernels.mesh.adjacency import adjacency
 
     doc = bd.ClayDoc()
     far = doc.add_object(

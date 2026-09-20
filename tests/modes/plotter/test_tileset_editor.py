@@ -14,9 +14,9 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 @pytest.fixture
@@ -65,7 +65,7 @@ def test_a_used_tileset_is_refused_by_name_with_a_count_and_a_layer():
 
 
 def test_a_survivor_keeps_its_firstgid_so_painted_cells_still_mean_what_they_meant():
-    """A hole in gid space is legal -- wmap requires only that they increase."""
+    """A hole in gid space is legal -- rmap requires only that they increase."""
 
     doc = _doc()
     first = doc.add_tileset(_tileset("A"))
@@ -89,7 +89,7 @@ def test_usage_counts_across_every_layer():
 
 
 def test_a_tileset_held_only_by_a_stamp_is_still_in_use():
-    """The stamps are document state -- stored in the map, written to ``.wmap``
+    """The stamps are document state -- stored in the map, written to ``.rmap``
     since VERSION 11 -- and they hold gids exactly as a layer does. Counting
     only the layers let a tileset that nothing had painted yet but a stamp still
     named be removed; ``next_firstgid`` then reuses the range, and recalling the
@@ -106,26 +106,26 @@ def test_a_tileset_held_only_by_a_stamp_is_still_in_use():
     assert len(doc.tilesets) == 1
 
 
-def test_reading_a_wmap_refuses_a_stamp_whose_tileset_is_gone():
+def test_reading_a_rmap_refuses_a_stamp_whose_tileset_is_gone():
     """``_validate`` checked the layers and the tile objects and not the stamps,
     so a map carrying a stamp nothing accounts for opened without complaint and
     only went wrong on recall -- where the user's gesture was a number key and
     there is nothing useful to say."""
-    from warlock.studio.modes.plotter.engine import wmap
+    from realmspinner.studio.modes.plotter.engine import rmap
 
     doc = _doc()
     ref = doc.add_tileset(_tileset())
     doc.set_stamp(2, np.full((1, 1), ref.firstgid, dtype=np.uint32))
-    assert wmap.read_wmap(wmap.wmap_bytes(doc)).stamps[2] is not None
+    assert rmap.read_rmap(rmap.rmap_bytes(doc)).stamps[2] is not None
 
     # Past the end of every tileset this map has.
     doc.set_stamp(2, np.full((1, 1), ref.last_gid + 9, dtype=np.uint32))
     with pytest.raises(ValueError, match="stamp 2"):
-        wmap.read_wmap(wmap.wmap_bytes(doc))
+        rmap.read_rmap(rmap.rmap_bytes(doc))
 
 
 def test_the_sheet_is_off_until_a_tileset_is_chosen():
-    from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
+    from realmspinner.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
 
     doc = _doc()
     tab = plotter_state.PlotterDoc(doc=doc, title="m")
@@ -147,7 +147,7 @@ def test_the_editor_offers_no_reordering():
 
     import inspect
 
-    from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
+    from realmspinner.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
 
     source = inspect.getsource(plotter_tileset_editor)
     assert "move_tileset" not in source
@@ -173,7 +173,7 @@ def test_tileset_editor_tile_class_and_duration_and_wang_name_typing_is_one_undo
     """
     import inspect
 
-    from warlock.studio.modes.plotter.ui.panes import tileset_editor as editor
+    from realmspinner.studio.modes.plotter.ui.panes import tileset_editor as editor
 
     # Each check is bounded to the gap between one field and the *next* one
     # drawn (or the shared write, for the last field in a group) -- not merely
@@ -240,7 +240,7 @@ def test_the_tiles_tab_does_not_draw_a_button_per_tile_on_a_large_tileset(ui, mo
     ``ImGuiListClipper`` submits only the rows the visible, scrolled region
     can show.
     """
-    from warlock.studio.modes.plotter.ui.panes import tileset_editor as editor
+    from realmspinner.studio.modes.plotter.ui.panes import tileset_editor as editor
 
     calls: list[int] = []
     monkeypatch.setattr(

@@ -7,13 +7,13 @@ import time
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import adjacency as adj
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops_dissolve as dis
-from warlock.kernels.mesh import ops_topo as ops
-from warlock.kernels.mesh import primitives as prim
-from warlock.kernels.mesh import topo
+from realmspinner.kernels.mesh import adjacency as adj
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops_dissolve as dis
+from realmspinner.kernels.mesh import ops_topo as ops
+from realmspinner.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh import topo
 
 from .topo_asserts import (
     assert_closed,

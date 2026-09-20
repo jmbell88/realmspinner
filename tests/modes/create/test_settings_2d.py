@@ -5,7 +5,7 @@ The 2026-09-16 audit, finding create-panes-01: ``settings_2d.py`` never wired
 "control_end" or "init_strength", and ``validate()`` never range-checked any
 of the four before Generate is enabled -- unlike "style_lora"'s weight, which
 gets both a ``validate()`` range check and a ring. ``guidance.normalize``'s
-``_number`` (``src/warlock/guidance.py``) refuses exactly these four names,
+``_number`` (``src/realmspinner/guidance.py``) refuses exactly these four names,
 so a persisted form carrying an out-of-range value reached the queue door
 with the Conditioning section still collapsed and the refusal had no control
 on this pane to land on. Same shape of gap ``tests/modes/create/test_settings_seed.py``
@@ -21,12 +21,12 @@ from __future__ import annotations
 
 import inspect
 
-from warlock import models
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui.panes import settings_2d
-from warlock.studio.state import default_form_2d
+from realmspinner import models
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui.panes import settings_2d
+from realmspinner.studio.state import default_form_2d
 
-#: The four fields ``guidance._number`` (src/warlock/guidance.py:299-313,
+#: The four fields ``guidance._number`` (src/realmspinner/guidance.py:299-313,
 #: 457-488) refuses by exactly this name.
 _CONDITIONING_FIELDS = ("ip_scale", "control_scale", "control_end", "init_strength")
 

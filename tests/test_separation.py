@@ -23,12 +23,12 @@ import time
 
 import pytest
 
-from warlock import _q_music, fetch, models, vram
-from warlock.pipelines import blender_run
-from warlock.queue import Worker
-from warlock.service import _jobs_rework as rework
-from warlock.service import files
-from warlock.service.errors import Conflict, Invalid
+from realmspinner import _q_music, fetch, models, vram
+from realmspinner.pipelines import blender_run
+from realmspinner.queue import Worker
+from realmspinner.service import _jobs_rework as rework
+from realmspinner.service import files
+from realmspinner.service.errors import Conflict, Invalid
 
 # --- the four names ----------------------------------------------------------
 
@@ -135,7 +135,7 @@ def test_every_derived_format_has_a_media_type_and_an_encoder():
     to hold is that everything derived is either encodable or that one copy,
     and that all of it is in the ``MEDIA`` allowlist.
     """
-    from warlock.pipelines import audioout
+    from realmspinner.pipelines import audioout
 
     assert set(audioout.FORMATS) <= set(files.DERIVED_AUDIO)
     assert set(files.DERIVED_AUDIO) - set(audioout.FORMATS) == {"track.wav"}
@@ -151,7 +151,7 @@ def test_the_encoder_refuses_a_name_it_does_not_write(tmp_path):
     it accepts only 8/12/16/24/48 kHz, and a take is 44.1, so it would need a
     resample to be offered at all.
     """
-    from warlock.pipelines import audioout
+    from realmspinner.pipelines import audioout
 
     assert "track.opus" not in audioout.FORMATS
     with pytest.raises(ValueError, match="not a format"):
@@ -165,7 +165,7 @@ def test_a_take_round_trips_through_every_format(tmp_path):
     import numpy as np
     import soundfile as sf
 
-    from warlock.pipelines import audioout
+    from realmspinner.pipelines import audioout
 
     source = tmp_path / "track.wav"
     tone = np.sin(np.arange(4410, dtype=np.float32) / 20.0) * 0.5
@@ -272,7 +272,7 @@ def test_a_failed_separation_surfaces_the_workers_own_error_message_not_just_an_
     result = blender_run.run_worker(
         spec,
         timeout=120,
-        module="warlock.pipelines.separation_worker",
+        module="realmspinner.pipelines.separation_worker",
         marker="separate",
         name="Stem separation",
     )
@@ -299,7 +299,7 @@ def test_a_one_shot_child_credits_no_resident_weights_back():
 def test_the_progress_phases_are_registered():
     """An unregistered kind draws ``PHASES_IMAGE``, whose phases it never
     emits -- so the bar sits at zero and then jumps."""
-    from warlock import progress
+    from realmspinner import progress
 
     assert progress.phases_for("separate") is progress.PHASES_SEPARATE
 
@@ -367,7 +367,7 @@ def test_an_unknown_model_is_refused_rather_than_defaulted(svc):
 def test_a_split_cannot_be_rerolled(svc):
     """It is deterministic: re-running writes the identical four files over
     themselves, so a reroll is a press with no outcome."""
-    from warlock.service import _jobs_resubmit as resubmit
+    from realmspinner.service import _jobs_resubmit as resubmit
 
     take = _take(svc)
     split = svc.store.create("separate", "x", {"source_job": take})
@@ -529,7 +529,7 @@ def test_separation_worker_result_cleanup_does_not_mask_a_replace_failure(
     import sys
     from pathlib import Path
 
-    from warlock.pipelines import separation_worker as sw
+    from realmspinner.pipelines import separation_worker as sw
 
     spec = {
         "source": str(tmp_path / "missing-take.wav"),

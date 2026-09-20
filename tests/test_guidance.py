@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import config as config_module
-from warlock import guidance, models
+from realmspinner import config as config_module
+from realmspinner import guidance, models
 
 
 def test_defaults_fill_in_when_nothing_is_chosen():
@@ -210,7 +210,7 @@ def test_the_gate_and_the_doctor_row_name_the_same_file(tmp_path):
     """Two readers of one fact. The doctor reports the weights missing and the
     gate silently picks ``auto`` for it; a copy of the filename that drifted
     would let the app choose a matte the doctor says is unavailable."""
-    from warlock import doctor
+    from realmspinner import doctor
 
     config = _doctor_config(tmp_path)
     config.data_dir.mkdir(parents=True)  # run_checks measures free space on it
@@ -231,7 +231,7 @@ def test_the_gate_and_the_doctor_row_name_the_same_file(tmp_path):
 
 
 def _doctor_config(tmp_path):
-    from warlock.config import Config
+    from realmspinner.config import Config
 
     return Config(
         data_dir=tmp_path / "data",

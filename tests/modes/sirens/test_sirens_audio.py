@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.modes.sirens import audio as sirens_audio
+from realmspinner.studio.modes.sirens import audio as sirens_audio
 
 
 @pytest.fixture(autouse=True)
@@ -166,7 +166,7 @@ def test_the_rate_and_the_buffer_are_ours(monkeypatch):
 def test_the_engine_and_the_device_agree_on_the_sample_rate():
     """Deliberately not a shared import: this module stays importable with the
     engine absent, so the mismatch is caught here rather than hidden."""
-    from warlock.studio.modes.sirens.engine import synth
+    from realmspinner.studio.modes.sirens.engine import synth
 
     assert sirens_audio.RATE == synth.SAMPLE_RATE
 
@@ -249,7 +249,7 @@ def test_this_is_the_only_module_in_the_repo_that_touches_the_mixer():
     import ast
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[3] / "src" / "warlock"
+    root = Path(__file__).resolve().parents[3] / "src" / "realmspinner"
     offenders: list[str] = []
     for path in root.rglob("*.py"):
         if path.relative_to(root).as_posix() == "studio/modes/sirens/audio.py":

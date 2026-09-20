@@ -32,12 +32,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock import config as config_module
-from warlock import models
-from warlock.config import get_config
-from warlock.kernels.pixel import inpaint
-from warlock.pipelines import conditioning as conditioning_mod
-from warlock.pipelines.text2image import Text2Image
+from realmspinner import config as config_module
+from realmspinner import models
+from realmspinner.config import get_config
+from realmspinner.kernels.pixel import inpaint
+from realmspinner.pipelines import conditioning as conditioning_mod
+from realmspinner.pipelines.text2image import Text2Image
 
 #: One checkpoint load and one masked sample.
 pytestmark = [pytest.mark.gpu, pytest.mark.timeout(1800)]

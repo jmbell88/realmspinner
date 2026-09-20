@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.service import jobs as svc_jobs
-from warlock.service import sweeps as svc_sweeps
-from warlock.service.errors import Invalid, NotFound
-from warlock.service.sweeps import Axis, SweepPlan
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import sweeps as svc_sweeps
+from realmspinner.service.errors import Invalid, NotFound
+from realmspinner.service.sweeps import Axis, SweepPlan
 
 
 def _plan(**kwargs) -> SweepPlan:
@@ -277,7 +277,7 @@ def test_deleting_a_sweep_removes_its_jobs_and_keeps_its_verdicts(svc):
     for: the finding is "this vector produced a bad mesh", which the row carries
     whole, so the mesh is disposable. The accept case is the opposite and is
     ``test_a_sweep_delete_keeps_the_units_it_cannot_regenerate`` below."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     plan = _plan(seeds=(1,), axes=(Axis("lora_weight", (0.6,)),))
     result = svc_sweeps.create_sweep(svc, plan)
@@ -306,7 +306,7 @@ def test_a_sweep_delete_keeps_the_units_it_cannot_regenerate(svc):
     ``kept`` is counted apart from ``remaining`` because they mean opposite
     things to the reader: one is transient and invites a second press, the other
     is permanent and would make that press a lie renewing itself."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     plan = _plan(seeds=(1, 2), axes=(Axis("lora_weight", (0.6,)),))
     result = svc_sweeps.create_sweep(svc, plan)
@@ -345,7 +345,7 @@ def test_a_sweep_delete_keeps_the_units_it_cannot_regenerate(svc):
 
 
 def _judged(svc, unit_id: str, grade: int = -3) -> None:
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     svc.store.set_status(unit_id, "done")
     svc_verdicts.record_verdict(svc, unit_id, grade=grade)
@@ -578,7 +578,7 @@ def test_a_unit_the_worker_is_inside_is_cancelled_but_left_on_disk(svc):
 
 
 def test_sweep_units_are_hidden_from_the_library(svc):
-    from warlock.studio.state import Filters
+    from realmspinner.studio.state import Filters
 
     filters = Filters()
     assert filters.matches({"id": "a", "status": "done"})
@@ -590,7 +590,7 @@ def test_a_sweep_naming_a_base_model_that_is_not_on_disk_is_refused(svc, monkeyp
     checkpoint was never downloaded minted every row and was then refused unit
     by unit inside create_job -- the partial run all-or-nothing exists to
     prevent."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     monkeypatch.setattr(fetch, "base_model_state", lambda *a, **k: (False, None))
     plan = _plan(seeds=(1,), base={"base_model": "sdxl"})
@@ -614,7 +614,7 @@ def test_a_sweep_naming_a_base_model_that_is_not_on_disk_is_refused(svc, monkeyp
 
 
 def test_cleanup_removes_an_accepted_unit_that_a_delete_would_keep(svc):
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     plan = _plan(seeds=(1, 2), axes=(Axis("lora_weight", (0.6,)),))
     result = svc_sweeps.create_sweep(svc, plan)
@@ -634,7 +634,7 @@ def test_cleanup_removes_an_accepted_unit_that_a_delete_would_keep(svc):
 def test_cleanup_keeps_the_verdicts_it_was_measured_from(svc):
     """The whole licence for removing the assets: what was learned outlives
     them, because the config vector is snapshotted onto the verdict row."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     plan = _plan(seeds=(1,), axes=(Axis("lora_weight", (0.6,)),))
     result = svc_sweeps.create_sweep(svc, plan)

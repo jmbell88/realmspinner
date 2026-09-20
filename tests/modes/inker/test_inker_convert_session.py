@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.document import Document
 
 BLACK = (0, 0, 0, 255)
 WHITE = (255, 255, 255, 255)
@@ -164,7 +164,7 @@ def test_an_empty_table_previews_nothing():
 
 
 def _counting_convert(calls: list[tuple]):
-    from warlock.kernels.pixel import dither as real
+    from realmspinner.kernels.pixel import dither as real
 
     # The real function is captured *now*, before the monkeypatch replaces the
     # attribute -- looking it up through the module afterwards finds this
@@ -179,7 +179,7 @@ def _counting_convert(calls: list[tuple]):
 
 
 def test_an_unchanged_table_and_method_is_computed_once_not_once_per_frame(monkeypatch):
-    from warlock.kernels.pixel import _doc_paint
+    from realmspinner.kernels.pixel import _doc_paint
 
     calls: list[tuple] = []
     monkeypatch.setattr(_doc_paint.dither, "convert", _counting_convert(calls))
@@ -191,7 +191,7 @@ def test_an_unchanged_table_and_method_is_computed_once_not_once_per_frame(monke
 
 
 def test_changing_the_method_recomputes(monkeypatch):
-    from warlock.kernels.pixel import _doc_paint
+    from realmspinner.kernels.pixel import _doc_paint
 
     calls: list[tuple] = []
     monkeypatch.setattr(_doc_paint.dither, "convert", _counting_convert(calls))
@@ -206,7 +206,7 @@ def test_changing_the_method_recomputes(monkeypatch):
 
 
 def test_changing_the_table_recomputes(monkeypatch):
-    from warlock.kernels.pixel import _doc_paint
+    from realmspinner.kernels.pixel import _doc_paint
 
     calls: list[tuple] = []
     monkeypatch.setattr(_doc_paint.dither, "convert", _counting_convert(calls))
@@ -218,7 +218,7 @@ def test_changing_the_table_recomputes(monkeypatch):
 
 
 def test_a_new_session_does_not_reuse_the_last_ones_pixels(monkeypatch):
-    from warlock.kernels.pixel import _doc_paint
+    from realmspinner.kernels.pixel import _doc_paint
 
     calls: list[tuple] = []
     monkeypatch.setattr(_doc_paint.dither, "convert", _counting_convert(calls))

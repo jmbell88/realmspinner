@@ -1,6 +1,6 @@
 [project]
-name = "warlock"
-version = "0.0.51"
+name = "realmspinner"
+version = "0.0.52"
 description = "Local AI 3D asset generator (Meshy-style) for game development"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -129,7 +129,7 @@ music = [
 # as a texture -- which is why they have to share a context and therefore a
 # window, and why this is one extra rather than three.
 #
-# An extra rather than a core dependency because `warlock doctor` and `warlock
+# An extra rather than a core dependency because `realmspinner doctor` and `realmspinner
 # sweep` have to work on a machine with no display: cli.py imports the window
 # only on the path that opens one.
 studio = [
@@ -177,7 +177,7 @@ dev = [
 ]
 
 [project.scripts]
-warlock = "warlock.cli:main"
+realmspinner = "realmspinner.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -205,7 +205,7 @@ build-backend = "hatchling.build"
 # means removing its entry, not adding an exclusion for it.
 [tool.hatch.build.targets.sdist]
 include = [
-    "/src/warlock",
+    "/src/realmspinner",
     "/tests",
     "/docs",
     "/scripts",
@@ -220,14 +220,14 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/warlock"]
+packages = ["src/realmspinner"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"docs/manual" = "warlock/manual"
+"docs/manual" = "realmspinner/manual"
 # The same bargain the manual makes: canonical at the repo root where GitHub
 # renders it, force-included so an installed wheel can still show it. Home's
-# "What's new" block reads it through ``warlock.changelog``.
-"CHANGELOG.md" = "warlock/CHANGELOG.md"
+# "What's new" block reads it through ``realmspinner.changelog``.
+"CHANGELOG.md" = "realmspinner/CHANGELOG.md"
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu128" }]
@@ -248,13 +248,13 @@ explicit = true
 line-length = 100
 target-version = "py312"
 # Vendored third-party source, kept byte-for-byte apart from four marked
-# modifications (see src/warlock/pipelines/birefnet/ATTRIBUTION.md). Linting it
+# modifications (see src/realmspinner/pipelines/birefnet/ATTRIBUTION.md). Linting it
 # would mean reformatting it, and a reformatted vendor copy is one nobody can
 # diff against upstream -- which is the entire reason it is in the tree.
 extend-exclude = [
-    "src/warlock/pipelines/birefnet/modeling.py",
-    "src/warlock/pipelines/birefnet/configuration.py",
-    "src/warlock/pipelines/acestep/**",
+    "src/realmspinner/pipelines/birefnet/modeling.py",
+    "src/realmspinner/pipelines/birefnet/configuration.py",
+    "src/realmspinner/pipelines/acestep/**",
 ]
 
 [tool.ruff.lint]

@@ -21,7 +21,7 @@ import math
 
 import pytest
 
-from warlock.kernels.rig import cliplib, poses, templates
+from realmspinner.kernels.rig import cliplib, poses, templates
 
 
 def _angle(quat: list[float]) -> float:
@@ -202,7 +202,7 @@ def test_deform_battery_squat_flexes_the_hip_forward_and_the_knee_back():
     foot ``+0.2588`` -- every leg sign inverted, exactly the F7 mistake above,
     just in the battery instead of the clip library -- and it rendered the
     legs folded up behind the head instead of a crouch."""
-    from warlock.kernels.rig import poses as rig_poses
+    from realmspinner.kernels.rig import poses as rig_poses
 
     poses = {p["name"]: p for p in rig_poses.deform_battery("humanoid")}
     bones = poses["squat"]["bones"]
@@ -218,7 +218,7 @@ def test_no_deform_battery_pose_bends_a_knee_backward_past_fifteen_degrees():
     ``test_no_authored_knee_bends_backward_past_fifteen_degrees`` above:
     "elbow and knee 90" shipped shin ``-0.7071``, the knee bending backward
     the same wrong way as the squat's."""
-    from warlock.kernels.rig import poses as rig_poses
+    from realmspinner.kernels.rig import poses as rig_poses
 
     poses = rig_poses.deform_battery("humanoid")
     checked = 0

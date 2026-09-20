@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio import widgets
+from realmspinner.studio import widgets
 
 STUDIO = Path(inspect.getfile(widgets)).resolve().parent
 

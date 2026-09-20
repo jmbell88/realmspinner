@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
+from realmspinner.kernels import pixel as inker
 
 RED = (255, 0, 0, 255)
 WHITE = (255, 255, 255, 255)

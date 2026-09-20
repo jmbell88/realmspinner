@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 
-from warlock import fetch, packs
-from warlock.service import packs as svc_packs
-from warlock.service.errors import Invalid, NotFound
+from realmspinner import fetch, packs
+from realmspinner.service import packs as svc_packs
+from realmspinner.service.errors import Invalid, NotFound
 
 GIB = 1024**3
 
@@ -51,7 +51,7 @@ def manifest_file(tmp_path: Path, *wheels: dict) -> Path:
 
 
 class FakeService:
-    """Only what this module touches. ``WarlockService`` needs a database."""
+    """Only what this module touches. ``RealmspinnerService`` needs a database."""
 
     def __init__(self, home: Path) -> None:
         self.config = type("C", (), {"home": home})()
@@ -258,7 +258,7 @@ def test_a_successful_install_is_recorded_outside_the_runtime(
     manifest_at, svc, monkeypatch, tmp_path
 ):
     """The record an upgrade's ``site-packages`` wipe must not be able to
-    take with it -- it lives beside the wheel cache, under the user's Warlock
+    take with it -- it lives beside the wheel cache, under the user's Realmspinner
     home, which the installer never touches."""
     manifest_at(wheel("bpy-5.2.0-cp313-cp313-win_amd64.whl", 10))
     monkeypatch.setattr(svc_packs, "installed_versions", dict)

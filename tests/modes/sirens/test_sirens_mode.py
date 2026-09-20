@@ -20,10 +20,10 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.modes.sirens import fileio as sirens_io
-from warlock.studio.modes.sirens import mode as sirens_mode
-from warlock.studio.modes.sirens.engine import document as D
-from warlock.studio.modes.sirens.engine import notes, wsng
+from realmspinner.studio.modes.sirens import fileio as sirens_io
+from realmspinner.studio.modes.sirens import mode as sirens_mode
+from realmspinner.studio.modes.sirens.engine import document as D
+from realmspinner.studio.modes.sirens.engine import notes, rsng
 
 
 class FakeCtx:
@@ -139,7 +139,7 @@ def _no_device(monkeypatch):
     the device exists is ``sirens_audio``'s question and CI's answer to it is
     not something these tests should depend on either way.
     """
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: False)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -166,8 +166,8 @@ def test_a_new_song_can_be_played_the_moment_it_exists():
 def test_two_tabs_over_one_path_are_one_tab():
     ctx = FakeCtx()
     tab = _tab(ctx)
-    tab.path = Path("/songs/a.wsng")
-    sirens_mode.open_path(ctx, Path("/songs/a.wsng"))
+    tab.path = Path("/songs/a.rsng")
+    sirens_mode.open_path(ctx, Path("/songs/a.rsng"))
     assert len(sirens_mode.ensure(ctx).docs) == 1
     assert not ctx.submitted
 
@@ -243,7 +243,7 @@ def test_render_prefix_is_a_shared_constant_not_a_repeated_literal():
     import ast
     import inspect
 
-    from warlock.studio.modes.sirens import play as sirens_play
+    from realmspinner.studio.modes.sirens import play as sirens_play
 
     assert sirens_mode.RENDER_PREFIX == "sirens-render:" == sirens_play.RENDER_PREFIX
 
@@ -276,18 +276,18 @@ def test_render_prefix_is_a_shared_constant_not_a_repeated_literal():
 
 
 def test_a_render_already_in_flight_is_not_re_serialised_every_frame(monkeypatch):
-    """``wsng_bytes`` DEFLATEs every pattern and encodes every sample, on the
+    """``rsng_bytes`` DEFLATEs every pattern and encodes every sample, on the
     frame thread. ``submit`` refuses a key already in flight and the dirty flag
     deliberately stays armed when it does -- so the whole song was serialised
     and thrown away once per frame for as long as the render took."""
-    from warlock.studio.modes.sirens.engine import wsng as wsng_mod
+    from realmspinner.studio.modes.sirens.engine import rsng as rsng_mod
 
     ctx = FakeCtx()
     tab = _tab(ctx)
     calls: list[int] = []
-    real = wsng_mod.wsng_bytes
+    real = rsng_mod.rsng_bytes
     monkeypatch.setattr(
-        wsng_mod, "wsng_bytes", lambda doc: (calls.append(1), real(doc))[1]
+        rsng_mod, "rsng_bytes", lambda doc: (calls.append(1), real(doc))[1]
     )
 
     ctx.busy_keys.add(f"sirens-render:{tab.uid}")
@@ -306,7 +306,7 @@ def test_the_render_task_reads_a_snapshot_rather_than_the_document():
     import inspect
 
     source = inspect.getsource(sirens_mode.request_render)
-    assert "wsng_bytes" in source and "read_wsng" in source
+    assert "rsng_bytes" in source and "read_rsng" in source
 
 
 # --- the caret ----------------------------------------------------------------
@@ -490,7 +490,7 @@ def test_the_panic_key_withdraws_a_pattern_audition_still_rendering(monkeypatch)
     """
     import pygame
 
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -528,9 +528,9 @@ def test_leaving_sirens_mode_stops_a_sounding_song(monkeypatch):
     ``test_the_panic_key_withdraws_a_pattern_audition_still_rendering`` above
     checks for the panic key's own copy of this call.
     """
-    from warlock.studio import state as state_mod
-    from warlock.studio.modes.sirens.state import Sounding
-    from warlock.studio.shell import events as events_mod
+    from realmspinner.studio import state as state_mod
+    from realmspinner.studio.modes.sirens.state import Sounding
+    from realmspinner.studio.shell import events as events_mod
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -557,9 +557,9 @@ def test_arriving_in_or_staying_within_sirens_does_not_stop_anything(monkeypatch
     """The hook fires on the mode being *left*, not on every switch -- moving
     between two non-Sirens modes, or the same-mode press ``set_mode`` already
     refuses, must not touch a song that was never Sirens' to begin with."""
-    from warlock.studio import state as state_mod
-    from warlock.studio.modes.sirens.state import Sounding
-    from warlock.studio.shell import events as events_mod
+    from realmspinner.studio import state as state_mod
+    from realmspinner.studio.modes.sirens.state import Sounding
+    from realmspinner.studio.shell import events as events_mod
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -610,10 +610,10 @@ def test_a_save_records_the_head_the_encode_wrote(tmp_path):
     tab = _tab(ctx)
     sirens_mode.write_note(ctx, 0)
     head = tab.doc.history.head
-    sirens_mode.save_to(ctx, tab, tmp_path / "song.wsng")
+    sirens_mode.save_to(ctx, tab, tmp_path / "song.rsng")
     sirens_mode.on_task_done(ctx, _Done(f"sirens-save:{tab.uid}", ctx.result))
     assert not tab.dirty and tab.doc.saved_head == head
-    assert (tmp_path / "song.wsng").exists()
+    assert (tmp_path / "song.rsng").exists()
 
 
 def test_a_failed_save_unlocks_the_tab():
@@ -630,7 +630,7 @@ def test_ask_open_focuses_an_already_open_song_instead_of_forking_a_second_tab(t
     rather than fork: two tabs over one path would race on save" -- the
     identical gap Clay closed in its own dialog arm on 2026-09-12 (clay-02)."""
     ctx = FakeCtx()
-    path = tmp_path / "song.wsng"
+    path = tmp_path / "song.rsng"
     path.write_bytes(b"")
     existing = _tab(ctx)
     existing.path = path
@@ -648,17 +648,17 @@ def test_ask_open_focuses_an_already_open_song_instead_of_forking_a_second_tab(t
 def test_an_open_that_failed_drops_the_path_off_the_recent_list():
     ctx = FakeCtx()
     sirens_mode.ensure(ctx)
-    sirens_mode.remember_path(ctx, "/songs/gone.wsng")
-    assert "/songs/gone.wsng" in sirens_mode.recent_paths(ctx)
-    sirens_mode.on_task_failed(ctx, _Done("sirens-open:/songs/gone.wsng"))
-    assert "/songs/gone.wsng" not in sirens_mode.recent_paths(ctx)
+    sirens_mode.remember_path(ctx, "/songs/gone.rsng")
+    assert "/songs/gone.rsng" in sirens_mode.recent_paths(ctx)
+    sirens_mode.on_task_failed(ctx, _Done("sirens-open:/songs/gone.rsng"))
+    assert "/songs/gone.rsng" not in sirens_mode.recent_paths(ctx)
 
 
 def test_the_song_filter_pairs_a_label_with_its_patterns():
     """portable-file-dialogs reads a filter list two at a time, so a third
     entry would become the *next row's label*."""
     assert len(sirens_mode.SONG_FILTER) == 2
-    assert sirens_mode.SONG_FILTER[1] == "*.wsng"
+    assert sirens_mode.SONG_FILTER[1] == "*.rsng"
 
 
 # --- the guard ----------------------------------------------------------------
@@ -701,7 +701,7 @@ def test_the_journal_provider_round_trips_a_song(tmp_path):
     tab = _tab(ctx)
     sirens_mode.write_note(ctx, 0)
     assert [slot.uid for slot in sirens_mode.JOURNAL.slots(ctx)] == [tab.uid]
-    path = tmp_path / "copy.wsng"
+    path = tmp_path / "copy.rsng"
     path.write_bytes(sirens_mode._journal_encode(tab))
 
     fresh = FakeCtx()
@@ -718,7 +718,7 @@ def test_a_recovered_song_reads_dirty_until_it_is_saved_somewhere(tmp_path):
     -- the only surviving copy of the work -- with it."""
     ctx = FakeCtx()
     tab = _tab(ctx)
-    path = tmp_path / "copy.wsng"
+    path = tmp_path / "copy.rsng"
     path.write_bytes(sirens_mode._journal_encode(tab))
     fresh = FakeCtx()
     sirens_mode._journal_adopt(fresh, path, {})
@@ -734,18 +734,18 @@ def test_a_busy_tab_is_not_journalled():
 
 
 def test_the_provider_is_registered_under_its_own_kind():
-    from warlock.studio import journal
+    from realmspinner.studio import journal
 
     journal.ensure_providers()
     provider = journal.provider_for("sirens")
-    assert provider is not None and provider.ext == wsng.SUFFIX
+    assert provider is not None and provider.ext == rsng.SUFFIX
 
 
 # --- registration -------------------------------------------------------------
 
 
 def test_sirens_is_a_workspace_mode_that_binds_the_arrows():
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     assert "sirens" in modes.WORKSPACE_MODES
     assert "sirens" in modes.WORK_MODES
@@ -758,7 +758,7 @@ def test_sirens_is_a_workspace_mode_that_binds_the_arrows():
 
 
 def test_the_workspace_has_a_skeleton_with_declared_share_keys():
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     ctx = FakeCtx()
     columns = skeletons.for_mode(ctx, "sirens")
@@ -781,7 +781,7 @@ def _wav(path: Path, *, seconds: float = 0.05, rate: int = 44100) -> Path:
     here would be a second answer to what this build reads back."""
     import numpy as np
 
-    from warlock.kernels.audio import wavout
+    from realmspinner.kernels.audio import wavout
 
     count = max(1, int(rate * seconds))
     tone = np.sin(np.linspace(0.0, 40.0, count, dtype=np.float64)).astype(np.float32)
@@ -827,7 +827,7 @@ def test_a_sample_the_document_refused_does_not_move_the_window(tmp_path, monkey
     switched: list[str] = []
     monkeypatch.setattr(sirens_mode, "set_mode", lambda state, mode: switched.append(mode))
 
-    from warlock.studio.modes.sirens import edit as sirens_edit
+    from realmspinner.studio.modes.sirens import edit as sirens_edit
 
     monkeypatch.setattr(sirens_edit, "adopt_sample", lambda c, t, result: "")
     sirens_mode.import_sample(ctx, tab, _wav(tmp_path / "track.wav"), switch=True)
@@ -848,8 +848,8 @@ def test_a_file_past_the_byte_ceiling_is_refused_before_it_is_read(tmp_path, mon
     """The door in front of the decoder: ``read_wav``'s frame count is in a
     header the file has to be *read* to reach, so what the file weighs is
     answered first, off the same constant."""
-    from warlock.kernels.audio import wavout
-    from warlock.service.errors import ServiceError
+    from realmspinner.kernels.audio import wavout
+    from realmspinner.service.errors import ServiceError
 
     monkeypatch.setattr(wavout, "MAX_SAMPLE_FRAMES", 1)
     path = _wav(tmp_path / "album.wav")
@@ -861,7 +861,7 @@ def test_an_imported_sample_is_resampled_to_the_render_rate(tmp_path):
     """``read_wav`` is the whole conversion and the only one: the synth advances
     a sample's phase in output samples, so a 22 kHz source would otherwise play
     an octave out."""
-    from warlock.studio.modes.sirens.engine import synth
+    from realmspinner.studio.modes.sirens.engine import synth
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -873,8 +873,8 @@ def test_an_imported_sample_is_resampled_to_the_render_rate(tmp_path):
 def test_a_sample_instrument_makes_a_sound_once_it_has_one(tmp_path):
     import numpy as np
 
-    from warlock.studio.modes.sirens.engine import document as D
-    from warlock.studio.modes.sirens.engine import synth
+    from realmspinner.studio.modes.sirens.engine import document as D
+    from realmspinner.studio.modes.sirens.engine import synth
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -945,7 +945,7 @@ def test_a_sample_import_re_arms_the_renderer(tmp_path):
 
 
 def test_a_file_that_is_not_a_wav_is_refused_by_name(tmp_path):
-    from warlock.service.errors import ServiceError
+    from realmspinner.service.errors import ServiceError
 
     path = tmp_path / "notes.wav"
     path.write_bytes(b"this is not a RIFF file")
@@ -982,7 +982,7 @@ def test_the_sample_filter_is_the_one_the_drop_router_advertises():
 def test_the_drop_router_imports_a_wav_rather_than_saying_it_cannot():
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._on_drop)
     sirens_branch = source.split('ctx.state.mode == "sirens"', 1)[1]
@@ -1049,7 +1049,7 @@ def test_the_caret_label_is_empty_rather_than_wrong_with_nothing_open():
 @pytest.fixture
 def _device(monkeypatch):
     """A mixer that answers, and remembers what it was handed."""
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     played: list[Any] = []
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
@@ -1059,8 +1059,8 @@ def _device(monkeypatch):
 
 def test_auditioning_an_effect_renders_that_effect_rather_than_the_song(_device):
     """The one thing an Audition button must not do is play the music."""
-    from warlock.kernels.audio import wavout
-    from warlock.studio.modes.sirens.engine import synth
+    from realmspinner.kernels.audio import wavout
+    from realmspinner.studio.modes.sirens.engine import synth
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1166,8 +1166,8 @@ def _sounding(monkeypatch, tab: Any, seconds: float, *, anchor: int = 0) -> None
     faked the device would be asking about audio that, as far as the tab is
     concerned, was never started.
     """
-    from warlock.studio.modes.sirens import audio as sirens_audio
-    from warlock.studio.modes.sirens.state import Sounding
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens.state import Sounding
 
     tab.sounding = Sounding(
         marks=tab.marks, anchor=anchor, generation=tab.render_generation
@@ -1221,7 +1221,7 @@ def test_the_playhead_is_the_row_the_renderer_was_on(monkeypatch):
 def test_a_sound_effect_on_the_channel_is_not_the_songs_playhead(monkeypatch):
     """One channel: an audition replaces the song on it, and bisecting the
     song's map against an effect's clock walks rows nothing is playing."""
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     ctx = FakeCtx()
     tab, _first, _second = _two_pattern_song(ctx)
@@ -1327,7 +1327,7 @@ def test_moving_an_entry_carries_the_loop_point_with_it():
     """The loop is an index into the order list, so moving entries under it
     repoints it at whatever landed there -- a song looping from somewhere the
     user never chose."""
-    from warlock.studio.modes.sirens.ui.panes.orders import moved_loop
+    from realmspinner.studio.modes.sirens.ui.panes.orders import moved_loop
 
     # The moved entry takes its own loop with it.
     assert moved_loop(2, 2, 0) == 0
@@ -1343,7 +1343,7 @@ def test_moving_an_entry_carries_the_loop_point_with_it():
 # --- mute and solo --------------------------------------------------------------
 #
 # View state, not the song: a mute is how a person listens to what they are
-# writing, and a ``.wsng`` remembering one would hand somebody else a song with
+# writing, and a ``.rsng`` remembering one would hand somebody else a song with
 # a missing part. It reaches the mix through the render.
 
 
@@ -1409,7 +1409,7 @@ def test_the_header_can_tell_muted_from_merely_unheard():
 def test_a_muted_render_keeps_the_row_map_the_full_one_has():
     """The effect column survives a mute, so the mix stays sample-aligned and
     the playhead does not move when a channel is silenced."""
-    from warlock.studio.modes.sirens.engine import synth
+    from realmspinner.studio.modes.sirens.engine import synth
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1434,7 +1434,7 @@ def test_a_mute_does_not_touch_the_document():
 
 
 def _audible(monkeypatch):
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     played: list[tuple[Any, dict[str, Any]]] = []
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
@@ -1469,7 +1469,7 @@ def test_the_playhead_is_still_the_songs_row_after_playing_from_the_caret(monkey
     sirens_mode.play_from_caret(ctx, tab)
     assert played
 
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "tag", lambda: tab.uid)
     monkeypatch.setattr(sirens_audio, "position", lambda: 0.0)
@@ -1586,7 +1586,7 @@ def test_the_playhead_bisects_the_render_the_mixer_is_actually_playing(monkeypat
     assert sirens_mode.play(ctx, tab) is True
     assert played
 
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "tag", lambda: tab.uid)
     monkeypatch.setattr(sirens_audio, "position", lambda: 0.0)
@@ -1669,7 +1669,7 @@ def test_from_the_caret_with_loop_playback_repeats_the_song_not_its_tail(monkeyp
 
     # And the rotation is unwound: at the instant it starts, the playhead is on
     # the row the caret was on, not on row 0 of the song.
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "tag", lambda: tab.uid)
     monkeypatch.setattr(sirens_audio, "position", lambda: 0.0)
@@ -1688,9 +1688,9 @@ def test_a_mute_in_one_song_leaves_the_other_song_alone():
     # The same file, opened twice -- which is what a person does when they want
     # to compare a change against the version on disk. Channel uids come out of
     # the file, so the two tabs carry identical ones.
-    data = wsng.wsng_bytes(_tab(ctx).doc)
-    first = sirens_mode.adopt(ctx, wsng.read_wsng(data), title="one")
-    second = sirens_mode.adopt(ctx, wsng.read_wsng(data), title="two")
+    data = rsng.rsng_bytes(_tab(ctx).doc)
+    first = sirens_mode.adopt(ctx, rsng.read_rsng(data), title="one")
+    second = sirens_mode.adopt(ctx, rsng.read_rsng(data), title="two")
     assert [one.uid for one in first.doc.channels] == [
         one.uid for one in second.doc.channels
     ], "the same file really does give two tabs the same channel uids"
@@ -1709,7 +1709,7 @@ def test_switching_tabs_stops_the_song_that_was_playing(monkeypatch):
     buffer is still on the channel.
     """
     stopped: list[bool] = []
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "stop", lambda: stopped.append(True))
     ctx = FakeCtx()
@@ -1730,7 +1730,7 @@ def test_space_starts_the_song_while_a_pattern_audition_is_still_sounding(monkey
     two-presses-to-play bug. Against the unfixed code, ``play()`` is never
     called and ``stop()`` is.
     """
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     stopped: list[bool] = []
     played: list[bool] = []

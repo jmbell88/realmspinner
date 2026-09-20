@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel import dither as dith
-from warlock.kernels.pixel import gradient as grad
-from warlock.kernels.pixel.document import Document
+from realmspinner.kernels.pixel import dither as dith
+from realmspinner.kernels.pixel import gradient as grad
+from realmspinner.kernels.pixel.document import Document
 
 BLACK = (0, 0, 0, 255)
 WHITE = (255, 255, 255, 255)
@@ -143,7 +143,7 @@ def test_a_dithered_gradient_lands_on_the_stops_in_the_layer_too():
 def test_the_selection_edge_stays_soft_while_the_colour_is_hard():
     """Coverage is not dithered: a feathered selection means one thing across
     every tool, and a soft edge chopped into a chequer is not that thing."""
-    from warlock.kernels.pixel.selection import SelectionMask
+    from realmspinner.kernels.pixel.selection import SelectionMask
 
     doc = Document.blank(*SIZE)
     doc.stack.active.pixels[:] = (0, 128, 0, 255)
@@ -166,7 +166,7 @@ def test_an_indexed_document_takes_a_dithered_gradient_without_a_second_snap():
     doc.set_palette([BLACK, WHITE, RED])
     doc.gradient((0, 0), (31, 0), BLACK, WHITE, dither="bayer8")
 
-    from warlock.kernels.pixel import indexed
+    from realmspinner.kernels.pixel import indexed
 
     snapped = indexed.snap(doc.stack.active.pixels, doc.palette)
     assert np.array_equal(snapped, doc.stack.active.pixels)

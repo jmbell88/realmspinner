@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pytest
 
-from warlock import config as config_module
-from warlock.service import Conflict, Invalid, NotFound, NotReady, TooLarge
-from warlock.service import derive as svc_derive
-from warlock.service import export as svc_export
-from warlock.service import files as svc_files
-from warlock.service import jobs as svc_jobs
-from warlock.service import rig as svc_rig
-from warlock.service import sheets as svc_sheets
-from warlock.service.validation import DERIVED_PARAMS, MAX_SEED
+from realmspinner import config as config_module
+from realmspinner.service import Conflict, Invalid, NotFound, NotReady, TooLarge
+from realmspinner.service import derive as svc_derive
+from realmspinner.service import export as svc_export
+from realmspinner.service import files as svc_files
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import rig as svc_rig
+from realmspinner.service import sheets as svc_sheets
+from realmspinner.service.validation import DERIVED_PARAMS, MAX_SEED
 
 
 def _png_bytes(size=(8, 8), fmt="PNG") -> bytes:
@@ -75,7 +75,7 @@ def test_a_reference_seed_defaults_to_the_legacy_single_seed(svc):
 
 
 def _small_card(svc, total=8.0):
-    from warlock import vram
+    from realmspinner import vram
 
     svc.vram_plan = vram.plan(exclusive=None, total_gib=total)
     return svc
@@ -356,7 +356,7 @@ def test_a_sweep_unit_is_unchanged_by_the_promote_resolution_rule(svc):
     """A sweep goes through create_job and never through promote_to_model, so
     its units must still get exactly what their own vector asks for -- 512
     included, when that is the vector being measured."""
-    from warlock.service import sweeps as svc_sweeps
+    from realmspinner.service import sweeps as svc_sweeps
 
     for platform, expected in (("2d", 512), ("3d", 1024)):
         plan = svc_sweeps.SweepPlan(
@@ -532,7 +532,7 @@ def test_prune_keeps_what_a_verdict_cannot_stand_in_for(svc):
     tier against accepted ``source.glb`` files, and the mesh probe is fitted to
     accepted meshes. A row saying "this was good" with no mesh behind it serves
     neither."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     keeper = _reviewable(svc)
     svc_verdicts.record_verdict(svc, keeper, grade=3)
@@ -550,7 +550,7 @@ def test_prune_keeps_a_rejected_image_because_the_probe_trains_on_both_classes(s
     refuses below ``MIN_PER_CLASS`` of **each** class, so a rejected reference
     is training data every bit as much as an accepted one -- an accept-only
     guard would quietly delete half a corpus."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     labelled = _reviewable(svc, image=True)
     svc_verdicts.record_verdict(svc, labelled, verdict="reject", stage="reference")
@@ -565,7 +565,7 @@ def test_prune_still_reclaims_a_rejected_mesh(svc):
     """The guard must not become "keep everything ever reviewed": 101 of the 117
     verdicts on record are model-stage rejects, and their rows carry the whole
     finding."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     job_id = _reviewable(svc)
     svc_verdicts.record_verdict(svc, job_id, grade=-3)
@@ -581,7 +581,7 @@ def test_emptying_the_trash_keeps_a_labelled_image(svc):
     surviving accepted references were in it -- so this is the path that would
     actually have destroyed one. "Empty" stops being literally true, which is
     the lesser wrong: nothing on the card can regenerate a *specific* image."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     labelled = _reviewable(svc, image=True)
     svc_verdicts.record_verdict(svc, labelled, verdict="accept", stage="reference")
@@ -599,7 +599,7 @@ def test_emptying_the_trash_keeps_a_labelled_image(svc):
 def test_the_per_asset_delete_is_still_the_escape_hatch(svc):
     """Guarding the bulk paths and not the deliberate one is the whole design:
     a named asset on screen is a decision, a count in a dialog is not."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     job_id = _reviewable(svc)
     svc_verdicts.record_verdict(svc, job_id, grade=3)
@@ -709,7 +709,7 @@ def test_optimize_needs_a_source_reconstruction(svc):
 
 def test_a_retarget_reports_the_rig_artifacts_it_made_stale(svc):
     """Reported, never deleted: a rig and its poses are user work."""
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     job_id = _finished_job(svc)
     job_dir = svc.job_dir(job_id)
@@ -756,7 +756,7 @@ def test_a_retexture_needs_a_mesh_and_a_prompt(svc):
     # nothing user-facing was reaching it -- an API contract wrong in the one
     # place nothing looked.
     with pytest.raises(Invalid):
-        from warlock.service.validation import MAX_PROMPT
+        from realmspinner.service.validation import MAX_PROMPT
 
         svc_jobs.retexture_job(svc, job_id, "x" * (MAX_PROMPT + 1))
 
@@ -770,8 +770,8 @@ def _retexturable(svc):
 
 
 def test_a_retexture_queues_a_job_carrying_only_inputs(svc):
-    from warlock.pipelines import retexture
-    from warlock.service.validation import DERIVED_PARAMS
+    from realmspinner.pipelines import retexture
+    from realmspinner.service.validation import DERIVED_PARAMS
 
     job_id, _ = _retexturable(svc)
     new_id = svc_jobs.retexture_job(svc, job_id, "rusted iron", seed=7)["id"]
@@ -858,7 +858,7 @@ def test_a_retexture_defaults_to_the_measured_strength(svc):
     """The 2026-08-15 retexture-visibility ladder picked the default; the door
     must hand it out rather than the sheets' 0.45, which was tuned for an
     un-anchored restyle that no longer describes the default run."""
-    from warlock import models
+    from realmspinner import models
 
     job_id, _ = _retexturable(svc)
     row = svc.store.get(svc_jobs.retexture_job(svc, job_id, "rusted iron")["id"])
@@ -925,7 +925,7 @@ def test_a_retexture_refuses_a_non_sdxl_base_at_the_door(svc):
     and pulled ~16 GiB of checkpoint into host commit -- minutes of the serial
     worker and a trellis restart, to reach an answer the registry already had.
     """
-    from warlock import models
+    from realmspinner import models
 
     klein = next(
         key
@@ -945,9 +945,9 @@ def test_a_retexture_refuses_a_non_sdxl_base_at_the_door(svc):
 
 def test_a_retexture_refuses_a_non_sdxl_default_from_the_config(svc, monkeypatch):
     """The reachable half: ``base_model`` is optional and falls back to
-    ``config.t2i_model``, so a host whose ``WARLOCK_T2I_MODEL`` names a klein
+    ``config.t2i_model``, so a host whose ``REALMSPINNER_T2I_MODEL`` names a klein
     entry qualified by leaving the field alone."""
-    from warlock import models
+    from realmspinner import models
 
     klein = next(
         key
@@ -963,7 +963,7 @@ def test_a_retexture_refuses_a_non_sdxl_default_from_the_config(svc, monkeypatch
 def test_a_reroll_of_a_stored_retexture_refuses_the_same_family(svc, monkeypatch):
     """``rerun_job --reroll`` is the other door onto the same six passes, and it
     reads ``base_model`` off a row that outlives the door that admitted it."""
-    from warlock import models
+    from realmspinner import models
 
     klein = next(
         key
@@ -1013,7 +1013,7 @@ def test_rerolling_a_retexture_is_refused_while_a_dependent_rework_is_in_flight(
 
 
 def test_a_retexture_reports_the_exports_that_carry_the_old_skin(svc):
-    from warlock.pipelines import retexture
+    from realmspinner.pipelines import retexture
 
     _job_id, job_dir = _retexturable(svc)
     for name in retexture.SURFACE_DERIVED:
@@ -1030,7 +1030,7 @@ def test_a_retexture_does_not_make_the_rig_stale(svc):
     geometry -- the one place this differs from a retarget, and the reason it
     is a written assertion rather than a comment somebody could "fix".
     """
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     job_id, job_dir = _retexturable(svc)
     (job_dir / "rig.glb").write_bytes(b"x")
@@ -1051,7 +1051,7 @@ def test_a_retexture_writes_no_observation(svc):
     """The corpus is about what *generation* settings produce. import_mesh and
     the retarget re-audit write none for the same reason, and a re-texture
     measures neither a reference nor a reconstruction."""
-    from warlock import queue as queue_mod
+    from realmspinner import queue as queue_mod
 
     job_id, _ = _retexturable(svc)
     new_id = svc_jobs.retexture_job(svc, job_id, "rusted iron")["id"]
@@ -1067,8 +1067,8 @@ def test_derived_artifacts_outlive_the_normalize_that_finishes_the_new_mesh(svc,
     an STL or OBJ export landing between the unlink and the normalize rebuilt
     itself from the ungrounded mesh -- and cached that answer indefinitely.
     """
-    from warlock.pipelines import optimize, postprocess
-    from warlock.service import files as svc_files
+    from realmspinner.pipelines import optimize, postprocess
+    from realmspinner.service import files as svc_files
 
     job_id = _finished_job(svc)
     job_dir = svc.job_dir(job_id)
@@ -1108,7 +1108,7 @@ def _retarget_ready(svc):
 
 
 def _fake_optimize(monkeypatch):
-    from warlock.pipelines import optimize
+    from realmspinner.pipelines import optimize
 
     def fake_run(source, out, **_kwargs):
         out.write_bytes(b"optimized")
@@ -1125,8 +1125,8 @@ def test_a_retarget_whose_grounding_fails_says_so_on_the_row(svc, monkeypatch):
     row claimed a grounded asset, and ``export.degraded_ids`` found nothing to
     warn about.
     """
-    from warlock.pipelines import postprocess
-    from warlock.service.validation import ARTIFACT_HEALTH
+    from realmspinner.pipelines import postprocess
+    from realmspinner.service.validation import ARTIFACT_HEALTH
 
     job_id = _retarget_ready(svc)
     _fake_optimize(monkeypatch)
@@ -1147,8 +1147,8 @@ def test_a_successful_retarget_clears_a_stale_degraded_note(svc, monkeypatch):
     """The other direction, unhandled for the same reason: a note inherited
     from the original run describes a mesh that no longer exists, so it left
     the asset flagged after the step that fixed it."""
-    from warlock.pipelines import postprocess
-    from warlock.service.validation import ARTIFACT_HEALTH
+    from realmspinner.pipelines import postprocess
+    from realmspinner.service.validation import ARTIFACT_HEALTH
 
     job_id = _retarget_ready(svc)
     svc.store.merge_params(job_id, {ARTIFACT_HEALTH: {"normalize": "it was broken"}})
@@ -1163,8 +1163,8 @@ def test_a_successful_retarget_clears_a_stale_degraded_note(svc, monkeypatch):
 def test_a_successful_retarget_keeps_a_note_about_a_different_step(svc, monkeypatch):
     """Only ``normalize`` is this step's to clear. A mesh audit that could not
     run is still true of the geometry a retarget did not change."""
-    from warlock.pipelines import postprocess
-    from warlock.service.validation import ARTIFACT_HEALTH
+    from realmspinner.pipelines import postprocess
+    from realmspinner.service.validation import ARTIFACT_HEALTH
 
     job_id = _retarget_ready(svc)
     svc.store.merge_params(job_id, {ARTIFACT_HEALTH: {"report": "no report"}})
@@ -1221,7 +1221,7 @@ def test_one_artifact_is_never_converted_twice_concurrently(svc):
         out.write_bytes(b"stl")
         running.pop()
 
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     original = postprocess.glb_to_stl
     postprocess.glb_to_stl = slow_convert
@@ -1516,8 +1516,8 @@ def test_every_openable_follow_up_kind_can_also_be_named_in_its_toast():
     carries ``source_job`` has a ``PRODUCTS`` entry -- derived from
     ``_discard_artifacts`` rather than hand-listed.
     """
-    from warlock import followups
-    from warlock.studio import asset_open
+    from realmspinner import followups
+    from realmspinner.studio import asset_open
 
     unnameable = sorted(set(asset_open.FOLLOWUP_STAGES) - set(followups.PRODUCTS))
     assert not unnameable, (

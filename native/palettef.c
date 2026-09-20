@@ -1,6 +1,6 @@
 /* Nearest palette entry per pixel in Oklab -- pipelines/pixel.map_palette.
  *
- * A float sibling of warlockc_palette_nearest_i32, which is int32 RGB and
+ * A float sibling of realmspinnerc_palette_nearest_i32, which is int32 RGB and
  * wired only into inker. This site searches in Oklab float64 and is chunked at
  * 1 << 16 rows precisely because each chunk builds a (65536, p, 3) difference
  * array -- about 100 MB at a 64-entry palette, allocated, written and thrown
@@ -29,9 +29,9 @@
 
 #include <math.h>
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
-void warlockc_palette_nearest_f64(const double *queries, const double *palette,
+void realmspinnerc_palette_nearest_f64(const double *queries, const double *palette,
                                   int32_t *out, int64_t n, int64_t n_palette) {
   for (int64_t i = 0; i < n; i++) {
     const double l = queries[i * 3 + 0];

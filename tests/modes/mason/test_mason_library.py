@@ -5,7 +5,7 @@ Stage G's whole claim, in one file. The outward half is
 ``import_mesh`` Clay's builds go through, so rigging, sprite sheets, the
 triangle retarget and every mesh export work on it without any of them learning
 that Mason exists. The inward half is ``edit_asset_in_mason``, which reads the
-``scene.wscn`` sidecar written beside the mesh and gets the *arrangement* back:
+``scene.rscn`` sidecar written beside the mesh and gets the *arrangement* back:
 the groups, the lights, the links.
 
 The two halves are tested together rather than apart, because what would
@@ -22,15 +22,15 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import gltf
-from warlock.service import files as svc_files
-from warlock.studio.modes.mason import assets as mason_assets
-from warlock.studio.modes.mason import mode as mason_mode
-from warlock.studio.modes.mason.engine import document as md
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import refs as mason_refs
-from warlock.studio.modes.mason.engine import scene as mason_scene
-from warlock.studio.modes.mason.engine import serialize as mason_ser
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.service import files as svc_files
+from realmspinner.studio.modes.mason import assets as mason_assets
+from realmspinner.studio.modes.mason import mode as mason_mode
+from realmspinner.studio.modes.mason.engine import document as md
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import refs as mason_refs
+from realmspinner.studio.modes.mason.engine import scene as mason_scene
+from realmspinner.studio.modes.mason.engine import serialize as mason_ser
 
 
 class _Cache:
@@ -174,7 +174,7 @@ def test_the_row_names_mason_as_the_mode_that_can_reopen_it(svc):
 
 
 def test_the_scene_document_lands_beside_the_mesh_and_is_never_listed(svc):
-    """``build.wblk``'s precedent exactly: the sidecar is a real file in the
+    """``build.rblk``'s precedent exactly: the sidecar is a real file in the
     job directory and is absent from every table that would serve it or draw
     a row for it."""
     ctx = FakeCtx(svc)
@@ -305,7 +305,7 @@ def test_the_exported_card_is_photographed_from_mason_s_own_viewport(svc):
     would leave the card on its placeholder and read as an export that
     produced nothing.
     """
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import main as main_mod
 
     class _App:
         def __init__(self, ctx: Any) -> None:
@@ -336,9 +336,9 @@ def test_define_prefab_refuses_a_template_that_would_push_roots_plus_prefabs_pas
     monkeypatch,
 ):
     """``define_prefab`` used to charge nothing against ``MAX_PLACED`` at all
-    -- its own comment at :func:`~warlock.studio.modes.mason.engine.document.
+    -- its own comment at :func:`~realmspinner.studio.modes.mason.engine.document.
     MasonDoc.define_prefab`'s call site said so -- while
-    ``serialize.read_wscn`` counts scene roots *and* every template's nodes
+    ``serialize.read_rscn`` counts scene roots *and* every template's nodes
     against that same shared ceiling. A document built through guarded calls
     alone (this one: three roots, then ``define_prefab``) could save clean
     and then permanently refuse to reopen. The fix charges the template here,
@@ -365,7 +365,7 @@ def test_a_document_with_several_large_named_prefabs_can_reopen_after_it_saves_s
     ``define_prefab``'s new pre-flight check, which the previous test proves
     fires), save it, and reopen it. Before the fix, nothing stopped
     ``define_prefab`` from building a document whose combined total
-    ``read_wscn`` would refuse -- this proves a document built entirely
+    ``read_rscn`` would refuse -- this proves a document built entirely
     through the guarded API always reopens.
     """
     monkeypatch.setattr(mason_scene, "MAX_PLACED", 10)
@@ -386,7 +386,7 @@ def test_a_document_with_several_large_named_prefabs_can_reopen_after_it_saves_s
             ),
         )
 
-    data = mason_ser.wscn_bytes(doc)
-    reopened = mason_ser.read_wscn(data)
+    data = mason_ser.rscn_bytes(doc)
+    reopened = mason_ser.read_rscn(data)
     assert set(reopened.prefabs) == {"one", "two"}
     assert len(list(nd.walk(reopened.roots))) == 2

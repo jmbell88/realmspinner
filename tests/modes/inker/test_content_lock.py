@@ -21,10 +21,10 @@ from xml.etree import ElementTree
 import numpy as np
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import ora as inker_ora
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.selection import SelectionMask
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import ora as inker_ora
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.selection import SelectionMask
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)

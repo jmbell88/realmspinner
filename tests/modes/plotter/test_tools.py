@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.grid2d import gid
-from warlock.studio.modes.plotter.engine import tools
+from realmspinner.kernels.grid2d import gid
+from realmspinner.studio.modes.plotter.engine import tools
 
 
 def _layer(width: int = 6, height: int = 4) -> np.ndarray:
@@ -444,7 +444,7 @@ def _corner_tile() -> np.ndarray:
 
 def _drawn(cell: int, tile: np.ndarray) -> np.ndarray:
     """What one encoded cell actually renders as."""
-    from warlock.studio.modes.plotter.engine.render import orient
+    from realmspinner.studio.modes.plotter.engine.render import orient
 
     _id, flip_h, flip_v, flip_d = gid.decompose(int(cell))
     return orient(tile, flip_h, flip_v, flip_d)

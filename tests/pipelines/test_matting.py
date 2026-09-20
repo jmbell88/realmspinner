@@ -16,8 +16,8 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from warlock import models
-from warlock.pipelines import matting
+from realmspinner import models
+from realmspinner.pipelines import matting
 
 
 @pytest.fixture(autouse=True)
@@ -78,8 +78,8 @@ def test_weight_presence_checks_reject_a_directory_where_a_file_belongs(tmp_path
     import threading
     from unittest.mock import MagicMock
 
-    from warlock.pipelines import text2image
-    from warlock.pipelines.conditioning import Conditioning
+    from realmspinner.pipelines import text2image
+    from realmspinner.pipelines.conditioning import Conditioning
 
     # 1. matting.available()'s config.json gate.
     spec = models.MATTING_MODELS[models.DEFAULT_MATTING]
@@ -211,7 +211,7 @@ def test_a_checkpoint_that_will_not_load_is_only_tried_once(tmp_path, monkeypatc
         raise matting._ChildFailed("RuntimeError: half a download", stage="load")
 
     monkeypatch.setattr(matting, "_request", boom)
-    with caplog.at_level(logging.WARNING, logger="warlock.pipelines.matting"):
+    with caplog.at_level(logging.WARNING, logger="realmspinner.pipelines.matting"):
         for _ in range(3):
             _m, source = matting.mask(_subject(), _config(tmp_path))
             assert source == "flood"
@@ -276,8 +276,8 @@ def test_a_failed_load_is_remembered_where_doctor_can_read_it(tmp_path, monkeypa
 
 
 def test_the_service_fixture_does_not_inherit_this_machines_matting_weights(svc):
-    # The same rule the svc fixture already applies to WARLOCK_TRELLIS_MODELS
-    # and WARLOCK_GLTFPACK, and it went unnoticed only because matting was
+    # The same rule the svc fixture already applies to REALMSPINNER_TRELLIS_MODELS
+    # and REALMSPINNER_GLTFPACK, and it went unnoticed only because matting was
     # broken: with the dtype bug fixed, every 2D export in the suite that ran
     # on a machine with models/birefnet downloaded started doing a real
     # ~12 s BiRefNet inference per image -- tests/service/test_derive_2d.py alone
@@ -332,7 +332,7 @@ def test_a_model_kept_on_the_cpu_is_cast_to_float32(tmp_path, monkeypatch):
     # now and nothing is built out of the checkpoint directory. What is being
     # tested is unchanged -- the cast is ``matting``'s, and it is the reason
     # the CPU path is usable at all.
-    from warlock.pipelines import birefnet
+    from realmspinner.pipelines import birefnet
 
     monkeypatch.setattr(birefnet, "load", lambda _path: Stub().half())
     model = matting._load(tmp_path / "birefnet", "cpu")
@@ -352,7 +352,7 @@ import sys, types
 sys.modules["transformers"] = types.SimpleNamespace(
     AutoModelForImageSegmentation=types.SimpleNamespace(from_pretrained=None)
 )
-from warlock.pipelines import matting, matting_worker
+from realmspinner.pipelines import matting, matting_worker
 """
 
 

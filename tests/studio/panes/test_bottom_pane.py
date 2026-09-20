@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio import main as main_mod
-from warlock.studio import widgets
-from warlock.studio.modes.muse.ui import brief as muse_brief
-from warlock.studio.modes.muse.ui.panes import player as muse_player
-from warlock.studio.panes import bottom_pane, overlay, tour
+from realmspinner.studio import main as main_mod
+from realmspinner.studio import widgets
+from realmspinner.studio.modes.muse.ui import brief as muse_brief
+from realmspinner.studio.modes.muse.ui.panes import player as muse_player
+from realmspinner.studio.panes import bottom_pane, overlay, tour
 
 
 def test_the_bottom_pane_never_exceeds_a_quarter_of_the_window():
@@ -96,7 +96,7 @@ def test_toasts_progress_and_tour_cards_sit_above_the_bottom_pane():
 
 
 def _familiar_config(tmp_path):
-    from warlock.config import Config
+    from realmspinner.config import Config
 
     return Config(
         data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
@@ -133,8 +133,8 @@ def test_reserve_adds_the_splitter_grip_once_expanded(monkeypatch):
 
     from _ui_context import imgui_context
 
-    from warlock.studio import layout
-    from warlock.studio.assistant import ui as familiar_ui
+    from realmspinner.studio import layout
+    from realmspinner.studio.assistant import ui as familiar_ui
 
     ctx = SimpleNamespace(
         state=SimpleNamespace(mode="home", familiar=familiar_ui.FamiliarUIState(expanded=True)),
@@ -167,10 +167,10 @@ def test_bottom_pane_height_honours_ui_scale_when_capping_the_grown_pane(monkeyp
 
     from _ui_context import imgui_context
 
-    from warlock.studio import tokens
-    from warlock.studio.assistant import ui as familiar_ui
-    from warlock.studio.modes.muse.ui import brief as muse_brief
-    from warlock.studio.modes.muse.ui.panes import player as muse_player
+    from realmspinner.studio import tokens
+    from realmspinner.studio.assistant import ui as familiar_ui
+    from realmspinner.studio.modes.muse.ui import brief as muse_brief
+    from realmspinner.studio.modes.muse.ui.panes import player as muse_player
 
     ctx = SimpleNamespace(
         state=SimpleNamespace(mode="muse", familiar=familiar_ui.FamiliarUIState(expanded=True)),
@@ -202,8 +202,8 @@ def test_pane_height_defaults_to_expanded_h_and_round_trips_a_drag(tmp_path):
     a stray large or tiny stored value cannot hand the pane an unusable size."""
     from types import SimpleNamespace
 
-    from warlock.studio.assistant import ui as familiar_ui
-    from warlock.studio.settings import Settings
+    from realmspinner.studio.assistant import ui as familiar_ui
+    from realmspinner.studio.settings import Settings
 
     settings = Settings.load(tmp_path)
     ctx = SimpleNamespace(settings=settings)
@@ -221,7 +221,7 @@ def test_pane_height_defaults_to_expanded_h_and_round_trips_a_drag(tmp_path):
 
 
 def test_familiar_state_is_missing_on_an_empty_home(tmp_path):
-    """A fresh WARLOCK_HOME has none of Familiar's three rows -- the pane and
+    """A fresh REALMSPINNER_HOME has none of Familiar's three rows -- the pane and
     the ✦ menu must both read this as "not installed", not silently pass an
     AttributeError up from a bottom pane that used to hardcode the sentence."""
     config = _familiar_config(tmp_path)
@@ -234,7 +234,7 @@ def test_familiar_state_is_idle_once_every_row_is_present(tmp_path):
     ``familiar_state`` must flip to "idle" -- the pane's install sentence and
     the menu's disabled item both key off this, and before this test the pane
     said "isn't installed" even after a real download completed."""
-    from warlock import models
+    from realmspinner import models
 
     config = _familiar_config(tmp_path)
     for spec in models.FAMILIAR_MODELS.values():
@@ -262,10 +262,10 @@ def test_the_expanded_pane_renders_bubbles_the_handle_and_autoscrolls(monkeypatc
 
     from _ui_context import imgui_context
 
-    from warlock import models
-    from warlock.familiar import threads as threads_mod
-    from warlock.studio.assistant import ui as familiar_ui
-    from warlock.studio.settings import Settings
+    from realmspinner import models
+    from realmspinner.familiar import threads as threads_mod
+    from realmspinner.studio.assistant import ui as familiar_ui
+    from realmspinner.studio.settings import Settings
 
     config = _familiar_config(tmp_path)
     for spec in models.FAMILIAR_MODELS.values():

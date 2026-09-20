@@ -1,6 +1,6 @@
 /* Flourish's smoke primitive: one blob's per-pixel work (distance plane,
  * optional fbm raggedness blend, coverage, over_into) --
- * warlock.studio.inker.flourish.prims.smoke.render's per-blob loop body plus
+ * realmspinner.studio.inker.flourish.prims.smoke.render's per-blob loop body plus
  * the noise.value2d/fbm and prims.fbm_plane/over_into helpers it calls.
  *
  * Measured at 388 ms/frame for an 80-blob smoke layer against the Flourish
@@ -36,11 +36,11 @@
  * is caller-owned, sized by native.py's smoke_blob() from the window and the
  * scale before the call. -1 means the scratch was too small and nothing has
  * been written to out_rgb/out_a -- the caller falls back to numpy rather
- * than guessing a bigger buffer, same contract as warlockc_contours,
- * warlockc_bvh_build and warlockc_rotsprite_u8.
+ * than guessing a bigger buffer, same contract as realmspinnerc_contours,
+ * realmspinnerc_bvh_build and realmspinnerc_rotsprite_u8.
  */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
 #include <math.h>
 
@@ -141,7 +141,7 @@ static void smoke_blur_pass(float *plane, int rows, int cols, int r,
   }
 }
 
-int32_t warlockc_smoke_blob(
+int32_t realmspinnerc_smoke_blob(
     float *out_rgb, float *out_a, int32_t frame_w, int32_t frame_h,
     int32_t y0, int32_t y1, int32_t x0, int32_t x1, float scale, double px,
     double py, double radius, double rag, int64_t fbm_seed, float dx_f32,

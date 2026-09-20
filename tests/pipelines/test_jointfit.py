@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.pipelines import jointfit
+from realmspinner.pipelines import jointfit
 
 HEIGHT = 1.8
 
@@ -61,8 +61,8 @@ def test_every_template_bone_is_measured(tpose):
 
 
 def test_the_payload_is_in_template_order_and_the_shape_the_validator_takes():
-    from warlock.kernels.rig.skeleton import validate_joints
-    from warlock.kernels.rig.templates import get_template
+    from realmspinner.kernels.rig.skeleton import validate_joints
+    from realmspinner.kernels.rig.templates import get_template
 
     payload = jointfit.payload(_body(0.2))
     assert [b["name"] for b in payload["bones"]] == list(jointfit.BONES)

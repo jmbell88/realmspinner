@@ -11,9 +11,9 @@
  * transitive closure of the seed within `match`, and that set is unique.
  */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
-WARLOCKC_API void warlockc_flood_u8(const uint8_t *match, int64_t match_stride,
+REALMSPINNERC_API void realmspinnerc_flood_u8(const uint8_t *match, int64_t match_stride,
                                     uint8_t *out, int64_t out_stride,
                                     int32_t *scratch, int64_t h, int64_t w,
                                     int64_t seed_x, int64_t seed_y) {

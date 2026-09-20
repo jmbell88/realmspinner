@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.geom3d import glbwrite, gltf
-from warlock.kernels.mesh import adjacency as adj
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import glbimport, serialize
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import ops as clay_ops
+from realmspinner.kernels.geom3d import glbwrite, gltf
+from realmspinner.kernels.mesh import adjacency as adj
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import glbimport, serialize
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import ops as clay_ops
 
 
 class _Toasts:
@@ -140,8 +140,8 @@ def test_import_a_model_glb_repair_it_and_export_it_again(tmp_path) -> None:
     # Export it as an asset, and save the document beside it -- what
     # ``clay_mode.export_asset`` does, minus the service call.
     exported = glbwrite.write_glb(bd.to_model(doc))
-    sidecar = tmp_path / "build.wblk"
-    sidecar.write_bytes(serialize.wblk_bytes(doc))
+    sidecar = tmp_path / "build.rblk"
+    sidecar.write_bytes(serialize.rblk_bytes(doc))
 
     # Open the exported asset in 3D mode: the textures are still there.
     loaded = gltf.load(exported)
@@ -149,7 +149,7 @@ def test_import_a_model_glb_repair_it_and_export_it_again(tmp_path) -> None:
     assert loaded.meshes[0][0].uvs is not None
 
     # And reopening the sidecar gives back the document, not a frozen soup.
-    reopened = serialize.read_wblk(sidecar.read_bytes())
+    reopened = serialize.read_rblk(sidecar.read_bytes())
     assert len(reopened.objects) == 1
     assert reopened.materials[0].base_color == image
     assert bm.face_count(reopened.objects[0].mesh) == bm.face_count(

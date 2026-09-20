@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from PIL import Image, ImageDraw
 
-from warlock.pipelines import control
+from realmspinner.pipelines import control
 
 
 def _square(size=128, fill=(255, 255, 255), bg=(0, 0, 0)):
@@ -88,7 +88,7 @@ def test_overlapping_write_hint_calls_do_not_share_a_temp_name(monkeypatch, tmp_
     dest = tmp_path / "control.png"
 
     seen: list = []
-    from warlock.core.safeio import atomic
+    from realmspinner.core.safeio import atomic
 
     real_staged = atomic.staged
 

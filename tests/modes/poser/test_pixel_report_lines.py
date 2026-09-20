@@ -9,7 +9,7 @@ to its neighbour.
 
 from __future__ import annotations
 
-from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
 
 def test_an_hd_sheet_reports_full_colour_not_a_palette():

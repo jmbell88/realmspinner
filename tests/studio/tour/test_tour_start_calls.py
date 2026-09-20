@@ -18,9 +18,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio.tour.scripts import TOURS
+from realmspinner.studio.tour.scripts import TOURS
 
-SRC = Path(__file__).resolve().parents[3] / "src" / "warlock"
+SRC = Path(__file__).resolve().parents[3] / "src" / "realmspinner"
 
 REAL_TOUR_KEYS = {tour.key for tour in TOURS}
 

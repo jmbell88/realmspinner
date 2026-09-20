@@ -1,6 +1,6 @@
 # Making a soundtrack
 
-Sirens is the tracker: pattern grid, five NES-shaped voices, one `.wsng` document, WAV out. Like
+Sirens is the tracker: pattern grid, five NES-shaped voices, one `.rsng` document, WAV out. Like
 Inker and Packwright it needs no GPU, no weights and nothing downloaded — but unlike them it needs a
 sound card if you want to hear anything. Everything else in this chapter works without one.
 
@@ -152,7 +152,7 @@ panel to go back to the song.
 
 ## Saving and exporting
 
-`Ctrl+S` saves the document as `.wsng` — a zip of the song as JSON, its patterns as arrays and any
+`Ctrl+S` saves the document as `.rsng` — a zip of the song as JSON, its patterns as arrays and any
 samples as WAVs. That file is the composition, and it is the only thing here you cannot regenerate.
 
 **Export audio...** in the **Song file** panel asks for a *folder*, not a filename, because it writes
@@ -162,7 +162,7 @@ a family of files:
 - `stems/Pulse 1.wav`, `stems/Triangle.wav`, … — one per channel.
 - `sfx/coin.wav`, … — one per sound effect, named after the effect.
 
-Every WAV is a pure function of the `.wsng`. Export the same untouched document twice and you get
+Every WAV is a pure function of the `.rsng`. Export the same untouched document twice and you get
 byte-identical files, which is what makes an exported track something a build script regenerates
 rather than an artefact you have to keep and hope about.
 

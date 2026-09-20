@@ -40,8 +40,8 @@ import hashlib
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import asein, aseout, ora
-from warlock.kernels.pixel.document import Document
+from realmspinner.kernels.pixel import asein, aseout, ora
+from realmspinner.kernels.pixel.document import Document
 
 
 def _animated(frames: int = 2, tracks: int = 3) -> Document:
@@ -354,7 +354,12 @@ def test_an_ora_without_the_key_reads_back_flat_rather_than_failing(tmp_path):
 _COMPOSITE_SHA = "5d4904c2a051e4c33988317175896acbf420b9c62a91b5b4579962dadec2cc4e"
 _FLATTEN_SHA = "5d4904c2a051e4c33988317175896acbf420b9c62a91b5b4579962dadec2cc4e"
 _FRAME1_FLAT_SHA = "4a1d647d8ddeefffbd7a9f154bb9f8aeed7edc6ecd251ec4967f20a0a90d0eee"
-_ORA_SHA = "ced2313ac8e227a96bcbadbaea360dcf2ef6b41e2ec0ff50577d48704d513826"
+# Re-pinned 2026-09-19, and the only hash here that moved: the product rename
+# renamed this app's own member inside the archive (``warlock.json`` ->
+# ``realmspinner.json``, see ``ora.REALMSPINNER_MEMBER``), so the zip's bytes
+# changed while not one pixel, frame or cel did. The three pixel hashes above
+# are untouched, which is what says so.
+_ORA_SHA = "2deafdfab94c00117e85fd888ec35189672b094e05b3dab93593f7f44c29fb6a"
 _ASE_SHA = "b58b3569dad83046a86898e46703c671e1615763694e029ba2d6dac11275fc8c"
 
 

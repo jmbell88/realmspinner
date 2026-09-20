@@ -20,8 +20,8 @@ from __future__ import annotations
 import ast
 import inspect
 
-from warlock.service import _jobs_create
-from warlock.studio.modes.create.engine import assets
+from realmspinner.service import _jobs_create
+from realmspinner.studio.modes.create.engine import assets
 
 
 def _door_whitelist(name: str) -> set[str]:

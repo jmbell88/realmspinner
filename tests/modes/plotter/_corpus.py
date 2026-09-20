@@ -18,8 +18,8 @@ from typing import Any
 
 import numpy as np
 
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter.engine import tsx
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter.engine import tsx
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "tiled"
 

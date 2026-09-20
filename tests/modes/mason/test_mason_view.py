@@ -26,13 +26,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.modes.mason.engine import document as md
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import refs as mrefs
-from warlock.studio.modes.mason.engine import scene as msc
-from warlock.studio.modes.mason.ui import view as mason_view
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.studio.modes.mason.engine import document as md
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import refs as mrefs
+from realmspinner.studio.modes.mason.engine import scene as msc
+from realmspinner.studio.modes.mason.ui import view as mason_view
 
 RECT = (0.0, 0.0, 128.0, 96.0)
 
@@ -96,7 +96,7 @@ def _box_primitive(material: Any = None) -> gltf.Primitive:
 
 
 class _Source:
-    """A stand-in :class:`~warlock.studio.modes.mason.engine.refs.GeometrySource`.
+    """A stand-in :class:`~realmspinner.studio.modes.mason.engine.refs.GeometrySource`.
 
     Deliberately *not* ``mason_assets.AssetSource``: what these tests are about
     is what the viewport does with whatever a source answers, and driving the
@@ -408,7 +408,7 @@ def test_a_box_behind_the_camera_is_culled_and_one_in_front_is_not() -> None:
     """The frustum test itself, headlessly. Conservative on purpose: a false
     positive costs one draw call the GPU discards, where a false negative costs
     a prop that is missing from the picture."""
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.viewer.camera import Camera
 
     camera = Camera()
     camera.aspect = 1.0
@@ -493,8 +493,8 @@ def test_active_pivot_uses_the_last_clicked_node_not_document_order() -> None:
 
 def _ground(side: int = 4, size: float = 8.0) -> md.MasonDoc:
     """A flat terrain and the node that places it."""
-    from warlock.kernels.geom3d import gltf as _gltf
-    from warlock.studio.modes.mason.engine.terrain import Terrain
+    from realmspinner.kernels.geom3d import gltf as _gltf
+    from realmspinner.studio.modes.mason.engine.terrain import Terrain
 
     doc = md.MasonDoc()
     doc.set_terrain(

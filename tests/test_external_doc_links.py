@@ -136,7 +136,7 @@ MENTION = re.compile(r"`((?:\.\./|docs/)?manual/[0-9A-Za-z._/-]+\.md(?:#[\w-]+)?
 # say in prose. A dead citation with no such word is a reader sent to nowhere.
 #
 # ``memory`` is the second exemption and a different kind: CLAUDE.md and
-# INVARIANTS.md both point at `warlock-stack.md`, which is a note in the agent's
+# INVARIANTS.md both point at `realmspinner-stack.md`, which is a note in the agent's
 # own memory store rather than a file in this repo. A line that says "memory" is
 # citing that store, and there is nothing here to resolve it against.
 DEAD_CITE_MARKER = "deleted"

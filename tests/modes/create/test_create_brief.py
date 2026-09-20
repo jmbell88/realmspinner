@@ -13,11 +13,11 @@ from typing import Any
 import pytest
 from imgui_bundle import imgui
 
-from warlock.studio import layout, probe
-from warlock.studio.modes.create.ui import brief as create_brief
-from warlock.studio.modes.create.ui import rail as create_rail
-from warlock.studio.modes.create.ui import stages as create_stages
-from warlock.studio.state import AppState, default_form_2d
+from realmspinner.studio import layout, probe
+from realmspinner.studio.modes.create.ui import brief as create_brief
+from realmspinner.studio.modes.create.ui import rail as create_rail
+from realmspinner.studio.modes.create.ui import stages as create_stages
+from realmspinner.studio.state import AppState, default_form_2d
 
 
 def _body(fn) -> str:
@@ -100,7 +100,7 @@ def frames():
     a frame without a backend claiming its font atlas, and every widget call,
     draw-list call and layout pass still runs for real.
     """
-    from warlock.studio import theme
+    from realmspinner.studio import theme
 
     previous = imgui.get_current_context()
     ctx = imgui.create_context()
@@ -174,14 +174,14 @@ def test_the_recipe_is_not_in_the_bar():
 
 
 def test_the_count_is_the_service_capped_row():
-    from warlock.service.validation import MAX_REFERENCE_COUNT
+    from realmspinner.service.validation import MAX_REFERENCE_COUNT
 
     assert create_brief._COUNTS == (1, 2, 4, 8)
     assert max(create_brief._COUNTS) == MAX_REFERENCE_COUNT
 
 
 def test_every_generation_type_has_a_hint():
-    from warlock.studio.modes.create.engine import assets as create_assets
+    from realmspinner.studio.modes.create.engine import assets as create_assets
 
     offered = {key for key, _label in create_assets.ASSET_TYPE_OPTIONS}
     assert set(create_brief._TYPE_HINTS) == offered
@@ -223,7 +223,7 @@ def test_a_sheet_hides_the_count_rather_than_offering_refusals(asset_type):
     """Both sheet doors refuse a batch and say why, so four radios of which
     three are refusals would be a control offering what the thing behind it
     will not do."""
-    from warlock.studio.modes.create.engine import assets as create_assets
+    from realmspinner.studio.modes.create.engine import assets as create_assets
 
     form = default_form_2d()
     form["asset_type"] = asset_type
@@ -318,7 +318,7 @@ def test_the_tour_anchors_moved_with_the_controls():
     assert 'anchors.mark("create/prompt")' in source
     assert 'anchors.mark("create/generate")' in source
 
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     pane = inspect.getsource(settings_2d)
     assert 'anchors.mark("create/prompt")' not in pane
@@ -328,8 +328,8 @@ def test_the_tour_anchors_moved_with_the_controls():
 def test_the_tours_still_name_anchors_something_marks():
     """Both directions, so a rename on either side fails here rather than as a
     tour step pointing at nothing."""
-    from warlock.studio import anchors as anchors_mod  # noqa: F401
-    from warlock.studio.tour import scripts
+    from realmspinner.studio import anchors as anchors_mod  # noqa: F401
+    from realmspinner.studio.tour import scripts
 
     wanted = {
         step.anchor
@@ -363,7 +363,7 @@ def test_the_bar_is_a_registered_pane_not_a_bare_row():
     it, to decide how much of the row to fill in. ``main.py`` sizes the pane
     from ``create_brief.bar_height`` instead.
     """
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._build_ui)
     assert 'layout_mod.pane(\n                        "brief",' in source
@@ -386,7 +386,7 @@ def test_the_disabled_generate_wears_the_first_problem_as_its_reason():
     raised ``AttributeError`` and the pane guard blanked it, on every frame with
     an empty prompt. ``/exercise-mode create`` is what found it.
     """
-    from warlock.studio import problems
+    from realmspinner.studio import problems
 
     problem = problems.Problem("Describe what to generate.", "prompt")
     assert not hasattr(problem, "message")
@@ -400,7 +400,7 @@ def test_the_disabled_generate_wears_the_first_problem_as_its_reason():
 def test_an_empty_prompt_leaves_the_bar_drawable():
     """The whole-object check behind the test above: every problem the column's
     validator can raise for an untouched form must render as a reason string."""
-    from warlock.studio.modes.create.engine import recipe as create_recipe
+    from realmspinner.studio.modes.create.engine import recipe as create_recipe
 
     form = default_form_2d()
     form["prompt"] = ""
@@ -533,7 +533,7 @@ def test_reset_is_censused_against_the_bars_own_pane(frames, monkeypatch):
 def test_reset_no_longer_draws_from_the_settings_column():
     """The other half of the move: ``settings_2d`` must hold no copy of it --
     one owner per control, per ``CLAUDE.md``."""
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     source = inspect.getsource(settings_2d)
     assert "_reset_row" not in source

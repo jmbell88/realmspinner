@@ -10,8 +10,8 @@ import json
 import os
 import types
 
-from warlock.studio import artifacts
-from warlock.studio.panes import inspector, sprite_panel
+from realmspinner.studio import artifacts
+from realmspinner.studio.panes import inspector, sprite_panel
 
 
 def _job(stage="reference", files=()):
@@ -56,7 +56,7 @@ def test_every_offered_name_is_servable():
     offered name that ``files.MEDIA`` does not carry is a download button that
     answers NotReady for ever, and a stage left out of this list is exactly how
     one ships."""
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     for stage in ("reference", "tile", "model", "tilesheet"):
         offered = artifacts.artifacts_for(_job(stage=stage))
@@ -113,7 +113,7 @@ def test_the_grid_offers_exactly_what_each_stage_can_derive():
     catches that: the servable test only asks about MEDIA, and the cross-check
     against ``files.ready`` never looks at the grid at all.
     """
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     for stage in ("reference", "tile", "tilesheet"):
         offered = {n for n, _label in artifacts.artifacts_for(_job(stage=stage))}
@@ -217,7 +217,7 @@ def test_the_pane_agrees_with_the_service_about_every_artifact(tmp_path):
     that ``"input.png" in files`` means what ``(job_dir / "input.png").exists()``
     means.
     """
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     # The comparison is against ``ready or derivable``, which is what the grid
     # actually composes: ``ready`` answers "may this be served", and for a file
@@ -319,8 +319,8 @@ def _settled(monkeypatch, path):
     rewrite landing inside its mtime's own 15.6 ms tick would otherwise match
     that stamp forever. Same helper, same reason, as ``test_inspector_rig``'s.
     """
-    import warlock.studio.panes.stamps as stamps_mod
-    from warlock.service.files import MTIME_RACE_NS
+    import realmspinner.studio.panes.stamps as stamps_mod
+    from realmspinner.service.files import MTIME_RACE_NS
 
     settled = path.stat().st_mtime_ns + MTIME_RACE_NS * 2
     monkeypatch.setattr(stamps_mod.time, "time_ns", lambda: settled)
@@ -488,7 +488,7 @@ class _MatteCtx:
 
 
 def test_the_config_note_appears_only_before_anything_is_derived(monkeypatch):
-    from warlock.pipelines import matting
+    from realmspinner.pipelines import matting
 
     monkeypatch.setattr(matting, "available", lambda _config: False)
     ctx = _MatteCtx()
@@ -500,7 +500,7 @@ def test_the_config_note_appears_only_before_anything_is_derived(monkeypatch):
 
 
 def test_no_config_note_when_the_weights_are_installed(monkeypatch):
-    from warlock.pipelines import matting
+    from realmspinner.pipelines import matting
 
     monkeypatch.setattr(matting, "available", lambda _config: True)
     assert _lines(monkeypatch, inspector._matte_note, _MatteCtx(), None) == []
@@ -570,7 +570,7 @@ def test_a_preview_derivation_never_claims_the_save_key():
     directory and is never None, so pressing "Preview pixels" told the user a
     file had been saved to a path they never chose, with no dialog shown.
     """
-    from warlock.studio import app_ctx
+    from realmspinner.studio import app_ctx
 
     assert app_ctx.save_key("abc123abc123", "pixel_32.png").startswith("save:")
     assert not app_ctx.derive_key("abc123abc123", "pixel_32.png").startswith("save:")
@@ -580,7 +580,7 @@ def test_an_artifact_is_busy_under_either_of_its_two_keys():
     """Separate keys, one answer: a preview and an export of one name run the
     same ``get_file`` under the same per-artifact lock, so a control watching
     only its own key would offer a button that then blocked invisibly."""
-    from warlock.studio import app_ctx
+    from realmspinner.studio import app_ctx
 
     busy: set[str] = set()
     ctx = types.SimpleNamespace(busy=lambda key: key in busy)
@@ -750,8 +750,8 @@ def test_export_for_godot_asks_for_a_folder_on_the_task_thread_only_when_none_is
     ``_submit_export_godot`` itself runs would have fired before the test
     ever reaches this line.
     """
-    from warlock.service import characters as svc_characters
-    from warlock.studio import dialogs
+    from realmspinner.service import characters as svc_characters
+    from realmspinner.studio import dialogs
 
     recorded: list = []
 
@@ -786,7 +786,7 @@ def test_export_for_godot_asks_for_a_folder_on_the_task_thread_only_when_none_is
 def test_a_cancelled_folder_pick_reports_no_export(monkeypatch):
     """``None`` from the picker means the user cancelled, and this must not
     be told apart from a write it never made."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     monkeypatch.setattr(dialogs, "select_folder", lambda *_a, **_k: None)
     ctx = _SubmitCtx(svc=object(), export_dir=None)

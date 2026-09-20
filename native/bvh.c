@@ -22,7 +22,7 @@
  * the triangles inside it ended up in.
  */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
 /* Partition order[begin, end) around the k-th smallest key, in place.
  *
@@ -69,7 +69,7 @@ static void select_nth(int64_t *order, int64_t begin, int64_t end, int64_t k,
   }
 }
 
-int64_t warlockc_bvh_build(const double *tri_lo, const double *tri_hi,
+int64_t realmspinnerc_bvh_build(const double *tri_lo, const double *tri_hi,
                            const double *centroid, int64_t n_tris,
                            int64_t leaf_size, int64_t *order, double *lo,
                            double *hi, int64_t *left, int64_t *right,

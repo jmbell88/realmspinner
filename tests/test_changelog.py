@@ -12,7 +12,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from warlock import changelog
+from realmspinner import changelog
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -150,8 +150,8 @@ def test_the_shipped_file_parses_and_leads_with_this_version():
 
 
 def test_install_md_names_the_installer_this_version_actually_builds():
-    """``INSTALL.md`` tells a user to download ``WarlockSetup-vN.N.N.exe`` from
-    the Releases page, and ``installer/warlock.iss`` derives that filename from
+    """``INSTALL.md`` tells a user to download ``RealmspinnerSetup-vN.N.N.exe`` from
+    the Releases page, and ``installer/realmspinner.iss`` derives that filename from
     the same version this file leads with (``OutputBaseFilename``). Nothing
     derived one from the other, and by 2026-09-03 the prose sat two releases
     behind the tree -- a download link to an asset no release carries.
@@ -162,7 +162,7 @@ def test_install_md_names_the_installer_this_version_actually_builds():
     version = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     version = version["project"]["version"]
     named = re.findall(
-        r"WarlockSetup-v([\d.]+)\.exe", (REPO / "INSTALL.md").read_text(encoding="utf-8")
+        r"RealmspinnerSetup-v([\d.]+)\.exe", (REPO / "INSTALL.md").read_text(encoding="utf-8")
     )
     assert named, "INSTALL.md must name the installer it tells the user to download"
     assert set(named) == {version}
@@ -178,7 +178,7 @@ def test_the_reader_finds_the_repo_copy_in_a_dev_checkout():
 def test_it_imports_nothing_from_the_app():
     """Pure in the ``vram.py``/``memlog.py`` sense: no ``service``, no
     ``queue``, no ``studio``."""
-    source = (REPO / "src" / "warlock" / "changelog.py").read_text(encoding="utf-8")
+    source = (REPO / "src" / "realmspinner" / "changelog.py").read_text(encoding="utf-8")
     for banned in ("service", "queue", "studio"):
         assert f"import {banned}" not in source
         assert f"from .{banned}" not in source

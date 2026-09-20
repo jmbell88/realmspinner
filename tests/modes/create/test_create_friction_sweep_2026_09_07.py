@@ -13,12 +13,12 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
-from warlock import guidance as guidancelib
-from warlock.studio import problems
-from warlock.studio import settings as settings_mod
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui.panes import settings_2d
-from warlock.studio.state import MAX_HISTORY, AppState, default_form_2d
+from realmspinner import guidance as guidancelib
+from realmspinner.studio import problems
+from realmspinner.studio import settings as settings_mod
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui.panes import settings_2d
+from realmspinner.studio.state import MAX_HISTORY, AppState, default_form_2d
 
 
 def _note_ctx(**extra):
@@ -92,7 +92,7 @@ def test_the_reference_path_survives_a_restart_and_a_missing_file_does_not(tmp_p
 
 
 def test_a_remesh_form_survives_a_look_at_another_asset():
-    from warlock.studio.panes import remesh_panel
+    from realmspinner.studio.panes import remesh_panel
 
     ctx = SimpleNamespace(state=AppState())
     first = remesh_panel._form(ctx, "aaaaaaaaaaaa")
@@ -111,7 +111,7 @@ def test_a_remesh_form_survives_a_look_at_another_asset():
 
 
 def test_a_sheet_form_survives_a_look_at_another_asset():
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     ctx = SimpleNamespace(state=AppState(), sheet_options={"defaults": {}})
     first = sheet_panel._form(ctx, "aaaaaaaaaaaa")
@@ -126,7 +126,7 @@ def test_a_sheet_form_survives_a_look_at_another_asset():
 
 
 def test_a_sprite_form_survives_a_look_at_another_asset():
-    from warlock.studio.panes import sprite_panel
+    from realmspinner.studio.panes import sprite_panel
 
     ctx = SimpleNamespace(state=AppState())
     first = sprite_panel._form(ctx, "aaaaaaaaaaaa")
@@ -146,7 +146,7 @@ def test_a_retexture_form_survives_a_look_at_another_asset():
     # one shared slot compared by ``form.get("job_id") != job_id`` -- so
     # glancing at another asset and coming back silently discarded a typed
     # surface prompt.
-    from warlock.studio.panes import texture_panel
+    from realmspinner.studio.panes import texture_panel
 
     ctx = SimpleNamespace(state=AppState())
     first = texture_panel._form(ctx, "aaaaaaaaaaaa")
@@ -164,7 +164,7 @@ def test_a_retarget_form_survives_a_look_at_another_asset():
     # The 2026-09-08 audit, finding create-02: matches
     # ``test_a_retexture_form_survives_a_look_at_another_asset`` above -- the
     # same single-slot pattern discarded a chosen custom triangle budget.
-    from warlock.studio.panes import retarget_panel
+    from realmspinner.studio.panes import retarget_panel
 
     ctx = SimpleNamespace(state=AppState())
     first = retarget_panel._form(ctx, "aaaaaaaaaaaa")

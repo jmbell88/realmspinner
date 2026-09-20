@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops_spin as osp
-from warlock.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops_spin as osp
+from realmspinner.kernels.mesh import primitives as prim
 
 from .topo_asserts import assert_consistently_oriented
 
@@ -153,7 +153,7 @@ def test_spin_generates_uv_only_when_the_source_mesh_already_has_it() -> None:
 def test_spin_new_bands_are_consistently_wound() -> None:
     box = prim.box()
     out, sel = osp.spin(box, _PROFILE, axis=1, angle=270.0, steps=5, center=(0.0, 0.0, 0.0))
-    from warlock.kernels.mesh import topo
+    from realmspinner.kernels.mesh import topo
 
     new_only = topo.take_faces(out, sel.faces)
     assert_consistently_oriented(new_only)

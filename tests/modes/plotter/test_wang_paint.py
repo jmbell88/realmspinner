@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.grid2d import gid as gidlib
-from warlock.kernels.grid2d.tileset import Tileset, TilesetRef
-from warlock.kernels.grid2d.wang import WangColour, WangSet
-from warlock.studio.modes.plotter.engine import terrain
+from realmspinner.kernels.grid2d import gid as gidlib
+from realmspinner.kernels.grid2d.tileset import Tileset, TilesetRef
+from realmspinner.kernels.grid2d.wang import WangColour, WangSet
+from realmspinner.studio.modes.plotter.engine import terrain
 
 
 def _pixels(size: int = 64) -> np.ndarray:

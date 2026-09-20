@@ -30,8 +30,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from warlock.studio.panes import inspector
-from warlock.studio.state import AppState
+from realmspinner.studio.panes import inspector
+from realmspinner.studio.state import AppState
 
 
 class FakeCtx:
@@ -123,8 +123,8 @@ def _settled(monkeypatch, job_dir):
     answered correctly and deliberately not remembered, so a test that skipped
     this would be asserting against the racy window the rule exists to refuse.
     """
-    import warlock.studio.panes.stamps as stamps_mod
-    from warlock.service.files import MTIME_RACE_NS
+    import realmspinner.studio.panes.stamps as stamps_mod
+    from realmspinner.service.files import MTIME_RACE_NS
 
     settled = job_dir.stat().st_mtime_ns + MTIME_RACE_NS * 2
     # ``stamps`` is where the rule and its clock read now live -- one owner for
@@ -140,7 +140,7 @@ def test_the_rig_file_is_read_once_and_then_cached(svc, monkeypatch):
     _settled(monkeypatch, svc.job_dir(job_id))
     reads: list[Any] = []
 
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     real = store.read_rig
     monkeypatch.setattr(store, "read_rig", lambda d: (reads.append(d), real(d))[1])
@@ -159,7 +159,7 @@ def test_a_rig_written_a_moment_ago_is_not_cached_at_all(svc, monkeypatch):
     job = _job(svc, job_id)
     reads: list[Any] = []
 
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     real = store.read_rig
     monkeypatch.setattr(store, "read_rig", lambda d: (reads.append(d), real(d))[1])
@@ -186,7 +186,7 @@ def test_a_re_rig_inside_the_mtime_tick_is_still_seen(svc, monkeypatch):
     job = _job(svc, job_id)
     job_dir = svc.job_dir(job_id)
 
-    import warlock.studio.panes.stamps as stamps_mod
+    import realmspinner.studio.panes.stamps as stamps_mod
 
     monkeypatch.setattr(
         stamps_mod.time, "time_ns", lambda: job_dir.stat().st_mtime_ns
@@ -258,7 +258,7 @@ def test_the_library_rig_and_pose_tab_offers_game_ready_remesh(svc, monkeypatch)
     moderngl, and this test is only about *which panels the tab calls*, not
     what any of them render.
     """
-    from warlock.studio.panes import (
+    from realmspinner.studio.panes import (
         pose_panel,
         remesh_panel,
         retarget_panel,

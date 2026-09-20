@@ -20,8 +20,8 @@ import inspect
 import re
 from types import SimpleNamespace
 
-from warlock.pipelines import optimize
-from warlock.studio.panes import retarget_panel
+from realmspinner.pipelines import optimize
+from realmspinner.studio.panes import retarget_panel
 
 # --- the field ids ------------------------------------------------------------
 

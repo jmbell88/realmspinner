@@ -11,11 +11,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.packwright.engine import tsxout
-from warlock.studio.modes.packwright.engine.compose import compose
-from warlock.studio.modes.packwright.engine.layout import PackSettings, layout
-from warlock.studio.modes.packwright.engine.sources import Sprite
-from warlock.studio.modes.plotter.engine import tsx as tsxmod
+from realmspinner.studio.modes.packwright.engine import tsxout
+from realmspinner.studio.modes.packwright.engine.compose import compose
+from realmspinner.studio.modes.packwright.engine.layout import PackSettings, layout
+from realmspinner.studio.modes.packwright.engine.sources import Sprite
+from realmspinner.studio.modes.plotter.engine import tsx as tsxmod
 
 
 def _sprite(key: str, colour) -> Sprite:

@@ -13,10 +13,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.adjacency import adjacency
-from warlock.studio.modes.clay.ui import view as clay_view
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.adjacency import adjacency
+from realmspinner.studio.modes.clay.ui import view as clay_view
 
 
 class _State:
@@ -137,7 +137,7 @@ def test_edge_snap_near_the_projected_midpoint_lands_near_the_world_midpoint(vie
 
 
 def test_edge_snap_excludes_the_edges_a_drag_is_moving(view) -> None:
-    from warlock.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import elements as el
 
     doc, obj = _framed_box(view)
     doc.set_element_mode("face")

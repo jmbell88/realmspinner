@@ -38,9 +38,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import asein, aseout
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.tiles import TilemapCel
+from realmspinner.kernels.pixel import asein, aseout
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.tiles import TilemapCel
 
 from ._asecorpus import BUILDERS, EXPECTED_WARNINGS, FIXTURE_DIR, MANIFEST, available, read
 

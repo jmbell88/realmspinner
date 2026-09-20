@@ -21,12 +21,12 @@ from typing import Any
 
 from modes.review.test_review_mode import FakeCtx, _mesh, _scanned  # noqa: F401 -- see shell-05
 
-from warlock.core.safeio import zipguard
-from warlock.service import export as svc_export
-from warlock.studio import dialogs, status_bar
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.modes.review import mode as review_mode
-from warlock.studio.panes import inspector
+from realmspinner.core.safeio import zipguard
+from realmspinner.service import export as svc_export
+from realmspinner.studio import dialogs, status_bar
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.modes.review import mode as review_mode
+from realmspinner.studio.panes import inspector
 
 # --- shell-01: Enter always cancelled a Confirm, even mid-edit --------------
 
@@ -216,13 +216,13 @@ def test_reference_path_cache_does_not_grow_without_bound(monkeypatch, tmp_path)
 
 
 def _bounded_zip_callers() -> list[str]:
-    """Every module under ``warlock/`` that instantiates ``zipguard.BoundedZip``
+    """Every module under ``realmspinner/`` that instantiates ``zipguard.BoundedZip``
     directly, named by its own directory plus filename -- derived from the
     tree by grep rather than hand-listed a second time, so this (and the
     docstring test that uses it) cannot go stale the way the docstring itself
     did.
 
-    Scanned from the ``warlock`` package root, not ``studio/`` alone: P3 of
+    Scanned from the ``realmspinner`` package root, not ``studio/`` alone: P3 of
     the restructure (``dev/RESTRUCTURE.md``) moved two of these doors --
     Inker's ``ora.py`` and Clay's ``serialize.py`` -- out from under
     ``studio/`` into ``kernels/pixel/`` and ``kernels/mesh/``, so a
@@ -232,10 +232,10 @@ def _bounded_zip_callers() -> list[str]:
     wants to know, rather than which package layer that engine currently
     sits in.
     """
-    warlock_root = Path(zipguard.__file__).resolve().parent.parent.parent
+    realmspinner_root = Path(zipguard.__file__).resolve().parent.parent.parent
     pattern = re.compile(r"zipguard\.BoundedZip\(")
     callers = []
-    for path in sorted(warlock_root.rglob("*.py")):
+    for path in sorted(realmspinner_root.rglob("*.py")):
         if path.name == "zipguard.py":
             continue
         if pattern.search(path.read_text(encoding="utf-8")):

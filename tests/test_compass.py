@@ -9,8 +9,8 @@ import math
 
 import pytest
 
-from warlock.kernels import charsheet as cs
-from warlock.pipelines import blender_worker
+from realmspinner.kernels import charsheet as cs
+from realmspinner.pipelines import blender_worker
 
 # The eight compass points the eight principal yaws land on, walking the
 # compass rose from "toward the camera" (0 degrees, in this test's own

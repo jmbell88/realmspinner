@@ -23,7 +23,7 @@ def _ctx():
 
 
 def test_workspace_menu_lists_every_named_mode():
-    from warlock.studio import menus, modes
+    from realmspinner.studio import menus, modes
 
     app_ctx = _ctx()
     rows = menus.specs(app_ctx)
@@ -36,7 +36,7 @@ def test_workspace_menu_lists_every_named_mode():
 
 
 def test_shared_command_specs_keep_palette_state_and_reason():
-    from warlock.studio import menus, palette
+    from realmspinner.studio import menus, palette
 
     app_ctx = _ctx()
     commands = {command.key: command for command in palette.commands(app_ctx)}
@@ -52,8 +52,8 @@ def test_shared_command_specs_keep_palette_state_and_reason():
 
 
 def test_status_reports_queue_and_health_without_permanent_ok_noise():
-    from warlock.doctor import Check
-    from warlock.studio import status_bar
+    from realmspinner.doctor import Check
+    from realmspinner.studio import status_bar
 
     app_ctx = _ctx()
     app_ctx.cache.jobs = [{"status": "queued"}, {"status": "running"}]
@@ -75,7 +75,7 @@ def test_the_status_bar_names_what_the_running_job_is_doing():
     exactly the second representation of "how far along is this" that module
     exists to prevent. Progress already publishes a sentence for a human.
     """
-    from warlock.studio import status_bar
+    from realmspinner.studio import status_bar
 
     app_ctx = _ctx()
     app_ctx.cache.jobs = [
@@ -102,7 +102,7 @@ def test_the_status_bar_names_what_the_running_job_is_doing():
 
 
 def test_a_fresh_layout_prefers_the_44dp_icon_rail():
-    from warlock.studio import layout, rail
+    from realmspinner.studio import layout, rail
 
     class Settings:
         def get(self, key, default=None):
@@ -119,9 +119,9 @@ def test_an_inker_row_that_is_a_document_state_reports_its_tick():
     """``MenuSpec.checked`` was hardcoded False for every Inker op, so the one
     row that is a *setting* rather than an action drew no tick and the user had
     no way to see which way it was set."""
-    from warlock.kernels import pixel as inker
-    from warlock.studio import menus
-    from warlock.studio.modes.inker import state as inker_state
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio import menus
+    from realmspinner.studio.modes.inker import state as inker_state
 
     app_ctx = _ctx()
     app_ctx.state.mode = "inker"
@@ -149,7 +149,7 @@ def test_the_resource_meter_is_not_one_of_the_elided_status_items():
     start a generation. ``overlay.doctor_banner``'s rule instead: reserve the
     trailing item, then trim the leading detail.
     """
-    from warlock.studio import resources, status_bar
+    from realmspinner.studio import resources, status_bar
 
     app_ctx = _ctx()
     app_ctx.state.show_resources = True
@@ -167,7 +167,7 @@ def test_the_resource_meter_is_not_one_of_the_elided_status_items():
 
 def test_the_meter_is_an_opt_out_and_omits_what_it_cannot_read():
     """Off costs nothing, and a figure absent is a figure left out."""
-    from warlock.studio import resources, status_bar
+    from realmspinner.studio import resources, status_bar
 
     app_ctx = _ctx()
     app_ctx.resources = resources.Sampler()
@@ -186,7 +186,7 @@ def test_the_meter_is_an_opt_out_and_omits_what_it_cannot_read():
 
 def test_the_sampler_holds_its_cadence_and_its_own_cpu_baseline():
     """One sampler per app: the CPU figure is a delta between calls."""
-    from warlock.studio import resources
+    from realmspinner.studio import resources
 
     sampler = resources.Sampler()
     first = sampler.tick(1000.0)
@@ -206,7 +206,7 @@ def test_a_document_name_never_carries_its_imgui_id():
     """
     from types import SimpleNamespace
 
-    from warlock.studio import status_bar
+    from realmspinner.studio import status_bar
 
     assert status_bar._document_name(SimpleNamespace(label="Untitled##pd1")) == "Untitled"
     assert status_bar._document_name(SimpleNamespace(label="Untitled###pl1")) == "Untitled"
@@ -225,7 +225,7 @@ def test_the_frame_rate_rides_the_meter_and_is_omitted_when_unknown():
     claim about the app that is not true. ``Reading.text`` already drops any
     figure it could not read, and this is that rule extended by one.
     """
-    from warlock.studio import resources
+    from realmspinner.studio import resources
 
     assert resources.Reading().fps is None
     assert "fps" not in resources.Reading(ram_used_gib=1.0, ram_total_gib=8.0).text()
@@ -254,7 +254,7 @@ def test_the_bottom_pane_centres_on_the_face_it_actually_draws_with():
     """
     import inspect
 
-    from warlock.studio.panes import bottom_pane
+    from realmspinner.studio.panes import bottom_pane
 
     source = inspect.getsource(bottom_pane.draw)
     pushed = source.index("fonts.small(imgui)")
@@ -268,7 +268,7 @@ def test_resources_imports_nothing_from_the_ui():
     """``status_bar.items``' rule: the sampling and the formatting are data."""
     import inspect
 
-    from warlock.studio import resources
+    from realmspinner.studio import resources
 
     source = inspect.getsource(resources)
     for banned in ("imgui", "moderngl", "pygame"):
@@ -281,7 +281,7 @@ def test_the_document_name_is_not_imguis_widget_id():
     status bar, so the bottom of the window read "Untitled##pd1 *"."""
     from types import SimpleNamespace
 
-    from warlock.studio import status_bar
+    from realmspinner.studio import status_bar
 
     app_ctx = _ctx()
     app_ctx.state.mode = "inker"
@@ -302,7 +302,7 @@ def test_the_meter_is_ticked_where_every_frame_goes_through():
     """
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     # ``tick(`` rather than ``tick()``: the call carries the frame rate now,
     # and this assertion is about *where* the meter is ticked -- which is the
@@ -376,7 +376,7 @@ class _PreviewCtx:
         def go() -> None:
             box["result"] = fn(*args, **kwargs)
 
-        worker = threading.Thread(target=go, name="warlock-task-test")
+        worker = threading.Thread(target=go, name="realmspinner-task-test")
         worker.start()
         worker.join()
         self.result = box["result"]
@@ -387,7 +387,7 @@ class _PreviewCtx:
 
 
 def _preview_app(ctx=None):
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import main as main_mod
 
     app = main_mod.App.__new__(main_mod.App)
     app.viewer = _PreviewViewer()
@@ -406,7 +406,7 @@ def test_the_character_preview_landing_does_not_decode_on_the_frame_thread():
     """
     from pathlib import Path
 
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import main as main_mod
 
     app = _preview_app()
 
@@ -416,7 +416,7 @@ def test_the_character_preview_landing_does_not_decode_on_the_frame_thread():
         "the combined blocking load must never run from this path"
     )
     assert app.app_ctx.submitted == [main_mod.CHARACTER_PREVIEW_LOAD_KEY]
-    assert app.viewer.parse_model_threads == ["warlock-task-test"], (
+    assert app.viewer.parse_model_threads == ["realmspinner-task-test"], (
         "the parse must run off the frame thread"
     )
     assert app.viewer.adopted == [], "nothing is uploaded until that task lands"
@@ -441,7 +441,7 @@ def test_a_character_preview_that_lands_after_the_user_navigates_away_does_not_h
     different asset, or left Create's Reference stage, silently replaced
     whatever the viewport was already showing.
     """
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import main as main_mod
 
     ctx = _PreviewCtx(selected="job1")
     app = _preview_app(ctx)
@@ -489,7 +489,7 @@ def test_f10_toggles_the_frame_rate_readout_even_while_the_manual_is_open():
     """
     import pygame
 
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import main as main_mod
 
     app = main_mod.App.__new__(main_mod.App)
     state = SimpleNamespace(
@@ -518,8 +518,8 @@ def test_quit_summary_names_a_sweep_launch_or_delete_in_flight():
     mid-sweep-launch (twenty to forty job creations) or mid-sweep-deletion
     gave no warning at all, unlike the three lines beside it.
     """
-    from warlock.studio import main as main_mod
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio import main as main_mod
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = main_mod.App.__new__(main_mod.App)
     app.runtime = SimpleNamespace(current_job_id=None)
@@ -549,7 +549,7 @@ def test_quit_summary_warns_while_a_packwright_library_export_is_busy():
     mid-write could leave a library export whose sidecar never landed,
     unopenable in its own editor afterwards.
     """
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import main as main_mod
 
     app = main_mod.App.__new__(main_mod.App)
     app.runtime = SimpleNamespace(current_job_id=None)
@@ -575,8 +575,8 @@ def test_quit_summary_warns_while_an_update_download_is_in_flight():
     download loses the whole thing -- exactly like a model download, which
     *was* checked here (it starts with "download:"). This key does not.
     """
-    from warlock.studio import app_ctx as app_ctx_mod
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import app_ctx as app_ctx_mod
+    from realmspinner.studio import main as main_mod
 
     app = main_mod.App.__new__(main_mod.App)
     app.runtime = SimpleNamespace(current_job_id=None)

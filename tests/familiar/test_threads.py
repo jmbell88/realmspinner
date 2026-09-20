@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.familiar import threads as familiar_threads
-from warlock.studio import docmodes
+from realmspinner.familiar import threads as familiar_threads
+from realmspinner.studio import docmodes
 
 
 def test_a_turn_round_trips_through_a_thread():

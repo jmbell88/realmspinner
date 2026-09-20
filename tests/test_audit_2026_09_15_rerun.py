@@ -7,9 +7,9 @@ belong beside an existing rerun test file that this session does not own.
 
 from __future__ import annotations
 
-from warlock.pipelines import tileatlas
-from warlock.service import jobs as svc_jobs
-from warlock.service import tilesheets
+from realmspinner.pipelines import tileatlas
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import tilesheets
 
 # --- service-01: a materials/terrain reroll must draw fresh per-material and
 # mask seeds, not just a new top-level one nothing on this kind reads --------
@@ -135,7 +135,7 @@ def test_the_create_tray_rerun_button_agrees_with_rerollable():
     """
     import inspect
 
-    from warlock.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.create.ui import workspace as gw
 
     source = inspect.getsource(gw._result_card)
     assert "can_rerun = svc_jobs.rerollable(job)" in source

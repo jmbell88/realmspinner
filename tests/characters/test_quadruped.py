@@ -28,14 +28,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import clips as clipslib
-from warlock.characters import Recipe
-from warlock.characters import family as familylib
-from warlock.characters.instantiate import instantiate
-from warlock.characters.quadruped import generate
-from warlock.kernels import charsheet
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.rig import cliplib, skeleton, templates
+from realmspinner import clips as clipslib
+from realmspinner.characters import Recipe
+from realmspinner.characters import family as familylib
+from realmspinner.characters.instantiate import instantiate
+from realmspinner.characters.quadruped import generate
+from realmspinner.kernels import charsheet
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.rig import cliplib, skeleton, templates
 
 ARCHETYPE = "quadruped"
 SILHOUETTES = sorted(familylib.silhouettes(ARCHETYPE))
@@ -84,7 +84,7 @@ def _stacked(model: gltf.Model) -> np.ndarray:
 
 
 def _mesh_of(baked: generate.Baked):
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import mesh as bm
 
     return bm.Mesh(
         positions=baked.positions.astype("f4"),
@@ -97,7 +97,7 @@ def _mesh_of(baked: generate.Baked):
 
 
 def _triangles(baked: generate.Baked) -> np.ndarray:
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import mesh as bm
 
     tris, _face = bm.triangulate(_mesh_of(baked))
     return np.asarray(tris, dtype="i8")
@@ -235,7 +235,7 @@ def test_every_baked_mesh_is_one_closed_solid(silhouette, rebuilt):
     second weld was collapsing distinct vertices rather than tidying what
     Catmull-Clark had recreated.
     """
-    from warlock.kernels.mesh import adjacency
+    from realmspinner.kernels.mesh import adjacency
 
     report = adjacency.check_manifold(_mesh_of(rebuilt[silhouette]))
     assert report.clean, (
@@ -329,8 +329,8 @@ def test_a_displaced_mesh_is_still_the_same_closed_solid(silhouette, rebuilt):
     fail by arithmetic -- it can only fail if a channel ever stops being a
     displacement and starts being an edit, which is exactly the change that
     would need noticing."""
-    from warlock.kernels.mesh import adjacency
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import adjacency
+    from realmspinner.kernels.mesh import mesh as bm
 
     baked = rebuilt[silhouette]
     for channel, field in baked.displacements.items():

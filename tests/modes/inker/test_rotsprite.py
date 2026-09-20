@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel import transform as tf
+from realmspinner.kernels.pixel import transform as tf
 
 A = (255, 0, 0, 255)
 B = (0, 0, 255, 255)

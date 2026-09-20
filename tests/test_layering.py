@@ -18,7 +18,7 @@ now half-spent.** P3 landed 2026-09-17: ``core/safeio/``, ``core/undo.py``,
 {loader,parser,targets}.py`` are today's real paths, not a plan destination
 any more, so :func:`classify` matches them directly (a plain prefix or a
 literal set of the files that actually moved) instead of guessing from a
-``studio/...`` name that no longer exists on disk. ``warlock/familiar/``
+``studio/...`` name that no longer exists on disk. ``realmspinner/familiar/``
 (the pilot) is the same story: ``familiar/router.py`` is layer 3 because
 ``familiar/`` *is* where it lives now. What is left to move under this
 trick -- still classified by planned destination because the file has not
@@ -28,7 +28,7 @@ per-mode folds (P5/P6), Muse into Create (P10), Review/Home into Library
 ``_UNRESOLVED`` below. What the tree answers, and what actually gets walked
 with :mod:`ast`, is which mode owns a ``studio/<mode>_*.py`` /
 ``studio/panes/<mode>_*.py`` / ``studio/<mode>/`` file -- derived from
-:data:`warlock.studio.modes.KEYS`, the one authoritative mode list, exactly
+:data:`realmspinner.studio.modes.KEYS`, the one authoritative mode list, exactly
 the way the task that produced this file asked for, so a fifteenth mode
 enrols itself in the sibling-import ban the day its files appear rather than
 waiting for a hand list to notice.
@@ -71,9 +71,9 @@ import ast
 import dataclasses
 from pathlib import Path
 
-from warlock.studio import modes
+from realmspinner.studio import modes
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "warlock"
+SRC = Path(__file__).resolve().parents[1] / "src" / "realmspinner"
 
 # ---------------------------------------------------------------------------
 # The target architecture (dev/RESTRUCTURE.md's own table), as data.
@@ -213,7 +213,7 @@ class Layer:
 
 
 def classify(rel: str) -> Layer:
-    """The layer *rel* (a ``/``-separated path under ``src/warlock``) is
+    """The layer *rel* (a ``/``-separated path under ``src/realmspinner``) is
     bound for, by :data:`dev/RESTRUCTURE.md`'s table -- today's path, not
     today's directory listing.
     """
@@ -321,7 +321,7 @@ def _dotted_of(rel: str) -> str:
         rel = rel[: -len("/__init__.py")]
     elif rel.endswith(".py"):
         rel = rel[:-3]
-    return "warlock." + rel.replace("/", ".")
+    return "realmspinner." + rel.replace("/", ".")
 
 
 def _module_file(base: Path) -> Path | None:
@@ -366,7 +366,7 @@ def _module_scope_targets(path: Path) -> list[tuple[Path, int]]:
     for node in tree.body:  # module scope only
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.split(".")[0] != "warlock":
+                if alias.name.split(".")[0] != "realmspinner":
                     continue
                 rest = alias.name.split(".", 1)[1] if "." in alias.name else ""
                 target = SRC.joinpath(*rest.split(".")) if rest else SRC
@@ -375,7 +375,7 @@ def _module_scope_targets(path: Path) -> list[tuple[Path, int]]:
                     out.append((resolved, node.lineno))
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
-                if not node.module or node.module.split(".")[0] != "warlock":
+                if not node.module or node.module.split(".")[0] != "realmspinner":
                     continue
                 rest = node.module.split(".", 1)[1] if "." in node.module else ""
                 base = SRC.joinpath(*rest.split(".")) if rest else SRC
@@ -432,10 +432,10 @@ def _dotted_to_rel(dotted: str) -> str:
     """The reverse of :func:`_dotted_of`, resolved through the same
     :func:`_module_file` lookup the edge walk itself uses -- a naive
     ``dotted.replace(".", "/") + ".py"`` is wrong for any package (
-    ``warlock.studio.viewer`` is ``studio/viewer/__init__.py``, not
+    ``realmspinner.studio.viewer`` is ``studio/viewer/__init__.py``, not
     ``studio/viewer.py``, which does not exist).
     """
-    rest = dotted.removeprefix("warlock.")
+    rest = dotted.removeprefix("realmspinner.")
     base = SRC.joinpath(*rest.split("."))
     resolved = _module_file(base)
     assert resolved is not None, f"{dotted} does not resolve to a file under {SRC}"
@@ -505,33 +505,36 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     # were inline methods on ``App`` before the split and an inline method is
     # invisible to an import walk. Which is the honest reading: the coupling
     # was always there, and making it an import is what made it countable.
-    ("warlock.studio.shell.app", "warlock.studio.modes.clay.ui.viewport"),
-    ("warlock.studio.shell.app", "warlock.studio.modes.inker.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.modes.mason.ui.viewport"),
-    ("warlock.studio.shell.app", "warlock.studio.modes.muse.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.modes.packwright.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.modes.plotter.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.modes.poser.ui.viewport"),
-    ("warlock.studio.shell.app", "warlock.studio.modes.review.ui.workspace"),
-    ("warlock.studio.shell.app", "warlock.studio.modes.sirens.ui.workspace"),
-    ("warlock.studio.shell.frame", "warlock.studio.modes.create.ui.brief"),
+    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.clay.ui.viewport"),
+    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.inker.ui.workspace"),
+    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.mason.ui.viewport"),
+    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.muse.ui.workspace"),
+    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.packwright.ui.workspace"),
+    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.plotter.ui.workspace"),
+    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.poser.ui.viewport"),
+    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.review.ui.workspace"),
+    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.sirens.ui.workspace"),
+    ("realmspinner.studio.shell.frame", "realmspinner.studio.modes.create.ui.brief"),
     # No ``create_rail`` row, though P4 moved Create's stage rail out of
     # ``widgets.py`` and ``_stage_rail`` (now in ``shell/frame.py``) calls
     # it: that import is function-scope, and this walk is module-scope only,
     # for the reasons the module docstring gives. Named here because an entry
     # *was* added on the reasoning that it would be an edge, and the pin
     # refused it as stale -- which is the pin working.
-    ("warlock.studio.modes.home.ui.panes.landing", "warlock.studio.modes.create.ui.stages"),
+    (
+        "realmspinner.studio.modes.home.ui.panes.landing",
+        "realmspinner.studio.modes.create.ui.stages",
+    ),
 })
 
 # P3 -- shared code moves out of studio/, DONE for Familiar's headless half
 # (contract, router, retrieval, doors, character_plan): it now lives at
-# warlock/familiar/, and service/familiar.py importing it is layer 3
+# realmspinner/familiar/, and service/familiar.py importing it is layer 3
 # importing layer 3, not a violation any more -- the group that used to sit
 # here (_P3_FAMILIAR_MOVES_OUT) is gone. One of its six pairs survives under
 # a different name: see _UNRESOLVED's "pipelines/llama_client.py" entry --
 # the move fixed the "-> studio/" shape but not the underlying layer number,
-# because pipelines/ (L2) importing warlock/familiar/ (L3) is banned by
+# because pipelines/ (L2) importing realmspinner/familiar/ (L3) is banned by
 # dev/RESTRUCTURE.md's own table regardless of studio/ being involved, and
 # no phase says who fixes that.
 
@@ -539,9 +542,18 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
 # texture caches, which P3 and P7 already fix" (RESTRUCTURE.md's own words).
 # Packwright's atlas writers reuse Plotter's PNG/TSX writers directly today.
 _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.modes.packwright.engine.compose", "warlock.studio.modes.plotter.engine.pngio"),
-    ("warlock.studio.modes.packwright.engine.tsxout", "warlock.studio.modes.plotter.engine.tsx"),
-    ("warlock.studio.modes.packwright.engine.wpack", "warlock.studio.modes.plotter.engine.pngio"),
+    (
+        "realmspinner.studio.modes.packwright.engine.compose",
+        "realmspinner.studio.modes.plotter.engine.pngio",
+    ),
+    (
+        "realmspinner.studio.modes.packwright.engine.tsxout",
+        "realmspinner.studio.modes.plotter.engine.tsx",
+    ),
+    (
+        "realmspinner.studio.modes.packwright.engine.rpack",
+        "realmspinner.studio.modes.plotter.engine.pngio",
+    ),
 })
 
 # P4 -- the god-file split. The group this comment used to head is empty and
@@ -573,24 +585,24 @@ _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP: frozenset[tuple[str, str]] = frozenset({
 # of them below is the shell and Familiar still naming a mode directly.
 _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
     # Familiar UI -> Clay / Create
-    ("warlock.studio.assistant.preview", "warlock.studio.modes.clay.agent.dispatch"),
-    ("warlock.studio.assistant.preview", "warlock.studio.modes.clay.mode"),
-    ("warlock.studio.assistant.preview", "warlock.studio.modes.clay.state"),
+    ("realmspinner.studio.assistant.preview", "realmspinner.studio.modes.clay.agent.dispatch"),
+    ("realmspinner.studio.assistant.preview", "realmspinner.studio.modes.clay.mode"),
+    ("realmspinner.studio.assistant.preview", "realmspinner.studio.modes.clay.state"),
     # Clay agent fold
     # The MCP listener is shell and names Clay's surface and its transcript
     # recorder. The transcript edge is not new: ``agent_transcript.py`` sat
     # flat in ``studio/`` with no mode prefix, so it classified as shell and
     # the reach was invisible until P5 put it under ``modes/clay/agent/``.
-    ("warlock.studio.agent_host", "warlock.studio.modes.clay.agent.dispatch"),
-    ("warlock.studio.agent_host", "warlock.studio.modes.clay.agent.transcript"),
+    ("realmspinner.studio.agent_host", "realmspinner.studio.modes.clay.agent.dispatch"),
+    ("realmspinner.studio.agent_host", "realmspinner.studio.modes.clay.agent.transcript"),
     # Create UI fold
-    ("warlock.studio.asset_exits", "warlock.studio.modes.create.ui.stages"),
-    ("warlock.studio.panes.inspector", "warlock.studio.modes.create.ui.stages"),
+    ("realmspinner.studio.asset_exits", "realmspinner.studio.modes.create.ui.stages"),
+    ("realmspinner.studio.panes.inspector", "realmspinner.studio.modes.create.ui.stages"),
     # Create's recipe engine lifting out of panes/settings_*.py means Settings
     # can import the engine module directly instead of a pane object.
     (
-        "warlock.studio.modes.settings.ui.panes.app_settings",
-        "warlock.studio.modes.create.ui.panes.settings_3d",
+        "realmspinner.studio.modes.settings.ui.panes.app_settings",
+        "realmspinner.studio.modes.create.ui.panes.settings_3d",
     ),
 })
 
@@ -601,10 +613,13 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
 # which Mason's palette offers the same rows through), and that landing is the
 # plausible place either dependency gets resolved.
 _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.modes.inker.ui.panes.tiles", "warlock.studio.modes.plotter.tilesets"),
     (
-        "warlock.studio.modes.mason.ui.panes.palette",
-        "warlock.studio.modes.library.ui.panes.library",
+        "realmspinner.studio.modes.inker.ui.panes.tiles",
+        "realmspinner.studio.modes.plotter.tilesets",
+    ),
+    (
+        "realmspinner.studio.modes.mason.ui.panes.palette",
+        "realmspinner.studio.modes.library.ui.panes.library",
     ),
 })
 
@@ -624,12 +639,12 @@ _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
 # this comment sees P10 has two legs to fold, not the one the tuples below
 # can prove.
 _P10_MUSE_FOLDS_INTO_CREATE: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.audio"),
-    ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.fileio"),
-    ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.mode"),
-    ("warlock.studio.modes.muse.mode", "warlock.studio.modes.sirens.state"),
-    ("warlock.studio.modes.muse.ui.panes.player", "warlock.studio.modes.sirens.audio"),
-    ("warlock.studio.modes.muse.ui.panes.results", "warlock.studio.modes.sirens.audio"),
+    ("realmspinner.studio.modes.muse.mode", "realmspinner.studio.modes.sirens.audio"),
+    ("realmspinner.studio.modes.muse.mode", "realmspinner.studio.modes.sirens.fileio"),
+    ("realmspinner.studio.modes.muse.mode", "realmspinner.studio.modes.sirens.mode"),
+    ("realmspinner.studio.modes.muse.mode", "realmspinner.studio.modes.sirens.state"),
+    ("realmspinner.studio.modes.muse.ui.panes.player", "realmspinner.studio.modes.sirens.audio"),
+    ("realmspinner.studio.modes.muse.ui.panes.results", "realmspinner.studio.modes.sirens.audio"),
     # The reverse leg (sirens.ui.panes.bridge -> muse.mode /
     # muse.ui.panes.results) is NOT added here: it is function-scoped, so it
     # is not a member of _EDGE_PAIRS, and test_exceptions_has_no_stale_entries
@@ -650,9 +665,12 @@ _P10_MUSE_FOLDS_INTO_CREATE: frozenset[tuple[str, str]] = frozenset({
 # empty state. `panes/candidates_panel.py` and `panes/library.py` reaching
 # into both Review and Create today are exactly the seam P9-P12 close.
 _P11_P12_LIBRARY_ABSORBS: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.panes.candidates_panel", "warlock.studio.modes.library.ui.panes.library"),
-    ("warlock.studio.panes.candidates_panel", "warlock.studio.modes.review.mode"),
-    ("warlock.studio.modes.library.ui.panes.library", "warlock.studio.modes.review.mode"),
+    (
+        "realmspinner.studio.panes.candidates_panel",
+        "realmspinner.studio.modes.library.ui.panes.library",
+    ),
+    ("realmspinner.studio.panes.candidates_panel", "realmspinner.studio.modes.review.mode"),
+    ("realmspinner.studio.modes.library.ui.panes.library", "realmspinner.studio.modes.review.mode"),
 })
 
 # Not owned by any phase as dev/RESTRUCTURE.md is written today -- real,

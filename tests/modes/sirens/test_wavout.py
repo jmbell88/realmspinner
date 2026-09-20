@@ -15,7 +15,7 @@ import wave
 import numpy as np
 import pytest
 
-from warlock.kernels.audio import wavout
+from realmspinner.kernels.audio import wavout
 
 
 def _chunks(raw: bytes) -> dict[bytes, bytes]:
@@ -96,7 +96,7 @@ def test_mono_input_is_accepted_as_one_channel():
 def test_the_reader_and_the_writer_are_exact_inverses():
     """Not an aesthetic point: opening a song and saving it has to produce the
     file that was opened, and a sample that drifts by one bit per round trip
-    makes every ``.wsng`` in a repository churn."""
+    makes every ``.rsng`` in a repository churn."""
     source = np.linspace(-1.0, 1.0, 4096, dtype=np.float32)
     once = wavout.read_wav(wavout.wav_bytes(source, 44100), 44100)
     twice = wavout.read_wav(wavout.wav_bytes(once, 44100), 44100)

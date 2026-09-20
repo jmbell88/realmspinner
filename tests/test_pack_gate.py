@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio.panes import model_gate
+from realmspinner.studio.panes import model_gate
 
 
 class _State:
@@ -71,7 +71,7 @@ def test_the_reason_names_the_pack_and_its_own_size():
 
 
 def test_clicking_through_opens_settings_at_packs():
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     ctx = _ctx(**BASE_INSTALL)
     model_gate.request_for_mode(ctx, "create")
@@ -81,7 +81,7 @@ def test_clicking_through_opens_settings_at_packs():
 
 def test_once_the_pack_is_in_the_door_asks_for_the_weights():
     """The second half, and the routing has to move with it."""
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     ctx = _ctx(
         packs=[_pack("text2image", modes=["create"], present=True)],
@@ -146,8 +146,8 @@ def test_ungated_modes_stay_ungated(mode):
 
 def test_every_pack_gates_a_mode_the_rail_actually_has():
     """``Pack.modes`` is now load-bearing rather than a label, so it must resolve."""
-    from warlock import packs as packs_mod
-    from warlock.studio import modes as modes_mod
+    from realmspinner import packs as packs_mod
+    from realmspinner.studio import modes as modes_mod
 
     known = {key for key, _label, _icon, _purpose in modes_mod.MODES}
     for pack in packs_mod.PACKS:

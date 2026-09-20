@@ -25,22 +25,22 @@ import ast
 import sys
 from pathlib import Path
 
-from warlock.kernels.pixel import flourish
+from realmspinner.kernels.pixel import flourish
 
 ENGINE = Path(flourish.__file__).parent
-PACKAGE = "warlock.kernels.pixel.flourish"
+PACKAGE = "realmspinner.kernels.pixel.flourish"
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 DETERMINISM_ROOTS = {"scipy"}
-ALLOWED_ROOTS = {"numpy", "warlock"}
+ALLOWED_ROOTS = {"numpy", "realmspinner"}
 
 #: ``(module, imported name)`` for every import that leaves the package.
 OUTWARD_IMPORTS = {
-    ("bake.py", "warlock.pipelines"),
+    ("bake.py", "realmspinner.pipelines"),
     # smoke's per-blob kernel: the same native-loader door
     # tests/modes/inker/test_inker_imports.py's ``transform.py`` entry already
     # names, with the numpy body kept beside it as the reference.
-    ("smoke.py", "warlock.native"),
+    ("smoke.py", "realmspinner.native"),
 }
 #: Modules that may import Pillow, and only inside a function.
 LAZY_PILLOW = {"bake.py"}
@@ -110,12 +110,12 @@ def test_pillow_is_never_imported_at_module_scope():
 
 
 def test_the_only_outward_imports_are_the_ones_written_down():
-    """No ``warlock.*`` import that is not this package itself, except the
+    """No ``realmspinner.*`` import that is not this package itself, except the
     ones the table names: not the Inker document, not ``service``."""
     found = set()
     for path in _modules():
         for name in _outward(path):
-            if name.startswith(PACKAGE) or name.split(".")[0] != "warlock":
+            if name.startswith(PACKAGE) or name.split(".")[0] != "realmspinner":
                 continue
             found.add((path.name, ".".join(name.split(".")[:2])))
     assert found == OUTWARD_IMPORTS
@@ -131,7 +131,7 @@ def test_the_only_third_party_import_is_numpy():
 
 
 def test_every_primitive_is_registered_and_complete():
-    from warlock.kernels.pixel.flourish import prims
+    from realmspinner.kernels.pixel.flourish import prims
 
     on_disk = {p.stem for p in (ENGINE / "prims").glob("*.py") if p.stem != "__init__"}
     assert on_disk == set(prims.KINDS)

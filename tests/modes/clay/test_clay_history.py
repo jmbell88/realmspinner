@@ -19,12 +19,12 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from warlock.core import undo
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import ops as clay_ops
-from warlock.studio.modes.clay.state import ClayState
+from realmspinner.core import undo
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import ops as clay_ops
+from realmspinner.studio.modes.clay.state import ClayState
 
 
 class _Ctx:
@@ -119,7 +119,7 @@ def _drag(doc: bd.ClayDoc, uids: list[int], *, tool: str = "move") -> None:
     and reads exactly these four attributes, so the real GL view (and its
     context) is not part of the claim under test.
     """
-    from warlock.studio.modes.clay.ui._view_drag import DragOps
+    from realmspinner.studio.modes.clay.ui._view_drag import DragOps
 
     start = {
         uid: tuple(np.array(v, copy=True) for v in doc.by_uid(uid).trs())
@@ -171,7 +171,7 @@ def _element_drag(doc: bd.ClayDoc, uids: list[int]) -> None:
     is a ``DragOps`` method reading ``_element_drags`` and ``_cache``, so this
     exercises the app's real commit logic, not a re-implementation of it.
     """
-    from warlock.studio.modes.clay.ui._view_drag import DragOps, _ElementDrag
+    from realmspinner.studio.modes.clay.ui._view_drag import DragOps, _ElementDrag
 
     doc.element_mode = "vertex"
     drags = {}
@@ -218,7 +218,7 @@ def test_a_drag_that_moved_nothing_pushes_no_step_and_relabels_none():
     doc, uids = _doc(3)
     before = doc.history.history()
 
-    from warlock.studio.modes.clay.ui._view_drag import DragOps
+    from realmspinner.studio.modes.clay.ui._view_drag import DragOps
 
     view = SimpleNamespace(
         _drag_start={

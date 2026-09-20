@@ -23,10 +23,10 @@ from typing import Any
 
 import numpy as np
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import sheetout
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import sheetout
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)
 
@@ -207,7 +207,7 @@ def test_the_gif_export_carries_each_frames_own_palette(monkeypatch, tmp_path):
     its own table exported the wrong colours -- and ``aseout`` and ``ora``
     both honoured the override, so GIF was the only exporter that did not.
     """
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     dest = tmp_path / "flash.gif"
     monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: dest)

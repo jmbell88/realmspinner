@@ -18,10 +18,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import animation
-from warlock.kernels.pixel import ora as inker_ora
-from warlock.kernels.pixel.animation import Tag
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import animation
+from realmspinner.kernels.pixel import ora as inker_ora
+from realmspinner.kernels.pixel.animation import Tag
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -140,7 +140,7 @@ def test_every_blend_mode_survives_a_real_file_round_trip(tmp_path: Path):
     back as the same mode through the encoder and the parser, which is what a
     user opening their file in Krita is relying on.
     """
-    from warlock.kernels.pixel import composite as cp
+    from realmspinner.kernels.pixel import composite as cp
 
     doc = inker.Document.blank(8, 8)
     for index, mode in enumerate(cp.BLEND_MODES):
@@ -711,7 +711,7 @@ def test_an_archive_claiming_more_than_the_ceiling_is_refused(tmp_path, monkeypa
     """A zip's directory declares what each member unpacks to and nothing makes
     that number honest, so the refusal has to come off the directory rather
     than off the read that has already exhausted memory -- the
-    ``.wblk``/``.wmap``/``.wpack`` door, which this reader alone lacked. The
+    ``.rblk``/``.rmap``/``.rpack`` door, which this reader alone lacked. The
     constant is lowered rather than a gigabyte being built, which is why it is
     read at call time."""
     path = _saved(tmp_path)
@@ -745,8 +745,8 @@ def test_canvas_resolution_survives_a_round_trip(tmp_path):
     physical size quietly gone, with no comment anywhere saying so (unlike the
     group ``composite-op``, which is dropped on purpose and says so).
     """
-    from warlock.kernels.pixel import ora
-    from warlock.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel import ora
+    from realmspinner.kernels.pixel.document import Document
 
     doc = Document.blank(4, 4)
     doc.dpi = (300, 300)
@@ -764,7 +764,7 @@ def test_canvas_resolution_survives_a_round_trip(tmp_path):
     assert ora.read_ora(plain_path).dpi is None
 
 
-# --- the flatten matte (warlock-matte) ---------------------------------------
+# --- the flatten matte (realmspinner-matte) ---------------------------------------
 
 
 @pytest.mark.parametrize("matte", [None, (255, 255, 255, 255), (10, 20, 30, 255)])
@@ -785,7 +785,7 @@ def test_the_flatten_matte_round_trips_on_an_animated_document(tmp_path):
 
 
 def test_the_attribute_is_written_even_when_the_matte_is_off(tmp_path):
-    """The one warlock-* attribute that is unconditional, and why.
+    """The one realmspinner-* attribute that is unconditional, and why.
 
     "Off" and "nobody said" are different answers -- the second has to keep
     meaning "infer with ``matte_for``" for Krita files -- so the writer cannot

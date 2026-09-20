@@ -12,7 +12,7 @@ from __future__ import annotations
 import colorsys
 import math
 
-from warlock.studio.modes.inker.ui import colorwheel
+from realmspinner.studio.modes.inker.ui import colorwheel
 
 
 def test_a_point_on_the_disc_round_trips_through_a_colour_and_back():

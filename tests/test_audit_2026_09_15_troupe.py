@@ -19,10 +19,10 @@ import zlib
 import pytest
 from PIL import Image
 
-from warlock.kernels.rig import store
-from warlock.service import sprites as svc_sprites
-from warlock.service import troupe as svc_troupe
-from warlock.service.errors import Conflict, Invalid
+from realmspinner.kernels.rig import store
+from realmspinner.service import sprites as svc_sprites
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.service.errors import Conflict, Invalid
 
 # --- troupe-03: sheet_preview_png must validate before it allocates ---------
 
@@ -32,7 +32,7 @@ def _mesh_with_sheet(svc, *, frame_size=64, frames=2):
     movement ("walk") of *frames* frames -- the minimum ``sheet_preview_png``
     needs to compose a movement strip, the same shape
     ``tests/test_character_agent_doors.py``'s own ``_build_sheet`` uses."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     mesh_id = svc_jobs.create_job(svc, kind="text", prompt="a knight")["id"]
     svc.store.set_status(mesh_id, "done")
@@ -111,7 +111,7 @@ def test_sheet_preview_png_refuses_before_allocating_from_a_corrupted_sidecars_f
 
     monkeypatch.setattr(Image, "new", spy_new)
 
-    from warlock.service import characters as svc_characters
+    from realmspinner.service import characters as svc_characters
 
     with pytest.raises(Invalid) as excinfo:
         svc_characters.sheet_preview_png(
@@ -171,7 +171,7 @@ def test_sheet_preview_png_refuses_before_decoding_an_oversized_atlas_png(svc, m
 
     monkeypatch.setattr(Image.Image, "load", spy_load)
 
-    from warlock.service import characters as svc_characters
+    from realmspinner.service import characters as svc_characters
 
     with pytest.raises(Invalid) as excinfo:
         svc_characters.sheet_preview_png(
@@ -252,8 +252,8 @@ def test_imp_gargoyle_angel_and_harpy_never_offer_their_declared_kin():
     ``kin`` a creature declares must actually be inside the pool
     ``_offer_for`` computes for it.
     """
-    from warlock.characters import family as family_mod
-    from warlock.characters.resolve import KNOWN_CREATURES, _offer_for
+    from realmspinner.characters import family as family_mod
+    from realmspinner.characters.resolve import KNOWN_CREATURES, _offer_for
 
     registry = family_mod.families()
     for name in ("imp", "gargoyle", "angel", "harpy"):

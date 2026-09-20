@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from warlock.studio import modes
+from realmspinner.studio import modes
 
 MODES_PATH = Path(modes.__file__)
 
@@ -56,7 +56,7 @@ def test_every_mode_carries_a_purpose_and_the_rail_shows_it():
     # second, muted line for it rather than ignoring the argument.
     import inspect
 
-    from warlock.studio import rail
+    from realmspinner.studio import rail
 
     source = inspect.getsource(rail._item)
     assert "purpose" in inspect.signature(rail._item).parameters
@@ -139,13 +139,13 @@ def _dispatch_arms() -> set[str]:
     import inspect
     import re
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     return set(re.findall(r'mode == "([a-z_]+)"', inspect.getsource(main.App._build_ui)))
 
 
 def test_every_mode_that_fills_the_window_has_its_own_arm_in_the_dispatch():
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     owed = (set(main._SINGLE_PANE_MODES) | set(modes.WORKSPACE_MODES)) - {_ELSE_ARM}
     missing = sorted(owed - _dispatch_arms())

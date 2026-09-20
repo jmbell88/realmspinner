@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock import fetch
-from warlock.studio import modes
-from warlock.studio import state as state_mod
-from warlock.studio.panes import model_gate
-from warlock.studio.state import AppState, set_mode, set_mode_gate
+from realmspinner import fetch
+from realmspinner.studio import modes
+from realmspinner.studio import state as state_mod
+from realmspinner.studio.panes import model_gate
+from realmspinner.studio.state import AppState, set_mode, set_mode_gate
 
 
 def _ctx(present: bool, *, total: int = 0) -> SimpleNamespace:

@@ -24,10 +24,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import composite as cp
-from warlock.kernels.pixel import groups as gp
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.layers import _shown_pixels
+from realmspinner.kernels.pixel import composite as cp
+from realmspinner.kernels.pixel import groups as gp
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.layers import _shown_pixels
 
 RED = (255, 0, 0, 255)
 WHITE = (255, 255, 255, 255)

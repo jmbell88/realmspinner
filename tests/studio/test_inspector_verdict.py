@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.studio.panes import inspector
-from warlock.studio.state import AppState
+from realmspinner.studio.panes import inspector
+from realmspinner.studio.state import AppState
 
 
 class _FakeCache:
@@ -126,7 +126,7 @@ def test_a_grade_outside_the_scale_is_refused_rather_than_clamped(svc):
 
 
 def test_an_inspector_verdict_feeds_the_same_findings_a_sweep_does(svc):
-    from warlock.service import findings as svc_findings
+    from realmspinner.service import findings as svc_findings
 
     ctx = FakeCtx(svc)
     for _ in range(5):

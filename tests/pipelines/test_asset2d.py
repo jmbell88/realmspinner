@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from warlock.pipelines import asset2d
+from realmspinner.pipelines import asset2d
 
 
 def _subject(size=(128, 128), box=(32, 20, 96, 100), colour=(200, 30, 30)):
@@ -280,7 +280,7 @@ def test_the_grid_branch_snaps_alpha_and_records_its_qa():
 
 
 def test_a_palette_file_replaces_the_median_cut_cap():
-    from warlock.pipelines import pixel as pixelmod
+    from realmspinner.pipelines import pixel as pixelmod
 
     im, mask = _subject()
     palette = ((0, 0, 0), (255, 255, 255))

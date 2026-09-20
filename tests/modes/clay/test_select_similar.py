@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import select
-from warlock.kernels.mesh.mesh import from_faces
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import select
+from realmspinner.kernels.mesh.mesh import from_faces
 
 
 def _mixed_box():

@@ -4,12 +4,12 @@ Until this wave the Collision tab could *add* a shape and *clear* the lot, and
 nothing else: ``_add_shape`` hard-coded the geometry to the whole tile and the
 view under it was an ``imgui.dummy``, which is a picture rather than a control.
 So every collision shape any map made here carried was the same full-tile box,
-and ``TilePolygon`` -- which has round-tripped through ``.tsx`` and ``.wmap``
+and ``TilePolygon`` -- which has round-tripped through ``.tsx`` and ``.rmap``
 the whole time -- had no author.
 
 Two halves, tested two ways.
 
-* The arithmetic is in :mod:`warlock.kernels.grid2d.picking`, which is
+* The arithmetic is in :mod:`realmspinner.kernels.grid2d.picking`, which is
   headless and pure, and is asserted directly.
 * The *gesture* is in ``plotter_tileset_editor._collision_input``, and every
   test of it below goes through that real dispatch with the shared synthetic
@@ -23,9 +23,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels.grid2d import picking
-from warlock.kernels.grid2d.tileset import TileEllipse, TilePolygon, TileRect
-from warlock.studio.modes.plotter.ui.panes import tileset_editor as editor
+from realmspinner.kernels.grid2d import picking
+from realmspinner.kernels.grid2d.tileset import TileEllipse, TilePolygon, TileRect
+from realmspinner.studio.modes.plotter.ui.panes import tileset_editor as editor
 
 from ._drive import TileScene
 
@@ -435,8 +435,8 @@ def test_the_gesture_runs_on_the_mode_state_the_app_actually_builds(
 
     import numpy as np
 
-    from warlock.kernels.grid2d.picking import TileView
-    from warlock.kernels.grid2d.tileset import Tileset
+    from realmspinner.kernels.grid2d.picking import TileView
+    from realmspinner.kernels.grid2d.tileset import Tileset
 
     from ._drive import Mouse
 

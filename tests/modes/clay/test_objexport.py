@@ -1,5 +1,5 @@
 """A Clay document out as OBJ + MTL, and the round trip back through
-:mod:`warlock.kernels.mesh.objimport`."""
+:mod:`realmspinner.kernels.mesh.objimport`."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import objexport, objimport
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import uv as uv_mod
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import objexport, objimport
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import uv as uv_mod
 
 
 def _variety_doc() -> bd.ClayDoc:
@@ -126,7 +126,7 @@ def test_hidden_objects_are_left_out_unless_asked_for() -> None:
 
 
 def test_a_material_with_a_texture_gets_a_comment_not_a_silent_drop() -> None:
-    from warlock.kernels.geom3d import gltf
+    from realmspinner.kernels.geom3d import gltf
 
     doc = bd.ClayDoc(materials=[gltf.Material(name="Tex", base_color=(2, 2, b"\x00" * 16))])
     doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box(), material=0))

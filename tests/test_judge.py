@@ -10,7 +10,7 @@ assertable from synthetic vectors.
 Two design points are pinned here rather than left to the caller.
 
 **A probe carries its own provenance.** Corpus size, label count and a schema
-version, in the ``.npz`` -- the ``vendor/warlockc`` staleness hazard exactly: an
+version, in the ``.npz`` -- the ``vendor/realmspinnerc`` staleness hazard exactly: an
 absent probe is obvious, a stale one quietly scoring last week's opinion is not.
 
 **Advisory means advisory.** ``score`` returns a number and nothing else. There
@@ -24,7 +24,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import judge
+from realmspinner import judge
 
 
 def _separable(n: int = 40, dim: int = 8, seed: int = 7):
@@ -136,7 +136,7 @@ def test_a_corrupt_probe_is_none_rather_than_an_error(tmp_path):
 
 
 def test_a_probe_from_another_schema_is_refused(tmp_path):
-    """The ``warlockc`` rule: ``vendor/`` is gitignored, so a checkout routinely
+    """The ``realmspinnerc`` rule: ``vendor/`` is gitignored, so a checkout routinely
     holds an artifact built from older sources -- an absent one is obvious, a
     stale one silently computing last week's answer is not."""
     x, y = _separable()
@@ -165,7 +165,7 @@ def test_embedding_without_the_weights_is_none_rather_than_an_error(tmp_path, mo
     """A machine that never downloaded DINOv2 gets "unavailable", not a stack
     trace -- and never an import of torch, which is the ordering
     ``test_offline.py`` pins everywhere else."""
-    from warlock.bench import metrics
+    from realmspinner.bench import metrics
 
     monkeypatch.setattr(metrics, "dino_available", lambda config=None: False)
     image = tmp_path / "a.png"
@@ -190,7 +190,7 @@ def test_a_judge_failure_is_never_an_exception_at_the_call_site(tmp_path, monkey
     """``Worker._record_observation``'s rule: a diagnostic must never fail the
     thing it is diagnosing. Here the caller is the UI, and the cost of a raise
     is a frame that does not draw."""
-    from warlock.bench import metrics
+    from realmspinner.bench import metrics
 
     monkeypatch.setattr(metrics, "dino_available", lambda config=None: True)
 
@@ -222,7 +222,7 @@ def test_the_judge_and_the_verdict_table_use_one_vocabulary(tmp_path):
     words: a probe stage that needed translating to a ``verdicts.stage`` would be
     a table two files could disagree about, and the disagreement would show up as
     a probe silently trained on the wrong population."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     assert set(judge.STAGES) == set(svc_verdicts.STAGES)
 

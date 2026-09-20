@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio.panes import tour as tour_pane
-from warlock.studio.tour.steps import CONDITIONS
+from realmspinner.studio.panes import tour as tour_pane
+from realmspinner.studio.tour.steps import CONDITIONS
 
 
 def _ctx(**state):
@@ -145,7 +145,7 @@ def _song(*patterns):
     note values. Real ``Pattern`` cells are ``(rows, channels, COLUMNS)``."""
     import numpy as np
 
-    from warlock.studio.modes.sirens.engine import document as D
+    from realmspinner.studio.modes.sirens.engine import document as D
 
     made = []
     for rows in patterns:
@@ -166,7 +166,7 @@ def test_a_note_off_is_not_a_note():
     """``NOTE_OFF`` and ``NOTE_RELEASE`` are sentinels above the pitch range, so
     the count is a range test rather than ``!= EMPTY``. A reader who cut a note
     has not written one."""
-    from warlock.studio.modes.sirens.engine import notes
+    from realmspinner.studio.modes.sirens.engine import notes
 
     sirens = _song([[notes.NOTE_OFF], [notes.NOTE_RELEASE], [notes.EMPTY]])
     assert tour_pane.satisfied(_ctx(sirens=sirens), "notes_at_least", "1") is False
@@ -207,7 +207,7 @@ def test_every_authored_count_is_a_number_the_evaluator_can_read():
     reader has already done the thing. So the authored data is checked
     statically, and the runtime behaviour is only the backstop.
     """
-    from warlock.studio.tour import scripts
+    from realmspinner.studio.tour import scripts
 
     bad: list[str] = []
     for tour in scripts.TOURS:

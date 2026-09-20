@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
-from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-from warlock.studio.shell import paintview
-from warlock.studio.shell.paintview import PaintView
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+from realmspinner.studio.shell import paintview
+from realmspinner.studio.shell.paintview import PaintView
 
 
 def _tab(name="a.png", path=None, size=(16, 16)):
@@ -146,8 +146,8 @@ def test_ask_open_focuses_an_already_open_drawing_instead_of_forking_a_second_ta
     ``find_path`` -- Clay closed the identical gap in its own dialog arm on
     2026-09-12 (clay-02). Two tabs over one path race on save, and whichever
     writes last silently discards the other's edits."""
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.state import AppState
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.state import AppState
 
     ctx = _ImportCtx()
     ctx.state = AppState()
@@ -731,7 +731,7 @@ class _RecentCtx:
 
 
 def test_recent_files_are_most_recent_first_deduplicated_and_bounded():
-    from warlock.studio import recents
+    from realmspinner.studio import recents
 
     ctx = _RecentCtx()
     for i in range(recents.MAX_RECENT + 5):
@@ -760,7 +760,7 @@ def test_a_path_that_did_not_open_can_be_forgotten():
 
 
 def test_the_tool_shortcuts_and_the_tool_list_agree():
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     tools = {key for key, _, _ in inker_state.TOOLS}
     assert set(inker_mode.TOOL_KEYS.values()) == tools
@@ -774,7 +774,7 @@ class _PaletteCtx:
     """Enough of Ctx for the two palette entry points, running inline."""
 
     def __init__(self) -> None:
-        from warlock.studio.state import AppState
+        from realmspinner.studio.state import AppState
 
         self.state = AppState()
         self.settings = _MemorySettings()
@@ -805,8 +805,8 @@ class _MemorySettings:
 def test_importing_a_palette_never_opens_a_picker_on_the_frame_thread(monkeypatch):
     """The rule every dialog in this app follows: a native picker is modal to
     the OS and blocks until it is dismissed."""
-    from warlock.studio import dialogs
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import dialogs
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     opened: list[str] = []
 
@@ -824,8 +824,8 @@ def test_importing_a_palette_never_opens_a_picker_on_the_frame_thread(monkeypatc
 def test_an_imported_palette_adds_to_the_row_rather_than_replacing_it(monkeypatch, tmp_path):
     """A user who wanted the old ones gone can right-click them away; an
     import that wiped a session's palette has no way back."""
-    from warlock.studio import dialogs
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import dialogs
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     path = tmp_path / "p.gpl"
     path.write_text("GIMP Palette\n10 20 30\n", encoding="utf-8")
@@ -842,8 +842,8 @@ def test_an_imported_palette_adds_to_the_row_rather_than_replacing_it(monkeypatc
 
 
 def test_a_cancelled_palette_picker_changes_nothing(monkeypatch):
-    from warlock.studio import dialogs
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import dialogs
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: None)
     ctx = _PaletteCtx()
@@ -858,9 +858,9 @@ def test_a_cancelled_palette_picker_changes_nothing(monkeypatch):
 def test_exporting_builds_the_bytes_before_the_picker(monkeypatch, tmp_path):
     """``save_as``'s rule: serialising after an unbounded modal would write
     whatever the user changed while it was open."""
-    from warlock.kernels.pixel import gpl
-    from warlock.studio import dialogs
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.kernels.pixel import gpl
+    from realmspinner.studio import dialogs
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     out = tmp_path / "out.gpl"
 
@@ -906,7 +906,7 @@ class _Confirms:
 
 
 def _dirty_tab(state, title="a"):
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     tab = InkerDoc(doc=doc, title=title, saved_head=doc.history.head)
@@ -919,7 +919,7 @@ def _sidecar(root, payload, title, kind="inker"):
     """Write the completion gate beside a payload, as the journal would."""
     import json as _json
 
-    from warlock.studio import journal
+    from realmspinner.studio import journal
 
     journal.meta_path(payload).write_text(
         _json.dumps(
@@ -944,9 +944,9 @@ def _leave_behind(root, title, kind="inker"):
 
 
 def test_a_clean_document_is_never_journalled(tmp_path):
-    from warlock.kernels import pixel as inker
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -958,8 +958,8 @@ def test_a_clean_document_is_never_journalled(tmp_path):
 
 
 def test_a_dirty_document_is_journalled_once_the_interval_has_passed(tmp_path):
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -979,8 +979,8 @@ def test_a_dirty_document_is_journalled_once_the_interval_has_passed(tmp_path):
 def test_a_journal_entry_is_not_a_save(tmp_path):
     """It must not clear dirty, move the saved head or retitle the tab: all
     three would answer "where should this go" on the user's behalf."""
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -1000,8 +1000,8 @@ def test_a_journal_entry_is_not_a_save(tmp_path):
 def test_an_idle_document_is_not_rewritten_every_interval(tmp_path):
     """Compared against the history head rather than tracked with a flag, so
     an undo back to the journalled position is not a new edit either."""
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -1019,8 +1019,8 @@ def test_an_idle_document_is_not_rewritten_every_interval(tmp_path):
 def test_a_busy_document_is_skipped(tmp_path):
     """write_ora walks the stack; a second encode mid-save is the archive whose
     parts disagree about the canvas size."""
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -1031,8 +1031,8 @@ def test_a_busy_document_is_skipped(tmp_path):
 
 
 def test_saving_for_real_drops_the_crash_copy(tmp_path):
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -1050,8 +1050,8 @@ def test_saving_for_real_drops_the_crash_copy(tmp_path):
 
 def test_dropping_a_copy_that_is_already_gone_does_not_raise(tmp_path):
     """Cleanup, not an edit."""
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -1063,8 +1063,8 @@ def test_dropping_a_copy_that_is_already_gone_does_not_raise(tmp_path):
 
 
 def test_recovery_is_offered_only_when_something_was_left_behind(tmp_path):
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     inker_mode.ensure(ctx)
@@ -1082,8 +1082,8 @@ def test_a_payload_with_no_sidecar_is_never_offered(tmp_path):
     """The completion gate. A copy interrupted between the two writes is a
     payload nothing knows the shape of, and offering it would hand the user a
     truncated archive as though it were their work."""
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     inker_mode.ensure(ctx)
@@ -1093,8 +1093,8 @@ def test_a_payload_with_no_sidecar_is_never_offered(tmp_path):
 
 
 def test_a_sidecar_naming_a_payload_that_has_gone_is_skipped(tmp_path):
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     inker_mode.ensure(ctx)
@@ -1107,8 +1107,8 @@ def test_a_sidecar_from_a_version_nobody_understands_is_skipped(tmp_path):
     """A half-understood recovery is worse than none."""
     import json as _json
 
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     inker_mode.ensure(ctx)
@@ -1121,8 +1121,8 @@ def test_a_sidecar_from_a_version_nobody_understands_is_skipped(tmp_path):
 def test_declining_recovery_keeps_the_files(tmp_path):
     """"Not now" is not "delete my work" -- and on the home screen "not now" is
     simply never clicking Recover, so listing must touch nothing on disk."""
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     inker_mode.ensure(ctx)
@@ -1136,8 +1136,8 @@ def test_a_kind_nothing_can_adopt_is_skipped_rather_than_deleted(tmp_path):
     """The mode may simply not be built into this run, and deleting somebody's
     work because this build does not understand it is the one outcome worse
     than not offering it."""
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     inker_mode.ensure(ctx)
@@ -1153,9 +1153,9 @@ def test_a_recovered_document_opens_untitled_and_dirty(tmp_path):
     """The file it was copied from may still be on disk with its own contents,
     so adopting the path would arm Ctrl+S to overwrite something the user has
     not looked at."""
-    from warlock.kernels import pixel as inker
-    from warlock.studio import journal
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -1184,7 +1184,7 @@ def test_a_recovered_document_opens_untitled_and_dirty(tmp_path):
 def test_a_typed_size_is_clamped_rather_than_refused():
     """The snap rule: the fields are being *typed into*, and there is nothing
     useful for a refusal to show halfway through a number."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     assert inker_mode.clamp_canvas(0, -4) == (1, 1)
     assert inker_mode.clamp_canvas(1920, 1080) == (1920, 1080)
@@ -1192,7 +1192,7 @@ def test_a_typed_size_is_clamped_rather_than_refused():
 
 
 def test_a_size_that_is_not_a_number_at_all_falls_back_to_one():
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     assert inker_mode.clamp_canvas(None, "x") == (1, 1)
 
@@ -1200,7 +1200,7 @@ def test_a_size_that_is_not_a_number_at_all_falls_back_to_one():
 def test_a_new_document_honours_a_non_square_size():
     """The whole of Ink7: a user who wanted 1920x1080 had to make a square and
     then resize it, which is two undo steps and a guess about the anchor."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _PaletteCtx()
     doc = inker_mode.new_document(ctx, 1920, 1080)
@@ -1208,7 +1208,7 @@ def test_a_new_document_honours_a_non_square_size():
 
 
 def test_a_new_document_cannot_be_asked_for_a_gigabyte_by_one_stray_digit():
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _PaletteCtx()
     doc = inker_mode.new_document(ctx, 20480, 20480)
@@ -1219,7 +1219,7 @@ def test_the_new_dialog_offers_the_sizes_a_pixel_artist_actually_starts_from():
     """The three square presets were 512, 1024 and 2048 -- and the Manual's own
     tutorials walk the reader through a 32x32 sprite and a 128x128 spell, so
     the first instruction in both was to ignore the presets and type."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     assert {(32, 32), (64, 64), (128, 128), (256, 256)} <= set(inker_mode.NEW_PRESETS)
     assert tuple(sorted(inker_mode.NEW_PRESETS)) == inker_mode.NEW_PRESETS
@@ -1231,7 +1231,7 @@ def test_the_default_size_is_a_constant_and_not_a_position_in_the_preset_list():
     """It was read as ``NEW_PRESETS[1]``. An index into a list that is expected
     to grow is a default that moves the next time a size is added in front of
     it -- which is exactly what adding the four small sizes just did."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     assert inker_mode.NEW_DEFAULT == (64, 64)
     assert inker_mode.NEW_DEFAULT in inker_mode.NEW_PRESETS
@@ -1270,7 +1270,7 @@ def test_the_menu_and_ctrl_n_actually_open_the_new_canvas_dialog():
     and the only ``open_popup`` for the id was the empty-state button, which is
     off screen the moment a document exists. So File > New and Ctrl+N left the
     field set for ever and drew nothing."""
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     op = inker_ops.get("new")
     assert op is not None and op.key == "Ctrl+N"
@@ -1295,7 +1295,7 @@ ORIENTATIONS = [(r, f) for r in (0, 90, 180, 270) for f in (False, True)]
 
 
 def _view(rotation=0, flipped=False, zoom=2.0, pan=(7.0, 11.0)):
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     return paintview.PaintView(zoom=zoom, pan=pan, rotation=rotation, flipped=flipped)
 
@@ -1304,7 +1304,7 @@ def _view(rotation=0, flipped=False, zoom=2.0, pan=(7.0, 11.0)):
 def test_a_round_trip_is_the_identity_in_every_orientation(rotation, flipped):
     """The basis is orthonormal, so its transpose is its inverse -- exactly,
     for all eight of them, rather than to within a rounding error."""
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     view = _view(rotation, flipped)
     screen = paintview.to_screen(view, (10.0, 20.0), 4.0, 6.0)
@@ -1316,7 +1316,7 @@ def test_a_quarter_turn_keeps_an_axis_aligned_rectangle_axis_aligned(rotation, f
     """The whole licence for the pane's overlays staying as they were. If this
     ever fails, the grid, the marquee preview and the transform box are all
     quietly drawing the wrong shape."""
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     view = _view(rotation, flipped)
     corners = [
@@ -1334,7 +1334,7 @@ def test_the_orientation_preserves_distance(rotation, flipped):
     arithmetic: the basis turns, and turning does not stretch."""
     import math
 
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     view = _view(rotation, flipped, zoom=1.0, pan=(0.0, 0.0))
     a = paintview.to_screen(view, (0.0, 0.0), 1.0, 2.0)
@@ -1343,7 +1343,7 @@ def test_the_orientation_preserves_distance(rotation, flipped):
 
 
 def test_a_quarter_turn_swaps_the_extent_the_canvas_needs():
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     upright = _view(0)
     turned = _view(90)
@@ -1360,7 +1360,7 @@ def test_fitting_puts_the_whole_canvas_inside_the_pane_however_it_is_turned(
     """The one thing rotation genuinely costs the layout: a turn puts part of
     the canvas at negative view coordinates, so the framing cannot assume the
     corner is at the origin."""
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     view = _view(rotation, flipped)
     paintview.fit(view, (100, 50), (200.0, 200.0))
@@ -1379,7 +1379,7 @@ def test_fitting_puts_the_whole_canvas_inside_the_pane_however_it_is_turned(
 
 
 def test_a_flip_mirrors_left_to_right_and_is_its_own_inverse():
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     view = _view(0, zoom=1.0, pan=(0.0, 0.0))
     right = paintview.to_screen(view, (0.0, 0.0), 10.0, 0.0)
@@ -1392,7 +1392,7 @@ def test_a_flip_mirrors_left_to_right_and_is_its_own_inverse():
 def test_rotating_cycles_through_the_four_and_keeps_the_zoom():
     """Re-centred through ``pending_zoom`` rather than by clearing ``fitted``,
     which would also re-scale and throw away a zoom the user chose."""
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     view = _view(0, zoom=3.0)
     for expected in (90, 180, 270, 0):
@@ -1403,7 +1403,7 @@ def test_rotating_cycles_through_the_four_and_keeps_the_zoom():
 
 
 def test_rotating_backwards_is_the_other_direction():
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     view = _view(0)
     paintview.rotate_view(view, -1)
@@ -1413,8 +1413,8 @@ def test_rotating_backwards_is_the_other_direction():
 def test_neither_rotation_nor_flip_is_an_edit():
     """No pixels move, so there is nothing to undo and nothing to save -- which
     is the reason both live on the view rather than on the document."""
-    from warlock.kernels import pixel as inker
-    from warlock.studio.shell import paintview
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.shell import paintview
 
     doc = inker.Document.blank(8, 8)
     head, rev = doc.history.head, doc.rev
@@ -1429,7 +1429,7 @@ def test_a_rotation_off_the_quarter_lattice_reads_as_zero_everywhere():
     readers must agree about it: ``basis`` always answered such a value as 0,
     while ``rotate_view`` restated the lookup without the guard and raised a
     ValueError out of ``index()`` -- one bad state, two different verdicts."""
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     view = _view(45)
     assert paintview.basis(view) == paintview.basis(_view(0))
@@ -1441,7 +1441,7 @@ def test_a_rotation_off_the_quarter_lattice_reads_as_zero_everywhere():
 def test_an_over_wound_multiple_of_ninety_still_turns_from_where_it_reads():
     """The other side of the shared spelling: 450 is 90 on screen, and a turn
     from it lands on 180 rather than raising or restarting at zero."""
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.shell import paintview
 
     view = _view(450)
     assert paintview.basis(view) == paintview.basis(_view(90))
@@ -1456,7 +1456,7 @@ class _ImportCtx:
     """Enough of Ctx for the import door, running its task inline."""
 
     def __init__(self) -> None:
-        from warlock.studio.state import AppState
+        from realmspinner.studio.state import AppState
 
         self.state = AppState()
         self.settings = _MemorySettings()
@@ -1512,7 +1512,7 @@ def test_an_imported_aseprite_document_points_at_no_file(tmp_path):
     """The whole read-only guarantee, and it is structural rather than a flag:
     this app reads the format and cannot write it, so a tab pointing at the
     source would let one Ctrl+S put ORA bytes over somebody's artwork."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     path = tmp_path / "hero.aseprite"
     path.write_bytes(_ase_bytes())
@@ -1527,7 +1527,7 @@ def test_dropping_an_aseprite_file_imports_it_rather_than_refusing_it(tmp_path):
     """``.aseprite`` is deliberately not in ``OPENABLE`` -- that tuple is what
     the app can write back -- so the drop route has to know about it or the
     user is told the app cannot do something it can."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     path = tmp_path / "hero.ase"
     path.write_bytes(_ase_bytes())
@@ -1539,8 +1539,8 @@ def test_dropping_an_aseprite_file_imports_it_rather_than_refusing_it(tmp_path):
 
 
 def test_the_aseprite_picker_never_runs_on_the_frame_thread(monkeypatch):
-    from warlock.studio import dialogs
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import dialogs
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     opened: list[str] = []
 
@@ -1558,7 +1558,7 @@ def test_the_aseprite_picker_never_runs_on_the_frame_thread(monkeypatch):
 def test_what_an_import_dropped_is_one_toast_and_every_line_in_the_log():
     """A toast per warning is a stack of them for one file; silence is worse
     still, since a drawing that quietly lost something looks merely wrong."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = _ImportCtx()
     inker_mode._report_import_warnings(ctx, [])
@@ -1682,7 +1682,7 @@ def test_an_irregular_grid_seeds_nothing():
             sheet[y:y + height, x:x + width, :3] = 200
             x += width + 2
         y += height + 1
-    from warlock.kernels.grid2d import slicing
+    from realmspinner.kernels.grid2d import slicing
 
     assert slicing.detect_grid(sheet) is not None
     assert inker_mode._suggest_grid(sheet) is None
@@ -1740,7 +1740,7 @@ def test_the_mirrors_survive_a_restart():
     pixel grid, the layer edges and the tile numbers, which is why this is a
     test and not just a fix.
     """
-    from warlock.kernels.pixel import brush
+    from realmspinner.kernels.pixel import brush
 
     ctx = _Ctx()
     state = inker_mode.ensure(ctx)
@@ -1758,7 +1758,7 @@ def test_the_mirrors_survive_a_restart():
 def test_a_settings_file_from_before_symmetry_was_saved_opens_unchanged():
     """No migration and no version bump: the three keys are simply absent, so
     every ``get`` falls back to the field's own default."""
-    from warlock.kernels.pixel import brush
+    from realmspinner.kernels.pixel import brush
 
     ctx = _Ctx()
     ctx.settings.set(
@@ -1777,7 +1777,7 @@ def test_a_hand_edited_symmetry_block_is_ignored_rather_than_fatal():
     """Validated, not trusted -- the module's doctrine for a file a person can
     open. Read *through* ``axes_of``/``compose`` rather than assigned raw,
     which is also what normalises a legacy spelling."""
-    from warlock.kernels.pixel import brush
+    from realmspinner.kernels.pixel import brush
 
     ctx = _Ctx()
     ctx.settings.set(
@@ -2105,7 +2105,7 @@ def test_every_task_key_inker_submits_is_answered():
     import pathlib
     import re
 
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     root = pathlib.Path(inker_mode.__file__).resolve().parent
     # The **table**, not the function: ``on_task_done`` is a dict lookup since
@@ -2154,17 +2154,17 @@ def test_every_task_key_inker_submits_is_answered():
 def test_the_suffix_decides_the_format_written(tmp_path, suffix, reader):
     """The picker's filter does not say which entry was selected, so the
     filename is the only thing the user actually said."""
-    from warlock.kernels.pixel import gpl
+    from realmspinner.kernels.pixel import gpl
 
     out = tmp_path / f"p{suffix}"
-    inker_mode._write_palette(out, [(1, 2, 3, 255)], "Warlock")
+    inker_mode._write_palette(out, [(1, 2, 3, 255)], "Realmspinner")
     assert [c[:3] for c in getattr(gpl, reader)(out.read_text(encoding="utf-8"))] == [
         (1, 2, 3)
     ]
 
 
 def test_a_palette_name_with_no_suffix_at_all_becomes_a_gpl(tmp_path):
-    inker_mode._write_palette(tmp_path / "p", [(1, 2, 3, 255)], "Warlock")
+    inker_mode._write_palette(tmp_path / "p", [(1, 2, 3, 255)], "Realmspinner")
     assert (tmp_path / "p.gpl").is_file()
 
 
@@ -2173,7 +2173,7 @@ def test_a_jasc_palette_reaches_the_disk_with_its_own_line_endings(tmp_path):
     mode would rewrite the serialiser's CRLF as CR CR LF, which our own reader
     shrugs at and the strict third-party readers this format exists for do not."""
     out = tmp_path / "p.pal"
-    inker_mode._write_palette(out, [(1, 2, 3, 255)], "Warlock")
+    inker_mode._write_palette(out, [(1, 2, 3, 255)], "Realmspinner")
     assert b"\r\r\n" not in out.read_bytes()
     assert out.read_bytes().startswith(b"JASC-PAL\r\n")
 
@@ -2194,7 +2194,7 @@ def test_the_swatch_strip_is_one_cell_per_colour_in_order():
 def test_the_strip_reads_back_as_the_same_palette_it_was_written_from():
     """The round trip that makes the export the other half of ``Image...``:
     what comes back out has to be what went in, in the same order."""
-    from warlock.kernels.pixel import dither
+    from realmspinner.kernels.pixel import dither
 
     colours = [(10, 20, 30, 255), (40, 50, 60, 255), (200, 100, 0, 255)]
     strip = inker_mode.palette_strip(colours, inker_mode.PALETTE_STRIP_CELL)
@@ -2213,7 +2213,7 @@ def test_exporting_the_palette_image_builds_the_pixels_before_the_picker(
     after an unbounded modal is an array of whatever changed while it was up."""
     from PIL import Image
 
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     out = tmp_path / "strip.png"
     ctx = _PaletteCtx()
@@ -2239,7 +2239,7 @@ def test_exporting_the_palette_image_builds_the_pixels_before_the_picker(
 
 
 def test_a_document_with_no_palette_has_no_image_to_export(monkeypatch):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     monkeypatch.setattr(
         dialogs, "save_file", lambda *a, **k: pytest.fail("a picker opened")
@@ -2258,7 +2258,7 @@ def test_the_shifted_tool_chords_come_from_the_bindings():
     """They were a hand copy checked against the table of *tools* rather than
     the table of *bindings*, so a rebound tool left the Ctrl+/ sheet
     advertising a chord that did nothing."""
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     expected = {
         binding.target: binding.chord
@@ -2273,7 +2273,7 @@ def test_the_shifted_tool_chords_come_from_the_bindings():
 def test_the_verbs_the_review_named_have_chords_now():
     """Flip, merge down and duplicate layer were menu-only, and redo answered
     to Windows' Ctrl+Y alone."""
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     chords = {op.name: op.key for op in inker_ops.OPS if op.key}
     assert chords["flip_h"] == "Shift+H"
@@ -2287,7 +2287,7 @@ def test_the_verbs_the_review_named_have_chords_now():
 def test_no_two_commands_answer_to_one_chord():
     """The check the new chords were picked against, kept so the next one is
     picked against it too."""
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     seen: dict[tuple[str, str], str] = {}
     for op in inker_ops.OPS:
@@ -2325,7 +2325,7 @@ def test_paste_from_os_refuses_an_oversized_clipboard_image(monkeypatch):
     """
     from PIL import Image, ImageGrab
 
-    from warlock.core.safeio import pixelguard
+    from realmspinner.core.safeio import pixelguard
 
     monkeypatch.setattr(ImageGrab, "grabclipboard", lambda: Image.new("RGBA", (64, 64)))
     monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 1024)
@@ -2372,7 +2372,7 @@ def test_apply_convert_runs_the_whole_document_dither_off_the_frame_thread():
 
     import numpy as np
 
-    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
 
     tab = _tab(size=(16, 4))
     ramp = np.linspace(0, 255, 16).astype("uint8")
@@ -2438,7 +2438,7 @@ def test_a_document_being_converted_off_thread_is_never_rendered_concurrently():
 
     import numpy as np
 
-    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
 
     tab = _tab(size=(16, 4))
     ramp = np.linspace(0, 255, 16).astype("uint8")
@@ -2530,8 +2530,8 @@ def test_an_off_thread_mode_conversion_lands_as_one_undo_step_and_undo_restores_
 
     import numpy as np
 
-    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
-    from warlock.studio.tasks import Done
+    from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from realmspinner.studio.tasks import Done
 
     class _InlineCtx:
         def __init__(self) -> None:

@@ -18,7 +18,7 @@ import ast
 import re
 from pathlib import Path
 
-from warlock.studio.modes.plotter import engine as plotter_engine
+from realmspinner.studio.modes.plotter import engine as plotter_engine
 
 MATRIX = Path(__file__).resolve().parents[3] / "docs" / "COMPAT.md"
 # Derived from the package: restructure P6 moved the engine from
@@ -35,7 +35,7 @@ STATES = {
     # a note is not machine-checkable: ``round-trips`` says a Tiled file
     # survives the trip, and this says only that *our* file does. Both are
     # positive rows and both must name a fixture; see the fixture test below.
-    "warlock-dialect",
+    "realmspinner-dialect",
     "refused",
     "preserved-verbatim",
     "silently-dropped",
@@ -43,7 +43,7 @@ STATES = {
 
 #: The states that assert a feature is carried rather than stopped. Both owe a
 #: fixture.
-POSITIVE_STATES = {"round-trips", "warlock-dialect"}
+POSITIVE_STATES = {"round-trips", "realmspinner-dialect"}
 
 
 def _normal_form(node: ast.expr) -> str | None:
@@ -232,7 +232,7 @@ def test_a_positive_row_names_a_fixture_that_exists():
     already carry unrelated backticked prose (` ``zstd`` `, format names, and
     so on) that an unanchored pattern would mistake for a fixture stem.
 
-    Both positive states are checked. A ``warlock-dialect`` row makes a smaller
+    Both positive states are checked. A ``realmspinner-dialect`` row makes a smaller
     claim than a ``round-trips`` one, but it is still a claim that the
     construct survives being written and read back, and an unbacked one is
     exactly as empty."""
@@ -267,7 +267,7 @@ def test_every_authoring_claim_names_a_tab_that_exists():
     exist for something Tiled has no construct for, and demanding a row for one
     would be inventing ledger entries to satisfy a test.
     """
-    from warlock.studio.modes.plotter.ui.panes.tileset_editor import TABS
+    from realmspinner.studio.modes.plotter.ui.panes.tileset_editor import TABS
 
     named = set()
     for feature, state, note in _rows():
@@ -283,7 +283,7 @@ def test_every_authoring_claim_names_a_tab_that_exists():
 
 
 def test_every_dialect_row_says_tiled_does_not_have_it():
-    """The one thing a ``warlock-dialect`` row exists to say.
+    """The one thing a ``realmspinner-dialect`` row exists to say.
 
     The state name alone is a word in a table; what stops the row being read as
     a normal feature is the sentence naming what Tiled actually has instead.
@@ -291,7 +291,7 @@ def test_every_dialect_row_says_tiled_does_not_have_it():
     and a dialect row that quietly loses its warning is indistinguishable from
     a compatibility claim."""
     for feature, state, note in _rows():
-        if state != "warlock-dialect":
+        if state != "realmspinner-dialect":
             continue
         assert "Tiled has no" in note or "Tiled has per-" in note, (
             f"{feature!r} is a dialect row but its note never says what Tiled "

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio.shell import frame
+from realmspinner.studio.shell import frame
 
 
 def test_a_clayview_shaped_target_keeps_capture_by_its_broad_grabbing_property():

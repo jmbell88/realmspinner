@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from warlock.pipelines import text2image_worker as worker
+from realmspinner.pipelines import text2image_worker as worker
 
 
 class _StubPipe:
@@ -200,7 +200,7 @@ def test_a_cancel_for_a_finished_job_does_not_kill_the_next_one():
 
 
 def test_a_cancelled_generate_is_reported_as_cancelled_not_as_a_failure():
-    from warlock.pipelines.text2image import JobCancelled
+    from realmspinner.pipelines.text2image import JobCancelled
 
     def _raise(prompt, output_path, **kw):
         raise JobCancelled
@@ -253,7 +253,7 @@ def test_a_cancelled_or_failed_generate_response_still_carries_the_vitals():
     every reply before re-raising, so a missing key on an error response read
     as False and told the parent a still-resident checkpoint had unloaded.
     """
-    from warlock.pipelines.text2image import JobCancelled
+    from realmspinner.pipelines.text2image import JobCancelled
 
     def _cancel(prompt, output_path, **kw):
         raise JobCancelled

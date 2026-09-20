@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel import filters
+from realmspinner.kernels.pixel import filters
 
 SUBJECT = (200, 60, 40, 255)
 BACKDROP = (30, 200, 90)

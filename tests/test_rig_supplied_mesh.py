@@ -53,7 +53,7 @@ def imported():
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker as bw
+    from realmspinner.pipelines import blender_worker as bw
 
     assert FIXTURE.is_file(), f"missing fixture: {FIXTURE}"
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -242,8 +242,8 @@ def test_a_full_rig_job_exports_a_standing_mesh(tmp_path):
     trimesh = pytest.importorskip("trimesh")
     import bpy
 
-    from warlock.kernels.rig import blender_spec, store
-    from warlock.pipelines import blender_worker
+    from realmspinner.kernels.rig import blender_spec, store
+    from realmspinner.pipelines import blender_worker
 
     assert FIXTURE.is_file(), f"missing fixture: {FIXTURE}"
     (tmp_path / "model.glb").write_bytes(FIXTURE.read_bytes())

@@ -3,7 +3,7 @@ in.
 
 Every layer under the toolbox was finished: ``add_object`` has accepted
 ``"capsule"`` since the geometry landed, the canvas draws its outline, the hit
-test has an arm for it, and ``.wmap``, ``.tmx`` and ``.tmj`` all carry it in both
+test has an arm for it, and ``.rmap``, ``.tmx`` and ``.tmj`` all carry it in both
 directions. What was missing was one row in ``OBJECT_TOOLS``, so the only way to
 author the shape was to hand-edit a file -- in an editor whose own interop
 ledger lists the capsule as a thing *this* editor has and Tiled does not.
@@ -16,11 +16,11 @@ carry it.
 
 from __future__ import annotations
 
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.engine import tmx
-from warlock.studio.modes.plotter.engine._map_model import Capsule, shape_kind
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
-from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.engine import tmx
+from realmspinner.studio.modes.plotter.engine._map_model import Capsule, shape_kind
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
 
 
 def _doc() -> MapDoc:

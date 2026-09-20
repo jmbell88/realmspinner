@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-STUDIO = Path(__file__).resolve().parents[1] / "src/warlock/studio"
+STUDIO = Path(__file__).resolve().parents[1] / "src/realmspinner/studio"
 
 # Create's three settings panes were `settings_*.py` back when they lived in
 # the flat `studio/panes/` directory, and were never `create_`-prefixed --

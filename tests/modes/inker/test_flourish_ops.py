@@ -13,14 +13,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel.flourish import bake as B
-from warlock.kernels.pixel.flourish import presets
-from warlock.studio.modes.inker import flourish as inker_flourish
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.tasks import Done
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel.flourish import bake as B
+from realmspinner.kernels.pixel.flourish import presets
+from realmspinner.studio.modes.inker import flourish as inker_flourish
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.tasks import Done
 
 
 class _Ctx:
@@ -154,9 +154,9 @@ def test_submit_insert_refusal_for_cost_does_not_also_claim_an_insert_is_already
     message contradicted the first and pointed at the wrong problem, when
     nothing was actually in flight.
     """
-    from warlock.kernels.pixel import flourish
-    from warlock.kernels.pixel.flourish import presets
-    from warlock.kernels.pixel.flourish import recipe as R
+    from realmspinner.kernels.pixel import flourish
+    from realmspinner.kernels.pixel.flourish import presets
+    from realmspinner.kernels.pixel.flourish import recipe as R
 
     tab = _open(ctx)
     maxed = flourish.clamp(
@@ -222,8 +222,8 @@ def test_tick_stops_resubmitting_a_recipe_refused_for_its_bake_cost(ctx):
     again, which re-toasted ``BAKE_TOO_COSTLY`` again, permanently occupying
     the toast stack's five visible slots even after the user clicked away.
     """
-    from warlock.kernels.pixel import flourish
-    from warlock.kernels.pixel.flourish import recipe as R
+    from realmspinner.kernels.pixel import flourish
+    from realmspinner.kernels.pixel.flourish import recipe as R
 
     tab = _open(ctx)
     rec = _small()

@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from warlock import memlog
+from realmspinner import memlog
 
 windows_only = pytest.mark.skipif(
     sys.platform != "win32", reason="Win32 memory counters"
@@ -77,7 +77,7 @@ def test_child_commit_reads_a_real_process():
 
     A matting worker measured 6.56 GiB of private commit on 2026-08-21 while
     the app's own idle-tick line said 15.9 GiB -- so the log under-reported
-    Warlock's charge against the ceiling by 40%, and the sweep that would have
+    Realmspinner's charge against the ceiling by 40%, and the sweep that would have
     freed the largest single piece of it looked unimportant. ``os.getpid()``
     stands in for a child here: what is being pinned is that a *pid* resolves
     to a plausible figure at all, in GiB rather than bytes or pages.
@@ -158,7 +158,7 @@ def test_child_commit_counts_the_interpreter_behind_the_trampoline():
     """
     import subprocess
 
-    from warlock import winjob
+    from realmspinner import winjob
 
     hold = (
         "import sys, time; buf = bytearray(400 * 1024 * 1024);"

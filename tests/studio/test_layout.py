@@ -2,7 +2,7 @@
 
 Two sidebars that the user could drag became two fixed ones, and the tests here
 are about the *leftover*: a settings file written by the version that stored
-widths is still on every machine that has ever run Warlock, and it must not
+widths is still on every machine that has ever run Realmspinner, and it must not
 resurrect a width nothing reads or leave one behind for a future reader to find
 and half-honour.
 """
@@ -13,7 +13,7 @@ import ast
 import pathlib
 from typing import Any
 
-from warlock.studio import layout as layout_mod
+from realmspinner.studio import layout as layout_mod
 
 
 class _Settings:
@@ -43,7 +43,7 @@ def test_a_pane_is_inset_by_a_step_of_the_spacing_scale():
     screenshot. What is not taste is that a pane's inset comes from the scale
     rather than being invented, which is the rule this asserts instead.
     """
-    from warlock.studio import tokens
+    from realmspinner.studio import tokens
 
     steps = {v for k, v in vars(tokens).items() if k.startswith("SP_")}
     assert layout_mod.PANE_PADDING in steps
@@ -207,11 +207,11 @@ def _main_source() -> str:
     that move; it stays in this list so a future one landing back on the
     shell's entry module is not silently invisible to this scan.
     """
-    from warlock.studio import main as main_mod
-    from warlock.studio.modes.inker.ui import workspace as inker_workspace
-    from warlock.studio.modes.packwright.ui import workspace as packwright_workspace
-    from warlock.studio.modes.review.ui import workspace as review_panes
-    from warlock.studio.shell import frame
+    from realmspinner.studio import main as main_mod
+    from realmspinner.studio.modes.inker.ui import workspace as inker_workspace
+    from realmspinner.studio.modes.packwright.ui import workspace as packwright_workspace
+    from realmspinner.studio.modes.review.ui import workspace as review_panes
+    from realmspinner.studio.shell import frame
 
     sources = [
         pathlib.Path(module.__file__).read_text(encoding="utf-8")
@@ -288,7 +288,7 @@ def _skeleton_share_keys() -> list[str]:
     import ast
     import inspect
 
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     tree = ast.parse(inspect.getsource(skeletons))
     found: list[str] = []

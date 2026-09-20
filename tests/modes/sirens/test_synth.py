@@ -14,9 +14,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.sirens.engine import document as D
-from warlock.studio.modes.sirens.engine import instruments as inst
-from warlock.studio.modes.sirens.engine import notes, synth
+from realmspinner.studio.modes.sirens.engine import document as D
+from realmspinner.studio.modes.sirens.engine import instruments as inst
+from realmspinner.studio.modes.sirens.engine import notes, synth
 
 
 def _song(rows: int = 8, tempo: int = 150, speed: int = 6) -> D.SongDoc:

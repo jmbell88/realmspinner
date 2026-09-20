@@ -22,16 +22,16 @@ import math
 
 import pytest
 
-from warlock import clips
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.kernels import charsheet
-from warlock.kernels.rig import store as rig_store
-from warlock.pipelines import blender_run, spritesynth
-from warlock.queue import Worker
-from warlock.service import jobs as svc_jobs
-from warlock.service import troupe as svc_troupe
-from warlock.service.errors import Invalid
+from realmspinner import clips
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.kernels import charsheet
+from realmspinner.kernels.rig import store as rig_store
+from realmspinner.pipelines import blender_run, spritesynth
+from realmspinner.queue import Worker
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.service.errors import Invalid
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ def test_the_tpose_grid_is_not_a_sprite_sheet_kind():
 def test_the_guide_is_line_art_rather_than_a_photograph():
     """It is handed to the ControlNet directly, so it has to already be white
     strokes on black: a few percent of lit pixels, and nothing between."""
-    from warlock.pipelines import control
+    from realmspinner.pipelines import control
 
     fraction = control.edge_fraction(spritesynth.render_tpose_guide("male"))
     assert 0.0005 < fraction < 0.05
@@ -155,7 +155,7 @@ def test_ulpc_docstring_no_longer_claims_a_door_nothing_wires():
     feature work of its own, out of scope for this fix, and returned as owed
     rather than done.
     """
-    from warlock.studio.modes.poser.engine import ulpc
+    from realmspinner.studio.modes.poser.engine import ulpc
 
     assert "bring their own" not in (ulpc.__doc__ or "")
 
@@ -236,7 +236,7 @@ def test_a_new_character_is_a_posed_by_default(svc):
 
 
 def test_an_unknown_pose_is_refused_at_the_door(svc):
-    from warlock.service.errors import Invalid
+    from realmspinner.service.errors import Invalid
 
     with pytest.raises(Invalid) as caught:
         svc_jobs.create_job(
@@ -485,7 +485,7 @@ def test_a_stale_reference_stage_rig_failure_is_not_shown():
     """The rows written before the guard landed keep the record; the reader
     drops it, because a record about a follow-up this row could never have had
     is a fingerprint of the missing guard rather than evidence."""
-    from warlock import followups
+    from realmspinner import followups
 
     params = {
         "followup_failures": {
@@ -642,7 +642,7 @@ def test_the_marker_is_its_own_key_and_is_nested(svc):
     included"; this means "render this sheet once the rig lands". Nested, so
     ``VECTOR_PARAMS`` -- an allowlist of flat settings -- cannot pick it up.
     """
-    from warlock import vectors
+    from realmspinner import vectors
 
     job_id = _plain_mesh(svc)
     made = svc_troupe.send_to_troupe(svc, job_id)
@@ -705,8 +705,8 @@ def test_send_to_troupe_does_not_submit_the_currently_selected_characters_layout
     """
     from types import SimpleNamespace
 
-    from warlock.studio.modes.poser import mode as poser_mode
-    from warlock.studio.modes.poser.ui.panes import send as poser_send
+    from realmspinner.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.poser.ui.panes import send as poser_send
 
     class _Ctx:
         """The slice of the app context the door's logic touches. No GL --
@@ -823,7 +823,7 @@ def test_a_cancelled_sheet_takes_its_own_render_and_nothing_else(worker):
     between the pack and the publish is the pixel-art pass -- and it is named
     off the sheet id this row minted, so a cancel cannot take an earlier
     sheet of the same character with it."""
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     source = worker.store.create("image", "a ranger", {}, stage="model")
     job_dir = worker.config.job_dir(source)
@@ -876,7 +876,7 @@ def _fake_render(monkeypatch, *, clips="never", grey=False, socket_at=None):
 
     from PIL import Image
 
-    from warlock.pipelines import blender_run
+    from realmspinner.pipelines import blender_run
 
     calls: list[dict] = []
 
@@ -930,7 +930,7 @@ async def test_the_sheet_renders_big_and_packs_small(worker, monkeypatch):
 
     from PIL import Image
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     calls = _fake_render(monkeypatch)
     source = worker.store.create("image", "a ranger", {}, stage="model")
@@ -991,8 +991,8 @@ async def test_a_front_turns_every_camera_yaw_and_no_direction_name(worker, monk
     """
     import json
 
-    from warlock.kernels import charsheet as cs
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels import charsheet as cs
+    from realmspinner.kernels.rig import store as rig_store
 
     front = 137.0
     calls = _fake_render(monkeypatch)
@@ -1054,7 +1054,7 @@ async def test_the_sidecar_carries_the_engine_side_animation(worker, monkeypatch
     renderer knew and the importer could not guess."""
     import json
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch)
     source = worker.store.create("image", "a ranger", {}, stage="model")
@@ -1140,7 +1140,7 @@ async def test_an_unrigged_source_fails_the_sheet_rather_than_rendering_it(
     worker, monkeypatch
 ):
     """256 copies of one T-pose is the alternative."""
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch)
     source = worker.store.create("image", "a ranger", {}, stage="model")
@@ -1177,7 +1177,7 @@ async def _run_charsheet(worker, **params):
     """A finished character sheet job. -> ``(job id, source id, source dir)``."""
     import json
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     source = worker.store.create("image", "a ranger", {}, stage="model")
     source_dir = worker.config.job_dir(source)
@@ -1214,8 +1214,8 @@ async def test_a_clipped_first_render_is_reframed_once_and_recorded(worker, monk
     its window, and the answer is one wider render -- not a shrug, and not a
     loop. The first spec carries no ``margin`` at all, so a sheet that frames
     correctly is rendered by exactly the spec this stage has always sent."""
-    from warlock.kernels import sheet as sheetlib
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels import sheet as sheetlib
+    from realmspinner.kernels.rig import store as rig_store
 
     calls = _fake_render(monkeypatch, clips="until_wider")
     job_id, _source, source_dir = await _run_charsheet(worker)
@@ -1240,8 +1240,8 @@ async def test_a_render_that_still_clips_is_published_and_flagged_not_failed(
     may not share -- an intentionally edge-to-edge portrait sheet is "clipped"
     by this measure -- would be the worse answer. And the retry happens once:
     a second clipped result publishes rather than re-rendering forever."""
-    from warlock.kernels.rig import store as rig_store
-    from warlock.pipelines import sheetcheck
+    from realmspinner.kernels.rig import store as rig_store
+    from realmspinner.pipelines import sheetcheck
 
     calls = _fake_render(monkeypatch, clips="always")
     job_id, _source, source_dir = await _run_charsheet(worker)
@@ -1269,8 +1269,8 @@ async def test_a_subset_re_render_is_framed_the_way_its_base_sheet_was(worker, m
     """
     import json
 
-    from warlock.kernels import sheet as sheetlib
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels import sheet as sheetlib
+    from realmspinner.kernels.rig import store as rig_store
 
     layout = {
         "version": 2,
@@ -1336,7 +1336,7 @@ async def test_validation_is_derived_and_never_inherited(worker, monkeypatch):
     """It is a verdict about *this* atlas. A reroll that inherited it would
     wear an ``ok: true`` about frames it has not rendered yet -- ``pixel_report``'s
     case exactly, which is why it sits beside it in ``DERIVED_PARAMS``."""
-    from warlock.service.validation import DERIVED_PARAMS
+    from realmspinner.service.validation import DERIVED_PARAMS
 
     _fake_render(monkeypatch)
     job_id, _source, _source_dir = await _run_charsheet(worker)
@@ -1399,7 +1399,7 @@ def test_the_a_pose_is_the_t_pose_with_the_arms_rotated_down():
 
 
 def test_the_a_pose_guide_is_line_art_too():
-    from warlock.pipelines import control
+    from realmspinner.pipelines import control
 
     fraction = control.edge_fraction(spritesynth.render_reference_guide("male", "apose"))
     assert 0.0005 < fraction < 0.05
@@ -1415,7 +1415,7 @@ def test_the_worker_draws_the_pose_the_row_asked_for():
     """
     from pathlib import Path
 
-    import warlock._q_generate as q_generate
+    import realmspinner._q_generate as q_generate
 
     source = Path(q_generate.__file__).read_text(encoding="utf-8")
     assert 'params.get("guide_pose")' in source
@@ -1432,7 +1432,7 @@ def test_a_row_written_before_the_pose_existed_rerolls_as_a_t_pose():
     """
     from pathlib import Path
 
-    import warlock._q_generate as q_generate
+    import realmspinner._q_generate as q_generate
 
     source = Path(q_generate.__file__).read_text(encoding="utf-8")
     assert 'str(params.get("guide_pose") or "tpose")' in source
@@ -1447,8 +1447,8 @@ def test_the_sheet_cap_counts_every_door_that_reserves_a_slot(svc, monkeypatch):
     unrigged mesh -- and they share one ``MAX_SHEETS`` pool. Each used to count
     a different subset of the others' queued rows, so the pool could be
     reserved one past the cap through whichever door was not counting."""
-    from warlock.service import sheets as svc_sheets
-    from warlock.service.errors import Conflict
+    from realmspinner.service import sheets as svc_sheets
+    from realmspinner.service.errors import Conflict
 
     monkeypatch.setattr(rig_store, "MAX_SHEETS", 1)
     plain = _plain_mesh(svc)
@@ -1568,7 +1568,7 @@ async def _run_character_sheets(worker, requests):
     ``requests`` are ``{"character": ..., **params}``; the return is
     ``[(job id, source id, source dir)]`` in the order given.
     """
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     out = []
     for request in requests:
@@ -1634,7 +1634,7 @@ async def test_flame_composite_precedes_quantisation(worker, monkeypatch):
     """
     import numpy as np
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
     job_id, _source, source_dir = await _run_character_sheet(worker)
@@ -1674,7 +1674,7 @@ async def test_a_flame_behind_the_body_is_occluded_and_one_in_front_is_not(
     means invisible and the assertion is about pixels rather than about
     ordering in the abstract.
     """
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     def projection(cell):
         return {
@@ -1720,7 +1720,7 @@ async def test_the_flame_animates_with_the_cell_frame_and_is_identical_across_tw
     """
     import numpy as np
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
     # The same character twice, in one run of the queue: a ``Worker`` that has
@@ -1764,9 +1764,9 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
     import numpy as np
     from PIL import Image
 
-    from warlock.kernels.pixel import sheetin
-    from warlock.kernels.rig import store as rig_store
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.kernels.pixel import sheetin
+    from realmspinner.kernels.rig import store as rig_store
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     calls = _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
     # A themed character and, in the same run, a mesh with no species behind it.
@@ -1831,8 +1831,8 @@ async def test_a_subset_rerender_of_a_character_reuses_its_seed_and_composites_o
     """
     import json
 
-    from warlock.characters import effects as effects_mod
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.characters import effects as effects_mod
+    from realmspinner.kernels.rig import store as rig_store
 
     layout = {
         "version": 2,
@@ -1939,7 +1939,7 @@ async def test_a_subset_rerender_carries_forward_the_base_sheets_socket_metadata
     """
     import json
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     layout = {
         "version": 2,
@@ -2030,7 +2030,7 @@ def _fake_hd_render(monkeypatch):
     import numpy as np
     from PIL import Image
 
-    from warlock.pipelines import blender_run
+    from realmspinner.pipelines import blender_run
 
     calls: list[dict] = []
 
@@ -2066,7 +2066,7 @@ async def test_an_hd_sheet_is_published_without_palette_mapping(worker, monkeypa
     import numpy as np
     from PIL import Image
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     _fake_hd_render(monkeypatch)
     # ``colors`` rides along to prove it is inert on this path -- an ordinary
@@ -2094,7 +2094,7 @@ async def test_an_hd_sidecar_says_so_and_a_pixel_art_sidecar_says_nothing(
     ``"pixel_art": False`` so a reader can tell without re-deriving it from the
     pixels, and a pixel-art sheet stays the byte-identical sidecar it always
     published -- no key at all, not ``true``."""
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch)
     (hd_job, _s1, hd_dir), (px_job, _s2, px_dir) = await _run_character_sheets(
@@ -2118,9 +2118,9 @@ async def test_a_sheet_with_the_new_clips_tags_every_run(worker, monkeypatch):
     (``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``): the
     sidecar's ``animation`` block has to tag every run the layout actually
     named."""
-    from warlock import clips
-    from warlock.kernels import charsheet as cs
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner import clips
+    from realmspinner.kernels import charsheet as cs
+    from realmspinner.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch)
     layout = cs.resolve_layout(

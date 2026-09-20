@@ -3,7 +3,7 @@
 ``llama_client.chat`` is monkeypatched module-wide rather than driven through
 a real ``httpx`` transport here -- what is under test is the door's own
 refusal mapping and gating, which ``tests/familiar/test_llama_client.py``
-already covers at the HTTP layer. Building a real ``WarlockService`` is
+already covers at the HTTP layer. Building a real ``RealmspinnerService`` is
 unnecessary too: both service functions only ever touch ``svc.call_on_loop``
 and ``svc.worker.familiar``, so a bare fake stands in for it.
 """
@@ -18,17 +18,17 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from warlock import models
-from warlock.familiar import contract, retrieval, router
-from warlock.service import characters as svc_characters
-from warlock.service import familiar as svc_familiar
-from warlock.service.core import WarlockService
-from warlock.service.errors import Invalid
-from warlock.service.familiar import FamiliarRefusal
+from realmspinner import models
+from realmspinner.familiar import contract, retrieval, router
+from realmspinner.service import characters as svc_characters
+from realmspinner.service import familiar as svc_familiar
+from realmspinner.service.core import RealmspinnerService
+from realmspinner.service.errors import Invalid
+from realmspinner.service.familiar import FamiliarRefusal
 
 
 class _FakeSvc:
-    """Just enough of ``WarlockService`` for the two doors under test:
+    """Just enough of ``RealmspinnerService`` for the two doors under test:
     ``svc.worker.familiar`` (never actually touched, since ``llama_client.
     chat`` is monkeypatched below) and a synchronous ``call_on_loop``."""
 
@@ -142,8 +142,8 @@ def test_the_door_waits_out_a_cold_start_plus_a_full_reply():
     """A cold ``ensure_started`` can take ``STARTUP_TIMEOUT`` before the chat
     round trip's own ``CHAT_TIMEOUT`` starts; a loop timeout equal to the chat
     timeout alone gave up on every slow cold start."""
-    from warlock.familiar import llama_client
-    from warlock.pipelines import llama
+    from realmspinner.familiar import llama_client
+    from realmspinner.pipelines import llama
 
     assert svc_familiar.LOOP_TIMEOUT > llama.STARTUP_TIMEOUT + llama_client.CHAT_TIMEOUT
 
@@ -160,7 +160,7 @@ def test_a_loop_timeout_is_a_refusal_not_an_unmapped_error(monkeypatch):
 
 
 class _LoopSvc:
-    """Enough of ``WarlockService`` to reach the real ``call_on_loop`` --
+    """Enough of ``RealmspinnerService`` to reach the real ``call_on_loop`` --
     unlike ``_FakeSvc`` above (a synchronous stand-in that never goes near
     ``run_coroutine_threadsafe``), this is what the primitive actually does
     on a loop thread, since familiar-05 is a bug in that primitive itself,
@@ -170,7 +170,7 @@ class _LoopSvc:
         self.worker = type("Worker", (), {"familiar": object()})()
         self.loop = loop
 
-    call_on_loop = WarlockService.call_on_loop
+    call_on_loop = RealmspinnerService.call_on_loop
 
 
 def test_a_loop_timeout_cancels_the_abandoned_chat_request_instead_of_leaving_it_running(
@@ -179,7 +179,7 @@ def test_a_loop_timeout_cancels_the_abandoned_chat_request_instead_of_leaving_it
     """The 2026-09-17 audit (familiar-05): ``call_on_loop``'s
     ``fut.result(timeout)`` never cancelled the ``run_coroutine_threadsafe``
     future it gave up waiting on, so a timed-out chat request kept running on
-    the ``warlock-loop`` thread -- holding its llama-server slot with nothing
+    the ``realmspinner-loop`` thread -- holding its llama-server slot with nothing
     to reclaim it, and its eventual (late) end logged nowhere. A retry then
     queued behind a request nobody was still waiting for. Proven with a real
     event loop on its own thread, not the synchronous ``_FakeSvc`` stand-in
@@ -382,7 +382,7 @@ def test_a_manual_question_the_manual_does_not_cover_makes_no_answer_request(mon
         svc_familiar, "_manual_index", lambda: SimpleNamespace(search=lambda prompt, **kw: [])
     )
 
-    answer = svc_familiar.ask(_FakeSvc(), "does Warlock support VR?", mode="home", history=())
+    answer = svc_familiar.ask(_FakeSvc(), "does Realmspinner support VR?", mode="home", history=())
 
     assert answer.text == "The Manual doesn't cover that."
     assert answer.citations == ()
@@ -516,7 +516,7 @@ def test_a_navigate_route_asks_for_a_target_among_the_offered_destinations(monke
     router's own slot 0 -- that already answered "navigate"), with
     ``response_format`` constrained to exactly the offered destinations plus
     "none"."""
-    from warlock.familiar import doors as doors_mod
+    from realmspinner.familiar import doors as doors_mod
 
     destinations = (
         doors_mod.Destination(key="go:clay", label="Go to Clay"),
@@ -552,7 +552,7 @@ def test_a_navigate_route_with_no_usable_target_falls_back_to_chat(monkeypatch):
     """The model answering "none" (or garbage) must fall back to a plain
     chat reply -- the same "don't act, just answer" contract an unbuilt
     skill already keeps."""
-    from warlock.familiar import doors as doors_mod
+    from realmspinner.familiar import doors as doors_mod
 
     destinations = (doors_mod.Destination(key="go:clay", label="Go to Clay"),)
 
@@ -604,7 +604,7 @@ def test_a_refusal_while_choosing_a_destination_is_not_swallowed(monkeypatch):
     """A lease refusal raised while the *navigate* request itself is
     answering must reach the caller as a ``FamiliarRefusal``, the same
     contract the router's own request already keeps."""
-    from warlock.familiar import doors as doors_mod
+    from realmspinner.familiar import doors as doors_mod
 
     destinations = (doors_mod.Destination(key="go:clay", label="Go to Clay"),)
 
@@ -733,7 +733,7 @@ def test_a_character_route_with_no_usable_plan_falls_back_to_chat(monkeypatch):
         if response_format is not None:
             # The character request itself -- the model named no species.
             return '{"family": "none"}'
-        return "Warlock builds goblins and knights -- which would you like?"
+        return "Realmspinner builds goblins and knights -- which would you like?"
 
     monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
 
@@ -744,7 +744,7 @@ def test_a_character_route_with_no_usable_plan_falls_back_to_chat(monkeypatch):
 
     assert answer.skill == "character"
     assert answer.action is None
-    assert answer.text == "Warlock builds goblins and knights -- which would you like?"
+    assert answer.text == "Realmspinner builds goblins and knights -- which would you like?"
 
 
 def test_a_movement_or_theme_the_plan_itself_dropped_is_surfaced_in_the_character_plan_summary_not_only_ones_recipe_from_prompt_rejects(  # noqa: E501

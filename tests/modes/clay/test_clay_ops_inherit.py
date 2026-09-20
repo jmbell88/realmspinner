@@ -13,10 +13,10 @@ from dataclasses import replace
 
 import numpy as np
 
-from warlock.kernels.mesh import ops_bevel, ops_topo
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.adjacency import adjacency
-from warlock.kernels.mesh.elements import ElementSel
+from realmspinner.kernels.mesh import ops_bevel, ops_topo
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.adjacency import adjacency
+from realmspinner.kernels.mesh.elements import ElementSel
 
 
 def _painted_box():

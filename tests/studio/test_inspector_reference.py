@@ -8,9 +8,9 @@ need a GL context to assert.
 
 from __future__ import annotations
 
-from warlock.studio import widgets
-from warlock.studio.panes import inspector, sheet_panel
-from warlock.studio.tokens import sp
+from realmspinner.studio import widgets
+from realmspinner.studio.panes import inspector, sheet_panel
+from realmspinner.studio.tokens import sp
 
 # --- 9d: the reference fills the pane, and keeps its shape ------------------
 
@@ -97,7 +97,7 @@ def test_the_inspector_and_the_badge_cannot_disagree_about_watertightness():
     """
     import inspect
 
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     # If the badge ever stops keying on the welded flag, this pin is the place
     # the two halves are reconciled rather than left to drift apart again.
@@ -175,7 +175,7 @@ def test_a_finished_mesh_can_be_opened_in_clay():
 
 
 def test_a_job_with_no_mesh_cannot_be_opened_in_clay():
-    # The same gate the library's overflow menu applies: build.wblk is never
+    # The same gate the library's overflow menu applies: build.rblk is never
     # listed, so model.glb is what says a mesh exists to import.
     assert inspector.can_edit_in_clay({"files": ["input.png"], "status": "done"}) is False
     assert inspector.can_edit_in_clay({"files": ["model.glb"], "status": "running"}) is False

@@ -18,11 +18,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel.walk import rig as R
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker import walk as inker_walk
-from warlock.studio.modes.inker.ui.panes import walk_canvas as pane
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel.walk import rig as R
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker import walk as inker_walk
+from realmspinner.studio.modes.inker.ui.panes import walk_canvas as pane
 
 SIZE = (32, 32)
 

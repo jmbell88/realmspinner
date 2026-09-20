@@ -7,13 +7,13 @@
  *
  * Integer arithmetic throughout, so bit-parity needs no care about rounding and
  * no SIMD is wanted -- the parity bar forbids reassociation and the scalar loop
- * is memory-bound on the palette anyway. See warlockc.h for the int32 query
+ * is memory-bound on the palette anyway. See realmspinnerc.h for the int32 query
  * signature and why a uint8 one would be wrong.
  */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
-WARLOCKC_API void warlockc_palette_nearest_i32(const int32_t *queries,
+REALMSPINNERC_API void realmspinnerc_palette_nearest_i32(const int32_t *queries,
                                                const int32_t *palette,
                                                int32_t *out, int64_t n,
                                                int64_t n_palette) {

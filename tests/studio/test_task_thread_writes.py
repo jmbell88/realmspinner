@@ -23,11 +23,11 @@ from typing import Any
 
 import pytest
 
-from warlock.service import jobs as svc_jobs
-from warlock.studio import journal
-from warlock.studio.jobs_cache import JobsCache
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.studio import journal
+from realmspinner.studio.jobs_cache import JobsCache
 
-WORKER = "warlock-task-test"
+WORKER = "realmspinner-task-test"
 
 
 def _on_worker(fn: Any) -> Any:
@@ -230,7 +230,7 @@ def test_a_directory_that_vanished_is_folded_out_rather_than_left_behind(svc):
 
 
 def test_a_failed_measurement_keeps_the_last_good_figure_and_says_why(svc, monkeypatch):
-    from warlock.studio import jobs_cache as mod
+    from realmspinner.studio import jobs_cache as mod
 
     cache = JobsCache(svc)
     cache.adopt_storage({"sizes": {"a": 10}})

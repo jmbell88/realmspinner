@@ -16,10 +16,10 @@ from typing import Any
 import pygame
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.ui.panes import header as clay_header
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 
 
 class FakeCtx:

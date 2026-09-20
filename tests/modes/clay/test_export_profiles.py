@@ -17,16 +17,16 @@ import numpy as np
 import pygame
 import pytest
 
-from warlock.kernels.geom3d import glbio
-from warlock.kernels.mesh import colliders as cl
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import engines as eng
-from warlock.kernels.mesh import objexport
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.elements import OpError
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay import state as clay_state
+from realmspinner.kernels.geom3d import glbio
+from realmspinner.kernels.mesh import colliders as cl
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import engines as eng
+from realmspinner.kernels.mesh import objexport
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.elements import OpError
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay import state as clay_state
 
 
 @pytest.fixture(autouse=True)
@@ -299,7 +299,7 @@ class FakeCtx:
 
 
 def test_export_engine_defaults_to_whatever_targets_the_default_readiness_profile() -> None:
-    from warlock.kernels.mesh import readiness
+    from realmspinner.kernels.mesh import readiness
 
     ctx = FakeCtx()
     default_key = clay_mode.export_engine(ctx)
@@ -387,7 +387,7 @@ def test_build_asset_with_no_engine_renames_nothing(svc) -> None:
 
 @pytest.fixture
 def _no_dialogs(monkeypatch, tmp_path):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     def _save_file(title: str, default_name: str, filt: Any) -> Any:
         del title, filt

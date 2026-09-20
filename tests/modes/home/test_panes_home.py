@@ -17,9 +17,9 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import icons, modes, recents
-from warlock.studio.modes.home.ui.panes import landing
-from warlock.studio.state import AppState
+from realmspinner.studio import icons, modes, recents
+from realmspinner.studio.modes.home.ui.panes import landing
+from realmspinner.studio.state import AppState
 
 
 class FakeSettings:
@@ -77,7 +77,7 @@ def test_documents_and_assets_merge_into_one_list_newest_first():
     """The property four per-mode ``recent`` lists could not have: an ordering
     *between* the modes, and between them and the library."""
     settings = FakeSettings({recents.SETTING: []})
-    recents.remember(settings, "clay", "a.wblk", when=300.0)
+    recents.remember(settings, "clay", "a.rblk", when=300.0)
     recents.remember(settings, "inker", "b.ora", when=100.0)
     ctx = _ctx(
         jobs=[
@@ -87,7 +87,7 @@ def test_documents_and_assets_merge_into_one_list_newest_first():
         settings=settings,
     )
     assert [(r.kind, r.name) for r in landing.rows(ctx)] == [
-        ("clay", "a.wblk"),
+        ("clay", "a.rblk"),
         ("asset", "hut"),
         ("inker", "b.ora"),
         ("asset", "old"),
@@ -108,7 +108,7 @@ def test_an_unfinished_asset_is_not_offered():
 def test_the_list_is_a_shortlist_rather_than_a_history():
     settings = FakeSettings({recents.SETTING: []})
     for index in range(recents.MAX_RECENT):
-        recents.remember(settings, "clay", f"f{index}.wblk", when=float(index))
+        recents.remember(settings, "clay", f"f{index}.rblk", when=float(index))
     jobs = [
         {"id": f"j{i}", "status": "done", "stage": "model", "created_at": 1000.0 + i}
         for i in range(10)
@@ -131,7 +131,7 @@ def test_every_row_draws_in_the_default_atlas_range():
     through imgui's default Basic-Latin+Latin-1 range."""
     known = {value for name, value in vars(icons).items() if name.isupper()}
     settings = FakeSettings({recents.SETTING: []})
-    recents.remember(settings, "clay", "a.wblk", when=1.0)
+    recents.remember(settings, "clay", "a.rblk", when=1.0)
     ctx = _ctx(
         jobs=[{"id": "j1", "status": "done", "stage": "reference", "name": "n", "created_at": 2.0}],
         settings=settings,
@@ -160,7 +160,7 @@ def test_activating_an_asset_row_lands_at_the_stage_that_made_it():
 
 def test_a_row_whose_file_is_gone_is_dropped_rather_than_failing_silently(tmp_path):
     settings = FakeSettings({recents.SETTING: []})
-    missing = tmp_path / "gone.wblk"
+    missing = tmp_path / "gone.rblk"
     recents.remember(settings, "clay", str(missing), when=1.0)
     ctx = _ctx(settings=settings)
 
@@ -178,7 +178,7 @@ def test_a_row_whose_file_is_gone_is_dropped_rather_than_failing_silently(tmp_pa
 def test_the_cursor_wraps_over_the_rows_that_are_drawn():
     settings = FakeSettings({recents.SETTING: []})
     for index in range(3):
-        recents.remember(settings, "clay", f"f{index}.wblk", when=float(index))
+        recents.remember(settings, "clay", f"f{index}.rblk", when=float(index))
     ctx = _ctx(settings=settings)
     landing.move(ctx, -1)
     assert ctx.state.home_index == len(landing.rows(ctx)) - 1 == 2
@@ -249,7 +249,7 @@ def test_home_draws_the_actionable_rows_and_the_rail_still_gets_all_of_them():
 
 
 def test_a_fatal_check_is_the_error_colour_and_a_warning_is_not():
-    from warlock.studio import theme
+    from realmspinner.studio import theme
 
     fatal = landing.status_rows(_ctx(checks=[_check("trellis", False, fatal=True)]))[0]
     warn = landing.status_rows(_ctx(checks=[_check("weights", False, fatal=False)]))[0]
@@ -318,7 +318,7 @@ def test_the_status_rows_are_computed_once_per_draw():
 
 
 def _release(version: str = "0.0.22", bullets: tuple[str, ...] = ("a", "b")):
-    from warlock.changelog import Release
+    from realmspinner.changelog import Release
 
     return Release(version=version, date="2026-08-15", bullets=bullets)
 
@@ -359,7 +359,7 @@ def test_the_new_menu_offers_every_creation_type_exactly_once():
 
 
 def test_the_version_string_is_asked_for_once_per_process(monkeypatch):
-    """C3: ``warlock.installed_version`` is an importlib.metadata distribution
+    """C3: ``realmspinner.installed_version`` is an importlib.metadata distribution
     walk, and the header and the news block both used to ask every frame. An
     installed version cannot change under a running process.
 
@@ -367,7 +367,7 @@ def test_the_version_string_is_asked_for_once_per_process(monkeypatch):
     importing the frame loop for one helper is how a leaf comes to depend on
     the shell.
     """
-    import warlock
+    import realmspinner
 
     calls: list[int] = []
 
@@ -375,7 +375,7 @@ def test_the_version_string_is_asked_for_once_per_process(monkeypatch):
         calls.append(1)
         return "9.9.9"
 
-    monkeypatch.setattr(warlock, "installed_version", counted)
+    monkeypatch.setattr(realmspinner, "installed_version", counted)
     monkeypatch.setattr(landing, "_VERSION", None)
     assert landing._version() == "9.9.9"
     assert landing._version() == "9.9.9"
@@ -413,7 +413,7 @@ def test_every_journal_kind_has_a_row_destination():
     """A kind the journal can write and this table has never heard of draws
     with the fallback glyph and navigates nowhere -- which is indistinguishable
     from a build that cannot open it at all."""
-    from warlock.studio import journal
+    from realmspinner.studio import journal
 
     journal.ensure_providers()
     for kind in journal._PROVIDERS:
@@ -484,7 +484,7 @@ def test_tour_offer_docstring_does_not_hardcode_a_stale_tour_count():
     """
     import inspect
 
-    from warlock.studio.tour import scripts as tour_scripts
+    from realmspinner.studio.tour import scripts as tour_scripts
 
     doc = inspect.getdoc(landing._tour_offer) or ""
     number_words = {4: "four", 5: "five", 6: "six", 7: "seven"}

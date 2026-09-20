@@ -6,7 +6,7 @@ canvas draws and hit-tests each, and both Tiled spellings carry them -- which
 is exactly the flip the refusals existed to be flipped onto. The docstring here
 said they still stood, directly above the tests asserting they do not.
 
-Seven of the eight are Tiled's; ``capsule`` is Warlock dialect and no Tiled
+Seven of the eight are Tiled's; ``capsule`` is Realmspinner dialect and no Tiled
 release reads it back. See ``docs/COMPAT.md``.
 
 The rule the file is written around: ``kind``/``w``/``h`` are **derived** from
@@ -25,10 +25,10 @@ import inspect
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter.engine import tmx
-from warlock.studio.modes.plotter.engine.tilemap import (
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter.engine import tmx
+from realmspinner.studio.modes.plotter.engine.tilemap import (
     Capsule,
     Ellipse,
     MapDoc,

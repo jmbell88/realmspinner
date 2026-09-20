@@ -18,10 +18,10 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
-from warlock.studio.modes.clay.agent import schema as agent_clay_schema
-from warlock.studio.modes.clay.agent import tools_uv as agent_clay_tools_uv
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.studio.modes.clay.agent import schema as agent_clay_schema
+from realmspinner.studio.modes.clay.agent import tools_uv as agent_clay_tools_uv
 
 from .test_agent_clay import _Ctx, _history_len, _new_agent_tab, _payload
 
@@ -185,7 +185,7 @@ def _all_edges(mesh: Any) -> list[list[int]]:
     face-adjacency graph at all, so ``islands_by_seams`` still reports one
     closed island and ``unwrap_lscm`` correctly refuses it -- every edge cut
     turns each face into its own single-face, unclosed island instead."""
-    from warlock.kernels.mesh.adjacency import adjacency
+    from realmspinner.kernels.mesh.adjacency import adjacency
 
     return adjacency(mesh).edge_verts.tolist()
 

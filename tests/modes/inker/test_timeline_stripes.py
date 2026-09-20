@@ -18,9 +18,9 @@ import inspect
 
 import numpy as np
 
-from warlock.kernels import pixel as inker
-from warlock.studio import theme, tokens
-from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio import theme, tokens
+from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
 
 def _doc(count=4):

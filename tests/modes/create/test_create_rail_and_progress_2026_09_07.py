@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio.modes.create.ui import stages as create_stages
-from warlock.studio.state import AppState
+from realmspinner.studio.modes.create.ui import stages as create_stages
+from realmspinner.studio.state import AppState
 
 
 def job(**kwargs):
@@ -123,7 +123,7 @@ def test_the_stage_rail_ticks_a_set_not_a_single_furthest_key():
     answer through, whatever ``create_stages`` computes."""
     import inspect
 
-    from warlock.studio.modes.create.ui import rail as create_rail
+    from realmspinner.studio.modes.create.ui import rail as create_rail
 
     signature = inspect.signature(create_rail.stage_rail)
     assert "optional" in signature.parameters
@@ -141,9 +141,9 @@ def test_the_rig_stage_shows_the_progress_of_a_job_it_started(monkeypatch):
     a remesh or a rig bake started from the Rig stage showed nothing here but
     the floating card. ``_stage_pane`` now draws the same row before it
     dispatches to any stage's own panel."""
-    from warlock.studio.modes.create.ui import workspace as generation_workspace
-    from warlock.studio.panes import stage_rig
-    from warlock.studio.shell import frame
+    from realmspinner.studio.modes.create.ui import workspace as generation_workspace
+    from realmspinner.studio.panes import stage_rig
+    from realmspinner.studio.shell import frame
 
     calls: list[object] = []
     monkeypatch.setattr(
@@ -161,9 +161,9 @@ def test_the_reference_stage_does_not_draw_the_tray_progress_row_twice(monkeypat
     """Reference already carries the canvas tray and the floating card; a
     third copy from ``_stage_pane`` would put the count back up to three
     instead of trading one restatement for reach on every other stage."""
-    from warlock.studio.modes.create.ui import workspace as generation_workspace
-    from warlock.studio.modes.create.ui.panes import settings_2d
-    from warlock.studio.shell import frame
+    from realmspinner.studio.modes.create.ui import workspace as generation_workspace
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.shell import frame
 
     calls: list[object] = []
     monkeypatch.setattr(
@@ -188,7 +188,7 @@ def test_the_canvas_tray_no_longer_draws_its_own_working_now_row():
     """
     import inspect
 
-    from warlock.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.modes.create.ui import workspace as gw
 
     draw_source = inspect.getsource(gw.draw)
     assert "_progress(ctx, active)" not in draw_source
@@ -204,7 +204,7 @@ def test_a_finished_mesh_becomes_the_selection_when_the_user_waited_on_the_mesh_
     ctx = FakeCtx([ref, mesh], selected="aaaaaaaaaaaa", stage="mesh")
     app = SimpleNamespace(app_ctx=ctx)
 
-    from warlock.studio.main import App
+    from realmspinner.studio.main import App
 
     App._select_finished_mesh_if_waiting(app, mesh)
 
@@ -221,7 +221,7 @@ def test_it_does_not_move_a_selection_the_user_changed():
     ctx = FakeCtx([ref, mesh, other], selected="cccccccccccc", stage="mesh")
     app = SimpleNamespace(app_ctx=ctx)
 
-    from warlock.studio.main import App
+    from realmspinner.studio.main import App
 
     App._select_finished_mesh_if_waiting(app, mesh)
 
@@ -236,7 +236,7 @@ def test_it_does_not_move_a_selection_from_another_stage():
     ctx = FakeCtx([ref, mesh], selected="aaaaaaaaaaaa", stage="reference")
     app = SimpleNamespace(app_ctx=ctx)
 
-    from warlock.studio.main import App
+    from realmspinner.studio.main import App
 
     App._select_finished_mesh_if_waiting(app, mesh)
 
@@ -252,7 +252,7 @@ def test_it_does_not_move_the_selection_for_an_unrelated_meshs_landing():
     ctx = FakeCtx([ref, other_ref, unrelated_mesh], selected="aaaaaaaaaaaa", stage="mesh")
     app = SimpleNamespace(app_ctx=ctx)
 
-    from warlock.studio.main import App
+    from realmspinner.studio.main import App
 
     App._select_finished_mesh_if_waiting(app, unrelated_mesh)
 

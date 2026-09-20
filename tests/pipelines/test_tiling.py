@@ -14,9 +14,9 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from warlock import models  # noqa: E402
-from warlock.pipelines import text2image  # noqa: E402
-from warlock.pipelines.prompt import (  # noqa: E402
+from realmspinner import models  # noqa: E402
+from realmspinner.pipelines import text2image  # noqa: E402
+from realmspinner.pipelines.prompt import (  # noqa: E402
     PROMPT_TEMPLATE,
     TILE_TEMPLATE,
 )

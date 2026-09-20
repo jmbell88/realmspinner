@@ -8,7 +8,7 @@ rendering wrong in the app or on GitHub.
 import re
 from pathlib import Path
 
-from warlock.kernels.manual import loader, parser
+from realmspinner.kernels.manual import loader, parser
 
 EXPECTED_KEYS = [
     "00-index",
@@ -166,7 +166,7 @@ def test_index_sections_match_the_loaders_parts():
 
 
 def test_help_targets_resolve():
-    from warlock.kernels.manual.targets import HELP_TARGETS
+    from realmspinner.kernels.manual.targets import HELP_TARGETS
 
     assert HELP_TARGETS, "the context-help map must not be empty"
     anchors = {
@@ -214,9 +214,9 @@ def test_help_button_call_sites_match_help_targets():
     with no HELP_TARGETS entry is a dead button, and a HELP_TARGETS entry with
     no call site is dead data.
     """
-    from warlock.kernels.manual.targets import HELP_TARGETS
+    from realmspinner.kernels.manual.targets import HELP_TARGETS
 
-    studio_dir = Path(__file__).resolve().parents[2] / "src/warlock/studio"
+    studio_dir = Path(__file__).resolve().parents[2] / "src/realmspinner/studio"
     # ``help_button_inline`` counts too: it is the same button and the same
     # target map, placed where the cursor is rather than right-aligned, and a
     # scan that missed it would call the viewport's (?) dead data.
@@ -257,7 +257,7 @@ def test_both_documents_state_the_mode_count_the_rail_actually_draws():
     its half of this check now lives in
     ``dev/tests/manual/test_docs.py``; this keeps the public overview half.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     want = _COUNT_WORDS[len(modes.MODES)]
     overview = (_root() / "docs" / "manual" / "20-overview.md").read_text(encoding="utf-8")
@@ -268,7 +268,7 @@ def test_every_mode_is_named_in_the_manuals_own_list_of_them():
     """The count agreeing is not the same as the list agreeing: a chapter can
     exist for a mode the overview never mentions, which is how Troupe came to
     be documented and unlisted at the same time."""
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     overview = (_root() / "docs" / "manual" / "20-overview.md").read_text(encoding="utf-8")
     section = overview.split("## The modes", 1)[1].split("\n## ", 1)[0]

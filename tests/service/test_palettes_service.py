@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.service import palettes
-from warlock.service.errors import Invalid
+from realmspinner.service import palettes
+from realmspinner.service.errors import Invalid
 
 
 @pytest.fixture
 def paldir(svc, tmp_path):
     directory = tmp_path / "palettes"
     # ``exist_ok`` because this is now the same directory the ``svc`` fixture
-    # pins ``WARLOCK_PALETTE_DIR`` at, and ``get_config`` creates it at startup
+    # pins ``REALMSPINNER_PALETTE_DIR`` at, and ``get_config`` creates it at startup
     # -- an empty palette folder is the only instruction a new install gets.
     directory.mkdir(exist_ok=True)
     svc.config.palette_dir = directory
@@ -97,7 +97,7 @@ def test_a_name_cannot_escape_the_palette_directory(svc, paldir, tmp_path):
 
 
 def test_the_worker_reads_the_same_colours_the_service_does(svc, paldir):
-    from warlock import queue as queue_mod
+    from realmspinner import queue as queue_mod
 
     (paldir / "duo.hex").write_text("#1a1c2c\n#f4f4f4\n")
     assert queue_mod._palette_entries(svc.config, "duo") == palettes.load(
@@ -109,7 +109,7 @@ def test_the_worker_lookup_also_refuses_a_traversal(svc, paldir, tmp_path):
     """The security property, not a formality: ``name`` reaches the worker out
     of a params blob, which outlives the door that validated it."""
     (tmp_path / "outside.hex").write_text("#000000\n")
-    from warlock import queue as queue_mod
+    from realmspinner import queue as queue_mod
 
     with pytest.raises(RuntimeError, match="no longer installed"):
         queue_mod._palette_entries(svc.config, "../outside")
@@ -117,13 +117,13 @@ def test_the_worker_lookup_also_refuses_a_traversal(svc, paldir, tmp_path):
 
 
 def test_no_palette_named_is_no_colours_rather_than_a_refusal(svc, paldir):
-    from warlock import queue as queue_mod
+    from realmspinner import queue as queue_mod
 
     assert queue_mod._palette_entries(svc.config, "") == ()
 
 
 def test_a_palette_deleted_after_the_door_is_named_in_the_failure(svc, paldir):
-    from warlock import queue as queue_mod
+    from realmspinner import queue as queue_mod
 
     with pytest.raises(RuntimeError, match="palette 'gone' is no longer installed"):
         queue_mod._palette_entries(svc.config, "gone")
@@ -161,7 +161,7 @@ def test_the_2d_form_draws_that_helper_rather_than_a_list_of_its_own(svc, paldir
     """
     from types import SimpleNamespace
 
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     (paldir / "duo.hex").write_text("#1a1c2c\n#f4f4f4\n")
 

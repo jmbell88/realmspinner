@@ -1,0 +1,528 @@
+"""``Worker``'s mesh post-processing: retarget, ground, rank, measure.
+
+Everything that happens to a mesh *after* the reconstruction is on disk, and
+nothing that happens before it. Split out of ``queue.py`` for the reason every
+mixin here is: the class had 35 methods and five unrelated subjects, and the
+worker's loop core -- which is the part with the invariants -- was buried in
+the middle of them.
+
+These five share a rule the rest of the worker does not: **none of them may
+fail the job**. The reconstruction is on disk and usable by the time any of
+them runs, so a lost triangle budget costs file size, a lost transform costs a
+manual fixup, and a lost measurement costs a badge -- while raising would cost
+the user the mesh. Every one of them logs and returns instead.
+
+No module-scope import of ``.queue`` (that would be circular) and no queue
+module-level names are referenced, so there is no ``queue_mod`` indirection
+here -- the logger is this module's own.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import functools
+import logging
+import os
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .queue import Worker
+
+log = logging.getLogger(__name__)
+
+# The params key recording a swallowed post-processing failure.
+#
+# Spelled here rather than imported: the queue layer may not import ``service``,
+# which is the same reason ``VECTOR_PARAMS`` lives in ``vectors.py``. The
+# authority is ``service.validation.ARTIFACT_HEALTH`` -- and its membership of
+# ``DERIVED_PARAMS``, without which a reroll would wear a degradation belonging
+# to the run it replaced. A test pins the two spellings together.
+ARTIFACT_HEALTH = "degraded"
+
+
+def _note_degraded(params: dict[str, Any], step: str, detail: str) -> None:
+    """Record that a canonical step did not run, on the job's own row.
+
+    ART-01: normalization and the mesh report are wrapped in catch-everything
+    handlers, deliberately -- a mesh trimesh cannot parse must not fail a job
+    whose ``source.glb`` is a good reconstruction. But the job then stayed
+    ``done`` with the only evidence in a log line, so a user could export a
+    visibly successful asset with the wrong pivot or scale and never find out.
+
+    The non-fatal decision stands; the silence does not. Steps accumulate rather
+    than overwrite, because a mesh can fail more than one of them and the second
+    failure is not a correction of the first.
+    """
+    health = params.get(ARTIFACT_HEALTH)
+    if not isinstance(health, dict):  # a hand-edited row; start fresh
+        health = {}
+    # **Rebound, never mutated in place**, which is the rule ``_optimize``,
+    # ``_apply_scale`` and ``_audit_mesh`` already follow and the reason
+    # ``_q_generate``'s remesh loop can snapshot the winning attempt with a
+    # shallow ``dict(params)``. That loop's own comment names this exact
+    # hazard -- "a callee that grew an in-place nested mutation would defeat
+    # it" -- and ``setdefault`` plus ``health[step] =`` was that callee: with
+    # ``REALMSPINNER_MESH_RETRIES`` set, attempt 2's failures wrote straight through
+    # the shared dict into ``best["params"]["degraded"]``, so the job that
+    # shipped attempt 1's mesh carried attempt 2's health record.
+    params[ARTIFACT_HEALTH] = {**health, step: detail}
+
+
+class MeshPostOps:
+    """Mesh post-processing, mixed into :class:`~.queue.Worker`."""
+
+    def _drop_surface_artifacts(self: Worker, source_dir: Path) -> None:
+        """Delete the exports that carry the old skin, and only those.
+
+        ``model.stl`` and ``collision.glb`` are geometry with no texture in
+        them at all, and a re-texture changes no geometry -- deleting them would
+        cost the user a re-export to produce a byte-identical file. The rig, its
+        poses and its sheets are the same argument one level up and are the
+        subject of a written assertion elsewhere: a rig references geometry, not
+        pixels.
+
+        Under each artifact's own lock where one is available. The worker holds
+        no service, so ``artifact_lock`` is injected by ``studio.runtime`` and
+        falls back to no lock at all -- which is the pre-existing behaviour of
+        every other write the worker makes to a model.glb, and is why
+        ``optimize_job`` refuses a job that is queued or running.
+        """
+        from .pipelines import retexture
+
+        for name in retexture.SURFACE_DERIVED:
+            with self.artifact_lock(source_dir.name, name), contextlib.suppress(OSError):
+                (source_dir / name).unlink()
+
+    async def _remesh(self: Worker, job: dict[str, Any]) -> None:
+        """Remesh a finished mesh to a quad budget and rebake its surface.
+
+        One Blender op (``op_remesh``) and a host-side publish. Like a rig and
+        a re-texture the product lands in the *source* job's directory, over
+        its ``model.glb``, by rename -- and like a re-texture the rename is the
+        point of no return, so a cancel that lands after it commits rather
+        than lying about the file on disk.
+
+        What it invalidates is the union of the other two reworks': every
+        derived export (geometry changed) *and* every surface export (the
+        atlas is new). The rig is reported stale at the door, never deleted.
+        """
+        from . import tiercheck
+        from .kernels.rig import blender_spec, store
+        from .pipelines import blender_run, postprocess, remesh
+
+        job_id = job["id"]
+        params = job["params"]
+        source_id = str(params.get("source_job") or "")
+        if not store.is_valid_id(source_id):
+            raise ValueError(f"source_job is not a job id: {source_id!r}")
+        source_dir = self.config.job_dir(source_id)
+        model_glb = source_dir / "model.glb"
+        if not model_glb.exists():
+            raise RuntimeError("source job has no mesh to remesh")
+        source_row = await asyncio.to_thread(self.store.get, source_id)
+        source_params = (source_row or {}).get("params") or {}
+
+        target = int(params.get("target_faces") or remesh.FACE_PROFILES[remesh.DEFAULT_PROFILE])
+        asked = params.get("texture_size")
+        if asked:
+            texture_size = int(asked)
+        else:
+            from .pipelines import retexture
+
+            texture_size = (
+                await asyncio.to_thread(retexture.atlas_size, model_glb)
+                or remesh.DEFAULT_TEXTURE_PX
+            )
+        temp = source_dir / store.REMESH_GLB_TMP
+        job_dir = self.config.job_dir(job_id)
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        self.progress.update(
+            job_id, phase="remesh", label="Starting Blender", inner=0.0,
+            inner_next=0.05, nominal=60.0, detail=f"{target:,} quads",
+        )
+
+        def on_progress(frac: float, label: str) -> None:
+            self.progress.update(
+                job_id, phase="remesh", label=label, inner=frac,
+                inner_next=min(frac + 0.1, 1.0), nominal=120.0, detail="",
+            )
+
+        before = await asyncio.to_thread(tiercheck.survey, model_glb)
+        try:
+            result = await asyncio.to_thread(
+                functools.partial(
+                    blender_run.run_worker,
+                    blender_spec.remesh_spec(
+                        model_glb,
+                        temp,
+                        job_dir,
+                        target_faces=target,
+                        texture_size=texture_size,
+                        close_holes=bool(params.get("close_holes")),
+                        seed=remesh.QUADRIFLOW_SEED,
+                    ),
+                    on_progress=on_progress,
+                    on_start=self._note_blender,
+                    timeout=self.config.rig_timeout,
+                )
+            )
+            if self._cancel is not None and self._cancel.event.is_set():
+                return
+            if not temp.exists():
+                raise RuntimeError("Blender reported success but wrote no mesh")
+            self.progress.update(
+                job_id, phase="publish", label="Grounding and publishing", inner=0.95,
+                inner_next=1.0, nominal=5.0, detail="",
+            )
+            # The exporter wrote a fresh node graph, so the grounding transform
+            # has to be reapplied -- ``optimize_job``'s reason. Swallowed the
+            # same way: the mesh is good and serving it ungrounded beats losing
+            # it, and the health record says which.
+            transform = None
+            health: dict[str, Any] = {}
+            try:
+                size_m = source_params.get("size_m")
+                transform = await asyncio.to_thread(
+                    postprocess.normalize_glb, temp, float(size_m) if size_m else None
+                )
+            except Exception as exc:
+                log.exception("normalize failed after remesh for job %s", source_id)
+                health["normalize"] = str(exc)
+            after = await asyncio.to_thread(tiercheck.survey, temp)
+            verdict = tiercheck.compare(before, after)
+            await asyncio.to_thread(os.replace, temp, model_glb)
+        finally:
+            with contextlib.suppress(OSError):
+                temp.unlink(missing_ok=True)
+        if self._cancel is not None:
+            self._cancel.commit()
+
+        # Geometry *and* skin changed, so every export goes -- the tuple is
+        # ``files.DERIVED`` restated where the queue may look (the worker may
+        # not import ``service``; ``tests/test_remesh.py`` pins the pair), and
+        # each goes under its own lock.
+        for name in remesh.GEOMETRY_DERIVED:
+            with self.artifact_lock(source_dir.name, name), contextlib.suppress(OSError):
+                (source_dir / name).unlink()
+
+        report = dict(result)
+        report["target_faces"] = target
+        report["tiercheck"] = {
+            "ok": verdict.ok,
+            "failures": list(verdict.failures),
+            "notes": list(verdict.notes),
+        }
+        params["remesh"] = report
+        await asyncio.to_thread(self.store.set_params, job_id, params)
+        changes: dict[str, Any] = {"remesh": report}
+        drop = ["mesh_audit", "mesh_report", "optimize"]
+        if transform is not None:
+            changes["transform"] = transform
+            changes["scale_factor"] = transform["scale"]
+        else:
+            drop += ["transform", "scale_factor"]
+        inherited = source_params.get(ARTIFACT_HEALTH)
+        merged = dict(inherited) if isinstance(inherited, dict) else {}
+        merged.pop("normalize", None)
+        merged.update(health)
+        if merged:
+            changes[ARTIFACT_HEALTH] = merged
+        else:
+            drop.append(ARTIFACT_HEALTH)
+        await asyncio.to_thread(
+            self.store.merge_params, source_id, changes, remove=tuple(drop)
+        )
+        # The audit and the report describe the mesh that is now on disk.
+        await self._audit_published(source_id, model_glb, source_params.get("size_m"))
+        log.info(
+            "remeshed job %s from %s: %s faces via %s, tiercheck %s",
+            source_id, job_id, report.get("faces"), report.get("method"),
+            "ok" if verdict.ok else "/".join(verdict.failures),
+        )
+
+    async def _audit_published(
+        self: Worker, source_id: str, glb_path: Path, size_m: Any
+    ) -> None:
+        """Re-measure a mesh another job just published over, by merge.
+
+        ``_audit_mesh`` writes the whole params blob of the job it is handed,
+        which is right for a job's own row mid-run and wrong for a *source*
+        row another writer may be touching -- so this is the same two
+        measurements, merged in.
+        """
+        try:
+            from . import meshaudit, meshreport
+
+            audit = await asyncio.to_thread(
+                meshaudit.hole_fraction,
+                glb_path,
+                meshaudit.DEFAULT_VIEWS,
+                meshaudit.REQUEST_PATH_RESOLUTION,
+            )
+            summary = {k: audit[k] for k in ("worst", "mean", "faces", "resolution")}
+            report = await asyncio.to_thread(
+                functools.partial(
+                    meshreport.build, glb_path, target_size_m=size_m, silhouette=summary
+                )
+            )
+        except Exception:
+            log.exception("audit after publish failed for job %s", source_id)
+            return
+        await asyncio.to_thread(
+            self.store.merge_params,
+            source_id,
+            {"mesh_audit": summary, "mesh_report": report},
+        )
+
+    async def _optimize(
+        self: Worker, job_id: str, source: Path, dest: Path, params: dict[str, Any]
+    ) -> None:
+        """Retarget the reconstruction to the job's triangle budget.
+
+        Before the transform, not after: gltfpack rewrites the node graph, and
+        running it over an already-grounded model would discard the transform
+        node normalize_glb inserted. Optimizing first and transforming second is
+        the only ordering where both survive.
+
+        A failure here is not fatal. The reconstruction is on disk and usable;
+        losing the budget costs the user file size, and failing the job would
+        cost them the mesh.
+        """
+        if self._cancel is not None and self._cancel.event.is_set():
+            return
+        from .pipelines import optimize
+
+        try:
+            budget = optimize.resolve(
+                str(params.get("profile") or self.config.mesh_profile),
+                params.get("custom_triangles"),
+            )
+        except ValueError:
+            log.warning("job %s has an unusable profile; shipping raw", job_id)
+            budget = None
+        self.progress.update(
+            job_id, phase="optimize", label="Optimizing mesh", inner=0.0,
+            inner_next=1.0, nominal=4.0, detail=f"{budget:,} tris" if budget else "raw",
+        )
+        try:
+            result = await asyncio.to_thread(
+                functools.partial(
+                    optimize.run,
+                    source,
+                    dest,
+                    target_triangles=budget,
+                    exe=self.config.gltfpack_exe,
+                )
+            )
+        except Exception as exc:
+            log.exception("optimize failed for job %s; shipping the reconstruction", job_id)
+            # Staged, not copyfile: on the /optimize route dest is a done
+            # job's model.glb that a concurrent GET may be serving.
+            await asyncio.to_thread(optimize.staged_copy, source, dest)
+            _note_degraded(
+                params,
+                "optimize",
+                f"the triangle budget was not applied ({exc}); this mesh is the "
+                f"raw reconstruction",
+            )
+            await asyncio.to_thread(self.store.set_params, job_id, params)
+            return
+        params["optimize"] = result
+        await asyncio.to_thread(self.store.set_params, job_id, params)
+
+    async def _apply_scale(
+        self: Worker, job_id: str, glb_path: Path, params: dict[str, Any]
+    ) -> None:
+        """Resize the finished mesh, centre it in X/Z and sit it on the floor.
+
+        The grounding half runs even when no ``size_m`` was requested -- a
+        pivot at the reconstruction volume's centre is a manual fixup on every
+        import regardless of whether the asset also needed rescaling.
+
+        Runs after the GLB is on disk and holds no GPU memory, so it sits
+        outside the VRAM handoff entirely. A cancel that landed during the
+        trellis stage skips it -- the artifact is about to be deleted anyway.
+        """
+        if self._cancel is not None and self._cancel.event.is_set():
+            return
+        size_m = params.get("size_m")
+        self.progress.update(
+            job_id,
+            phase="scale",
+            label="Scaling and grounding",
+            inner=0.0,
+            inner_next=1.0,
+            nominal=2.0,
+            detail=f"{size_m} m" if size_m else "grounding",
+        )
+        # Imported here, not at module scope: postprocess pulls in trimesh,
+        # which app startup should not pay for.
+        from .pipelines import postprocess
+
+        try:
+            transform = await asyncio.to_thread(
+                postprocess.normalize_glb, glb_path, float(size_m) if size_m else None
+            )
+        except Exception as exc:
+            # Grounding runs on every job now, not just sized ones, so a mesh
+            # trimesh cannot parse must not fail a job whose GLB is already on
+            # disk -- the same rule _audit_mesh and the report follow. The
+            # report's achieved_size_m is what tells the user the size did not
+            # land, rather than a job that errored after producing a model.
+            log.exception("normalize failed for job %s; leaving the mesh as-is", job_id)
+            _note_degraded(
+                params,
+                "normalize",
+                f"the mesh was not centred, grounded{' or resized' if size_m else ''} "
+                f"({exc}); its pivot and scale are the engine's",
+            )
+            await asyncio.to_thread(self.store.set_params, job_id, params)
+            return
+        params["scale_factor"] = transform["scale"]
+        params["transform"] = transform
+        await asyncio.to_thread(self.store.set_params, job_id, params)
+
+    def _rank_reference(self: Worker, image_path: Path, params: dict[str, Any]) -> dict[str, Any]:
+        """Score a finished reference. Blocking -- called through to_thread.
+
+        ``image_path`` is the same input.png the report was measured from and is
+        passed in rather than re-derived, so the two halves of the score can
+        never end up describing different files.
+
+        The anchor half is opportunistic in three separate ways, and every one
+        of them is a "leave the number out", never a failure: ranking can be
+        switched off, ref.png -- the conditioning reference, whether the
+        profile's style anchor or an image the user attached themselves -- is
+        only there on a run that had one, and DINOv2 is an optional download.
+        What is left is the composition score, which is free: the report was
+        measured either way.
+
+        The preference half (PickScore) is opportunistic the same way -- an
+        optional download, gated on the same switch, every failure a missing
+        number -- and is scored against the *composed* prompt, because "would
+        a person pick this for what was asked" has to be asked about the text
+        the sampler actually received, expansion and template included.
+        """
+        from .bench import metrics
+        from .pipelines import rank
+
+        report = params.get("reference_report")
+        cosine = None
+        anchor = image_path.parent / "ref.png"
+        if self.config.rank_candidates and anchor.exists():
+            try:
+                if metrics.dino_available(self.config):
+                    # CPU deliberately: this runs on the job queue beside a
+                    # resident trellis and a resident SDXL pipe, and a metric
+                    # must not take VRAM from the models making the asset.
+                    cosine = metrics.reference_cosine(
+                        anchor, image_path, self.config, device="cpu"
+                    )
+            except Exception:
+                log.exception("anchor similarity failed; ranking on composition alone")
+        preference = None
+        if self.config.rank_candidates:
+            try:
+                if metrics.pickscore_available(self.config):
+                    # CPU for the anchor's reason exactly.
+                    preference = metrics.preference_score(
+                        str(params.get("composed_prompt") or ""),
+                        image_path,
+                        self.config,
+                        device="cpu",
+                    )
+            except Exception:
+                log.exception("preference scoring failed; ranking without it")
+        return rank.score(report, cosine, preference)
+
+    async def _audit_mesh(
+        self: Worker, job_id: str, glb_path: Path, params: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Measure how see-through the finished mesh is and record it.
+
+        trellis-server's narrow-band remesh can emit a crust of disconnected
+        plates that passes every integrity check while being visibly
+        perforated, and the user currently finds that out in Blender. Measuring
+        it here turns it into something they see on the job the moment it
+        finishes. Runs after _apply_scale so it measures the mesh that will
+        actually be downloaded; like scaling it is CPU-only and holds no GPU
+        memory, so it sits outside the VRAM handoff.
+
+        Returns the summary it stored, or None whenever it stored nothing --
+        because it was cancelled, or because the measurement itself broke.
+        The remesh loop in _generate reads that to decide whether the mesh is
+        worth redoing, and None is deliberately not a bad verdict: no
+        measurement means no retry, exactly as with the retry switched off.
+        """
+        if self._cancel is not None and self._cancel.event.is_set():
+            return None
+        self.progress.update(
+            job_id,
+            phase="audit",
+            label="Checking mesh",
+            inner=0.0,
+            inner_next=1.0,
+            nominal=6.0,
+            detail="",
+        )
+        try:
+            # Imported here for the same reason as postprocess above: numpy and
+            # trimesh at module scope would land in app startup.
+            from . import meshaudit
+
+            report = await asyncio.to_thread(
+                meshaudit.hole_fraction,
+                glb_path,
+                meshaudit.DEFAULT_VIEWS,
+                meshaudit.REQUEST_PATH_RESOLUTION,
+            )
+        except Exception:
+            # A diagnostic must never be able to fail a job whose mesh is
+            # already on disk and fine. Log it and leave mesh_audit unset --
+            # the UI renders no badge rather than a wrong one.
+            log.exception("mesh audit failed for job %s", job_id)
+            return None
+        # Only the summary is stored: the per-view detail would ride along on
+        # every row of the 100-job list for no one to read.
+        params["mesh_audit"] = {
+            "worst": report["worst"],
+            "mean": report["mean"],
+            "faces": report["faces"],
+            "resolution": report["resolution"],
+        }
+        # The silhouette number stays exactly as it was -- it is the only thing
+        # that catches trellis's disconnected-plate crust. The report adds what
+        # the silhouette cannot see: topology, materials, budget, and whether
+        # the thing will sit on an engine's floor.
+        try:
+            from . import meshreport
+
+            params["mesh_report"] = await asyncio.to_thread(
+                functools.partial(
+                    meshreport.build,
+                    glb_path,
+                    target_size_m=params.get("size_m"),
+                    silhouette=params["mesh_audit"],
+                )
+            )
+        except Exception as exc:
+            log.exception("mesh report failed for job %s", job_id)
+            # The measurements, not the mesh: the asset is fine and only the
+            # description of it is missing. Recorded all the same, because an
+            # inspector with no dimensions and no explanation reads as a bug in
+            # the panel rather than as a step that did not run (ART-01).
+            _note_degraded(
+                params,
+                "report",
+                f"the mesh could not be measured ({exc}); size, triangle count "
+                f"and watertightness are unknown for this asset",
+            )
+        log.info(
+            "job %s mesh audit: worst %.3f, mean %.3f over %d faces",
+            job_id, report["worst"], report["mean"], report["faces"],
+        )
+        await asyncio.to_thread(self.store.set_params, job_id, params)
+        return params["mesh_audit"]

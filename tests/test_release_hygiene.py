@@ -50,7 +50,7 @@ def test_the_sdist_ships_an_allowlist_rather_than_whatever_is_lying_around():
     sdist = meta["tool"]["hatch"]["build"]["targets"]["sdist"]
     assert "include" in sdist, "the sdist has no allowlist; hatchling will sweep the tree"
     assert not any(p.strip("/").startswith("examples") for p in sdist["include"])
-    for required in ("/LICENSE", "/THIRD-PARTY-NOTICES.md", "/src/warlock"):
+    for required in ("/LICENSE", "/THIRD-PARTY-NOTICES.md", "/src/realmspinner"):
         assert required in sdist["include"], required
 
 
@@ -101,7 +101,7 @@ def test_the_installer_shows_the_user_the_licence():
     """Inno Setup shows no terms at all without ``LicenseFile=``, which is the
     same posture as having no licence for everyone who installs rather than
     clones."""
-    iss = (ROOT / "installer" / "warlock.iss").read_text(encoding="utf-8", errors="replace")
+    iss = (ROOT / "installer" / "realmspinner.iss").read_text(encoding="utf-8", errors="replace")
     assert "LicenseFile=" in iss
 
 

@@ -18,11 +18,11 @@ import io
 
 import pytest
 
-from warlock import models, vram
-from warlock.pipelines import tilesheet
-from warlock.service import tilesheets
-from warlock.service.errors import Invalid, TooLarge
-from warlock.service.validation import DERIVED_PARAMS
+from realmspinner import models, vram
+from realmspinner.pipelines import tilesheet
+from realmspinner.service import tilesheets
+from realmspinner.service.errors import Invalid, TooLarge
+from realmspinner.service.validation import DERIVED_PARAMS
 
 
 def _create(svc, **overrides):
@@ -62,7 +62,7 @@ def test_create_tile_sheet_refuses_at_submit_when_the_text2image_pack_is_missing
     never the pack, so a host with weights present but ``text2image`` removed
     by an upgrade queued the job and died in the worker on the SDXL import
     instead of refusing here."""
-    from warlock import packs as packs_mod
+    from realmspinner import packs as packs_mod
 
     monkeypatch.setattr(packs_mod, "installed", lambda pack: False)
     with pytest.raises(Invalid, match="pack"):
@@ -265,7 +265,7 @@ def test_a_missing_pixel_lora_is_refused_with_something_to_install(svc):
     """The worker's own tolerance would let this finish: it logs and paints
     bare, so the job would look like one flat picture and write a sidecar
     naming a LoRA that never loaded."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     lora = models.STYLE_LORAS[models.PIXEL_SHEET_LORA]
     path = svc.config.t2i_model_root / "loras" / lora.filename

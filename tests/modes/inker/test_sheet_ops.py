@@ -10,10 +10,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import mirror, sheetscope
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.selection import SelectionMask
-from warlock.kernels.pixel.sheetin import document_from_sheet
+from realmspinner.kernels.pixel import mirror, sheetscope
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.selection import SelectionMask
+from realmspinner.kernels.pixel.sheetin import document_from_sheet
 
 CELL = 16
 DIRECTIONS = ("front", "left", "back", "right")
@@ -236,7 +236,7 @@ def test_a_direction_with_no_mirror_has_no_counterpart_to_write():
 
 
 def test_an_indexed_sheet_takes_the_index_patch_path():
-    from warlock.kernels.pixel.undo import IndexPatchEdit
+    from realmspinner.kernels.pixel.undo import IndexPatchEdit
 
     doc = _sheet()
     palette = [(0, 0, 0, 255), BLUE, SKIN, RED, (0, 0, 0, 0)]
@@ -262,7 +262,7 @@ def test_alpha_lock_keeps_the_target_transparent_where_it_was():
 
 
 def test_a_tilemap_is_refused_by_name():
-    from warlock.kernels.pixel.tiles import TilemapCel
+    from realmspinner.kernels.pixel.tiles import TilemapCel
 
     doc = _sheet()
     anim = doc.anim

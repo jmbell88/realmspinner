@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import brush
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import brush
 
 SIZE = (40, 40)
 RED = (255, 0, 0, 255)

@@ -17,7 +17,7 @@ def test_land_tileset_docstring_does_not_claim_the_projection_arm_is_test_only()
     ``plotter_mode.on_task_done``'s ``plotter-tileset`` arm passes that
     result straight into ``land_tileset``.
     """
-    from warlock.studio.modes.plotter import tilesets as plotter_tilesets
+    from realmspinner.studio.modes.plotter import tilesets as plotter_tilesets
 
     source = inspect.getsource(plotter_tilesets.land_tileset)
     assert "reached only from tests" not in source
@@ -51,7 +51,7 @@ def test_seam_erase_actually_redraws_the_material_and_a_cancel_mid_pass_leaves_i
     fake ``t2i.generate`` and writes the rolled-back result over ``material``
     -- staged to a ``.tmp`` sibling and ``os.replace``'d, per this repo's
     stage-then-replace rule for a served name."""
-    from warlock import _q_tileset
+    from realmspinner import _q_tileset
 
     material = tmp_path / "material.png"
     _material_image(material, (10, 20, 30))
@@ -88,7 +88,7 @@ def test_a_cancel_mid_erase_pass_leaves_the_material_file_untouched(tmp_path):
     served file."""
     import threading
 
-    from warlock import _q_tileset
+    from realmspinner import _q_tileset
 
     material = tmp_path / "material.png"
     _material_image(material, (10, 20, 30))

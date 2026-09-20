@@ -1,4 +1,4 @@
-"""Unit coverage for ``warlock.studio.modes.clay.agent.transcript`` -- the one
+"""Unit coverage for ``realmspinner.studio.modes.clay.agent.transcript`` -- the one
 definition of the transcript rules tier one's replay
 (``tests/modes/clay/test_agent_transcripts.py``) and tier two's recorder
 (``studio/agent_host.py``) both need. See that module's own docstring for
@@ -21,7 +21,7 @@ import json
 
 import pytest
 
-from warlock.studio.modes.clay.agent import transcript as agent_transcript
+from realmspinner.studio.modes.clay.agent import transcript as agent_transcript
 
 
 def test_uid_keys_is_exactly_uid_and_uids() -> None:

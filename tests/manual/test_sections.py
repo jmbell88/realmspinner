@@ -7,7 +7,7 @@ looking at, and which ones a search matched -- and all three are pure, so they
 are asserted here rather than through a frame.
 """
 
-from warlock.kernels.manual import loader, parser
+from realmspinner.kernels.manual import loader, parser
 
 CHAPTER = """# Inker
 

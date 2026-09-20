@@ -1,5 +1,5 @@
 /* Straight-alpha compositing and the separable blend modes -- the slow half of
- * warlock.studio.inker.composite.
+ * realmspinner.studio.inker.composite.
  *
  * The Python is fully vectorised and still expensive, because the cost was
  * never the arithmetic: one `over()` materialises about eight full-region
@@ -15,7 +15,7 @@
  * np.array_equal against the numpy path rather than np.allclose. Two places
  * where that dictated the shape rather than the other way round are marked. */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
 #include <math.h>
 
@@ -25,23 +25,23 @@
  * raises ValueError out of `blend` exactly as it always did). */
 static float blend_channel(int32_t mode, float cb, float cs) {
     switch (mode) {
-    case WARLOCKC_BLEND_MULTIPLY:
+    case REALMSPINNERC_BLEND_MULTIPLY:
         return cb * cs;
-    case WARLOCKC_BLEND_SCREEN:
+    case REALMSPINNERC_BLEND_SCREEN:
         return (cb + cs) - cb * cs;
-    case WARLOCKC_BLEND_OVERLAY:
+    case REALMSPINNERC_BLEND_OVERLAY:
         /* hard-light with the operands swapped, which is the spec's own
          * wording. NaN <= 0.5f is false and np.where(nan <= 0.5, ...) picks the
          * same branch, so the comparison direction is the reference's too. */
         return cb <= 0.5f ? (2.0f * cb) * cs : 1.0f - (2.0f * (1.0f - cb)) * (1.0f - cs);
-    case WARLOCKC_BLEND_ADD: {
+    case REALMSPINNERC_BLEND_ADD: {
         const float sum = cb + cs;
         /* np.minimum propagates NaN, so the clamp has to be written as the
          * comparison that is *false* for NaN and therefore returns the sum.
          * `sum < 1.0f ? sum : 1.0f` would quietly turn a NaN into 1. */
         return sum > 1.0f ? 1.0f : sum;
     }
-    case WARLOCKC_BLEND_DARKEN:
+    case REALMSPINNERC_BLEND_DARKEN:
         /* np.minimum propagates NaN and a bare `cb < cs ? cb : cs` does not:
          * a NaN operand compares false and the *other* one comes back. Same
          * trap as the add clamp above, moved from the bound to the operand. */
@@ -52,7 +52,7 @@ static float blend_channel(int32_t mode, float cb, float cs) {
             return cs;
         }
         return cb < cs ? cb : cs;
-    case WARLOCKC_BLEND_LIGHTEN:
+    case REALMSPINNERC_BLEND_LIGHTEN:
         if (cb != cb) {
             return cb;
         }
@@ -60,16 +60,16 @@ static float blend_channel(int32_t mode, float cb, float cs) {
             return cs;
         }
         return cb > cs ? cb : cs;
-    case WARLOCKC_BLEND_DIFFERENCE: {
+    case REALMSPINNERC_BLEND_DIFFERENCE: {
         const float diff = cb - cs;
         return diff < 0.0f ? -diff : diff;
     }
-    case WARLOCKC_BLEND_EXCLUSION:
+    case REALMSPINNERC_BLEND_EXCLUSION:
         /* `backdrop + source - 2.0 * backdrop * source`, in the association
          * Python gives it: (cb + cs) - ((2 * cb) * cs). Reassociating is
          * algebraically free and numerically is not. */
         return (cb + cs) - ((2.0f * cb) * cs);
-    case WARLOCKC_BLEND_SUBTRACT: {
+    case REALMSPINNERC_BLEND_SUBTRACT: {
         /* np.maximum(cb - cs, 0.0), and its NaN rule is the darken case's:
          * numpy returns the *first* operand when it is NaN, so the guard
          * cannot be folded into the comparison. Clamped at the bottom rather
@@ -83,7 +83,7 @@ static float blend_channel(int32_t mode, float cb, float cs) {
          * anything that is not strictly greater). */
         return diff > 0.0f ? diff : 0.0f;
     }
-    case WARLOCKC_BLEND_DIVIDE: {
+    case REALMSPINNERC_BLEND_DIVIDE: {
         /* Krita's zero convention, which the reference pins and this mirrors
          * branch for branch: a zero divisor gives white where there is
          * anything to divide and stays black where there is not. A NaN source
@@ -94,13 +94,13 @@ static float blend_channel(int32_t mode, float cb, float cs) {
         }
         return cb > 0.0f ? 1.0f : 0.0f;
     }
-    case WARLOCKC_BLEND_HARD_LIGHT:
+    case REALMSPINNERC_BLEND_HARD_LIGHT:
         /* Overlay with the operands swapped, which is what it *is* -- and
          * saying so rather than writing the formula out inverted is what makes
          * the identity exact rather than exact-to-a-rounding. The reference
          * spells it the same way, for the same reason. */
-        return blend_channel(WARLOCKC_BLEND_OVERLAY, cs, cb);
-    case WARLOCKC_BLEND_COLOR_DODGE: {
+        return blend_channel(REALMSPINNERC_BLEND_OVERLAY, cs, cb);
+    case REALMSPINNERC_BLEND_COLOR_DODGE: {
         /* The spec's three cases in its order: an empty backdrop stays empty
          * even under a full source, so the Cb test comes first. The reference
          * guards the divisor rather than clipping an infinity afterwards,
@@ -119,7 +119,7 @@ static float blend_channel(int32_t mode, float cb, float cs) {
          *
          * **This difference is not observable and the guard is written for
          * shape, not for a bug.** `blend_channel` is reached only through
-         * `warlockc_over_f32`, and a NaN Cs reaches the output there through
+         * `realmspinnerc_over_f32`, and a NaN Cs reaches the output there through
          * `k_src * cs` whatever B() returned -- 0 * NaN is NaN, so even a
          * fully opaque backdrop does not mask it. A test at the seam therefore
          * cannot tell the two apart, and 2026-08-11's attempt to write one
@@ -131,7 +131,7 @@ static float blend_channel(int32_t mode, float cb, float cs) {
         const float ratio = cb / (denom > 0.0f ? denom : 1.0f);
         return ratio > 1.0f ? 1.0f : ratio;
     }
-    case WARLOCKC_BLEND_COLOR_BURN: {
+    case REALMSPINNERC_BLEND_COLOR_BURN: {
         if (cb >= 1.0f) {
             return 1.0f;
         }
@@ -143,7 +143,7 @@ static float blend_channel(int32_t mode, float cb, float cs) {
         const float ratio = (1.0f - cb) / (cs > 0.0f ? cs : 1.0f);
         return 1.0f - (ratio > 1.0f ? 1.0f : ratio);
     }
-    case WARLOCKC_BLEND_SOFT_LIGHT: {
+    case REALMSPINNERC_BLEND_SOFT_LIGHT: {
         if (cs <= 0.5f) {
             return cb - ((1.0f - 2.0f * cs) * cb) * (1.0f - cb);
         }
@@ -314,26 +314,26 @@ static void set_sat3(const float c[3], float sat, float out[3]) {
 static void blend_nonseparable(int32_t mode, const float cb[3], const float cs[3], float out[3]) {
     float tinted[3];
     switch (mode) {
-    case WARLOCKC_BLEND_HUE:
+    case REALMSPINNERC_BLEND_HUE:
         set_sat3(cs, sat3(cb), tinted);
         set_lum3(tinted, lum3(cb), out);
         return;
-    case WARLOCKC_BLEND_SATURATION:
+    case REALMSPINNERC_BLEND_SATURATION:
         set_sat3(cb, sat3(cs), tinted);
         set_lum3(tinted, lum3(cb), out);
         return;
-    case WARLOCKC_BLEND_COLOR:
+    case REALMSPINNERC_BLEND_COLOR:
         set_lum3(cs, lum3(cb), out);
         return;
-    default: /* WARLOCKC_BLEND_LUMINOSITY */
+    default: /* REALMSPINNERC_BLEND_LUMINOSITY */
         set_lum3(cb, lum3(cs), out);
         return;
     }
 }
 
 /* Is this mode one that reads the whole pixel? The split is the enum's, and
- * warlockc.h says why HUE has to stay the bottom of the non-separable range. */
-static int is_nonseparable(int32_t mode) { return mode >= WARLOCKC_BLEND_HUE; }
+ * realmspinnerc.h says why HUE has to stay the bottom of the non-separable range. */
+static int is_nonseparable(int32_t mode) { return mode >= REALMSPINNERC_BLEND_HUE; }
 
 /* Co for one channel:
  *
@@ -358,7 +358,7 @@ static float combine_channel(float k_src, float cs, float k_mix, float mixed, fl
     return ao > 0.0f ? num / ao : 0.0f;
 }
 
-void warlockc_over_f32(const float *backdrop, int64_t backdrop_stride, const float *source,
+void realmspinnerc_over_f32(const float *backdrop, int64_t backdrop_stride, const float *source,
                        int64_t source_stride, float *out, int64_t out_stride, int64_t h,
                        int64_t w, float opacity, int32_t mode) {
     for (int64_t y = 0; y < h; ++y) {
@@ -399,7 +399,7 @@ void warlockc_over_f32(const float *backdrop, int64_t backdrop_stride, const flo
     }
 }
 
-void warlockc_paint_colour_f32(const float *before, int64_t before_stride, const float *weight,
+void realmspinnerc_paint_colour_f32(const float *before, int64_t before_stride, const float *weight,
                                int64_t weight_stride, float *out, int64_t out_stride, int64_t h,
                                int64_t w, const float *rgba) {
     /* The reference computes `colour[3] / 255.0` as a Python scalar -- so in
@@ -429,7 +429,7 @@ void warlockc_paint_colour_f32(const float *before, int64_t before_stride, const
     }
 }
 
-void warlockc_stack_f32(const uint8_t **layers, const int64_t *strides, const float *opacities,
+void realmspinnerc_stack_f32(const uint8_t **layers, const int64_t *strides, const float *opacities,
                         const int32_t *modes, int64_t n, float *out, int64_t out_stride,
                         int64_t h, int64_t w, const float *base, int64_t base_stride) {
     /* to_float is `x.astype(float32) / 255.0`, and there are only 256 answers.
@@ -463,7 +463,7 @@ void warlockc_stack_f32(const uint8_t **layers, const int64_t *strides, const fl
                 const float cs[3] = {from_u8[lp[0]], from_u8[lp[1]], from_u8[lp[2]]};
                 const float src_a = from_u8[lp[3]];
 
-                if (modes[i] == WARLOCKC_BLEND_REPLACE) {
+                if (modes[i] == REALMSPINNERC_BLEND_REPLACE) {
                     acc[0] = cs[0];
                     acc[1] = cs[1];
                     acc[2] = cs[2];
@@ -510,7 +510,7 @@ void warlockc_stack_f32(const uint8_t **layers, const int64_t *strides, const fl
     }
 }
 
-void warlockc_to_uint8_f32(const float *pixels, uint8_t *out, int64_t count) {
+void realmspinnerc_to_uint8_f32(const float *pixels, uint8_t *out, int64_t count) {
     for (int64_t i = 0; i < count; ++i) {
         const float scaled = pixels[i] * 255.0f + 0.5f;
         /* np.clip is min(max(a, 0), 255), and the comparisons are written in
@@ -524,11 +524,11 @@ void warlockc_to_uint8_f32(const float *pixels, uint8_t *out, int64_t count) {
     }
 }
 
-void warlockc_to_uint8_255_f32(const float *pixels, uint8_t *out,
+void realmspinnerc_to_uint8_255_f32(const float *pixels, uint8_t *out,
                                int64_t count) {
     for (int64_t i = 0; i < count; ++i) {
         /* No scale: the callers' floats are already levels, not fractions.
-         * Everything else is warlockc_to_uint8_f32's reasoning verbatim --
+         * Everything else is realmspinnerc_to_uint8_f32's reasoning verbatim --
          * clamp written so a NaN falls through both comparisons the way
          * numpy's clip propagates one, then truncate, because the reference's
          * .astype is the truncation and the +0.5f above is the round. */

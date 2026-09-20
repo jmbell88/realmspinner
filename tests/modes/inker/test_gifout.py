@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import gifout
+from realmspinner.kernels.pixel import gifout
 
 Image = pytest.importorskip("PIL.Image")
 

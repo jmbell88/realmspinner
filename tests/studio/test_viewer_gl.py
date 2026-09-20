@@ -20,13 +20,13 @@ import numpy as np
 import pytest
 import trimesh
 
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.viewer import env as envlib
-from warlock.studio.viewer import glctx
-from warlock.studio.viewer import scene as scenelib
-from warlock.studio.viewer.camera import Camera
-from warlock.studio.viewer.render import DrawItem, Renderer
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.studio.viewer import env as envlib
+from realmspinner.studio.viewer import glctx
+from realmspinner.studio.viewer import scene as scenelib
+from realmspinner.studio.viewer.camera import Camera
+from realmspinner.studio.viewer.render import DrawItem, Renderer
 
 
 @pytest.fixture(scope="session")
@@ -313,7 +313,7 @@ def test_a_program_is_built_once_per_define_set(gl, renderer):
 def test_every_program_compiles(gl, renderer):
     """Cheap, and it is the difference between a shader typo failing at import
     and failing the first time someone opens a mesh with a normal map."""
-    from warlock.studio.viewer.programs import SOURCES
+    from realmspinner.studio.viewer.programs import SOURCES
 
     for name in SOURCES:
         assert renderer.programs.get(name) is not None

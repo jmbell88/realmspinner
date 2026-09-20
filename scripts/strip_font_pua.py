@@ -49,7 +49,7 @@ import argparse
 import sys
 from pathlib import Path
 
-FONT_DIR = Path(__file__).resolve().parent.parent / "src/warlock/studio/resources/fonts"
+FONT_DIR = Path(__file__).resolve().parent.parent / "src/realmspinner/studio/resources/fonts"
 FACES = ("Inter-Regular.ttf", "Inter-Medium.ttf", "Inter-SemiBold.ttf")
 
 # The Basic Multilingual Plane's private use area. The supplementary planes'

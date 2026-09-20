@@ -14,9 +14,9 @@ import io
 import pytest
 from PIL import Image
 
-from warlock.service import files as svc_files
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Invalid
+from realmspinner.service import files as svc_files
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Invalid
 
 
 def _png(size=(32, 32)) -> bytes:
@@ -124,7 +124,7 @@ def test_a_promotion_keeps_the_hand_edited_flag(svc):
 def test_hand_edited_is_not_in_the_derived_list(svc):
     """Deliberately: DERIVED_PARAMS is stripped by promote and remesh too, and
     both of them carry the edited file across."""
-    from warlock.service.validation import DERIVED_PARAMS
+    from realmspinner.service.validation import DERIVED_PARAMS
 
     assert "hand_edited" not in DERIVED_PARAMS
 
@@ -141,7 +141,7 @@ def test_a_reroll_whose_style_lora_has_gone_missing_is_refused(svc, monkeypatch)
     that never ran. ``style_lora`` is in VECTOR_PARAMS, so that row is then
     evidence in the findings corpus about a style it never wore.
     """
-    from warlock import fetch
+    from realmspinner import fetch
 
     job_id = _reference(svc, guidance_fields={"style_lora": "ps1"})
 
@@ -157,7 +157,7 @@ def test_a_reroll_whose_checkpoint_has_gone_missing_is_refused(svc, monkeypatch)
     """The loud half of the same door: a missing checkpoint would reach the
     worker as a diffusers traceback naming a directory, two minutes and a
     queue place later."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     job_id = _reference(svc)
     monkeypatch.setattr(fetch, "base_model_state", lambda *a, **k: (False, None))
@@ -170,7 +170,7 @@ def test_a_remesh_is_not_refused_for_image_model_weights(svc, monkeypatch):
     """The check is unconditional, but check_weights is text-only by design: a
     remesh reruns trellis and loads no image model at all, so a pruned SDXL is
     none of its business."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     job_id = _reference(svc)
     monkeypatch.setattr(fetch, "base_model_state", lambda *a, **k: (False, None))
@@ -185,8 +185,8 @@ def test_a_remesh_is_not_refused_for_image_model_weights(svc, monkeypatch):
 
 def _sprite_job(svc) -> str:
     """A finished ``sprite_synthesis`` row carrying the params its door writes."""
-    from warlock.kernels.rig import store
-    from warlock.service import sprites as svc_sprites
+    from realmspinner.kernels.rig import store
+    from realmspinner.service import sprites as svc_sprites
 
     ref = _reference(svc)
     params = {
@@ -210,7 +210,7 @@ def test_a_sprite_reroll_mints_a_fresh_draft_id(svc):
     by the worker -- so DERIVED_PARAMS never stripped it. Copied verbatim, a
     cancelled reroll made ``_discard_artifacts`` delete the original job's
     published trio, and a finished one silently overwrote it."""
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     job_id = _sprite_job(svc)
     old = svc.store.get(job_id)["params"]["draft_id"]
@@ -237,7 +237,7 @@ def test_a_sprite_reroll_readmits_the_weights(svc, monkeypatch):
     are mandatory for this kind: pruned since the original ran, the reroll must
     be refused at the door rather than dispatched into a runtime failure --
     the door-side check is ``sprites._check_weights``, held again here."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     job_id = _sprite_job(svc)
     monkeypatch.setattr(fetch, "present", lambda *a, **k: False)
@@ -248,7 +248,7 @@ def test_a_sprite_reroll_readmits_the_weights(svc, monkeypatch):
 
 def _pixel_sheet_job(svc) -> str:
     """A finished ``pixel_sheet`` row carrying the params its door writes."""
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     render = _reference(svc)  # stands in for the sheet render's source job
     params = {
@@ -271,7 +271,7 @@ def test_a_pixel_sheet_reroll_keeps_its_sheet_id(svc):
     worker records it about its artifact; on this kind it is the input naming
     which sheet the restyle depicts. Stripped, every reroll of a pixel sheet
     dispatched straight into ``sheet_id is not a sheet id: ''``."""
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     job_id = _pixel_sheet_job(svc)
     wanted = svc.store.get(job_id)["params"]["sheet_id"]
@@ -288,7 +288,7 @@ def test_the_seeds_are_deliberately_absent_from_the_derived_list(svc):
     """Stripping them would read as "no seed was requested", so every door
     would mint a fresh one by accident rather than on purpose. The comment at
     ``DERIVED_PARAMS`` says so; this is the half that fails if it changes."""
-    from warlock.service.validation import DERIVED_PARAMS
+    from realmspinner.service.validation import DERIVED_PARAMS
 
     assert "mesh_seed" not in DERIVED_PARAMS
     assert "reference_seed" not in DERIVED_PARAMS

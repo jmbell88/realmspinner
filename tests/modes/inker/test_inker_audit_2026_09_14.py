@@ -12,13 +12,13 @@ from typing import Any
 
 import numpy as np
 
-from warlock.studio.modes.inker import opening as inker_open
-from warlock.studio.modes.inker import palette_io as inker_palette_io
-from warlock.studio.modes.inker import sheet as inker_sheet
-from warlock.studio.modes.inker.state import InkerState
-from warlock.studio.modes.inker.ui.panes import colors as inker_colors
-from warlock.studio.modes.inker.ui.panes import tools as inker_tools
-from warlock.studio.state import AppState
+from realmspinner.studio.modes.inker import opening as inker_open
+from realmspinner.studio.modes.inker import palette_io as inker_palette_io
+from realmspinner.studio.modes.inker import sheet as inker_sheet
+from realmspinner.studio.modes.inker.state import InkerState
+from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
+from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
+from realmspinner.studio.state import AppState
 
 # --- a shared door harness ---------------------------------------------------
 #
@@ -279,7 +279,7 @@ def test_insert_ramp_docstring_does_not_claim_an_indexed_ramp_is_free():
     there is no step to push" with no RGB-vs-indexed qualifier, but its own
     indexed branch pushes a ``CompoundEdit`` -- ``sort_palette``'s shape,
     inker-13's finding, widened to this sibling on 2026-09-14."""
-    from warlock.kernels.pixel._doc_indexed import IndexedOps
+    from realmspinner.kernels.pixel._doc_indexed import IndexedOps
 
     doc = (IndexedOps.insert_ramp.__doc__ or "").lower()
     assert "repaints nothing, so there is no step to push" not in doc

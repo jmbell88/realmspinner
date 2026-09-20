@@ -1,7 +1,7 @@
 # Sirens
 
 Sirens is the chiptune tracker: a grid you type notes into, five voices in the shape of an NES sound
-chip, and a `.wsng` document that exports as WAV. It is the one mode in this app whose output you
+chip, and a `.rsng` document that exports as WAV. It is the one mode in this app whose output you
 listen to rather than look at.
 
 It exists because everything else here makes something you can see, and a game is not finished when
@@ -25,7 +25,7 @@ With nothing open, the middle column offers **New song** and **Open a file...**,
 had open recently. `Ctrl+N` and `Ctrl+O` do the same from the keyboard, and once a song is open the
 **Song file** panel carries the same **New**, **Open...**, **Save** and **Save As...** buttons every
 workspace has, over the file's path and one line saying whether it is saved. The document's own format is
-`.wsng` — a zip holding the song as JSON, its patterns as numpy arrays and any imported samples as
+`.rsng` — a zip holding the song as JSON, its patterns as numpy arrays and any imported samples as
 WAVs.
 
 A new song is not empty. It has five channels, one pattern of 64 rows, one instrument per voice kind
@@ -49,7 +49,7 @@ file too big to be a song is refused before a byte of it is read.
 That is the 2A03's arrangement, in its order, and it is what a piece of music in this idiom was
 written for. **This build gives you those five and no control to add a sixth** — the engine will
 play up to 32 channels and a second triangle sounds exactly like the first, but nothing on screen
-mints one, so a `.wsng` has the five it was created with. Say so plainly rather than leave it to be
+mints one, so a `.rsng` has the five it was created with. Say so plainly rather than leave it to be
 looked for: the arrangement is the constraint the idiom is written under, and working inside it is
 most of what makes a track sound like this.
 
@@ -58,7 +58,7 @@ which voice it plays, and pan it between the speakers. The notes written on a ch
 where they are when its voice changes: the voice is how they sound, not what they are, so turning
 the noise channel into a second triangle is one click and no retyping. Left-click that button mutes
 the channel and the **S** beside it solos; both are about listening, so neither is saved into the
-`.wsng` — handing somebody else a song with a part missing is not a thing a file should be able to
+`.rsng` — handing somebody else a song with a part missing is not a thing a file should be able to
 do. They belong to the song you set them on, so opening the same file in a second tab to compare
 two versions gives you two independent sets of mutes.
 
@@ -143,7 +143,7 @@ Turn it off to type into bar 3 while bar 1 plays.
 **The channel strip over the grid** names every channel and says whether the mix is playing it.
 Click a name to mute it, the **S** beside it to hear that channel alone; solo wins over every mute,
 so checking a bass line and going back does not mean undoing four mutes. Neither is part of the
-song — a `.wsng` that remembered your mutes would hand somebody else a track with a part missing —
+song — a `.rsng` that remembered your mutes would hand somebody else a track with a part missing —
 and both re-render, because what you hear is the render.
 
 **Selections and moving about.** Shift with the arrow keys extends a block over rows and channels;
@@ -384,7 +384,7 @@ A folder rather than a filename because this is the one export in the app that w
 files under names it chooses: a typed filename would land on `song.wav` and be ignored by the twelve
 beside it.
 
-**The `.wsng` is the composition and every WAV is derived from it.** Exporting a document nobody has
+**The `.rsng` is the composition and every WAV is derived from it.** Exporting a document nobody has
 touched twice writes byte-identical files both times — there is no timestamp, no writer string and no
 randomness anywhere in the path. That is what makes an exported track something a build script can
 regenerate rather than an artefact you have to keep.
@@ -407,8 +407,8 @@ files, numbered, rather than one silently overwriting the other.
 
 | File | What it is |
 | --- | --- |
-| `<name>.wsng` | The document: channels, patterns, order, instruments, samples and effects. |
-| `song.wav` | An exported mix. Derived; the `.wsng` is the source. |
+| `<name>.rsng` | The document: channels, patterns, order, instruments, samples and effects. |
+| `song.wav` | An exported mix. Derived; the `.rsng` is the source. |
 | `stems/<channel>.wav` | One exported channel. |
 | `sfx/<effect>.wav` | One exported sound effect. |
 
@@ -421,7 +421,7 @@ you might reach for are absent on purpose rather than pending:
   and a pan and nothing else. Those belong to whatever you take the stems into.
 - **No recording.** Nothing here captures live input; a sample arrives as a `.wav` file.
 - **No MIDI**, in or out. The keyboard is the piano.
-- **No import of other trackers' formats.** A `.wsng` is written here or nowhere. `.wav` is the only
+- **No import of other trackers' formats.** A `.rsng` is written here or nowhere. `.wav` is the only
   format that comes in, and only as a sample.
 
 ## When it goes wrong

@@ -25,10 +25,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock import judge
-from warlock.service import judge as svc_judge
-from warlock.service import verdicts as svc_verdicts
-from warlock.service.errors import Invalid
+from realmspinner import judge
+from realmspinner.service import judge as svc_judge
+from realmspinner.service import verdicts as svc_verdicts
+from realmspinner.service.errors import Invalid
 
 
 def _labelled(svc, verdict, *, stage="blank", image=True, prompt="a rogue"):
@@ -42,7 +42,7 @@ def _labelled(svc, verdict, *, stage="blank", image=True, prompt="a rogue"):
         # A mesh verdict is graded; only the image stages take a word. The
         # backfill table is what "accept" meant, so a mesh row planted here is
         # the same evidence it always was.
-        from warlock.vectors import BINARY_GRADES
+        from realmspinner.vectors import BINARY_GRADES
 
         svc_verdicts.record_verdict(svc, job_id, grade=BINARY_GRADES[verdict])
     else:
@@ -197,7 +197,7 @@ def test_a_job_with_no_image_scores_nothing(svc, monkeypatch):
 
 def test_the_probes_state_is_readable_without_training_anything(svc, monkeypatch):
     """What the pane draws: how many labels are in, how many are needed, and
-    whether a probe exists at all. The staleness half of the ``warlockc`` rule --
+    whether a probe exists at all. The staleness half of the ``realmspinnerc`` rule --
     a probe should say when it was trained."""
     _labelled(svc, "accept")
     _fake_embeddings(monkeypatch, {})
@@ -302,7 +302,7 @@ def test_the_stage_refusal_names_the_control_it_is_about():
     concerns -- a bare ``ValueError`` escaping the boundary is a 500 rather
     than a highlighted select.
     """
-    from warlock.service import judge as svc_judge
+    from realmspinner.service import judge as svc_judge
 
     with pytest.raises(Invalid) as caught:
         svc_judge._check_stage("mesh")

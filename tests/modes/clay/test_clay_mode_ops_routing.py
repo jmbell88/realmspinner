@@ -25,11 +25,11 @@ from typing import Any
 import pygame
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay import ops as clay_ops
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay import ops as clay_ops
 
 
 class FakeCtx:

@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.pipelines import pixel
+from realmspinner.pipelines import pixel
 
 
 def _authored(size: int = 24, seed: int = 7) -> Image.Image:

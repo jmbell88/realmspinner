@@ -11,9 +11,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from warlock.kernels.geom3d.glbio import rebuild_glb
-from warlock.pipelines import trellis as trellis_mod
-from warlock.pipelines.trellis import TrellisServer
+from realmspinner.kernels.geom3d.glbio import rebuild_glb
+from realmspinner.pipelines import trellis as trellis_mod
+from realmspinner.pipelines.trellis import TrellisServer
 
 
 def _valid_glb(meshes: list | None = None) -> bytes:
@@ -455,7 +455,7 @@ async def test_an_orphan_of_our_own_exe_is_reclaimed(tmp_path, monkeypatch):
     exe this instance is configured to spawn -- and this home must have claimed
     the port, with the claim naming an owner that is gone. Executable identity
     alone is a property of the install rather than of the instance, so on its
-    own it would let a second Warlock (different WARLOCK_HOME, same binary, same
+    own it would let a second Realmspinner (different REALMSPINNER_HOME, same binary, same
     default port) terminate the first one's live server (RUN-01).
     """
     exe = tmp_path / "trellis-server.exe"
@@ -523,7 +523,7 @@ async def test_a_port_held_by_a_stranger_is_never_killed(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(trellis_mod.winjob, "terminate", lambda pid: killed.append(pid) or True)
 
-    with pytest.raises(RuntimeError, match="not this Warlock's trellis-server"):
+    with pytest.raises(RuntimeError, match="not this Realmspinner's trellis-server"):
         await srv.ensure_started()
     assert killed == [] and spawned == []
 
@@ -538,7 +538,7 @@ async def test_a_port_held_by_a_stranger_is_never_killed(tmp_path, monkeypatch):
 # no listener found at all, and a claim naming a *live* owner that is not us
 # -- plus the terminate-then-still-held timeout tail, had no test at all.
 # Every winjob call is faked; nothing here spawns or kills a real process, or
-# touches a port a running Warlock might own.
+# touches a port a running Realmspinner might own.
 
 
 @pytest.mark.asyncio
@@ -560,10 +560,10 @@ async def test_reclaim_port_refuses_when_no_listener_is_found(tmp_path, monkeypa
 
 @pytest.mark.asyncio
 async def test_reclaim_port_refuses_a_listener_this_home_never_claimed(tmp_path, monkeypatch):
-    """The listener is provably this Warlock's exe, but no ``.owner`` claim
+    """The listener is provably this Realmspinner's exe, but no ``.owner`` claim
     file exists at all -- this home never spawned it, so it cannot be *our*
-    crash orphan, and the safe reading is a stranger's Warlock using a
-    different ``WARLOCK_HOME`` (RUN-01's second proof)."""
+    crash orphan, and the safe reading is a stranger's Realmspinner using a
+    different ``REALMSPINNER_HOME`` (RUN-01's second proof)."""
     exe = tmp_path / "trellis-server.exe"
     exe.write_bytes(b"")
     srv = TrellisServer(exe, tmp_path / "models", 17971, log_path=tmp_path / "trellis.log")
@@ -580,11 +580,11 @@ async def test_reclaim_port_refuses_a_listener_this_home_never_claimed(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_reclaim_port_refuses_a_listener_owned_by_a_still_running_warlock(
+async def test_reclaim_port_refuses_a_listener_owned_by_a_still_running_realmspinner(
     tmp_path, monkeypatch
 ):
     """The claim names a live owner pid that is not us -- somebody else's
-    Warlock still running against this port, not an orphan a crash left
+    Realmspinner still running against this port, not an orphan a crash left
     behind."""
     exe = tmp_path / "trellis-server.exe"
     exe.write_bytes(b"")
@@ -675,7 +675,7 @@ def test_note_start_failure_widens_the_window_exponentially_and_caps_it(tmp_path
 @pytest.mark.asyncio
 async def test_a_failed_startup_stops_off_the_event_loop(tmp_path, monkeypatch):
     """stop() blocks for up to ~25 s, and the not-healthy-in-time path used to
-    be the one caller that ran it inline on the warlock-loop thread. It must
+    be the one caller that ran it inline on the realmspinner-loop thread. It must
     dispatch through asyncio.to_thread like every other caller -- and a
     TrellisStopFailed from that teardown must stay suppressed, so it cannot
     mask the diagnosis that brought us here."""
@@ -929,10 +929,10 @@ def test_concurrent_stops_do_not_double_tear_down(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_a_live_second_warlocks_server_is_never_terminated(tmp_path, monkeypatch):
+async def test_a_live_second_realmspinners_server_is_never_terminated(tmp_path, monkeypatch):
     """RUN-01's sharp edge: the exe path is a property of the *install*.
 
-    Two Warlocks with different WARLOCK_HOMEs share the same binary and, by
+    Two Realmspinners with different REALMSPINNER_HOMEs share the same binary and, by
     default, the same port 17971. Executable identity alone therefore "proved"
     the other one's *live* server was our orphan, and reclaiming it terminated
     it -- with the kill logged as a successful cleanup.
@@ -955,7 +955,7 @@ async def test_a_live_second_warlocks_server_is_never_terminated(tmp_path, monke
         await srv.ensure_started()
     assert killed == []
 
-    # And with a claim naming an owner that is still alive -- the other Warlock
+    # And with a claim naming an owner that is still alive -- the other Realmspinner
     # running right now -- it is still refused, in different words.
     (tmp_path / "trellis-17971.owner").write_text(
         '{"owner_pid": 4242, "server_pid": 4321}', encoding="utf-8"

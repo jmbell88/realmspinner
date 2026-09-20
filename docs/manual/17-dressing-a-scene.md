@@ -23,7 +23,7 @@ had open before. Press **New scene**.
 The viewport says "Pick one from the Assets panel." The scene is genuinely empty — no floor, no
 light, nothing. Everything you are about to see, you put there.
 
-Press `Ctrl+S` now and save it somewhere you will find again. Scenes are `.wscn` files. Saving early
+Press `Ctrl+S` now and save it somewhere you will find again. Scenes are `.rscn` files. Saving early
 means the rest of this is one `Ctrl+S` at a time rather than a dialog at the end.
 
 ## A ground to stand on
@@ -167,7 +167,7 @@ Open the **Library** and find the row that just appeared. It is a real mesh: it 
 Mesh stage, it can go to Clay or Poser, and it behaves like anything else you made.
 
 It also carries two doors back. Its exits offer **Open in Mason**, which reopens *the scene*, not the
-merged mesh — every node, every group, every instance, exactly as you left it. Mason kept the `.wscn`
+merged mesh — every node, every group, every instance, exactly as you left it. Mason kept the `.rscn`
 beside the asset for precisely this.
 
 And every finished mesh in your library — including this one — offers **Add to Mason as a scene
@@ -175,7 +175,7 @@ item**, which drops it into whatever scene you have open. That is how a room bec
 building: build the room, export it, start a new scene, and add the room to it three times.
 
 A scene stores a *link* to each asset rather than the asset itself, and resolves it on open. That is
-why a `.wscn` is small, and why re-running an asset updates every scene using it. It is also why
+why a `.rscn` is small, and why re-running an asset updates every scene using it. It is also why
 deleting an asset from your library leaves a hole: the Scene file panel lists what it could not
 resolve, the Properties panel says so on the node, and putting the asset back fixes it. Nothing is
 lost from the scene itself.

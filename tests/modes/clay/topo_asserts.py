@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from warlock.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import mesh as bm
 
 
 def directed_edge_counts(mesh: bm.Mesh) -> Counter[tuple[int, int]]:

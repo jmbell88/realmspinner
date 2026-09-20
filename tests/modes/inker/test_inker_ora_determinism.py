@@ -3,7 +3,7 @@
 A zip stamps every member with the wall clock, so a document nobody had touched
 produced a different file each time it was written -- which makes a save look
 like a change to anything that hashes, diffs or syncs one. The three younger
-formats in this repo (``.wblk``, ``.wmap``, ``.wpack``) all fix their members at
+formats in this repo (``.rblk``, ``.rmap``, ``.rpack``) all fix their members at
 1980-01-01 and pin it with a test; ``.ora`` was the odd one out, and the only
 member it fixed was ``mimetype``, by accident of a bare ``ZipInfo``'s default.
 
@@ -24,9 +24,9 @@ from pathlib import Path
 
 import numpy as np
 
-from warlock.kernels.pixel import ora
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.tiles import strip
+from realmspinner.kernels.pixel import ora
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.tiles import strip
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)

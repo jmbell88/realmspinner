@@ -22,9 +22,9 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.modes.create.engine import character as character_engine
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.panes import stamps
+from realmspinner.studio.modes.create.engine import character as character_engine
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.panes import stamps
 
 
 class FakeState:
@@ -46,7 +46,7 @@ def _frozen(monkeypatch, path):
 
 
 def _settled(monkeypatch, path):
-    from warlock.service.files import MTIME_RACE_NS
+    from realmspinner.service.files import MTIME_RACE_NS
 
     settled = path.stat().st_mtime_ns + MTIME_RACE_NS * 2
     monkeypatch.setattr(stamps.time, "time_ns", lambda: settled)
@@ -87,7 +87,7 @@ def test_a_settled_troupe_options_directory_is_walked_once(svc, monkeypatch, pal
     (palette_dir / "nes.hex").write_text("000000\n", encoding="utf-8")
     _settled(monkeypatch, palette_dir)
 
-    from warlock.service import troupe as svc_troupe
+    from realmspinner.service import troupe as svc_troupe
 
     calls: list[Any] = []
     real = svc_troupe.troupe_options
@@ -125,7 +125,7 @@ def test_a_settled_settings_character_options_directory_is_read_once(
     (palette_dir / "nes.hex").write_text("000000\n", encoding="utf-8")
     _settled(monkeypatch, palette_dir)
 
-    from warlock.service import characters as svc_characters
+    from realmspinner.service import characters as svc_characters
 
     calls: list[Any] = []
     real = svc_characters.character_options

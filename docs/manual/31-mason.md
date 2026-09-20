@@ -17,7 +17,7 @@ asset's shape is Clay or the pipeline that made it. Select, move, rotate and sca
 objects, always.
 
 It is a mode, not a takeover. Switching away leaves every open scene exactly as it was, and several
-scenes stay open at once. Scenes are saved as `.wscn` files.
+scenes stay open at once. Scenes are saved as `.rscn` files.
 
 ## Starting a scene
 
@@ -237,7 +237,7 @@ numbers were measured rather than guessed, on the maintainer's own machine.
 ## Missing sources
 
 A scene stores a *link* to each library asset, by job id, and resolves it when the scene opens. It
-does not embed anything until you export. That is what keeps a `.wscn` small and what lets a scene
+does not embed anything until you export. That is what keeps a `.rscn` small and what lets a scene
 pick up a re-run of an asset it names.
 
 It is also what makes a missing source possible: delete an asset from the library and the scenes
@@ -252,7 +252,7 @@ line saying whether it is saved.
 
 Saving happens off the frame thread, so the window keeps drawing; the panel's buttons grey with
 "Saving..." while a write is in flight, and the keys that would change the document are ignored until
-it lands. A `.wscn` is compressed, and it refuses to open one larger than the ceiling the service
+it lands. A `.rscn` is compressed, and it refuses to open one larger than the ceiling the service
 stores scenes at — the app and the service agree on one number rather than each having their own.
 
 If the app is killed with unsaved scenes open, they come back on the next launch as untitled, dirty
@@ -265,7 +265,7 @@ The Scene file panel's **Take it somewhere** section, and the whole reason the m
 
 **Export GLB** writes `scene.glb` beside a `scene.json` manifest. The GLB is the scene as glTF: the
 hierarchy, the instances flattened into real nodes, the lights as `KHR_lights_punctual`, the cameras
-as cameras. The manifest is ours — format `warlock-mason-scene`, version 1 — and carries the node
+as cameras. The manifest is ours — format `realmspinner-mason-scene`, version 1 — and carries the node
 list, the units, the counts (nodes, meshes, lights, cameras, triangles), the prefab names and
 anything that could not be resolved. An importer that understands glTF needs only the GLB; one that
 wants to know what the scene *meant* reads the manifest beside it. `Ctrl+E` does this from the
@@ -277,7 +277,7 @@ cameras, unresolved meshes. It refuses past a million vertices rather than forma
 will open. Use it for the importer that will not take glTF.
 
 **Export to the library** turns the scene into a library asset — a mesh row with its own `model.glb`,
-its thumbnail taken from the viewport you are looking at, and the `.wscn` kept beside it. That last
+its thumbnail taken from the viewport you are looking at, and the `.rscn` kept beside it. That last
 part is what makes it a round trip rather than a one-way flattening.
 
 Everything here is in metres, Y-up, right-handed, with -Z forward and rotations as XYZW quaternions.
@@ -290,7 +290,7 @@ A scene exported to the library is a real asset row. It appears in the library, 
 Mesh stage like any other mesh, and it can be sent on to Clay or Poser — because by then it
 *is* a mesh.
 
-It also carries two doors back. **Open in Mason** reopens the scene it was, from the `.wscn` stored
+It also carries two doors back. **Open in Mason** reopens the scene it was, from the `.rscn` stored
 beside it; if that sidecar is gone it says so rather than handing you the merged mesh under the same
 name. **Add to Mason as a scene item** puts the row into whatever scene you currently have open,
 which every finished mesh in the library offers — a room becomes a building's wing without anything
@@ -298,12 +298,12 @@ being exported twice.
 
 ## Dropping files in
 
-Dropping a `.wscn` onto the Mason window opens it. Dropping a `.glb` imports it into the open scene
+Dropping a `.rscn` onto the Mason window opens it. Dropping a `.glb` imports it into the open scene
 as a mesh node.
 
 ## Where the files go
 
-A `.wscn` goes wherever you save it; nothing in Mason writes into your library unless you ask it to.
+A `.rscn` goes wherever you save it; nothing in Mason writes into your library unless you ask it to.
 **Export to the library** does, and what it writes lives under the job's own directory like every
 other asset — see [The library and jobs](36-library-and-jobs.md).
 

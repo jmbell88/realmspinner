@@ -17,8 +17,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import tiling
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import tiling
 
 SIZE = (24, 24)
 RED = (255, 0, 0, 255)

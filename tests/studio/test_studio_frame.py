@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import textures
+from realmspinner.studio import textures
 
 # --- storage measurement -----------------------------------------------------
 
@@ -22,7 +22,7 @@ def test_measuring_storage_is_reachable_without_touching_the_cache(svc):
     """``measure`` is the half that goes to a task thread; it returns the
     reading rather than assigning it, so the frame thread does the assignment
     when the result comes back."""
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.studio.jobs_cache import JobsCache
 
     cache = JobsCache(svc)
     before = cache.storage
@@ -35,8 +35,8 @@ def _fake_app(svc, cache, *, accept_submits: bool = True):
     """An App stand-in with just enough of ``app_ctx`` for ``_refresh``."""
     from types import SimpleNamespace
 
-    from warlock.studio import main
-    from warlock.studio.state import AppState
+    from realmspinner.studio import main
+    from realmspinner.studio.state import AppState
 
     submitted: list[str] = []
 
@@ -114,8 +114,8 @@ def _tick_with(cache, job: dict[str, Any], previous: str = "running") -> None:
 def test_a_finished_job_asks_for_storage_off_the_frame_thread(svc):
     """The regression: ``_refresh`` called the blocking walk inline, freezing
     the frame that should have shown the job finishing."""
-    from warlock.studio import main
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.studio import main
+    from realmspinner.studio.jobs_cache import JobsCache
 
     cache = JobsCache(svc)
     measured: list[str] = []
@@ -143,9 +143,9 @@ def test_a_finished_job_asks_for_storage_off_the_frame_thread(svc):
 def test_a_finished_mesh_recomputes_the_findings_without_any_verdict(svc):
     """The regression: observations were recorded on every generation and
     reached the file only when somebody next filed a verdict."""
-    from warlock.studio import main
-    from warlock.studio.jobs_cache import JobsCache
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio import main
+    from realmspinner.studio.jobs_cache import JobsCache
+    from realmspinner.studio.modes.review import mode as review_mode
 
     cache = JobsCache(svc)
     app = _fake_app(svc, cache)
@@ -160,9 +160,9 @@ def test_a_finished_mesh_recomputes_the_findings_without_any_verdict(svc):
 def test_a_finished_reference_recomputes_nothing(svc):
     """``_observe_finished`` writes no row for a reference, so there is nothing
     new to aggregate -- the condition is mirrored rather than approximated."""
-    from warlock.studio import main
-    from warlock.studio.jobs_cache import JobsCache
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio import main
+    from realmspinner.studio.jobs_cache import JobsCache
+    from realmspinner.studio.modes.review import mode as review_mode
 
     cache = JobsCache(svc)
     app = _fake_app(svc, cache)
@@ -177,9 +177,9 @@ def test_a_refused_recompute_is_retried_on_the_next_frame(svc):
     """The re-arm. ``submit`` refuses a key already in flight and nothing used
     to reschedule, so the last unit of a sweep -- with no verdict after it to
     pick anything up -- left the file behind for good."""
-    from warlock.studio import main
-    from warlock.studio.jobs_cache import JobsCache
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio import main
+    from realmspinner.studio.jobs_cache import JobsCache
+    from realmspinner.studio.modes.review import mode as review_mode
 
     cache = JobsCache(svc)
     app = _fake_app(svc, cache, accept_submits=False)
@@ -201,8 +201,8 @@ def test_requesting_a_recompute_does_no_work_on_the_frame_thread(svc):
     every verdict in the store."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.review import mode as review_mode
-    from warlock.studio.state import AppState
+    from realmspinner.studio.modes.review import mode as review_mode
+    from realmspinner.studio.state import AppState
 
     ctx = SimpleNamespace(state=AppState())
     review_mode.refresh_findings(ctx)  # no svc, no submit: it must need neither
@@ -213,8 +213,8 @@ def test_requesting_a_recompute_does_no_work_on_the_frame_thread(svc):
 def test_requesting_storage_submits_the_non_publishing_measurement(svc):
     from types import SimpleNamespace
 
-    from warlock.studio import main
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.studio import main
+    from realmspinner.studio.jobs_cache import JobsCache
 
     cache = JobsCache(svc)
     submitted: list[tuple[str, object]] = []
@@ -239,8 +239,8 @@ def test_the_job_list_does_not_re_stat_every_artifact_on_every_tick(svc, monkeyp
     as "load more" widened the window."""
     from pathlib import Path
 
-    from warlock.service import jobs as svc_jobs
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.studio.jobs_cache import JobsCache
 
     for i in range(5):
         svc_jobs.create_job(svc, kind="text", prompt=str(i))
@@ -272,8 +272,8 @@ def test_a_new_artifact_on_disk_is_noticed_without_a_status_change(svc):
     """The stamp is (status, the job directory's mtime), and the second half is
     load-bearing: a rig lands in the *source* job's directory while that job
     stays ``done``, so a status-only key would hide it forever."""
-    from warlock.service import jobs as svc_jobs
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.studio.jobs_cache import JobsCache
 
     job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
     svc.store.set_status(job_id, "done")
@@ -303,7 +303,7 @@ def test_a_new_artifact_on_disk_is_noticed_without_a_status_change(svc):
 
 
 def _dir_job(svc):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
     svc.store.set_status(job_id, "done")
@@ -316,7 +316,7 @@ def test_a_directory_touched_moments_ago_is_answered_but_not_remembered(svc):
     import os
     import time
 
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     job, job_dir = _dir_job(svc)
     cache: dict = {}
@@ -340,7 +340,7 @@ def test_a_write_that_never_moved_the_mtime_is_still_noticed(svc):
     import os
     import time
 
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     job, job_dir = _dir_job(svc)
     cache: dict = {}
@@ -357,8 +357,8 @@ def test_a_write_that_never_moved_the_mtime_is_still_noticed(svc):
 
 
 def test_the_files_cache_never_outgrows_the_page(svc):
-    from warlock.service import jobs as svc_jobs
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.studio.jobs_cache import JobsCache
 
     ids = [svc_jobs.create_job(svc, kind="text", prompt=str(i))["id"] for i in range(4)]
     cache = JobsCache(svc)
@@ -380,7 +380,7 @@ def _viewer_app(svc, *, mode="create", stage="mesh", job=None, accept=True):
     """An App stand-in with just enough for ``_sync_viewer``/``_adopt_model``."""
     from types import SimpleNamespace
 
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     submitted: list[tuple[str, Any]] = []
 
@@ -441,7 +441,7 @@ def test_the_selected_mesh_is_parsed_off_the_frame_thread(svc):
     """The regression: ``_sync_viewer`` ran the whole load -- a full accessor
     decode plus a PNG per texture slot -- inline, on the frame a job
     transitioned to done, which is when the file is largest and coldest."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     job = {"id": "a" * 12, "files": ["model.glb", "thumb.png"]}
     app = _viewer_app(svc, job=job)
@@ -454,7 +454,7 @@ def test_the_selected_mesh_is_parsed_off_the_frame_thread(svc):
 
 
 def test_a_load_in_flight_is_not_dispatched_again_every_tick(svc):
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     job = {"id": "a" * 12, "files": ["model.glb"]}
     app = _viewer_app(svc, job=job)
@@ -469,7 +469,7 @@ def test_a_load_in_flight_is_not_dispatched_again_every_tick(svc):
 def test_a_parsed_model_is_adopted_on_the_frame_thread(svc):
     from types import SimpleNamespace
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     job = {"id": "a" * 12, "files": ["model.glb", "thumb.png"]}
     app = _viewer_app(svc, job=job)
@@ -487,7 +487,7 @@ def test_a_result_the_selection_moved_past_is_dropped(svc):
     nobody is waiting for would put the previous asset back on screen."""
     from types import SimpleNamespace
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     job = {"id": "a" * 12, "files": ["model.glb"]}
     app = _viewer_app(svc, job=job)
@@ -504,7 +504,7 @@ def test_a_refused_dispatch_leaves_nothing_pending(svc):
     """One key, so a selection moving faster than the disk cannot pile up
     loads -- but a refused submit must not leave the viewer believing a load is
     coming, or it would never retry."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     job = {"id": "a" * 12, "files": ["model.glb"]}
     app = _viewer_app(svc, job=job, accept=False)
@@ -518,7 +518,7 @@ def test_the_stage_decides_which_file_the_viewport_wants(svc):
     """The merge's half of ``_sync_viewer``. Reference and Mesh are one mode
     now, so "which file" is a question about the *stage* -- and a viewer that
     still asked the mode would show the same thing at both."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     job = {"id": "a" * 12, "files": ["model.glb", "input.png"]}
     app = _viewer_app(svc, job=job, stage="reference")
@@ -535,7 +535,7 @@ def test_the_rig_and_pose_stages_frame_the_mesh_the_rig_was_fitted_to(svc):
     """One answer for the last three stages. A rig and its poses are fitted to
     that geometry, so a stage that framed something else -- or nothing, which
     is what the empty placeholder was -- would describe a different object."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     job = {"id": "a" * 12, "files": ["model.glb", "input.png", "rig.glb"]}
     for stage in ("mesh", "rig", "pose"):
@@ -550,7 +550,7 @@ def test_a_stage_change_is_watched_as_a_mode_change_used_to_be():
     watched, the mesh appeared on the next 3 s cache tick."""
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._build_ui)
     assert "self._last_stage" in source
@@ -558,7 +558,7 @@ def test_a_stage_change_is_watched_as_a_mode_change_used_to_be():
 
 
 def test_the_blocking_measurement_says_so():
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.studio.jobs_cache import JobsCache
 
     assert "Blocking" in (JobsCache.refresh_storage.__doc__ or "")
 
@@ -638,7 +638,7 @@ def test_an_evicted_texture_is_not_freed_until_the_next_frame(cache, tmp_path, m
         def forget_texture(self, texture):
             pass
 
-    monkeypatch.setattr("warlock.studio.imgui_backend.current", lambda: FakeRenderer())
+    monkeypatch.setattr("realmspinner.studio.imgui_backend.current", lambda: FakeRenderer())
     cache.begin_frame()
     first = cache.get("a", _thumb(tmp_path, "a"))
 
@@ -661,7 +661,7 @@ def test_eviction_forgets_the_backend_registration(cache, tmp_path, monkeypatch)
             forgotten.append(texture)
 
     monkeypatch.setattr(
-        "warlock.studio.imgui_backend.current", lambda: FakeRenderer()
+        "realmspinner.studio.imgui_backend.current", lambda: FakeRenderer()
     )
 
     cache.begin_frame()
@@ -683,7 +683,7 @@ def test_releasing_everything_forgets_everything(cache, tmp_path, monkeypatch):
             forgotten.append(texture)
 
     monkeypatch.setattr(
-        "warlock.studio.imgui_backend.current", lambda: FakeRenderer()
+        "realmspinner.studio.imgui_backend.current", lambda: FakeRenderer()
     )
     cache.begin_frame()
     made = [cache.get(f"j{i}", _thumb(tmp_path, f"j{i}")) for i in range(3)]
@@ -696,7 +696,7 @@ def test_releasing_everything_forgets_everything(cache, tmp_path, monkeypatch):
 
 def test_release_survives_no_renderer(cache, tmp_path, monkeypatch):
     """Teardown can run after the backend is gone."""
-    monkeypatch.setattr("warlock.studio.imgui_backend.current", lambda: None)
+    monkeypatch.setattr("realmspinner.studio.imgui_backend.current", lambda: None)
     cache.begin_frame()
     tex = cache.get("a", _thumb(tmp_path, "a"))
     cache.release()
@@ -712,7 +712,7 @@ def test_shortcuts_act_on_the_press_and_not_on_the_release():
     the release as well cancels the toggle and double-submits the action."""
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._shortcut)
     body = source.split("inker_mode.handle_key", 1)[1]
@@ -731,8 +731,8 @@ def test_paint_still_sees_both_edges():
     """
     import inspect
 
-    from warlock.studio import main
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio import main
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     source = inspect.getsource(main.App._shortcut)
     head, _, tail = source.partition("inker_mode.handle_key")
@@ -766,9 +766,9 @@ def test_inker_mode_never_leaks_a_key_to_the_viewport(monkeypatch):
 
     import pygame
 
-    from warlock.studio import main
-    from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
-    from warlock.studio.state import AppState
+    from realmspinner.studio import main
+    from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
+    from realmspinner.studio.state import AppState
 
     submitted: list[str] = []
     monkeypatch.setattr(settings_2d, "generate", lambda *a, **k: submitted.append("2d"))
@@ -815,7 +815,7 @@ def test_a_dead_worker_is_reported_to_the_user():
     invisible outside the log file, and every job queued after it just sat."""
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._check_worker)
     assert "runtime.fatal" in source
@@ -832,7 +832,7 @@ def test_the_worker_traceback_is_logged_before_it_is_stripped():
     dead GPU worker carried nothing."""
     import inspect
 
-    from warlock import queue
+    from realmspinner import queue
 
     source = inspect.getsource(queue.Worker._on_task_done)
     assert source.index("log.critical") < source.index("with_traceback(None)")
@@ -851,7 +851,7 @@ def test_the_worker_traceback_is_logged_before_it_is_stripped():
 def test_every_input_free_animation_is_named_in_the_idle_check():
     """``_frame_active`` moved out of ``studio/main.py`` in the P4 restructure
     (``dev/RESTRUCTURE.md``), into ``studio/shell/frame.py``."""
-    from warlock.studio.shell import frame as frame_mod
+    from realmspinner.studio.shell import frame as frame_mod
 
     source = Path(frame_mod.__file__).read_text(encoding="utf-8")
     body = source.split("def _frame_active(self)", 1)[1].split("\n    def ", 1)[0]

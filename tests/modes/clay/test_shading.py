@@ -24,13 +24,13 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import regen, shading
-from warlock.kernels.mesh.adjacency import adjacency
-from warlock.studio.modes.clay.ui.panes import props as clay_props
-from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import regen, shading
+from realmspinner.kernels.mesh.adjacency import adjacency
+from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def ui(monkeypatch):
 
 def _old_inline_auto_smooth(mesh: bm.Mesh, angle: float = 30.0) -> np.ndarray:
     """A verbatim copy of ``clay_ops._shade_auto``'s inline computation as it
-    stood at ``git show HEAD:src/warlock/studio/modes/clay/ops.py`` before the
+    stood at ``git show HEAD:src/realmspinner/studio/modes/clay/ops.py`` before the
     2026-09-06 audit's extraction, kept independent of
     :func:`shading.auto_smooth` so this test cannot pass merely by calling the
     thing it exists to check.

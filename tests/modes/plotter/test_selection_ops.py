@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.modes.plotter.engine import tools
+from realmspinner.studio.modes.plotter.engine import tools
 
 
 def test_the_inverse_of_a_rectangle_is_not_a_rectangle():

@@ -18,8 +18,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.service.errors import Invalid
-from warlock.studio.panes import remesh_panel, sheet_panel, texture_panel
+from realmspinner.service.errors import Invalid
+from realmspinner.studio.panes import remesh_panel, sheet_panel, texture_panel
 
 
 def test_a_remesh_texture_size_refusal_does_not_ring_the_retexture_atlas_control(monkeypatch):

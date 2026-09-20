@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.modes.library.ui.panes import library
+from realmspinner.studio.modes.library.ui.panes import library
 
 
 class _Viewer:
@@ -155,7 +155,7 @@ def test_the_baseline_is_captured_when_the_menu_opens():
 
 @pytest.mark.parametrize("attr", ["compare_baseline", "compare_pending"])
 def test_the_state_fields_exist_on_the_real_app_state(attr):
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     assert hasattr(AppState(), attr)
 
@@ -163,7 +163,7 @@ def test_the_state_fields_exist_on_the_real_app_state(attr):
 def test_a_selection_change_drops_a_comparison_parse_in_flight():
     """A result landing after the selection moved would be adopted into a
     comparison that no longer exists."""
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     state = AppState()
     state.select("aaaaaaaaaaaa")
@@ -216,7 +216,7 @@ def test_compare_from_the_ellipsis_menu_does_not_reuse_a_stale_right_click_basel
     opened) -- which must retire it. If it does not, comparing the now
     -selected card with itself is not refused.
     """
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     ctx = _Ctx(tmp_path)
     ctx.state = AppState()

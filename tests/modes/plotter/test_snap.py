@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.ui.panes import canvas as canvas
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.ui.panes import canvas as canvas
 
 from ._drive import Scene
 
@@ -52,7 +52,7 @@ def test_ctrl_inverts_the_setting(setting, ctrl, expected):
 
 
 def test_the_three_modes_are_the_three_the_sidebar_offers():
-    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
+    from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     assert tuple(key for key, _label in plotter_tools.SNAP_LABELS) == plotter_state.SNAP_MODES
     for key in plotter_state.SNAP_MODES:
@@ -133,7 +133,7 @@ def test_a_resize_reads_the_same_setting(scene):
 
 
 def test_a_vertex_reads_the_same_setting(scene):
-    from warlock.studio.modes.plotter.engine.tilemap import Polygon
+    from realmspinner.studio.modes.plotter.engine.tilemap import Polygon
 
     obj = scene.add(
         shape=Polygon(((0.0, 0.0), (32.0, 0.0), (32.0, 32.0))), x=0.0, y=0.0
@@ -157,7 +157,7 @@ def _key(name: str, *, ctrl: bool = False, shift: bool = False):
 
 def test_ctrl_shift_g_toggles_grid_snapping_the_way_tiled_spells_it(plotter_ctx):
     ctx, state = plotter_ctx
-    from warlock.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
 
     assert plotter_mode.handle_key(ctx, _key("g", ctrl=True, shift=True)) is True
     assert state.snap == "grid"
@@ -167,7 +167,7 @@ def test_ctrl_shift_g_toggles_grid_snapping_the_way_tiled_spells_it(plotter_ctx)
 
 def test_ctrl_shift_p_toggles_pixel_snapping_and_the_two_do_not_fight(plotter_ctx):
     ctx, state = plotter_ctx
-    from warlock.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
 
     plotter_mode.handle_key(ctx, _key("p", ctrl=True, shift=True))
     assert state.snap == "pixel"
@@ -179,7 +179,7 @@ def test_ctrl_shift_p_toggles_pixel_snapping_and_the_two_do_not_fight(plotter_ct
 
 def test_plain_ctrl_g_still_toggles_the_grid_and_not_the_snap(plotter_ctx):
     ctx, state = plotter_ctx
-    from warlock.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
 
     plotter_mode.handle_key(ctx, _key("g", ctrl=True))
     assert state.grid is False and state.snap == "off"

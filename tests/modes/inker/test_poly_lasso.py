@@ -24,11 +24,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-from warlock.studio.shell import paintview
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+from realmspinner.studio.shell import paintview
 
 SIZE = (32, 32)
 ORIGIN = (0.0, 0.0)

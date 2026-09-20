@@ -46,24 +46,24 @@ from modes.sirens.test_sirens_mode import FakeCtx as SirensCtx
 from modes.sirens.test_sirens_mode import _tab as sirens_tab
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.mesh import document as clay_document
-from warlock.kernels.mesh import serialize as clay_serialize
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc
-from warlock.studio.modes.muse import fileio as muse_io
-from warlock.studio.modes.muse import mode as muse_mode
-from warlock.studio.modes.muse import state as muse_state
-from warlock.studio.modes.packwright import fileio as packwright_io
-from warlock.studio.modes.packwright.engine import wpack
-from warlock.studio.modes.packwright.engine.document import PackDoc
-from warlock.studio.modes.packwright.engine.sources import Sprite
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.modes.sirens.engine import wsng
-from warlock.studio.viewer_embed import Viewer
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.mesh import document as clay_document
+from realmspinner.kernels.mesh import serialize as clay_serialize
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc
+from realmspinner.studio.modes.muse import fileio as muse_io
+from realmspinner.studio.modes.muse import mode as muse_mode
+from realmspinner.studio.modes.muse import state as muse_state
+from realmspinner.studio.modes.packwright import fileio as packwright_io
+from realmspinner.studio.modes.packwright.engine import rpack
+from realmspinner.studio.modes.packwright.engine.document import PackDoc
+from realmspinner.studio.modes.packwright.engine.sources import Sprite
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.modes.sirens.engine import rsng
+from realmspinner.studio.viewer_embed import Viewer
 
-WORKER = "warlock-task-test"
+WORKER = "realmspinner-task-test"
 
 
 @dataclass
@@ -159,7 +159,7 @@ def test_the_reference_picture_is_decoded_apart_from_its_upload(tmp_path):
 
 def test_the_viewer_sync_submits_the_decode_and_adopts_it_on_landing():
     """The timer path never calls the blocking ``load_reference``."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     sync = inspect.getsource(main.App._sync_viewer)
     assert "parse_reference" in sync and "load_reference(" not in sync
@@ -177,7 +177,7 @@ def test_the_character_preview_submits_the_parse_and_adopts_it_on_landing():
     is the guard for that class and did not name this door, so the fix arrived
     with nothing standing behind it.
     """
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     dispatch = inspect.getsource(main.App._dispatch_character_preview)
     assert "parse_model" in dispatch and "load_model(" not in dispatch
@@ -207,7 +207,7 @@ class _PoserSheetCtx(_Threaded):
 
 
 def _sheet(ctx: _PoserSheetCtx) -> tuple[str, str]:
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     state = poser_mode.ensure(ctx)
     state.job_id, state.sheet_id = "job1", store.new_id()
@@ -233,7 +233,7 @@ def test_the_sheet_atlas_is_decoded_on_a_task_and_uploaded_when_it_lands(tmp_pat
 
 
 def test_a_decoded_atlas_for_a_sheet_no_longer_on_screen_is_dropped(tmp_path):
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     ctx = _PoserSheetCtx(tmp_path)
     key = _sheet(ctx)
@@ -266,9 +266,9 @@ class _ClayCtx(_Threaded, ClayCtx):
 def test_a_recovered_clay_model_is_read_on_a_task_and_adopted_dirty(tmp_path, monkeypatch):
     ctx = _ClayCtx()
     authored = clay_tab(ctx).doc
-    path = tmp_path / "crate.wblk"
-    path.write_bytes(clay_serialize.wblk_bytes(authored))
-    threads = _spy(monkeypatch, clay_serialize, "read_wblk")
+    path = tmp_path / "crate.rblk"
+    path.write_bytes(clay_serialize.rblk_bytes(authored))
+    threads = _spy(monkeypatch, clay_serialize, "read_rblk")
 
     assert clay_mode._journal_adopt(ctx, path, {"title": "Crate"}) is True
     assert ctx.submitted[-1].startswith("clay-recover:")
@@ -285,13 +285,13 @@ def test_a_recovered_clay_model_that_will_not_parse_says_so(tmp_path):
     """Through ``journal.adopt_failed`` since 2026-09-05 -- a warning with the
     log behind it, the sentence every provider says -- where a raise here
     arrived as an *error* toast no other mode's copy raised."""
-    path = tmp_path / "bad.wblk"
+    path = tmp_path / "bad.rblk"
     path.write_bytes(b"not a zip")
     assert clay_mode._load_recovery(path, {}) is None
 
 
 def test_clay_save_to_encodes_off_the_frame_thread(tmp_path, monkeypatch):
-    """clay-03 (2026-09-06 audit): ``save_to`` called ``serialize.wblk_bytes``
+    """clay-03 (2026-09-06 audit): ``save_to`` called ``serialize.rblk_bytes``
     -- the zip-and-PNG encode this module's own docstring says never runs on
     the frame thread -- directly on the calling thread, before ``ctx.submit``
     was ever reached; only ``atomic.write_bytes`` was inside the submitted
@@ -301,12 +301,12 @@ def test_clay_save_to_encodes_off_the_frame_thread(tmp_path, monkeypatch):
     ctx = _ClayCtx()
     tab = clay_tab(ctx)
     threads = _spy(monkeypatch, clay_serialize, "snapshot_bytes")
-    out = tmp_path / "scene.wblk"
+    out = tmp_path / "scene.rblk"
 
     clay_mode.save_to(ctx, tab, out)
     assert ctx.submitted == [f"clay-save:{tab.uid}"]
     assert threads == [WORKER]
-    assert clay_serialize.read_wblk(out.read_bytes()).objects[0].name == "Box"
+    assert clay_serialize.read_rblk(out.read_bytes()).objects[0].name == "Box"
 
 
 def test_clay_save_as_encodes_off_the_frame_thread(tmp_path, monkeypatch):
@@ -316,34 +316,34 @@ def test_clay_save_as_encodes_off_the_frame_thread(tmp_path, monkeypatch):
     result to the picker's own task closure."""
     ctx = _ClayCtx()
     tab = clay_tab(ctx)
-    out = tmp_path / "scene.wblk"
+    out = tmp_path / "scene.rblk"
     monkeypatch.setattr(clay_mode.dialogs, "save_file", lambda *a, **k: out)
     threads = _spy(monkeypatch, clay_serialize, "snapshot_bytes")
 
     clay_mode.save_as(ctx, tab)
     assert ctx.submitted == [f"clay-saveas:{tab.uid}"]
     assert threads == [WORKER]
-    assert clay_serialize.read_wblk(out.read_bytes()).objects[0].name == "Box"
+    assert clay_serialize.read_rblk(out.read_bytes()).objects[0].name == "Box"
 
 
 def test_clay_export_asset_encodes_off_the_frame_thread(svc, monkeypatch):
     """The other half of clay-03: ``export_asset`` also built its GLB
-    (``glbwrite.write_glb``) on the calling thread, ahead of ``wblk_bytes``.
+    (``glbwrite.write_glb``) on the calling thread, ahead of ``rblk_bytes``.
     Both encodes now run inside ``run()``, against a real service so the job
     it mints and the sidecar it writes are checked as well as the thread."""
-    from warlock.kernels.geom3d import glbwrite
-    from warlock.service import files as svc_files
+    from realmspinner.kernels.geom3d import glbwrite
+    from realmspinner.service import files as svc_files
 
     ctx = _ClayCtx()
     ctx.svc = svc
     tab = clay_tab(ctx)
     glb_threads = _spy(monkeypatch, glbwrite, "write_glb")
-    wblk_threads = _spy(monkeypatch, clay_serialize, "snapshot_bytes")
+    rblk_threads = _spy(monkeypatch, clay_serialize, "snapshot_bytes")
 
     clay_mode.export_asset(ctx, tab)
     assert ctx.submitted == [f"clay-export:{tab.uid}"]
     assert glb_threads == [WORKER]
-    assert wblk_threads == [WORKER]
+    assert rblk_threads == [WORKER]
     job_id = ctx.result["job_id"]
     assert svc_files.clay_source_status(svc, job_id)["exists"] is True
 
@@ -386,7 +386,7 @@ class _InkerCtx(_Threaded, _PaletteCtx):
 
 
 def test_a_revert_decodes_the_restored_image_on_the_task(tmp_path, monkeypatch):
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     monkeypatch.setattr(svc_files, "revert_reference", lambda svc, job_id: None)
     monkeypatch.setattr(svc_files, "discard_inker_working", lambda svc, job_id: None)
@@ -412,7 +412,7 @@ def test_a_revert_decodes_the_restored_image_on_the_task(tmp_path, monkeypatch):
 
 
 def test_a_revert_whose_image_will_not_reopen_still_reports_the_revert(tmp_path, monkeypatch):
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     monkeypatch.setattr(svc_files, "revert_reference", lambda svc, job_id: None)
     monkeypatch.setattr(svc_files, "discard_inker_working", lambda svc, job_id: None)
@@ -453,12 +453,12 @@ def _pack_doc() -> PackDoc:
 def test_a_snapshot_is_what_the_document_was_when_the_save_was_pressed():
     """The document goes on being edited while the task encodes."""
     doc = _pack_doc()
-    before = wpack.wpack_bytes(doc)
-    snap = wpack.snapshot(doc)
+    before = rpack.rpack_bytes(doc)
+    snap = rpack.snapshot(doc)
     doc.add_source(_sprite("s9"))
     doc.rename_source(doc.sources[0].uid, "renamed")
-    assert wpack.snapshot_bytes(snap) == before
-    assert len(wpack.read_wpack(wpack.snapshot_bytes(snap)).sources) == 3
+    assert rpack.snapshot_bytes(snap) == before
+    assert len(rpack.read_rpack(rpack.snapshot_bytes(snap)).sources) == 3
 
 
 class _PackCtx(_Threaded):
@@ -470,31 +470,31 @@ def test_packwright_crash_recovery_reads_on_a_task_and_adopts_on_landing():
     """The eleventh door. Clay's recovery is pinned above; Packwright's was not.
 
     The 2026-09-11 audit (finding packwright-01) found ``_journal_adopt``
-    reading and decoding a recovered ``.wpack`` inline -- 137.7 ms for an
+    reading and decoding a recovered ``.rpack`` inline -- 137.7 ms for an
     ordinary 300-sprite atlas, and ``MAX_PACK_SOURCE_BYTES`` allows a great
     deal more -- because the Recover button calls ``journal.take`` straight
     from ``draw``. Clay's and Inker's providers already deferred; this one is
     now the same shape.
     """
-    from warlock.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
 
     adopt = inspect.getsource(packwright_mode._journal_adopt)
     assert "submit" in adopt, "the recovery read must be handed to a task"
-    assert "read_wpack" not in adopt, "the decode must not run in the provider"
+    assert "read_rpack" not in adopt, "the decode must not run in the provider"
     load = inspect.getsource(packwright_mode._load_recovery)
-    assert "read_wpack" in load
+    assert "read_rpack" in load
 
 
 def test_a_packwright_save_encodes_its_pngs_on_the_task(tmp_path, monkeypatch):
-    threads = _spy(monkeypatch, wpack, "png_bytes")
+    threads = _spy(monkeypatch, rpack, "png_bytes")
     ctx = _PackCtx()
     tab = SimpleNamespace(doc=_pack_doc(), uid="t1", saving=False, title="atlas")
-    out = tmp_path / "atlas.wpack"
+    out = tmp_path / "atlas.rpack"
 
     packwright_io.save_to(ctx, tab, out)
     assert ctx.submitted == ["packwright-save:t1"]
     assert threads and set(threads) == {WORKER}
-    assert wpack.read_wpack(out.read_bytes()).sources[1].key == "s1"
+    assert rpack.read_rpack(out.read_bytes()).sources[1].key == "s1"
 
 
 # --- 6. the Sirens sample re-encode ------------------------------------------
@@ -503,19 +503,19 @@ def test_a_packwright_save_encodes_its_pngs_on_the_task(tmp_path, monkeypatch):
 def test_a_sample_is_encoded_to_wav_once_across_snapshots(monkeypatch):
     doc = sirens_tab(SirensCtx()).doc
     doc.set_sample("kick", np.linspace(-1.0, 1.0, 256, dtype=np.float32))
-    reference = wsng.wsng_bytes(doc)
-    encodes = _spy(monkeypatch, wsng.wavout, "wav_bytes")
+    reference = rsng.rsng_bytes(doc)
+    encodes = _spy(monkeypatch, rsng.wavout, "wav_bytes")
 
-    first = wsng.wsng_bytes(doc)
-    second = wsng.wsng_bytes(doc)
+    first = rsng.rsng_bytes(doc)
+    second = rsng.rsng_bytes(doc)
     assert encodes == [], "already cached from the first snapshot"
     assert first == second == reference
 
     doc.set_sample("kick", np.zeros(64, dtype=np.float32))
-    third = wsng.wsng_bytes(doc)
+    third = rsng.rsng_bytes(doc)
     assert len(encodes) == 1, "a replaced array is a new encode"
     assert third != first
-    assert len(wsng.read_wsng(third).samples["kick"]) == 64
+    assert len(rsng.read_rsng(third).samples["kick"]) == 64
 
 
 # --- 7. the settings flush under a drag ---------------------------------------
@@ -525,7 +525,7 @@ def test_the_settings_flush_waits_for_the_mouse_button_to_come_up():
     """``frame()`` -- and the guard it wraps this call in -- moved out of
     ``studio/main.py`` in the P4 restructure, into ``studio/shell/frame.py``.
     """
-    from warlock.studio.shell import frame
+    from realmspinner.studio.shell import frame
 
     source = inspect.getsource(frame)
     guarded = "if not imgui.is_any_mouse_down():\n            self.app_ctx.settings.tick()"
@@ -593,7 +593,7 @@ def test_playing_a_freshly_marked_loop_region_does_not_block_the_frame_thread(mo
     ``play_region``'s own call into ``loop_body`` is a cache hit and never
     calls the blend itself.
     """
-    from warlock.studio.modes.muse.engine.loops import Candidate
+    from realmspinner.studio.modes.muse.engine.loops import Candidate
 
     ctx = _MuseCtx()
     monkeypatch.setattr(muse_mode, "sirens_audio", _MuseDevice())
@@ -626,8 +626,8 @@ def test_widen_for_filters_runs_the_store_query_off_the_frame_thread(monkeypatch
     door: a ``ctx`` whose ``submit`` runs the task on a real worker thread,
     with the store call spied to record which thread it ran on.
     """
-    from warlock.studio import jobs_cache
-    from warlock.studio.state import Filters
+    from realmspinner.studio import jobs_cache
+    from realmspinner.studio.state import Filters
 
     svc = SimpleNamespace(store=SimpleNamespace(search_ids=lambda *a, **k: ["match-1"]))
     threads = _spy(monkeypatch, svc.store, "search_ids")
@@ -718,7 +718,7 @@ class _FamiliarCtx(_Threaded):
     submitted closure rather than running one on a real, joined worker."""
 
     def __init__(self) -> None:
-        from warlock.familiar import threads as familiar_threads_mod
+        from realmspinner.familiar import threads as familiar_threads_mod
 
         doc = clay_document.ClayDoc()
         tab = clay_mode.ClayTab(doc=doc)
@@ -754,8 +754,8 @@ def test_a_familiar_build_landing_runs_its_clay_batch_off_the_frame_thread(monke
     runs the task on a real worker thread, with the expensive call spied to
     record which thread it ran on.
     """
-    from warlock.studio.assistant import preview as familiar_preview
-    from warlock.studio.assistant import ui as familiar_ui
+    from realmspinner.studio.assistant import preview as familiar_preview
+    from realmspinner.studio.assistant import ui as familiar_ui
 
     ctx = _FamiliarCtx()
     threads = _spy(monkeypatch, familiar_preview, "run_scratch")

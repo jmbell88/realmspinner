@@ -1,7 +1,7 @@
 """The one property model, and the three pairs of codecs over it.
 
 Properties used to be modelled three times -- once in ``tsx`` for the XML
-spelling, once in ``tmx`` for the JSON one, once in ``wmap`` for our own
+spelling, once in ``tmx`` for the JSON one, once in ``rmap`` for our own
 archive -- and each copy decided for itself what a property may be. This file
 is the gate on the single model that replaced them: nine types, one refusal
 sentence, and a codec pair per syntax that agrees with the other two about
@@ -21,8 +21,8 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from warlock.studio.modes.plotter.engine import props as P
-from warlock.studio.modes.plotter.engine.props import Prop, TiledUnsupported
+from realmspinner.studio.modes.plotter.engine import props as P
+from realmspinner.studio.modes.plotter.engine.props import Prop, TiledUnsupported
 
 
 def _xml_round_trip(values: dict[str, Prop]) -> dict[str, Prop]:
@@ -45,9 +45,9 @@ def _json_round_trip(values: dict[str, Prop]) -> dict[str, Prop]:
     return P.read_json_properties(payload)
 
 
-def _wmap_round_trip(values: dict[str, Prop]) -> dict[str, Prop]:
-    payload = json.loads(json.dumps(P.write_wmap_properties(values), sort_keys=True))
-    return P.read_wmap_properties(payload)
+def _rmap_round_trip(values: dict[str, Prop]) -> dict[str, Prop]:
+    payload = json.loads(json.dumps(P.write_rmap_properties(values), sort_keys=True))
+    return P.read_rmap_properties(payload)
 
 
 # --- the model ----------------------------------------------------------------
@@ -266,10 +266,10 @@ def test_a_class_nested_in_a_class_loses_its_type_name_through_json():
     assert _xml_round_trip(values) == values
 
 
-# --- the wmap codec -----------------------------------------------------------
+# --- the rmap codec -----------------------------------------------------------
 
 
-def test_every_type_round_trips_through_the_wmap_record():
+def test_every_type_round_trips_through_the_rmap_record():
     values = {
         "s": Prop("string", "x"),
         "i": Prop("int", 3),
@@ -281,25 +281,25 @@ def test_every_type_round_trips_through_the_wmap_record():
         "npc": Prop("class", {"tint": Prop("color", "#ff112233")}, propertytype="NPC"),
         "bag": Prop("list", [Prop("int", 1), Prop("string", "two")]),
     }
-    assert _wmap_round_trip(values) == values
+    assert _rmap_round_trip(values) == values
 
 
-def test_a_plain_propertys_wmap_record_is_what_version_2_wrote():
+def test_a_plain_propertys_rmap_record_is_what_version_2_wrote():
     """Extended in place, with no version bump: a record that gained no new
-    field has to be the bytes it already was, or every ``.wmap`` in the world
+    field has to be the bytes it already was, or every ``.rmap`` in the world
     changes on the next save for nothing."""
-    assert P.write_wmap_properties({"n": Prop("int", 1)}) == {"n": {"type": "int", "value": 1}}
+    assert P.write_rmap_properties({"n": Prop("int", 1)}) == {"n": {"type": "int", "value": 1}}
 
 
 def test_a_version_2_record_without_a_propertytype_reads_as_an_empty_one():
     """The ``locked`` precedent: an older file is missing a key, not wrong."""
-    back = P.read_wmap_properties({"n": {"type": "string", "value": "x"}})
+    back = P.read_rmap_properties({"n": {"type": "string", "value": "x"}})
     assert back == {"n": Prop("string", "x")}
 
 
-def test_a_malformed_wmap_record_is_refused():
+def test_a_malformed_rmap_record_is_refused():
     with pytest.raises(ValueError):
-        P.read_wmap_properties({"n": "not a record"})
+        P.read_rmap_properties({"n": "not a record"})
 
 
 # --- Tiled 1.12 list properties ----------------------------------------------

@@ -18,8 +18,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import generation, models
-from warlock.studio.modes.create.engine import recipe as create_recipe
+from realmspinner import generation, models
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
 
 
 def _request(**over):
@@ -34,7 +34,7 @@ def _ctx():
     ``generation._present`` answers True for a ``None`` config -- "no config,
     no opinion about what is downloaded" -- which is exactly what these tests
     want: the resolver picks the recipe the *registry* would choose, rather
-    than refusing because a throwaway ``WARLOCK_HOME`` holds no weights.
+    than refusing because a throwaway ``REALMSPINNER_HOME`` holds no weights.
     """
     return SimpleNamespace(svc=SimpleNamespace(config=None))
 
@@ -323,7 +323,7 @@ def test_the_one_row_covers_the_hyper_sd_lora_too():
     """Why there is no second key: ``sdxl``'s own fetch tuple carries both the
     shared SDXL 1.0 base and the 0.8 GB Hyper-SD adapter, so naming the base
     row names the whole download."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     entry = fetch.find("base:sdxl")
     assert entry is not None

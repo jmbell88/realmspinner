@@ -365,7 +365,7 @@ mirrors every dab left to right, **V** top to bottom, and `\` and `/` are the tw
 it opens a popover holding the same four as full words, plus everything below.
 
 The word is there because the four characters were not enough on their own. They are still
-characters rather than icons — a mirror line *is* a character, and the icon set Warlock ships has no
+characters rather than icons — a mirror line *is* a character, and the icon set Realmspinner ships has no
 glyph for either diagonal — so what changed is that they are now named and grouped instead of
 floating at the end of the row.
 
@@ -386,7 +386,7 @@ symmetry off, recentres the axis and puts the radial count back to its default, 
 
 Symmetry is a setting of the *sitting* rather than of the tool: it survives every tool change, every
 paint mode inherits it — the eraser, blur and smudge all mirror without being told to — and it is
-**remembered between sessions**, so a mirror you set is still set the next time you open Warlock. It
+**remembered between sessions**, so a mirror you set is still set the next time you open Realmspinner. It
 is deliberately not part of a saved tool preset: a preset that carried the mirrors would turn "my
 inking pen" into "my inking pen, and also mirror everything".
 
@@ -521,9 +521,9 @@ filter then applies to it, with nothing to flatten first. The other side of that
 **re-editing text is retyping it**: the box remembers what you last typed, so a second stamp at a
 different size is a size change and an OK.
 
-The font list is every face in `C:\Windows\Fonts`, with the one that ships with Warlock (Inter) at
+The font list is every face in `C:\Windows\Fonts`, with the one that ships with Realmspinner (Inter) at
 the top and chosen by default — so the tool behaves the same on a machine with no fonts installed.
-The list is read the first time you open the box; a font installed while Warlock is running shows up
+The list is read the first time you open the box; a font installed while Realmspinner is running shows up
 after a restart.
 
 **Antialias** off renders whole pixels only, with no partial coverage anywhere — which is what pixel
@@ -566,10 +566,10 @@ colours are a right-click each, where a palette silently wiped has no way back.
 Under those two is the **palette folder**: a list of every palette file in your palette directory,
 and a **Load** button that adds the chosen one to the swatch row. Nothing installs a palette there
 and nothing registers one — a palette *is* a file you dropped in that folder, in any of the four
-formats above, and a file added while Warlock is running appears the next time the panel draws. The
-folder is `palettes/` under your Warlock home; [Configuration](41-configuration.md) says how to move
+formats above, and a file added while Realmspinner is running appears the next time the panel draws. The
+folder is `palettes/` under your Realmspinner home; [Configuration](41-configuration.md) says how to move
 it. With nothing in it the panel says so and offers no control, which is the ordinary state of a
-fresh install: Warlock ships no palettes of its own, deliberately.
+fresh install: Realmspinner ships no palettes of its own, deliberately.
 
 The `I` **Pick** tool samples a colour from the canvas into the foreground.
 
@@ -770,7 +770,7 @@ pixels already are. An **indexed** document also writes each layer as a paletted
 archive — that is where the slot numbers live, and where the table's alpha lives, which `.gpl` cannot
 carry. Krita, GIMP and a browser all read those correctly, so the file looks right anywhere. The one
 cost is the same one an animated `.ora` has: opening an indexed file in something that does not know
-about the slot numbers — **including an older build of Warlock** — and saving it writes the layers
+about the slot numbers — **including an older build of Realmspinner** — and saving it writes the layers
 back as plain colour, and two identical swatches become one.
 
 **Export palette** writes it out as a GIMP `.gpl`, a JASC `.pal`, a Lospec `.hex` or a Paint.NET
@@ -1057,7 +1057,7 @@ one of them.
 ordinary layer PNGs, so Krita, GIMP and anything else that reads OpenRaster open the file and see
 exactly what you see; the cells, the flip flags and the tilesets themselves ride in a member those
 editors ignore. Opening such a file in anything that does not understand that member, **including
-an older build of Warlock**, and then saving it, writes the file back with the picture intact and
+an older build of Realmspinner**, and then saving it, writes the file back with the picture intact and
 the tile structure gone — the same trade the animation timeline makes, for the same reason.
 
 **Sending a tileset to Plotter.** **Use in Plotter** in the Tiles panel hands the tileset to the
@@ -1319,7 +1319,7 @@ thread, so the window never freezes behind one.
 An animated document saves into the same `.ora`. The frames are written as nested groups, so Krita
 and GIMP open the file and show frame one rather than refusing it; the timeline itself — durations,
 tags and which cels are shared — rides along in a member those editors ignore. Opening such a file
-in anything that does not understand that member, **including an older build of Warlock**, and then
+in anything that does not understand that member, **including an older build of Realmspinner**, and then
 saving it, writes the file back flat and loses the animation.
 
 Inker's five exports — **Export sheet**, **Export GIF**, **Export PNGs**, **Export sheet per
@@ -1406,7 +1406,7 @@ Inker remembers your export settings. Scale, Arrange, Merge, Skip empty, Trim, P
 filename template all carry over to your next export in this session — and each document remembers
 its *own* last destination and settings, so reopening a tab you already exported once suggests the
 same folder and the same options rather than whatever you last used on a different drawing. The
-options themselves — not which folder — also survive closing and reopening Warlock, seeding a fresh
+options themselves — not which folder — also survive closing and reopening Realmspinner, seeding a fresh
 document's export controls with whatever you used last time.
 
 The **Scale** box at the top of the Export block magnifies every export by a whole number, nearest
@@ -1424,13 +1424,13 @@ a 15 ms frame becomes 20, and anything under 10 ms becomes 10.
 
 ## Autosave and recovery
 
-Every open document with unsaved changes is copied to `~/.warlock/assets/autosave/` every two minutes. This is
+Every open document with unsaved changes is copied to `~/.realmspinner/assets/autosave/` every two minutes. This is
 crash safety and nothing else: an autosave is **not** a save. It does not mark the document saved,
 it does not choose a location, and it does not touch a linked job — all it promises is that a crash
 costs you minutes rather than an afternoon. Saving or closing a document removes its copy, because
 an autosave that outlived its document is exactly the file that turns up later and confuses you.
 
-If Warlock finds copies left over from a previous session, they are listed under **Unsaved work**
+If Realmspinner finds copies left over from a previous session, they are listed under **Unsaved work**
 at the top of the Home screen — one row per document, each with its own **Recover** button, and
 **Discard all** underneath. Recovering one opens it and takes you to the editor it belongs in;
 the others stay listed until you deal with them. Recovered documents open **untitled and unsaved**,
@@ -1446,13 +1446,13 @@ that re-read it would start offering your own open documents back to you.
 **This is no longer only Inker's.** The same two minutes now cover a Clay model, a Plotter map, a
 Packwright atlas and a pose you are authoring —
 whatever was open, whichever modes they were in, each on its own row. Each copy is written in that
-mode's own format (`.ora`, `.wblk`, `.wmap`, `.wpack`, and small JSON files for a pose and a
+mode's own format (`.ora`, `.rblk`, `.rmap`, `.rpack`, and small JSON files for a pose and a
 draft), so anything recovered can also just be opened by hand. A document of a kind this build has
 no editor for is listed as **unavailable** rather than hidden, and its files are left alone.
 
 A pose is the one that can decline to come back, and it says so when it does. A pose is a set of
 rotations for a skeleton rather than a document of its own, so putting one back needs that rig
-loaded — if the asset it was authored against is not open, or a different one is, Warlock keeps the
+loaded — if the asset it was authored against is not open, or a different one is, Realmspinner keeps the
 copy and tells you to open the right one. It would otherwise apply somebody else's rotations to
 whatever bones happened to share a name.
 

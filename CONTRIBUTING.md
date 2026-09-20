@@ -46,7 +46,7 @@ The ones that most often surprise people:
   from the tree, so a fourth fails a test rather than quietly making this
   sentence wrong -- which is what it was until 2026-09-12.
 - **Three threads.** The pygame frame loop never blocks; the asyncio worker
-  lives on `warlock-loop`; everything blocking goes through `TaskRunner`. One GL
+  lives on `realmspinner-loop`; everything blocking goes through `TaskRunner`. One GL
   context.
 - **`service/` is the only business-logic layer.** Panes and tests both call it.
   Refusals raise `service.errors` exceptions carrying a `field`.

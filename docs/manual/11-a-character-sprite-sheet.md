@@ -1,10 +1,10 @@
 # A character sprite sheet
 
 A character sprite sheet is a grid of one creature, animated, seen from eight directions and reduced
-to pixels. Warlock makes them three ways, and this chapter puts the one that works first.
+to pixels. Realmspinner makes them three ways, and this chapter puts the one that works first.
 
 The short version: **Create → Character → describe the creature → Generate.** No graphics card, no
-downloaded weights, no reference image to approve. Warlock builds the body itself, rigs it, animates
+downloaded weights, no reference image to approve. Realmspinner builds the body itself, rigs it, animates
 it from an authored clip library and renders the sheet. The other two routes — a mesh you already
 have, and a reconstruction from a generated drawing — are further down, with what has been measured
 about each.
@@ -36,9 +36,9 @@ of generator parameters with its own palette themes. The body plan decides the s
 library animates it, and which appearance sliders that creature has; an ogre and a wolf do not have
 the same ones.
 
-That is also the honest limit of it. The registry is a fixed vocabulary, and **Warlock never
+That is also the honest limit of it. The registry is a fixed vocabulary, and **Realmspinner never
 substitutes**. Ask for a phoenix and it does not quietly hand you a dragon: the species stays empty,
-Generate is refused, and the refusal says *"Warlock has no phoenix yet. The closest it makes is a
+Generate is refused, and the refusal says *"Realmspinner has no phoenix yet. The closest it makes is a
 dragon"* with three presses under it — take the offer, switch to the experimental sprite-sheet type,
 or take the brief to Poser's own form. The offer is always the same body plan, and taking it is your
 press.
@@ -131,7 +131,7 @@ fingers and toes are the usual casualties. Under about 300,000 faces. And a lice
 to ship what comes out.
 
 A rig it arrives with is **discarded**, not adopted, so bone names do not have to match anything.
-Warlock fits its own nineteen-bone skeleton, because a supplied rig is not evidence about where the
+Realmspinner fits its own nineteen-bone skeleton, because a supplied rig is not evidence about where the
 template's joints go — CesiumMan has nineteen bones like the template and still splits them
 differently, three per arm and four per leg against the template's four and three. The mesh is
 unbound and the old armature removed before a single measurement is taken, and it keeps the

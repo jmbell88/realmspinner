@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.muse.engine import waveform
+from realmspinner.studio.modes.muse.engine import waveform
 
 
 def test_a_silent_take_draws_flat():

@@ -15,21 +15,21 @@ from pathlib import Path
 
 import pytest
 
-import warlock.config as config_mod
-from warlock import guidance, models
-from warlock.service import Conflict, Failed, Invalid, NotFound, NotReady, TooLarge
-from warlock.service import derive as svc_derive
-from warlock.service import export as svc_export
-from warlock.service import files as svc_files
-from warlock.service import jobs as svc_jobs
-from warlock.service import system as svc_system
+import realmspinner.config as config_mod
+from realmspinner import guidance, models
+from realmspinner.service import Conflict, Failed, Invalid, NotFound, NotReady, TooLarge
+from realmspinner.service import derive as svc_derive
+from realmspinner.service import export as svc_export
+from realmspinner.service import files as svc_files
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import system as svc_system
 
 
 class FakeWorker:
     """The little of Worker the service actually reaches for."""
 
     def __init__(self) -> None:
-        from warlock.progress import ProgressBus
+        from realmspinner.progress import ProgressBus
 
         self.alive = True
         self.fatal = None
@@ -361,7 +361,7 @@ def test_current_checks_answers_without_a_worker_and_through_the_cache(svc):
 def test_health_does_not_rerun_the_doctor_suite_on_every_call(svc, worker, monkeypatch):
     """The suite binds a socket, stats the disk and probes a dozen paths, and
     the UI asks continuously. None of those answers changes second to second."""
-    from warlock import doctor
+    from realmspinner import doctor
 
     calls = []
     real = doctor.run_checks
@@ -798,7 +798,7 @@ def test_a_job_gets_the_learned_matte_when_its_weights_are_on_disk(svc):
     review and every accept was birefnet, so this is the default the queue must
     see -- there is no point in the constant moving if ``create_job`` does not
     read it."""
-    from warlock import guidance as guidance_mod
+    from realmspinner import guidance as guidance_mod
 
     svc.config.trellis_models_dir.mkdir(parents=True, exist_ok=True)
     # One byte, not zero: the 2026-09-13 audit, finding create-04 --
@@ -1224,7 +1224,7 @@ def test_the_raw_profile_needs_no_binary(svc):
 def test_concurrent_stl_requests_convert_only_once(svc, assets, monkeypatch):
     """A double-clicked download used to start two exports over the same
     destination path, either racing each other or serving a torn file."""
-    import warlock.pipelines.postprocess as pp
+    import realmspinner.pipelines.postprocess as pp
 
     job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
     job_dir = assets / job_id
@@ -1301,7 +1301,7 @@ def test_a_failed_fbx_export_leaves_no_partial_file_to_serve(svc, assets, monkey
     shutdown would leave a truncated FBX that every later request serves,
     with no way for a retry to get past it.
     """
-    from warlock.pipelines import blender_run
+    from realmspinner.pipelines import blender_run
 
     job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
     job_dir = assets / job_id
@@ -1474,20 +1474,20 @@ def test_export_to_folder_copies_into_the_configured_dir(
     tmp_path, monkeypatch, materialize_weights
 ):
     # Its own service: export_dir is read once at Config construction.
-    from warlock.config import get_config
-    from warlock.db import JobStore
-    from warlock.service import WarlockService
+    from realmspinner.config import get_config
+    from realmspinner.db import JobStore
+    from realmspinner.service import RealmspinnerService
 
     target = tmp_path / "godot_project" / "assets"
-    monkeypatch.setenv("WARLOCK_DATA_DIR", str(tmp_path / "assets"))
-    monkeypatch.setenv("WARLOCK_DB", str(tmp_path / "assets" / "jobs.sqlite"))
-    monkeypatch.setenv("WARLOCK_TRELLIS_EXE", str(tmp_path / "missing.exe"))
-    monkeypatch.setenv("WARLOCK_EXPORT_DIR", str(target))
+    monkeypatch.setenv("REALMSPINNER_DATA_DIR", str(tmp_path / "assets"))
+    monkeypatch.setenv("REALMSPINNER_DB", str(tmp_path / "assets" / "jobs.sqlite"))
+    monkeypatch.setenv("REALMSPINNER_TRELLIS_EXE", str(tmp_path / "missing.exe"))
+    monkeypatch.setenv("REALMSPINNER_EXPORT_DIR", str(target))
     # Pinned and then populated, as the ``svc`` fixture does. The model root
     # used to default inside the checkout, so this test passed on a machine
     # that happened to have SDXL downloaded and would have refused the job on
-    # one that did not; under ``~/.warlock`` it refuses on both.
-    monkeypatch.setenv("WARLOCK_T2I_ROOT", str(tmp_path / "t2i-models"))
+    # one that did not; under ``~/.realmspinner`` it refuses on both.
+    monkeypatch.setenv("REALMSPINNER_T2I_ROOT", str(tmp_path / "t2i-models"))
     monkeypatch.setattr(config_mod, "_config", None)
 
     config = get_config()
@@ -1495,7 +1495,7 @@ def test_export_to_folder_copies_into_the_configured_dir(
     config.data_dir.mkdir(parents=True, exist_ok=True)
     store = JobStore(config.db_path)
     try:
-        svc = WarlockService(config, store)
+        svc = RealmspinnerService(config, store)
         job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
         job_dir = config.job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)

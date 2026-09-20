@@ -23,10 +23,10 @@ import json
 
 import pytest
 
-from warlock import poselib
-from warlock.kernels.rig import cliplib
-from warlock.service import Invalid
-from warlock.service import clips as svc_clips
+from realmspinner import poselib
+from realmspinner.kernels.rig import cliplib
+from realmspinner.service import Invalid
+from realmspinner.service import clips as svc_clips
 
 TEMPLATE = "humanoid"
 
@@ -98,7 +98,7 @@ def test_a_frame_time_off_the_animation_timebase_is_refused(bad):
 
 
 def test_the_clip_duration_step_divides_the_animation_timebase():
-    from warlock import clips
+    from realmspinner import clips
 
     timebase_ms = 1000 / clips.ANIMATION_FPS
     assert timebase_ms == int(timebase_ms), "the timebase itself must be a whole ms count"

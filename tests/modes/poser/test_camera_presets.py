@@ -17,11 +17,11 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-from warlock import _q_troupe
-from warlock.kernels import charsheet
-from warlock.kernels import sheet as sheetlib
-from warlock.service import troupe as svc_troupe
-from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+from realmspinner import _q_troupe
+from realmspinner.kernels import charsheet
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
 
 def test_the_form_and_the_door_read_one_preset_table(svc):

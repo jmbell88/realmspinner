@@ -3,8 +3,8 @@ comparisons from sweep structure, and machine metrics joining both."""
 
 from __future__ import annotations
 
-from warlock.service import findings as svc_findings
-from warlock.service import verdicts as svc_verdicts
+from realmspinner.service import findings as svc_findings
+from realmspinner.service import verdicts as svc_verdicts
 
 
 def _v(store, job_id, vector, verdict="accept", *, sweep=None, seed=42,

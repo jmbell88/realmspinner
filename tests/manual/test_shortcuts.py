@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio.shortcuts import shortcut_sections
+from realmspinner.studio.shortcuts import shortcut_sections
 
 CHAPTER = Path(__file__).resolve().parents[2] / "docs" / "manual" / "38-shortcuts.md"
 
@@ -175,7 +175,7 @@ def test_every_mode_the_chapter_gives_a_section_has_a_group_in_the_sheet():
     chapter closes that: a mode the chapter documents and the sheet is silent
     about now fails here.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     headings = set(_chapter_atoms())
     groups = {title for title, _ in shortcut_sections()}
@@ -221,7 +221,7 @@ def test_poser_sheet_shortcuts_sheet_lists_the_checkerboard_and_pivot_keys():
     import inspect
     import re
 
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     source = inspect.getsource(poser_mode.sheet_handle_key)
     # Plain lower-case letter constants only (``pygame.K_c``, not

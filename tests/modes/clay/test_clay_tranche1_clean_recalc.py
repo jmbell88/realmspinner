@@ -9,10 +9,10 @@ from typing import Any
 
 import numpy as np
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import ops_clean, topo
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import ops as clay_ops
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import ops_clean, topo
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import ops as clay_ops
 
 
 class _Ctx:
@@ -129,7 +129,7 @@ def test_clean_mesh_refuses_a_refusal_on_one_object_without_abandoning_the_other
     """A mesh past ``ops_clean.MAX_CLEAN_CORNERS`` refuses per object; the rest
     of the selection still gets cleaned -- ``run_object_op``'s own contract,
     exercised here rather than assumed."""
-    import warlock.kernels.mesh.ops_clean as ops_clean_mod
+    import realmspinner.kernels.mesh.ops_clean as ops_clean_mod
 
     doc = bd.ClayDoc()
     small_mesh = _flipped_and_duplicated_box()
@@ -219,7 +219,7 @@ def test_readiness_fix_ops_are_all_reachable_by_name() -> None:
     """``readiness.FIX_OPS`` names every op a "Fix" button may run; each one
     has to actually be registered, or the button would run ``ops.get`` on a
     name nothing answers to."""
-    from warlock.kernels.mesh import readiness
+    from realmspinner.kernels.mesh import readiness
 
     registered = {op.name for op in clay_ops.OPS}
     missing = readiness.FIX_OPS - registered

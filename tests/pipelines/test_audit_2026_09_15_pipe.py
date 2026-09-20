@@ -16,10 +16,10 @@ from typing import Any
 import httpx
 import pytest
 
-from warlock import models
-from warlock.familiar import contract, llama_client
-from warlock.pipelines import download, update_worker
-from warlock.pipelines.text2image import Text2Image
+from realmspinner import models
+from realmspinner.familiar import contract, llama_client
+from realmspinner.pipelines import download, update_worker
+from realmspinner.pipelines.text2image import Text2Image
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -37,7 +37,7 @@ def test_upgrade_install_delete_removes_the_previous_versions_staged_trellis_eng
     weight: ``Config.resolve_trellis_exe`` falls back to exactly that path
     when no downloaded engine is present, so the stale, unpinned engine from
     the previous release kept being *used*, not just wasting disk."""
-    iss = (ROOT / "installer" / "warlock.iss").read_text(encoding="utf-8")
+    iss = (ROOT / "installer" / "realmspinner.iss").read_text(encoding="utf-8")
     # Section-header-aware, not a plain str.split on "[Files]" -- a comment a
     # few lines into [InstallDelete] itself reads "...replaced in place by
     # [Files]." and a naive split truncates there, well before the real
@@ -48,13 +48,13 @@ def test_upgrade_install_delete_removes_the_previous_versions_staged_trellis_eng
 
 
 # ---------------------------------------------------------------------------
-# pipelines-02 -- release gate does not check uv.lock's own warlock version
+# pipelines-02 -- release gate does not check uv.lock's own realmspinner version
 # ---------------------------------------------------------------------------
 
 
 def _load_preflight():
     spec = importlib.util.spec_from_file_location(
-        "warlock_preflight_audit_2026_09_15", ROOT / "scripts" / "preflight.py"
+        "realmspinner_preflight_audit_2026_09_15", ROOT / "scripts" / "preflight.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -63,18 +63,18 @@ def _load_preflight():
 
 
 def _write_release_tree(tmp_path: Path, *, version: str, uv_lock_version: str) -> None:
-    (tmp_path / "src" / "warlock").mkdir(parents=True)
+    (tmp_path / "src" / "realmspinner").mkdir(parents=True)
     (tmp_path / "pyproject.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
-    (tmp_path / "src" / "warlock" / "__init__.py").write_text(
+    (tmp_path / "src" / "realmspinner" / "__init__.py").write_text(
         f'__version__ = "{version}"\n', encoding="utf-8"
     )
     (tmp_path / "CHANGELOG.md").write_text(f"## {version}\n\n- notes\n", encoding="utf-8")
     (tmp_path / "INSTALL.md").write_text(
-        f"Download `WarlockSetup-v{version}.exe` from Releases.\n", encoding="utf-8"
+        f"Download `RealmspinnerSetup-v{version}.exe` from Releases.\n", encoding="utf-8"
     )
     (tmp_path / "uv.lock").write_text(
         "[[package]]\n"
-        'name = "warlock"\n'
+        'name = "realmspinner"\n'
         f'version = "{uv_lock_version}"\n'
         'source = { editable = "." }\n',
         encoding="utf-8",

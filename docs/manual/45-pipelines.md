@@ -129,7 +129,7 @@ which is incompatible with a four-thread pool. And it hard-*crashes* rather than
 non-manifold geometry — which is exactly what a reconstruction frequently produces. A crash in a
 library that cannot be caught takes the window, the queue and the store with it.
 
-So it runs out of process, as `python -m warlock.pipelines.blender_worker`, mirroring the pattern
+So it runs out of process, as `python -m realmspinner.pipelines.blender_worker`, mirroring the pattern
 the reconstruction engine already established. `kernels/rig/` is the host side and stays importable
 with no Blender anywhere, which is why the app runs perfectly well on a machine with no `bpy`
 installed and simply hides the rig controls. `pipelines/blender_worker.py` is the only module that
@@ -156,7 +156,7 @@ Every import in the worker is followed by a purge of those helpers.
 
 "Import clip" adds a fourth operation, `clip_sample`, that only samples: it imports a Mixamo or
 Rigify file and reads its armature's world-space bone rotations frame by frame, leaving the
-conversion onto a Warlock rig to pure host math afterward.
+conversion onto a Realmspinner rig to pure host math afterward.
 
 ## The pose contract
 

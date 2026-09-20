@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import slicing
+from realmspinner.kernels.grid2d import slicing
 
 
 def _sheet(
@@ -242,7 +242,7 @@ def test_recompose_refuses_a_grid_with_too_many_cells_at_a_small_tile_size(
 ) -> None:
     """The 2026-09-18 audit, finding plotter-02: ``MAX_RECOMPOSE_PIXELS`` bounds
     *output pixels* (``grid.shape[0] * tile_h`` by ``grid.shape[1] * tile_w``),
-    not the per-cell Python loop inside :func:`~warlock.kernels.grid2d.slicing.recompose`,
+    not the per-cell Python loop inside :func:`~realmspinner.kernels.grid2d.slicing.recompose`,
     whose cost is one iteration per ``rows * cols`` cell regardless of tile
     size. At ``tile_w = tile_h = 1`` -- legal, per ``roles.MAX_ROLE_CELLS``'s
     own comment, as the map's own tile size floor -- output pixels equal cell

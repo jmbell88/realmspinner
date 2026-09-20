@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import blob, roles
+from realmspinner.kernels.grid2d import blob, roles
 
 TILE = 16
 FILL = (60, 140, 70, 255)

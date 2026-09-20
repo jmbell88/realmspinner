@@ -11,13 +11,13 @@ from pathlib import Path
 
 import pytest
 
-import warlock.config as config_mod
-from warlock.kernels.rig import poses, store, templates
-from warlock.pipelines import blender_run
-from warlock.service import Conflict, Failed, Invalid, NotFound
-from warlock.service import jobs as svc_jobs
-from warlock.service import poses as svc_poses
-from warlock.service import rig as svc_rig
+import realmspinner.config as config_mod
+from realmspinner.kernels.rig import poses, store, templates
+from realmspinner.pipelines import blender_run
+from realmspinner.service import Conflict, Failed, Invalid, NotFound
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import poses as svc_poses
+from realmspinner.service import rig as svc_rig
 
 BONES = ["hips", "spine", "head"]
 IDENTITY = [0.0, 0.0, 0.0, 1.0]

@@ -20,9 +20,9 @@ import struct
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import glbwrite, gltf
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.geom3d.glbio import read_glb
+from realmspinner.kernels.geom3d import glbwrite, gltf
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.geom3d.glbio import read_glb
 
 
 def _quad(offset: float = 0.0, *, uvs: bool = False) -> gltf.Primitive:
@@ -398,9 +398,9 @@ def _clay_document():
     bytes this file pins, which is a dependency's version rather than this
     writer's behaviour -- and the claim below is about *this* writer.
     """
-    from warlock.kernels.mesh import document as bd
-    from warlock.kernels.mesh import mesh as bm
-    from warlock.kernels.mesh import primitives as bp
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import primitives as bp
 
     doc = bd.ClayDoc(
         materials=[
@@ -445,7 +445,10 @@ def _clay_document():
 #: sha256 of ``write_glb(to_model(_clay_document()))``, recorded at 8ab32200 --
 #: the commit *before* Mason's cameras-and-lights change to this writer and to
 #: ``viewer/gltf.py``. See the test below for what it is claiming.
-_CLAY_GLB_SHA256 = "2bffd0afac34eaeb489570a806c79e1a3411c3678daa4e6fd1de3a630922a95b"
+# Re-pinned 2026-09-19 for the product rename: every glTF this writer emits
+# carries ``asset.generator``, which is the product name, so "Warlock Studio"
+# -> "Realmspinner" moved the bytes of every .glb without moving a vertex.
+_CLAY_GLB_SHA256 = "adab5b100ec5286452a92620f63e120de7662595fd7cbfefae52b1ac6db6bfb2"
 
 
 def test_an_existing_clay_document_writes_the_same_bytes_as_before_lights_arrived() -> None:
@@ -464,7 +467,7 @@ def test_an_existing_clay_document_writes_the_same_bytes_as_before_lights_arrive
     """
     import hashlib
 
-    from warlock.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import document as bd
 
     data = glbwrite.write_glb(bd.to_model(_clay_document()))
     assert hashlib.sha256(data).hexdigest() == _CLAY_GLB_SHA256

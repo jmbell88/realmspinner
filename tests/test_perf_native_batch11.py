@@ -19,8 +19,8 @@ import time
 import numpy as np
 import pytest
 
-from warlock import native
-from warlock.kernels.pixel import transform as tf
+from realmspinner import native
+from realmspinner.kernels.pixel import transform as tf
 
 pytestmark = pytest.mark.perf
 
@@ -37,16 +37,16 @@ def _timed(fn, repeats: int = 5) -> float:
 def _without_native(fn):
     import os
 
-    os.environ["WARLOCK_NATIVE"] = "0"
+    os.environ["REALMSPINNER_NATIVE"] = "0"
     native.reset()
     try:
         return fn()
     finally:
-        os.environ.pop("WARLOCK_NATIVE", None)
+        os.environ.pop("REALMSPINNER_NATIVE", None)
         native.reset()
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_rotsprite_at_256_squared_is_at_least_four_times_the_numpy_path_rgba():
     rng = np.random.default_rng(0x907)
     plane = rng.integers(0, 255, size=(256, 256, 4), dtype=np.uint8)
@@ -61,7 +61,7 @@ def test_rotsprite_at_256_squared_is_at_least_four_times_the_numpy_path_rgba():
     )
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_rotsprite_at_256_squared_is_at_least_four_times_the_numpy_path_mask():
     rng = np.random.default_rng(0x908)
     plane = (rng.integers(0, 2, size=(256, 256)) * 255).astype(np.uint8)
@@ -90,8 +90,8 @@ def test_rotsprite_at_256_squared_is_at_least_four_times_the_numpy_path_mask():
 
 
 def _smoke_layer(count: int):
-    from warlock.kernels.pixel.flourish.recipe import Layer, Phase
-    from warlock.kernels.pixel.flourish.render import FrameCtx
+    from realmspinner.kernels.pixel.flourish.recipe import Layer, Phase
+    from realmspinner.kernels.pixel.flourish.render import FrameCtx
 
     ctx = FrameCtx(
         seed=2,
@@ -109,9 +109,9 @@ def _smoke_layer(count: int):
     return layer, ctx
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_smoke_at_80_blobs_is_at_least_three_times_the_numpy_path():
-    from warlock.kernels.pixel.flourish.prims import smoke
+    from realmspinner.kernels.pixel.flourish.prims import smoke
 
     layer, ctx = _smoke_layer(80)
 

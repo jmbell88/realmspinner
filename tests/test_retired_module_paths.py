@@ -7,7 +7,7 @@ old spellings across ``src/`` (101) and ``tests/`` (43), plus 44 more in
 since a public clone of this repo does not carry it).
 
 This is the guard that keeps that count from growing back. It walks every
-``.py`` file under ``src/warlock`` and ``tests``, greps each for
+``.py`` file under ``src/realmspinner`` and ``tests``, greps each for
 :data:`RETIRED`'s patterns, and fails -- one ``path:line: old -> new`` per
 hit -- on anything :data:`ALLOWED` does not excuse by name. A comment that
 plainly tells history (dated, past tense: "lived in X until", "used to be
@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src" / "warlock"
+SRC = ROOT / "src" / "realmspinner"
 TESTS = ROOT / "tests"
 
 # Mode packages that used to draw as flat ``panes/<mode>_<name>.py`` files
@@ -39,42 +39,42 @@ RETIRED: list[tuple[str, re.Pattern[str], str]] = [
     (
         "studio/undo.py / studio.undo",
         re.compile(r"studio[./]undo\b"),
-        "warlock/core/undo.py",
+        "realmspinner/core/undo.py",
     ),
     (
         "studio/atomic.py / studio.atomic",
         re.compile(r"studio[./]atomic\b"),
-        "warlock/core/safeio/atomic.py",
+        "realmspinner/core/safeio/atomic.py",
     ),
     (
         "studio/manual/{loader,parser,targets}.py",
         re.compile(r"studio[./]manual[./](loader|parser|targets)\b"),
-        "warlock/kernels/manual/{loader,parser,targets}.py",
+        "realmspinner/kernels/manual/{loader,parser,targets}.py",
     ),
     (
         "studio/sirens_audio.py",
         re.compile(r"studio[./]sirens_audio\b"),
-        "warlock/studio/modes/sirens/audio.py",
+        "realmspinner/studio/modes/sirens/audio.py",
     ),
     (
         "studio/troupe/ (the flat headless package)",
         re.compile(r"studio[./]troupe[./]"),
-        "warlock/studio/modes/troupe/engine/",
+        "realmspinner/studio/modes/troupe/engine/",
     ),
     (
         "pipelines/sheet.py / pipelines.sheet (not sheetcheck, not charsheet)",
         re.compile(r"pipelines[./]sheet\b"),
-        "warlock/kernels/sheet.py",
+        "realmspinner/kernels/sheet.py",
     ),
     (
         "tilegrid (bare or studio-prefixed)",
         re.compile(r"\btilegrid\b"),
-        "warlock/kernels/grid2d/",
+        "realmspinner/kernels/grid2d/",
     ),
     (
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
         re.compile(rf"panes[./](?:{_PREFIXED_MODES})_[a-z][a-z_]*"),
-        "warlock/studio/modes/<mode>/ui/panes/<name>.py",
+        "realmspinner/studio/modes/<mode>/ui/panes/<name>.py",
     ),
     (
         "tests/test_exercise_mode.py",
@@ -90,43 +90,43 @@ RETIRED: list[tuple[str, re.Pattern[str], str]] = [
 # leftover citation.
 ALLOWED: dict[tuple[str, str], str] = {
     (
-        "src/warlock/studio/modes/inker/ui/panes/drag.py",
+        "src/realmspinner/studio/modes/inker/ui/panes/drag.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): (
         "\"Lifted out of panes/inker_canvas on 2026-09-04\" -- true of that "
         "date, before this restructure."
     ),
     (
-        "src/warlock/studio/modes/inker/ui/panes/gestures.py",
+        "src/realmspinner/studio/modes/inker/ui/panes/gestures.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): (
         "\"Lifted out of panes/inker_canvas on 2026-09-04\" -- true of that "
         "date, before this restructure."
     ),
     (
-        "src/warlock/studio/modes/inker/ui/panes/slices.py",
+        "src/realmspinner/studio/modes/inker/ui/panes/slices.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): (
         "\"Lifted out of panes/inker_canvas on 2026-09-04\" -- true of that "
         "date, before this restructure."
     ),
     (
-        "src/warlock/studio/modes/sirens/engine/envelope.py",
+        "src/realmspinner/studio/modes/sirens/engine/envelope.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): (
         "\"It lived in panes/sirens_envelopes.py until 2026-09-04\" -- "
         "explicitly past tense, names the pre-restructure home."
     ),
     (
-        "src/warlock/cliptransfer.py",
+        "src/realmspinner/cliptransfer.py",
         "pipelines/sheet.py / pipelines.sheet (not sheetcheck, not charsheet)",
     ): "\"this module's old location, before...\" -- explicitly past tense.",
     (
-        "src/warlock/kernels/mesh/regen.py",
+        "src/realmspinner/kernels/mesh/regen.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): "panes/clay_props._carry_shading is named \"now deleted\" -- not a live citation.",
     (
-        "src/warlock/studio/modes/inker/mode.py",
+        "src/realmspinner/studio/modes/inker/mode.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): (
         "docstring quotes a historical docstring's own wrong claim (\"it "
@@ -173,7 +173,7 @@ ALLOWED: dict[tuple[str, str], str] = {
         "its own retirement."
     ),
     (
-        "src/warlock/core/safeio/zipguard.py",
+        "src/realmspinner/core/safeio/zipguard.py",
         "tilegrid (bare or studio-prefixed)",
     ): (
         "\"kernels/grid2d (né tilegrid)\" -- né means \"born\"; this names "
@@ -184,7 +184,7 @@ ALLOWED: dict[tuple[str, str], str] = {
         "pipelines/sheet.py / pipelines.sheet (not sheetcheck, not charsheet)",
     ): (
         "\"it used to be pipelines.sheet until P4 ... moved that module to "
-        "warlock.kernels.sheet\" -- explicitly the pre-move name."
+        "realmspinner.kernels.sheet\" -- explicitly the pre-move name."
     ),
     (
         "tests/modes/inker/test_inker_imports.py",
@@ -202,7 +202,7 @@ ALLOWED: dict[tuple[str, str], str] = {
         "tests/modes/plotter/test_plotter_imports.py",
         "studio/undo.py / studio.undo",
     ): (
-        "\"(2026-09-17: moved from studio/undo.py to warlock/core/undo.py "
+        "\"(2026-09-17: moved from studio/undo.py to realmspinner/core/undo.py "
         "in P3...)\" -- explicitly the pre-move name."
     ),
     (
@@ -223,17 +223,17 @@ ALLOWED: dict[tuple[str, str], str] = {
         "studio/undo.py / studio.undo",
     ): (
         "\"(2026-09-17: this moved from studio/undo.py to "
-        "warlock/core/undo.py in P3...)\" -- explicitly the pre-move name."
+        "realmspinner/core/undo.py in P3...)\" -- explicitly the pre-move name."
     ),
     (
         "tests/modes/clay/test_clay_imports.py",
         "studio/undo.py / studio.undo",
     ): (
         "\"P3 ... moved this module from studio/undo.py to "
-        "warlock/core/undo.py\" -- explicitly the pre-move name."
+        "realmspinner/core/undo.py\" -- explicitly the pre-move name."
     ),
     (
-        "src/warlock/studio/modes/inker/state.py",
+        "src/realmspinner/studio/modes/inker/state.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): (
         "\"moved here on 2026-09-03 from panes/inker_canvas\" -- true of "

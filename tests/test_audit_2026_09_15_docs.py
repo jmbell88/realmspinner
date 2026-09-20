@@ -15,14 +15,14 @@ change that moved on without it:
   paragraphs down (``tests/test_root_doc_inventories.py``
   ``test_readme_sdxl_recipe_count_matches_the_registry``).
 * docs-03 -- SECURITY.md's "Any file the app opens" inventory listed
-  ``.wmap``, ``.wblk``, ``.wpack`` and ``.wsng`` but not ``.wscn``, Mason's
+  ``.rmap``, ``.rblk``, ``.rpack`` and ``.rsng`` but not ``.rscn``, Mason's
   native document (``service.files.MASON_SOURCE``).
 * docs-04 -- ``docs/manual/40-installation.md`` said "The SDXL 1.0 weights
   serve three entries in the model list" and named only Hyper-SD, full-CFG
   and pixel-art; PAG (``sdxl_cfg_pag``) and Lightning also share the
   identical ``sdxl-base-1.0`` weights, for five total.
 * docs-05 -- ``dev/INVARIANTS.md``'s Muse paragraph opens "five
-  modifications are marked ``WARLOCK n/6``", counting the marker family's
+  modifications are marked ``REALMSPINNER n/6``", counting the marker family's
   own denominator down by one; the vendored tree carries six
   (``pipelines/acestep/ATTRIBUTION.md``, ``tests/pipelines/test_music_format.py``).
 * docs-06 -- the same file's fps-refusal paragraph justified
@@ -55,7 +55,7 @@ _NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
 
 
 def _sdxl_sharing_count() -> int:
-    from warlock.models import BASE_MODELS
+    from realmspinner.models import BASE_MODELS
 
     sdxl_dir = BASE_MODELS["sdxl_cfg"].dir_name
     return len([m for m in BASE_MODELS.values() if m.dir_name == sdxl_dir])
@@ -68,7 +68,7 @@ def test_manual_ch28_seam_threshold_matches_seam_dominance_max():
     ``seam_dominance`` divides by the interior's *worst* join, not its
     "grain" (a word this chapter used for the ratio it no longer computes).
     """
-    from warlock.kernels.pixel.tiling import SEAM_DOMINANCE_MAX
+    from realmspinner.kernels.pixel.tiling import SEAM_DOMINANCE_MAX
 
     chapter = (MANUAL / "28-inker.md").read_text(encoding="utf-8")
     match = re.search(r"turning amber above ([\d.]+)", chapter)
@@ -115,9 +115,9 @@ def test_security_md_file_format_inventory_includes_every_native_document_suffix
     defines must have its suffix named in SECURITY.md's "Any file the app
     opens" inventory -- derived from the module rather than hand-listed, so
     the next workspace's own document format enrolls itself instead of
-    silently sitting outside the scope statement the way ``.wscn`` did.
+    silently sitting outside the scope statement the way ``.rscn`` did.
     """
-    from warlock.service import files
+    from realmspinner.service import files
 
     suffixes = sorted(
         {
@@ -126,7 +126,7 @@ def test_security_md_file_format_inventory_includes_every_native_document_suffix
             if name.endswith("_SOURCE") and isinstance(getattr(files, name), str)
         }
     )
-    assert ".wscn" in suffixes, (
+    assert ".rscn" in suffixes, (
         "MASON_SOURCE moved or was renamed -- update this test's expectations"
     )
 
@@ -179,7 +179,7 @@ def test_the_sheet_form_draws_the_fps_control_the_invariant_says_it_lacks():
     ``form_ui.combo("fps", "Frame rate", ...)``.
     """
     sheet_path = (
-        ROOT / "src" / "warlock" / "studio" / "modes/poser/ui/panes/sheet.py"
+        ROOT / "src" / "realmspinner" / "studio" / "modes/poser/ui/panes/sheet.py"
     )
     sheet_source = sheet_path.read_text(encoding="utf-8")
     assert 'form_ui.combo(\n        "fps",' in sheet_source or re.search(

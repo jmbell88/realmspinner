@@ -13,10 +13,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel.tiles import blank_strip
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel.tiles import blank_strip
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
 
 
 class _Ctx:

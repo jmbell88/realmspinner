@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from warlock.kernels.mesh import colliders as cl
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as prim
-from warlock.kernels.mesh import readiness
+from realmspinner.kernels.mesh import colliders as cl
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh import readiness
 
 
 def _obj(mesh, *, translation=(0.0, 0.0, 0.0), **kwargs):

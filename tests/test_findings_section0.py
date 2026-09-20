@@ -17,10 +17,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.core.undo import CompoundEdit, Edit, UndoStack
-from warlock.kernels import pixel as inker
+from realmspinner.core.undo import CompoundEdit, Edit, UndoStack
+from realmspinner.kernels import pixel as inker
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
+SRC = Path(__file__).resolve().parents[1] / "src" / "realmspinner" / "studio"
 
 
 # --- 1. set_mode takes the AppState, never the context -----------------------
@@ -54,8 +54,8 @@ def test_image_layers_export_under_minted_names_only():
     """A drive-absolute source read as "relative" through ``PurePosixPath``,
     and a relative one resolved beside the map: both were the user's original
     file, and the export overwrote it with PNG bytes."""
-    from warlock.studio.modes.plotter.engine import tmx
-    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+    from realmspinner.studio.modes.plotter.engine import tmx
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(4, 4, 16, 16)
     pixels = np.zeros((8, 8, 4), dtype=np.uint8)
@@ -125,7 +125,7 @@ def test_a_gesture_longer_than_the_depth_cap_folds_exactly_its_own_steps():
     """``collapse_since`` sliced by a recorded length while ``_evict`` popped
     from the front, so a gesture that ran past ``UNDO_MAX_DEPTH`` folded the
     wrong steps and evicted the work before it."""
-    from warlock.core.undo import UNDO_MAX_DEPTH
+    from realmspinner.core.undo import UNDO_MAX_DEPTH
 
     stack = UndoStack()
     earlier = _Cheap()
@@ -168,7 +168,7 @@ def test_ctrl_z_during_a_live_clay_drag_is_swallowed(svc):
     import pygame
     from modes.clay.test_clay_mode import FakeCtx, _FakeDrag, _tab
 
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
@@ -190,7 +190,7 @@ def test_ctrl_z_during_a_live_clay_drag_is_swallowed(svc):
 def test_selecting_another_key_asks_before_discarding_an_edit():
     from modes.poser.test_poser_mode import _clip_ctx, _turned
 
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     ctx, state = _clip_ctx()
     editor = ctx.poser_viewer.editor
@@ -206,7 +206,7 @@ def test_selecting_another_key_asks_before_discarding_an_edit():
 def test_scrubbing_over_an_unsaved_pose_refuses_in_words():
     from modes.poser.test_poser_mode import _clip_ctx, _turned
 
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     ctx, state = _clip_ctx()
     editor = ctx.poser_viewer.editor
@@ -220,8 +220,8 @@ def test_scrubbing_over_an_unsaved_pose_refuses_in_words():
 def test_edits_made_while_a_clip_save_is_writing_survive_the_landing(monkeypatch):
     from modes.poser.test_poser_mode import _clip_ctx
 
-    from warlock.service import clips as svc_clips
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.service import clips as svc_clips
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     ctx, state = _clip_ctx()
     pending: dict[str, Any] = {}
@@ -253,8 +253,8 @@ def test_edits_made_while_a_clip_save_is_writing_survive_the_landing(monkeypatch
 def test_delete_and_copy_apply_the_wand_mask():
     from modes.plotter.test_plotter_mode import FakeCtx, _tab
 
-    from warlock.kernels.grid2d import gid
-    from warlock.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.kernels.grid2d import gid
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -274,7 +274,7 @@ def test_delete_and_copy_apply_the_wand_mask():
 def test_select_all_drops_the_wand_mask():
     from modes.plotter.test_plotter_mode import FakeCtx, _key, _tab
 
-    from warlock.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -307,7 +307,7 @@ def test_a_paste_onto_an_alpha_locked_layer_keeps_its_alpha():
 
 
 def test_pump_export_clears_the_lock_on_any_failure():
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     source = inspect.getsource(inker_mode.pump_export)
     assert "except Exception" in source
@@ -318,8 +318,8 @@ def test_pump_export_clears_the_lock_on_any_failure():
 
 
 def test_a_backward_jump_ends_the_body_and_loops_rather_than_rendering_forever():
-    from warlock.studio.modes.sirens.engine import document as D
-    from warlock.studio.modes.sirens.engine import synth
+    from realmspinner.studio.modes.sirens.engine import document as D
+    from realmspinner.studio.modes.sirens.engine import synth
 
     doc = D.new_song()
     first = doc.patterns[0]
@@ -338,8 +338,8 @@ def test_a_backward_jump_ends_the_body_and_loops_rather_than_rendering_forever()
 def test_a_refused_generate_keeps_the_seed_and_the_history(svc):
     from test_ux_silent_refusals import _Ctx
 
-    from warlock.studio.modes.create.ui.panes import settings_2d
-    from warlock.studio.state import default_form_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.state import default_form_2d
 
     ctx = _Ctx()
     ctx.svc = svc

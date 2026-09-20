@@ -6,12 +6,12 @@ import json
 
 import pytest
 
-from warlock import config as config_module
-from warlock.studio import settings
-from warlock.studio.modes.create.engine import assets as create_assets
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui.panes import settings_2d
-from warlock.studio.state import default_form_2d, primary_action
+from realmspinner import config as config_module
+from realmspinner.studio import settings
+from realmspinner.studio.modes.create.engine import assets as create_assets
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui.panes import settings_2d
+from realmspinner.studio.state import default_form_2d, primary_action
 
 
 def test_the_asset_registry_is_the_approved_flat_list():
@@ -59,7 +59,7 @@ def test_the_brief_hides_the_count_for_a_character_as_well_as_for_a_sheet():
     the thing behind it will not do."""
     import inspect
 
-    from warlock.studio.modes.create.ui import brief as create_brief
+    from realmspinner.studio.modes.create.ui import brief as create_brief
 
     source = inspect.getsource(create_brief.draw)
     assert '("sheet", "character")' in source
@@ -75,8 +75,8 @@ def test_create_job_refuses_the_character_type_because_it_has_its_own_door(svc):
     only in the pane, because the pane is one caller and the allowlist is the
     thing that makes the rule structural.
     """
-    from warlock.service import jobs as svc_jobs
-    from warlock.service.errors import Invalid
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.service.errors import Invalid
 
     with pytest.raises(Invalid) as excinfo:
         svc_jobs.create_job(
@@ -272,7 +272,7 @@ def test_the_two_registries_agree_on_every_sdxl_backed_key():
     sixth entry into a table whose every reader would then have to special-case
     it, which is exactly the shape the tileset arm already refused.
     """
-    from warlock import generation
+    from realmspinner import generation
 
     offered = tuple(key for key, _ in create_assets.ASSET_TYPE_OPTIONS)
     assert offered[: len(generation.GENERATION_TYPES)] == generation.GENERATION_TYPES
@@ -293,7 +293,7 @@ def test_a_form_persisted_under_the_old_spelling_still_restores():
     unifying the registries would have made every upgrading user's remembered
     type fail validation and silently revert to the default.
     """
-    from warlock.studio import settings
+    from realmspinner.studio import settings
 
     for key in ("asset_type", "generation_type"):
         assert settings._safe_form_value(key, "model_3d") is True, key
@@ -316,7 +316,7 @@ def test_sync_legacy_fields_docstring_names_a_caller_that_still_exists():
     editable" contract before wiring a new control onto one of them would
     have missed ``create_brief.py``'s own calls.
     """
-    from warlock.studio.modes.create.ui import brief as create_brief
+    from realmspinner.studio.modes.create.ui import brief as create_brief
 
     doc = create_assets.sync_legacy_fields.__doc__ or ""
 

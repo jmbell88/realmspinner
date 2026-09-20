@@ -16,7 +16,7 @@ supplied-base-mesh path that Troupe's whole intake assumes had no door, while
 interface for it" -- and ``tasks.py`` kept an error's own message only for
 ``ServiceError``, so every Clay open and import failure arrived as *Something
 went wrong; see the log for details.* The sentence naming the cause went to
-``warlock.log`` alone, which is where the user had to go to find it.
+``realmspinner.log`` alone, which is where the user had to go to find it.
 
 **And the refusal named a destination that cannot take the file.** It said
 "Open it in Create instead"; Create accepts ``DROPPABLE_IMAGES`` and refuses a
@@ -33,9 +33,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh.elements import OpError
-from warlock.service.errors import Invalid
-from warlock.studio.modes.library.ui.panes import library
+from realmspinner.kernels.mesh.elements import OpError
+from realmspinner.service.errors import Invalid
+from realmspinner.studio.modes.library.ui.panes import library
 
 # --- the refusal reaches the user -------------------------------------------
 
@@ -65,7 +65,7 @@ def test_an_op_error_keeps_its_own_sentence():
     skinning" names both the cause and what to do -- and the user saw none of
     it.
     """
-    from warlock.studio.tasks import TaskRunner
+    from realmspinner.studio.tasks import TaskRunner
 
     runner = TaskRunner(workers=1)
     try:
@@ -87,7 +87,7 @@ def test_a_plain_exception_still_defers_to_the_log():
     An unexpected exception has no sentence worth showing, and inventing one
     from ``str(exc)`` would put a traceback fragment in a toast.
     """
-    from warlock.studio.tasks import TaskRunner
+    from realmspinner.studio.tasks import TaskRunner
 
     runner = TaskRunner(workers=1)
     try:
@@ -108,7 +108,7 @@ def test_clay_sends_a_rigged_mesh_somewhere_that_can_take_it():
     than by driving the UI because the words *are* the interface here, which is
     what ``OpError``'s docstring says.
     """
-    from warlock.kernels.mesh import glbimport
+    from realmspinner.kernels.mesh import glbimport
 
     source = Path(glbimport.__file__).read_text(encoding="utf-8")
     refusal = source.split("model.skins", 1)[1].split(")", 1)[0]
@@ -154,7 +154,7 @@ def test_a_mesh_over_the_ceiling_is_refused_before_it_is_read(tmp_path, monkeypa
     gate rather than the rule -- but reading a two-gigabyte file into memory to
     discover it is too big is how a refusal becomes a swap storm.
     """
-    from warlock.service.validation import MAX_MESH_BYTES
+    from realmspinner.service.validation import MAX_MESH_BYTES
 
     big = tmp_path / "huge.glb"
     big.write_bytes(b"x")
@@ -204,11 +204,11 @@ def test_importing_a_two_material_glb_gives_each_object_its_own_default_material
     geometry with), wrong on any ordinary multi-material import with no
     malformed file required.
     """
-    from warlock.kernels.geom3d import glbwrite
-    from warlock.kernels.mesh import document as bd
-    from warlock.kernels.mesh import glbimport
-    from warlock.kernels.mesh import mesh as bm
-    from warlock.kernels.mesh import primitives as bp
+    from realmspinner.kernels.geom3d import glbwrite
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import glbimport
+    from realmspinner.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import primitives as bp
 
     doc = bd.ClayDoc(materials=[bd.default_material("a"), bd.default_material("b")])
     two_tone = bp.box()
@@ -248,7 +248,7 @@ def test_a_dropped_glb_is_imported_on_home_and_in_the_library():
     """
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._on_drop)
     branch = source.split('ctx.state.mode in ("home", "library")', 1)[1]

@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.selection import SelectionMask
-from warlock.kernels.pixel.undo import PatchEdit
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.selection import SelectionMask
+from realmspinner.kernels.pixel.undo import PatchEdit
 
 
 def _doc(width: int = 16, height: int = 16) -> Document:
@@ -326,7 +326,7 @@ def test_set_layer_props_still_ignores_a_change_to_the_same_value():
 
 
 def test_a_right_to_left_marquee_covers_the_same_pixels_as_a_left_to_right_one():
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     forward = inker_canvas.marquee_rect((2.3, 2.3), (10.7, 10.7))
     backward = inker_canvas.marquee_rect((10.7, 10.7), (2.3, 2.3))
@@ -340,7 +340,7 @@ def test_a_click_inside_a_select_tool_is_a_click_and_not_a_one_pixel_drag():
     release at the same point a 1x1 rectangle rather than an empty one. The
     "click deselects" branch was therefore unreachable, and every stray click
     left a one-pixel selection nothing could be painted outside of."""
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     assert inker_canvas.is_click((6.3, 4.2), (6.9, 4.8)) is True
     assert inker_canvas.marquee_rect((6.3, 4.2), (6.9, 4.8)) == (6, 4, 7, 5), (
@@ -354,7 +354,7 @@ def test_an_overlay_line_lands_inside_one_device_pixel():
     """imgui centres a one-pixel line on the coordinate, so a grid line at a
     whole number covers half of two columns and is antialiased across both --
     a 16 px grid over pixel art came out as a grey haze."""
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     assert inker_canvas.crisp((40.0, 12.0)) == (40.5, 12.5)
     assert inker_canvas.crisp((40.7, 12.2)) == (40.5, 12.5)
@@ -373,7 +373,7 @@ def test_the_composite_matches_a_from_scratch_flatten_after_an_undo():
 
     fresh = np.zeros_like(doc.composite)
     width, height = doc.size
-    from warlock.kernels.pixel import composite as cp
+    from realmspinner.kernels.pixel import composite as cp
 
     fresh[:] = cp.to_uint8(doc.stack.composite_region((0, 0, width, height)))
     assert np.array_equal(doc.composite, fresh)

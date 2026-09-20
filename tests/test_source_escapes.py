@@ -1,4 +1,4 @@
-"""No module under ``src/warlock`` carries an invalid string escape.
+"""No module under ``src/realmspinner`` carries an invalid string escape.
 
 Python 3.12 turned ``"\\s"`` in a non-raw string from a silent
 DeprecationWarning into a SyntaxWarning, and a later release makes it a
@@ -14,7 +14,7 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parent.parent / "src" / "warlock"
+SRC = Path(__file__).resolve().parent.parent / "src" / "realmspinner"
 
 
 def test_no_module_under_src_has_an_invalid_escape_sequence():

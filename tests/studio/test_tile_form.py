@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.pipelines import seam
-from warlock.studio import theme
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.panes import inspector
-from warlock.studio.state import default_form_2d
+from realmspinner.pipelines import seam
+from realmspinner.studio import theme
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.panes import inspector
+from realmspinner.studio.state import default_form_2d
 
 
 def test_a_new_form_makes_references():
@@ -161,8 +161,8 @@ def test_a_tile_can_be_opened_in_the_inker(svc):
     ``files.EDITABLE_STAGES``; this pins that they agree, because a button the
     service refuses is worse than no button.
     """
-    from warlock.service import files as svc_files
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.service import files as svc_files
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     job = {"id": "a" * 12, "stage": "tile", "status": "done", "files": ["input.png"]}
     assert inker_mode.can_edit_job(None, job)
@@ -173,7 +173,7 @@ def test_a_model_job_is_still_not_editable():
     """A model's input.png is the picture it was reconstructed *from*: editing
     it changes nothing about the mesh on disk while invalidating the recipe
     that describes it."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     job = {"id": "a" * 12, "stage": "model", "status": "done", "files": ["input.png"]}
     assert not inker_mode.can_edit_job(None, job)
@@ -191,7 +191,7 @@ def test_editing_a_tile_re_measures_its_seam_rather_than_its_composition(svc):
     import numpy as np
     from PIL import Image
 
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     job_id = svc.store.create("text", "stone", {"seed": 1}, stage="tile", status="done")
     job_dir = svc.job_dir(job_id)
@@ -229,7 +229,7 @@ def test_editing_a_tile_re_measures_its_seam_rather_than_its_composition(svc):
 def test_the_tiled_toggle_is_offered_for_a_tile_at_the_reference_stage_only():
     from types import SimpleNamespace
 
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     def ctx(stage, mode="create"):
         return SimpleNamespace(
@@ -251,7 +251,7 @@ def test_the_tiled_preview_is_off_by_default():
     """Stated rather than assumed: every other view of an asset shows one cell,
     so a viewport that silently showed four would make the texture look a
     quarter of its size."""
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     assert AppState().create.tile_preview is False
 

@@ -17,9 +17,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.modes.packwright import mode as packwright_mode
-from warlock.studio.modes.packwright.engine import wpack
-from warlock.studio.modes.packwright.engine.sources import Sprite
+from realmspinner.studio.modes.packwright import mode as packwright_mode
+from realmspinner.studio.modes.packwright.engine import rpack
+from realmspinner.studio.modes.packwright.engine.sources import Sprite
 
 
 class FakeCtx:
@@ -215,7 +215,7 @@ def test_a_pack_that_cannot_fit_carries_the_engines_remedy(monkeypatch):
     """``layout`` raises with the number *and* what to do about it, and only a
     ``ServiceError``'s text survives the task classifier -- so an unframed
     ``ValueError`` put "see the log for details" in the items pane instead."""
-    from warlock.service.errors import ServiceError
+    from realmspinner.service.errors import ServiceError
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -294,7 +294,7 @@ def test_a_batch_skips_what_is_already_there_rather_than_refusing():
 
 
 def test_re_adding_a_changed_file_updates_the_sprite_it_is_already_holding():
-    """``wpack``'s own contract -- "what the document records is what was
+    """``rpack``'s own contract -- "what the document records is what was
     packed; re-adding the source is how you pick up a change" -- which was
     false until 2026-09-03: a key already present was skipped whatever its
     pixels said, so the only way to pick up an edit was to delete the sprite
@@ -342,9 +342,9 @@ def test_a_batch_add_that_trips_the_document_ceiling_refuses_instead_of_raising(
     ``main.py``'s generic task-landing handler, which toasted "That did not
     finish landing: packwright-add:..." and left the sprite that landed
     *before* the trip with ``pack_dirty`` still unset."""
-    from warlock.studio.modes.packwright.engine import wpack
+    from realmspinner.studio.modes.packwright.engine import rpack
 
-    monkeypatch.setattr(wpack, "MAX_SOURCE_PIXELS", 10)
+    monkeypatch.setattr(rpack, "MAX_SOURCE_PIXELS", 10)
     ctx = FakeCtx()
     tab = _tab(ctx, sources=0)
     tab.pack_dirty = False
@@ -380,7 +380,7 @@ def test_a_failed_repack_marks_the_atlas_it_left_on_screen():
 
 
 def test_neither_export_will_write_a_stale_atlas(monkeypatch):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _tab(ctx, sources=1)
@@ -414,7 +414,7 @@ def test_adding_with_nothing_open_says_so():
 
 
 def test_an_inker_document_contributes_one_sprite_per_frame():
-    from warlock.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel.document import Document
 
     ctx = FakeCtx()
     tab = _tab(ctx, sources=0)
@@ -482,10 +482,10 @@ def test_ask_open_focuses_an_already_open_atlas_instead_of_forking_a_second_tab(
     ``packwright-open`` adopted unconditionally while ``fileio.open_path``
     already guards -- the identical gap Clay closed in its own dialog arm on
     2026-09-12 (clay-02). Two tabs over one path race on save."""
-    from warlock.studio.modes.packwright.engine.document import PackDoc
+    from realmspinner.studio.modes.packwright.engine.document import PackDoc
 
     ctx = FakeCtx()
-    path = tmp_path / "atlas.wpack"
+    path = tmp_path / "atlas.rpack"
     path.write_bytes(b"")
     existing = _tab(ctx)
     existing.path = path
@@ -506,13 +506,13 @@ def test_a_save_writes_the_file_and_marks_the_document_clean(tmp_path):
     ctx = FakeCtx()
     tab = _tab(ctx)
     tab.doc.set_settings(padding=6)
-    path = tmp_path / "atlas.wpack"
+    path = tmp_path / "atlas.rpack"
     packwright_mode.save_to(ctx, tab, path)
     packwright_mode.on_task_done(ctx, _Done(f"packwright-save:{tab.uid}", ctx.result))
 
     assert path.exists() and not tab.dirty and not tab.saving
-    assert tab.title == "atlas.wpack"
-    assert wpack.read_wpack(path.read_bytes()).settings.padding == 6
+    assert tab.title == "atlas.rpack"
+    assert rpack.read_rpack(path.read_bytes()).settings.padding == 6
 
 
 def test_a_save_records_the_head_the_encode_wrote():
@@ -537,7 +537,7 @@ def test_a_failed_save_clears_the_lock():
 def test_a_refused_submit_clears_the_lock_too(tmp_path):
     ctx = FakeCtx(accept=False)
     tab = _tab(ctx)
-    packwright_mode.save_to(ctx, tab, tmp_path / "a.wpack")
+    packwright_mode.save_to(ctx, tab, tmp_path / "a.rpack")
     assert not tab.saving
 
 
@@ -545,7 +545,7 @@ def test_a_refused_submit_clears_the_lock_too(tmp_path):
 
 
 def test_a_grid_export_writes_the_png_the_json_and_a_tsx(tmp_path, monkeypatch):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -563,7 +563,7 @@ def test_a_grid_export_writes_the_png_the_json_and_a_tsx(tmp_path, monkeypatch):
 
 
 def test_a_maxrects_export_writes_no_tsx(tmp_path, monkeypatch):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -630,7 +630,7 @@ def test_closing_a_packwright_tab_forgets_its_remembered_column_count():
     ``close_tab``'s own release callback already calls for the texture cache
     keyed the same way. Every atlas tab ever given an explicit column count
     used to leave one entry behind for the life of the process."""
-    from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
+    from realmspinner.studio.modes.packwright.ui.panes import settings as packwright_settings
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -790,7 +790,7 @@ def test_a_key_release_is_never_consumed():
 def test_recent_files_persist():
     ctx = FakeCtx()
     doc = packwright_mode.new_document(ctx).doc
-    path = Path("/tmp/atlas.wpack")
+    path = Path("/tmp/atlas.rpack")
     packwright_mode.adopt(ctx, doc, path=path)
     assert packwright_mode.recent_paths(ctx) == [str(path)]
 
@@ -799,7 +799,7 @@ def test_recent_files_persist():
 
 
 def test_a_recovered_atlas_reads_dirty_and_close_asks(tmp_path):
-    """``read_wpack`` hands back a document already marked saved, and
+    """``read_rpack`` hands back a document already marked saved, and
     ``PackTab.dirty`` delegates to the document -- so an adopt that only wrote
     ``tab.saved_head`` produced a *clean* recovered tab: one unprompted close
     skipped the confirm and ``drop()`` deleted the journal copy, the only
@@ -812,8 +812,8 @@ def test_a_recovered_atlas_reads_dirty_and_close_asks(tmp_path):
     seed = FakeCtx()
     source = packwright_mode.new_document(seed)
     source.doc.add_source(_sprite("s0"))
-    path = tmp_path / "atlas.wpack"
-    path.write_bytes(wpack.wpack_bytes(source.doc))
+    path = tmp_path / "atlas.rpack"
+    path.write_bytes(rpack.rpack_bytes(source.doc))
 
     ctx = FakeCtx()
     assert packwright_mode._journal_adopt(ctx, path, {"title": "atlas"}) is True
@@ -854,7 +854,7 @@ def test_packwright_journal_adopt_reads_and_decodes_on_a_task_not_the_frame_thre
     tmp_path, monkeypatch
 ):
     """packwright-01 (the 2026-09-11 audit): ``_journal_adopt`` used to read
-    the ``.wpack`` and decompress every sprite PNG synchronously, on whatever
+    the ``.rpack`` and decompress every sprite PNG synchronously, on whatever
     thread called it -- the frame thread, since the Recover button in
     ``panes/landing.py`` calls ``journal.take`` -> ``journal.adopt`` ->
     ``provider.adopt`` with no ``ctx.submit`` anywhere in that chain (unlike
@@ -872,17 +872,17 @@ def test_packwright_journal_adopt_reads_and_decodes_on_a_task_not_the_frame_thre
     seed = FakeCtx()
     source = packwright_mode.new_document(seed)
     source.doc.add_source(_sprite("s0"))
-    path = tmp_path / "atlas.wpack"
-    path.write_bytes(wpack.wpack_bytes(source.doc))
+    path = tmp_path / "atlas.rpack"
+    path.write_bytes(rpack.rpack_bytes(source.doc))
 
     threads: list[str] = []
-    real_read = wpack.read_wpack
+    real_read = rpack.read_rpack
 
     def spy(data: bytes) -> Any:
         threads.append(threading.current_thread().name)
         return real_read(data)
 
-    monkeypatch.setattr(wpack, "read_wpack", spy)
+    monkeypatch.setattr(rpack, "read_rpack", spy)
 
     ctx = _ThreadedCtx()
     assert packwright_mode._journal_adopt(ctx, path, {"title": "atlas"}) is True
@@ -904,7 +904,7 @@ def test_a_recovered_atlas_that_will_not_parse_says_so(tmp_path):
     mode's copy raises. Clay's sibling:
     ``test_frame_thread_doors.py::test_a_recovered_clay_model_that_will_not_parse_says_so``.
     """
-    path = tmp_path / "bad.wpack"
+    path = tmp_path / "bad.rpack"
     path.write_bytes(b"not a zip")
     assert packwright_mode._load_recovery(path, {}) is None
 
@@ -933,7 +933,7 @@ def test_adding_a_library_asset_with_no_atlas_starts_one(tmp_path, monkeypatch):
 
     png = tmp_path / "input.png"
     Image.new("RGBA", (4, 4), (255, 0, 0, 255)).save(png)
-    monkeypatch.setattr("warlock.service.files.job_dir_file", lambda svc, job_id, name: png)
+    monkeypatch.setattr("realmspinner.service.files.job_dir_file", lambda svc, job_id, name: png)
 
     ctx = FakeCtx()
     assert packwright_mode.active(ctx) is None
@@ -999,8 +999,8 @@ def test_dropping_several_files_adds_every_one(tmp_path):
     ctx.deliver()
     # The key is ``sources.file_key`` since 2026-09-04: the stem plus a digest
     # of where the file came from. It was ``str(path)``, which wrote the
-    # author's directory layout into the shared ``.wpack``.
-    from warlock.studio.modes.packwright.engine.sources import file_key
+    # author's directory layout into the shared ``.rpack``.
+    from realmspinner.studio.modes.packwright.engine.sources import file_key
 
     assert [s.key for s in tab.doc.sprites()] == [file_key(p) for p in paths]
     assert not any(str(tmp_path) in s.key for s in tab.doc.sprites())
@@ -1018,16 +1018,18 @@ def test_a_rendered_sheet_handoff_is_not_silently_dropped_while_a_manual_tileset
     see a refusal at all."""
     from PIL import Image
 
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     png = tmp_path / "sheet.png"
     Image.new("RGBA", (4, 4), (255, 0, 0, 255)).save(png)
     monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: png)
     monkeypatch.setattr(
-        "warlock.service.sheets.get_sheet", lambda svc, job_id, sheet_id: {"name": "walk"}
+        "realmspinner.service.sheets.get_sheet", lambda svc, job_id, sheet_id: {"name": "walk"}
     )
-    monkeypatch.setattr("warlock.service.sheets.sheet_png", lambda svc, job_id, sheet_id: png)
-    monkeypatch.setattr("warlock.studio.modes.inker.mode.sheet_grid", lambda record: ((4, 4), 1))
+    monkeypatch.setattr("realmspinner.service.sheets.sheet_png", lambda svc, job_id, sheet_id: png)
+    monkeypatch.setattr(
+        "realmspinner.studio.modes.inker.mode.sheet_grid", lambda record: ((4, 4), 1)
+    )
 
     ctx = _DedupingCtx()
     packwright_mode.new_document(ctx)
@@ -1100,7 +1102,7 @@ def test_an_inker_document_with_no_atlas_starts_one_too():
     """The same door from Inker's bridge, which is where this is now offered
     from -- Packwright's sources pane could already pull a document in, and a
     push from the near side must not refuse for want of an atlas."""
-    from warlock.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel.document import Document
 
     ctx = FakeCtx()
     doc = Document.blank(8, 8)
@@ -1134,7 +1136,7 @@ def test_the_settings_pane_offers_the_repack_r_already_did() -> None:
     button and the key are one verb now, not two that happen to agree."""
     from _panes import pane_files
 
-    from warlock.studio.modes.packwright import mode as mode
+    from realmspinner.studio.modes.packwright import mode as mode
 
     assert hasattr(mode, "request_repack")
     source = pane_files()["packwright_settings.py"].read_text(encoding="utf-8")
@@ -1157,8 +1159,8 @@ def test_columns_offer_automatic_instead_of_a_magic_zero(monkeypatch):
     every test that calls the setter directly."""
     from _ui_context import imgui_context
 
-    from warlock.studio import probe, widgets
-    from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
+    from realmspinner.studio import probe, widgets
+    from realmspinner.studio.modes.packwright.ui.panes import settings as packwright_settings
 
     with imgui_context(monkeypatch) as ui:
         ctx = FakeCtx()

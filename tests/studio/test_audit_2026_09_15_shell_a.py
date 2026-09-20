@@ -22,10 +22,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.studio import layout as layout_mod
-from warlock.studio import layout_edit, layouts
-from warlock.studio import layout_skeleton as skeleton
-from warlock.studio.panes import inspector
+from realmspinner.studio import layout as layout_mod
+from realmspinner.studio import layout_edit, layouts
+from realmspinner.studio import layout_skeleton as skeleton
+from realmspinner.studio.panes import inspector
 
 # --- shell-01 ----------------------------------------------------------------
 
@@ -158,7 +158,7 @@ def test_the_details_tab_still_skips_the_verdict_section_for_a_reference():
     not grow "Mesh quality" or "Was this any good?" just because the gate
     moved off ``state.mode``.
     """
-    from warlock.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.modes.create.ui import stages as create_stages
 
     job = {"id": "bbbbbbbbbbbb", "stage": "reference", "status": "done"}
     assert create_stages.stage_for(job) != "mesh"

@@ -11,10 +11,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import measure
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import measure
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
 
 # --- distance / angle --------------------------------------------------------
 
@@ -80,7 +80,7 @@ def test_volume_scales_with_a_world_matrix() -> None:
 
 
 def test_volume_of_an_empty_mesh_is_zero() -> None:
-    from warlock.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import document as bd
 
     assert measure.volume(bd._empty_mesh()) == 0.0
 

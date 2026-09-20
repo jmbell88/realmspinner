@@ -19,11 +19,11 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.modes.muse import mode as muse_mode
-from warlock.studio.modes.muse.ui import brief as muse_brief
-from warlock.studio.modes.muse.ui.panes import player as muse_player
-from warlock.studio.modes.muse.ui.panes import recipe as muse_recipe
-from warlock.studio.modes.muse.ui.panes import results as muse_results
+from realmspinner.studio.modes.muse import mode as muse_mode
+from realmspinner.studio.modes.muse.ui import brief as muse_brief
+from realmspinner.studio.modes.muse.ui.panes import player as muse_player
+from realmspinner.studio.modes.muse.ui.panes import recipe as muse_recipe
+from realmspinner.studio.modes.muse.ui.panes import results as muse_results
 
 from .test_muse_mode import FakeCtx
 
@@ -54,7 +54,7 @@ def frames():
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import theme
+    from realmspinner.studio import theme
 
     previous = imgui.get_current_context()
     ctx = imgui.create_context()
@@ -87,7 +87,7 @@ def frames():
 def _no_device(monkeypatch):
     """No pane in this file may reach the mixer. CI has no card and a box that
     has one is not something a drawing test should depend on."""
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: False)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -107,7 +107,7 @@ def _ctx(tmp_path, jobs: list[dict[str, Any]] | None = None) -> FakeCtx:
     ``focus.begin``/``item``, which keep their ring on the app state itself --
     so a stub would exercise a focus ring that does not exist, and pass.
     """
-    from warlock.studio.state import AppState
+    from realmspinner.studio.state import AppState
 
     ctx = FakeCtx(tmp_path)
     ctx.state = AppState()
@@ -214,7 +214,7 @@ def test_the_bar_fits_the_height_it_declares(frames, tmp_path, duration_custom):
 
 
 def test_a_playing_take_draws_as_stop(frames, tmp_path, monkeypatch):
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "playing", lambda: True)
     monkeypatch.setattr(sirens_audio, "tag", lambda: "a")
@@ -258,8 +258,8 @@ def _with_player(ctx, seconds: float = 6.0):
     """
     import numpy as np
 
-    from warlock.studio.modes.muse import state as muse_state
-    from warlock.studio.modes.muse.engine import waveform
+    from realmspinner.studio.modes.muse import state as muse_state
+    from realmspinner.studio.modes.muse.engine import waveform
 
     rate = 44100
     t = np.arange(int(seconds * rate), dtype=np.float32) / rate
@@ -282,7 +282,7 @@ def test_the_player_draws_with_a_take_under_it(frames, tmp_path):
 def test_the_player_draws_with_a_region_and_candidates(frames, tmp_path):
     """The branch with every control on it: markers, the fill, the candidate
     buttons, the crossfade slider and both exports."""
-    from warlock.studio.modes.muse.engine.loops import Candidate
+    from realmspinner.studio.modes.muse.engine.loops import Candidate
 
     ctx = _ctx(tmp_path, [_take("a")])
     one = _with_player(ctx)
@@ -317,7 +317,7 @@ def test_the_player_strips_transport_is_greyed_with_no_device(frames, tmp_path, 
     Fails against the unfixed code, whose captured call carries no
     ``enabled``/``reason`` keys, so ``.get("enabled", True)`` reads ``True``.
     """
-    from warlock.studio.modes.muse.ui.panes import player as mp
+    from realmspinner.studio.modes.muse.ui.panes import player as mp
 
     ctx = _ctx(tmp_path, [_take("a")])
     _with_player(ctx)
@@ -341,7 +341,7 @@ def test_the_trays_card_transport_is_greyed_with_no_device(frames, tmp_path, mon
     device. Fails against the unfixed code the same way the strip's test
     does above.
     """
-    from warlock.studio.modes.muse.ui.panes import results as mr
+    from realmspinner.studio.modes.muse.ui.panes import results as mr
 
     ctx = _ctx(tmp_path, [_take("a", status="done")])
     calls: list[dict[str, Any]] = []
@@ -412,8 +412,8 @@ def test_every_task_the_menu_offers_has_controls_and_a_door():
     accepts. A task in the first and not the third is a menu item that always
     refuses; one in the third and not the first is capability with no way in.
     """
-    from warlock.service._jobs_music import TASKS
-    from warlock.studio.modes.muse import mode as muse_mode
+    from realmspinner.service._jobs_music import TASKS
+    from realmspinner.studio.modes.muse import mode as muse_mode
 
     offered = [one[0] for one in muse_results.DERIVE_ITEMS]
     assert sorted(offered) == sorted(TASKS)
@@ -429,8 +429,8 @@ def test_every_derive_control_is_drawn_by_something():
     task's popup opens, and no smoke test would reach it -- the popup only
     draws once a take exists and a menu item has been pressed.
     """
-    from warlock.studio.modes.muse import mode as muse_mode
-    from warlock.studio.modes.muse.state import DEFAULT_DERIVE
+    from realmspinner.studio.modes.muse import mode as muse_mode
+    from realmspinner.studio.modes.muse.state import DEFAULT_DERIVE
 
     named = {name for names in muse_mode.DERIVE_CONTROLS.values() for name in names}
     assert named <= set(DEFAULT_DERIVE)
@@ -497,7 +497,7 @@ def test_repaint_window_slider_reaches_the_full_length_of_a_take_longer_than_the
     muse_mode.open_derive(ctx, "a", "repaint")
 
     seen: dict[str, tuple[float, float]] = {}
-    from warlock.studio import widgets as widgets_module
+    from realmspinner.studio import widgets as widgets_module
 
     real_slider = widgets_module.labeled_slider_float
 
@@ -528,7 +528,7 @@ def test_loop_span_slider_is_bounded_by_half_the_takes_own_duration(frames, tmp_
     muse_mode.open_derive(ctx, "a", "loop")
 
     seen: dict[str, tuple[float, float]] = {}
-    from warlock.studio import widgets as widgets_module
+    from realmspinner.studio import widgets as widgets_module
 
     real_slider = widgets_module.labeled_slider_float
 
@@ -569,7 +569,7 @@ def test_extend_sliders_are_bounded_by_the_takes_own_duration_when_shorter_than_
     muse_mode.open_derive(ctx, "a", "extend")
 
     seen: dict[str, tuple[float, float]] = {}
-    from warlock.studio import widgets as widgets_module
+    from realmspinner.studio import widgets as widgets_module
 
     real_slider = widgets_module.labeled_slider_float
 
@@ -599,7 +599,7 @@ def test_extend_sliders_never_offer_a_combined_total_the_door_will_refuse(
     ``parent_duration + extend_left + extend_right`` against the sampler's
     frame ceiling (``_extend_frame_ceiling_seconds``, ~239.907s), always
     naming ``extend_right`` regardless of which slider actually spent the
-    budget (``src/warlock/service/_jobs_music.py:524-541``). A take of 240s
+    budget (``src/realmspinner/service/_jobs_music.py:524-541``). A take of 240s
     or more had both sliders come back bounded at up to 240 each -- every
     nonzero extend on such a take cleared the popup and was refused at the
     door.
@@ -616,7 +616,7 @@ def test_extend_sliders_never_offer_a_combined_total_the_door_will_refuse(
     muse_mode.open_derive(ctx, "a", "extend")
 
     seen: dict[str, tuple[float, float]] = {}
-    from warlock.studio import widgets as widgets_module
+    from realmspinner.studio import widgets as widgets_module
 
     real_slider = widgets_module.labeled_slider_float
 
@@ -655,7 +655,7 @@ def test_extend_sliders_share_the_remaining_budget_on_a_take_with_some_room(
     muse_mode.open_derive(ctx, "a", "extend")
 
     seen: dict[str, tuple[float, float]] = {}
-    from warlock.studio import widgets as widgets_module
+    from realmspinner.studio import widgets as widgets_module
 
     real_slider = widgets_module.labeled_slider_float
 
@@ -670,7 +670,7 @@ def test_extend_sliders_share_the_remaining_budget_on_a_take_with_some_room(
 
     frames(build)
 
-    from warlock.service._jobs_music import _extend_frame_ceiling_seconds
+    from realmspinner.service._jobs_music import _extend_frame_ceiling_seconds
 
     ceiling = _extend_frame_ceiling_seconds()
     # ``extend_right``'s default (30.0) is spent against extend_left's bound.

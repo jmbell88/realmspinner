@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels.pixel.document import Document
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.shell import paintview
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.shell import paintview
 
 
 def _tab(**view) -> inker_state.InkerDoc:

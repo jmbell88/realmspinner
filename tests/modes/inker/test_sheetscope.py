@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels import charsheet
-from warlock.kernels.pixel import sheetscope
-from warlock.kernels.pixel.sheetin import span_tags
+from realmspinner.kernels import charsheet
+from realmspinner.kernels.pixel import sheetscope
+from realmspinner.kernels.pixel.sheetin import span_tags
 
 EIGHT = [name for name, _yaw in charsheet.DIRECTION_PRESETS[8]]
 

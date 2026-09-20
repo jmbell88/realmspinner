@@ -19,13 +19,13 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import modifiers as mod
-from warlock.kernels.mesh import ops as clay_ops_geom
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import ops as clay_ops
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import modifiers as mod
+from realmspinner.kernels.mesh import ops as clay_ops_geom
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import ops as clay_ops
 
 
 class _Toasts:

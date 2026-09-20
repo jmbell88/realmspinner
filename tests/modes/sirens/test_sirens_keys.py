@@ -32,9 +32,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.modes.sirens import mode as sirens_mode
-from warlock.studio.modes.sirens.engine import document as D
-from warlock.studio.modes.sirens.engine import notes, synth
+from realmspinner.studio.modes.sirens import mode as sirens_mode
+from realmspinner.studio.modes.sirens.engine import document as D
+from realmspinner.studio.modes.sirens.engine import notes, synth
 
 from .test_sirens_mode import FakeCtx, _Event, _tab
 
@@ -206,7 +206,7 @@ def test_an_instrument_number_past_the_id_space_writes_nothing():
 
 
 def test_the_volume_column_takes_one_digit_and_covers_the_engines_range():
-    from warlock.studio.modes.sirens.engine import instruments as inst
+    from realmspinner.studio.modes.sirens.engine import instruments as inst
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -417,7 +417,7 @@ def test_shift_escape_stops_all_sound_from_any_focus(monkeypatch):
     """
     import pygame
 
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     calls: list[bool] = []
     monkeypatch.setattr(sirens_audio, "stop", lambda: calls.append(True))

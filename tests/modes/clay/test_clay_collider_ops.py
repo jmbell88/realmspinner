@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels.mesh import colliders as colliders_mod
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import ops as clay_ops
+from realmspinner.kernels.mesh import colliders as colliders_mod
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import ops as clay_ops
 
 
 class _Toasts:
@@ -146,7 +146,7 @@ def test_collider_fits_the_evaluated_mesh_not_the_base_one(monkeypatch: pytest.M
     -- and therefore ``_collider_op``'s own lookup -- pointed at the
     original.
     """
-    from warlock.kernels.mesh import modifiers as mod
+    from realmspinner.kernels.mesh import modifiers as mod
 
     seen: list[object] = []
     real = colliders_mod.fit_box
@@ -270,7 +270,7 @@ def test_the_agent_clay_op_enum_picks_up_every_collider_row_with_no_edit_there()
     ``test_agent_clay.py``'s identical claim). This is that same promise for
     tranche 7's five new rows specifically.
     """
-    from warlock.studio.modes.clay.agent import dispatch as agent_clay
+    from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
     tools = {t.name: t for t in agent_clay.tools()}
     enum = set(tools["clay_op"].schema["properties"]["name"]["enum"])

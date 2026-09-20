@@ -16,12 +16,12 @@ from pathlib import Path
 
 import numpy as np
 
-from warlock.kernels.geom3d.gltf import Material
-from warlock.studio.modes.mason.engine import document as docmod
-from warlock.studio.modes.mason.engine import edits as ed
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import refs
-from warlock.studio.modes.mason.engine import terrain as tr
+from realmspinner.kernels.geom3d.gltf import Material
+from realmspinner.studio.modes.mason.engine import document as docmod
+from realmspinner.studio.modes.mason.engine import edits as ed
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import refs
+from realmspinner.studio.modes.mason.engine import terrain as tr
 
 
 class _Recorder:
@@ -296,7 +296,7 @@ def test_prefab_edit_undo_and_redo_apply_prefab_by_name():
 def test_every_edit_type_subclasses_the_shared_undo_engines_edit():
     """A sanity check on the sweep the document-level tests parametrize over:
     if this ever went to zero, that sweep would be silently testing nothing."""
-    from warlock.core.undo import Edit
+    from realmspinner.core.undo import Edit
 
     names = [
         name

@@ -1,4 +1,4 @@
-"""The child that asks whether there is a newer Warlock, with the network stubbed.
+"""The child that asks whether there is a newer Realmspinner, with the network stubbed.
 
 Nothing in this file reaches the network: ``download.open_url`` is replaced
 throughout, which is the same seam ``test_pack_worker``-shaped tests use and
@@ -22,10 +22,10 @@ from pathlib import Path
 
 import pytest
 
-from warlock.pipelines import download, update_worker
+from realmspinner.pipelines import download, update_worker
 
 ASSET = update_worker.MANIFEST_ASSET
-INSTALLER = "WarlockSetup-v0.0.37.exe"
+INSTALLER = "RealmspinnerSetup-v0.0.37.exe"
 INSTALLER_URL = "https://example.invalid/real/download/" + INSTALLER
 
 

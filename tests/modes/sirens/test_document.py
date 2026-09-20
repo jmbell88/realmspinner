@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.sirens.engine import document as D
-from warlock.studio.modes.sirens.engine import notes
+from realmspinner.studio.modes.sirens.engine import document as D
+from realmspinner.studio.modes.sirens.engine import notes
 
 
 def _song() -> D.SongDoc:
@@ -200,7 +200,7 @@ def test_add_oneshot_at_the_pattern_ceiling_does_not_leak_an_open_gesture():
     ``UNDO_MAX_DEPTH`` more (unrelated, ungestured) edits left the stack at
     its full pushed length instead of capped.
     """
-    from warlock.core.undo import UNDO_MAX_DEPTH
+    from realmspinner.core.undo import UNDO_MAX_DEPTH
 
     doc = _song()
     while len(doc.patterns) < D.MAX_PATTERNS:
@@ -481,7 +481,7 @@ def test_a_pattern_name_is_bounded_like_every_other_name():
 
 # --- defense in depth against a duplicate uid (the 2026-09-16 audit) ----------
 #
-# ``wsng.read_wsng`` now refuses a manifest with two patterns, channels or
+# ``rsng.read_rsng`` now refuses a manifest with two patterns, channels or
 # one-shots sharing one uid, so none of these should be reachable through the
 # app -- but ``_detach_pattern``, ``remove_channel``'s removal and
 # ``_detach_oneshot`` used to filter by ``uid !=``, which deletes *every*

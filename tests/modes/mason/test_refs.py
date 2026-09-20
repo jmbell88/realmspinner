@@ -11,7 +11,7 @@ import math
 
 import pytest
 
-from warlock.studio.modes.mason.engine import refs
+from realmspinner.studio.modes.mason.engine import refs
 
 
 def test_two_primitive_refs_built_from_equal_params_one_tuples_one_lists_are_equal() -> None:

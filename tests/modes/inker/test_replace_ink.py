@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import brush
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import brush
 
 SIZE = (16, 16)
 BACKDROP = (200, 100, 50, 255)

@@ -6,7 +6,7 @@ put the most likely one first in a strip of eight.
 
 from __future__ import annotations
 
-from warlock.pipelines import rank, reference
+from realmspinner.pipelines import rank, reference
 
 
 def _report(**kwargs):

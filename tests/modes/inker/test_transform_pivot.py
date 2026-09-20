@@ -30,12 +30,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import _doc_selection
-from warlock.kernels.pixel.selection import SelectionMask, render_transform_about
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-from warlock.studio.shell import paintview
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import _doc_selection
+from realmspinner.kernels.pixel.selection import SelectionMask, render_transform_about
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+from realmspinner.studio.shell import paintview
 
 SIZE = (32, 24)
 #: The pane ``_input`` is driven in. Large enough that these documents sit
@@ -218,7 +218,7 @@ def test_a_floating_buffer_dragged_off_canvas_then_pivoted_does_not_blow_the_tra
     back onto the page and ``pivot_local`` (canvas pivot minus the buffer's
     own, unclamped, remembered corner) is huge, so ``_pad_to_pivot`` -- which
     has no ceiling of its own -- padded a plane sized by that distance rather
-    than by :data:`~warlock.kernels.pixel.selection.MAX_TRANSFORM_SIDE`, the
+    than by :data:`~realmspinner.kernels.pixel.selection.MAX_TRANSFORM_SIDE`, the
     same ceiling :func:`FloatingBuffer.transform`'s scale already respects.
 
     The final buffer is cropped back to its mask's coverage, so asserting on
@@ -226,7 +226,7 @@ def test_a_floating_buffer_dragged_off_canvas_then_pivoted_does_not_blow_the_tra
     already spent padding and rotating a plane nobody keeps. The spy below
     catches the padded plane itself, before the crop throws the evidence away.
     """
-    from warlock.kernels.pixel import selection as sel
+    from realmspinner.kernels.pixel import selection as sel
 
     seen: list[tuple[int, int]] = []
     real_pad = sel._pad_to_pivot

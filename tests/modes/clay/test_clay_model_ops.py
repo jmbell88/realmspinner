@@ -21,12 +21,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import adjacency as adj
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import ops as clay_ops
+from realmspinner.kernels.mesh import adjacency as adj
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import ops as clay_ops
 
 
 class _Toasts:
@@ -460,7 +460,7 @@ def test_symmetrize_direction_choice_translates_to_a_signed_kernel_argument(
     either way, to prove the two choices really do translate to different
     signs.
     """
-    from warlock.kernels.mesh import ops_model
+    from realmspinner.kernels.mesh import ops_model
 
     seen: list[float] = []
     real = ops_model.symmetrize
@@ -489,7 +489,7 @@ def test_the_six_game_generators_are_filed_in_their_own_category_in_order() -> N
 
 
 def test_the_six_game_generators_each_carry_a_real_icon() -> None:
-    from warlock.studio import tool_palette
+    from realmspinner.studio import tool_palette
 
     for name in NEW_GENERATORS:
         assert name in tool_palette.PRIMITIVE_ICONS, name
@@ -501,7 +501,7 @@ def test_the_six_game_generators_place_from_the_palette_with_the_right_tag() -> 
     pane and the agent's ``clay_add_primitive`` handler both call through --
     see that function's own docstring -- so placing through it here proves
     both surfaces reach these six with no further wiring."""
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     doc = bd.ClayDoc()
     ctx = _Ctx()
@@ -524,7 +524,7 @@ def test_the_agent_op_and_generator_enums_pick_up_every_new_row_with_no_edit_the
     specifically, so a hand-listed enum that happened to already include
     today's set would still be caught the next time either registry grows.
     """
-    from warlock.studio.modes.clay.agent import dispatch as agent_clay
+    from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
     tools = {t.name: t for t in agent_clay.tools()}
     op_enum = set(tools["clay_op"].schema["properties"]["name"]["enum"])

@@ -4,7 +4,7 @@ Plotter is the top-level tile-map mode: a grid, a stack of layers, one or more t
 objects an engine reads as spawn points and trigger volumes. It is where a sheet of tiles becomes a
 level.
 
-It exists because the rest of Warlock makes *assets* and stops there. A sprite sheet or a packed
+It exists because the rest of Realmspinner makes *assets* and stops there. A sprite sheet or a packed
 atlas is a pile of pictures; a map is the thing a game actually loads. Plotter closes that gap
 without leaving the app, and it speaks Tiled's file formats in both directions so nothing you build
 here is trapped.
@@ -98,7 +98,7 @@ cell already painted — or leave a hole. Undo takes back a tileset you have onl
 Pick a single tile and a **Tile** header appears under the palette. A tile can carry a class, custom
 properties of the same typed kind everything else here does, a **probability** that weights it for a
 random brush, an **animation** and a set of **collision shapes** — all of it Tiled's own model, read
-from and written to `.tsx`, `.tmx`, `.tmj` and `.wmap`.
+from and written to `.tsx`, `.tmx`, `.tmj` and `.rmap`.
 
 Probability 0 is worth stating on its own: such a tile is never chosen by a random brush and is
 always placeable by hand. It is how a set marks a tile that belongs to the palette but not to the
@@ -465,7 +465,7 @@ anything; see *Selecting several objects* below.
 
 Standing on an object layer changes the whole tool pill: the letters become *insert* tools, one per
 shape — `R` rectangle, `I` point, `E` ellipse, `C` capsule, `P` polygon, `L` polyline, `T` tile,
-`X` text, and `S` back to the pointer. The **capsule** is Warlock's own shape and no Tiled release
+`X` text, and `S` back to the pointer. The **capsule** is Realmspinner's own shape and no Tiled release
 reads it; see the dialect list further down.
 
 **The list and the settings are two panes.** *Layers* is the stack and nothing else — one row per
@@ -534,7 +534,7 @@ copy and cut act on the object last clicked when several are selected; move and 
 verbs that take a whole set.
 
 An **image layer** created here starts empty, and **Choose…** on its row attaches a picture.
-`.wmap` already stores an image layer's pixels, so the file needs nothing new to hold it.
+`.rmap` already stores an image layer's pixels, so the file needs nothing new to hold it.
 
 Right-click a layer for **Duplicate** and **Merge down** beside Delete. A duplicate copies the whole
 subtree with fresh identities — nothing is shared with the original, so painting on one does not paint
@@ -558,7 +558,7 @@ its opacity, move it up and down the stack, delete the whole layer, and of cours
 also still *select* an object on a locked layer and read its properties, and still copy cells from
 one — a lock is not a reason to lose sight of your own work.
 
-Locks are saved in `.wmap`, and in `.tmx`/`.tmj` exports where Tiled understands them. A map written
+Locks are saved in `.rmap`, and in `.tmx`/`.tmj` exports where Tiled understands them. A map written
 before this existed opens with everything unlocked.
 
 ## Tile stamps
@@ -624,7 +624,7 @@ undoable, and both are saved.
 An object carries a name, a class, and any number of typed custom properties: string, int, float,
 bool, colour, file, object and class. The type is stored rather than guessed, so a colour stays a
 colour on the way out to Tiled and back. Those properties are the whole point of an object layer —
-they are how a map says "this door needs the brass key" to code that has never heard of Warlock.
+they are how a map says "this door needs the brass key" to code that has never heard of Realmspinner.
 
 A **file** property is a path Plotter carries verbatim and never resolves; an **object** property is
 a Tiled object id, where 0 means none; and a **class** property holds a block of properties of its
@@ -644,12 +644,12 @@ tell those two apart.
 
 `Ctrl+S` saves, and the **Map file** panel carries the same **New**, **Open...**, **Save** and
 **Save As...** buttons every workspace has, over the file's path and one line saying whether it is
-saved. A map's own format is `.wmap`, a single file that embeds its tileset images, so it
+saved. A map's own format is `.rmap`, a single file that embeds its tileset images, so it
 can be moved or sent without a folder of dependencies. Two saves of an unchanged map produce
 byte-identical files, which means a content hash means something and a diff shows only what you
 actually changed.
 
-A map *opened* from a `.tmx` or `.tmj` saves back to that format instead. Warlock does not silently
+A map *opened* from a `.tmx` or `.tmj` saves back to that format instead. Realmspinner does not silently
 convert a file you brought from Tiled into one Tiled cannot open.
 
 ## Working with Tiled
@@ -658,11 +658,11 @@ convert a file you brought from Tiled into one Tiled cannot open.
 which is the layout Tiled and every engine importer expects. TMX has no portable way to embed an
 image, which is why an export is several files rather than one.
 
-A `.wmap` carries the map's projection and its terrain sets. A `.tmx` carries the projection and
+A `.rmap` carries the map's projection and its terrain sets. A `.tmx` carries the projection and
 describes the terrain sets as Tiled Wang sets, so an atlas made here opens in Tiled with a working
 terrain brush.
 
-Exporting deliberately does *not* retarget `Ctrl+S`. The `.wmap` holds things the `.tmx` cannot, so
+Exporting deliberately does *not* retarget `Ctrl+S`. The `.rmap` holds things the `.tmx` cannot, so
 making the export the document's home would lose them on the next save.
 
 Import goes the other way: `Ctrl+O` opens a `.tmx` or `.tmj`, in CSV, base64, zlib, gzip or the
@@ -704,13 +704,13 @@ object is modelled rather than refused: hiding something changes nothing about w
 ### What Plotter writes that Tiled does not read
 
 The document model has grown a handful of things Tiled has no spelling for, and they go into a
-`.tmx` or `.tmj` anyway because losing them on export would be worse. They are **Warlock dialect**:
+`.tmx` or `.tmj` anyway because losing them on export would be worse. They are **Realmspinner dialect**:
 an oblique projection with its skew, a per-layer blend mode, a per-object opacity, the capsule
 object shape, and list-valued custom properties. A file carrying any of them opens in Plotter and
 will not open cleanly in Tiled.
 
 If a map has to go to Tiled, keep it to the features in the round-trip list. If it only has to come
-back here, `.wmap` holds everything without qualification — which is why exporting deliberately
+back here, `.rmap` holds everything without qualification — which is why exporting deliberately
 does not retarget `Ctrl+S`.
 
 The full list of what Plotter reads, refuses, preserves and writes as dialect is kept in
@@ -722,9 +722,9 @@ The full list of what Plotter reads, refuses, preserves and writes as dialect is
 asset. It joins the same library every other asset is in, with a thumbnail, a card and every export
 the library offers.
 
-The map itself is kept beside it as `map.wmap`, which is what lets **Open in Plotter** on the card
+The map itself is kept beside it as `map.rmap`, which is what lets **Open in Plotter** on the card
 reopen the real document — layers, objects and all — rather than a single flattened picture. It
-follows the same precedent as Inker's `paint.ora` and Clay's `build.wblk`: never served, never
+follows the same precedent as Inker's `paint.ora` and Clay's `build.rblk`: never served, never
 downloadable, and gone with the job directory for free.
 
 Hidden layers are not rendered. One flag decides both what you see and what comes out.
@@ -733,10 +733,10 @@ Hidden layers are not rendered. One flag decides both what you see and what come
 
 | File | What it is |
 | --- | --- |
-| `<name>.wmap` | The map, with its tileset images embedded. Warlock's own format. |
+| `<name>.rmap` | The map, with its tileset images embedded. Realmspinner's own format. |
 | `<name>.tmx` / `.tmj` | A Tiled export, beside its `tilesets/` folder. |
-| `~/.warlock/assets/<job>/input.png` | The flat render, for a map exported to the library. |
-| `~/.warlock/assets/<job>/map.wmap` | The map behind that render. Not served; reopened by **Open in Plotter**. |
+| `~/.realmspinner/assets/<job>/input.png` | The flat render, for a map exported to the library. |
+| `~/.realmspinner/assets/<job>/map.rmap` | The map behind that render. Not served; reopened by **Open in Plotter**. |
 
 See [Keyboard shortcuts](38-shortcuts.md) for every binding, and
 [Packwright](33-packwright.md) for building the tilesets this mode consumes.

@@ -12,12 +12,12 @@ labels: bug
 
 **Diagnostics** — please paste the output of:
 ```powershell
-uv run warlock doctor
+uv run realmspinner doctor
 ```
 It reports your GPU, VRAM, which models are present and which subsystems are
 available, which is usually the whole answer.
 
-**Log** — `~/.warlock/warlock.log`, and `~/.warlock/assets/trellis.log` if the
+**Log** — `~/.realmspinner/realmspinner.log`, and `~/.realmspinner/assets/trellis.log` if the
 problem was a 3D reconstruction. Paste the relevant part rather than the file.
 
 **Version** — shown next to the title on the Home screen.

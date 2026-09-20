@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.viewer import gizmo as gz
+from realmspinner.studio.viewer import gizmo as gz
 
 
 def _scale_gizmo(origin=(0.0, 0.0, 0.0), scale: float = 1.0) -> gz.ScaleGizmo:

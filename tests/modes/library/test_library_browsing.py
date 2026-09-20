@@ -15,12 +15,12 @@ from typing import Any
 
 import pytest
 
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Conflict
-from warlock.studio import jobs_cache as cache_mod
-from warlock.studio.modes.library.ui.panes import full as library_full
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.state import SORTS, Filters, parse_query
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Conflict
+from realmspinner.studio import jobs_cache as cache_mod
+from realmspinner.studio.modes.library.ui.panes import full as library_full
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.state import SORTS, Filters, parse_query
 
 
 def job(**over: Any) -> dict[str, Any]:
@@ -207,7 +207,7 @@ def test_usable_only_hides_a_plus_two_and_shows_a_plus_three_through_the_one_cut
     """The cut is Review's own scale (``+3`` is "usable"), and it must be the
     live constant rather than a second spelling of it -- patching the real
     ``vectors.USABLE_GRADE`` has to move the predicate with it."""
-    import warlock.vectors as vectors_mod
+    import realmspinner.vectors as vectors_mod
 
     below = job(id="below", grade=2)
     at_cut = job(id="at-cut", grade=3)
@@ -230,7 +230,7 @@ def test_a_listed_job_carries_its_latest_human_mesh_grade_and_not_an_image_label
     grade: a reference on the same job id can carry a binary image label
     whose ``grade`` column is NULL, and that must not leak onto the card as a
     mesh verdict it never received."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     graded = _finished_mesh(svc)
     svc_verdicts.record_verdict(svc, graded, grade=4)
@@ -249,7 +249,7 @@ def test_a_listed_job_carries_its_latest_human_mesh_grade_and_not_an_image_label
 def test_a_regraded_job_lists_the_newer_grade(svc):
     """Verdicts are append-only (a changed mind is a new row); the row must
     show what the reviewer thinks now, not what they filed first."""
-    from warlock.service import verdicts as svc_verdicts
+    from realmspinner.service import verdicts as svc_verdicts
 
     job_id = _finished_mesh(svc)
     svc_verdicts.record_verdict(svc, job_id, grade=-3, reasons=["holes"])
@@ -374,7 +374,7 @@ def test_quick_open_never_offers_a_trashed_asset():
     would be the one surface where a deleted asset still turns up."""
     from types import SimpleNamespace
 
-    from warlock.studio import palette
+    from realmspinner.studio import palette
 
     rows = [job(id="live", name="chest"), job(id="gone", name="chest", deleted_at=1.0)]
     ctx = SimpleNamespace(cache=SimpleNamespace(jobs=rows))
@@ -443,8 +443,8 @@ def test_a_job_outside_the_loaded_window_is_found_by_its_prompt(svc):
     which on the frame thread was the exact stall the ordinary list poll's
     ``request``/``read``/``adopt`` split exists to prevent.
     """
-    from warlock.studio.jobs_cache import SEARCH_KEY
-    from warlock.studio.tasks import TaskRunner
+    from realmspinner.studio.jobs_cache import SEARCH_KEY
+    from realmspinner.studio.tasks import TaskRunner
 
     old_id = svc.store.create("text", "a rusty iron lantern", {})
     svc.store._conn.execute("UPDATE jobs SET created_at = 1.0 WHERE id = ?", (old_id,))
@@ -483,7 +483,7 @@ def imgui_ctx(gl):
     context."""
     from imgui_bundle import imgui
 
-    from warlock.studio import imgui_backend, theme
+    from realmspinner.studio import imgui_backend, theme
 
     prev_screen = type(gl).__dict__.get("screen")
     fbo = gl.simple_framebuffer((1600, 950))
@@ -507,18 +507,18 @@ def imgui_ctx(gl):
 
 @pytest.fixture
 def app_ctx(gl, svc, tmp_path, imgui_ctx):
-    from warlock.studio import textures
-    from warlock.studio.app_ctx import Ctx
-    from warlock.studio.runtime import Runtime
-    from warlock.studio.tasks import TaskRunner
-    from warlock.studio.viewer_embed import Viewer
+    from realmspinner.studio import textures
+    from realmspinner.studio.app_ctx import Ctx
+    from realmspinner.studio.runtime import Runtime
+    from realmspinner.studio.tasks import TaskRunner
+    from realmspinner.studio.viewer_embed import Viewer
 
     runtime = Runtime(svc.config)
     runtime.store = svc.store
     runtime.tasks = TaskRunner(workers=1)
     viewer = Viewer(gl)
-    from warlock.studio.settings import Settings
-    from warlock.studio.state import AppState
+    from realmspinner.studio.settings import Settings
+    from realmspinner.studio.state import AppState
 
     ctx = Ctx(
         svc=svc,
@@ -551,7 +551,7 @@ def _drain_search(ctx: Any) -> None:
     """Poll a real ``TaskRunner`` for the search :meth:`request_widen`
     submitted and hand its result to ``adopt_widen`` -- the frame-thread half,
     which ``main._on_task_done`` performs in the app (shell-01)."""
-    from warlock.studio.jobs_cache import SEARCH_KEY
+    from realmspinner.studio.jobs_cache import SEARCH_KEY
 
     deadline = time.monotonic() + 5
     done: list[Any] = []
@@ -610,7 +610,7 @@ def test_the_job_list_is_read_off_the_frame_thread_and_adopted_on_it(svc):
     and touches nothing on the cache itself; only :meth:`JobsCache.adopt`,
     called with the task's result, may ever assign ``jobs`` or ``by_id``.
     """
-    from warlock.studio.tasks import TaskRunner
+    from realmspinner.studio.tasks import TaskRunner
 
     svc.store.create("text", "a rusty sword", {})
     cache = cache_mod.JobsCache(svc)
@@ -661,7 +661,7 @@ def test_load_older_fetches_the_next_page_rather_than_re_reading_the_window(svc,
     used rather than by any behaviour the old, unfixed code also happened to
     produce.
     """
-    from warlock.studio import jobs_cache as cache_mod_local
+    from realmspinner.studio import jobs_cache as cache_mod_local
 
     for i in range(cache_mod_local.LIST_LIMIT + 5):
         job_id = svc.store.create("text", f"asset {i}", {})
@@ -790,7 +790,7 @@ def test_opening_a_missing_folder_still_toasts_inline():
 
 
 def test_convert_formats_are_offered_only_for_the_kinds_that_have_any():
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     for kind in ("music", "reference", "tile", "tilesheet"):
         names = {n for n, _label in library._CONVERT_FORMATS[kind]}
@@ -1188,7 +1188,7 @@ def test_dialogs_offers_a_filter_for_every_new_convert_suffix():
     """Before this, saving any of these fell through to ``["All files", "*"]``
     -- no extension offered, none appended -- because ``ARTIFACT_FILTERS`` had
     no audio or web-image rows at all."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     for suffix in (".wav", ".flac", ".mp3", ".ogg", ".aiff", ".webp", ".jpg"):
         assert suffix in dialogs.ARTIFACT_FILTERS, suffix

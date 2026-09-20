@@ -9,8 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import sheetmerge
-from warlock.kernels.pixel.sheetin import document_from_sheet
+from realmspinner.kernels.pixel import sheetmerge
+from realmspinner.kernels.pixel.sheetin import document_from_sheet
 
 CELL = 8
 FRAMES = 4

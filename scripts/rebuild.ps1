@@ -20,7 +20,7 @@
     -n 8, when reproducing a runner-shaped xdist death.
 
 .PARAMETER Native
-    Rebuild vendor\warlockc\warlockc.dll before the installer. Opt-in, and it
+    Rebuild vendor\realmspinnerc\realmspinnerc.dll before the installer. Opt-in, and it
     invalidates the manifest pin -- see the comment on the step.
 
 .PARAMETER SkipInstaller
@@ -108,7 +108,7 @@ function Invoke-Step {
 try {
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    throw "uv is required to build Warlock Studio"
+    throw "uv is required to build Realmspinner"
 }
 
 $VersionOutput = (& uv version --short | Out-String).Trim()
@@ -161,20 +161,20 @@ if (-not $SkipInstaller) {
     }
     # The fresh-checkout case the native step used to cover by building
     # unconditionally. /vendor/ is gitignored and both runtime directories
-    # (runtime-manifest.json's roots: gltfpack, warlockc -- trellis left this
+    # (runtime-manifest.json's roots: gltfpack, realmspinnerc -- trellis left this
     # payload on 2026-09-10) are pinned, so a checkout that has never been
     # provisioned fails inside installer\build.ps1's first verify_runtime --
     # twenty minutes of nothing. Said here instead, in a second, and with
     # what to do about it.
     if (-not $Native) {
-        $Dll = Join-Path $Root "vendor\warlockc\warlockc.dll"
+        $Dll = Join-Path $Root "vendor\realmspinnerc\realmspinnerc.dll"
         if (-not (Test-Path -LiteralPath $Dll -PathType Leaf)) {
-            throw "no vendor\warlockc\warlockc.dll, which runtime-manifest.json pins: build it with ``pwsh native\build.ps1``, then update its manifest entry and run ``uv run pytest tests/test_installer.py -n 0``"
+            throw "no vendor\realmspinnerc\realmspinnerc.dll, which runtime-manifest.json pins: build it with ``pwsh native\build.ps1``, then update its manifest entry and run ``uv run pytest tests/test_installer.py -n 0``"
         }
     }
 }
 
-Write-Host "Warlock Studio $Version" -ForegroundColor Green
+Write-Host "Realmspinner $Version" -ForegroundColor Green
 Write-Host "  python    $ManagedPython"
 if (-not $SkipInstaller) { Write-Host "  iscc      $Iscc" }
 
@@ -236,13 +236,13 @@ Invoke-Step "Wheel install smoke test" "Wheel install smoke test" {
 
 # **Rebuilding the DLL is opt-in, and this driver had it the other way round
 # for exactly one run.** The reasoning for building it by default was that
-# runtime-manifest.json pins vendor\warlockc\warlockc.dll and /vendor/ is
+# runtime-manifest.json pins vendor\realmspinnerc\realmspinnerc.dll and /vendor/ is
 # gitignored, so a fresh checkout has no DLL for verify_runtime to find. True,
 # and it misses the corollary: MSVC embeds a build timestamp, so recompiling
 # *identical* sources yields an identical 123392 bytes with a different
 # SHA-256. A default rebuild therefore breaks the pin on every machine that
 # already had a good DLL -- which is what it did here, and the installer
-# refused with "runtime file SHA-256 differs: vendor/warlockc/warlockc.dll".
+# refused with "runtime file SHA-256 differs: vendor/realmspinnerc/realmspinnerc.dll".
 #
 # The pin is the point: a native binary and its manifest entry are upgraded
 # together by a human, and tests\test_installer.py asserts they agree. So the
@@ -253,7 +253,7 @@ if ($Native) {
         & pwsh -NoProfile -File (Join-Path $Root "native\build.ps1")
         Assert-LastExit "native\build.ps1"
         Write-Host ""
-        Write-Host "warlockc.dll was rebuilt, so its runtime-manifest.json pin is now stale." -ForegroundColor Yellow
+        Write-Host "realmspinnerc.dll was rebuilt, so its runtime-manifest.json pin is now stale." -ForegroundColor Yellow
         Write-Host "Update the entry and run: uv run pytest tests/test_installer.py -n 0" -ForegroundColor Yellow
     }
 }
@@ -278,14 +278,14 @@ else {
             # at all behind a build that then failed. The version is the one
             # preflight has already proven agrees across all four files.
             $Keep = @(
-                "WarlockSetup-v$Version.exe",
-                "warlock-$Version-py3-none-any.whl",
-                "warlock-$Version.tar.gz"
+                "RealmspinnerSetup-v$Version.exe",
+                "realmspinner-$Version-py3-none-any.whl",
+                "realmspinner-$Version.tar.gz"
             )
             $Stale = @(Get-ChildItem -LiteralPath $Dist -File | Where-Object {
-                ($_.Name -like 'WarlockSetup-v*.exe' -or
-                 $_.Name -like 'warlock-*.whl' -or
-                 $_.Name -like 'warlock-*.tar.gz') -and $Keep -notcontains $_.Name
+                ($_.Name -like 'RealmspinnerSetup-v*.exe' -or
+                 $_.Name -like 'realmspinner-*.whl' -or
+                 $_.Name -like 'realmspinner-*.tar.gz') -and $Keep -notcontains $_.Name
             })
             foreach ($File in $Stale) {
                 Assert-UnderRoot $File.FullName $Dist
@@ -303,9 +303,9 @@ Write-Host ""
 $Timings | Format-Table -AutoSize | Out-String | Write-Host
 
 $Artifacts = @(
-    (Join-Path $Dist "WarlockSetup-v$Version.exe"),
-    (Join-Path $Dist "warlock-$Version-py3-none-any.whl"),
-    (Join-Path $Dist "warlock-$Version.tar.gz")
+    (Join-Path $Dist "RealmspinnerSetup-v$Version.exe"),
+    (Join-Path $Dist "realmspinner-$Version-py3-none-any.whl"),
+    (Join-Path $Dist "realmspinner-$Version.tar.gz")
 ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
 
 foreach ($Artifact in $Artifacts) {

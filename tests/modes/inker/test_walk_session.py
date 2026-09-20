@@ -19,14 +19,14 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import walk
-from warlock.kernels.pixel.walk import rig as R
-from warlock.studio import probe
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker import walk as inker_walk
-from warlock.studio.modes.inker.ui.panes import walk as pane
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import walk
+from realmspinner.kernels.pixel.walk import rig as R
+from realmspinner.studio import probe
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker import walk as inker_walk
+from realmspinner.studio.modes.inker.ui.panes import walk as pane
 
 SIZE = (64, 64)
 
@@ -156,7 +156,7 @@ def test_assigning_from_a_selection_does_not_add_a_layer_to_the_drawing():
     difference between the two doors, asserted where it matters."""
     ctx, tab = _scene()
     inker_walk.open_session(ctx, tab)
-    from warlock.kernels.pixel.selection import SelectionMask
+    from realmspinner.kernels.pixel.selection import SelectionMask
 
     tab.doc.select(SelectionMask.from_rect(SIZE, (28, 18, 36, 38)))
     head = tab.doc.history.head
@@ -173,7 +173,7 @@ def test_a_part_taken_from_a_selection_lands_where_the_selection_was():
     otherwise every joint on that part is out by the marquee's corner."""
     ctx, tab = _scene()
     inker_walk.open_session(ctx, tab)
-    from warlock.kernels.pixel.selection import SelectionMask
+    from realmspinner.kernels.pixel.selection import SelectionMask
 
     tab.doc.select(SelectionMask.from_rect(SIZE, (28, 18, 36, 38)))
     inker_walk.assign_selection(ctx, tab, "torso")
@@ -284,7 +284,7 @@ def test_enter_in_walk_cycle_context_says_why_when_the_bake_is_refused():
     this broke: "a refused op says why"."""
     import pygame
 
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx, tab = _scene()
     inker_walk.open_session(ctx, tab)
@@ -403,7 +403,7 @@ def test_a_stride_above_the_new_bound_is_brought_back_down_when_a_joint_moves():
     instead of showing the user a number they can act on."""
     ctx, tab = _scene()
     session = _rigged(ctx, tab)
-    from warlock.kernels.pixel.walk import gait
+    from realmspinner.kernels.pixel.walk import gait
 
     inker_walk.set_setting(ctx, tab, "stride", gait.reachable_stride(session.rig))
     inker_walk.set_joint(ctx, tab, "near_hip", (32.0, 46.0))
@@ -575,7 +575,7 @@ def test_the_walk_context_beats_a_selection_and_a_float():
     """A user lifts a body part out of a selection while setting one up, and
     Escape then has to mean "close the setup", not "drop the marquee"."""
     ctx, tab = _scene()
-    from warlock.kernels.pixel.selection import SelectionMask
+    from realmspinner.kernels.pixel.selection import SelectionMask
 
     inker_walk.open_session(ctx, tab)
     tab.doc.select(SelectionMask.from_rect(SIZE, (2, 2, 8, 8)))
@@ -592,7 +592,7 @@ def test_the_context_is_one_the_registry_knows_about():
 
 
 def _right(ctx):
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     columns = skeletons.inker(ctx)
     return [slot.id for slot in columns["right"].slots if slot.applies(ctx)]

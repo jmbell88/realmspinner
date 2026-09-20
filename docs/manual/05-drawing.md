@@ -1,6 +1,6 @@
 # Drawing
 
-Inker is Warlock's raster editor: layers, a timeline, palettes, selections and twenty-four tools. It
+Inker is Realmspinner's raster editor: layers, a timeline, palettes, selections and twenty-four tools. It
 is a real pixel-art and painting program, not a touch-up panel bolted to a generator, and it needs
 no GPU and no model weights — everything in this chapter works on a bare install.
 

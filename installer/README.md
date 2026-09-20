@@ -1,21 +1,21 @@
 # Windows installer build
 
-`pwsh installer\build.ps1` produces the checkout-shaped, per-user Warlock
-Studio installer. The build requires Windows, `uv`, an already installed
+`pwsh installer\build.ps1` produces the checkout-shaped, per-user Realmspinner
+Realmspinner installer. The build requires Windows, `uv`, an already installed
 uv-managed CPython 3.13, and Inno Setup 6 (`iscc.exe` on `PATH`, or supplied as
 `-Iscc`). It does not download Python, native tools, or model weights.
 
 `pwsh scripts\rebuild.ps1` is the release driver over this script: it runs
 every step of Windows CI first, then this build, and prunes `dist\` down to the
-version that was built. It leaves `warlockc.dll` alone unless asked with
+version that was built. It leaves `realmspinnerc.dll` alone unless asked with
 `-Native`, because a rebuilt DLL is a new SHA-256 and therefore a manifest
 change -- see the pin note below.
 
 The staged application contains the locked Python runtime and dependencies,
-`src\warlock`, the manual, and the two native runtime directories under
-`vendor` (`gltfpack`, `warlockc` -- trellis left this payload on 2026-09-10,
+`src\realmspinner`, the manual, and the two native runtime directories under
+`vendor` (`gltfpack`, `realmspinnerc` -- trellis left this payload on 2026-09-10,
 when the engine became a download; see `runtime-manifest.json`'s `roots`).
-Model weights remain first-run downloads under the user's Warlock
+Model weights remain first-run downloads under the user's Realmspinner
 home. The project is GPL-3.0-or-later: `LICENSE` is shown as the wizard's
 first page (`LicenseFile=`) and staged into the install root alongside
 `THIRD-PARTY-NOTICES.md`, which also goes beside `vendor\` because MIT and

@@ -14,11 +14,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.geom3d.gltf import Model, Node
-from warlock.kernels.rig import skeleton, store
-from warlock.studio.viewer import bonelines
-from warlock.studio.viewer.pose import PoseEditor
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.geom3d.gltf import Model, Node
+from realmspinner.kernels.rig import skeleton, store
+from realmspinner.studio.viewer import bonelines
+from realmspinner.studio.viewer.pose import PoseEditor
 
 
 def _model() -> Model:
@@ -500,8 +500,8 @@ def test_limb_row_defaults_to_the_first_listed_preset_not_an_arbitrary_one(monke
     """
     from types import SimpleNamespace
 
-    from warlock.studio.modes.poser import mode as poser_mode
-    from warlock.studio.modes.poser.ui.panes import skeleton as poser_skeleton
+    from realmspinner.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.poser.ui.panes import skeleton as poser_skeleton
 
     presets = [
         {"key": f"preset-{i}", "label": f"Preset {i}", "bone_count": i} for i in range(30)

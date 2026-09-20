@@ -22,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from warlock.characters import family as family_mod
-from warlock.characters.family import Family
-from warlock.characters.resolve import (
+from realmspinner.characters import family as family_mod
+from realmspinner.characters.family import Family
+from realmspinner.characters.resolve import (
     ACTION_WORDS,
     CAMERA_WORDS,
     KNOWN_CREATURES,
@@ -34,8 +34,8 @@ from warlock.characters.resolve import (
     resolve,
     vocabulary,
 )
-from warlock.kernels import charsheet
-from warlock.kernels.rig import cliplib
+from realmspinner.kernels import charsheet
+from realmspinner.kernels.rig import cliplib
 
 FAMILIES = family_mod.families()
 VOCAB = vocabulary()
@@ -266,7 +266,7 @@ def test_every_action_key_the_vocabulary_emits_is_a_real_animation_or_a_shipped_
 
 def test_the_action_order_is_the_frame_tables_order():
     """The legacy prefix still is -- unchanged by the open vocabulary."""
-    from warlock.characters.resolve import _ACTION_ORDER
+    from realmspinner.characters.resolve import _ACTION_ORDER
 
     legacy = tuple(name for name, *_rest in charsheet.ANIMATIONS)
     assert _ACTION_ORDER[: len(legacy)] == legacy
@@ -278,7 +278,7 @@ def test_the_action_orders_tail_is_the_shipped_clip_order():
     -- so two prompts naming the same new movements in different orders still
     plan the same sheet.
     """
-    from warlock.characters.resolve import _ACTION_ORDER
+    from realmspinner.characters.resolve import _ACTION_ORDER
 
     legacy = tuple(name for name, *_rest in charsheet.ANIMATIONS)
     tail = _ACTION_ORDER[len(legacy) :]
@@ -385,7 +385,7 @@ def test_the_sentence_reads_the_way_the_ui_says_it():
     registry = _only(_fake("wyvern", "winged"))
     got = resolve("manticore", families=registry)
     assert offer_sentence(got, families=registry) == (
-        "Warlock has no manticore yet. The closest it makes is a wyvern."
+        "Realmspinner has no manticore yet. The closest it makes is a wyvern."
     )
     assert got.family is None
 

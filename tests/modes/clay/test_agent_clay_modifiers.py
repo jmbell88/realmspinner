@@ -27,10 +27,10 @@ from typing import Any
 
 import pytest
 
-from warlock.kernels.mesh import modifiers as clay_modifiers
-from warlock.kernels.mesh import scratch as clay_scratch
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.kernels.mesh import modifiers as clay_modifiers
+from realmspinner.kernels.mesh import scratch as clay_scratch
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
 # --- a ctx double, the same minimal shape test_agent_clay.py's own _Ctx is --
 
@@ -728,7 +728,7 @@ def test_condition_access_bounds_and_volume_read_the_evaluated_mesh() -> None:
     step reaches for at run time (``_run_live_assert``), so the claim is
     identical either way.
     """
-    from warlock.studio.modes.clay.agent import tools_batch as agent_tools_batch
+    from realmspinner.studio.modes.clay.agent import tools_batch as agent_tools_batch
 
     ctx, session, uid1, _uid2 = _new_world()
     doc = _doc(ctx, session)
@@ -804,7 +804,7 @@ def test_a_batch_adding_a_modifier_previews_and_transplants_as_one_step() -> Non
     ``tests/familiar/test_scratch_ctx.py`` already does for every other
     tool.
     """
-    from warlock.studio.assistant import preview as familiar_preview
+    from realmspinner.studio.assistant import preview as familiar_preview
 
     ctx, session, uid1, _uid2 = _new_world()
     doc = _doc(ctx, session)

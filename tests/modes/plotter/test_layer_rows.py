@@ -13,8 +13,8 @@ restates the arithmetic cannot catch the arithmetic being wrong.
 
 from __future__ import annotations
 
-from warlock.studio.modes.plotter.engine import layer_rows
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.engine import layer_rows
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 def _doc() -> MapDoc:

@@ -15,10 +15,10 @@ from typing import Any
 
 import pytest
 
-from warlock import _q_lora as q
-from warlock import config as config_mod
-from warlock import fetch, generation, models
-from warlock.pipelines import blender_run, lora_train
+from realmspinner import _q_lora as q
+from realmspinner import config as config_mod
+from realmspinner import fetch, generation, models
+from realmspinner.pipelines import blender_run, lora_train
 
 
 class _FakeProgress:

@@ -13,10 +13,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid as gidlib
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
-from warlock.studio.modes.plotter.ui.panes.canvas import status_bits
+from realmspinner.kernels.grid2d import gid as gidlib
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.ui.panes.canvas import status_bits
 
 
 def _tileset(name: str = "terrain", size: int = 32, tile: int = 16) -> Tileset:

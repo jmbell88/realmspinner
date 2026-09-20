@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.pipelines import retexture
+from realmspinner.pipelines import retexture
 
 
 def _write(path, arr, mode="RGB"):
@@ -267,7 +267,7 @@ def test_the_workers_view_direction_matches_this_modules():
     import ast
     import pathlib
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     source = pathlib.Path(blender_worker.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -285,8 +285,8 @@ def test_the_workers_view_direction_matches_this_modules():
 
 
 def test_the_specs_carry_the_views_they_are_given():
-    from warlock.kernels.rig import blender_spec
-    from warlock.pipelines import blender_worker
+    from realmspinner.kernels.rig import blender_spec
+    from realmspinner.pipelines import blender_worker
 
     views = list(retexture.VIEWS)
     v = blender_spec.views_spec(
@@ -327,7 +327,7 @@ def _png(colour, size=8) -> bytes:
 def _bin(body: bytes) -> bytes:
     import struct
 
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     return struct.pack("<II", len(body), glbio.CHUNK_BIN) + body
 
@@ -341,7 +341,7 @@ def _textured_glb(path, *, shared_image=False, materials=1) -> bytes:
     """
     import struct
 
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     png = _png((10, 20, 30))
     body = png + b"\0" * (-len(png) % 4)
@@ -387,7 +387,7 @@ def test_a_mesh_with_no_albedo_is_a_false_rather_than_a_raise(tmp_path):
     honest stand-in for a missing base."""
     import struct
 
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     glb = tmp_path / "bare.glb"
     header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)
@@ -421,7 +421,7 @@ def test_the_swap_appends_rather_than_overwriting_a_shared_image(tmp_path):
     dest = tmp_path / "new.glb"
     assert retexture.swap_base_colour(glb, atlas, dest) is True
 
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     gltf, buffer = glbio.read_glb(dest)
     # The other slot still points at the original image, byte for byte.
@@ -443,7 +443,7 @@ def test_every_material_sharing_the_atlas_is_repointed(tmp_path):
     dest = tmp_path / "new.glb"
     assert retexture.swap_base_colour(glb, atlas, dest) is True
 
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     gltf, _ = glbio.read_glb(dest)
     indices = {
@@ -460,7 +460,7 @@ def test_the_swap_leaves_the_rest_of_the_document_alone(tmp_path):
     glb = tmp_path / "model.glb"
     _textured_glb(glb)
 
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     before, buffer_before = glbio.read_glb(glb)
     before["nodes"] = [{"name": "grounding", "scale": [2.0, 2.0, 2.0]}]
@@ -487,7 +487,7 @@ def test_the_surface_exports_are_a_stated_subset_of_the_derived_ones():
     """One authority for the whole set, one stated subset of it, and the
     containment asserted -- so a new export cannot join one list and quietly
     miss the other."""
-    from warlock.service import files
+    from realmspinner.service import files
 
     assert set(retexture.SURFACE_DERIVED) < set(files.DERIVED)
     # The two left out, named rather than merely absent: an STL is geometry and
@@ -504,7 +504,7 @@ def test_a_mesh_with_no_uvs_cannot_be_given_a_skin(tmp_path):
     which reads as a failed restyle rather than as an unwrapped mesh."""
     import struct
 
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     glb = tmp_path / "bare.glb"
     header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)
@@ -528,7 +528,7 @@ def test_an_untextured_unwrapped_mesh_gains_the_slot(tmp_path):
     """
     import struct
 
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     glb = tmp_path / "clay.glb"
     header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)
@@ -569,7 +569,7 @@ def test_the_default_atlas_size_is_the_mesh_s_own(tmp_path):
 def test_an_unreadable_or_absent_atlas_has_no_size(tmp_path):
     import struct
 
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     glb = tmp_path / "bare.glb"
     header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)
@@ -621,7 +621,7 @@ def test_the_workers_depth_terms_match_this_modules():
     import ast
     import pathlib
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     source = pathlib.Path(blender_worker.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -885,7 +885,7 @@ def test_depth_hint_with_an_unreadable_input_is_a_false(tmp_path):
 def test_the_specs_default_to_no_depth_and_carry_the_ask():
     """Off unless asked, so every other caller of the two ops keeps meaning
     exactly what it meant before the depth pass existed."""
-    from warlock.kernels.rig import blender_spec
+    from realmspinner.kernels.rig import blender_spec
 
     path = Path("m.glb")
     views = list(retexture.VIEWS)
@@ -945,7 +945,7 @@ def test_every_data_bake_target_is_written_as_non_color():
     """
     import inspect
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     source = inspect.getsource(blender_worker.op_project)
     assert 'suffix in ("depthpair", "weight")' in source, (
@@ -959,6 +959,6 @@ def test_the_facing_floor_is_still_the_number_it_was():
     """``MIN_FACING`` was always right and was never what got applied, so the
     colourspace fix must not be accompanied by a retune of it -- that would be
     two changes to one behaviour with no way to tell them apart."""
-    from warlock.pipelines.retexture import MIN_FACING
+    from realmspinner.pipelines.retexture import MIN_FACING
 
     assert MIN_FACING == 0.15

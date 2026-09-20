@@ -17,8 +17,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock import _q_music as q
-from warlock import models, packs
+from realmspinner import _q_music as q
+from realmspinner import models, packs
 
 
 def _dir() -> Path:
@@ -250,7 +250,7 @@ def test_a_file_this_build_did_not_write_is_refused_rather_than_mangled():
     out = io.BytesIO()
     with wave.open(out, "wb") as handle:
         handle.setnchannels(1)
-        handle.setsampwidth(1)  # 8-bit, which WARLOCK 5/6 never writes
+        handle.setsampwidth(1)  # 8-bit, which REALMSPINNER 5/6 never writes
         handle.setframerate(44100)
         handle.writeframes(b"\x00" * 100)
     with pytest.raises(RuntimeError, match="16-bit PCM"):

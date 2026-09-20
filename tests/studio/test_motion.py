@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio import layout, motion, theme, tokens
+from realmspinner.studio import layout, motion, theme, tokens
 
 
 @pytest.fixture
@@ -270,7 +270,7 @@ def test_the_settings_toggle_moves_the_state_the_flag_and_the_file_together():
     it, and the app would go on animating until the next launch."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     written: dict[str, object] = {}
     ctx = SimpleNamespace(

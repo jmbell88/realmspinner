@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from warlock.mcp import pipe
+from realmspinner.mcp import pipe
 
 # --- the token -----------------------------------------------------------------
 
@@ -407,10 +407,10 @@ def test_a_socket_file_left_by_a_crash_does_not_disable_the_server_for_good(
 ) -> None:
     """POSIX only, and permanent before this: a Unix socket outlives the
     process that made it, and `bind` refuses an address whose file exists. A
-    Warlock killed hard left `mcp.sock` behind and every later `start()`
+    Realmspinner killed hard left `mcp.sock` behind and every later `start()`
     raised `EADDRINUSE` -- for the life of that home, since nothing removed
-    it. `instance.py` guarantees one Warlock per home, so a socket file here
-    cannot belong to a live Studio and is a leftover by construction.
+    it. `instance.py` guarantees one Realmspinner per home, so a socket file here
+    cannot belong to a live Realmspinner and is a leftover by construction.
     """
     stale = Path(pipe.address_for(tmp_path))
     stale.parent.mkdir(parents=True, exist_ok=True)

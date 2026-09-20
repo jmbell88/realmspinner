@@ -16,12 +16,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import glbwrite, gltf
-from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.modes.mason.engine import document as doc
-from warlock.studio.modes.mason.engine import gltfout, refs, scene
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import terrain as tr
+from realmspinner.kernels.geom3d import glbwrite, gltf
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.studio.modes.mason.engine import document as doc
+from realmspinner.studio.modes.mason.engine import gltfout, refs, scene
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import terrain as tr
 
 
 def _prim(x: float = 0.0, name: str = "") -> gltf.Primitive:

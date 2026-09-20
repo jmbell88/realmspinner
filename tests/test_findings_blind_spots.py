@@ -25,8 +25,8 @@ import pytest
 def test_a_file_past_the_ceiling_is_refused_before_a_byte_is_read(tmp_path):
     """The shared "is this small enough to open" question, which three modes
     had a private copy of and two more had none at all."""
-    from warlock.core.safeio import sizeguard
-    from warlock.service.errors import TooLarge
+    from realmspinner.core.safeio import sizeguard
+    from realmspinner.service.errors import TooLarge
 
     path = tmp_path / "big.bin"
     path.write_bytes(b"x" * 100)
@@ -44,7 +44,7 @@ def test_the_ceiling_is_read_at_call_time():
     """Which is what lets a test lower it rather than build half a gigabyte."""
     import inspect
 
-    from warlock.core.safeio import sizeguard
+    from realmspinner.core.safeio import sizeguard
 
     signature = inspect.signature(sizeguard.within_ceiling)
     assert "ceiling" in signature.parameters
@@ -56,7 +56,7 @@ def test_the_ceiling_is_read_at_call_time():
 def test_the_gpu_cache_key_moves_with_the_mesh_and_not_with_the_transform():
     """The transform is a uniform, not a buffer: moving an object must not
     rebuild it, and editing its mesh must."""
-    from warlock.studio.modes.clay.ui import _view_cache
+    from realmspinner.studio.modes.clay.ui import _view_cache
 
     material = object()
     doc = SimpleNamespace(materials=[material])
@@ -80,7 +80,7 @@ def test_a_replaced_material_changes_the_cache_key():
     """``set_material`` replaces the entry object, which is why the key is
     identity rather than value -- hashing five floats per entry per frame would
     learn the same thing."""
-    from warlock.studio.modes.clay.ui import _view_cache
+    from realmspinner.studio.modes.clay.ui import _view_cache
 
     doc = SimpleNamespace(materials=[object(), object()])
     before = _view_cache._materials_key(doc)
@@ -94,7 +94,7 @@ def test_a_replaced_material_changes_the_cache_key():
 def test_the_fill_bias_pulls_toward_the_eye_and_leaves_no_gl_state():
     """``glPolygonOffset`` is the textbook answer and is deliberately not used:
     it is global state that would leak into the gizmo pass."""
-    from warlock.studio.modes.clay.ui import _view_overlay
+    from realmspinner.studio.modes.clay.ui import _view_overlay
 
     matrix = _view_overlay._toward_eye(np.array([0.0, 0.0, 10.0]))
 
@@ -104,7 +104,7 @@ def test_the_fill_bias_pulls_toward_the_eye_and_leaves_no_gl_state():
 
 
 def test_a_face_outline_is_the_border_and_nothing_else():
-    from warlock.studio.modes.clay.ui import _view_overlay
+    from realmspinner.studio.modes.clay.ui import _view_overlay
 
     mesh = SimpleNamespace(
         starts=np.array([0, 4], dtype="i8"),
@@ -124,7 +124,7 @@ def test_an_orthographic_pick_ray_is_parallel_and_moves_its_origin():
     """Perspective-only, every ray was cast from a point the orthographic
     render has no apex at -- so the further from the screen centre a click
     landed, the further what got picked was from what was under the cursor."""
-    from warlock.studio.viewer.camera import Camera, screen_ray
+    from realmspinner.studio.viewer.camera import Camera, screen_ray
 
     camera = Camera()
     camera.orthographic = True
@@ -140,7 +140,7 @@ def test_an_orthographic_pick_ray_is_parallel_and_moves_its_origin():
 
 
 def test_a_perspective_pick_ray_still_fans_from_one_eye():
-    from warlock.studio.viewer.camera import Camera, screen_ray
+    from realmspinner.studio.viewer.camera import Camera, screen_ray
 
     camera = Camera()
     camera.orthographic = False
@@ -158,8 +158,8 @@ def test_a_perspective_pick_ray_still_fans_from_one_eye():
 
 
 def test_a_placeholder_says_what_sort_of_thing_is_coming():
-    from warlock.studio import icons
-    from warlock.studio.panes import thumbs
+    from realmspinner.studio import icons
+    from realmspinner.studio.panes import thumbs
 
     assert thumbs.thumb_glyph({"stage": "reference", "kind": "image"}) == icons.IMAGE
     # A failed job gets the alert glyph whatever it would have been: its card is
@@ -179,8 +179,8 @@ def test_a_placeholder_says_what_sort_of_thing_is_coming():
 def test_the_shortcut_sheet_lists_every_binding_the_registry_has():
     """The rows are built from ``inker_ops.BINDINGS`` rather than typed out, so
     a remapped chord and the sheet cannot disagree."""
-    from warlock.studio.modes.inker import ops as inker_ops
-    from warlock.studio.modes.inker.ui.panes import menu as inker_menu
+    from realmspinner.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker.ui.panes import menu as inker_menu
 
     rows = inker_menu._shortcut_rows()
 
@@ -199,7 +199,7 @@ def test_the_sheet_and_bridge_functions_import_without_a_context():
     """Both had no test reference at all. Importing them is the floor: a pane
     that cannot be imported takes the whole frame down through ``guard``, and
     the smoke pass is what draws them."""
-    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
     assert callable(poser_sheet.draw_info)
     assert callable(poser_sheet._bridge)
@@ -215,7 +215,7 @@ def test_a_rerender_names_the_runs_it_was_asked_for():
     by the pane that only reads it. P9 (2026-09-18) moved both again, onto
     ``poser_mode``/``select_sheet``.
     """
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     assert poser_mode.RERENDER_SLOT == "troupe_rerender_runs"
 
@@ -228,7 +228,7 @@ def test_a_packed_item_row_is_its_own_function():
     something to name."""
     import inspect
 
-    from warlock.studio.modes.packwright.ui.panes import items as packwright_items
+    from realmspinner.studio.modes.packwright.ui.panes import items as packwright_items
 
     assert callable(packwright_items._item_row)
     assert "ListClipper" in inspect.getsource(packwright_items.draw)
@@ -239,8 +239,8 @@ def test_a_packed_item_row_is_its_own_function():
 
 def test_a_picked_element_is_expressed_in_the_mode_that_picked_it():
     """The one place a hit index becomes a selection, and nothing named it."""
-    from warlock.kernels.mesh.primitives import box
-    from warlock.studio.modes.clay.ui.view import ClayView
+    from realmspinner.kernels.mesh.primitives import box
+    from realmspinner.studio.modes.clay.ui.view import ClayView
 
     mesh = box()
     obj = SimpleNamespace(uid=7, mesh=mesh)
@@ -269,7 +269,7 @@ def test_the_outliner_range_helper_is_now_covered_elsewhere():
     ``tests/modes/clay/test_clay_outliner.py``, the dedicated module for this
     pane; this import is what keeps ``_range`` named here too.
     """
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 
     assert callable(clay_outliner._range)
 
@@ -281,7 +281,7 @@ def test_a_cancelled_drag_puts_the_overlays_back_on_the_mesh():
     """Esc restored the objects and left the selection overlay's VBO at the
     previewed positions -- the cancel looked half-applied and stayed that way
     until something else rebuilt the overlay."""
-    from warlock.studio.modes.clay.ui.view import ClayView
+    from realmspinner.studio.modes.clay.ui.view import ClayView
 
     written: list[object] = []
     positions = object()

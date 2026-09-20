@@ -1,6 +1,6 @@
 # Your first asset
 
-This chapter makes one 3D model from one sentence, and explains the thing about Warlock's pipeline
+This chapter makes one 3D model from one sentence, and explains the thing about Realmspinner's pipeline
 that surprises nearly everyone: **a prompt does not produce a mesh.** It produces a picture, and
 stops, and waits for you.
 

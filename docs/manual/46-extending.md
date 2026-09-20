@@ -1,4 +1,4 @@
-# Extending Warlock Studio
+# Extending Realmspinner
 
 Most of the things you might want to add — another image model, another style, another skeleton,
 another chapter of this manual — are data rather than code, and the places they are declared are
@@ -19,7 +19,7 @@ neither is something the person writing a prompt should have to know.
 
 Adding one means adding an entry. The fields worth thinking about:
 
-- `dir_name` — resolved under `WARLOCK_T2I_ROOT`, so the model is found by name rather than by path.
+- `dir_name` — resolved under `REALMSPINNER_T2I_ROOT`, so the model is found by name rather than by path.
 - `image_size`, `steps`, `guidance_scale` — the sampler settings the checkpoint was distilled or
   trained for.
 - `scheduler` — a key into the scheduler table in `pipelines/text2image.py` (`ddim_trailing` for
@@ -45,7 +45,7 @@ Only one base model is resident at a time. Selecting a different one unloads the
 before building the next, because the card holds the reconstruction engine plus one SDXL-class
 pipeline and not two. See [VRAM modes](41-configuration.md#vram-modes).
 
-A registry entry is also the right answer when `WARLOCK_T2I_DIR` is not — that variable redirects
+A registry entry is also the right answer when `REALMSPINNER_T2I_DIR` is not — that variable redirects
 where the built-in `turbo` entry loads from and changes nothing about how it is run. See
 [Using a different image model](41-configuration.md#using-a-different-image-model).
 
@@ -91,8 +91,8 @@ See [Models and style LoRAs](22-generating-references.md#models-and-style-loras)
 
 ## Adding a palette
 
-There is nothing to add. A palette is a file in the palette directory (`~/.warlock/palettes/`, or wherever
-`WARLOCK_PALETTE_DIR` points), in Lospec's `.hex`, GIMP's `.gpl`, Paint Shop Pro's `.pal` or
+There is nothing to add. A palette is a file in the palette directory (`~/.realmspinner/palettes/`, or wherever
+`REALMSPINNER_PALETTE_DIR` points), in Lospec's `.hex`, GIMP's `.gpl`, Paint Shop Pro's `.pal` or
 Paint.NET's `.txt` format, and the export's palette control lists whatever is there — as does the
 Inker's own palette folder browser. No registry entry, no code, no restart. That is deliberate: a
 palette is art direction, and the registry pattern the models use exists for things that have to be
@@ -104,7 +104,7 @@ on a palette feel like working on a file.
 
 ## Adding a skeleton
 
-A skeleton is a JSON file in `src/warlock/templates/`, and adding one is the entire procedure — no
+A skeleton is a JSON file in `src/realmspinner/templates/`, and adding one is the entire procedure — no
 bone list in `blender_worker.py`, no branch anywhere that names a template.
 
 Each file declares a key, a label, a root bone, a list of bones — each with a name, a parent and a
@@ -162,8 +162,8 @@ See [Templates](25-rigging-and-posing.md#templates).
 ## Adding a clip mapping table
 
 "Import clip" brings an externally authored animation (a Mixamo download, a Rigify metarig export)
-onto a Warlock skeleton, and a **clip mapping table** is what tells it which external bone plays
-which template bone. A table is a JSON file in `src/warlock/templates/clip_maps/`, one per external
+onto a Realmspinner skeleton, and a **clip mapping table** is what tells it which external bone plays
+which template bone. A table is a JSON file in `src/realmspinner/templates/clip_maps/`, one per external
 rig family — `mixamo.json` and `rigify.json` ship today, both targeting the `humanoid` template
 only; nothing maps onto `quadruped`, `bird` or `blob` yet, so importing onto one of those is not
 offered.
@@ -182,8 +182,8 @@ A table declares:
 - **`root`** — which template bone is the skeleton's root; must be one of the bones this table maps.
 - **`bones`** — a map from *template* bone name to an **ordered chain** of *external* bone names,
   first-to-last down the external rig's own hierarchy, not a single name. A chain is how one
-  external rig's extra joint collapses onto one Warlock bone — Rigify's two-segment spine bones both
-  becoming Warlock's single `chest`, for instance — and the order matters: later math reads a
+  external rig's extra joint collapses onto one Realmspinner bone — Rigify's two-segment spine bones both
+  becoming Realmspinner's single `chest`, for instance — and the order matters: later math reads a
   resolved chain's orientation off its *last* bone and its facing direction from its *first* bone's
   head to its *last* bone's tail.
 
@@ -200,7 +200,7 @@ skeleton at all; among tables that do qualify, one whose *optional* chain is mis
 that one template bone at the shipped template's rest pose rather than posing it off an incomplete
 chain, because half a chain has neither a trustworthy orientation nor a trustworthy direction to
 read. This is reported back (`left_at_rest`), never silently — the whole point of a mapping table is
-getting someone else's animation to look right on a Warlock rig, and posing a bone wrong from a
+getting someone else's animation to look right on a Realmspinner rig, and posing a bone wrong from a
 guess is worse than leaving it still.
 
 ## The derived-params rule
@@ -250,15 +250,15 @@ entirely and holds no opinions about syntax.
 The pattern generalises. If a rule is worth enforcing, put the thing it governs somewhere a test can
 reach without a display.
 
-## Driving Warlock from an AI agent
+## Driving Realmspinner from an AI agent
 
-Warlock speaks the Model Context Protocol, so an agent that already runs on your machine — Claude
+Realmspinner speaks the Model Context Protocol, so an agent that already runs on your machine — Claude
 Code, Codex, anything with an MCP client — can build in Clay for you, and can also take a character
 from a species name to a rigged, animated sprite sheet on its own. It is off until you switch it
-on, in Settings under Advanced. If you installed Warlock rather than running it from a checkout,
+on, in Settings under Advanced. If you installed Realmspinner rather than running it from a checkout,
 point the agent at the launcher the installer staged:
-`claude mcp add warlock -- "%LOCALAPPDATA%\Programs\Warlock Studio\bin\warlock-mcp.cmd"`. From a
-checkout, use `claude mcp add warlock -- uv run warlock mcp` instead.
+`claude mcp add realmspinner -- "%LOCALAPPDATA%\Programs\Realmspinner\bin\realmspinner-mcp.cmd"`. From a
+checkout, use `claude mcp add realmspinner -- uv run realmspinner mcp` instead.
 
 The bridge does not need the app to already be running. Start it first and it serves the tool list
 saved from the previous session — enough for your agent's client to see what Clay can do — and only
@@ -269,16 +269,16 @@ not have completed, never a guess either way. Reconnecting after that — whethe
 mid-call or was simply never open at start-up — opens a new tab in the app, not a resume of
 whatever tab or document the agent was using before.
 
-The arrow only ever points inwards. Warlock runs exactly one pinned model, Familiar, on this computer
-only, and reaches no endpoint; an agent that is already running connects inward to Warlock itself,
+The arrow only ever points inwards. Realmspinner runs exactly one pinned model, Familiar, on this computer
+only, and reaches no endpoint; an agent that is already running connects inward to Realmspinner itself,
 never to Familiar. The transport is a local named pipe
 rather than a port, so there is nothing to open in a firewall and nothing off your machine can
-reach it. The pipe's key lives in `mcp.token` in your Warlock home and is written when you switch
-the setting on, so a program that cannot read your files cannot connect either. `warlock mcp` is
+reach it. The pipe's key lives in `mcp.token` in your Realmspinner home and is written when you switch
+the setting on, so a program that cannot read your files cannot connect either. `realmspinner mcp` is
 the actual MCP server your agent's client dials over stdio; it speaks whichever protocol revision
 that client negotiates — both the classic, `initialize`-first family and a newer era that opens
-with `server/discover` instead — and translates every call into Studio's own private RPC over the
-pipe, so Studio itself only ever has to answer that one, versioned RPC rather than every MCP
+with `server/discover` instead — and translates every call into Realmspinner's own private RPC over the
+pipe, so Realmspinner itself only ever has to answer that one, versioned RPC rather than every MCP
 revision a client might bring.
 
 **What an agent may touch is a two-part rule, not one.** In Clay it is unchanged: it gets a tab of
@@ -286,7 +286,7 @@ its own when it connects, and every tool it has addresses that tab by name. A do
 have open is not merely unlikely to be touched; there is no request the agent can make that names
 it. What the agent does
 goes onto that document's ordinary undo stack, one step per action, so taking over means switching
-to its tab and pressing Ctrl+Z as often as you want to. It also arrives already knowing Warlock's
+to its tab and pressing Ctrl+Z as often as you want to. It also arrives already knowing Realmspinner's
 units and conventions — metres, which way is up, that a generator stands on the ground rather than
 straddling it — rather than working them out by trial, which is why its first attempt at something
 now usually stands on the ground instead of floating above it or growing up out of the floor.
@@ -331,7 +331,7 @@ instead of only being told about it.
 A picture reaches the agent one of two ways. You can point it at a Library row — right-click the
 card and choose **Copy job id**, and hand the agent that id — or hand it image data directly,
 however your agent client lets you paste or attach one. There is deliberately no third way, where the
-agent names a file path on your machine and Warlock opens it: a tool that will open any path it is
+agent names a file path on your machine and Realmspinner opens it: a tool that will open any path it is
 given is a tool that reads whatever else is on your disk, and this one does not. What you see of a
 reference landing, for now, is a toast the moment the agent adds one — a thumbnail strip in Clay and
 a reference plane in the 3D view, so you could see what it is comparing against without having to ask
@@ -347,7 +347,7 @@ followed by an inset is two calls rather than four — extrude hands back its ow
 very next call operates on them with nothing re-selected in between.
 
 An agent can also hand over geometry it computed itself, rather than only naming a recipe from
-Warlock's own registry. **Add mesh** takes a plain list of positions, a list of vertex-index loops
+Realmspinner's own registry. **Add mesh** takes a plain list of positions, a list of vertex-index loops
 for the faces, and — since a texture seam is one vertex needing two different texture coordinates —
 an optional per-*corner* UV rather than a per-vertex one. Every fault that shape can carry is
 refused by naming the exact face and corner responsible, before anything is placed, the same as
@@ -358,7 +358,7 @@ that placing a primitive cannot is tell you, in the same call, whether what you 
 closed solid — the very thing a boolean needs — so a mesh that turns out to have a gap in it is
 caught immediately rather than several calls later when the boolean itself refuses.
 
-If an agent gives up waiting on a call Warlock has not started yet, that call is cancelled rather
+If an agent gives up waiting on a call Realmspinner has not started yet, that call is cancelled rather
 than run later, so a retry does not place the same box twice — the agent is told nothing changed
 and it is safe to send the same call again. If the call had already started, it finishes on its
 own instead, and the agent no longer has to guess what became of it: it can ask what happened, or
@@ -376,7 +376,7 @@ declares the `io.modelcontextprotocol/tasks` extension, every tool call it makes
 immediately as a task handle instead of an answer, and it polls for that answer at its own pace
 rather than holding the connection open. A client that never declares the extension sees no
 difference at all — it gets the ordinary answer, in the ordinary place, exactly as above. There is
-nothing to configure on Warlock's side beyond what your client already negotiates; the retry-safe
+nothing to configure on Realmspinner's side beyond what your client already negotiates; the retry-safe
 behaviour described above (a call that outran a wait is recognised, not repeated) and task polling
 are two ways of asking the same underlying question — "what became of that call?" — and a client
 using tasks simply asks it its own way.
@@ -385,17 +385,17 @@ using tasks simply asks it its own way.
 
 The same agent can also drive the character pipeline: describe a species, get a mesh, a rig and an
 animated sprite sheet without touching a pane. Start with `character_options` to see what is on
-offer — the species Warlock knows, the rig templates, the movement vocabulary, the cameras, sizes
+offer — the species Realmspinner knows, the rig templates, the movement vocabulary, the cameras, sizes
 and export formats — then call `character_create` with a prompt or an explicit species and a list
 of movements. A prompt of "swamp knight" with movements idle, walk, attack, hit and death at eight
-directions resolves to the knight — Warlock's only armoured humanoid — but the knight has no swamp
+directions resolves to the knight — Realmspinner's only armoured humanoid — but the knight has no swamp
 look; it offers natural or blackened instead, so the swamp theme is quietly dropped and the reply
 says so, rather than either guessing or refusing the whole request over one word.
 
 `character_create` hands back a mesh job id and a `rig_job_id`, both still running (the mesh's own
 id reports the same `follow_up_sheet_job` once it exists too, so either id can be polled). Poll
 `character_job` on the `rig_job_id` until its `follow_up_sheet_job` field names a job — that is the
-sprite sheet Warlock queues automatically once the rig finishes — then poll `character_job` again,
+sprite sheet Realmspinner queues automatically once the rig finishes — then poll `character_job` again,
 this time on that sheet job's id, until it reports done. If the rig itself ends in error, no
 follow-up sheet ever appears; read `follow_up_failure` (or the rig job's own error) off that same
 `character_job` reply and stop, rather than poll forever for a sheet that will not come.
@@ -416,7 +416,7 @@ asking for one just means listing the movements it implies, because a set with n
 behind its name would be a label and nothing else. `character_create` and `character_sheet_create`
 both take a plain list of movement names instead.
 
-**What gets refused, and why.** `character_create` refuses before a row exists if Warlock cannot
+**What gets refused, and why.** `character_create` refuses before a row exists if Realmspinner cannot
 reach Blender at all, because a mesh with nowhere to be rigged is not worth minting. Naming a
 species with no matching look drops that look rather than failing the whole prompt. A theme you
 named explicitly, rather than one a prompt implied, is refused by name if the species does not
@@ -458,7 +458,7 @@ Three rules bind anything you add to Clay's own surface. It runs on the frame th
 a time budget, because
 that is the only thread that may touch a document or the graphics context — the listener never
 touches either, and an operation that takes a long time will drop frames rather than corrupt
-anything. It must not raise: a refusal is a result an agent can read, and where Warlock knows
+anything. It must not raise: a refusal is a result an agent can read, and where Realmspinner knows
 which argument was wrong it says so by name, which is a thing the old HTTP interface had nowhere to
 put. And it validates before it mutates — every argument it means to act on, checked and refused by
 name before the first line that changes the document, not partway through. An argument's own *name*
@@ -492,7 +492,7 @@ a test asserts. Give a tool a third one, a `target_uid` say, and that assertion 
 the alternative is a replay that quietly leaves your new argument pointing at whatever object the fresh
 process happened to number that way.
 
-You can watch a whole agent session go by, and keep it. Set `WARLOCK_AGENT_TRANSCRIPT` to a file path and
+You can watch a whole agent session go by, and keep it. Set `REALMSPINNER_AGENT_TRANSCRIPT` to a file path and
 every tool call that answers is appended to it as one line of JSON — what was called, with what, whether it
 was refused and, if it was, the sentence it was refused with, and which objects came back. It is off unless
 that variable is set, it is written on the thread that talks to the agent rather than the one that draws, and
@@ -541,7 +541,7 @@ at a different object. The two differ in one way worth keeping straight: a refer
 the `ClayDoc` at all, while a selection tool genuinely changes the document and still pushes nothing.
 
 There is a third possibility, and it belongs to neither list because it does not belong to Clay at
-all: a tool that answers about the bridge itself rather than about a document, the way `warlock_status`
+all: a tool that answers about the bridge itself rather than about a document, the way `realmspinner_status`
 answers what became of a call. That kind is published by `agent_host`, not `agent_clay.tools()`, and
 answered on the listener thread directly rather than ever being queued for the frame thread to pick
 up — which is the whole reason it exists, since the situation it answers in is precisely the one
@@ -576,29 +576,29 @@ The five Clay resources:
 
 | URI | Content | Answered where |
 | --- | --- | --- |
-| `warlock://clay/scene` | This session's document, the same JSON `clay_scene` returns | Frame thread |
-| `warlock://clay/render/last` | The most recent picture this session's `clay_render` produced | Frame thread |
-| `warlock://clay/conventions` | `agent_clay.instructions()`'s own prose | Listener thread |
-| `warlock://clay/generators` | Every primitive `clay_add_primitive` can build, and its defaults | Listener thread |
-| `warlock://clay/operations` | Every op `clay_op` can run, its modes and its parameters | Listener thread |
+| `realmspinner://clay/scene` | This session's document, the same JSON `clay_scene` returns | Frame thread |
+| `realmspinner://clay/render/last` | The most recent picture this session's `clay_render` produced | Frame thread |
+| `realmspinner://clay/conventions` | `agent_clay.instructions()`'s own prose | Listener thread |
+| `realmspinner://clay/generators` | Every primitive `clay_add_primitive` can build, and its defaults | Listener thread |
+| `realmspinner://clay/operations` | Every op `clay_op` can run, its modes and its parameters | Listener thread |
 
 The first two touch this session's document, so they run through the same frame-thread job queue
 every `clay_*` tool call already does — a resource read is not exempt from the one-thread-touches-
 the-document rule just because it looks like a read rather than a call. The last three are pure
 functions of a registry that already exists for a human surface (`primitives.GENERATORS`,
 `clay_ops.OPS`, `agent_clay.instructions()`) and touch no document at all, so they answer on the
-listener thread directly — the same exemption `warlock_status` already has, for the same reason.
+listener thread directly — the same exemption `realmspinner_status` already has, for the same reason.
 
 The character pipeline adds three more:
 
 | URI | Content | Answered where |
 | --- | --- | --- |
-| `warlock://character/vocabulary` | Movements, directions, cameras, sizes, formats and species — the same registries `character_options` reads | Listener thread |
-| `warlock://character/sheet/{job id}/{sheet id}/sidecar.json` | That sheet's own layout sidecar | Character service lane |
-| `warlock://character/sheet/{job id}/{sheet id}/atlas.png` | That sheet's rendered atlas | Character service lane |
+| `realmspinner://character/vocabulary` | Movements, directions, cameras, sizes, formats and species — the same registries `character_options` reads | Listener thread |
+| `realmspinner://character/sheet/{job id}/{sheet id}/sidecar.json` | That sheet's own layout sidecar | Character service lane |
+| `realmspinner://character/sheet/{job id}/{sheet id}/atlas.png` | That sheet's rendered atlas | Character service lane |
 
 The vocabulary resource is process-stable in the same way `character_*` tool schemas are — built
-from registries that do not change while Warlock is running, never from a user's own edited clip
+from registries that do not change while Realmspinner is running, never from a user's own edited clip
 library — so it answers on the listener thread exactly like Clay's three static resources. The two
 sheet resources name a real job by id, and reading one needs the service doors a `character_job`
 call already uses, so they run on the character pipeline's own worker pool rather than the frame
@@ -622,15 +622,15 @@ the same way `agent_clay`'s own prose already does for its instructions text —
 primitive or a new op needs no edit here either. A prompt's own prose names tools by constants at
 the top of `agent_prompts.py` rather than by retyping the string in several places, but the
 regression that actually matters is `tests/mcp/test_rpc_studio.py`'s scan of every prompt's
-*rendered* text for `clay_\w+`/`warlock_\w+` tokens against the real tool list — a prompt that
+*rendered* text for `clay_\w+`/`realmspinner_\w+` tokens against the real tool list — a prompt that
 quietly went stale after a rename fails there, not merely a reviewer's eye.
 
 Both are served from the RPC v1 catalogue too (`AgentHost._catalogue_payload`, and therefore the
 home directory's own `mcp.catalogue.json`), the four static resources (three Clay, one character)
 with their own content embedded inline —
-which is what lets `warlock mcp` still answer `resources/list`/`resources/read` for them, and
+which is what lets `realmspinner mcp` still answer `resources/list`/`resources/read` for them, and
 `prompts/list` for every prompt, with the app not even running. `resources/read` for the four dynamic
-resources, and `prompts/get` for any prompt's actual rendering, still need Studio reachable — there
+resources, and `prompts/get` for any prompt's actual rendering, still need Realmspinner reachable — there
 is no document, and no prompt text at all, in the bridge's own leaf to fall back to.
 
 ## Adding a mode

@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import config as config_module
-from warlock import fetch
-from warlock.service import downloads as svc_downloads
-from warlock.service import sheets as svc_sheets
-from warlock.service import sprites as svc_sprites
-from warlock.service.errors import Invalid, NotFound
+from realmspinner import config as config_module
+from realmspinner import fetch
+from realmspinner.service import downloads as svc_downloads
+from realmspinner.service import sheets as svc_sheets
+from realmspinner.service import sprites as svc_sprites
+from realmspinner.service.errors import Invalid, NotFound
 
 
 def _unlink_row(svc, row_key: str) -> None:
@@ -116,8 +116,8 @@ def test_a_sprite_refusal_about_the_base_carries_the_feature_not_the_base(svc):
 
 def test_a_text_refusal_carries_only_its_own_checkpoint(svc):
     """The default ``rows`` for the door that stands in front of one model."""
-    from warlock import models
-    from warlock.service import validation
+    from realmspinner import models
+    from realmspinner.service import validation
 
     key = config_module.DEFAULT_BASE_MODEL
     _unlink_row(svc, f"base:{key}")
@@ -127,7 +127,7 @@ def test_a_text_refusal_carries_only_its_own_checkpoint(svc):
 
 
 def test_an_optional_selection_refusal_carries_its_row(svc):
-    from warlock.service import validation
+    from realmspinner.service import validation
 
     _unlink_row(svc, "lora:pixelxl")
     with pytest.raises(Invalid) as caught:
@@ -154,7 +154,7 @@ def test_rows_are_silent_about_vram_when_no_plan_is_resolved(svc):
 
 
 def test_rows_carry_a_fit_verdict_for_base_models_once_a_plan_exists(svc):
-    from warlock import vram
+    from realmspinner import vram
 
     svc.vram_plan = vram.plan(exclusive=False, total_gib=24.0)
     rows = {r["row_key"]: r for r in svc_downloads.rows(svc)}

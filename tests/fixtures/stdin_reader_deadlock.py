@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2] / "src"))
 
-from warlock.pipelines import _workerio  # noqa: E402
+from realmspinner.pipelines import _workerio  # noqa: E402
 
 BLOCKING = "--blocking" in sys.argv
 seen: list[str] = []

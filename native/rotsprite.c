@@ -1,6 +1,6 @@
 /* RotSprite: three EPX rounds, then Pillow-exact nearest rotation.
  *
- * The reference (warlock.studio.inker.transform.rotsprite/epx) was measured at
+ * The reference (realmspinner.studio.inker.transform.rotsprite/epx) was measured at
  * 294 ms per mouse-move at 256^2 against a 16 ms gate -- superlinear, 22.5x the
  * cost for 4x the pixels -- and the drag runs on the frame thread on every
  * mouse-move (dev/measurements/2026-09-13-native-batch-10-candidates.md S5).
@@ -13,7 +13,7 @@
  * differently is meant to fail tests/inker/test_rotsprite_native.py, not to
  * silently drift from this file.
  *
- * Scratch layout (see warlockc_rotsprite_u8 in warlockc.h for the contract):
+ * Scratch layout (see realmspinnerc_rotsprite_u8 in realmspinnerc.h for the contract):
  * the caller-owned `scratch` buffer is treated as two adjacent regions,
  *
  *   bufA = scratch[0 .. 16*h*w*channels)          -- exactly a 4x plane
@@ -27,7 +27,7 @@
  * aliasing to reason about despite the sizes differing.
  */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
 #include <math.h>
 #include <string.h>
@@ -245,7 +245,7 @@ static int rotsprite_sample(int64_t X, int64_t Y, int64_t A0, int64_t A1,
   return 1;
 }
 
-int32_t warlockc_rotsprite_u8(const uint8_t *src, int32_t h, int32_t w,
+int32_t realmspinnerc_rotsprite_u8(const uint8_t *src, int32_t h, int32_t w,
                               int32_t channels, double a0, double a1,
                               double a2, double a3, double a4, double a5,
                               int32_t out_h, int32_t out_w, uint8_t *scratch,

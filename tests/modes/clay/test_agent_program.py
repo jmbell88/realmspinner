@@ -32,8 +32,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
-from warlock.studio.modes.clay.agent import program as ap
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.studio.modes.clay.agent import program as ap
 
 
 def compile_ok(program: dict, **kwargs) -> ap.Compiled:
@@ -1282,21 +1282,21 @@ class TestImportsStayPure:
 
     @staticmethod
     def _outward_module_names() -> set[str]:
-        import warlock.studio.modes.clay.agent.program as mod
+        import realmspinner.studio.modes.clay.agent.program as mod
 
         path = Path(mod.__file__)
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        # ``mod.__package__`` is "warlock.studio" -- this module is a leaf,
+        # ``mod.__package__`` is "realmspinner.studio" -- this module is a leaf,
         # not a package, so its own package is the one holding it. Resolved
         # the way ``importlib._bootstrap._resolve_name`` resolves any level
         # of relative import (``package.rsplit(".", level - 1)[0]``) rather
         # than the level-1-only special case this used to hand-roll: P3 of
         # the restructure (dev/RESTRUCTURE.md) moved ``clay/presets.py`` and
-        # ``clay/primitives.py`` to ``warlock/kernels/mesh/``, reached from
+        # ``clay/primitives.py`` to ``realmspinner/kernels/mesh/``, reached from
         # here as ``from ..kernels.mesh import presets`` (level 2, climbing
-        # past ``warlock.studio`` to ``warlock``), which the old level-1
+        # past ``realmspinner.studio`` to ``realmspinner``), which the old level-1
         # assumption resolved to the wrong, never-real name
-        # ``warlock.studio.kernels.mesh.presets``.
+        # ``realmspinner.studio.kernels.mesh.presets``.
         package = mod.__package__ or ""
         found: set[str] = set()
         for node in ast.walk(tree):
@@ -1318,18 +1318,18 @@ class TestImportsStayPure:
 
     def test_no_service_layer_import(self):
         names = self._outward_module_names()
-        assert not any("warlock.service" in name for name in names)
+        assert not any("realmspinner.service" in name for name in names)
 
     def test_only_the_documented_registries_are_reached_for(self):
         names = self._outward_module_names()
-        internal = {name for name in names if name.startswith("warlock")}
+        internal = {name for name in names if name.startswith("realmspinner")}
         assert internal == {
-            "warlock.studio.modes.clay.ops",
-            "warlock.kernels.mesh.presets",
-            "warlock.kernels.mesh.primitives",
+            "realmspinner.studio.modes.clay.ops",
+            "realmspinner.kernels.mesh.presets",
+            "realmspinner.kernels.mesh.primitives",
         }
 
     def test_module_imports_with_no_optional_dependency_present(self):
         import importlib
 
-        importlib.reload(importlib.import_module("warlock.studio.modes.clay.agent.program"))
+        importlib.reload(importlib.import_module("realmspinner.studio.modes.clay.agent.program"))

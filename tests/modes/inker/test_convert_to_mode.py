@@ -25,11 +25,11 @@ from typing import Any
 
 import numpy as np
 
-from warlock.kernels import pixel as inker
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
-from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
-from warlock.studio.tasks import Done
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
+from realmspinner.studio.tasks import Done
 
 
 class _Ctx:

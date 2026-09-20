@@ -7,7 +7,7 @@ code that silently shows nothing for every job with an audit but no report.
 
 from __future__ import annotations
 
-from warlock.studio import widgets
+from realmspinner.studio import widgets
 
 
 def _job(**audit):
@@ -74,7 +74,7 @@ def test_an_audit_without_a_measurement_draws_no_badge(monkeypatch):
 
 
 def test_the_inspector_reports_visible_openings_from_the_audit(monkeypatch):
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     lines: list[str] = []
     monkeypatch.setattr(widgets, "header", lambda label, **kwargs: True)

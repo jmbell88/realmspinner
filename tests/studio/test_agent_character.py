@@ -37,8 +37,8 @@ from typing import Any
 
 import pytest
 
-from warlock.mcp import rpc
-from warlock.studio import agent_character as ac
+from realmspinner.mcp import rpc
+from realmspinner.studio import agent_character as ac
 
 pytestmark = pytest.mark.filterwarnings("ignore")
 
@@ -112,7 +112,7 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
     both read the wrong door the same wrong way (e.g. the user-first
     ``cliplib.clip_library`` instead of the shipped-only
     ``cliplib.shipped_clip_names`` -- see the next test for that one, since
-    a fresh ``WARLOCK_HOME`` with no user file makes the two agree here).
+    a fresh ``REALMSPINNER_HOME`` with no user file makes the two agree here).
 
     ``size`` is deliberately absent from this walk's own expectation table:
     since master's 8b091e98 Send to Troupe, it is a bounded integer, not an
@@ -124,13 +124,13 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
     tools' own ``size`` schema is asserted to carry no ``enum`` and to
     bound the same ``TROUPE_CUSTOM_SIZE_RANGE`` the door underneath enforces.
     """
-    from warlock.characters import family as family_mod
-    from warlock.kernels import charsheet
-    from warlock.kernels.rig import cliplib, templates
-    from warlock.pipelines import pixelize
-    from warlock.service import characters as svc_characters
-    from warlock.service import export as svc_export
-    from warlock.service import troupe as svc_troupe
+    from realmspinner.characters import family as family_mod
+    from realmspinner.kernels import charsheet
+    from realmspinner.kernels.rig import cliplib, templates
+    from realmspinner.pipelines import pixelize
+    from realmspinner.service import characters as svc_characters
+    from realmspinner.service import export as svc_export
+    from realmspinner.service import troupe as svc_troupe
 
     families = family_mod.families()
     themes = {t.key for fam in families.values() for t in fam.themes}
@@ -240,7 +240,7 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
 def test_a_camera_preset_added_at_runtime_appears_in_the_next_catalogue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from warlock.kernels import charsheet
+    from realmspinner.kernels import charsheet
 
     before = ac.tools()
     camera_before = set(
@@ -272,8 +272,8 @@ def test_editing_a_user_clip_library_does_not_move_the_character_catalogue(
     clip into both the tool schema and the vocabulary resource, and this
     test would catch it there.
     """
-    from warlock.kernels.rig import cliplib
-    from warlock.studio import agent_character_resources as acr
+    from realmspinner.kernels.rig import cliplib
+    from realmspinner.studio import agent_character_resources as acr
 
     before_tools = json.dumps([rpc.tool_dict(t) for t in ac.tools()], sort_keys=True)
     before_vocab = acr.read_static(acr.VOCABULARY_URI)[1]
@@ -329,7 +329,7 @@ def test_every_handler_has_a_tool_and_every_tool_has_a_handler() -> None:
 def test_no_handler_takes_a_ctx() -> None:
     """Every handler's first parameter is named ``svc`` -- Clay's handlers
     take ``ctx``; this surface never does (see the module docstring: it
-    calls ``service`` doors directly, which take a ``WarlockService``, not
+    calls ``service`` doors directly, which take a ``RealmspinnerService``, not
     the frame-thread ``ctx`` Clay's ``ClayState``-backed handlers need)."""
     for name, handler in ac.HANDLERS.items():
         params = list(inspect.signature(handler).parameters)
@@ -338,8 +338,8 @@ def test_no_handler_takes_a_ctx() -> None:
 
 
 def test_no_character_tool_shares_a_name_with_a_clay_or_transport_tool() -> None:
-    from warlock.studio import agent_host
-    from warlock.studio.modes.clay.agent import dispatch as agent_clay
+    from realmspinner.studio import agent_host
+    from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
     clay_names = {t.name for t in agent_clay.tools()} | {agent_host.STATUS_TOOL}
     character_names = {t.name for t in ac.tools()}
@@ -481,8 +481,8 @@ def test_an_agent_may_ask_for_a_custom_sprite_size(monkeypatch: pytest.MonkeyPat
     ``size`` property, now a bounded integer rather than an enum of
     presets, must reach the sheet door with it unchanged rather than refuse
     it the way the old enum-only schema did."""
-    from warlock.service import rig as svc_rig
-    from warlock.service import troupe as svc_troupe
+    from realmspinner.service import rig as svc_rig
+    from realmspinner.service import troupe as svc_troupe
 
     e = ac._enums()
     assert 40 not in e.sizes  # sanity: genuinely off the preset ladder
@@ -514,7 +514,7 @@ def test_a_size_outside_the_custom_range_is_refused_on_size(
     ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE``, on both tools that declare
     ``size`` -- refused by the handler itself, on ``field="size"``, before
     either door (``create_character``/``send_to_troupe``) ever runs."""
-    from warlock.service import rig as svc_rig
+    from realmspinner.service import rig as svc_rig
 
     monkeypatch.setattr(svc_rig, "rig_in_flight", lambda svc, jid: False)
     e = ac._enums()
@@ -552,11 +552,11 @@ def test_no_character_tool_accepts_a_path() -> None:
 #: these cannot silently empty this test's own denylist and leave it
 #: passing for the wrong reason.
 _FORBIDDEN_MODEL_MODULES = (
-    "warlock.pipelines.text2image",
-    "warlock.pipelines.t2i_client",
-    "warlock.pipelines.trellis",
-    "warlock.pipelines.music_worker",
-    "warlock.pipelines.separation_worker",
+    "realmspinner.pipelines.text2image",
+    "realmspinner.pipelines.t2i_client",
+    "realmspinner.pipelines.trellis",
+    "realmspinner.pipelines.music_worker",
+    "realmspinner.pipelines.separation_worker",
 )
 _FORBIDDEN_MODEL_SUBSTRINGS = ("torch", "diffusers", "transformers")
 
@@ -564,7 +564,7 @@ _FORBIDDEN_MODEL_SUBSTRINGS = ("torch", "diffusers", "transformers")
 def _base_package_for_level(package: str, level: int) -> str:
     """Python's own relative-import resolution rule, applied to a dotted
     package name instead of a live module -- both files this test walks
-    live directly in *package* (``warlock.studio``), never in a
+    live directly in *package* (``realmspinner.studio``), never in a
     sub-package, so this is exactly what the interpreter would compute for
     a ``from .``/``from ..`` in either of them."""
     parts = package.split(".")
@@ -578,7 +578,7 @@ def _dotted_names(node: ast.AST, package: str) -> list[str]:
     """Every real dotted module name one import statement could resolve
     to -- including, for ``from X import Y``, ``X.Y`` itself (an attribute
     import can also be a submodule import in disguise: ``from ..pipelines
-    import trellis`` imports ``warlock.pipelines.trellis`` whether
+    import trellis`` imports ``realmspinner.pipelines.trellis`` whether
     ``trellis`` is read as a module or an attribute of ``pipelines``). A
     check that only looked at ``node.module`` -- as this test used to --
     would see ``"pipelines"`` for exactly that import and never notice
@@ -627,7 +627,7 @@ def test_the_character_surface_cannot_reach_a_model_that_runs_inference() -> Non
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
                 continue
-            for dotted in _dotted_names(node, "warlock.studio"):
+            for dotted in _dotted_names(node, "realmspinner.studio"):
                 lowered = dotted.lower()
                 assert not any(bad in lowered for bad in _FORBIDDEN_MODEL_SUBSTRINGS), (
                     name,
@@ -640,8 +640,8 @@ def test_the_character_surface_cannot_reach_a_model_that_runs_inference() -> Non
 
     script = (
         "import sys\n"
-        "import warlock.studio.agent_character\n"
-        "import warlock.studio.agent_character_resources\n"
+        "import realmspinner.studio.agent_character\n"
+        "import realmspinner.studio.agent_character_resources\n"
         f"substrings = {_FORBIDDEN_MODEL_SUBSTRINGS!r}\n"
         f"modules = {_FORBIDDEN_MODEL_MODULES!r}\n"
         "hits = sorted(\n"
@@ -662,7 +662,7 @@ def test_the_character_surface_cannot_reach_a_model_that_runs_inference() -> Non
 
 
 def test_an_agent_may_cancel_only_the_jobs_it_minted(monkeypatch: pytest.MonkeyPatch) -> None:
-    from warlock.service import _jobs_lifecycle
+    from realmspinner.service import _jobs_lifecycle
 
     job_id = _new_job_id()
     session = ac.Session()
@@ -683,8 +683,8 @@ def test_an_agent_may_cancel_the_sheet_its_rig_queued(monkeypatch: pytest.Monkey
     ``troupe.follow_up_sheet_job`` at call time, never by widening
     ``session.minted`` itself -- but nothing else this session did not
     start, even a sheet job that names a *different* rig."""
-    from warlock.service import _jobs_lifecycle
-    from warlock.service import troupe as svc_troupe
+    from realmspinner.service import _jobs_lifecycle
+    from realmspinner.service import troupe as svc_troupe
 
     session = ac.Session()
     rig_id = "a" * 12
@@ -724,7 +724,7 @@ def test_character_sheet_create_refuses_while_a_rig_is_already_running_and_instr
     description (not ``instructions()``) already documents. The prose is
     the one that moved: it must no longer promise queueing behind an
     in-flight rig."""
-    from warlock.service import rig as svc_rig
+    from realmspinner.service import rig as svc_rig
 
     e = ac._enums()
     monkeypatch.setattr(svc_rig, "rig_in_flight", lambda svc, jid: "some-rig-id")
@@ -820,7 +820,7 @@ def test_the_prompt_polls_the_rig_job_not_the_mesh() -> None:
     ``mesh_job_id``. The pre-fix prose told the agent to poll the *mesh* id
     waiting for ``follow_up_sheet_job`` to appear there, with no mention of a
     rig ending in error at all."""
-    from warlock.studio import agent_prompts
+    from realmspinner.studio import agent_prompts
 
     rendered = agent_prompts.render(
         "character_sheets_from_description", {"description": "a swamp knight"}
@@ -847,7 +847,7 @@ def test_the_prompt_polls_the_rig_job_not_the_mesh() -> None:
 def test_character_rig_refuses_a_mesh_that_is_already_rigged(
     monkeypatch: pytest.MonkeyPatch, svc: Any
 ) -> None:
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     job_id = _mint_model_job(svc)
     monkeypatch.setattr(store, "read_rig", lambda job_dir: {"template": "humanoid"})
@@ -861,8 +861,8 @@ def test_character_rig_refuses_a_mesh_that_is_already_rigged(
 def test_character_rig_refuses_while_a_rig_is_running(
     monkeypatch: pytest.MonkeyPatch, svc: Any
 ) -> None:
-    from warlock.kernels.rig import store
-    from warlock.service import rig as svc_rig
+    from realmspinner.kernels.rig import store
+    from realmspinner.service import rig as svc_rig
 
     job_id = _mint_model_job(svc)
     monkeypatch.setattr(store, "read_rig", lambda job_dir: None)
@@ -877,8 +877,8 @@ def test_character_rig_refuses_while_a_rig_is_running(
 def test_character_rig_mints_and_records_a_rig(
     monkeypatch: pytest.MonkeyPatch, svc: Any
 ) -> None:
-    from warlock.kernels.rig import store
-    from warlock.service import rig as svc_rig
+    from realmspinner.kernels.rig import store
+    from realmspinner.service import rig as svc_rig
 
     job_id = _mint_model_job(svc)
     monkeypatch.setattr(store, "read_rig", lambda job_dir: None)
@@ -911,15 +911,15 @@ def test_an_unknown_species_is_refused_in_offer_sentences_words() -> None:
     rather than hard-coded, so a change to either sentence's wording moves
     this test's expectation along with it instead of going stale.
     """
-    from warlock.characters import family as family_mod
-    from warlock.characters import resolve
+    from realmspinner.characters import family as family_mod
+    from realmspinner.characters import resolve
 
     prompt = "a kraken"
     resolution = resolve.resolve(prompt)
     assert resolution.family is None  # sanity: this prompt really names no species
     offered = resolve.offer_sentence(resolution)
     expected = offered or (
-        f"Warlock builds {len(family_mod.families())} species across four "
+        f"Realmspinner builds {len(family_mod.families())} species across four "
         "body plans, and this prompt names none of them."
     )
 
@@ -935,7 +935,7 @@ def test_swamp_knight_creates_a_knight(monkeypatch: pytest.MonkeyPatch) -> None:
     blackened only -- see the Facts section); only ``create_character``,
     which would spawn a Blender rig, is faked, and only to capture the
     recipe it was actually handed."""
-    from warlock.service import characters as svc_characters
+    from realmspinner.service import characters as svc_characters
 
     captured: dict[str, Any] = {}
 
@@ -974,7 +974,7 @@ def test_character_create_without_blender_is_refused_before_a_row_exists(
     refusal really does happen *before* a row exists, on this connection's
     real store, rather than trusting a mocked door's promise to have
     checked first."""
-    from warlock import doctor
+    from realmspinner import doctor
 
     monkeypatch.setattr(
         doctor,
@@ -1018,9 +1018,9 @@ def _real_sheet(
     import numpy as np
     from PIL import Image
 
-    from warlock.kernels import charsheet
-    from warlock.kernels import sheet as sheetlib
-    from warlock.kernels.rig import store
+    from realmspinner.kernels import charsheet
+    from realmspinner.kernels import sheet as sheetlib
+    from realmspinner.kernels.rig import store
 
     job_id = svc.store.create("image", job_name or "a knight", {}, stage="model")
     job_dir = svc.job_dir(job_id)
@@ -1115,8 +1115,8 @@ def test_a_preview_fits_one_rpc_frame(svc: Any) -> None:
     itself tens of megabytes once encoded -- genuinely too big for one frame
     before anything downscales it.
     """
-    from warlock.kernels.rig import store
-    from warlock.mcp import rpc as rpc_mod
+    from realmspinner.kernels.rig import store
+    from realmspinner.mcp import rpc as rpc_mod
 
     # One movement, MAX_CLIP_FRAMES (32) frames, 8 directions, 256 px cells:
     # 2048x8192 raw pixels -- 64 MiB, and (being noise) almost exactly that
@@ -1178,7 +1178,7 @@ def test_character_export_refuses_without_an_export_dir(monkeypatch: pytest.Monk
         _Svc(), ac.Session(), "character_export", {"job_id": "0" * 12, "format": "animated_glb"}
     )
     assert result["isError"]
-    assert "WARLOCK_EXPORT_DIR" in result["content"][0]["text"]
+    assert "REALMSPINNER_EXPORT_DIR" in result["content"][0]["text"]
 
 
 def test_an_agent_export_lands_in_a_folder_named_for_its_ids(
@@ -1198,7 +1198,7 @@ def test_an_agent_export_lands_in_a_folder_named_for_its_ids(
     ``agent_export_stem`` runs for real -- it is cheap (one job read) and is
     the exact function this fix is about.
     """
-    from warlock.service import export as svc_export
+    from realmspinner.service import export as svc_export
 
     svc.config.export_dir = tmp_path
     job_id, sheet_id, _w, _h = _real_sheet(svc, job_name="Ranger")

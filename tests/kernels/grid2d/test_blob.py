@@ -1,7 +1,7 @@
 """The 47-case collapse: that it *is* 47, and that the table is a bijection.
 
 The atlas layout is keyed on this order, so these are not tidiness tests. If
-``BLOB_MASKS`` ever reorders, every generated tileset in every saved ``.wmap``
+``BLOB_MASKS`` ever reorders, every generated tileset in every saved ``.rmap``
 starts meaning something else while every gid in them stays valid -- which is
 the failure that leaves no trace anywhere to find it by.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.grid2d import blob
+from realmspinner.kernels.grid2d import blob
 
 
 def test_every_raw_mask_lands_in_the_table():

@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio.modes.plotter import mode as plotter_mode
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter import mode as plotter_mode
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 @pytest.fixture

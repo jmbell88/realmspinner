@@ -12,10 +12,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter.engine import tsx
-from warlock.studio.modes.plotter.engine.tilemap import (
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter.engine import tsx
+from realmspinner.studio.modes.plotter.engine.tilemap import (
     Ellipse,
     MapDoc,
     MapObject,
@@ -220,8 +220,8 @@ def test_a_tilesets_terrain_order_moves_the_facts():
     the earlier one wins. Reordering two terrains without changing either one
     must therefore move the facts. ``Tileset`` is frozen, so this is built as
     two documents rather than one mutated in place."""
-    from warlock.kernels.grid2d import blob
-    from warlock.kernels.grid2d.tileset import TerrainSpec
+    from realmspinner.kernels.grid2d import blob
+    from realmspinner.kernels.grid2d.tileset import TerrainSpec
 
     terrains = (
         TerrainSpec(name="grass", fill=(0, 255, 0, 255), outline=(0, 128, 0, 255)),

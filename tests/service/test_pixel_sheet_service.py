@@ -13,10 +13,10 @@ import threading
 import pytest
 from PIL import Image
 
-from warlock.kernels.rig import store
-from warlock.service import jobs as svc_jobs
-from warlock.service import sheets as svc_sheets
-from warlock.service.errors import Conflict, Invalid, NotFound
+from realmspinner.kernels.rig import store
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import sheets as svc_sheets
+from realmspinner.service.errors import Conflict, Invalid, NotFound
 
 
 def _sheet_on_disk(svc, *, frame_size=128, columns=8, rows=1):
@@ -58,7 +58,7 @@ def test_create_pixel_sheet_refuses_at_submit_when_the_text2image_pack_is_missin
     never the pack, so a host with weights present but ``text2image`` removed
     by an upgrade queued the job and died in the worker on the SDXL import
     instead of refusing here."""
-    from warlock import packs as packs_mod
+    from realmspinner import packs as packs_mod
 
     job_id, sheet_id = _sheet_on_disk(svc)
     monkeypatch.setattr(packs_mod, "installed", lambda pack: False)
@@ -120,7 +120,7 @@ def test_the_size_and_colour_choices_are_the_offered_ones(svc):
 
 
 def test_strength_is_bounded_at_both_ends(svc):
-    from warlock import models
+    from realmspinner import models
 
     job_id, sheet_id = _sheet_on_disk(svc)
     for value in (0.1, 0.9):
@@ -214,7 +214,7 @@ def test_pixel_sheet_estimate_omits_controlnet_gib_when_structure_lock_is_off(sv
     read it, so a restyle that never opens a ControlNet is not charged for
     one at admission.
     """
-    from warlock import vram
+    from realmspinner import vram
 
     job_id, sheet_id = _sheet_on_disk(svc)
     locked = svc_sheets.create_pixel_sheet(svc, job_id, sheet_id, structure_lock=True)
@@ -238,7 +238,7 @@ def test_a_restyle_whose_pixel_lora_is_missing_is_refused(svc, monkeypatch):
     looking like a plain img2img pass rather than pixel art, which is the
     feature not happening rather than a plainer version of it.
     """
-    from warlock import fetch
+    from realmspinner import fetch
 
     job_id, sheet_id = _sheet_on_disk(svc)
     monkeypatch.setattr(fetch, "present", lambda *a, **k: False)
@@ -248,7 +248,7 @@ def test_a_restyle_whose_pixel_lora_is_missing_is_refused(svc, monkeypatch):
 
 
 def test_a_restyle_whose_checkpoint_is_missing_is_refused(svc, monkeypatch):
-    from warlock import fetch
+    from realmspinner import fetch
 
     job_id, sheet_id = _sheet_on_disk(svc)
     monkeypatch.setattr(fetch, "base_model_state", lambda *a, **k: (False, None))

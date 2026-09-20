@@ -1,6 +1,6 @@
 """Regression tests for the 2026-09-15 audit's Mason findings.
 
-- mason-01 (`src/warlock/studio/modes/mason/engine/document.py`): the 2026-09-14 audit's
+- mason-01 (`src/realmspinner/studio/modes/mason/engine/document.py`): the 2026-09-14 audit's
   mason-01 put a `scene.MAX_PLACED` check in front of `MasonDoc.add_nodes`
   only. `add_node` -- every single placement, looped by
   `mason_mode.duplicate_selected` -- and `unpack_instance` -- which can
@@ -9,12 +9,12 @@
   the ceiling, every `scene.walk()`/`resolve()` refuses for good: the scene
   can no longer be drawn or exported. Fixed by routing all three attach
   points through one shared `MasonDoc._check_max_placed`.
-- mason-03 (`src/warlock/studio/modes/mason/ui/panes/menu.py`,
-  `src/warlock/studio/modes/mason/ui/panes/outliner.py`): the viewport context menu
+- mason-03 (`src/realmspinner/studio/modes/mason/ui/panes/menu.py`,
+  `src/realmspinner/studio/modes/mason/ui/panes/outliner.py`): the viewport context menu
   enabled "Ungroup" for any selection, while the outliner gated the same
   action on `_groupish` and the shared handler just returned silently for a
   non-group. Fixed by sharing the outliner's predicate.
-- mason-04 (`src/warlock/studio/modes/mason/ui/view.py`): `MasonView._terrain` was
+- mason-04 (`src/realmspinner/studio/modes/mason/ui/view.py`): `MasonView._terrain` was
   annotated as a 3-tuple but stored 4 fields. Comment/annotation-only, no
   regression test is possible for it; see this module's own note below.
 """
@@ -23,9 +23,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.modes.mason.engine import document as doc
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import scene as sc
+from realmspinner.studio.modes.mason.engine import document as doc
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import scene as sc
 
 # --- mason-01 ----------------------------------------------------------------
 
@@ -55,7 +55,7 @@ def test_add_node_counts_a_duplicated_groups_whole_subtree_not_just_the_group():
     the one node handed in -- otherwise a single "duplicate" of a
     thousand-child group would count as 1 against the ceiling.
     """
-    from warlock.studio.modes.mason.engine import scene as sc
+    from realmspinner.studio.modes.mason.engine import scene as sc
 
     monkeypatch_value = sc.MAX_PLACED
     try:
@@ -132,8 +132,8 @@ def _ungroup_enabled_flag(monkeypatch, doc) -> bool:
     """
     from types import SimpleNamespace
 
-    from warlock.studio import controls
-    from warlock.studio.modes.mason.ui.panes import menu as mason_menu
+    from realmspinner.studio import controls
+    from realmspinner.studio.modes.mason.ui.panes import menu as mason_menu
 
     captured: dict[str, bool] = {}
 
@@ -182,7 +182,7 @@ def test_viewport_context_menu_ungroup_is_enabled_for_a_group_with_children(monk
 
 # --- mason-04 ------------------------------------------------------------------
 
-# mason-04 (``MasonView._terrain``, ``src/warlock/studio/mason_view.py``) is
+# mason-04 (``MasonView._terrain``, ``src/realmspinner/studio/mason_view.py``) is
 # comment/annotation-only: the slot was annotated as a 3-tuple but always
 # stored 4 fields, and nothing type-checks a runtime annotation string, so no
 # regression test can fail against the unfixed code. Fixed by correcting the

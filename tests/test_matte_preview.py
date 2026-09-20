@@ -25,12 +25,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock import vectors
-from warlock.service import jobs as svc_jobs
-from warlock.service import matte as svc_matte
-from warlock.service.errors import Invalid
-from warlock.service.validation import DERIVED_PARAMS
-from warlock.studio import matte_preview
+from realmspinner import vectors
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import matte as svc_matte
+from realmspinner.service.errors import Invalid
+from realmspinner.service.validation import DERIVED_PARAMS
+from realmspinner.studio import matte_preview
 
 
 def _png(pixels: np.ndarray) -> bytes:
@@ -313,7 +313,7 @@ def test_the_pixels_the_user_approved_are_the_pixels_trellis_reconstructs_from(s
     ``promote_to_model`` copied the untouched ``input.png``; ``matte.approve``
     found no alpha, so ``bg_removal`` stayed ``birefnet`` and the server re-cut
     the image with a *different copy* of BiRefNet under
-    ``WARLOCK_TRELLIS_MODELS``. The picture in the modal was a claim about
+    ``REALMSPINNER_TRELLIS_MODELS``. The picture in the modal was a claim about
     pixels nothing downstream ever saw.
     """
     job_id = _reference(svc, _subject_rgb())
@@ -537,8 +537,8 @@ def test_build_anyway_records_an_override_against_the_pixels_it_wrote(svc):
     cutout are not the reference's -- so the worker can fingerprint its own
     ``input.png`` and get a match.
     """
-    from warlock import provenance
-    from warlock.pipelines import reference
+    from realmspinner import provenance
+    from realmspinner.pipelines import reference
 
     job_id = _reference(svc, _subject_rgb())
     # A refusal the reference stage recorded: what the modal shows and what the
@@ -562,7 +562,7 @@ def test_a_promotion_that_was_not_forced_grants_no_override(svc):
 
     result = svc_jobs.promote_candidates(svc, job_id)
 
-    from warlock.pipelines import reference
+    from realmspinner.pipelines import reference
 
     assert reference.OVERRIDE_KEY not in svc.require_job(result["id"])["params"]
 

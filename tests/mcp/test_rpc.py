@@ -1,4 +1,4 @@
-"""`warlock.mcp.rpc` -- Warlock's own private RPC v1, pinned with no pipe at
+"""`realmspinner.mcp.rpc` -- Realmspinner's own private RPC v1, pinned with no pipe at
 all: everything here is `encode_request`/`decode_request`/`hello_header`/
 `catalogue_payload` called directly, the same way `test_protocol.py` pins
 `dispatch` without a real connection.
@@ -6,7 +6,7 @@ all: everything here is `encode_request`/`decode_request`/`hello_header`/
 
 from __future__ import annotations
 
-from warlock.mcp import rpc
+from realmspinner.mcp import rpc
 
 # --- hello / version negotiation --------------------------------------------------
 
@@ -77,12 +77,12 @@ def test_looks_like_rpc_true_only_for_a_dict_with_an_rpc_key() -> None:
 
 
 def test_encode_request_decode_request_round_trip() -> None:
-    frame = rpc.encode_request("call", tool="warlock_status", args={"operation_id": "op-1"})
+    frame = rpc.encode_request("call", tool="realmspinner_status", args={"operation_id": "op-1"})
     message = rpc.decode_request(frame)
     assert message == {
         "rpc": 1,
         "op": "call",
-        "tool": "warlock_status",
+        "tool": "realmspinner_status",
         "args": {"operation_id": "op-1"},
     }
 
@@ -159,7 +159,7 @@ def test_catalogue_payload_hash_changes_when_resources_or_prompts_change() -> No
     base = rpc.catalogue_payload([], instructions="hi", server_name="s", server_version="1")
     with_resources = rpc.catalogue_payload(
         [], instructions="hi", server_name="s", server_version="1",
-        resources=[{"uri": "warlock://x"}],
+        resources=[{"uri": "realmspinner://x"}],
     )
     with_prompts = rpc.catalogue_payload(
         [], instructions="hi", server_name="s", server_version="1",

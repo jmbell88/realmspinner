@@ -19,13 +19,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock import _q_jobs, models
-from warlock import _q_music as q
-from warlock.service import _jobs_music as door
-from warlock.service.errors import Invalid
-from warlock.studio.modes.muse import fileio as muse_io
-from warlock.studio.modes.muse import mode as muse_mode
-from warlock.studio.modes.muse import state as muse_state
+from realmspinner import _q_jobs, models
+from realmspinner import _q_music as q
+from realmspinner.service import _jobs_music as door
+from realmspinner.service.errors import Invalid
+from realmspinner.studio.modes.muse import fileio as muse_io
+from realmspinner.studio.modes.muse import mode as muse_mode
+from realmspinner.studio.modes.muse import state as muse_state
 
 from .test_muse_mode import FakeCtx
 
@@ -177,7 +177,7 @@ def test_the_derive_popup_does_not_offer_how_many_for_audio2audio():
     # existing unused would pass every assertion above.
     import inspect
 
-    from warlock.studio.modes.muse.ui.panes import results as muse_results
+    from realmspinner.studio.modes.muse.ui.panes import results as muse_results
 
     assert "SINGLE_TAKE_TASKS" in inspect.getsource(muse_results.derive_popup)
 
@@ -249,7 +249,7 @@ async def test_cancel_set_immediately_after_the_last_sampling_step_still_raises_
     ``client.generate`` returned with no check in between -- publishing a
     take the Cancel had already asked to stop.
     """
-    from warlock.pipelines.music_client import MusicCancelled
+    from realmspinner.pipelines.music_client import MusicCancelled
 
     cancel = _FakeCancel()
     client = _CancelsAfterTheLastStepClient(cancel.event)
@@ -329,20 +329,20 @@ def test_music_and_separate_are_rows_in_the_publishers_cancel_commit_scan():
     (owned by ``test_job_durability.py``, and exercised there) is correct.
 
     Fails against the unfixed list, which has nine rows and none of them
-    name ``warlock._q_music``.
+    name ``realmspinner._q_music``.
     """
     from test_job_durability import PUBLISHERS
 
     named = {(module, func) for module, func, _ in PUBLISHERS}
-    assert ("warlock._q_music", "_music") in named
-    assert ("warlock._q_music", "_separate") in named
+    assert ("realmspinner._q_music", "_music") in named
+    assert ("realmspinner._q_music", "_separate") in named
 
 
 # --- muse-03: export a sub-sample loop ---------------------------------------
 
 
 def _player(seconds: float = 10.0, rate: int = 44100) -> Any:
-    from warlock.studio.modes.muse.engine import waveform
+    from realmspinner.studio.modes.muse.engine import waveform
 
     pcm = np.zeros((int(seconds * rate), 2), dtype=np.int16)
     return muse_state.Player(
@@ -469,7 +469,7 @@ def test_separate_reaches_separate_job_and_refuses_a_second_press_while_busy(
     tmp_path, monkeypatch
 ):
     """The other half of muse-05: ``separate`` itself, never exercised."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     seen: dict[str, Any] = {}
 

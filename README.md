@@ -1,11 +1,11 @@
-# Warlock Studio
+# Realmspinner
 
 A local, fully offline indie art studio for game assets — one desktop window, everything on your own GPU, no provider API, no account, no network. It folds the jobs of several tools into one pipeline-aware app: AI 2D/3D asset generation you would otherwise rent from Meshy.ai, polygon modelling, rigging and posing in the spirit of Blender, layered painting and animation in the spirit of Krita and Aseprite, tile-map editing that speaks Tiled's formats, and atlas packing that speaks TexturePacker's — and because they share one library, a mesh built in one workspace can be rigged, posed, sheeted and packed by the others. The newest of those paths runs end to end: a described character becomes a reference, a mesh, a rig, and a directional sprite sheet you can open on a timeline and paint over.
 
 The generation pipeline:
 
 - **Image → 3D**: reference image → textured GLB (base colour plus a combined metallic/roughness texture; surface detail rides on vertex normals, not a normal map), powered by Microsoft **TRELLIS.2-4B** running natively via [trellis.cpp](https://github.com/pwilkin/trellis.cpp) (C++/GGML, CUDA).
-- **Text → 3D**: prompt → reference image via a diffusers pipeline, loaded from a local weights dir. **SDXL 1.0 at full CFG** is the default and the one base download the setup below asks for — 30 steps at 1024 px, with the negative prompt and ControlNet live; the same 7 GB also powers three faster recipes over the same weights, and **SDXL-Turbo** remains the 4-step fast option one install away. Eleven base models are registered (`src/warlock/models.py`) from 4-step distillations to full-CFG SDXL, Playground, Juggernaut, DreamShaper and FLUX.2 klein, with per-job style LoRAs, IP-Adapter appearance conditioning, ControlNet silhouette lock, and a seamless-tile mode with seam measurement. See [docs/MODELS.md](docs/MODELS.md).
+- **Text → 3D**: prompt → reference image via a diffusers pipeline, loaded from a local weights dir. **SDXL 1.0 at full CFG** is the default and the one base download the setup below asks for — 30 steps at 1024 px, with the negative prompt and ControlNet live; the same 7 GB also powers three faster recipes over the same weights, and **SDXL-Turbo** remains the 4-step fast option one install away. Eleven base models are registered (`src/realmspinner/models.py`) from 4-step distillations to full-CFG SDXL, Playground, Juggernaut, DreamShaper and FLUX.2 klein, with per-job style LoRAs, IP-Adapter appearance conditioning, ControlNet silhouette lock, and a seamless-tile mode with seam measurement. See [docs/MODELS.md](docs/MODELS.md).
 - **Text → 2D sheets**: the same prompt as a **tileset**, in one of three layouts — *Materials* (1–16 surface descriptions × 1–4 draws, capped at 64 cells, each cell its own **seamless** generation, so the tiles genuinely repeat), *Terrain set* (an inside and an outside surface composited into a complete 47-case blob autotile that lands in Plotter with the Terrain tool live, by record, with no import prompt), or *Grid (legacy)* (the original 8×8 single generation onto a ControlNet grid guide — the only layout offering 3/4 and 2:1 isometric, and the only one offering a 48 px tile; the seamless two are top-down at 16/32/64 px, since a seamless tile must divide the 1024 px material and must wrap a square). Or as a **sprite sheet**: pick an action (idle, walk, run, attack, cast, hurt, jump) and a direction count, and it draws the character first, keeps it as its own asset, then imagines candidate sheets from it with animation tags and frame durations baked in. Neither is reconstructed into a mesh; a tileset goes on to Plotter or Packwright. The legacy grid mechanism is measured on the maintainer's own corpus; its art direction is not settled.
 - **Rig → pose → sprite sheet**: fit one of seven template skeletons (humanoid, quadruped, bird, fish, insect, serpent, tailed biped), pose it with 3D gizmos or reusable poses from the Poser's global library, and bake poses into sprite sheets — flat or lit, 4/8/16 directions, optionally restyled into pixel art. Beyond single poses, Poser's own character-sheet section renders whole animation clips: keyframes authored in the Poser, interpolated into a 256-cell character sheet of five animations across eight directions.
 - **The approval gate**: text jobs stop at the reference by default — the image is shown full-size for approval (with candidate fan-out and per-stage seeds) before anything pays for a trellis run.
@@ -13,7 +13,7 @@ The generation pipeline:
 ## The modes
 
 A rail down the left of the window chooses between **thirteen** top-level modes
-(`src/warlock/studio/modes/__init__.py` is the authoritative list, and `RAIL_GROUPS` is
+(`src/realmspinner/studio/modes/__init__.py` is the authoritative list, and `RAIL_GROUPS` is
 the grouping) in three sections: **Pipeline**, **Workspaces**, and an
 unlabelled footer. There is no per-mode key — the `Ctrl+K` command palette is
 the keyboard route, and `F1` opens the manual as an overlay over whatever you
@@ -52,7 +52,7 @@ are looking at.
    both directions.
 5. **Clay** — modelling from primitives: vertex/edge/face element modes,
    extrude/bevel/subdivide/dissolve, UVs, a material palette, GLB import, and a
-   diffable `.wblk` native format. Two ways out: export to the library as an
+   diffable `.rblk` native format. Two ways out: export to the library as an
    ordinary asset (rigging, posing, sheets and every mesh export then work on it
    unchanged), or render it flat and send it to Create. An external AI agent can
    drive this same workspace over MCP — off by default, switched on in Settings,
@@ -60,7 +60,7 @@ are looking at.
 6. **Mason** — a 3D scene editor: place library assets and primitives into a
    scene, group and duplicate them, light it, sculpt a ground, and export the
    arrangement as a glTF scene, an engine-friendly GLB-plus-manifest, or merged
-   OBJ geometry. Native `.wscn` format, with a full round trip through the
+   OBJ geometry. Native `.rscn` format, with a full round trip through the
    library — export as an asset row, reopen the scene from it.
 7. **Poser** — authoring reusable poses against a skeleton template, kept in a
    global pose library rather than belonging to any one asset; poses can move
@@ -81,7 +81,7 @@ are looking at.
    own timeline with the spans already set.
 8. **Plotter** — a tile-map editor: grid, layer stack, tilesets and object
    layers, terrain/Wang sets, per-tile metadata, hexagonal and staggered maps,
-   infinite maps, native `.wmap`, and Tiled interop in both directions
+   infinite maps, native `.rmap`, and Tiled interop in both directions
    (`.tmx`/`.tmj` import and export; unsupported Tiled features are refused
    explicitly, never partially loaded).
 9. **Packwright** — a sprite-atlas packer: files, drops, Inker documents or
@@ -126,7 +126,7 @@ Everything but the primary artifacts is derived lazily on first request and cach
 - **Per mesh**: `model.glb` (optimised, grounded), `source.glb` (raw reconstruction), STL, OBJ (zip), FBX, `collision.glb` (convex hull), `textures.zip`, `rig.glb` once rigged, and a baked GLB per saved pose.
 - **Per reference**: `icon.png` (512 transparent cutout), `sprite.png` (trimmed, pivot recorded), `pixel_{32,64,128}.png` (palette-capped or mapped to a user palette in Oklab, optional dither), and a `manifest.json` carrying sizes, trim boxes, pivots and the recipe. Tiles additionally get an estimated PBR material set.
 - **Per workspace**: sprite sheets as PNG plus an engine-neutral JSON sidecar (poses down, compass directions across; animated clips are cells with a `frame` above zero), plus a **Pixelate** variant restyling the whole sheet under one seed and palette; Inker's ORA/PNG/GIF/sheet; Plotter's TMX/TMJ; Packwright's atlases.
-- **Bulk**: zip named artifacts across many jobs, or mirror exports into `WARLOCK_EXPORT_DIR` (e.g. a Godot project's `assets/`).
+- **Bulk**: zip named artifacts across many jobs, or mirror exports into `REALMSPINNER_EXPORT_DIR` (e.g. a Godot project's `assets/`).
 
 ## Requirements
 
@@ -135,7 +135,7 @@ Everything but the primary artifacts is derived lazily on first request and cach
 - **32 GB system RAM.** More than the GPU figure suggests it should need: Windows charges trellis's ~16 GiB device allocation against *host* commit, so admission control refuses jobs at 96% commit on a 63.5 GB machine even with 24 GB physically free. 16 GB will fight you.
 - **~24 GB disk before the first asset** — 16.1 GB of TRELLIS.2 GGUF weights, 7.0 GB for SDXL 1.0 and 0.8 GB for the reconstruction engine itself — then roughly 35–50 MB per generated 3D job. There is no automatic age-out; pruning is manual.
 - **A 1920×1080 display or larger at 100% scaling.** The window opens at 1600×950 (scaled by your DPI setting) and is clamped to the desktop, so it fits smaller panels, but below that the eight workspaces get cramped.
-- [uv](https://docs.astral.sh/uv/) and **Python 3.13** — `bpy` ships CPython 3.13 wheels only, and rigging is not optional enough to support a Python it can never run on. The floor was 3.12 until 2026-09-03, when the CI leg testing that claim was read for the first time and was not green. On 3.14 or later the rig extra installs nothing, `warlock doctor` reports rigging unavailable, and the app hides the rig controls; everything else works unchanged.
+- [uv](https://docs.astral.sh/uv/) and **Python 3.13** — `bpy` ships CPython 3.13 wheels only, and rigging is not optional enough to support a Python it can never run on. The floor was 3.12 until 2026-09-03, when the CI leg testing that claim was read for the first time and was not green. On 3.14 or later the rig extra installs nothing, `realmspinner doctor` reports rigging unavailable, and the app hides the rig controls; everything else works unchanged.
 
 **How long a generation takes:** roughly two minutes of GPU per 3D attempt on the tested card — a reference image in seconds, then the reconstruction. Budget for more than one attempt: the approval gate exists because the first reference is often not the one you want.
 
@@ -161,8 +161,8 @@ uv sync --extra studio --extra text2image --extra rig --extra music
 #    https://github.com/pwilkin/trellis.cpp/releases (trellis-cuda-windows-x64.zip)
 #    vendored build: v0.6.0 (2026-08-19)
 #    A checkout step only. The packaged app downloads this same archive from
-#    Settings -> Models and unpacks it under ~/.warlock/engine/trellis, and a
-#    downloaded copy wins over this one; WARLOCK_TRELLIS_EXE beats both.
+#    Settings -> Models and unpacks it under ~/.realmspinner/engine/trellis, and a
+#    downloaded copy wins over this one; REALMSPINNER_TRELLIS_EXE beats both.
 ```
 
 Then start the app. **It will offer you the ~24 GB of engine and model
@@ -173,12 +173,12 @@ add or remove individual models; a removal tells you what it would actually
 free before you confirm, which matters because five of the registered recipes
 share one 7 GB checkpoint.
 
-Nothing above is required to *run* Warlock, and since 2026-09-10 that includes
+Nothing above is required to *run* Realmspinner, and since 2026-09-10 that includes
 the reconstruction engine: it is a registry row like a model, so the installer
 no longer carries its 838 MB and a machine that only draws pixel art never
 fetches it. Seven of the eight workspaces --
 Inker, Clay, Mason, Poser, Plotter, Packwright and the Sirens tracker --
-open and work with an empty model directory, and `warlock doctor` exits 0 on a
+open and work with an empty model directory, and `realmspinner doctor` exits 0 on a
 machine that has downloaded none of it, reporting the absent rows as `[SETUP]`
 rather than as failures. What the weights buy is generation: **Create** and
 **Muse** are greyed out in the rail until theirs are present, and clicking a
@@ -191,7 +191,7 @@ greyed one opens Settings -> Models with those rows already ticked.
 > OpenRAIL++-M and commercially permissive.
 
 **This does not make the app online-capable, and the mechanism is the point.**
-The Download button spawns a separate `python -m warlock.pipelines.fetch_worker`
+The Download button spawns a separate `python -m realmspinner.pipelines.fetch_worker`
 process which sets `HF_HUB_OFFLINE=0` *in its own environment*, fetches one
 repository into a staging directory beside the destination, verifies the hub's
 recorded digests, moves the files in only if it succeeded, and exits. The app
@@ -209,13 +209,13 @@ rather than as installed.
 For a headless box, a scripted setup, or if you would rather see the commands:
 
 ```powershell
-# TRELLIS.2 GGUF weights (16.1 GB) -> ~/.warlock/models/trellis2-gguf/
+# TRELLIS.2 GGUF weights (16.1 GB) -> ~/.realmspinner/models/trellis2-gguf/
 uvx hf download ilintar/trellis2-gguf --revision a57397bd3d351599d9729fc144b3f87c3f87d65b --include "*.gguf" --exclude "q4/*" --exclude "q8/*" `
-  --local-dir $HOME/.warlock/models/trellis2-gguf
+  --local-dir $HOME/.realmspinner/models/trellis2-gguf
 
-# SDXL 1.0 weights (fp16 variant, 7.0 GB) -> ~/.warlock/models/sdxl-base-1.0/  (text-to-3D only)
+# SDXL 1.0 weights (fp16 variant, 7.0 GB) -> ~/.realmspinner/models/sdxl-base-1.0/  (text-to-3D only)
 uvx hf download stabilityai/stable-diffusion-xl-base-1.0 --revision 462165984030d82259a11f4367a4eed129e94a7b `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.warlock/models/sdxl-base-1.0
+  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/sdxl-base-1.0
 ```
 
 `--include` must be **repeated per pattern**. The space-separated form is
@@ -248,24 +248,24 @@ Rigging (the `rig` extra) fits a template skeleton to a finished mesh and skins 
 pwsh native\build.ps1
 ```
 
-Builds `vendor/warlockc/warlockc.dll` from the C in `native/`. Entirely optional — every kernel has a numpy implementation it falls back to, and `warlock doctor` shows which is in use. What it buys is speed on hot raster paths (the four-view mesh audit drops from seconds to ~0.13 s); the bar is bit-identical parity with the numpy path, so old and new measurements stay comparable. Needs MSVC Build Tools, LLVM/clang, or zig; the script finds whichever is present. `WARLOCK_NATIVE=0` forces the numpy path.
+Builds `vendor/realmspinnerc/realmspinnerc.dll` from the C in `native/`. Entirely optional — every kernel has a numpy implementation it falls back to, and `realmspinner doctor` shows which is in use. What it buys is speed on hot raster paths (the four-view mesh audit drops from seconds to ~0.13 s); the bar is bit-identical parity with the numpy path, so old and new measurements stay comparable. Needs MSVC Build Tools, LLVM/clang, or zig; the script finds whichever is present. `REALMSPINNER_NATIVE=0` forces the numpy path.
 
 ## Run
 
 ```powershell
-uv run warlock          # opens the desktop app
-uv run warlock doctor   # checks dependencies, weights, and configuration
+uv run realmspinner          # opens the desktop app
+uv run realmspinner doctor   # checks dependencies, weights, and configuration
 ```
 
-`warlock sweep --image ~/.warlock/assets/<job-id>/input.png --bands auto,4,8 --seed 42` regenerates one reference at several trellis `--band` values with a fixed seed and audits each resulting mesh.
+`realmspinner sweep --image ~/.realmspinner/assets/<job-id>/input.png --bands auto,4,8 --seed 42` regenerates one reference at several trellis `--band` values with a fixed seed and audits each resulting mesh.
 
-`python -m warlock.bench` is the developer measurement suite behind quality decisions: versioned suites (`core-v2`, `pixel-v2`) run under named recipes, rendered to eight views per mesh and scored on silhouette IoU and DINOv2 identity (always A-against-B, never as an absolute). Subcommands: `suites`, `recipes`, `run`, `score`, `calibrate`, `prune`, `purge`.
+`python -m realmspinner.bench` is the developer measurement suite behind quality decisions: versioned suites (`core-v2`, `pixel-v2`) run under named recipes, rendered to eight views per mesh and scored on silhouette IoU and DINOv2 identity (always A-against-B, never as an absolute). Subcommands: `suites`, `recipes`, `run`, `score`, `calibrate`, `prune`, `purge`.
 
 ### Configuration
 
-There is no *engine* config file — every path, port, timeout and mode is a `WARLOCK_*` env var, and the full table lives in [docs/manual/41-configuration.md](docs/manual/41-configuration.md). Studio's own UI preferences (theme, UI scale, pane layout, remembered form fields) are a separate thing and do persist, in `studio_settings.json` in the data directory; they are edited in the app rather than in a file. The main knobs: `WARLOCK_DATA_DIR` (where assets and the job store live), `WARLOCK_EXPORT_DIR`, `WARLOCK_T2I_ROOT`/`WARLOCK_T2I_MODEL` (image-model home and default), and `WARLOCK_VRAM_EXCLUSIVE`.
+There is no *engine* config file — every path, port, timeout and mode is a `REALMSPINNER_*` env var, and the full table lives in [docs/manual/41-configuration.md](docs/manual/41-configuration.md). Realmspinner's own UI preferences (theme, UI scale, pane layout, remembered form fields) are a separate thing and do persist, in `studio_settings.json` in the data directory; they are edited in the app rather than in a file. The main knobs: `REALMSPINNER_DATA_DIR` (where assets and the job store live), `REALMSPINNER_EXPORT_DIR`, `REALMSPINNER_T2I_ROOT`/`REALMSPINNER_T2I_MODEL` (image-model home and default), and `REALMSPINNER_VRAM_EXCLUSIVE`.
 
-On VRAM: the trellis server subprocess starts on the first 3D job and by default stays resident alongside the image model (~16 GB + ~7 GB on a 32 GB card); both are evicted after 10 minutes idle. `WARLOCK_VRAM_EXCLUSIVE=1` restores sequential VRAM use for text jobs (trellis stopped → image model loads, generates, unloads → trellis restarts) — needed for smaller GPUs, resolution 1536, or a resident FLUX. `WARLOCK_VRAM_BUDGET` and `WARLOCK_VRAM_TOTAL` override the admission-control budget and auto-detected card size directly, for the cases auto-detect gets wrong.
+On VRAM: the trellis server subprocess starts on the first 3D job and by default stays resident alongside the image model (~16 GB + ~7 GB on a 32 GB card); both are evicted after 10 minutes idle. `REALMSPINNER_VRAM_EXCLUSIVE=1` restores sequential VRAM use for text jobs (trellis stopped → image model loads, generates, unloads → trellis restarts) — needed for smaller GPUs, resolution 1536, or a resident FLUX. `REALMSPINNER_VRAM_BUDGET` and `REALMSPINNER_VRAM_TOTAL` override the admission-control budget and auto-detected card size directly, for the cases auto-detect gets wrong.
 
 ## Development
 
@@ -279,22 +279,22 @@ The default run excludes the `gpu` marker (`addopts = -m "not gpu"`): those test
 checkpoints onto a real card, so they belong to a deliberate lane rather than to every `pytest`.
 Run that lane before changing model loading, VRAM accounting or conditioning.
 
-The app is a single process: a pygame window, one ModernGL context, and [imgui-bundle](https://github.com/pthom/imgui_bundle) panels drawn through that same context (the 3D viewport is a texture the panels show). Three threads — the frame loop, an asyncio worker for the GPU queue, and a task pool for blocking calls; jobs run one at a time. `warlock.service` is the single business-logic layer the panes and the tests both call. Model loads that would bloat the app process run in subprocesses that end (Blender, BiRefNet matting, the fetch worker), all tied to a kill-on-close job object.
+The app is a single process: a pygame window, one ModernGL context, and [imgui-bundle](https://github.com/pthom/imgui_bundle) panels drawn through that same context (the 3D viewport is a texture the panels show). Three threads — the frame loop, an asyncio worker for the GPU queue, and a task pool for blocking calls; jobs run one at a time. `realmspinner.service` is the single business-logic layer the panes and the tests both call. Model loads that would bloat the app process run in subprocesses that end (Blender, BiRefNet matting, the fetch worker), all tied to a kill-on-close job object.
 
-**An AI agent can drive Clay.** `uv run warlock mcp` is the bridge an agent's MCP client spawns; it relays calls over a named pipe to a running app process and touches no model, no inference and no network (`HF_HUB_OFFLINE` is untouched). It's off until switched on in Settings under "Allow AI agents to drive the Studio," which gives the agent its own Clay tab it can't reach out of. The feature landed 2026-09-09 and is still being hardened release to release, so treat it as young: the plumbing is tracked as solid but the output as ungraded — no agent-built mesh has gone through the benchmark yet.
+**An AI agent can drive Clay.** `uv run realmspinner mcp` is the bridge an agent's MCP client spawns; it relays calls over a named pipe to a running app process and touches no model, no inference and no network (`HF_HUB_OFFLINE` is untouched). It's off until switched on in Settings under "Allow AI agents to drive Realmspinner," which gives the agent its own Clay tab it can't reach out of. The feature landed 2026-09-09 and is still being hardened release to release, so treat it as young: the plumbing is tracked as solid but the output as ungraded — no agent-built mesh has gone through the benchmark yet.
 
-Outputs land in `~/.warlock/assets/<job_id>/` (`input.png`, `model.glb`, `rig.glb`/`rig.json`, `poses/`, `sheets/`); the SQLite job store lives at `~/.warlock/assets/jobs.sqlite`. Everything the app generates — the library, benchmark runs, palettes and model weights — sits under that one home directory rather than inside the checkout; an install that predates it has its directories moved there on the next start (copy, verify, then delete), and `WARLOCK_HOME` or `WARLOCK_NO_MIGRATE` opts out. See [Data locations](docs/manual/41-configuration.md#data-locations).
+Outputs land in `~/.realmspinner/assets/<job_id>/` (`input.png`, `model.glb`, `rig.glb`/`rig.json`, `poses/`, `sheets/`); the SQLite job store lives at `~/.realmspinner/assets/jobs.sqlite`. Everything the app generates — the library, benchmark runs, palettes and model weights — sits under that one home directory rather than inside the checkout; an install that predates it has its directories moved there on the next start (copy, verify, then delete), and `REALMSPINNER_HOME` or `REALMSPINNER_NO_MIGRATE` opts out. See [Data locations](docs/manual/41-configuration.md#data-locations).
 
 Where to read more: the user manual is [docs/manual/00-index.md](docs/manual/00-index.md) (43 chapters, also embedded in the app); the hard invariants and their measured reasoning, and past measurement write-ups, are kept in the maintainer's own local development notes rather than in this public repo; and `CHANGELOG.md` tracks releases.
 
 ## Licence
 
-Warlock Studio is **GPL-3.0-or-later** — see [LICENSE](LICENSE).
+Realmspinner is **GPL-3.0-or-later** — see [LICENSE](LICENSE).
 
 GPL rather than something permissive because the Windows installer bundles
 [`bpy`](https://pypi.org/project/bpy/) (Blender as a Python module, GPL-3.0) to
 provide rigging. The subprocess boundary is real — only
-`src/warlock/pipelines/blender_worker.py` imports `bpy`, and it never runs in
+`src/realmspinner/pipelines/blender_worker.py` imports `bpy`, and it never runs in
 the app process — but the installer distributes both inside one executable, so
 the combined work is GPL. A source checkout without `--extra rig` contains no
 GPL dependency; the licence on this project is unchanged either way.

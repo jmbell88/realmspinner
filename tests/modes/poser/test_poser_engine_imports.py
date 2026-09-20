@@ -25,7 +25,7 @@ Today's outward set is empty, the same claim Troupe's own pin made for the
 same three files: the frame table is arithmetic over a JSON file, the QA
 scorer is arithmetic over a numpy array (imported lazily, inside the
 functions, never at module scope), and the ULPC reader is a crop table over a
-literal layout -- none of the three needs ``warlock`` at all.
+literal layout -- none of the three needs ``realmspinner`` at all.
 """
 
 from __future__ import annotations
@@ -37,10 +37,10 @@ from pathlib import Path
 import pytest
 from _pure_packages import dotted_root, pure_packages, siblings_of
 
-from warlock.studio.modes.poser import engine as poser_engine
+from realmspinner.studio.modes.poser import engine as poser_engine
 
 ENGINE = Path(poser_engine.__file__).parent
-PACKAGE = "warlock.studio.modes.poser.engine"
+PACKAGE = "realmspinner.studio.modes.poser.engine"
 
 #: ``(module, imported name)`` for every import that leaves the package,
 #: today. Empty -- see the module docstring.
@@ -106,15 +106,15 @@ def test_the_engine_never_imports_a_window():
 def test_the_engine_never_imports_the_service_layer():
     for path in _modules():
         for name in _outward(path):
-            assert "warlock.service" not in name, f"{path.name} imports {name}"
+            assert "realmspinner.service" not in name, f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_queue_or_the_pipelines():
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.queue"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock.pipelines"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.queue"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.pipelines"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_raster_editor():
@@ -123,7 +123,7 @@ def test_the_engine_never_imports_the_raster_editor():
     without dragging the editor in behind it -- unchanged by the move."""
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.kernels.pixel"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.kernels.pixel"), f"{path.name} imports {name}"
 
 
 def test_the_only_outward_imports_are_the_ones_written_down():
@@ -131,7 +131,7 @@ def test_the_only_outward_imports_are_the_ones_written_down():
         (path.name, name)
         for path in _modules()
         for name in _outward(path)
-        if name.split(".")[0] == "warlock"
+        if name.split(".")[0] == "realmspinner"
     }
     assert found == OUTWARD_IMPORTS
 

@@ -12,8 +12,8 @@ import time
 
 import pytest
 
-from warlock.familiar import retrieval
-from warlock.kernels.manual import loader, parser
+from realmspinner.familiar import retrieval
+from realmspinner.kernels.manual import loader, parser
 
 
 @pytest.fixture(scope="module")
@@ -55,13 +55,13 @@ def test_retrieval_cites_only_anchors_the_manual_really_has(
 def test_a_code_identifier_query_finds_the_paragraph_that_names_it(
     index: retrieval.Index,
 ) -> None:
-    # WARLOCK_VRAM_BUDGET is named in exactly one chapter (docs/manual/
+    # REALMSPINNER_VRAM_BUDGET is named in exactly one chapter (docs/manual/
     # 41-configuration.md) -- confirmed with a literal grep over docs/manual
     # before writing this test, so a false pass (some other chunk happening
     # to rank first) is not on the table.
-    citations = index.search("WARLOCK_VRAM_BUDGET")
+    citations = index.search("REALMSPINNER_VRAM_BUDGET")
     assert citations
-    assert "WARLOCK_VRAM_BUDGET" in citations[0].text
+    assert "REALMSPINNER_VRAM_BUDGET" in citations[0].text
 
 
 def test_citations_stay_inside_the_token_budget(index: retrieval.Index) -> None:

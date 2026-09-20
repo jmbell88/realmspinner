@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel import filters
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.selection import SelectionMask
+from realmspinner.kernels.pixel import filters
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.selection import SelectionMask
 
 GREY = (128, 128, 128, 255)
 BRIGHTER = {"brightness": 0.5, "contrast": 0.0}
@@ -190,7 +190,7 @@ def test_a_range_filter_commits_a_float_before_it_reads_the_cels():
     filtering around it filters a picture that is not the one on screen -- and
     the cel its commit conjures has to be in the target set, not missed by it.
     """
-    from warlock.kernels.pixel.selection import FloatingBuffer
+    from realmspinner.kernels.pixel.selection import FloatingBuffer
 
     doc = _clip(2)
     assert doc.clear_range(0, 0, 1, 1)  # frame 1 is empty
@@ -234,7 +234,7 @@ def test_a_range_filter_on_an_indexed_document_keeps_the_planes_in_step():
 def test_a_range_filter_on_an_indexed_document_pushes_index_patches():
     """Indices are the record, so the step has to be one: an RGBA patch would
     put the *colours* back on undo and collapse every duplicate slot doing it."""
-    from warlock.kernels.pixel.undo import CompoundEdit, IndexPatchEdit
+    from realmspinner.kernels.pixel.undo import CompoundEdit, IndexPatchEdit
 
     doc = _indexed_clip(2)
     before = [_cel(doc, 0, i).indices.copy() for i in range(2)]

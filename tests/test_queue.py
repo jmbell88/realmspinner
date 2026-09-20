@@ -8,11 +8,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import config as config_module
-from warlock import guidance
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.queue import POLL_INTERVAL, Worker
+from realmspinner import config as config_module
+from realmspinner import guidance
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.queue import POLL_INTERVAL, Worker
 
 pytestmark = pytest.mark.asyncio
 
@@ -94,7 +94,7 @@ async def test_shutdown_forces_cancel_after_timeout_when_trellis_ignores_stop(
     # reconstruction. That is the regression worth owning, and the assertions
     # below are written for it: shutdown returns inside the budget, and it does
     # not leave the dispatch task running behind it.
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     timeout = 1.0
     monkeypatch.setattr(queue_mod, "SHUTDOWN_TIMEOUT", timeout)
@@ -366,7 +366,7 @@ async def test_worker_falls_back_to_legacy_seed_for_both_stages(worker):
 
 
 async def test_finished_model_is_scaled_to_the_requested_size(worker, monkeypatch):
-    import warlock.pipelines.postprocess as postprocess_mod
+    import realmspinner.pipelines.postprocess as postprocess_mod
 
     calls = []
     monkeypatch.setattr(
@@ -393,7 +393,7 @@ async def test_no_size_still_grounds_but_does_not_rescale(worker, monkeypatch):
     # Grounding is not conditional on a target size: a pivot at the
     # reconstruction volume's centre is a manual fixup on every import.
     # Without a size the scale factor must still come back exactly 1.0.
-    import warlock.pipelines.postprocess as postprocess_mod
+    import realmspinner.pipelines.postprocess as postprocess_mod
 
     calls = []
     monkeypatch.setattr(
@@ -475,7 +475,7 @@ async def test_a_failed_error_log_still_records_the_job_as_errored(worker, monke
     from it -- a full or read-only disk, which is also how a job fails in the
     first place -- left ``error`` None and the finally recorded the job as
     **done**: a successful-looking job with no model.glb and no message."""
-    from warlock import errors as errors_mod
+    from realmspinner import errors as errors_mod
 
     def cannot_write(*args, **kwargs):
         raise OSError(28, "No space left on device")
@@ -635,7 +635,7 @@ async def test_a_coexist_sprite_stage_also_releases_the_image_model(
     checkpoint just as a text job did. Both sites changed together or the
     guarantee would hold for one kind of job and not the next.
     """
-    from warlock import models
+    from realmspinner import models
 
     worker = _make_worker(tmp_path)
     try:
@@ -684,8 +684,8 @@ async def test_a_load_is_refused_when_commit_is_short_in_bytes_not_in_percent(
     prevent. So the bytes the next load needs are asked for by name, immediately
     before it.
     """
-    import warlock.queue as queue_mod
-    from warlock import memlog, models
+    import realmspinner.queue as queue_mod
+    from realmspinner import memlog, models
 
     klein = next(
         key
@@ -729,8 +729,8 @@ async def test_a_transient_shortfall_settles_before_the_load_is_refused(
     credited back by the time the very next check ran. The quantity check now
     gets a couple of short settle-retries before it gives up, since it always
     follows a teardown of its own making."""
-    import warlock.queue as queue_mod
-    from warlock import memlog, models
+    import realmspinner.queue as queue_mod
+    from realmspinner import memlog, models
 
     klein = next(
         key
@@ -763,8 +763,8 @@ def _commit_scenario(monkeypatch):
     ``system_memory`` reads it on every call, so a test can be short before an
     unload and roomy after it.
     """
-    import warlock.queue as queue_mod
-    from warlock import memlog
+    import realmspinner.queue as queue_mod
+    from realmspinner import memlog
 
     state = {"free": 40.0}
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: 0.85)
@@ -780,7 +780,7 @@ def _commit_scenario(monkeypatch):
 
 
 def _offloaded_key():
-    from warlock import models
+    from realmspinner import models
 
     return next(
         key
@@ -796,7 +796,7 @@ async def test_a_base_switch_unloads_the_old_pipe_before_the_commit_check(
     being the resident SDXL pipe the switch was guaranteed to unload one call
     later. The check must measure a host that has already given those weights
     back, not charge the outgoing model against the incoming one."""
-    from warlock import models
+    from realmspinner import models
 
     state = _commit_scenario(monkeypatch)
     klein = _offloaded_key()
@@ -822,7 +822,7 @@ async def test_a_base_switch_unloads_the_old_pipe_before_the_commit_check(
         def free():
             return 6.0 if old.unload_calls == 0 else 40.0
 
-        from warlock import memlog
+        from realmspinner import memlog
         monkeypatch.setattr(
             memlog, "system_memory",
             lambda: memlog.SystemMemory(60.0 - free(), 60.0),
@@ -842,7 +842,7 @@ async def test_a_switch_still_short_after_the_unload_is_refused(
 ):
     """Re-measure, never credit: if the host is genuinely short even after the
     stale pipe is gone, the refusal still fires -- against post-unload numbers."""
-    from warlock import models
+    from realmspinner import models
 
     state = _commit_scenario(monkeypatch)
     klein = _offloaded_key()
@@ -867,7 +867,7 @@ async def test_a_warm_same_key_pipe_is_never_commit_checked(
 ):
     """The weights are in commit either way; refusing a warm hit would fail a
     job for memory it is not about to ask for."""
-    from warlock import models
+    from realmspinner import models
 
     state = _commit_scenario(monkeypatch)
     worker = _make_worker(tmp_path)
@@ -897,7 +897,7 @@ async def test_a_retained_unloaded_pipe_still_passes_the_commit_check(
     (``.loaded`` is what answers "is a pipe resident"). The next load through
     that retained object re-allocates the full checkpoint, so the byte check
     must fire for it exactly as it does when the field is None."""
-    from warlock import models
+    from realmspinner import models
 
     state = _commit_scenario(monkeypatch)
     worker = _make_worker(tmp_path)
@@ -935,7 +935,7 @@ async def test_a_store_generation_bump_reloads_through_the_commit_check(
     """The previously unchecked path: a generation-forced rebuild of a same-key
     pipe skipped the bytes check entirely, because the gate keyed on the base
     key alone. It now unloads first and then passes through the check."""
-    from warlock import fetch, memlog, models
+    from realmspinner import fetch, memlog, models
 
     _commit_scenario(monkeypatch)
     worker = _make_worker(tmp_path)
@@ -975,7 +975,7 @@ async def test_idle_cache_eviction_runs_again_for_a_cache_loaded_off_the_queue(
     nothing ever dropped it again. Throttling by time instead means the next
     idle window gets its own pass.
     """
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     drops: list[int] = []
     monkeypatch.setattr(
@@ -1021,7 +1021,7 @@ async def test_installing_a_model_while_a_pipe_is_warm_rebuilds_it(worker):
     download or uninstall; the worker compares it and rebuilds rather than
     handing back a pipe that predates the weights.
     """
-    from warlock import fetch
+    from realmspinner import fetch
 
     first = worker.store.create("text", "a barrel", {"seed": 1, "resolution": 512})
     worker.start()
@@ -1077,7 +1077,7 @@ async def test_an_offloaded_base_hands_off_even_in_coexist_mode(tmp_path, fake_p
     FLUX.2 klein jobs took Python private commit from 24.4 to 45.2 GiB and
     system commit to 99%.
 
-    So the handoff is mandatory for OFFLOAD, whatever WARLOCK_VRAM_EXCLUSIVE
+    So the handoff is mandatory for OFFLOAD, whatever REALMSPINNER_VRAM_EXCLUSIVE
     says -- and the teardown must be unload(), not trim(): trim() returns the
     CUDA caching allocator's pool, and none of an offloaded pipe's cost is in
     it.
@@ -1150,7 +1150,7 @@ async def test_a_job_is_refused_at_dispatch_when_the_host_is_out_of_commit(
 ):
     """The submit-time gate cannot see a host that filled up while the job
     waited, and Windows does not raise on commit exhaustion -- it kills us."""
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: 0.97)
     worker = _make_worker(tmp_path)
@@ -1172,7 +1172,7 @@ async def test_a_commit_refusal_backs_off_before_the_next_queued_job(
     job with no delay at all, giving the commit figure the refusal was about
     no chance to move before it was asked again. A refusal now buys the next
     job a short pause instead of an instant retry."""
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: 0.97)
     backoff = 0.3
@@ -1207,7 +1207,7 @@ async def test_the_3d_stage_is_withheld_when_commit_crosses_after_the_image(
     on disk, and a user told "out of memory" after a successful two-minute
     generation will assume they lost it.
     """
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     # Two healthy readings, then the wall: dispatch asks, and so does the check
     # immediately before the checkpoint load (MDL-04). The one under test is the
@@ -1237,8 +1237,8 @@ async def test_the_3d_stage_is_withheld_when_commit_crosses_after_the_image(
 async def test_a_job_is_refused_at_dispatch_when_the_card_has_since_filled(
     tmp_path, fake_pipelines, monkeypatch
 ):
-    import warlock.queue as queue_mod
-    from warlock import vram
+    import realmspinner.queue as queue_mod
+    from realmspinner import vram
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     monkeypatch.setattr(vram, "device_memory", lambda: vram.DeviceMemory(32.0, 1.0))
@@ -1267,8 +1267,8 @@ async def test_a_resident_sdxl_pipe_is_not_charged_twice_at_dispatch(
     -- passing for the wrong reason. The arithmetic is still worth pinning:
     ``_check_resources`` must credit whatever it finds resident, and the
     sibling test below pins that an *image* job gets no such credit."""
-    import warlock.queue as queue_mod
-    from warlock import vram
+    import realmspinner.queue as queue_mod
+    from realmspinner import vram
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     monkeypatch.setattr(queue_mod, "vram_gib", lambda: (7.1, 7.52))
@@ -1316,8 +1316,8 @@ async def test_check_resources_credits_the_registry_estimate_when_torch_is_impor
     what ``vram_gib()`` says, because ``vram_gib()`` can only ever see this
     process's own CUDA allocations and the checkpoint lives in the child.
     """
-    import warlock.queue as queue_mod
-    from warlock import vram
+    import realmspinner.queue as queue_mod
+    from realmspinner import vram
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     # The near-zero tuple pose2d's CPU-only torch import leaves behind --
@@ -1346,8 +1346,8 @@ async def test_an_image_job_gets_no_credit_for_the_resident_pipe(
     """An image job's `need` carries no SDXL term, and under coexist the pipe
     stays resident beside trellis -- crediting it would overstate headroom by
     the pipe's whole size on exactly the tightest path."""
-    import warlock.queue as queue_mod
-    from warlock import vram
+    import realmspinner.queue as queue_mod
+    from realmspinner import vram
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     monkeypatch.setattr(queue_mod, "vram_gib", lambda: (7.1, 7.52))
@@ -1386,8 +1386,8 @@ async def test_every_kind_that_is_charged_for_a_checkpoint_is_credited_for_one(
     Waiting out the 600 s idle eviction made it work, which is what made this
     read as a phantom leak rather than as an accounting bug.
     """
-    import warlock.queue as queue_mod
-    from warlock import vram
+    import realmspinner.queue as queue_mod
+    from realmspinner import vram
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     monkeypatch.setattr(queue_mod, "vram_gib", lambda: (7.1, 7.52))
@@ -1419,8 +1419,8 @@ async def test_every_kind_that_is_charged_for_a_checkpoint_is_credited_for_one(
 async def test_dispatch_still_refuses_past_what_the_resident_models_explain(
     tmp_path, fake_pipelines, monkeypatch
 ):
-    import warlock.queue as queue_mod
-    from warlock import vram
+    import realmspinner.queue as queue_mod
+    from realmspinner import vram
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     monkeypatch.setattr(queue_mod, "vram_gib", lambda: (7.1, 7.5))
@@ -1453,8 +1453,8 @@ async def test_check_resources_credits_the_trellis_footprint_the_dispatched_jobs
     headroom, which refuses the job; the flat credit (16.0) leaves 21.0 GiB,
     which would wrongly admit it.
     """
-    import warlock.queue as queue_mod
-    from warlock import vram
+    import realmspinner.queue as queue_mod
+    from realmspinner import vram
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     monkeypatch.setattr(vram, "device_memory", lambda: vram.DeviceMemory(32.0, 5.0))
@@ -1488,7 +1488,7 @@ async def test_a_refused_job_does_not_rearm_the_cache_eviction_clock(
     finished job, and the caches it did not populate are not made fresher by
     its failure.
     """
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: 0.97)
     worker = _make_worker(tmp_path, trellis_idle_timeout=600.0)
@@ -1608,7 +1608,7 @@ async def test_idle_eviction_runs_off_the_event_loop(tmp_path, fake_pipelines):
 
 
 async def test_mesh_audit_is_recorded_on_the_finished_job(worker, monkeypatch):
-    import warlock.meshaudit as meshaudit_mod
+    import realmspinner.meshaudit as meshaudit_mod
 
     calls = []
 
@@ -1642,7 +1642,7 @@ async def test_trellis_output_is_kept_as_source_glb(worker, monkeypatch):
     # The on-disk contract: source.glb is what trellis returned and is never
     # overwritten; model.glb is derived from it, so re-targeting a budget later
     # never has to pay for another trellis run.
-    import warlock.pipelines.optimize as optimize_mod
+    import realmspinner.pipelines.optimize as optimize_mod
 
     monkeypatch.setattr(
         optimize_mod,
@@ -1675,7 +1675,7 @@ async def test_trellis_output_is_kept_as_source_glb(worker, monkeypatch):
 async def test_a_failing_optimize_still_ships_the_reconstruction(worker, monkeypatch):
     # The reconstruction is on disk and usable; losing the budget costs file
     # size, and failing the job would cost the user the mesh.
-    import warlock.pipelines.optimize as optimize_mod
+    import realmspinner.pipelines.optimize as optimize_mod
 
     def explode(*_args, **_kwargs):
         raise optimize_mod.OptimizeError("gltfpack not found")
@@ -1706,8 +1706,8 @@ async def test_a_failing_optimize_still_ships_the_reconstruction(worker, monkeyp
 
 
 async def test_finished_job_carries_a_mesh_report(worker, monkeypatch):
-    import warlock.meshaudit as meshaudit_mod
-    import warlock.meshreport as meshreport_mod
+    import realmspinner.meshaudit as meshaudit_mod
+    import realmspinner.meshreport as meshreport_mod
 
     monkeypatch.setattr(
         meshaudit_mod,
@@ -1732,8 +1732,8 @@ async def test_finished_job_carries_a_mesh_report(worker, monkeypatch):
 async def test_a_failing_mesh_report_does_not_fail_the_job(worker, monkeypatch):
     # Same rule the audit already follows: a diagnostic must never fail a job
     # whose mesh is already on disk.
-    import warlock.meshaudit as meshaudit_mod
-    import warlock.meshreport as meshreport_mod
+    import realmspinner.meshaudit as meshaudit_mod
+    import realmspinner.meshreport as meshreport_mod
 
     monkeypatch.setattr(
         meshaudit_mod,
@@ -1762,7 +1762,7 @@ async def test_a_failing_mesh_report_does_not_fail_the_job(worker, monkeypatch):
 async def test_a_failing_mesh_audit_does_not_fail_the_job(worker, monkeypatch):
     # The mesh is already on disk and fine by the time this runs; a diagnostic
     # blowing up must not retroactively turn a good job into an errored one.
-    import warlock.meshaudit as meshaudit_mod
+    import realmspinner.meshaudit as meshaudit_mod
 
     def explode(*_args, **_kwargs):
         raise RuntimeError("trimesh said no")
@@ -1783,8 +1783,8 @@ async def test_a_failing_mesh_audit_does_not_fail_the_job(worker, monkeypatch):
 async def test_mesh_audit_runs_after_scaling(worker, monkeypatch):
     # Ordering is load-bearing: the audit must measure the mesh the user will
     # actually download, not the pre-scale one.
-    import warlock.meshaudit as meshaudit_mod
-    import warlock.pipelines.postprocess as postprocess_mod
+    import realmspinner.meshaudit as meshaudit_mod
+    import realmspinner.pipelines.postprocess as postprocess_mod
 
     order = []
     monkeypatch.setattr(
@@ -1818,7 +1818,7 @@ async def test_a_failing_normalize_does_not_fail_the_job(worker, monkeypatch):
     # Grounding runs on every job, including ones that never asked for a size,
     # so an unparseable mesh must not turn a job that produced a GLB into an
     # errored one.
-    import warlock.pipelines.postprocess as postprocess_mod
+    import realmspinner.pipelines.postprocess as postprocess_mod
 
     def explode(*_args, **_kwargs):
         raise ValueError("incorrect header on GLB file")
@@ -2177,8 +2177,8 @@ async def test_build_anyway_reaches_reconstruction(worker):
     """
     from PIL import Image
 
-    from warlock import provenance
-    from warlock.pipelines import reference
+    from realmspinner import provenance
+    from realmspinner.pipelines import reference
 
     job_id = _make_image_job(worker)
     path = worker.config.job_dir(job_id) / "input.png"
@@ -2209,7 +2209,7 @@ async def test_an_override_does_not_travel_to_a_job_with_different_pixels(worker
     """
     from PIL import Image
 
-    from warlock.pipelines import reference
+    from realmspinner.pipelines import reference
 
     job_id = _make_image_job(worker)
     path = worker.config.job_dir(job_id) / "input.png"
@@ -2304,7 +2304,7 @@ async def test_a_finished_reference_carries_a_rank(worker):
 async def test_a_failing_rank_does_not_fail_the_job(worker, monkeypatch):
     # Same rule as the mesh audit: a diagnostic must never be able to fail a
     # job whose artifact is already on disk.
-    import warlock.pipelines.rank as rank_mod
+    import realmspinner.pipelines.rank as rank_mod
 
     def boom(*_args, **_kwargs):
         raise RuntimeError("boom")
@@ -2332,7 +2332,7 @@ async def test_a_mesh_job_is_not_ranked(worker):
 
 def _bad_then_good(monkeypatch, failures: int):
     """reference.measure_file that refuses the first `failures` calls."""
-    import warlock.pipelines.reference as reference_mod
+    import realmspinner.pipelines.reference as reference_mod
 
     calls = {"n": 0}
 
@@ -2361,7 +2361,7 @@ async def test_a_refused_reference_is_rerolled_before_the_job_fails(worker, monk
     config vector and its mesh seed, so a reroll that changed both would be a
     different unit rather than a second attempt at this one.
     """
-    import warlock.pipelines.reference as reference_mod
+    import realmspinner.pipelines.reference as reference_mod
 
     _bad_then_good(monkeypatch, failures=1)
     # The post-normalisation gate passes; this test is about the composition
@@ -2397,8 +2397,8 @@ async def test_without_the_setting_a_bad_reference_is_not_rerolled(worker, monke
 async def test_a_bad_reference_is_rerolled_once_with_a_fresh_seed(
     tmp_path, fake_pipelines, monkeypatch
 ):
-    from warlock.config import Config
-    from warlock.db import JobStore
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
 
     _bad_then_good(monkeypatch, failures=1)
     config = Config(
@@ -2438,8 +2438,8 @@ async def test_a_bad_reference_is_rerolled_once_with_a_fresh_seed(
 async def test_the_retry_budget_is_a_ceiling_not_a_loop(
     tmp_path, fake_pipelines, monkeypatch
 ):
-    from warlock.config import Config
-    from warlock.db import JobStore
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
 
     _bad_then_good(monkeypatch, failures=99)
     config = Config(
@@ -2484,9 +2484,9 @@ async def test_a_cancel_between_samples_stops_the_reroll(
 ):
     """A refused report is not worth another four seconds of a job the user
     has already given up on."""
-    import warlock.pipelines.reference as reference_mod
-    from warlock.config import Config
-    from warlock.db import JobStore
+    import realmspinner.pipelines.reference as reference_mod
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
 
     config = Config(
         data_dir=tmp_path / "assets",
@@ -2524,9 +2524,9 @@ async def test_a_failed_measurement_still_records_the_seed_that_shipped(
     what the user is looking at, so params must say so. Recording nothing left
     reference_seed naming seed A, which no longer reproduces the image.
     """
-    import warlock.pipelines.reference as reference_mod
-    from warlock.config import Config
-    from warlock.db import JobStore
+    import realmspinner.pipelines.reference as reference_mod
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
 
     calls = {"n": 0}
 
@@ -2583,8 +2583,8 @@ def _stamped_t2i(monkeypatch):
     the fixture installed and stamps one pixel, which is the only pixel claim
     below; everything else is plumbing read out of the store.
     """
-    import warlock.pipelines.t2i_client as t2i_client_mod
-    import warlock.pipelines.text2image as text2image_mod
+    import realmspinner.pipelines.t2i_client as t2i_client_mod
+    import realmspinner.pipelines.text2image as text2image_mod
 
     base = text2image_mod.Text2Image
 
@@ -2605,7 +2605,7 @@ def _stamped_t2i(monkeypatch):
 
 def _scripted_reports(monkeypatch, scripts: list[tuple[str, ...]]):
     """``measure_file`` returning one scripted set of refusal codes per call."""
-    import warlock.pipelines.reference as reference_mod
+    import realmspinner.pipelines.reference as reference_mod
 
     seen = {"n": 0}
 
@@ -2622,8 +2622,8 @@ def _scripted_reports(monkeypatch, scripts: list[tuple[str, ...]]):
 
 
 def _reroll_worker(tmp_path, retries: int):
-    from warlock.config import Config
-    from warlock.db import JobStore
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
 
     config = Config(
         data_dir=tmp_path / "assets",
@@ -2714,7 +2714,7 @@ async def test_a_cancel_mid_reroll_publishes_nothing_and_leaves_no_strays(
     already been kept aside -- which is the only arrangement that can leave a
     stray at all.
     """
-    import warlock.pipelines.reference as reference_mod
+    import realmspinner.pipelines.reference as reference_mod
 
     _stamped_t2i(monkeypatch)
     config, store, w = _reroll_worker(tmp_path, retries=3)
@@ -2744,7 +2744,7 @@ async def test_a_cancel_mid_reroll_publishes_nothing_and_leaves_no_strays(
 
 def _audits(monkeypatch, worsts: list[float]):
     """meshaudit.hole_fraction returning a scripted sequence."""
-    import warlock.meshaudit as meshaudit_mod
+    import realmspinner.meshaudit as meshaudit_mod
 
     seen = {"n": 0}
 
@@ -2939,7 +2939,7 @@ async def test_an_unmeasurable_mesh_is_never_remeshed(
 ):
     # No verdict is not a bad verdict: the audit blowing up leaves the mesh
     # that is already on disk alone, exactly as it does with the retry off.
-    import warlock.meshaudit as meshaudit_mod
+    import realmspinner.meshaudit as meshaudit_mod
 
     def explode(*_args, **_kwargs):
         raise RuntimeError("trimesh said no")
@@ -3049,7 +3049,7 @@ async def test_a_failed_staging_copy_gives_up_on_retrying_rather_than_on_the_job
     # are a filesystem that refuses links *and* no room for the fallback copy
     # -- both halves are refused here so the OSError actually escapes
     # _stage_link rather than being absorbed by its fallback.
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     real = queue_mod.shutil.copyfile
     real_link = queue_mod.os.link
@@ -3091,7 +3091,7 @@ async def test_no_scratch_copy_is_taken_for_an_attempt_that_cannot_be_retried(
 ):
     # Two whole GLBs. The copy belongs below the break check, so the attempt
     # that ends the loop -- here the first, which passes -- never pays for one.
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     real = queue_mod.shutil.copyfile
     copies: list[str] = []
@@ -3169,8 +3169,8 @@ async def test_the_prompt_preview_mirror_agrees_with_the_worker_and_the_pipeline
     # prompt.build() is a *mirror* of an assembly split across two modules --
     # queue.py composes the subject, text2image.generate picks the template
     # -- and nothing else checks that the two agree.
-    from warlock import guidance
-    from warlock.pipelines import prompt as prompt_lib
+    from realmspinner import guidance
+    from realmspinner.pipelines import prompt as prompt_lib
 
     params = guidance.normalize({})
     params["seed"] = 1
@@ -3200,7 +3200,7 @@ async def test_the_prompt_preview_mirror_agrees_with_the_worker_and_the_pipeline
 
 
 async def test_a_tile_is_measured_for_seams_not_for_composition(worker, monkeypatch):
-    from warlock.pipelines import seam as seam_mod
+    from realmspinner.pipelines import seam as seam_mod
 
     monkeypatch.setattr(
         seam_mod,
@@ -3229,7 +3229,7 @@ async def test_a_tile_is_measured_for_seams_not_for_composition(worker, monkeypa
 async def test_a_tile_is_never_rerolled_for_its_composition(worker, monkeypatch):
     # The reroll's rules are all about where a *subject* sits, so a tile that
     # entered the loop would be redrawn for failing a test it cannot pass.
-    from warlock.pipelines import reference as reference_mod
+    from realmspinner.pipelines import reference as reference_mod
 
     def _forbidden(*_args, **_kwargs):
         raise AssertionError("a tile was measured for composition")
@@ -3245,7 +3245,7 @@ async def test_a_tile_is_never_rerolled_for_its_composition(worker, monkeypatch)
 
 
 async def test_a_failing_seam_measurement_does_not_fail_the_job(worker, monkeypatch):
-    from warlock.pipelines import seam as seam_mod
+    from realmspinner.pipelines import seam as seam_mod
 
     monkeypatch.setattr(
         seam_mod, "report", lambda path: (_ for _ in ()).throw(ValueError("too small"))
@@ -3345,7 +3345,7 @@ async def test_a_reference_job_never_touches_the_server_config(worker):
 async def test_ensure_config_stops_only_a_running_server_with_a_different_config(tmp_path):
     """The real thing, not the fake: the fields feed _argv, and there is no new
     spawn site -- a restart is a stop plus the existing lazy start."""
-    from warlock.pipelines.trellis import TrellisServer
+    from realmspinner.pipelines.trellis import TrellisServer
 
     server = TrellisServer(tmp_path / "x.exe", tmp_path / "models", 9999, tex_res=512)
     assert server.ensure_config(tex_res=1024, band=8) is False  # nothing running
@@ -3368,7 +3368,7 @@ async def test_ensure_config_stops_only_a_running_server_with_a_different_config
 
 
 def _fake_audit(monkeypatch):
-    import warlock.meshaudit as meshaudit_mod
+    import realmspinner.meshaudit as meshaudit_mod
 
     monkeypatch.setattr(
         meshaudit_mod,
@@ -3409,7 +3409,7 @@ async def test_a_job_refused_at_the_composition_gate_leaves_an_observation(
     *among the references that survived* -- which flatters exactly the
     checkpoints that fail most often. ``sdxl_cfg`` refused 3 of 5 and
     ``playground`` 0 of 5, and no reader could say so."""
-    import warlock.pipelines.reference as reference_mod
+    import realmspinner.pipelines.reference as reference_mod
 
     monkeypatch.setattr(
         reference_mod,
@@ -3455,7 +3455,7 @@ async def test_a_cancelled_job_leaves_no_observation(worker, monkeypatch):
     """A cancel is the user changing their mind, not a measurement of
     anything. It is also the one terminal status that discards artifacts, so a
     row about them would outlive what it describes."""
-    import warlock.pipelines.reference as reference_mod
+    import realmspinner.pipelines.reference as reference_mod
 
     monkeypatch.setattr(
         reference_mod, "prepare", lambda *a, **k: reference_mod.Report(ok=True)
@@ -3483,7 +3483,7 @@ async def test_a_reference_job_leaves_no_observation(worker):
 async def test_observe_finished_skips_a_job_with_no_measurements(worker):
     """A mesh whose audit and report both failed says nothing measurable; an
     empty metrics row would be a bucket that dilutes every mean it joins."""
-    from warlock.queue import _observe_finished
+    from realmspinner.queue import _observe_finished
 
     job_id = worker.store.create(
         "image", None, {"seed": 1}, stage="model", status="done"
@@ -3493,7 +3493,7 @@ async def test_observe_finished_skips_a_job_with_no_measurements(worker):
 
 
 async def test_observe_finished_snapshots_the_sweep_context(worker):
-    from warlock.queue import _observe_finished
+    from realmspinner.queue import _observe_finished
 
     job_id = worker.store.create(
         "image", "a chest", {"seed": 7, "mesh_audit": {"worst": 0.1, "mean": 0.05}},
@@ -3532,14 +3532,14 @@ async def test_a_failing_observation_write_does_not_fail_the_job(worker, monkeyp
 async def test_rank_candidates_off_skips_the_anchor_and_keeps_the_composition_score(
     tmp_path, monkeypatch
 ):
-    """``WARLOCK_RANK=off`` had one reader and nothing asserting it.
+    """``REALMSPINNER_RANK=off`` had one reader and nothing asserting it.
 
     The switch is about the *anchor* half only: that half needs a ref.png and an
     optional DINOv2 download, so it is opportunistic three ways over. The
     composition half is free -- the report was measured either way -- so turning
     ranking off must not turn scoring off.
     """
-    from warlock.bench import metrics
+    from realmspinner.bench import metrics
 
     worker = _make_worker(tmp_path, rank_candidates=False)
     job_dir = tmp_path / "assets" / "j"
@@ -3557,7 +3557,7 @@ async def test_rank_candidates_off_skips_the_anchor_and_keeps_the_composition_sc
 
 
 async def test_rank_candidates_on_consults_the_anchor_when_one_exists(tmp_path, monkeypatch):
-    from warlock.bench import metrics
+    from realmspinner.bench import metrics
 
     worker = _make_worker(tmp_path, rank_candidates=True)
     job_dir = tmp_path / "assets" / "j"
@@ -3601,7 +3601,7 @@ async def test_the_worker_never_imports_service_studio_or_imgui():
     import ast
     from pathlib import Path
 
-    src = Path(__import__("warlock").__file__).parent
+    src = Path(__import__("realmspinner").__file__).parent
     files = [src / "queue.py"] + sorted(src.glob("_q_*.py"))
     assert len(files) >= 6, "the mixin siblings are not being scanned"
 
@@ -3625,7 +3625,7 @@ async def test_the_worker_never_imports_service_studio_or_imgui():
                 root = name.split(".")[0]
                 if root in ("service", "studio") or "imgui" in name:
                     offenders.append(f"{path.name}: {name}")
-                if name.startswith(("warlock.service", "warlock.studio")):
+                if name.startswith(("realmspinner.service", "realmspinner.studio")):
                     offenders.append(f"{path.name}: {name}")
     assert offenders == []
 
@@ -3708,8 +3708,8 @@ def _sheet_kind_job(worker):
 
     from PIL import Image
 
-    from warlock.kernels.rig import store as rig_store
-    from warlock.pipelines import blender_run
+    from realmspinner.kernels.rig import store as rig_store
+    from realmspinner.pipelines import blender_run
 
     def fake_render(spec, *, on_progress=None, on_start=None, timeout=0.0):
         frames_dir = Path(spec["frames_dir"])
@@ -3743,7 +3743,7 @@ def _sheet_kind_job(worker):
 def _sprite_synthesis_kind_job(worker):
     from PIL import Image
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     def setup(monkeypatch):
         source = worker.store.create(
@@ -3774,8 +3774,8 @@ def _sprite_synthesis_kind_job(worker):
 
 def _tile_sheet_kind_job(worker):
     def setup(monkeypatch):
-        from warlock import models
-        from warlock.pipelines import tilesheet
+        from realmspinner import models
+        from realmspinner.pipelines import tilesheet
 
         geom = tilesheet.geometry(16, "top_down")
         params = {
@@ -3799,7 +3799,7 @@ def _tile_sheet_kind_job(worker):
 
 def _tile_set_kind_job(worker):
     def setup(monkeypatch):
-        from warlock.pipelines import tileatlas
+        from realmspinner.pipelines import tileatlas
 
         prompts = ("moss", "gravel", "water")
         seed = 100
@@ -3836,7 +3836,7 @@ def _tile_set_kind_job(worker):
 async def test_a_cancel_after_publish_does_not_discard_the_finished_sheet_draft_or_tileset(
     worker, monkeypatch, make_setup
 ):
-    import warlock.queue as queue_mod
+    import realmspinner.queue as queue_mod
 
     setup = make_setup(worker)
     job_id, artifacts = setup(monkeypatch)
@@ -3905,7 +3905,7 @@ async def test_an_unrelated_exception_during_a_pending_cancel_is_still_logged(
 
     monkeypatch.setattr(worker.trellis, "generate", boom)
 
-    with caplog.at_level(logging.ERROR, logger="warlock.queue"):
+    with caplog.at_level(logging.ERROR, logger="realmspinner.queue"):
         worker.start()
         await _wait_until(lambda: worker.store.get(job_id)["status"] == "cancelled")
         await worker.shutdown()
@@ -3939,7 +3939,7 @@ async def test_cancel_stopping_is_false_once_committed():
     today; this pins the property to the contract its own docstring
     promises, in case a future caller reaches for it.
     """
-    from warlock.queue import _Cancel
+    from realmspinner.queue import _Cancel
 
     cancel = _Cancel("job-1")
     assert cancel.stopping is False

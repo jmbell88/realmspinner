@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import models
-from warlock.config import get_config
-from warlock.pipelines import prompt as prompt_mod
-from warlock.pipelines.text2image import Text2Image, _encode_long_prompt
+from realmspinner import models
+from realmspinner.config import get_config
+from realmspinner.pipelines import prompt as prompt_mod
+from realmspinner.pipelines.text2image import Text2Image, _encode_long_prompt
 
 pytestmark = pytest.mark.gpu
 

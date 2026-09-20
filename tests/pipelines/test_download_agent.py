@@ -25,14 +25,14 @@ from pathlib import Path
 
 import pytest
 
-from warlock.pipelines import download
+from realmspinner.pipelines import download
 
 # The modules that perform a download. ``fetch.py`` and ``packs.py`` plan them
 # and are deliberately networkless, so they are not here.
 PERFORMERS = (
-    Path("src/warlock/pipelines/pack_worker.py"),
-    Path("src/warlock/pipelines/fetch_worker.py"),
-    Path("src/warlock/pipelines/update_worker.py"),
+    Path("src/realmspinner/pipelines/pack_worker.py"),
+    Path("src/realmspinner/pipelines/fetch_worker.py"),
+    Path("src/realmspinner/pipelines/update_worker.py"),
     Path("scripts/make_packs.py"),
 )
 
@@ -41,7 +41,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_agent_is_not_the_default_urllib_one():
     assert "Python-urllib" not in download.USER_AGENT
-    assert download.USER_AGENT.startswith("Warlock-Studio/")
+    assert download.USER_AGENT.startswith("Realmspinner/")
 
 
 def test_request_carries_the_agent():

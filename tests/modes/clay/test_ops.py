@@ -17,11 +17,11 @@ from collections import Counter
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops
-from warlock.kernels.mesh import primitives as bp
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops
+from realmspinner.kernels.mesh import primitives as bp
 
 
 def _obj(name: str = "A", mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
@@ -453,7 +453,7 @@ def test_local_direction_accounts_for_a_non_uniform_scale_not_just_the_rotation(
     invisible on every un-stretched primitive and needs a scaled, rotated
     fixture to show up at all: rotated 65 degrees about (1, 1, 1) with a
     ``[1, 4, 1]`` scale, this box's *local* +Y face is genuinely the one
-    facing world "up" -- :func:`~warlock.kernels.mesh.select.faces_by_normal`
+    facing world "up" -- :func:`~realmspinner.kernels.mesh.select.faces_by_normal`
     finds it, at a generous 20-degree tolerance, from what ``local_direction``
     hands back. The naive, scale-blind inverse points somewhere else on this
     mesh entirely and finds no face at all at the same tolerance -- this was
@@ -461,7 +461,7 @@ def test_local_direction_accounts_for_a_non_uniform_scale_not_just_the_rotation(
     watching the assertion below fail before ``local_direction`` multiplied by
     ``obj.scale`` at all.
     """
-    from warlock.kernels.mesh import select
+    from realmspinner.kernels.mesh import select
 
     axis = m3.vec3(1.0, 1.0, 1.0) / math.sqrt(3.0)
     obj = _obj(rotation=m3.quat_from_axis_angle(axis, math.radians(65.0)), scale=(1.0, 4.0, 1.0))
@@ -675,7 +675,7 @@ def test_join_carries_per_face_materials_through_unchanged() -> None:
 
 
 def test_join_refuses_fewer_than_two_objects() -> None:
-    from warlock.kernels.mesh.elements import OpError
+    from realmspinner.kernels.mesh.elements import OpError
 
     with pytest.raises(OpError):
         ops.join([_obj("A")])
@@ -684,7 +684,7 @@ def test_join_refuses_fewer_than_two_objects() -> None:
 def test_join_refuses_a_target_with_a_zero_scale() -> None:
     """np.linalg.inv would raise LinAlgError out of the frame loop; a refusal
     is a toast."""
-    from warlock.kernels.mesh.elements import OpError
+    from realmspinner.kernels.mesh.elements import OpError
 
     with pytest.raises(OpError):
         ops.join([_obj("A", scale=(0.0, 1.0, 1.0)), _obj("B")], eps=0.0)

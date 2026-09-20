@@ -15,9 +15,9 @@ from unittest.mock import MagicMock
 import pytest
 from PIL import Image
 
-from warlock import models
-from warlock.pipelines import text2image
-from warlock.pipelines.conditioning import Conditioning
+from realmspinner import models
+from realmspinner.pipelines import text2image
+from realmspinner.pipelines.conditioning import Conditioning
 
 
 @pytest.fixture

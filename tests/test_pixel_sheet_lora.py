@@ -21,14 +21,14 @@ import time
 import pytest
 from PIL import Image
 
-from warlock import models
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.kernels.rig import store as rig_store
-from warlock.queue import Worker
-from warlock.service import Invalid
-from warlock.service import jobs as svc_jobs
-from warlock.service import sheets as svc_sheets
+from realmspinner import models
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.kernels.rig import store as rig_store
+from realmspinner.queue import Worker
+from realmspinner.service import Invalid
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import sheets as svc_sheets
 
 
 def test_the_shipped_pair_actually_fits():
@@ -231,7 +231,7 @@ async def test_the_recipe_records_one_lattice_per_band(worker):
     single number a top-level key could honestly hold. Measurement only:
     nothing reduces on it, and recording it does not bump
     ``PIXEL_SHEET_VERSION``."""
-    from warlock.pipelines import pixelsheet
+    from realmspinner.pipelines import pixelsheet
 
     source = _source_job(worker)
     sheet_id = _rendered_sheet(worker, source)

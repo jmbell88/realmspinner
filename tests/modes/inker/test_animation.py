@@ -11,10 +11,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import animation
-from warlock.kernels.pixel.animation import Animation, Frame, Tag, Track
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.layers import Layer
+from realmspinner.kernels.pixel import animation
+from realmspinner.kernels.pixel.animation import Animation, Frame, Tag, Track
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.layers import Layer
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -816,7 +816,7 @@ def test_a_linked_cel_is_rotated_exactly_once():
     """Walking the slots instead of the distinct cels rotates a background
     linked across three frames three times -- and it looks plausible, because
     every frame agrees with every other."""
-    from warlock.kernels.pixel import transform as tf
+    from realmspinner.kernels.pixel import transform as tf
 
     doc = _doc(8, 4)
     weight = np.ones((2, 1), dtype=np.float32)
@@ -928,7 +928,7 @@ def test_editing_a_linked_cel_invalidates_every_frame_it_appears_on():
 
 
 def test_the_frame_cache_respects_its_byte_ceiling(monkeypatch):
-    from warlock.kernels.pixel import document as document_mod
+    from realmspinner.kernels.pixel import document as document_mod
 
     doc = _doc(64, 64)
     one_frame = 64 * 64 * 4
@@ -944,7 +944,7 @@ def test_the_frame_cache_respects_its_byte_ceiling(monkeypatch):
 def test_one_frame_over_the_whole_budget_is_still_returned(monkeypatch):
     """A large canvas must not end up caching nothing and recompositing on
     every draw, which is what evicting the entry just stored would mean."""
-    from warlock.kernels.pixel import document as document_mod
+    from realmspinner.kernels.pixel import document as document_mod
 
     doc = _doc(64, 64)
     monkeypatch.setattr(document_mod, "FRAME_CACHE_BYTES", 1)
@@ -990,7 +990,7 @@ def test_forgetting_a_frame_drops_its_filtered_flatten_too():
 
 
 def test_the_byte_ceiling_counts_filtered_flattens(monkeypatch):
-    from warlock.kernels.pixel import document as document_mod
+    from realmspinner.kernels.pixel import document as document_mod
 
     doc = _doc(64, 64)
     one_frame = 64 * 64 * 4
@@ -1699,7 +1699,7 @@ def test_a_repeat_survives_a_tag_edit_and_is_clamped_at_zero():
 def test_the_onion_span_is_the_document_unless_the_tag_is_asked_for():
     from types import SimpleNamespace
 
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     anim = SimpleNamespace(
         frames=[object()] * 10,
@@ -1717,7 +1717,7 @@ def test_a_ghost_wraps_inside_the_span_rather_than_clamping():
     """A clamp draws the same ghost twice at the ends of a cycle, which reads
     as one ghost that stopped moving -- the failure onion skin exists to
     avoid."""
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     assert inker_canvas._onion_index(4, -1, (0, 9)) == 3
     assert inker_canvas._onion_index(0, -1, (0, 9)) == 9
@@ -1730,9 +1730,9 @@ def test_a_ghost_wraps_inside_the_span_rather_than_clamping():
 def test_constant_frame_rate_changes_the_playback_and_not_the_frames():
     """What an animator asking "what does this look like at 12 fps" means --
     the alternative is an undoable edit to every frame of the document."""
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker import state as inker_state
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import state as inker_state
 
     doc = inker.Document.blank(4, 4)
     doc.ensure_animation()
@@ -1756,7 +1756,7 @@ def test_a_tag_left_past_the_end_by_a_frame_delete_is_still_reachable():
     ``active_tag`` compared against the raw numbers: the tag contained no index
     at all, so it never played and never highlighted, with nothing to say why.
     """
-    from warlock.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel.document import Document
 
     doc = Document.blank(4, 4)
     for _ in range(9):

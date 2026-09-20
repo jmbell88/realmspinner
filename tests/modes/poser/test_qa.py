@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.modes.poser.engine import qa
+from realmspinner.studio.modes.poser.engine import qa
 
 CELL = 16
 COLUMNS = 8

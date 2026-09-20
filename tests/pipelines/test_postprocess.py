@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from warlock.pipelines.postprocess import (
+from realmspinner.pipelines.postprocess import (
     _split_glb,
     glb_to_obj_zip,
     glb_to_stl,
@@ -156,7 +156,7 @@ def test_obj_zip_leaves_no_working_directory_behind(cube_glb, tmp_path):
 def test_obj_zip_includes_nested_texture_files(cube_glb, tmp_path, monkeypatch):
     """trimesh may write textures into a subdirectory; the old non-recursive
     iterdir() would hand zf.write a directory and blow up."""
-    import warlock.pipelines.postprocess as pp
+    import realmspinner.pipelines.postprocess as pp
 
     real_load = pp.trimesh.load
 
@@ -239,7 +239,7 @@ def test_concurrent_exports_produce_a_valid_file(cube_glb, tmp_path, export, nam
 def test_normalize_grounds_and_centres(tmp_path):
     import trimesh
 
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     box = trimesh.creation.box(extents=(1.0, 2.0, 1.0))
     box.apply_translation((5.0, 7.0, -3.0))
@@ -261,7 +261,7 @@ def test_normalize_grounds_and_centres(tmp_path):
 def test_normalize_without_a_target_still_grounds(tmp_path):
     import trimesh
 
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     box = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
     box.apply_translation((0.0, 9.0, 0.0))
@@ -288,7 +288,7 @@ def _rooted(path, roots, extents=(1.0, 2.0, 3.0)):
     ``roots``, each updated with that entry's own transform keys."""
     import trimesh
 
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     scene = trimesh.Scene()
     for i in range(len(roots)):
@@ -344,7 +344,7 @@ def test_grounding_holds_whatever_the_roots_carry(tmp_path, label, roots):
     """The regression: bounds are measured in world space but the transform was
     applied *under* each root, composing as ``M_root . T . S`` instead of
     ``T . S . M_root`` -- so a rotated root rotated the grounding offset."""
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     path = _rooted(tmp_path / f"{label.replace(' ', '_').replace(',', '')}.glb", roots)
 
@@ -367,7 +367,7 @@ def test_a_size_target_is_met_however_many_roots_there_are(tmp_path, label, root
     asked for 2 m came out 8.2 m across -- and reported 2."""
     import trimesh
 
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     path = _rooted(tmp_path / f"{label.replace(' ', '_')}.glb", roots)
 
@@ -384,7 +384,7 @@ def test_the_scene_roots_are_left_free_of_transforms(tmp_path):
     its transform, so a root that kept one would leave the GLB grounded and
     every derived STL and OBJ where it started. Emptying the roots is what lets
     one rule serve every root at once."""
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     path = _rooted(tmp_path / "m.glb", [{"rotation": _QUARTER_X, "translation": [1.0, 5.0, 0.0]}])
 
@@ -401,7 +401,7 @@ def test_normalize_stages_through_a_dotfile(tmp_path, monkeypatch):
     """The staged-writes rule: the staging file is a dotfile beside the served
     name. This one spent a while as a visible ``m.glb.tmp`` sibling, outside
     both the dotfile convention and any finally."""
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     path = tmp_path / "m.glb"
     trimesh.Scene(trimesh.creation.box(extents=(1.0, 1.0, 1.0))).export(path)
@@ -424,7 +424,7 @@ def test_a_failed_normalize_sweeps_its_staging_file(tmp_path, monkeypatch):
     """A rebuild that raises must leave the served file untouched and no
     staging litter -- a stranded dotfile sits in the job directory for its
     whole life, because nothing ever sweeps one."""
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     path = tmp_path / "m.glb"
     trimesh.Scene(trimesh.creation.box(extents=(1.0, 1.0, 1.0))).export(path)
@@ -444,7 +444,7 @@ def test_a_failed_normalize_sweeps_its_staging_file(tmp_path, monkeypatch):
 def test_collision_hull_is_convex_and_small(tmp_path):
     import trimesh
 
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     # A sphere is the worst case for face count and the easiest convexity check.
     src = tmp_path / "m.glb"
@@ -470,7 +470,7 @@ def test_textures_zip_contains_the_pbr_maps(tmp_path):
     import trimesh
     from PIL import Image
 
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     mesh = trimesh.creation.box(extents=(1, 1, 1))
     mesh.visual = trimesh.visual.TextureVisuals(
@@ -492,7 +492,7 @@ def test_textures_zip_on_an_untextured_mesh_raises(tmp_path):
     import pytest
     import trimesh
 
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     src = tmp_path / "m.glb"
     trimesh.Scene(trimesh.creation.box()).export(src)
@@ -507,7 +507,7 @@ def test_a_derived_export_accepts_a_lost_rename_race(tmp_path, monkeypatch):
     """Two threads producing the same STL is a race with no wrong answer: the
     artifact is a pure function of the GLB, so whoever landed first wrote our
     bytes. Losing is a success."""
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     dest = tmp_path / "model.stl"
     dest.write_bytes(b"theirs")
@@ -535,7 +535,7 @@ def test_an_in_place_rewrite_raises_instead_of_accepting_what_is_there(
     file, with one ``log.debug`` line to show for it. "Grounding always runs"
     is an invariant, so this one raises.
     """
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     dest = tmp_path / "model.glb"
     dest.write_bytes(b"the original")
@@ -560,7 +560,7 @@ def test_normalize_glb_stages_without_the_escape(tmp_path):
     come back as a successful normalisation."""
     import inspect
 
-    from warlock.pipelines import postprocess
+    from realmspinner.pipelines import postprocess
 
     source = inspect.getsource(postprocess.normalize_glb)
     assert "derived=False" in source

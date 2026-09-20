@@ -21,11 +21,11 @@ from pathlib import Path
 
 import pytest
 
-from warlock import models, vram, winjob
-from warlock.pipelines import t2i_client
-from warlock.pipelines.conditioning import Conditioning
-from warlock.pipelines.t2i_client import ChildFailed, Text2ImageClient
-from warlock.pipelines.text2image import JobCancelled
+from realmspinner import models, vram, winjob
+from realmspinner.pipelines import t2i_client
+from realmspinner.pipelines.conditioning import Conditioning
+from realmspinner.pipelines.t2i_client import ChildFailed, Text2ImageClient
+from realmspinner.pipelines.text2image import JobCancelled
 
 FAKE = Path(__file__).parents[1] / "fixtures" / "fake_t2i_worker.py"
 
@@ -57,7 +57,7 @@ def test_the_surface_matches_the_class_it_stands_in_for(tmp_path):
     runtime, on a job, inside a subprocess -- the worst place to learn it.
     Neither construction loads anything.
     """
-    from warlock.pipelines.text2image import Text2Image
+    from realmspinner.pipelines.text2image import Text2Image
 
     spec = models.BASE_MODELS["sdxl_cfg"]
     real = Text2Image(spec, tmp_path)
@@ -288,7 +288,7 @@ def test_a_live_torch_reading_still_wins_over_a_published_one(
     # has torch loaded for another reason, should read the card and not a
     # figure some child reported a minute ago. The real reader, for the same
     # reason as the test above.
-    from warlock.vram import DeviceMemory
+    from realmspinner.vram import DeviceMemory
 
     vram.publish(1.0, 2.0, "stale")
     monkeypatch.setattr(

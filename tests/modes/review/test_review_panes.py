@@ -14,9 +14,9 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import probe
-from warlock.studio.modes.review import mode as review_mode
-from warlock.studio.modes.review.ui import workspace as review_panes
+from realmspinner.studio import probe
+from realmspinner.studio.modes.review import mode as review_mode
+from realmspinner.studio.modes.review.ui import workspace as review_panes
 
 
 @pytest.fixture
@@ -69,8 +69,8 @@ def test_a_finding_can_open_its_supporting_examples(ui, svc, monkeypatch):
     reason for existing), so landing anywhere but scoped to this set would
     silently show nothing or the wrong thing.
     """
-    from warlock.studio import widgets
-    from warlock.studio.state import AppState
+    from realmspinner.studio import widgets
+    from realmspinner.studio.state import AppState
 
     monkeypatch.setattr(widgets, "FORCE_SECTIONS_OPEN", True)
 
@@ -125,8 +125,8 @@ def test_an_open_contrast_offers_a_plan_this_sweep_button(ui, svc, monkeypatch):
     """Review knows which contrasts are unsettled (the axis-verdict lines)
     but never how to settle one -- "Plan this sweep" is the one-click route
     from ``review_mode.suggest_sweeps`` to a filled New-sweep form."""
-    from warlock.studio import widgets
-    from warlock.studio.state import AppState
+    from realmspinner.studio import widgets
+    from realmspinner.studio.state import AppState
 
     monkeypatch.setattr(widgets, "FORCE_SECTIONS_OPEN", True)
 

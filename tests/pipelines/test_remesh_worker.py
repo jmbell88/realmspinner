@@ -36,9 +36,9 @@ from pathlib import Path
 
 import pytest
 
-from warlock import tiercheck
-from warlock.kernels.rig import blender_spec
-from warlock.pipelines import blender_run, remesh
+from realmspinner import tiercheck
+from realmspinner.kernels.rig import blender_spec
+from realmspinner.pipelines import blender_run, remesh
 
 #: A real quadriflow plus three bakes is far past the suite's 120 s hang net,
 #: which is sized for the default lane's ~5 s worst case. Ten minutes is still

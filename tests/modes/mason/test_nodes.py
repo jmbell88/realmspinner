@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import gltf
-from warlock.studio.modes.mason.engine import nodes as nd
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.studio.modes.mason.engine import nodes as nd
 
 
 def test_a_node_owns_its_translation_array_a_caller_mutating_it_after_does_not_reach_in() -> None:
@@ -214,7 +214,7 @@ def test_walk_reports_each_nodes_depth() -> None:
 
 def test_a_cycle_costs_only_the_branch_it_is_in() -> None:
     """``walk`` runs on the frame thread every time the resolver draws the
-    scene, so a hand-edited ``.wscn`` with a cycle must not take the whole
+    scene, so a hand-edited ``.rscn`` with a cycle must not take the whole
     draw down -- only the branch that is actually broken is skipped, and an
     unrelated sibling still walks."""
     root = nd.GroupNode(uid=nd.new_uid(), name="root")

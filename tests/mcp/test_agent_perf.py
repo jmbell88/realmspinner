@@ -1,11 +1,11 @@
 """The agent bridge's own frame-thread and per-call budget. ``uv run pytest
 -m perf -n 0``.
 
-Studio's pipe answers RPC v1 exclusively now (no bare-MCP path -- see
+Realmspinner's pipe answers RPC v1 exclusively now (no bare-MCP path -- see
 ``dev/INVARIANTS.md``'s agent paragraph), so every round trip measured
 here goes through both layers a real agent session actually pays for:
 ``_RpcBridge`` speaks RPC v1 (``hello``/``catalogue``/``call``) to a real,
-started ``AgentHost`` over a real pipe, exactly the way ``warlock mcp``
+started ``AgentHost`` over a real pipe, exactly the way ``realmspinner mcp``
 (``bridge.py``) does, and then runs each MCP request through
 ``protocol.bridge_dispatch`` in this process -- the same two steps
 ``bridge.py`` itself performs, without a child process or its own pipe I/O
@@ -58,8 +58,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.mcp import pipe, protocol, rpc
-from warlock.studio import agent_host
+from realmspinner.mcp import pipe, protocol, rpc
+from realmspinner.studio import agent_host
 
 #: A generous but bounded ceiling for anything that talks over the real pipe
 #: in this file -- comfortably under pytest's 120 s default and comfortably

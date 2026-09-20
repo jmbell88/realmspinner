@@ -17,11 +17,11 @@ import inspect
 
 from imgui_bundle import imgui
 
-from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
-from warlock.studio.modes.inker.ui.panes import colors as inker_colors
-from warlock.studio.modes.inker.ui.panes import flourish as inker_flourish
-from warlock.studio.modes.inker.ui.panes import sheet as inker_sheet
-from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
+from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
+from realmspinner.studio.modes.inker.ui.panes import flourish as inker_flourish
+from realmspinner.studio.modes.inker.ui.panes import sheet as inker_sheet
+from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
 
 #: Every module that draws a colour the user is meant to be able to type into.
 COLOUR_PANES = (inker_colors, inker_tools, inker_sheet, inker_flourish, inker_bridge)

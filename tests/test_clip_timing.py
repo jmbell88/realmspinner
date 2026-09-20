@@ -9,9 +9,9 @@ import json
 
 import pytest
 
-from warlock import clips
-from warlock.kernels import charsheet as cs
-from warlock.kernels.rig import cliplib
+from realmspinner import clips
+from realmspinner.kernels import charsheet as cs
+from realmspinner.kernels.rig import cliplib
 
 TEMPLATES = ("humanoid", "quadruped", "bird", "blob")
 

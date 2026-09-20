@@ -16,11 +16,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels import sheet as sheetlib
-from warlock.kernels.pixel import sheetout
-from warlock.kernels.pixel.animation import Tag
-from warlock.kernels.pixel.document import Document
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.kernels.pixel import sheetout
+from realmspinner.kernels.pixel.animation import Tag
+from realmspinner.kernels.pixel.document import Document
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -600,7 +600,7 @@ def test_the_sidecar_carries_the_animation_and_the_real_frame_size():
 #
 # The reach itself used to be into ``pipelines`` -- ``sheet.py`` lived there
 # until P4 of ``dev/RESTRUCTURE.md`` (2026-09-17) moved it to
-# ``warlock.kernels.sheet``, a sibling kernel rather than a package this
+# ``realmspinner.kernels.sheet``, a sibling kernel rather than a package this
 # module has to justify reaching outside itself for. The check below moved
 # with it: what it still guards is that this is the *only* name sheetout.py
 # reaches for beyond its own package, format authority and nothing else.
@@ -842,7 +842,7 @@ def test_a_default_inker_sidecar_is_byte_for_byte_what_it_always_was():
 
 
 def _layout(kind):
-    from warlock.kernels.pixel.animation import DirectionalLayout
+    from realmspinner.kernels.pixel.animation import DirectionalLayout
 
     return DirectionalLayout.of(kind)
 
@@ -887,7 +887,7 @@ def test_no_layout_is_byte_for_byte_the_grid_it_always_was():
 
 
 def test_the_layout_rides_the_sidecars_animation_block():
-    from warlock.kernels.pixel.animation import DIRECTION_ORDER
+    from realmspinner.kernels.pixel.animation import DIRECTION_ORDER
 
     layout = _layout("turnaround")
     plan = sheetout.plan_frames(4, 10, 10, layout=layout)

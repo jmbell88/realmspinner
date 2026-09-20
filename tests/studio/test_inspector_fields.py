@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.panes import inspector
+from realmspinner.studio.panes import inspector
 
 
 class _Ctx:

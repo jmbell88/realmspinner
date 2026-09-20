@@ -26,16 +26,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.pipelines import tileatlas
-from warlock.service import jobs as svc_jobs
-from warlock.service import sprites as svc_sprites
-from warlock.service import tilesheets as svc_tilesheets
-from warlock.service.errors import Invalid
-from warlock.studio import settings
-from warlock.studio.modes.create.engine import assets as create_assets
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui.panes import settings_2d
-from warlock.studio.state import default_form_2d
+from realmspinner.pipelines import tileatlas
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import sprites as svc_sprites
+from realmspinner.service import tilesheets as svc_tilesheets
+from realmspinner.service.errors import Invalid
+from realmspinner.studio import settings
+from realmspinner.studio.modes.create.engine import assets as create_assets
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui.panes import settings_2d
+from realmspinner.studio.state import default_form_2d
 
 #: The three layouts, under the names the form field carries.
 MATERIALS = svc_tilesheets.MODE_MATERIALS
@@ -96,8 +96,8 @@ def test_the_output_kind_comes_from_the_asset_registry_not_a_control():
     # Character type derives, and its door is ``service.characters`` -- so
     # ``create_job``'s own three are the first three and nothing else may join
     # them without a branch at that door.
-    from warlock.service import _jobs_create
-    from warlock.studio.modes.create.engine import assets as create_assets
+    from realmspinner.service import _jobs_create
+    from realmspinner.studio.modes.create.engine import assets as create_assets
 
     outputs = {spec.output for spec in create_assets.ASSET_TYPES.values()}
     assert outputs == {"reference", "tile", "sheet", "character"}
@@ -771,7 +771,7 @@ def test_the_sprite_block_is_refused_by_the_real_checker_for_a_bad_palette(svc, 
     """``_check_sprite_sheet`` validates the follow-up at the *reference* door,
     so a palette that has gone missing costs the request rather than an SDXL
     generation and an hour."""
-    from warlock.service import sprites as sprites_door
+    from realmspinner.service import sprites as sprites_door
 
     block = create_recipe.sprite_sheet_kwargs(_sheet_form(sheet_type="sprite", palette="gone"))
     with pytest.raises(Invalid) as excinfo:
@@ -783,8 +783,8 @@ def test_every_outline_the_sprite_arm_offers_survives_the_sprite_checker(svc):
     """The form's menu against the door's ladder: a segmented control offering a
     mode the assembler refuses is a control that fails at the door it was drawn
     from."""
-    from warlock.pipelines import pixelize
-    from warlock.service import sprites as sprites_door
+    from realmspinner.pipelines import pixelize
+    from realmspinner.service import sprites as sprites_door
 
     for mode in pixelize.OUTLINE_MODES:
         block = create_recipe.sprite_sheet_kwargs(
@@ -908,7 +908,7 @@ def test_a_genuinely_fresh_form_opens_on_materials(tmp_path):
 def sprite_weights(monkeypatch):
     """Every weight a synthesis loads, present. The Create door checks all of
     them for the *follow-up* before it will take the reference."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     monkeypatch.setattr(fetch, "base_model_state", lambda *a, **k: (True, None))
     monkeypatch.setattr(fetch, "present", lambda *a, **k: True)
@@ -1112,7 +1112,7 @@ def test_the_request_document_and_the_form_field_are_the_same_choice():
     """``sheet_layout`` is a kind; ``SpriteSettings`` is a mode plus a pair. The
     two legacy kinds name themselves rather than pretending to be an action
     whose frame count they do not have."""
-    from warlock import generation as gen
+    from realmspinner import generation as gen
 
     assert gen.sprite_from_layout("idle8") == ("action", "idle", 8)
     assert gen.sprite_from_layout("walk") == ("walk", "idle", 4)
@@ -1132,7 +1132,7 @@ def test_a_structured_request_no_longer_collapses_every_action_onto_walk(
     answered all seven actions and both direction counts with the legacy 4x4
     walk -- admitted, queued and published as a sheet nobody asked for, with the
     request document still saying "idle" beside it."""
-    from warlock import generation as gen
+    from realmspinner import generation as gen
 
     request = gen.GenerationRequest(
         generation_type="sprite_sheet",
@@ -1153,7 +1153,7 @@ def test_provenance_is_on_the_row_before_the_row_exists(svc, tmp_path, monkeypat
     with it" but "the row was never without it"."""
     from PIL import Image
 
-    from warlock import generation as gen
+    from realmspinner import generation as gen
 
     ref = tmp_path / "ref.png"
     Image.new("RGB", (8, 8), (30, 30, 30)).save(ref)
@@ -1191,7 +1191,7 @@ def test_provenance_is_on_the_row_before_the_row_exists(svc, tmp_path, monkeypat
 def test_a_structured_request_can_still_name_the_two_legacy_atlases(
     svc, sprite_weights
 ):
-    from warlock import generation as gen
+    from realmspinner import generation as gen
 
     for mode in gen.SPRITE_LEGACY_MODES:
         request = gen.GenerationRequest(

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerState
-from warlock.studio.modes.inker.ui.panes.canvas import RULER_LABEL_PX, ruler_minor, ruler_step
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerState
+from realmspinner.studio.modes.inker.ui.panes.canvas import RULER_LABEL_PX, ruler_minor, ruler_step
 
 LADDER = {base * magnitude for base in (1, 2, 5) for magnitude in (1, 10, 100, 1000)}
 

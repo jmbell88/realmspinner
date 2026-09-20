@@ -8,7 +8,7 @@ rounding, flags, thickness``) and imgui_bundle's is ``col, rounding,
 thickness, flags``, which put ``2.0`` on an integer parameter; the binding
 raised ``TypeError`` before drawing anything and ``studio.guard`` logged
 "troupe-centre stopped drawing" once per frame from then on (a real session on
-2026-09-05, ``warlock.log`` 16:52:10 onward, after the sheet itself had
+2026-09-05, ``realmspinner.log`` 16:52:10 onward, after the sheet itself had
 rendered at 16:51:42).
 
 So this is a real imgui context and a real ``_scorecard`` call: nothing short
@@ -26,10 +26,10 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import probe
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.modes.poser.engine import qa
-from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+from realmspinner.studio import probe
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.modes.poser.engine import qa
+from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
 
 @pytest.fixture

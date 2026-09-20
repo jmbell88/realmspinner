@@ -62,8 +62,8 @@ def test_manual_zooming_section_names_the_wheels_gear_change_above_800_percent()
     way the code comment on ``FINE_ZOOM_MAX`` already does ("5% of 1x is a
     meaningful step and 5% of 64x is a twentieth of a source pixel").
     """
-    from warlock.studio.modes.inker import state as inker_state
-    from warlock.studio.shell import paintview
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.shell import paintview
 
     gear_change_pct = inker_state.zoom_key(paintview.FINE_ZOOM_MAX)
     wheel = _wheel_paragraph(_section(_chapter("28-inker.md"), "Zooming"))
@@ -111,7 +111,7 @@ def test_sirens_manual_sample_ceiling_matches_max_sample_frames():
     replaced), and a test that only accepted "10 minutes" would fail against
     the correct fix for no reason but its own choice of numeral style.
     """
-    from warlock.kernels.audio import wavout
+    from realmspinner.kernels.audio import wavout
 
     seconds = wavout.MAX_SAMPLE_FRAMES / 48_000
     minutes = seconds / 60
@@ -180,10 +180,10 @@ def test_manual_clay_chapter_does_not_claim_one_undo_step_per_object_for_element
 
     import numpy as np
 
-    from warlock.kernels.mesh import document as bd
-    from warlock.kernels.mesh import elements as el
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.modes.clay.ui._view_drag import DragOps, _ElementDrag
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.modes.clay.ui._view_drag import DragOps, _ElementDrag
 
     doc = bd.ClayDoc()
     uids = [

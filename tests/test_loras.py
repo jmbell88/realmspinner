@@ -19,18 +19,18 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from warlock import config as config_module
-from warlock import generation, models, progress, vectors, vram
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.pipelines import blender_run, lora_train
-from warlock.queue import Worker
-from warlock.service import loras as svc_loras
-from warlock.service import verdicts as svc_verdicts
-from warlock.service.errors import Invalid
-from warlock.service.validation import DERIVED_PARAMS
-from warlock.studio.modes.create.ui.panes import settings_2d
-from warlock.studio.modes.settings.ui.panes import app_settings
+from realmspinner import config as config_module
+from realmspinner import generation, models, progress, vectors, vram
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.pipelines import blender_run, lora_train
+from realmspinner.queue import Worker
+from realmspinner.service import loras as svc_loras
+from realmspinner.service import verdicts as svc_verdicts
+from realmspinner.service.errors import Invalid
+from realmspinner.service.validation import DERIVED_PARAMS
+from realmspinner.studio.modes.create.ui.panes import settings_2d
+from realmspinner.studio.modes.settings.ui.panes import app_settings
 
 # --- the pure module -----------------------------------------------------------------
 
@@ -71,7 +71,7 @@ def test_the_kind_is_in_every_stage_keyed_table():
 def test_the_trainer_module_imports_nothing_at_import_time():
     import importlib
 
-    module = importlib.import_module("warlock.pipelines.lora_train_worker")
+    module = importlib.import_module("realmspinner.pipelines.lora_train_worker")
     assert module.MARKER == lora_train.MARKER
 
 
@@ -118,12 +118,12 @@ def test_run_worker_spawns_the_named_module_and_reads_its_marker(monkeypatch, tm
     out = blender_run.run_worker(
         {"result_path": str(tmp_path / ".r.json")},
         on_progress=lambda f, label: progress_seen.append((f, label)),
-        module="warlock.pipelines.lora_train_worker",
+        module="realmspinner.pipelines.lora_train_worker",
         marker="train",
         name="LoRA trainer",
     )
     assert out == {"ok": True}
-    assert seen["argv"][-2:] == ["-m", "warlock.pipelines.lora_train_worker"]
+    assert seen["argv"][-2:] == ["-m", "realmspinner.pipelines.lora_train_worker"]
     assert seen["track"] == "lora trainer"
     assert progress_seen == [(0.5, "Step 5/10")]
 
@@ -204,9 +204,9 @@ def test_a_non_safetensors_file_is_refused(svc, tmp_path):
 def test_the_service_registers_imported_adapters_at_startup(svc, tmp_path):
     out = svc_loras.import_lora(svc, _adapter(tmp_path), label="Startup")
     models.STYLE_LORAS.pop(out["key"])
-    from warlock.service import WarlockService
+    from realmspinner.service import RealmspinnerService
 
-    WarlockService(svc.config, svc.store)
+    RealmspinnerService(svc.config, svc.store)
     assert out["key"] in models.STYLE_LORAS
 
 
@@ -358,7 +358,7 @@ def _images(tmp_path: Path, count: int) -> list[Path]:
 
 @pytest.fixture
 def base_present(monkeypatch):
-    from warlock.service import loras as mod
+    from realmspinner.service import loras as mod
 
     monkeypatch.setattr(mod, "check_base_model_weights", lambda *a, **k: None)
 
@@ -455,7 +455,7 @@ def test_train_lora_refuses_at_submit_when_the_text2image_pack_is_missing(
     never the pack, so a host with weights present but ``text2image`` removed
     by an upgrade queued the job and died in the worker on the SDXL import
     instead of refusing here."""
-    from warlock import packs as packs_mod
+    from realmspinner import packs as packs_mod
 
     monkeypatch.setattr(packs_mod, "installed", lambda pack: False)
     with pytest.raises(Invalid) as info:
@@ -466,7 +466,7 @@ def test_train_lora_refuses_at_submit_when_the_text2image_pack_is_missing(
 def test_the_training_door_needs_the_base_weights(svc, tmp_path):
     # The svc fixture materialises the default checkpoint's marker files so
     # text jobs are admitted; take the marker away and the door must refuse.
-    from warlock import fetch
+    from realmspinner import fetch
 
     spec = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
     (fetch.base_model_dir(svc.config, spec) / "model_index.json").unlink()
@@ -659,7 +659,7 @@ async def test_a_training_job_frees_the_card_runs_the_trainer_and_registers(
     assert row["status"] == "done", row.get("error")
     assert stopped, "trellis was not stopped before the trainer took the card"
     call = calls[0]
-    assert call["module"] == "warlock.pipelines.lora_train_worker"
+    assert call["module"] == "realmspinner.pipelines.lora_train_worker"
     assert call["marker"] == lora_train.MARKER
     assert call["spec"]["trigger"] == "cosmos style" and call["spec"]["steps"] == 200
     assert len(call["spec"]["images"]) == 3
@@ -692,7 +692,7 @@ async def test_a_trainer_that_wrote_nothing_fails_the_job(worker, monkeypatch):
 
 
 def test_style_lock_requires_the_encoder_weights_at_the_door(svc, monkeypatch):
-    from warlock.service import tilesheets
+    from realmspinner.service import tilesheets
 
     seen = {}
 

@@ -1,6 +1,6 @@
 # Third-party notices
 
-Warlock Studio is licensed under the GNU General Public License v3.0 or later
+Realmspinner is licensed under the GNU General Public License v3.0 or later
 (see [`LICENSE`](LICENSE)). It ships, bundles or downloads the components below,
 each under its own terms. Nothing here overrides those terms.
 
@@ -19,9 +19,9 @@ time. Both are redistributed unmodified.
 | Component | Files | Upstream | Licence |
 |---|---|---|---|
 | meshoptimizer | `gltfpack.exe` | <https://github.com/zeux/meshoptimizer> | MIT |
-| warlockc | `warlockc.dll` | this repository (`native/`) | GPL-3.0-or-later, as part of this program |
+| realmspinnerc | `realmspinnerc.dll` | this repository (`native/`) | GPL-3.0-or-later, as part of this program |
 
-`warlockc.dll` is optional: every kernel in it has a NumPy fallback and the
+`realmspinnerc.dll` is optional: every kernel in it has a NumPy fallback and the
 application runs without the DLL present.
 
 ## The reconstruction engine, which is downloaded and not redistributed
@@ -30,11 +30,11 @@ application runs without the DLL present.
 were 838 MB of every installer — more than half the installed application — so
 they became a download instead: `Settings → Models` fetches
 `trellis-cuda-windows-x64.zip` from trellis.cpp's own GitHub release, verifies
-the SHA-256 that `src/warlock/models.py` pins against it, and unpacks it under
-the user's Warlock home.
+the SHA-256 that `src/realmspinner/models.py` pins against it, and unpacks it under
+the user's Realmspinner home.
 
 That is a change of legal posture and not only of download size, so it is worth
-stating plainly: **Warlock no longer redistributes these files.** The bytes
+stating plainly: **Realmspinner no longer redistributes these files.** The bytes
 travel from trellis.cpp's release page to the user, and this project ships a URL
 and a digest. The notices are kept here anyway — the app fetches them on the
 user's behalf and runs them, which is enough reason for the terms to be
@@ -58,9 +58,9 @@ Same shape as the reconstruction engine above, and added when Familiar did:
 `Settings → Models` fetches llama.cpp's own Windows CUDA build (split across
 two release zips — the server binaries, and the CUDA redistributable apart
 from them) from llama.cpp's GitHub release, verifies the SHA-256
-`src/warlock/models.py` pins, and unpacks both under
-`~/.warlock/engine/llama/`. `docs/MODELS.md` carries the exact build tag, the
-pinned revision and the download commands. Warlock does not redistribute any
+`src/realmspinner/models.py` pins, and unpacks both under
+`~/.realmspinner/engine/llama/`. `docs/MODELS.md` carries the exact build tag, the
+pinned revision and the download commands. Realmspinner does not redistribute any
 of it.
 
 | Component | Files | Upstream | Licence |
@@ -81,22 +81,22 @@ inside the runtime tree the installer copies).
 
 | Font | Upstream | Licence | Notice shipped as |
 |---|---|---|---|
-| Inter (PUA-stripped) | <https://github.com/rsms/inter> | SIL Open Font License 1.1 | `src/warlock/studio/resources/fonts/LICENSE-inter.txt` |
-| Lucide icons | <https://github.com/lucide-icons/lucide> | ISC | `src/warlock/studio/resources/fonts/LICENSE-lucide.txt` |
-| Familiar sigil (U+2726 subset of Noto Sans Symbols 2) | <https://github.com/notofonts/symbols> | SIL Open Font License 1.1 | `src/warlock/studio/resources/fonts/LICENSE-familiar-sigil.txt` |
+| Inter (PUA-stripped) | <https://github.com/rsms/inter> | SIL Open Font License 1.1 | `src/realmspinner/studio/resources/fonts/LICENSE-inter.txt` |
+| Lucide icons | <https://github.com/lucide-icons/lucide> | ISC | `src/realmspinner/studio/resources/fonts/LICENSE-lucide.txt` |
+| Familiar sigil (U+2726 subset of Noto Sans Symbols 2) | <https://github.com/notofonts/symbols> | SIL Open Font License 1.1 | `src/realmspinner/studio/resources/fonts/LICENSE-familiar-sigil.txt` |
 
 ## Vendored source
 
 | Component | Where | Upstream | Licence |
 |---|---|---|---|
-| BiRefNet modelling code | `src/warlock/pipelines/birefnet/` | <https://github.com/ZhengPeng7/BiRefNet> | MIT |
-| ACE-Step pipeline code | `src/warlock/pipelines/acestep/` | <https://github.com/ace-step/ACE-Step> | Apache-2.0 |
+| BiRefNet modelling code | `src/realmspinner/pipelines/birefnet/` | <https://github.com/ZhengPeng7/BiRefNet> | MIT |
+| ACE-Step pipeline code | `src/realmspinner/pipelines/acestep/` | <https://github.com/ace-step/ACE-Step> | Apache-2.0 |
 
 Vendored rather than downloaded so that the application never executes Python it
 fetched at runtime. The pinned commit, the SHA-256 of every original file and a
 documented diff are in each directory's own ATTRIBUTION.md file:
-[BiRefNet](src/warlock/pipelines/birefnet/ATTRIBUTION.md),
-[ACE-Step](src/warlock/pipelines/acestep/ATTRIBUTION.md).
+[BiRefNet](src/realmspinner/pipelines/birefnet/ATTRIBUTION.md),
+[ACE-Step](src/realmspinner/pipelines/acestep/ATTRIBUTION.md).
 
 ## Test fixtures
 
@@ -121,7 +121,7 @@ are worth calling out:
 
 | Package | Licence | Note |
 |---|---|---|
-| `bpy` (Blender as a Python module) | **GPL-3.0** | The reason this project is GPL-3.0. Only `src/warlock/pipelines/blender_worker.py` imports it, and only in a subprocess — but the installer distributes it inside one executable alongside this program, so the combined work is GPL-3.0. Installed by the `rig` extra. |
+| `bpy` (Blender as a Python module) | **GPL-3.0** | The reason this project is GPL-3.0. Only `src/realmspinner/pipelines/blender_worker.py` imports it, and only in a subprocess — but the installer distributes it inside one executable alongside this program, so the combined work is GPL-3.0. Installed by the `rig` extra. |
 | `pygame-ce` | LGPL-2.1 | Used unmodified as a library. |
 | `PyOpenGL`, `moderngl`, `imgui-bundle`, `trimesh`, `zstandard`, `pillow` | MIT / MIT / MIT / MIT / BSD-3 / MIT-CMU | |
 | `numpy`, `scipy`, `opencv-python-headless` | BSD-3 / BSD-3 / Apache-2.0 | |
@@ -146,20 +146,20 @@ their publishers, and two of them restrict commercial use of what you generate.
 | BiRefNet weights | ZhengPeng7 | Hugging Face | MIT | Permitted |
 | ACE-Step v1 3.5B | ACE-Step | Hugging Face | Apache-2.0 | Permitted |
 | Qwen3-VL-4B-Instruct GGUF (Qwen's own Q8_0, a testing pin) | Qwen, requantizing their own `Qwen/Qwen3-VL-4B-Instruct` | Hugging Face | Apache-2.0 | Permitted |
-| `familiar_v1.0` (reserved for a future Clay-assistant fine-tune of `Qwen/Qwen3-VL-4B-Instruct` by this project's own training pipeline; not yet published) | Warlock Studio (this project), fine-tuning Qwen's `Qwen/Qwen3-VL-4B-Instruct` | Warlock's own download row, not a third-party Hub repo | Apache-2.0 (base); the derivative itself will ship under this project's own GPL-3.0-or-later | Not yet published |
+| `familiar_v1.0` (reserved for a future Clay-assistant fine-tune of `Qwen/Qwen3-VL-4B-Instruct` by this project's own training pipeline; not yet published) | Realmspinner (this project), fine-tuning Qwen's `Qwen/Qwen3-VL-4B-Instruct` | Realmspinner's own download row, not a third-party Hub repo | Apache-2.0 (base); the derivative itself will ship under this project's own GPL-3.0-or-later | Not yet published |
 | Hybrid Demucs (`hdemucs_high_trained.pt`) | Meta / torchaudio | `download.pytorch.org`, **not** Hugging Face | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — Meta states the trained weights are for scientific purposes only; see [`docs/MODELS.md`](docs/MODELS.md) |
 
-**`familiar_v1.0` is the one row above that will be a Warlock-trained derivative, not a
+**`familiar_v1.0` is the one row above that will be a Realmspinner-trained derivative, not a
 pass-through fetch, once it ships.** Unlike the previous base (Gemma 4 E2B, replaced 2026-09-16),
 whose Gemma Terms of Use needed their own review before a fine-tune of it could ship, the current
 base, `Qwen/Qwen3-VL-4B-Instruct`, is Apache-2.0 outright — a permissive licence with no
-fine-tune-specific conditions to satisfy. No fine-tune exists yet; when one does, Warlock will
+fine-tune-specific conditions to satisfy. No fine-tune exists yet; when one does, Realmspinner will
 host it under its own download row
-rather than pointing at a third party's Hub repo, and ship it openly under Warlock Studio's own
+rather than pointing at a third party's Hub repo, and ship it openly under Realmspinner's own
 GPL-3.0-or-later ([`LICENSE`](LICENSE)), the same as the rest of this project.
 
 The application surfaces this per model where the registry carries it. Of the
-eleven registry dataclasses in `warlock.models` (one per `_table()`-built
+eleven registry dataclasses in `realmspinner.models` (one per `_table()`-built
 registry — `BaseModel`, `StyleLora`, `IPAdapter`, `ControlNet`, `EngineModel`,
 `MetricModel`, `PoseModel`, `MusicModel`, `SeparationModel`, `MattingModel`,
 `FamiliarModel`), three declare a `license` field — `BaseModel`, `MusicModel`

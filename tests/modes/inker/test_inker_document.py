@@ -19,8 +19,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import ora
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import ora
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -746,7 +746,7 @@ def test_gradient_fill_does_not_raise_under_errstate_where_coverage_and_backdrop
     import inspect
     import textwrap
 
-    from warlock.kernels.pixel._doc_paint import PaintOps
+    from realmspinner.kernels.pixel._doc_paint import PaintOps
 
     source = textwrap.dedent(inspect.getsource(PaintOps.gradient))
     tree = ast.parse(source)
@@ -1121,7 +1121,7 @@ def test_no_private_cache_field_is_a_constructor_parameter():
     advertised private state as part of the shape."""
     import dataclasses
 
-    from warlock.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel.document import Document
 
     on_init = [
         f.name for f in dataclasses.fields(Document) if f.name.startswith("_") and f.init
@@ -1137,10 +1137,10 @@ def test_the_undo_push_sites_all_live_on_the_document_class():
     import pathlib
 
     # P3 of the restructure (dev/RESTRUCTURE.md) moved studio/inker/ to
-    # warlock/kernels/pixel/ -- Inker's engine, and this scan, live there now.
+    # realmspinner/kernels/pixel/ -- Inker's engine, and this scan, live there now.
     root = (
         pathlib.Path(__file__).resolve().parents[3]
-        / "src" / "warlock" / "kernels" / "pixel"
+        / "src" / "realmspinner" / "kernels" / "pixel"
     )
     pushers = sorted(
         path.name
@@ -1162,7 +1162,7 @@ def test_the_engine_states_its_invariants_without_assert():
     root = (
         pathlib.Path(__file__).resolve().parents[3]
         / "src"
-        / "warlock"
+        / "realmspinner"
         / "kernels"
         / "pixel"
     )
@@ -1182,7 +1182,7 @@ def test_the_engine_states_its_invariants_without_assert():
 def test_a_grid_hook_reached_without_a_grid_refuses():
     import pytest
 
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(4, 4)
     assert doc.anim is None
@@ -1191,7 +1191,7 @@ def test_a_grid_hook_reached_without_a_grid_refuses():
 
 
 def test_require_anim_hands_back_the_grid():
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(4, 4)
     anim = doc.ensure_animation()

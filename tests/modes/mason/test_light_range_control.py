@@ -10,7 +10,7 @@ spot, the two kinds ``KHR_lights_punctual`` gives a range at all
 entirely and never writes it).
 
 Driven through a real (headless, no-GL) imgui context and the control census
-in ``warlock.studio.probe`` -- ``tests/modes/mason/test_mason_panes.py``'s own house
+in ``realmspinner.studio.probe`` -- ``tests/modes/mason/test_mason_panes.py``'s own house
 pattern for "does this pane draw the control it claims to" -- rather than
 reading the pane's source text, since the point of the claim is what actually
 reaches the screen.
@@ -20,10 +20,10 @@ from __future__ import annotations
 
 from _ui_context import imgui_context
 
-from warlock.studio import probe
-from warlock.studio.modes.mason.engine import document as md
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.ui.panes import props as mason_props
+from realmspinner.studio import probe
+from realmspinner.studio.modes.mason.engine import document as md
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.ui.panes import props as mason_props
 
 RANGE_LABEL = "##mlightrange"
 

@@ -17,10 +17,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)
 
@@ -88,7 +88,7 @@ def _open(doc: Any = None) -> tuple[_Ctx, InkerState, InkerDoc]:
 def _saved(monkeypatch, dest: Any) -> list[str]:
     """Monkeypatch the save picker to hand back ``dest``, recording every
     ``default_name`` it was opened with."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     calls: list[str] = []
 
@@ -303,7 +303,7 @@ def test_a_flat_png_export_records_where_it_wrote_and_leaves_the_options(
     ctx, state, tab = _open()
     tab.export_dest = tmp_path / "old.png"
     tab.export_options = {"scale": 5}
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: tmp_path / "flat.png")
     inker_mode.export_png(ctx, tab)
@@ -320,7 +320,7 @@ def test_repeating_an_export_asks_no_dialog_and_writes_where_it_wrote(
 ):
     """The hot-path escape valve: configure once, then one key forever."""
     ctx, state, tab = _open()
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     asked: list[int] = []
 
@@ -585,7 +585,7 @@ def test_export_dest_and_options_do_not_touch_saved_head_or_dirty():
 def test_the_packed_arrange_is_the_squarest_grid():
     """What "packed" means for frames that are all one size -- the bin-packing
     the name suggests would have nothing to solve here."""
-    from warlock.kernels.pixel import sheetout
+    from realmspinner.kernels.pixel import sheetout
 
     for count, columns in ((4, 2), (9, 3), (10, 4), (1, 1)):
         plan = sheetout.plan_frames(count, 16, 16, arrange="packed")
@@ -593,7 +593,7 @@ def test_the_packed_arrange_is_the_squarest_grid():
 
 
 def test_packed_is_one_of_the_arranges_the_engine_names():
-    from warlock.kernels.pixel import sheetout
+    from realmspinner.kernels.pixel import sheetout
 
     assert "packed" in sheetout.ARRANGES
     assert "packed" not in sheetout.COUNTED_ARRANGES, "it takes no wrap count"
@@ -640,9 +640,9 @@ def test_a_refused_export_does_not_settle_the_document_first():
 
     import numpy as np
 
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker import state as inker_state
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import state as inker_state
 
     doc = inker.Document.blank(8, 8)
     doc.add_frame()

@@ -24,7 +24,7 @@ from types import SimpleNamespace
 
 def _fake_app(monkeypatch, imgui):
     """A minimal object carrying just what ``EventsMixin._events`` reads."""
-    from warlock.studio.shell.events import EventsMixin
+    from realmspinner.studio.shell.events import EventsMixin
 
     class FakeApp(EventsMixin):
         pass

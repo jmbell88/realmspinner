@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import objimport
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import objimport
+from realmspinner.kernels.mesh.elements import OpError
 
 # --- refusals -----------------------------------------------------------------
 

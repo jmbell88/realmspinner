@@ -4,7 +4,7 @@
 shipped runtime contains torch, a CUDA runtime and a lyric-language stack
 whether or not the user will ever ask for a picture or a tune. This script
 produces the other arrangement: a directory of wheels per pack plus the
-``packs.json`` that ``warlock.packs`` reads, so the base installer can ship the
+``packs.json`` that ``realmspinner.packs`` reads, so the base installer can ship the
 app and ``studio`` alone and everything heavy can arrive chosen.
 
 Run it after ``uv pip sync`` has populated the staged runtime -- the installed
@@ -26,7 +26,7 @@ comes out wrong while looking finished:
 * **The lock is not a size authority.** Every wheel uv resolves from PyPI
   carries a declared ``size``; the three from ``download.pytorch.org`` --
   ``torch``, ``torchaudio``, ``torchvision``, pinned as
-  ``warlock.packs.SIZELESS_DISTS`` -- carry none, and they are most of the
+  ``realmspinner.packs.SIZELESS_DISTS`` -- carry none, and they are most of the
   download. A missing key sums as zero, so trusting the lock would advertise
   about 1.4 GB for a 3 GB download. Every size written here is a ``stat`` of a
   file this script has in its hand.
@@ -37,7 +37,7 @@ comes out wrong while looking finished:
   the alternative puts a compiler in every user's install, which is not a
   thing a game-asset tool may require.
 
-The output is validated by reading it back through ``warlock.packs`` before it
+The output is validated by reading it back through ``realmspinner.packs`` before it
 is written: a manifest the app's own reader refuses is not a pack.
 """
 
@@ -66,12 +66,12 @@ from packaging.utils import canonicalize_name, parse_wheel_filename
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from warlock import packs  # noqa: E402 -- after the path insert, deliberately
+from realmspinner import packs  # noqa: E402 -- after the path insert, deliberately
 
 # The agent this project downloads under, and the incident that made it a
 # named constant, both live in one module rather than being restated here:
 # the ban that motivated it hit this script and `pack_worker` alike.
-from warlock.pipelines import download as _download  # noqa: E402 -- same
+from realmspinner.pipelines import download as _download  # noqa: E402 -- same
 
 # The environment the *shipped* runtime is, which is not necessarily the one
 # this script runs in. ``installer/build.ps1`` stages a uv-managed CPython 3.13
@@ -190,7 +190,7 @@ def claims(base: dict[str, str], per_pack: dict[str, dict[str, str]]) -> dict[st
     point of the exercise is what the base does *not* have to carry. Everything
     else is claimed by every pack whose closure contains it, which is how the
     27 distributions ``text2image`` and ``music`` share end up as one download
-    rather than two (``warlock.packs.plan``).
+    rather than two (``realmspinner.packs.plan``).
     """
     out: dict[str, list[str]] = {}
     # Registry order rather than call order, and only the packs actually asked
@@ -429,7 +429,7 @@ def installed_sizes(python: Path) -> dict[str, int]:
     uninstall would remove.
 
     A distribution whose ``RECORD`` is missing or unreadable is simply absent
-    from the answer, and ``warlock.packs.installed_bytes`` then withholds the
+    from the answer, and ``realmspinner.packs.installed_bytes`` then withholds the
     whole install figure rather than reporting a short one.
     """
     program = """
@@ -565,7 +565,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         lock=lock, claimed=claimed, out_dir=args.out, unpacked=unpacked, offline=args.offline
     )
     # Read back through the app's own reader before writing: a manifest
-    # ``warlock.packs`` refuses is not a pack, and finding that out at install
+    # ``realmspinner.packs`` refuses is not a pack, and finding that out at install
     # time is finding it out from the user.
     packs.parse_manifest(manifest)
     (args.out / packs.MANIFEST_NAME).write_text(

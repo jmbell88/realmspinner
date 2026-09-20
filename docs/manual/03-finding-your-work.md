@@ -8,7 +8,7 @@ Nothing here needs a GPU or any model weights. Every screen in this chapter work
 
 ## Everything is a job
 
-Warlock has no save button for generated work, because there is nothing to save. The moment you
+Realmspinner has no save button for generated work, because there is nothing to save. The moment you
 press Generate, a **job** exists: a row in the library, a directory on disk, and a status that
 changes as the work runs. It is already yours before it has finished.
 
@@ -34,7 +34,7 @@ are worth knowing.
 **Resume** is a grid of thumbnails of your recent work — both documents you had open in the editors
 and finished assets from the library, newest first. Up and Down walk it and Enter opens.
 
-**Unsaved work** appears only if a previous session ended badly. Warlock autosaves an open document
+**Unsaved work** appears only if a previous session ended badly. Realmspinner autosaves an open document
 after a couple of minutes of unsaved changes, and if the app did not shut down cleanly those copies
 are offered here as one row per document, each with its own Recover button. It is deliberately not a
 single all-or-nothing question — a session that crashed with one document worth keeping and nine

@@ -14,11 +14,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel.sheetin import document_from_sheet
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import sheet as inker_sheet
-from warlock.studio.modes.poser import mode as poser_mode
+from realmspinner.kernels.pixel.sheetin import document_from_sheet
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import sheet as inker_sheet
+from realmspinner.studio.modes.poser import mode as poser_mode
 
 
 class _Ctx:
@@ -102,7 +102,7 @@ def test_a_re_render_needs_a_selected_sheet_and_some_runs(ctx):
 def test_the_pane_offers_the_control_and_names_what_it_costs():
     import inspect
 
-    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
     source = inspect.getsource(poser_sheet)
     assert "rerender_runs" in source, "the pane must reach the controller"

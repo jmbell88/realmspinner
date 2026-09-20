@@ -10,7 +10,7 @@ skeleton, is the [Poser](26-poser.md).
 
 ## Templates
 
-Warlock Studio does not invent a skeleton for your mesh. It fits one of eight shipped **templates**:
+Realmspinner does not invent a skeleton for your mesh. It fits one of eight shipped **templates**:
 
 | Template | For |
 | --- | --- |
@@ -93,7 +93,7 @@ bounding box, so a shoulder lands where the template says a shoulder is in a bod
 That is right for a subject standing in a T-pose and increasingly wrong the further from one it is.
 
 For **humanoid** rigs there is a better first guess, and it is on by default when the pose model is
-installed. Warlock measures the subject's joints off the reference image the mesh was reconstructed
+installed. Realmspinner measures the subject's joints off the reference image the mesh was reconstructed
 from — the premise being that the mesh *is* that picture in three dimensions — and uses those as
 the template. They are still scaled onto the mesh by the same fitter, so nothing else about rigging
 changes; what changes is where the fitter starts from.
@@ -109,7 +109,7 @@ Two things about it are worth knowing:
 
 `rig.json` records which was used, so a rig can be told apart afterwards. Without the pose model the
 bbox fit is used and nothing about your rigs changes — see
-[Model weights](40-installation.md#model-weights) for the download. Set `WARLOCK_POSE_FIT=off` to
+[Model weights](40-installation.md#model-weights) for the download. Set `REALMSPINNER_POSE_FIT=off` to
 force the template everywhere, whatever is installed; it is a kill switch rather than an opt-in,
 because the measurement already refuses itself whenever it is unsure.
 
@@ -197,7 +197,7 @@ optional extra.
 Blender's Python module ships **CPython 3.13 wheels only**. On any other Python version the extra
 installs nothing at all. When that happens:
 
-- `warlock doctor` reports rigging as unavailable.
+- `realmspinner doctor` reports rigging as unavailable.
 - The app hides the rig controls entirely rather than greying them out — a greyed control implies it
   could be switched on from where you are standing, and this one cannot.
 - The **Pose** panel says "Posing needs Blender, which is not installed" instead of telling you to

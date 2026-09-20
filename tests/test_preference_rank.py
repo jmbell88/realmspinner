@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import fetch, models
-from warlock.bench import metrics
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.pipelines import rank
-from warlock.queue import Worker
+from realmspinner import fetch, models
+from realmspinner.bench import metrics
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.pipelines import rank
+from realmspinner.queue import Worker
 
 GOOD_REPORT = {"ok": True, "occupancy": 0.78, "warnings": [], "components": 1}
 
@@ -149,7 +149,7 @@ def test_a_broken_preference_model_costs_the_number_not_the_rank(worker, tmp_pat
 @pytest.mark.gpu
 def test_real_pickscore_prefers_the_matching_prompt():
     """CPU inference in the gpu lane, the expander's rule: that lane sees the
-    real ~/.warlock. A minimal sanity: the same image scores higher for a
+    real ~/.realmspinner. A minimal sanity: the same image scores higher for a
     prompt that describes it than for one that does not."""
     config = Config()
     if not metrics.pickscore_available(config):

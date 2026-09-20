@@ -67,7 +67,7 @@ rotation and opacity, index draw order, map class/parallax origin/render
 order/background colour, flipped gids, and a recursively nested list property.
 `core-1.12.tsx` is its external atlas.
 
-Several of those constructs are **Warlock dialect** rather than Tiled features
+Several of those constructs are **Realmspinner dialect** rather than Tiled features
 — layer blend modes, object opacity, the `capsule` shape and the `list`
 property type. See the dialect rows in `docs/COMPAT.md`. This
 fixture therefore *cannot* be re-authored in Tiled as it stands; a
@@ -151,7 +151,7 @@ In rough order of what it would buy:
 3. **A Tiled-authored `core`** — everything `core-112` covers *minus* the
    dialect constructs listed under its entry.
 ~~4. Once any Tiled-authored fixture opens one of our exports without
-   complaint, `TILED_VERSION` in `src/warlock/studio/modes/plotter/engine/tsx.py` may move
+   complaint, `TILED_VERSION` in `src/realmspinner/studio/modes/plotter/engine/tsx.py` may move
    to `1.12.2` and the gate paragraph in `docs/COMPAT.md` comes out.~~
    **Done 2026-08-29 — and not by a fixture.** Tiled 1.12.x opened a Plotter
    export, and a map Tiled 1.12.2 wrote reads here; `TILED_VERSION` is now

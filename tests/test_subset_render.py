@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.kernels import charsheet
-from warlock.kernels import sheet as sheetlib
+from realmspinner.kernels import charsheet
+from realmspinner.kernels import sheet as sheetlib
 
 
 def _runs(n=1):
@@ -258,9 +258,9 @@ def test_a_replaced_cell_does_not_show_the_old_silhouette_through(tmp_path):
 
 @pytest.fixture
 def worker(tmp_path, fake_pipelines):
-    from warlock.config import Config
-    from warlock.db import JobStore
-    from warlock.queue import Worker
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
+    from realmspinner.queue import Worker
 
     config = Config(
         data_dir=tmp_path / "assets",
@@ -291,7 +291,7 @@ def _gradient_render(monkeypatch):
     quantise pass ran; a gradient could not survive it."""
     from pathlib import Path
 
-    from warlock.pipelines import blender_run
+    from realmspinner.pipelines import blender_run
 
     def fake(spec, **kwargs):
         frames_dir = Path(spec["frames_dir"])
@@ -324,7 +324,7 @@ async def test_an_hd_subset_rerender_does_not_pin_a_palette(worker, monkeypatch)
     base did."""
     import json
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     _gradient_render(monkeypatch)
     source = worker.store.create("image", "a ranger", {}, stage="model")

@@ -3,7 +3,7 @@
 Four unrelated defects, one file because one fixer owned all four:
 agents-02 (a degraded ``animated_glb`` export is reported clean to an
 agent), agents-03 (a locked-modern MCP connection can be downgraded to
-legacy by a stray ``initialize``), agents-05 (a "never reached Studio"
+legacy by a stray ``initialize``), agents-05 (a "never reached Realmspinner"
 refusal carries a misleading ``read_scene`` recovery) and tour-01
 (finishing a tour by running off its last step leaves a stale card hole
 for the next one).
@@ -15,9 +15,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from warlock.mcp import bridge
-from warlock.mcp import protocol as p
-from warlock.studio import agent_character as ac
+from realmspinner.mcp import bridge
+from realmspinner.mcp import protocol as p
+from realmspinner.studio import agent_character as ac
 
 # --- agents-02: character_export animated_glb drops `degraded` -------------
 
@@ -34,7 +34,7 @@ def test_character_export_reports_a_degraded_mesh_to_the_agent(monkeypatch, svc,
     """
     from studio.test_agent_character import _real_sheet
 
-    from warlock.service import export as svc_export
+    from realmspinner.service import export as svc_export
 
     svc.config.export_dir = tmp_path
     job_id, _sheet_id, _w, _h = _real_sheet(svc, job_name="Ranger")
@@ -63,7 +63,7 @@ def _catalogue() -> dict[str, Any]:
             {"name": "clay_scene", "title": "Scene", "description": "d", "inputSchema": {}}
         ],
         "instructions": "Clay measures in metres.",
-        "server": {"name": "warlock-studio", "version": "1.2.3"},
+        "server": {"name": "realmspinner", "version": "1.2.3"},
     }
 
 
@@ -101,9 +101,9 @@ def test_initialize_does_not_downgrade_an_already_modern_locked_era() -> None:
 
 
 def test_not_accepting_message_carries_no_misleading_read_scene_recovery(tmp_path) -> None:
-    """This call never reached Studio at all -- there is nothing here for
+    """This call never reached Realmspinner at all -- there is nothing here for
     "read the scene again" to be recovering from -- and ``agent_host``'s own
-    refusal for the same "nothing ran" state (``rpc.fail("Warlock's agent
+    refusal for the same "nothing ran" state (``rpc.fail("Realmspinner's agent
     server was switched off.")``) carries no recovery at all. ``bridge.py``'s
     ``call_tool`` used to attach ``recovery="read_scene"`` anyway.
 
@@ -131,9 +131,9 @@ def test_finishing_a_tour_by_running_off_the_end_clears_the_stale_card_rect() ->
     """
     from types import SimpleNamespace
 
-    from warlock.studio.panes import tour as tour_pane
-    from warlock.studio.state import AppState
-    from warlock.studio.tour import TOURS
+    from realmspinner.studio.panes import tour as tour_pane
+    from realmspinner.studio.state import AppState
+    from realmspinner.studio.tour import TOURS
 
     real_tour = TOURS[0]
     ctx = SimpleNamespace(

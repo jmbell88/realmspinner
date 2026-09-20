@@ -13,12 +13,12 @@ import time
 import pytest
 from PIL import Image
 
-from warlock import fetch
-from warlock.kernels.rig import store
-from warlock.pipelines import spritesynth as ss
-from warlock.service import Conflict, Invalid, NotFound
-from warlock.service import jobs as svc_jobs
-from warlock.service import sprites as svc_sprites
+from realmspinner import fetch
+from realmspinner.kernels.rig import store
+from realmspinner.pipelines import spritesynth as ss
+from realmspinner.service import Conflict, Invalid, NotFound
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import sprites as svc_sprites
 
 
 @pytest.fixture
@@ -107,7 +107,7 @@ def test_create_sprite_synthesis_refuses_at_submit_when_the_text2image_pack_is_m
     by an upgrade queued the job and died in the worker on the SDXL import
     instead of refusing here, the way ``create_job``'s ``text`` door already
     does (see ``tests/service/test_validation.py``)."""
-    from warlock import packs as packs_mod
+    from realmspinner import packs as packs_mod
 
     monkeypatch.setattr(packs_mod, "installed", lambda pack: False)
     job_id = _reference(svc)
@@ -236,7 +236,7 @@ def test_unspecified_seeds_are_drawn_distinct(svc, weights):
 def test_the_card_is_checked_at_the_door(svc, weights, monkeypatch):
     """Not in the worker: on Windows an overcommit spills into host commit and
     the symptom is the machine dying, not the job erroring."""
-    from warlock.service import validation
+    from realmspinner.service import validation
 
     seen: list[tuple] = []
     monkeypatch.setattr(
@@ -411,7 +411,7 @@ def test_a_palette_is_read_at_the_door_and_only_its_name_is_stored(
 def test_the_offered_outlines_are_the_ones_the_assembler_draws():
     """A form offering a mode the pixeliser refuses is a control that fails at
     the door it was drawn from."""
-    from warlock.pipelines import pixelize
+    from realmspinner.pipelines import pixelize
 
     options = svc_sprites.sprite_options()
     assert options["outlines"] == list(pixelize.OUTLINE_MODES)

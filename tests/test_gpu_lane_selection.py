@@ -4,7 +4,7 @@ gpu lane.
 The answer gates two things that must never fire on an ordinary run and must
 always fire on a real one: the xdist refusal (``-m gpu`` under ``-n 8`` is N
 simultaneous 7 GB loads onto one card) and the exemption from the
-``WARLOCK_HOME`` / ``memlog.system_memory`` pins (pinned, the lane goes green
+``REALMSPINNER_HOME`` / ``memlog.system_memory`` pins (pinned, the lane goes green
 as skips that loaded nothing). A negated mention in *any* spelling therefore
 must not count -- the old lookbehind regex could not see ``not`` through a
 parenthesis, so ``-m "not (gpu or perf)"``, a legal spelling of the default

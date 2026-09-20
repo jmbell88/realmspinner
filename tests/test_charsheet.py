@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from warlock import clips
-from warlock.kernels import charsheet as cs
-from warlock.kernels import sheet as sheetlib
-from warlock.kernels.rig import cliplib
+from realmspinner import clips
+from realmspinner.kernels import charsheet as cs
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.kernels.rig import cliplib
 
 IDENT = [0.0, 0.0, 0.0, 1.0]
 
@@ -603,7 +603,7 @@ def test_a_rendered_sheet_opens_in_inker_with_its_tags_and_timing():
     direction and already playing at the speed it was rendered for."""
     import numpy as np
 
-    from warlock.kernels.pixel import sheetin
+    from realmspinner.kernels.pixel import sheetin
 
     layout = cs.plan(_records(), frame_size=16)
     block = cs.animation_block()
@@ -630,7 +630,7 @@ def test_a_rendered_sheet_opens_in_inker_with_its_tags_and_timing():
 
 
 def test_the_general_tag_builder_still_produces_the_walk_sheet_tags():
-    from warlock.kernels.pixel import sheetin
+    from realmspinner.kernels.pixel import sheetin
 
     tags = sheetin.walk_tags()
     assert [t.name for t in tags] == [
@@ -640,7 +640,7 @@ def test_the_general_tag_builder_still_produces_the_walk_sheet_tags():
 
 
 def test_a_tag_that_runs_backwards_is_refused():
-    from warlock.kernels.pixel import sheetin
+    from realmspinner.kernels.pixel import sheetin
 
     with pytest.raises(ValueError, match="covers frames 5-2"):
         sheetin.span_tags([{"name": "bad", "start": 5, "end": 2}])
@@ -669,7 +669,7 @@ def test_the_two_modules_name_the_same_pose_spaces():
     """``sheet`` decides what a clip record says and ``blender_worker`` decides
     what it means; a spelling in one and not the other is a clip that silently
     applies in the wrong frame."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     assert sheetlib.POSE_SPACES == blender_worker.POSE_SPACES
 
@@ -699,7 +699,7 @@ def test_a_clip_library_that_says_nothing_is_read_as_node_local(tmp_path):
 def test_a_delta_clip_reaches_the_worker_as_a_cell_that_says_so():
     """The end of the thread: ``_q_rig`` puts ``pose_space`` on the cell only
     where the record carries one, so every pose row is the cell it always was."""
-    import warlock._q_rig as q_rig
+    import realmspinner._q_rig as q_rig
 
     source = Path(q_rig.__file__).read_text(encoding="utf-8")
     assert '"pose_space"] = space' in source

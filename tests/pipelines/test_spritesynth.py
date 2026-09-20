@@ -14,8 +14,8 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from warlock.pipelines import control, reference
-from warlock.pipelines import spritesynth as ss
+from realmspinner.pipelines import control, reference
+from realmspinner.pipelines import spritesynth as ss
 
 BG = (200, 200, 200)
 
@@ -107,7 +107,7 @@ def test_the_four_direction_order_is_the_legacy_one_not_the_clockwise_preset():
     sprite draft on disk is front/left/right/back. Same set, different order --
     and taking the preset's order would relabel the back and right rows of
     every stored draft."""
-    from warlock.kernels import charsheet
+    from realmspinner.kernels import charsheet
 
     preset = tuple(name for name, _yaw in charsheet.DIRECTION_PRESETS[4])
     assert set(preset) == set(ss.SPRITE_DIRECTIONS[4])
@@ -116,7 +116,7 @@ def test_the_four_direction_order_is_the_legacy_one_not_the_clockwise_preset():
 
 
 def test_the_eight_directions_are_charsheets_own_and_not_a_third_copy():
-    from warlock.kernels import charsheet
+    from realmspinner.kernels import charsheet
 
     assert ss.SPRITE_DIRECTIONS[8] == tuple(
         name for name, _yaw in charsheet.DIRECTION_PRESETS[8]
@@ -134,7 +134,7 @@ def test_the_shared_actions_agree_with_troupes_frame_table():
     adding them to ``charsheet.ANIMATIONS`` would raise a KeyError an hour into
     a job -- and this is the overlap. A walk that is eight frames here and six
     there is a sheet whose two halves disagree about what a cycle is."""
-    from warlock.kernels import charsheet
+    from realmspinner.kernels import charsheet
 
     troupe = {name: frames for name, frames, _loop, _ms in charsheet.ANIMATIONS}
     shared = set(troupe) & set(ss.ACTION_FRAMES)
@@ -144,7 +144,7 @@ def test_the_shared_actions_agree_with_troupes_frame_table():
 
 
 def test_the_two_extra_actions_are_deliberately_not_troupes():
-    from warlock.kernels import charsheet
+    from realmspinner.kernels import charsheet
 
     troupe = {name for name, *_rest in charsheet.ANIMATIONS}
     assert set(ss.ACTION_FRAMES) - troupe == {"cast", "hurt"}
@@ -318,7 +318,7 @@ def test_the_subjects_do_not_touch_the_shared_prompt_template():
     """The split ``tilesheet`` draws: the template serves the prompt preview and
     versions under ``PROMPT_VERSION``, these clauses are this module's own and
     version under ``SPRITE_DRAFT_VERSION``. Nothing here bumps that number."""
-    from warlock.pipelines import prompt
+    from realmspinner.pipelines import prompt
 
     assert "walking at an even pace" not in prompt.SHEET_TEMPLATE
 
@@ -717,7 +717,7 @@ def test_a_cell_the_fill_ate_is_left_opaque_and_reported():
 
 
 def test_an_unmatted_atlas_still_quantizes():
-    from warlock.pipelines import pixelsheet
+    from realmspinner.pipelines import pixelsheet
 
     geom = ss.geometry("turnaround")
     atlas = Image.new("RGB", (ss.ATLAS_PX, ss.ATLAS_PX), BG)
@@ -801,7 +801,7 @@ def test_reduction_refuses_a_nonsense_size():
 
 
 def test_one_palette_is_shared_across_the_whole_atlas():
-    from warlock.pipelines import pixelsheet
+    from realmspinner.pipelines import pixelsheet
 
     geom = ss.geometry("turnaround")
     atlas = Image.new("RGB", (ss.ATLAS_PX, ss.ATLAS_PX), BG)
@@ -927,7 +927,7 @@ def test_a_reference_of_the_wrong_shape_is_refused_with_the_ratio():
 
 
 def test_the_pasted_front_shares_the_sheets_palette():
-    from warlock.pipelines import pixelsheet
+    from realmspinner.pipelines import pixelsheet
 
     geom, atlas = _atlas("turnaround")
     matted, _ = ss.matte_cells(atlas, geom)
@@ -1076,7 +1076,7 @@ def _colour_atlas(kind="walk"):
 
 
 def _assemble(geom, atlas, *, logical=32, colors=8, **options):
-    from warlock import queue as queue_mod
+    from realmspinner import queue as queue_mod
 
     # ``source_rgba``/``source_report`` are read only by the turnaround's
     # front-cell paste, so the walk grid may pass None for both -- which keeps
@@ -1588,7 +1588,7 @@ def test_the_animation_block_is_charsheets_and_not_a_third_emitter():
     """``sheet.sidecar``'s rule: two writers of this format, and a third should
     extend one rather than appear. The sprite grid is expressed as the
     one-movement Troupe layout it already is."""
-    from warlock.kernels import charsheet
+    from realmspinner.kernels import charsheet
 
     geom, doc = _sidecar("idle8")
     block = doc["animation"]

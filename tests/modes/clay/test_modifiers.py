@@ -1,7 +1,7 @@
 """Clay tranche 2's modifier stack: the kernel, kind by kind, and evaluate().
 
 Split from ``test_modifier_document.py`` (undo/document plumbing) and
-``test_wblk_modifiers.py`` (the file format) the way this whole package is
+``test_rblk_modifiers.py`` (the file format) the way this whole package is
 split -- geometry here, document bookkeeping there. Every kind's own geometry
 is tested against :mod:`.ops_modifiers` directly, over a bare ``Mesh``, with
 no document in the loop at all; :func:`~.modifiers.evaluate` is tested
@@ -16,12 +16,12 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import modifiers as mod
-from warlock.kernels.mesh import ops_modifiers as opm
-from warlock.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import modifiers as mod
+from realmspinner.kernels.mesh import ops_modifiers as opm
+from realmspinner.kernels.mesh import primitives as bp
 
 from .topo_asserts import assert_closed, assert_consistently_oriented, assert_wound_outward
 
@@ -227,7 +227,7 @@ def test_array_weld_merges_touching_copies() -> None:
 
 
 def test_array_refuses_before_allocating_past_the_triangle_ceiling(monkeypatch) -> None:
-    import warlock.kernels.mesh.glbimport as glbimport
+    import realmspinner.kernels.mesh.glbimport as glbimport
 
     monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 10)
     with pytest.raises(el.OpError, match="triangles"):
@@ -254,7 +254,7 @@ def test_radial_array_makes_count_copies() -> None:
 def test_radial_array_closed_ring_divides_by_count() -> None:
     """A full 360-degree sweep spaces every copy, the original included,
     evenly around the whole turn."""
-    from warlock.kernels.geom3d import math3d as m3
+    from realmspinner.kernels.geom3d import math3d as m3
 
     mesh = _shifted(bp.box(), dx=2.0)
     out = opm.array_radial(mesh, {"count": 4, "angle": 360.0, "axis": 1})
@@ -269,7 +269,7 @@ def test_radial_array_closed_ring_divides_by_count() -> None:
 def test_radial_array_open_arc_divides_by_count_minus_one() -> None:
     """An open arc reaches its far end exactly: three copies over 180 degrees
     land at 0, 90 and 180 -- dividing by count - 1, not by count."""
-    from warlock.kernels.geom3d import math3d as m3
+    from realmspinner.kernels.geom3d import math3d as m3
 
     mesh = _shifted(bp.box(), dx=2.0)
     out = opm.array_radial(mesh, {"count": 3, "angle": 180.0, "axis": 1})
@@ -282,7 +282,7 @@ def test_radial_array_open_arc_divides_by_count_minus_one() -> None:
 
 
 def test_radial_array_refuses_before_allocating_past_the_triangle_ceiling(monkeypatch) -> None:
-    import warlock.kernels.mesh.glbimport as glbimport
+    import realmspinner.kernels.mesh.glbimport as glbimport
 
     monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 10)
     with pytest.raises(el.OpError, match="triangles"):
@@ -512,7 +512,7 @@ def test_a_missing_boolean_target_is_an_error_not_a_crash() -> None:
 
 def test_a_hand_edited_cycle_is_refused_on_the_closing_modifier_not_recursion() -> None:
     """``set_modifiers`` refuses a cycle going forward; a hand-edited stack
-    (or one loaded from a ``.wblk`` -- see the ``.wblk`` reader's own tests)
+    (or one loaded from a ``.rblk`` -- see the ``.rblk`` reader's own tests)
     is the only way one reaches :func:`evaluate` at all, and it must not
     recurse until the stack overflows.
 

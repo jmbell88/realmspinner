@@ -14,9 +14,9 @@ import inspect
 
 import pytest
 
-from warlock.studio import tokens
-from warlock.studio.modes.inker.ui.panes import picker as inker_picker
-from warlock.studio.modes.inker.ui.panes import textures as inker_textures
+from realmspinner.studio import tokens
+from realmspinner.studio.modes.inker.ui.panes import picker as inker_picker
+from realmspinner.studio.modes.inker.ui.panes import textures as inker_textures
 
 
 class _Doc:
@@ -269,7 +269,7 @@ def frames():
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import theme
+    from realmspinner.studio import theme
 
     imgui.create_context()
     io = imgui.get_io()
@@ -291,7 +291,7 @@ def test_the_wheel_is_reachable_by_the_control_probe(frames, monkeypatch):
     the invisible button). Env-gated normally (``probe.ENABLED``), so this
     turns the gate on for the one frame that needs it.
     """
-    from warlock.studio import probe
+    from realmspinner.studio import probe
 
     monkeypatch.setattr(probe, "ENABLED", True)
     probe.begin_frame()

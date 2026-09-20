@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.viewer.pose import PoseEditor
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.viewer.pose import PoseEditor
 
 
 class ScriptedCtx:

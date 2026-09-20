@@ -1,13 +1,13 @@
 """The authored documents Plotter, Packwright and Mason keep beside an exported asset.
 
-The ``paint.ora`` / ``build.wblk`` precedent, applied three times more -- Mason's
-``scene.wscn`` on the *mesh* side of it, beside a ``model`` row rather than a
+The ``paint.ora`` / ``build.rblk`` precedent, applied three times more -- Mason's
+``scene.rscn`` on the *mesh* side of it, beside a ``model`` row rather than a
 reference, which changes nothing about the rule. What matters
 is not that the bytes land -- it is that they land *invisibly*: absent from the
 served file list, never downloadable, and gone with the job directory for free.
 
 The other half is the marker on the row. A reopen has no fallback (unlike *Edit
-in Clay*, which imports ``model.glb`` when there is no ``.wblk``), so the
+in Clay*, which imports ``model.glb`` when there is no ``.rblk``), so the
 library has to know from the cached row alone whether the source is there --
 which is what ``params["authored"]`` is for, and why it is an input rather than
 a derived value.
@@ -22,10 +22,10 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from warlock.service import files as svc_files
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Invalid, NotFound, TooLarge
-from warlock.service.validation import DERIVED_PARAMS
+from realmspinner.service import files as svc_files
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Invalid, NotFound, TooLarge
+from realmspinner.service.validation import DERIVED_PARAMS
 
 
 def _png(size=(8, 8), colour=(200, 30, 30, 255)) -> bytes:
@@ -79,9 +79,9 @@ def test_the_marker_is_an_input_and_survives_a_promotion(svc):
 @pytest.mark.parametrize(
     ("save", "path", "name"),
     [
-        (svc_files.save_plotter_source, svc_files.plotter_source_path, "map.wmap"),
-        (svc_files.save_packwright_source, svc_files.packwright_source_path, "pack.wpack"),
-        (svc_files.save_mason_source, svc_files.mason_source_path, "scene.wscn"),
+        (svc_files.save_plotter_source, svc_files.plotter_source_path, "map.rmap"),
+        (svc_files.save_packwright_source, svc_files.packwright_source_path, "pack.rpack"),
+        (svc_files.save_mason_source, svc_files.mason_source_path, "scene.rscn"),
     ],
 )
 def test_a_source_lands_beside_the_asset_under_its_own_name(svc, save, path, name):
@@ -202,12 +202,12 @@ def test_a_saved_source_lands_where_the_path_helper_says_it_will(svc):
 
 def test_the_scene_ceiling_is_the_one_mason_opens_files_at(svc):
     """One number for one format. ``studio.mason_io`` refuses an oversized
-    ``.wscn`` on the way *in* and this refuses one on the way out, and two
+    ``.rscn`` on the way *in* and this refuses one on the way out, and two
     constants would be how a file the app opens happily becomes one the
     service will not store beside the asset it was exported to."""
-    from warlock.studio.modes.mason import fileio as mason_io
+    from realmspinner.studio.modes.mason import fileio as mason_io
 
-    assert mason_io.MAX_WSCN_BYTES == svc_files.MAX_SCENE_SOURCE_BYTES
+    assert mason_io.MAX_RSCN_BYTES == svc_files.MAX_SCENE_SOURCE_BYTES
     job_id = _exported(svc, "plotter")
     huge = _zip() + b"x" * svc_files.MAX_SCENE_SOURCE_BYTES
     with pytest.raises(TooLarge):
@@ -215,7 +215,7 @@ def test_the_scene_ceiling_is_the_one_mason_opens_files_at(svc):
 
 
 def test_a_scene_that_is_not_an_archive_is_refused(svc):
-    """A ``.wscn`` is a zip, as every other authored document here is."""
+    """A ``.rscn`` is a zip, as every other authored document here is."""
     job_id = _exported(svc, "plotter")
     with pytest.raises(Invalid):
         svc_files.save_mason_source(svc, job_id, b"not a zip at all")
@@ -239,7 +239,7 @@ def test_job_dir_file_refuses_a_name_that_is_not_a_bare_leaf(svc):
     this a path fragment gets a refusal instead of a join that walks out of
     the job directory."""
     job_id = _exported(svc, "plotter")
-    from warlock.service.errors import Invalid
+    from realmspinner.service.errors import Invalid
 
     for bad in ("../secrets.txt", "..\\secrets.txt", "sub/inner.png", "..", "."):
         with pytest.raises(Invalid):

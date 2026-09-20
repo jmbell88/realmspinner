@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock import models
-from warlock.pipelines.text2image import Text2Image
+from realmspinner import models
+from realmspinner.pipelines.text2image import Text2Image
 
 
 class FakePipe:
@@ -312,7 +312,7 @@ def test_the_fake_defines_nothing_the_real_pipeline_classes_lack():
 
     Class-level hasattr only: no weights load, and importing the classes is
     offline-safe (nothing in diffusers downloads at import; HF_HUB_OFFLINE is
-    already 1 via the warlock import above).
+    already 1 via the realmspinner import above).
     """
     diffusers = pytest.importorskip("diffusers")
     real = [
@@ -535,7 +535,7 @@ def _loadable(tmp_path, monkeypatch, base_key, *, fail_at=None, checkpoint_raise
             raise RuntimeError("unknown scheduler")
         return "swapped"
 
-    monkeypatch.setattr("warlock.pipelines.text2image._scheduler", scheduler)
+    monkeypatch.setattr("realmspinner.pipelines.text2image._scheduler", scheduler)
     return Text2Image(models.BASE_MODELS[base_key], root), pipe
 
 

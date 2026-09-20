@@ -17,7 +17,7 @@ import time
 import numpy as np
 import pytest
 
-from warlock import native
+from realmspinner import native
 
 pytestmark = pytest.mark.perf
 
@@ -36,20 +36,20 @@ def _timed(fn, repeats: int = 3) -> float:
 def _without_native(fn):
     import os
 
-    os.environ["WARLOCK_NATIVE"] = "0"
+    os.environ["REALMSPINNER_NATIVE"] = "0"
     native.reset()
     try:
         return fn()
     finally:
-        os.environ.pop("WARLOCK_NATIVE", None)
+        os.environ.pop("REALMSPINNER_NATIVE", None)
         native.reset()
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_the_palette_kernel_is_at_least_twice_the_numpy_path() -> None:
     """High-entropy 512 square: tens of thousands of distinct colours against a
     few dozen swatches, which is the case the N x P x 3 temporary dominates."""
-    from warlock.kernels.pixel import indexed as ix
+    from realmspinner.kernels.pixel import indexed as ix
 
     rng = np.random.default_rng(1)
     pixels = np.zeros((512, 512, 4), dtype=np.uint8)
@@ -68,14 +68,14 @@ def test_the_palette_kernel_is_at_least_twice_the_numpy_path() -> None:
     )
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_the_palette_curve_stays_flat_in_palette_size() -> None:
     """A flat curve in palette size is the dispatch-bound signature, and the
     native-batch-2 lesson was that spotting it is how you avoid writing a kernel
     for a problem that is not arithmetic. It must *stop* being flat once the
     work really is the arithmetic -- so a large palette costs meaningfully more
     than a small one, and a low-colour image does not regress."""
-    from warlock.kernels.pixel import indexed as ix
+    from realmspinner.kernels.pixel import indexed as ix
 
     rng = np.random.default_rng(2)
     pixels = np.zeros((512, 512, 4), dtype=np.uint8)
@@ -91,11 +91,11 @@ def test_the_palette_curve_stays_flat_in_palette_size() -> None:
     assert large > small, f"256 entries ({large:.3f}s) must cost more than 4 ({small:.3f}s)"
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_a_low_colour_image_does_not_regress() -> None:
     """The distinct-colour reduction is what makes pixel art cheap, and the
     kernel must not have moved that: a 512 square of eight colours stays fast."""
-    from warlock.kernels.pixel import indexed as ix
+    from realmspinner.kernels.pixel import indexed as ix
 
     rng = np.random.default_rng(3)
     swatches = rng.integers(0, 256, (8, 3), dtype=np.uint8)
@@ -108,13 +108,13 @@ def test_a_low_colour_image_does_not_regress() -> None:
     assert elapsed < 0.25, f"a low-colour snap took {elapsed:.3f}s"
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_the_flood_is_linear_on_a_serpentine_corridor() -> None:
     """The pathological case for frontier dilation: the path distance to the
     furthest cell approaches the cell count, so the pass count does too and the
     work goes quadratic. The queue is linear in both cases, so the ratio between
     a corridor and an open room of the same area stays bounded."""
-    from warlock.studio.modes.plotter.engine import tools
+    from realmspinner.studio.modes.plotter.engine import tools
 
     size = 512
     corridor = np.zeros((size, size), dtype=bool)
@@ -135,9 +135,9 @@ def test_the_flood_is_linear_on_a_serpentine_corridor() -> None:
     )
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_the_flood_kernel_beats_the_dilation_on_the_corridor() -> None:
-    from warlock.studio.modes.plotter.engine import tools
+    from realmspinner.studio.modes.plotter.engine import tools
 
     size = 256
     corridor = np.zeros((size, size), dtype=bool)
@@ -162,9 +162,9 @@ def test_the_picking_tree_beats_the_full_sweep() -> None:
     """A complexity change rather than a constant factor: the full sweep's cost
     is the mesh, and a 200k-triangle import is a quarter of a million
     Moller-Trumbore evaluations per mouse move."""
-    from warlock.kernels.mesh import mesh as bm
-    from warlock.kernels.mesh import primitives
-    from warlock.studio.viewer import picking as pk
+    from realmspinner.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import primitives
+    from realmspinner.studio.viewer import picking as pk
 
     mesh = primitives.uv_sphere(segments=200, rings=160)
     tris, _tf = bm.triangulate(mesh)

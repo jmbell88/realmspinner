@@ -11,11 +11,11 @@ from typing import Any
 import pytest
 import trimesh
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import meshimport
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio import dialogs
-from warlock.studio.modes.clay import mode as clay_mode
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import meshimport
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio import dialogs
+from realmspinner.studio.modes.clay import mode as clay_mode
 
 
 class FakeCtx:
@@ -59,7 +59,7 @@ class _Settings:
 
 
 def _glb_bytes() -> bytes:
-    from warlock.kernels.geom3d import glbwrite
+    from realmspinner.kernels.geom3d import glbwrite
 
     doc = bd.ClayDoc()
     doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
@@ -146,7 +146,7 @@ def test_import_mesh_path_remembers_scale_and_up_for_the_next_import(tmp_path: P
 
 
 def test_import_mesh_path_applies_the_remembered_scale(tmp_path: Path) -> None:
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import mesh as bm
 
     ctx = FakeCtx()
     path_plain = tmp_path / "plain.glb"
@@ -186,7 +186,7 @@ def test_ask_import_mesh_a_cancelled_picker_returns_none(
 
 
 def test_an_unsupported_suffix_names_the_full_list_in_the_refusal() -> None:
-    from warlock.kernels.mesh.elements import OpError
+    from realmspinner.kernels.mesh.elements import OpError
 
     with pytest.raises(OpError) as excinfo:
         meshimport.import_file(b"nope", ".fbx", "X")
@@ -200,7 +200,7 @@ def test_an_unsupported_suffix_names_the_full_list_in_the_refusal() -> None:
 def test_export_mesh_file_glb_writes_a_readable_glb(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from warlock.kernels.geom3d import gltf as gltf_mod
+    from realmspinner.kernels.geom3d import gltf as gltf_mod
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -268,7 +268,7 @@ def test_export_mesh_file_uses_the_shared_saving_flag_and_key_prefix(
 def test_export_mesh_file_does_not_mark_the_document_saved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A plain file export writes a copy; it is not the ``.wblk`` that makes
+    """A plain file export writes a copy; it is not the ``.rblk`` that makes
     the document itself clean, so a successful export leaves the tab exactly
     as dirty as it was and touches no journal entry."""
     ctx = FakeCtx()

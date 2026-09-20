@@ -13,10 +13,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.kernels import charsheet
-from warlock.service import characters as svc_characters
-from warlock.service import troupe as svc_troupe
-from warlock.service.errors import Invalid
+from realmspinner.kernels import charsheet
+from realmspinner.service import characters as svc_characters
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.service.errors import Invalid
 
 
 def _mesh(svc, *, rigged: bool) -> str:
@@ -58,7 +58,7 @@ def test_a_layout_that_cannot_be_planned_is_refused_with_field_layout(svc, monke
 
     monkeypatch.setattr(svc_troupe, "expand_clips", boom)
     monkeypatch.setattr(
-        "warlock.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
+        "realmspinner.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
     )
 
     with pytest.raises(Invalid) as at_reference:
@@ -86,8 +86,8 @@ def test_a_recipes_layout_that_cannot_be_planned_is_refused_with_field_layout(mo
     and going through ``create_character`` would spend a real
     ``instantiate_mod.instantiate`` call to reach it.
     """
-    from warlock.characters import family as family_mod
-    from warlock.characters.recipe import Recipe
+    from realmspinner.characters import family as family_mod
+    from realmspinner.characters.recipe import Recipe
 
     fam = family_mod.get_family("human")
     spec = Recipe.from_dict(
@@ -102,7 +102,7 @@ def test_a_recipes_layout_that_cannot_be_planned_is_refused_with_field_layout(mo
     def boom(clip_library, layout):
         raise ValueError("the atlas is over the texture limit")
 
-    monkeypatch.setattr("warlock.clips.expand_clips", boom)
+    monkeypatch.setattr("realmspinner.clips.expand_clips", boom)
 
     with pytest.raises(Invalid) as excinfo:
         svc_characters._plan(spec, "humanoid", spec.logical_size)
@@ -175,7 +175,7 @@ def test_a_clip_missing_from_the_rigs_library_is_refused_on_a_field_the_pane_dra
     assert at_direct_door.value.field == "layout"
 
     monkeypatch.setattr(
-        "warlock.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
+        "realmspinner.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
     )
     unrigged = _mesh(svc, rigged=False)
     with pytest.raises(Invalid) as at_send_door:

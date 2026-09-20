@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import modes, palette
+from realmspinner.studio import modes, palette
 
 
 def _job(job_id: str, **over: Any) -> dict[str, Any]:
@@ -34,7 +34,7 @@ def _ctx(
     selected: str | None = None,
     stage: str = "mesh",
 ) -> Any:
-    from warlock.studio.state import ManualState
+    from realmspinner.studio.state import ManualState
 
     rows = jobs or []
     by_id = {job["id"]: job for job in rows}
@@ -140,8 +140,8 @@ def test_go_to_a_gated_mode_is_greyed_in_the_palette_rather_than_silently_refusi
     ``state.set_mode``'s own silent refusal -- no toast, no explanation -- on
     exactly the fresh-install case ``model_gate`` exists for, while the rail's
     matching item for the same mode greyed out and routed to Settings."""
-    from warlock.studio import state as state_mod
-    from warlock.studio.panes import model_gate
+    from realmspinner.studio import state as state_mod
+    from realmspinner.studio.panes import model_gate
 
     ctx = _ctx("home")
     ctx.model_rows = [
@@ -365,7 +365,7 @@ def test_the_export_command_names_the_mode_it_will_act_on():
 def test_the_document_dispatch_covers_every_document_mode():
     """A mode added to the app and not to the table is four commands that
     quietly stop working in it -- which is how Plotter came to have no New."""
-    from warlock.studio import modes as modes_mod
+    from realmspinner.studio import modes as modes_mod
 
     assert set(palette._DOC_MODES) <= {key for key, _label, _icon, _purpose in modes_mod.MODES}
     # Poser joined in B1: it has a Save and a Save-as and had neither a key
@@ -417,7 +417,7 @@ def test_every_document_mode_with_a_new_document_has_a_palette_command():
     # And the menu path, or the command exists but only Ctrl+K can reach it --
     # the exact hole this table's own precedent (shell-06, "reroll") was cut
     # for.
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     for key in _NEW_DOCUMENT_COMMANDS.values():
         assert key in menus._COMMAND_PATHS, f"{key!r} has no menu path"
@@ -474,7 +474,7 @@ def test_undo_goes_through_the_modes_wrapper_when_it_has_one():
     import sys
     import types
 
-    from warlock.studio import palette as palette_mod
+    from realmspinner.studio import palette as palette_mod
 
     calls: list[str] = []
 
@@ -496,7 +496,7 @@ def test_undo_goes_through_the_modes_wrapper_when_it_has_one():
     )
     ctx = types.SimpleNamespace(state=types.SimpleNamespace(mode="plotter"))
 
-    name = "warlock.studio._palette_undo_probe"
+    name = "realmspinner.studio._palette_undo_probe"
     sys.modules[name] = module
     try:
         original = dict(palette_mod._DOC_MODES)
@@ -517,7 +517,7 @@ def test_undo_falls_back_to_the_document_for_a_mode_with_no_wrapper():
     import sys
     import types
 
-    from warlock.studio import palette as palette_mod
+    from realmspinner.studio import palette as palette_mod
 
     calls: list[str] = []
 
@@ -529,7 +529,7 @@ def test_undo_falls_back_to_the_document_for_a_mode_with_no_wrapper():
     module = types.SimpleNamespace(active=lambda _ctx: tab)
     ctx = types.SimpleNamespace(state=types.SimpleNamespace(mode="inker"))
 
-    name = "warlock.studio._palette_plain_probe"
+    name = "realmspinner.studio._palette_plain_probe"
     sys.modules[name] = module
     try:
         original = dict(palette_mod._DOC_MODES)

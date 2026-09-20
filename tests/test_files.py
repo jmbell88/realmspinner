@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from warlock.service import files as svc_files
-from warlock.service import jobs as svc_jobs
+from realmspinner.service import files as svc_files
+from realmspinner.service import jobs as svc_jobs
 
 
 def _png(size=(64, 64), colour=(200, 30, 30, 255)) -> bytes:
@@ -179,7 +179,7 @@ def test_save_edited_image_drops_the_stale_reference_report_when_remeasurement_f
     ``hand_edited`` was never recorded either, because the same call carries
     both.
     """
-    from warlock.pipelines import reference as reference_mod
+    from realmspinner.pipelines import reference as reference_mod
 
     job_id = _reference(svc)
     # A report already on the row, from the generation this edit replaces --
@@ -232,7 +232,7 @@ def test_derived_image_is_exactly_the_web_reencodings_of_input_png():
     # artifacts.ARTIFACTS_2D/TILE/TILESHEET) is a button that would answer
     # NotReady forever -- the same argument test_every_2d_artifact_has_a_
     # derivation makes for DERIVED_2D.
-    from warlock.pipelines import imageout
+    from realmspinner.pipelines import imageout
 
     assert set(svc_files.DERIVED_IMAGE) == set(imageout.FORMATS)
 

@@ -1,4 +1,4 @@
-"""Studio design-system contracts that do not need a GL context."""
+"""Realmspinner design-system contracts that do not need a GL context."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 from _panes import pane_files
 from _ui_context import imgui_context
 
-from warlock.studio import (
+from realmspinner.studio import (
     component_gallery,
     controls,
     forms,
@@ -21,8 +21,8 @@ from warlock.studio import (
     toolbar,
     widgets,
 )
-from warlock.studio.modes.home.ui.panes import landing
-from warlock.studio.panes import overlay
+from realmspinner.studio.modes.home.ui.panes import landing
+from realmspinner.studio.panes import overlay
 
 
 def test_control_sizes_follow_the_display_scale():
@@ -72,7 +72,7 @@ def test_every_palette_carries_the_tours_scrim_and_ring():
     a plain token-against-token contrast check reads backwards there and says
     nothing about whether the screen actually dimmed.
     """
-    from warlock.studio.panes.tour import VEIL_ALPHA
+    from realmspinner.studio.panes.tour import VEIL_ALPHA
 
     for name, palette in tokens.PALETTES.items():
         assert "TOUR_VEIL" in palette, f"{name} has no tour scrim"
@@ -176,7 +176,7 @@ def test_component_gallery_builds_every_state(
 ):
     from imgui_bundle import imgui
 
-    from warlock.studio import imgui_backend
+    from realmspinner.studio import imgui_backend
 
     # Saved and put back below. ``destroy_context()`` leaves *no* current
     # context, so a test that builds its own over the session-scoped
@@ -428,7 +428,7 @@ def test_ctrl_click_cannot_collide_with_a_keyboard_shortcut():
     claim ctrl+click either -- imgui's own text-entry gesture is the only
     reader.
     """
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     assert "pygame.KEYDOWN" in inspect.getsource(main.App._events)
     assert "config_drag_click_to_input_text" not in inspect.getsource(theme.apply)

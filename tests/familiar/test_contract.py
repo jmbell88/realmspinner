@@ -4,7 +4,7 @@ and (in ``dev/tests/familiar/test_contract.py``) run A's own recorded eval
 hashes and the training dataset's own recorded replies, which moved to
 ``dev/`` on 2026-09-16.
 
-``warlock.familiar.contract`` is imported directly (no imgui/moderngl/
+``realmspinner.familiar.contract`` is imported directly (no imgui/moderngl/
 pygame/httpx/service/queue needed for any of this).
 """
 
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.familiar import contract
+from realmspinner.familiar import contract
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -40,7 +40,7 @@ def test_the_frozen_clay_card_names_only_tools_the_live_door_accepts():
     card's own tool schemas mention must still exist on the live tool's
     schema -- a live registry is allowed to grow past what an old, frozen
     card describes, never to drop something that card still promises."""
-    from warlock.studio.modes.clay.agent import dispatch as agent_clay
+    from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
     live_tools = {t.name: t for t in agent_clay.tools()}
     allowed = contract.allowed_calls("clay")
@@ -111,7 +111,7 @@ def test_the_server_slot_is_at_least_the_trained_window():
     slot, not the server's total context, is what a single Clay turn actually
     has to fit inside. If a slot ever shrank below what run A trained at, the
     model would see truncated prompts it was never trained to handle."""
-    from warlock.pipelines import llama
+    from realmspinner.pipelines import llama
 
     assert llama.CTX_SIZE // llama.PARALLEL_SLOTS >= contract.TRAINED_WINDOW
 
@@ -152,9 +152,9 @@ async def test_the_clay_card_refuses_on_the_testing_pin(tmp_path, monkeypatch):
     test_a_card_sha_mismatch_refuses_to_start`` proves for an arbitrary
     fake sha -- this pins the same refusal for the *real* Clay card, so the
     base pin can never be mistaken for one that speaks Clay."""
-    from warlock import fetch, models
-    from warlock.pipelines import llama as llama_mod
-    from warlock.pipelines.llama import LlamaServer
+    from realmspinner import fetch, models
+    from realmspinner.pipelines import llama as llama_mod
+    from realmspinner.pipelines.llama import LlamaServer
 
     exe = tmp_path / "llama-server.exe"
     weights = tmp_path / "models" / "familiar" / models.FAMILIAR_GGUF_FILE
@@ -212,7 +212,7 @@ def test_the_frozen_cards_are_exempt_from_line_ending_conversion():
 
     patterns = _unset_text_patterns((ROOT / ".gitattributes").read_text(encoding="utf-8"))
     # Derived from the package rather than written out: the literal used to
-    # say "src/warlock/studio/familiar/cards/", and when P3 of the
+    # say "src/realmspinner/studio/familiar/cards/", and when P3 of the
     # restructure moved the package (2026-09-17) this test went on passing
     # against a path that no longer existed while the real cards lost the
     # exemption -- a green test guarding nothing.
@@ -253,7 +253,7 @@ def test_the_router_card_is_frozen_and_exempt_from_line_ending_conversion():
 
 
 def _citation(n: int, *, chapter: str = "07-clay", anchor: str | None = None):
-    from warlock.familiar import retrieval
+    from realmspinner.familiar import retrieval
 
     return retrieval.Citation(
         n=n, chapter=chapter, anchor=anchor, title_path=f"07 Clay > Section {n}", text=f"text {n}"
@@ -312,7 +312,7 @@ def test_the_manual_prompt_fits_one_slot_at_the_retrieval_budget():
     Manual turn runs under."""
     import inspect
 
-    from warlock.familiar import retrieval
+    from realmspinner.familiar import retrieval
 
     budget_tokens = inspect.signature(retrieval.Index.search).parameters["budget_tokens"].default
     system_words = len(contract.MANUAL_SYSTEM.split())

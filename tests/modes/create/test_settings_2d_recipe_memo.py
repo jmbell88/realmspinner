@@ -15,10 +15,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock import generation
-from warlock.studio.modes.create.engine import assets as create_assets
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.state import AppState, default_form_2d
+from realmspinner import generation
+from realmspinner.studio.modes.create.engine import assets as create_assets
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.state import AppState, default_form_2d
 
 
 def _ctx() -> SimpleNamespace:
@@ -147,7 +147,7 @@ def test_model_combo_resolves_the_recipe_through_the_memo_not_directly():
     so the pane function can be driven headlessly, same as this module's
     other tests drive ``_resolved_recipe`` directly.
     """
-    from warlock.studio.modes.create.ui.panes import settings_2d as mod
+    from realmspinner.studio.modes.create.ui.panes import settings_2d as mod
 
     form = default_form_2d()
     create_assets.sync_legacy_fields(form)

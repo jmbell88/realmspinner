@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.pipelines import material
+from realmspinner.pipelines import material
 
 
 def _tile(size=32, seed=3):
@@ -189,7 +189,7 @@ def test_the_material_does_not_present_height_as_occlusion():
     this module exists to avoid: an engine would then light with it."""
     doc = material.material_json()
     assert "occlusionTexture" not in doc
-    assert doc["extras"]["warlock"]["height"] == "material_height.png"
+    assert doc["extras"]["realmspinner"]["height"] == "material_height.png"
 
 
 def test_the_allowlist_and_the_module_agree_in_both_directions():
@@ -202,7 +202,7 @@ def test_the_allowlist_and_the_module_agree_in_both_directions():
     missed here would never be servable, and a name added here and missed there
     would reach `_derive_material` with no branch to answer it.
     """
-    from warlock.service.files import MATERIAL_2D, MEDIA, TILE_2D, derived_2d_for
+    from realmspinner.service.files import MATERIAL_2D, MEDIA, TILE_2D, derived_2d_for
 
     assert set(MATERIAL_2D) == set(material.MAP_NAMES) | {"material.zip"}
     for name in MATERIAL_2D:

@@ -1,12 +1,12 @@
 # Before you begin
 
-Warlock Studio makes game art on your own machine. You give it a text prompt or a picture; it gives
+Realmspinner makes game art on your own machine. You give it a text prompt or a picture; it gives
 you back a textured 3D model, a sprite sheet, a tile map or a drawing — whichever you asked for. It
 is one desktop window with no server to start, no browser tab and no account, and after the initial
 downloads it never touches the network again.
 
 This is the first of the tutorial chapters. It is the only one about getting ready rather than about
-making something, and it exists because Warlock asks for two large downloads and a particular kind
+making something, and it exists because Realmspinner asks for two large downloads and a particular kind
 of graphics card before most of it will run. Reading it first saves finding that out one refusal at
 a time.
 
@@ -23,7 +23,7 @@ chapters instead walk one path through it and explain what you are looking at as
   unavailable there; that theory was tested for the first time on 2026-09-03 and was not true, so
   the floor now matches what rigging actually needs. On 3.14 or later the rig extra installs
   nothing at all, quietly. The app then hides its rig controls and
-  `warlock doctor` reports rigging unavailable; everything else works unchanged. If posing and
+  `realmspinner doctor` reports rigging unavailable; everything else works unchanged. If posing and
   character sheets are why you are here, use 3.13.
 - **About 24 GB of disk for the engine and its weights**, plus room for what you make.
 
@@ -32,7 +32,7 @@ exactly how much further down.
 
 ## Getting the app
 
-Today Warlock runs from a source checkout:
+Today Realmspinner runs from a source checkout:
 
 ```powershell
 uv sync --extra studio --extra text2image --extra rig --extra music
@@ -54,7 +54,7 @@ Models** like a model, and it downloads and unpacks itself. It stopped being par
 because at 838 MB it was more than half of everything a first-time user downloaded, in an app whose
 drawing, tile-map, atlas and tracker workspaces never start it.
 
-A Windows installer lives in the repository and produces the same layout — Warlock requires a
+A Windows installer lives in the repository and produces the same layout — Realmspinner requires a
 *checkout-shaped* root either way, which is why nothing in it needs an installed-only code path. It
 has been built and installed, and the app launched from its Start Menu shortcut, but only ever on
 the machine it was written on: it has not yet been seen on a computer that is not that one. So the
@@ -130,10 +130,10 @@ your time first. Triggering that refusal on purpose is the shortest route to the
 
 ## Where your work lives
 
-Everything Warlock generates goes under one directory, `~/.warlock`, and not inside the checkout:
+Everything Realmspinner generates goes under one directory, `~/.realmspinner`, and not inside the checkout:
 
 ```text
-~/.warlock/
+~/.realmspinner/
   assets/          your jobs, their files, and jobs.sqlite
   models/          downloaded weights
   palettes/        your own palette files
@@ -154,11 +154,11 @@ everything checks out it says nothing about health at all; when something is wro
 **N issue(s)** joins it — a report, not a button — and **Settings → Health** lists what: a missing
 weight, a binary it cannot find, a GPU it cannot see, each with the exact command that fixes it.
 
-`uv run warlock doctor` asks the same questions from a terminal and prints the same answers, which
+`uv run realmspinner doctor` asks the same questions from a terminal and prints the same answers, which
 is the more useful of the two when the window will not open at all.
 [Troubleshooting](43-troubleshooting.md) is organised by symptom.
 
 ## What to read next
 
 [Your first asset](02-your-first-asset.md) makes something, and explains the one thing about
-Warlock's pipeline that surprises nearly everyone the first time.
+Realmspinner's pipeline that surprises nearly everyone the first time.

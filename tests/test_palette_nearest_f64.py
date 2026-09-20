@@ -11,10 +11,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock import native
-from warlock.pipelines import pixel
+from realmspinner import native
+from realmspinner.pipelines import pixel
 
-needs_dll = pytest.mark.skipif(not native.available(), reason="warlockc.dll not built")
+needs_dll = pytest.mark.skipif(not native.available(), reason="realmspinnerc.dll not built")
 
 
 def _reference(flat: np.ndarray, plab: np.ndarray) -> np.ndarray:

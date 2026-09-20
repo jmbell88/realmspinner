@@ -30,9 +30,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import tokens
-from warlock.studio.panes import tour as tour_pane
-from warlock.studio.tokens import sp
+from realmspinner.studio import tokens
+from realmspinner.studio.panes import tour as tour_pane
+from realmspinner.studio.tokens import sp
 
 
 def _viewport(x=0.0, y=0.0, w=1000.0, h=800.0):

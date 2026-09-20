@@ -15,16 +15,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import models
-from warlock.familiar import retrieval
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.service import familiar as svc_familiar
-from warlock.studio import docmodes
-from warlock.studio.assistant import ui as familiar_ui
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.state import ManualState
-from warlock.studio.tasks import Done
+from realmspinner import models
+from realmspinner.familiar import retrieval
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.service import familiar as svc_familiar
+from realmspinner.studio import docmodes
+from realmspinner.studio.assistant import ui as familiar_ui
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.state import ManualState
+from realmspinner.studio.tasks import Done
 
 
 class _FakeThreads:
@@ -53,7 +53,7 @@ class _FakeCtx:
         doc = doc if doc is not None else bd.ClayDoc()
         tab = clay_mode.ClayTab(doc=doc)
         clay_state = clay_mode.ClayState(docs=[tab], active_uid=tab.uid)
-        from warlock.studio.modes.create.engine.state import CreateState
+        from realmspinner.studio.modes.create.engine.state import CreateState
 
         self.state = SimpleNamespace(
             clay=clay_state,
@@ -211,7 +211,7 @@ def test_closing_a_tab_drops_its_thread_through_the_registered_listener():
         familiar_ui.install(ctx)
         assert ctx.familiar_threads.drop in docmodes.TAB_CLOSED
 
-        from warlock.familiar.threads import Turn
+        from realmspinner.familiar.threads import Turn
 
         ctx.familiar_threads.append(("clay", "tab-1"), Turn("user", "hi"))
         assert ctx.familiar_threads.get(("clay", "tab-1"))
@@ -865,7 +865,7 @@ def test_open_in_create_drafts_the_character_brief_with_the_plan_fields(monkeypa
         captured["character_fields"] = character_fields
         return "Drafted in Create -- check the brief and press Generate."
 
-    from warlock.studio.assistant import doors as familiar_doors
+    from realmspinner.studio.assistant import doors as familiar_doors
 
     monkeypatch.setattr(familiar_doors, "draft_in_create", fake_draft)
 

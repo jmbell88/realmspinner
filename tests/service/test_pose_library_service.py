@@ -11,13 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from warlock import doctor, poselib
-from warlock.doctor import Check
-from warlock.kernels.rig import store, templates
-from warlock.pipelines import blender_run
-from warlock.service import Conflict, Failed, Invalid, NotFound
-from warlock.service import jobs as svc_jobs
-from warlock.service import poses as svc_poses
+from realmspinner import doctor, poselib
+from realmspinner.doctor import Check
+from realmspinner.kernels.rig import store, templates
+from realmspinner.pipelines import blender_run
+from realmspinner.service import Conflict, Failed, Invalid, NotFound
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import poses as svc_poses
 
 IDENTITY = [0.0, 0.0, 0.0, 1.0]
 

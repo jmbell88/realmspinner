@@ -13,9 +13,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.studio import recents
-from warlock.studio.modes.home.ui.panes import landing
-from warlock.studio.state import AppState
+from realmspinner.studio import recents
+from realmspinner.studio.modes.home.ui.panes import landing
+from realmspinner.studio.state import AppState
 
 
 class FakeSettings:

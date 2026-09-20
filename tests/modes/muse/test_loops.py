@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.muse.engine import loops
+from realmspinner.studio.modes.muse.engine import loops
 
 RATE = 44100
 

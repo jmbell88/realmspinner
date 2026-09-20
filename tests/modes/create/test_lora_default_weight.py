@@ -9,9 +9,9 @@ is ~14x the top of its usable band, i.e. black frames.
 
 from __future__ import annotations
 
-from warlock import models
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui.panes import settings_2d
+from realmspinner import models
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui.panes import settings_2d
 
 
 def test_each_adapter_reports_its_own_tuned_weight():

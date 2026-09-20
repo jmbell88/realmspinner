@@ -28,15 +28,15 @@ from types import ModuleType
 
 import pytest
 
-from warlock.characters import resolve as resolve_mod
-from warlock.characters.family import families
-from warlock.characters.recipe import Recipe
-from warlock.studio.modes.create.engine import assets as create_assets
-from warlock.studio.modes.create.engine import character as character_engine
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui import workspace as generation_workspace
-from warlock.studio.modes.create.ui.panes import settings_2d, settings_character
-from warlock.studio.state import AppState
+from realmspinner.characters import resolve as resolve_mod
+from realmspinner.characters.family import families
+from realmspinner.characters.recipe import Recipe
+from realmspinner.studio.modes.create.engine import assets as create_assets
+from realmspinner.studio.modes.create.engine import character as character_engine
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui import workspace as generation_workspace
+from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_character
+from realmspinner.studio.state import AppState
 
 # --- the harness --------------------------------------------------------------
 
@@ -396,7 +396,7 @@ def test_the_escape_routes_keep_the_brief(ctx):
     other = _form("a fierce manticore")
     settings_character.hand_to_poser(ctx, other)
     assert other["prompt"] == "a fierce manticore"
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     assert poser_mode.sheet_form(ctx)["prompt"] == "a fierce manticore"
     assert ctx.state.mode == "poser"
@@ -409,8 +409,8 @@ def test_the_sheet_forms_has_one_construction_and_both_callers_use_it():
     again, onto ``poser_mode.sheet_form`` and ``poser.ui.panes.sheet
     .draw_new_character``.
     """
-    from warlock.studio.modes.poser import mode as poser_mode
-    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+    from realmspinner.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
     assert "poser_mode.sheet_form(ctx)" in inspect.getsource(poser_sheet.draw_new_character)
     assert callable(poser_mode.sheet_form)
@@ -427,11 +427,11 @@ def test_without_blender_the_press_is_refused_in_the_rig_stages_own_words(svc):
     body whose skeleton will never exist is the half-built asset that door's
     ordering exists to prevent.
     """
-    from warlock.studio.panes import stage_rig
+    from realmspinner.studio.panes import stage_rig
 
     sentence = "Rigging needs Blender, which is not installed."
     assert sentence in inspect.getsource(stage_rig.draw)
-    from warlock.service import characters as svc_characters
+    from realmspinner.service import characters as svc_characters
 
     assert sentence in inspect.getsource(svc_characters.create_character)
 
@@ -506,8 +506,8 @@ def test_the_press_builds_a_character_and_never_reaches_create_job(ctx, monkeypa
     which is what makes this structural rather than a convention -- but the
     pane must not get that far, because the refusal would arrive as a toast
     about a field the user never set."""
-    from warlock.service import characters as svc_characters
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import characters as svc_characters
+    from realmspinner.service import jobs as svc_jobs
 
     def _never(*_a, **_k):
         raise AssertionError("the character arm reached create_job")
@@ -604,7 +604,7 @@ def test_the_size_and_colour_ladders_are_the_doors_own(ctx):
     """Read from ``troupe_options``, which is what ``create_character`` puts the
     request through -- a second list in the pane is a form that accepts what the
     door then refuses."""
-    from warlock.service import troupe as svc_troupe
+    from realmspinner.service import troupe as svc_troupe
 
     opts = character_engine.options(ctx)
     assert opts["troupe"]["logical_sizes"] == list(svc_troupe.TROUPE_LOGICAL_SIZES)
@@ -714,7 +714,7 @@ def ui(monkeypatch):
 
 
 def _draw_block(ui, ctx, form):
-    from warlock.studio import forms, probe, widgets
+    from realmspinner.studio import forms, probe, widgets
 
     probe.begin_frame()
     ui.new_frame()
@@ -772,7 +772,7 @@ def test_the_block_draws_with_no_species_and_offers_no_slider_column(ui, ctx):
 def test_the_refusal_and_its_three_repairs_draw_under_the_plan(ui, ctx):
     """``_preflight_fix`` is where the substitution is offered, and it is the
     one path in this file that is a *press*. It has to draw."""
-    from warlock.studio import probe, widgets
+    from realmspinner.studio import probe, widgets
 
     form = _form("a manticore")
     problems = create_recipe.problems_for(ctx, form)

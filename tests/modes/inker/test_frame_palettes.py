@@ -26,10 +26,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import asein, aseout, ora
-from warlock.kernels.pixel.document import Document
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
+from realmspinner.kernels.pixel import asein, aseout, ora
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
 
 HOLE = (0, 0, 0, 0)
 RED = (255, 0, 0, 255)

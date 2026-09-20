@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from warlock.db import MIGRATIONS, JobStore
+from realmspinner.db import MIGRATIONS, JobStore
 
 
 def _index_sql(path, name):

@@ -20,11 +20,11 @@ import math
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.modes.mason.engine import document as md
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import scene as msc
-from warlock.studio.modes.mason.ui import marks as mason_marks
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.studio.modes.mason.engine import document as md
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import scene as msc
+from realmspinner.studio.modes.mason.ui import marks as mason_marks
 
 
 def _doc_with_a_light_and_a_mesh() -> md.MasonDoc:
@@ -121,7 +121,7 @@ def test_the_pick_radius_and_the_drawn_size_are_one_number() -> None:
     """Imported, not restated: a symbol drawn at one size and clicked at another
     is a control whose hit area is a lie, and the two would drift the first time
     either was tuned."""
-    from warlock.studio.modes.mason.engine import pick as mpick
+    from realmspinner.studio.modes.mason.engine import pick as mpick
 
     assert mason_marks.MARK_SIZE is mpick.MARK_SIZE
 
@@ -131,7 +131,7 @@ def test_the_pick_radius_and_the_drawn_size_are_one_number() -> None:
 
 @pytest.fixture
 def marks(gl):
-    from warlock.studio.viewer.render import Renderer
+    from realmspinner.studio.viewer.render import Renderer
 
     renderer = Renderer(gl)
     made = mason_marks.SceneMarks(gl, renderer.programs)

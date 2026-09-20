@@ -1,6 +1,6 @@
 # The Home screen
 
-Warlock Studio opens on Home every time you launch it, not just the first time. That is deliberate:
+Realmspinner opens on Home every time you launch it, not just the first time. That is deliberate:
 the workspace assumes you already know which of the two pipelines you are in and what you are
 looking at, and neither of those is true a second after a launch.
 
@@ -50,7 +50,7 @@ the next release brings it back — and **All release notes…** at the foot of 
 history at any time, this build's entry open and the older ones collapsed under it.
 
 It is read from a `CHANGELOG.md` shipped inside the app, hand-written rather than generated: every
-commit in this repository is titled `Warlock vN.N.N` and carries no detail, so a generated list
+commit in this repository is titled `Realmspinner vN.N.N` and carries no detail, so a generated list
 would be a column of version numbers. If the file is missing or unreadable there is simply no card,
 and nothing else on the screen is affected.
 
@@ -71,7 +71,7 @@ tool. You can also drag the file onto Home or onto the Library. Either way it be
 library asset, which means everything that works on a generated mesh works on it too: **Send to
 Poser**, the triangle retarget and every export.
 
-An imported mesh keeps whatever rig it arrived with only as far as the library. Warlock fits its
+An imported mesh keeps whatever rig it arrived with only as far as the library. Realmspinner fits its
 own skeleton when you rig it, because a supplied rig rarely maps onto the one the clips are
 authored against — so a mesh that arrives unrigged is no worse off than one that does not.
 

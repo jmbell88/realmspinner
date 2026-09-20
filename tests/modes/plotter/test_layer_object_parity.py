@@ -14,8 +14,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid as gidlib
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc, MapObject, new_uid
+from realmspinner.kernels.grid2d import gid as gidlib
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc, MapObject, new_uid
 
 
 def _doc(width: int = 8, height: int = 8) -> MapDoc:
@@ -222,7 +222,7 @@ def test_attaching_to_a_non_image_layer_is_refused() -> None:
 def test_a_moved_vertex_is_a_new_frozen_shape() -> None:
     """Shapes are frozen records, so a moved vertex is a new Polygon through
     ``merged_object_values`` -- the one reconciliation door."""
-    from warlock.studio.modes.plotter.engine.tilemap import Polygon
+    from realmspinner.studio.modes.plotter.engine.tilemap import Polygon
 
     doc = _doc()
     layer = doc.add_object_layer("Objects")
@@ -243,14 +243,14 @@ def test_a_moved_vertex_is_a_new_frozen_shape() -> None:
 
 
 def test_a_polygon_floors_at_three_points() -> None:
-    from warlock.studio.modes.plotter.engine.tilemap import Polygon
+    from realmspinner.studio.modes.plotter.engine.tilemap import Polygon
 
     with pytest.raises(ValueError):
         Polygon(((0.0, 0.0), (1.0, 1.0)))
 
 
 def test_a_polyline_floors_at_two_points() -> None:
-    from warlock.studio.modes.plotter.engine.tilemap import Polyline
+    from realmspinner.studio.modes.plotter.engine.tilemap import Polyline
 
     with pytest.raises(ValueError):
         Polyline(((0.0, 0.0),))
@@ -260,7 +260,7 @@ def test_a_vertex_converts_through_the_rotation_not_around_it() -> None:
     """The ``_resized`` trap by name: the outline is drawn by rotating each point
     about the object's origin, so a map point taken straight as a vertex lands
     somewhere the outline does not go."""
-    from warlock.studio.modes.plotter.ui.panes import canvas as canvas
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as canvas
 
     point = (10.0, 0.0)
     turned = canvas._rotated_about(point, 90.0)

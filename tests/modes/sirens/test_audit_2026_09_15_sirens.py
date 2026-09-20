@@ -15,11 +15,11 @@ import re
 import numpy as np
 import pytest
 
-from warlock.studio.modes.sirens import play as sirens_play
-from warlock.studio.modes.sirens.engine import document as D
-from warlock.studio.modes.sirens.engine import synth, wsng
-from warlock.studio.modes.sirens.ui.panes import effects as sirens_effects
-from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
+from realmspinner.studio.modes.sirens import play as sirens_play
+from realmspinner.studio.modes.sirens.engine import document as D
+from realmspinner.studio.modes.sirens.engine import rsng, synth
+from realmspinner.studio.modes.sirens.ui.panes import effects as sirens_effects
+from realmspinner.studio.modes.sirens.ui.panes import instruments as sirens_instruments
 
 from .test_sirens_mode import FakeCtx, _audible, _tab
 
@@ -117,17 +117,17 @@ def test_wav_cache_evicts_on_total_bytes_not_just_entry_count(monkeypatch):
     ``undo.py`` prices an array, a handful of large entries evict long before
     the count cap ever would. The 2026-09-15 audit, finding sirens-03.
     """
-    monkeypatch.setattr(wsng, "_WAV_CACHE", {})
-    monkeypatch.setattr(wsng, "_WAV_CACHE_MAX", 1000)
-    monkeypatch.setattr(wsng, "_WAV_CACHE_BUDGET", 10_000)
+    monkeypatch.setattr(rsng, "_WAV_CACHE", {})
+    monkeypatch.setattr(rsng, "_WAV_CACHE_MAX", 1000)
+    monkeypatch.setattr(rsng, "_WAV_CACHE_BUDGET", 10_000)
 
     arrays = [np.zeros(2000, dtype=np.int16) for _ in range(5)]
     for arr in arrays:
-        wsng._wav_of(arr)
+        rsng._wav_of(arr)
 
-    total = sum(wsng._wav_cache_cost(*entry) for entry in wsng._WAV_CACHE.values())
-    assert total <= wsng._WAV_CACHE_BUDGET
-    assert len(wsng._WAV_CACHE) < len(arrays)
+    total = sum(rsng._wav_cache_cost(*entry) for entry in rsng._WAV_CACHE.values())
+    assert total <= rsng._WAV_CACHE_BUDGET
+    assert len(rsng._WAV_CACHE) < len(arrays)
 
 
 # --- sirens-04 --------------------------------------------------------------

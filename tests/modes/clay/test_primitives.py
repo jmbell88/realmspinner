@@ -26,8 +26,8 @@ from collections import Counter
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
 
 from .topo_asserts import directed_edge_counts, edge_use_counts
 
@@ -578,7 +578,7 @@ def test_concave_generators_really_have_a_concave_face_at_defaults(name: str) ->
     :data:`bp.CONCAVE_GENERATORS` after its generator stopped needing the
     exemption -- a default outline that changed, say -- should fail this
     rather than linger as a silently-weakened convexity claim forever."""
-    from warlock.kernels.mesh import earclip as ec
+    from realmspinner.kernels.mesh import earclip as ec
 
     mesh = _default(name)
     mask = ec.concave_faces(mesh.positions, mesh.loops, mesh.starts, bm.face_normals(mesh))
@@ -1158,7 +1158,7 @@ def test_a_bare_fan_would_get_the_sweeps_reflex_cap_area_wrong() -> None:
     this path for this face (``earclip.concave_faces`` flags it and ear-clips
     instead), which is exactly what the second half of this test confirms.
     """
-    from warlock.kernels.mesh import earclip as ec
+    from realmspinner.kernels.mesh import earclip as ec
 
     mesh = bp.sweep()
     cap = bm.face_count(mesh) - 2  # the far (+Z) cap; the near one is last
@@ -1181,7 +1181,7 @@ def test_a_bare_fan_would_get_the_sweeps_reflex_cap_area_wrong() -> None:
 
 
 def test_a_sweeps_default_outline_has_the_reflex_corner_the_concave_exemption_needs() -> None:
-    from warlock.kernels.mesh import earclip as ec
+    from realmspinner.kernels.mesh import earclip as ec
 
     mesh = bp.sweep()
     mask = ec.concave_faces(mesh.positions, mesh.loops, mesh.starts, bm.face_normals(mesh))

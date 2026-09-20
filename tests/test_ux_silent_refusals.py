@@ -13,10 +13,10 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import problems
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
-from warlock.studio.state import default_form_2d
+from realmspinner.studio import problems
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
+from realmspinner.studio.state import default_form_2d
 
 
 class _State:
@@ -170,14 +170,14 @@ def test_fix_matte_records_what_happened_rather_than_swallowing_it(monkeypatch, 
     # (T7); ``inker_mode`` serves the names through ``__getattr__``, and a
     # ``setattr`` there would shadow rather than replace what the caller
     # reaches.
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker import opening as inker_open
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import opening as inker_open
 
     monkeypatch.setattr(inker_open, "_cut_matte", _Recorder(applied))
     doc = inker.Document.blank(4, 4)
     monkeypatch.setattr(inker.Document, "load", staticmethod(lambda path: doc))
 
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     monkeypatch.setattr(svc_files, "inker_working_path", lambda svc, job_id: None)
     monkeypatch.setattr(
@@ -204,7 +204,7 @@ def test_a_matte_nobody_asked_for_records_nothing():
     completion branch cannot toast about a cutout that was never requested."""
     import inspect
 
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     source = inspect.getsource(inker_mode._load_job)
     body = source.split("if matte:")[0]

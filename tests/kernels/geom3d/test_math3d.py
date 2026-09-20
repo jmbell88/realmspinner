@@ -11,7 +11,7 @@ import math
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
+from realmspinner.kernels.geom3d import math3d as m3
 
 
 def test_a_mat4_uniform_is_transposed_on_its_way_to_glsl():

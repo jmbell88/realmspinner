@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from warlock.bench import views as views_mod
+from realmspinner.bench import views as views_mod
 
 
 def test_a_view_plan_is_one_row_of_eight():

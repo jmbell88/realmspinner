@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock import fetch, packs
+from realmspinner import fetch, packs
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,14 +81,14 @@ def test_smoke_cached_is_none_with_no_verdict_file(tmp_path):
     through this app's own pack machinery, has never had anything write this
     file -- "unknown" must read as "admit", exactly ``find_spec``'s own
     answer, not as "broken"."""
-    from warlock.config import Config
+    from realmspinner.config import Config
 
     config = Config(home=tmp_path)
     assert packs.smoke_cached(config, "text2image") is None
 
 
 def test_smoke_cached_reads_back_exactly_what_was_written(tmp_path):
-    from warlock.config import Config
+    from realmspinner.config import Config
 
     config = Config(home=tmp_path)
     verify_dir = packs.verify_dir(config)
@@ -107,7 +107,7 @@ def test_smoke_cached_treats_a_malformed_file_as_unknown(tmp_path):
     this file from ever being torn, but a reader that trusted a malformed
     body would be the one place this fix reintroduces the M01 shape it
     closes: something that looks present but is not actually what it claims."""
-    from warlock.config import Config
+    from realmspinner.config import Config
 
     config = Config(home=tmp_path)
     verify_dir = packs.verify_dir(config)
@@ -122,7 +122,7 @@ def test_verify_dir_is_the_same_place_the_wheel_cache_and_selection_live(tmp_pat
     """Not a new location: ``service.packs.cache_dir``'s own answer, so a
     verdict a repair just wrote and the selection record it also touches
     survive (or are wiped by an uninstall) together."""
-    from warlock.config import Config
+    from realmspinner.config import Config
 
     config = Config(home=tmp_path)
     assert packs.verify_dir(config) == tmp_path / "packs"
@@ -130,8 +130,8 @@ def test_verify_dir_is_the_same_place_the_wheel_cache_and_selection_live(tmp_pat
 
 def test_the_modes_a_pack_names_are_real_modes():
     """``Pack.modes`` is strings because ``studio`` may not be imported from
-    ``warlock.packs``. Strings drift, so they are pinned here instead."""
-    from warlock.studio import modes
+    ``realmspinner.packs``. Strings drift, so they are pinned here instead."""
+    from realmspinner.studio import modes
 
     known = {key for key, _label, _icon, _purpose in modes.MODES}
     for pack in packs.PACKS:
@@ -389,7 +389,7 @@ def test_the_wheels_and_the_unpacked_bytes_are_charged_to_one_volume_together(fr
 
 
 def test_a_roomy_cache_drive_does_not_approve_a_write_to_a_full_runtime_one(free):
-    """MDL-09 in a new place. A per-user install routinely puts the Warlock
+    """MDL-09 in a new place. A per-user install routinely puts the Realmspinner
     home and the application runtime on two drives."""
     free["D:\\"] = 500.0
     free["C:\\"] = 1.0

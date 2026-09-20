@@ -57,7 +57,7 @@ def check_versions() -> bool:
 
     ``INSTALL.md`` is the fourth and it was added late, on 2026-09-03, after it
     had sat two releases behind: it names the installer by filename
-    (``WarlockSetup-vN.N.N.exe``) twice, and being prose rather than a manifest
+    (``RealmspinnerSetup-vN.N.N.exe``) twice, and being prose rather than a manifest
     it was outside every check here and in the suite. The other three surfaces
     are bumped by the release commit; that one was not, and a download link to a
     release asset that does not exist is the most user-visible drift of the four.
@@ -68,10 +68,10 @@ def check_versions() -> bool:
         return _fail("version lockstep", "no version in pyproject.toml")
     declared = found.group(1)
 
-    init = (ROOT / "src" / "warlock" / "__init__.py").read_text(encoding="utf-8")
+    init = (ROOT / "src" / "realmspinner" / "__init__.py").read_text(encoding="utf-8")
     runtime = re.search(r'^__version__ = "([^"]+)"', init, re.MULTILINE)
     if runtime is None:
-        return _fail("version lockstep", "no __version__ in src/warlock/__init__.py")
+        return _fail("version lockstep", "no __version__ in src/realmspinner/__init__.py")
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     heading = re.search(r"^## (\S+)", changelog, re.MULTILINE)
@@ -79,9 +79,9 @@ def check_versions() -> bool:
         return _fail("version lockstep", "no version heading in CHANGELOG.md")
 
     install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
-    named = re.findall(r"WarlockSetup-v([\d.]+)\.exe", install)
+    named = re.findall(r"RealmspinnerSetup-v([\d.]+)\.exe", install)
     if not named:
-        return _fail("version lockstep", "no WarlockSetup-vN.N.N.exe in INSTALL.md")
+        return _fail("version lockstep", "no RealmspinnerSetup-vN.N.N.exe in INSTALL.md")
     if len(set(named)) != 1:
         return _fail(
             "version lockstep",
@@ -90,18 +90,18 @@ def check_versions() -> bool:
 
     # The 2026-09-15 audit (pipelines-02): CLAUDE.md defines a release as five
     # files, but this compared only four -- `uv.lock` pins its own copy of
-    # `warlock`'s version (a `[[package]] name = "warlock"` block, since it is
+    # `realmspinner`'s version (a `[[package]] name = "realmspinner"` block, since it is
     # an editable-installed member of its own lockfile), and nothing here ever
     # read it. A release commit that bumped the other four and forgot `uv sync`
     # would pass this gate with a stale lockfile.
     uv_lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
-    locked = re.search(r'name = "warlock"\nversion = "([^"]+)"', uv_lock)
+    locked = re.search(r'name = "realmspinner"\nversion = "([^"]+)"', uv_lock)
     if locked is None:
-        return _fail("version lockstep", "no warlock package entry in uv.lock")
+        return _fail("version lockstep", "no realmspinner package entry in uv.lock")
 
     versions = {
         "pyproject.toml": declared,
-        "src/warlock/__init__.py": runtime.group(1),
+        "src/realmspinner/__init__.py": runtime.group(1),
         "CHANGELOG.md": heading.group(1),
         "INSTALL.md": named[0],
         "uv.lock": locked.group(1),

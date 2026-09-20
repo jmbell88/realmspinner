@@ -6,12 +6,12 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import db as db_mod
-from warlock import vectors
-from warlock.service import findings as svc_findings
-from warlock.service import jobs as svc_jobs
-from warlock.service import verdicts as svc_verdicts
-from warlock.service.errors import Invalid, NotFound
+from realmspinner import db as db_mod
+from realmspinner import vectors
+from realmspinner.service import findings as svc_findings
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import verdicts as svc_verdicts
+from realmspinner.service.errors import Invalid, NotFound
 
 
 def _model_job(store, **kwargs):
@@ -249,7 +249,7 @@ def test_record_verdict_snapshots_the_sweep_context(svc):
     """The matched-pair columns are denormalized at record time -- once the
     sweep's job rows are deleted, the verdict row is the only place the
     pairing context (sweep, seed, prompt) survives."""
-    from warlock import vectors
+    from realmspinner import vectors
 
     unit = svc.store.create(
         "image", "a chest", {"lora_weight": 0.9, "seed": 42},

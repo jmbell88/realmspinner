@@ -9,9 +9,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import engines as eng
-from warlock.kernels.mesh import readiness
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.mesh import engines as eng
+from realmspinner.kernels.mesh import readiness
+from realmspinner.kernels.mesh.elements import OpError
 
 # --- registry shape -------------------------------------------------------
 

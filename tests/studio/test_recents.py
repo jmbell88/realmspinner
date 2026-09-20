@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.studio import recents
+from realmspinner.studio import recents
 
 
 class FakeSettings:
@@ -28,30 +28,30 @@ class FakeSettings:
 
 def test_remember_puts_the_newest_first_across_kinds():
     s = FakeSettings({recents.SETTING: []})
-    recents.remember(s, "clay", "a.wblk", when=100.0)
+    recents.remember(s, "clay", "a.rblk", when=100.0)
     recents.remember(s, "inker", "b.ora", when=200.0)
-    recents.remember(s, "plotter", "c.wmap", when=150.0)
+    recents.remember(s, "plotter", "c.rmap", when=150.0)
     assert [(e.kind, e.path) for e in recents.entries(s)] == [
         ("inker", "b.ora"),
-        ("plotter", "c.wmap"),
-        ("clay", "a.wblk"),
+        ("plotter", "c.rmap"),
+        ("clay", "a.rblk"),
     ]
 
 
 def test_a_kind_filter_is_a_slice_of_the_same_order():
     s = FakeSettings({recents.SETTING: []})
-    recents.remember(s, "clay", "a.wblk", when=100.0)
+    recents.remember(s, "clay", "a.rblk", when=100.0)
     recents.remember(s, "inker", "b.ora", when=200.0)
-    recents.remember(s, "clay", "c.wblk", when=300.0)
-    assert recents.paths(s, "clay") == ["c.wblk", "a.wblk"]
+    recents.remember(s, "clay", "c.rblk", when=300.0)
+    assert recents.paths(s, "clay") == ["c.rblk", "a.rblk"]
 
 
 def test_reopening_a_file_moves_it_rather_than_duplicating_it():
     s = FakeSettings({recents.SETTING: []})
-    recents.remember(s, "clay", "a.wblk", when=100.0)
-    recents.remember(s, "clay", "b.wblk", when=200.0)
-    recents.remember(s, "clay", "a.wblk", when=300.0)
-    assert recents.paths(s, "clay") == ["a.wblk", "b.wblk"]
+    recents.remember(s, "clay", "a.rblk", when=100.0)
+    recents.remember(s, "clay", "b.rblk", when=200.0)
+    recents.remember(s, "clay", "a.rblk", when=300.0)
+    assert recents.paths(s, "clay") == ["a.rblk", "b.rblk"]
 
 
 def test_the_same_path_under_two_kinds_is_two_rows():
@@ -67,39 +67,39 @@ def test_the_bound_is_per_kind_so_one_busy_mode_cannot_evict_the_others():
     s = FakeSettings({recents.SETTING: []})
     recents.remember(s, "inker", "keep.ora", when=1.0)
     for index in range(recents.MAX_RECENT + 5):
-        recents.remember(s, "clay", f"f{index}.wblk", when=100.0 + index)
+        recents.remember(s, "clay", f"f{index}.rblk", when=100.0 + index)
     assert len(recents.paths(s, "clay")) == recents.MAX_RECENT
     assert recents.paths(s, "inker") == ["keep.ora"]
 
 
 def test_forget_drops_a_path_that_no_longer_opens():
     s = FakeSettings({recents.SETTING: []})
-    recents.remember(s, "clay", "gone.wblk", when=100.0)
-    recents.remember(s, "clay", "here.wblk", when=200.0)
-    recents.forget(s, "clay", "gone.wblk")
-    assert recents.paths(s, "clay") == ["here.wblk"]
+    recents.remember(s, "clay", "gone.rblk", when=100.0)
+    recents.remember(s, "clay", "here.rblk", when=200.0)
+    recents.forget(s, "clay", "gone.rblk")
+    assert recents.paths(s, "clay") == ["here.rblk"]
     # A path that was never there is not an error and writes nothing.
-    recents.forget(s, "clay", "never.wblk")
-    assert recents.paths(s, "clay") == ["here.wblk"]
+    recents.forget(s, "clay", "never.rblk")
+    assert recents.paths(s, "clay") == ["here.rblk"]
 
 
 def test_a_path_that_differs_only_by_case_is_one_slot_not_two():
     """Shell-07, the 2026-09-07 audit: dedupe compared raw strings with no
     ``normcase``/``resolve``, unlike ``docmodes.find_path`` which exists
-    because "Level.WMAP" and "level.wmap" are one file on Windows -- so the
+    because "Level.RMAP" and "level.rmap" are one file on Windows -- so the
     same map could occupy two of Plotter's ten slots instead of one."""
     s = FakeSettings({recents.SETTING: []})
-    recents.remember(s, "plotter", "Level.WMAP", when=100.0)
-    recents.remember(s, "plotter", "level.wmap", when=200.0)
+    recents.remember(s, "plotter", "Level.RMAP", when=100.0)
+    recents.remember(s, "plotter", "level.rmap", when=200.0)
     assert len(recents.paths(s, "plotter")) == 1
     # The reopened spelling moves the row to the front, same as any repeat.
-    assert recents.paths(s, "plotter") == ["level.wmap"]
+    assert recents.paths(s, "plotter") == ["level.rmap"]
 
 
 def test_forget_matches_the_same_normalised_key_remember_does():
     s = FakeSettings({recents.SETTING: []})
-    recents.remember(s, "plotter", "Level.WMAP", when=100.0)
-    recents.forget(s, "plotter", "level.wmap")
+    recents.remember(s, "plotter", "Level.RMAP", when=100.0)
+    recents.forget(s, "plotter", "level.rmap")
     assert recents.paths(s, "plotter") == []
 
 
@@ -138,18 +138,18 @@ def test_it_migrates_the_four_legacy_per_mode_lists_once():
     s = FakeSettings(
         {
             "inker": {"recent": ["a.ora", "b.ora"], "swatches": []},
-            "clay": {"recent": ["c.wblk"]},
-            "plotter": {"recent": ["d.wmap"]},
-            "packwright": {"recent": ["e.wpack"]},
+            "clay": {"recent": ["c.rblk"]},
+            "plotter": {"recent": ["d.rmap"]},
+            "packwright": {"recent": ["e.rpack"]},
         }
     )
     found = recents.entries(s)
     assert {(e.kind, e.path) for e in found} == {
         ("inker", "a.ora"),
         ("inker", "b.ora"),
-        ("clay", "c.wblk"),
-        ("plotter", "d.wmap"),
-        ("packwright", "e.wpack"),
+        ("clay", "c.rblk"),
+        ("plotter", "d.rmap"),
+        ("packwright", "e.rpack"),
     }
     # Each kind keeps the MRU order it was stored in -- the only order those
     # rows have, since none of them carries a clock.
@@ -161,9 +161,9 @@ def test_it_migrates_the_four_legacy_per_mode_lists_once():
 
 
 def test_the_legacy_keys_are_left_alone_so_an_older_build_still_reads_them():
-    s = FakeSettings({"clay": {"recent": ["c.wblk"]}})
+    s = FakeSettings({"clay": {"recent": ["c.rblk"]}})
     recents.entries(s)
-    assert s.data["clay"] == {"recent": ["c.wblk"]}
+    assert s.data["clay"] == {"recent": ["c.rblk"]}
 
 
 def test_a_malformed_stored_row_is_skipped_rather_than_fatal():
@@ -186,7 +186,7 @@ def test_it_imports_nothing_but_stdlib():
     from pathlib import Path
 
     source = (
-        Path(__file__).resolve().parents[2] / "src" / "warlock" / "studio" / "recents.py"
+        Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "studio" / "recents.py"
     ).read_text(encoding="utf-8")
     for banned in ("imgui", "moderngl", "pygame", "from ..service", "from . import"):
         assert banned not in source

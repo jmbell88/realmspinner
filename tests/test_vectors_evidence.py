@@ -1,9 +1,9 @@
-"""``warlock.vectors`` -- the vector/evidence vocabulary queue.py is allowed
+"""``realmspinner.vectors`` -- the vector/evidence vocabulary queue.py is allowed
 to import, and the extraction of machine measurements from a finished job."""
 
 from __future__ import annotations
 
-from warlock import vectors
+from realmspinner import vectors
 
 
 def test_observation_metrics_reads_both_measurements():
@@ -104,7 +104,7 @@ def test_a_missing_or_malformed_report_contributes_no_refusal_keys():
 def test_the_refusal_keys_are_the_gate_s_own_vocabulary():
     """One list, so a rule added to reference.py cannot record a rate under a
     name nothing aggregates."""
-    from warlock.pipelines import reference
+    from realmspinner.pipelines import reference
 
     metrics = vectors.observation_metrics({"reference_report": {"ok": True}})
     assert set(metrics) == {"refused"} | {
@@ -125,7 +125,7 @@ def test_the_service_module_re_exports_the_moved_names():
     """Every existing import path (service.verdicts, studio, the tests) keeps
     working; the move exists only so queue.py can import the vocabulary
     without importing ``service``."""
-    from warlock.service import findings as svc_findings
+    from realmspinner.service import findings as svc_findings
 
     assert svc_findings.config_vector is vectors.config_vector
     assert svc_findings.vector_key is vectors.vector_key
@@ -140,8 +140,8 @@ def test_importing_vectors_pulls_in_no_service_and_no_torch():
     import sys
 
     code = (
-        "import warlock.vectors, sys; "
-        "bad = [m for m in sys.modules if m.startswith('warlock.service')"
+        "import realmspinner.vectors, sys; "
+        "bad = [m for m in sys.modules if m.startswith('realmspinner.service')"
         " or m in ('torch', 'imgui_bundle')]; "
         "print(','.join(bad))"
     )

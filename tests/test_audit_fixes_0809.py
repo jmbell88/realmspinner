@@ -13,9 +13,9 @@ import sys
 
 import pytest
 
-from warlock import doctor, errors, fetch, vram
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Invalid
+from realmspinner import doctor, errors, fetch, vram
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Invalid
 
 # --- #2: the retarget shares _resolve_profile's refusals ---------------------
 
@@ -55,7 +55,7 @@ def test_a_retargets_refusal_names_the_control_it_came_from(svc, done_job_with_s
 
 def test_raw_is_still_allowed_without_gltfpack(svc, done_job_with_source, monkeypatch):
     """The tier that needs nothing must stay reachable -- it is the default."""
-    from warlock.pipelines import optimize, postprocess
+    from realmspinner.pipelines import optimize, postprocess
 
     monkeypatch.setattr(
         optimize, "run", lambda *a, **k: {"requested": None, "achieved": None}
@@ -78,7 +78,7 @@ def test_a_pixel_sheet_is_priced_from_its_own_checkpoint():
     with no `control` key prices the checkpoint alone -- a different claim
     than this test makes.
     """
-    from warlock import models
+    from realmspinner import models
 
     offloaded = next(
         (key for key, spec in models.BASE_MODELS.items() if spec.vram_gib != vram.SDXL_GIB),
@@ -131,7 +131,7 @@ def test_the_tcp_table_is_re_read_when_it_grows(monkeypatch):
     import os
     import socket
 
-    from warlock import winjob
+    from realmspinner import winjob
 
     calls = {"n": 0}
     real = ctypes.windll.iphlpapi.GetExtendedTcpTable
@@ -169,7 +169,7 @@ def test_the_pane_groups_every_kind_the_registry_offers():
     """The comment on _GROUPS claimed a new registry kind could not silently
     append unlabelled; the loop dropped it entirely instead. Derived now."""
     pytest.importorskip("imgui_bundle")
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     assert app_settings._GROUPS == fetch.GROUPS
     assert app_settings._UNGROUPED

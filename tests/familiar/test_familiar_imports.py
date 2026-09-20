@@ -1,4 +1,4 @@
-"""What ``warlock/familiar/`` is allowed to reach for, now that the GL-side
+"""What ``realmspinner/familiar/`` is allowed to reach for, now that the GL-side
 preview/apply mechanics live in ``studio/assistant/preview.py`` instead.
 
 Written the same way ``tests/modes/mason/test_mason_imports.py`` pins its own
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import _pure_packages as pp
 
-from warlock import familiar
+from realmspinner import familiar
 
 PACKAGE_DIR = Path(familiar.__file__).parent
 
@@ -51,11 +51,11 @@ HTTPX_ALLOWED = {"llama_client.py"}
 #: Absolute dotted names banned regardless of which root they hang off.
 BANNED_MODULES = frozenset(
     {
-        "warlock.service",
-        "warlock.queue",
-        "warlock.studio.modes.clay.agent.dispatch",
-        "warlock.studio.modes.clay.mode",
-        "warlock.studio.modes.clay.ui.view",
+        "realmspinner.service",
+        "realmspinner.queue",
+        "realmspinner.studio.modes.clay.agent.dispatch",
+        "realmspinner.studio.modes.clay.mode",
+        "realmspinner.studio.modes.clay.ui.view",
     }
 )
 
@@ -80,12 +80,12 @@ def test_there_are_modules_to_check():
 
 
 def test_the_familiar_package_imports_no_window_service_or_network():
-    """No imgui, moderngl, pygame, ``warlock.service``, ``warlock.queue``,
+    """No imgui, moderngl, pygame, ``realmspinner.service``, ``realmspinner.queue``,
     or the three GL-adjacent studio modules -- at module scope, anywhere
-    under ``warlock/familiar/``. httpx is the same, except for
+    under ``realmspinner/familiar/``. httpx is the same, except for
     ``llama_client.py`` (see :data:`HTTPX_ALLOWED`).
 
-    A function-body import is allowed *only* for ``warlock.studio.modes.clay.agent.dispatch``
+    A function-body import is allowed *only* for ``realmspinner.studio.modes.clay.agent.dispatch``
     in ``contract.py`` (see :data:`LAZY_AGENT_CLAY_ALLOWED`); every other
     banned name is refused wherever it appears, module scope or not, because
     nothing else here has ``contract.derive_clay_card``'s reason to reach
@@ -126,7 +126,7 @@ def test_the_familiar_package_imports_no_window_service_or_network():
                 if hit is None:
                     continue
                 if (
-                    hit == "warlock.studio.modes.clay.agent.dispatch"
+                    hit == "realmspinner.studio.modes.clay.agent.dispatch"
                     and path.name in LAZY_AGENT_CLAY_ALLOWED
                 ):
                     assert not at_module_scope, (
@@ -146,10 +146,10 @@ def test_familiar_no_longer_needs_pure_packages_to_prove_this():
     relative import into ``agent_clay``).
 
     2026-09-17, P3 of ``dev/RESTRUCTURE.md`` moved this package out of
-    ``studio/`` entirely, to ``warlock/familiar/`` -- L3 in the restructure's
+    ``studio/`` entirely, to ``realmspinner/familiar/`` -- L3 in the restructure's
     layer table, beside ``service`` and ``characters``, not L1 alongside the
     kernels or a mode-owned ``studio/`` package. ``pure_packages()`` only
-    walks ``warlock/kernels/`` and ``warlock/studio/`` now (see its own
+    walks ``realmspinner/kernels/`` and ``realmspinner/studio/`` now (see its own
     docstring), so ``familiar`` correctly does not appear in its answer any
     more -- that set answers "which engine must a sibling mode not import",
     and ``familiar`` was never that. The test above

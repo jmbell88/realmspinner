@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import dialogs
+from realmspinner.studio import dialogs
 
 
 class _Enum:
@@ -110,7 +110,7 @@ def _run(monkeypatch: pytest.MonkeyPatch, prompt: dialogs.Prompt, fake: _FakeImg
     # branch and called a method the stub has never had, and six tests failed
     # in a file nobody had touched. Pinned rather than stubbed: a fake with no
     # renderer has no backdrop to blur, and that is the answer, not a gap.
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     monkeypatch.setattr(widgets, "frosted", lambda: False)
     # ``field_label`` is the second instance of the same leak: it draws through

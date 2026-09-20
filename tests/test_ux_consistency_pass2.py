@@ -1,4 +1,4 @@
-"""Using Warlock Studio feels and acts the same whichever mode is open.
+"""Using Realmspinner feels and acts the same whichever mode is open.
 
 The second consistency pass (2026-09-05), after the first closed the asset
 clock, the document header, the cross-workspace verbs, the empty states, the
@@ -16,10 +16,10 @@ import re
 
 import pytest
 
-from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
-from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
-from warlock.studio.shell import paintview
+from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+from realmspinner.studio.modes.packwright.ui.panes import preview as packwright_preview
+from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+from realmspinner.studio.shell import paintview
 
 # --- the wheel (A1) ---------------------------------------------------------
 
@@ -71,7 +71,7 @@ def test_alt_drag_orbits_in_the_pose_viewer_as_it_does_in_clay(monkeypatch):
     orbited on it (saying it must never be reinterpreted). One gesture."""
     import pygame
 
-    from warlock.studio import viewer_embed
+    from realmspinner.studio import viewer_embed
 
     viewer = viewer_embed.Viewer.__new__(viewer_embed.Viewer)
     viewer._grab = None
@@ -90,8 +90,8 @@ def test_alt_drag_orbits_in_the_pose_viewer_as_it_does_in_clay(monkeypatch):
 
 
 def test_the_axis_view_keys_are_one_function_both_viewports_call():
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     assert "clay_mode.axis_view_key(" in inspect.getsource(poser_mode.handle_key)
     assert "axis_view_key(" in inspect.getsource(clay_mode)
@@ -104,7 +104,7 @@ def test_the_axis_view_keys_are_one_function_both_viewports_call():
 def test_every_mode_either_takes_a_drop_or_says_it_does_not():
     """Poser and Troupe were given a refusal on 2026-09-04; Muse, Review and
     Settings still fell through to Create, which switched the window."""
-    from warlock.studio import main, modes
+    from realmspinner.studio import main, modes
 
     source = inspect.getsource(main.App._on_drop)
     handled = set(re.findall(r'ctx\.state\.mode == "(\w+)"', source))
@@ -115,16 +115,16 @@ def test_every_mode_either_takes_a_drop_or_says_it_does_not():
 
 
 def test_find_path_folds_case_in_every_mode(tmp_path):
-    """``Level.WBLK`` from recents and ``level.wblk`` from a drop forked into
+    """``Level.RBLK`` from recents and ``level.rblk`` from a drop forked into
     two tabs in four of the five modes; Plotter alone normcased."""
     from types import SimpleNamespace
 
-    from warlock.studio import docmodes
-    from warlock.studio.modes.clay import state as clay_state
-    from warlock.studio.modes.inker import state as inker_state
-    from warlock.studio.modes.packwright import state as packwright_state
-    from warlock.studio.modes.plotter import state as plotter_state
-    from warlock.studio.modes.sirens import state as sirens_state
+    from realmspinner.studio import docmodes
+    from realmspinner.studio.modes.clay import state as clay_state
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.packwright import state as packwright_state
+    from realmspinner.studio.modes.plotter import state as plotter_state
+    from realmspinner.studio.modes.sirens import state as sirens_state
 
     # Inherited, not delegated: since P7 every mode's state is a
     # ``docmodes.DocTabs`` and none may shadow the one case-folding body.
@@ -138,16 +138,16 @@ def test_find_path_folds_case_in_every_mode(tmp_path):
         assert issubclass(state_cls, docmodes.DocTabs), state_cls.__name__
         assert state_cls.find_path is docmodes.DocTabs.find_path, state_cls.__name__
 
-    real = tmp_path / "level.wblk"
+    real = tmp_path / "level.rblk"
     real.write_bytes(b"")
     docs = [SimpleNamespace(path=real)]
-    spelled = tmp_path / "LEVEL.WBLK"
+    spelled = tmp_path / "LEVEL.RBLK"
     import os
 
     if os.path.normcase("A") == os.path.normcase("a"):
         assert docmodes.find_path(docs, spelled) is docs[0]
     assert docmodes.find_path(docs, real) is docs[0]
-    assert docmodes.find_path(docs, tmp_path / "other.wblk") is None
+    assert docmodes.find_path(docs, tmp_path / "other.rblk") is None
 
 
 def test_closing_a_tab_mid_save_is_refused_out_loud_in_every_mode():
@@ -155,12 +155,12 @@ def test_closing_a_tab_mid_save_is_refused_out_loud_in_every_mode():
     serialise task reads the live document on a task thread."""
     from types import SimpleNamespace
 
-    from warlock.studio import docmodes
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio import docmodes
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
 
     for module in (clay_mode, inker_mode, packwright_mode, plotter_mode, sirens_mode):
         assert "docmodes.close_tab(ctx, state," in inspect.getsource(module), module.__name__
@@ -179,7 +179,7 @@ def test_the_status_bar_reports_zoom_and_tool_for_every_canvas_mode():
     """Inker alone had a tool and a zoom item, from a branch of its own."""
     from types import SimpleNamespace
 
-    from warlock.studio import status_bar
+    from realmspinner.studio import status_bar
 
     class State:
         mode = "plotter"
@@ -206,7 +206,7 @@ def test_the_file_export_prints_the_chord_the_mode_binds():
     export in four of them and the file export is Ctrl+Shift+E."""
     from types import SimpleNamespace
 
-    from warlock.studio import palette
+    from realmspinner.studio import palette
 
     assert palette._doc_export_hint(SimpleNamespace(state=SimpleNamespace(mode="clay"))) == "Ctrl+E"
     for mode in ("inker", "plotter", "packwright", "sirens"):
@@ -215,8 +215,8 @@ def test_the_file_export_prints_the_chord_the_mode_binds():
 
 
 def test_sirens_binds_the_file_export_and_clay_no_longer_aliases_it():
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.sirens import keys as sirens_keys
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.sirens import keys as sirens_keys
 
     assert 'name == "e" and shift' in inspect.getsource(sirens_keys._ctrl_key)
     assert 'name == "e" and not shift' in inspect.getsource(clay_mode._ctrl_key)
@@ -224,7 +224,7 @@ def test_sirens_binds_the_file_export_and_clay_no_longer_aliases_it():
 
 @pytest.mark.parametrize("group", ["Clay", "Inker", "Plotter", "Packwright", "Sirens", "Poser"])
 def test_the_sheet_says_ctrl_shift_z_redoes_wherever_it_does(group):
-    from warlock.studio import shortcuts
+    from realmspinner.studio import shortcuts
 
     rows = dict(shortcuts.shortcut_sections())[group]
     text = " ".join(f"{keys} {what}" for keys, what in rows)
@@ -237,12 +237,12 @@ def test_a_crash_copy_that_will_not_reopen_warns_the_same_way_in_every_mode():
     """Inker let the exception through, Clay raised an error, three warned."""
     from types import SimpleNamespace
 
-    from warlock.studio import journal
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
 
     for module in (clay_mode, inker_mode, packwright_mode, plotter_mode, sirens_mode):
         assert "journal.adopt_failed(ctx," in inspect.getsource(module), module.__name__
@@ -254,9 +254,9 @@ def test_a_crash_copy_that_will_not_reopen_warns_the_same_way_in_every_mode():
 def test_a_refusal_outside_inker_is_coalesced_and_carries_its_remedy():
     from types import SimpleNamespace
 
-    from warlock.studio import docmodes
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio import docmodes
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
 
     calls: list = []
     ctx = SimpleNamespace(toast_once=lambda *a: calls.append(a))
@@ -279,12 +279,12 @@ def test_export_waits_for_a_save_in_every_document_mode():
     task thread was still serialising."""
     from types import SimpleNamespace
 
-    from warlock.studio import docmodes
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.inker import keys as inker_keys
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.sirens import keys as sirens_keys
+    from realmspinner.studio import docmodes
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.inker import keys as inker_keys
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.sirens import keys as sirens_keys
 
     for module in (clay_mode, inker_keys, packwright_mode, plotter_mode, sirens_keys):
         assert "e" in module._MUTATING_CTRL, module.__name__
@@ -313,7 +313,7 @@ def _pane_sources() -> dict[str, str]:
 def test_every_transport_is_the_one_helper():
     """Six spellings across seven panes -- "Pause" over a stop square, no
     glyph, the chord in the label, a primary Play."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     sources = _pane_sources()
     for name in (
@@ -357,7 +357,7 @@ def test_delete_destroys_and_remove_detaches():
 
 
 def test_zoom_wears_the_zoom_glyphs_and_no_icon_is_an_empty_string():
-    from warlock.studio import icons
+    from realmspinner.studio import icons
 
     sources = _pane_sources()
     assert "icons.ZOOM_OUT}##palette-zoom-out" in sources["plotter_tileset.py"]
@@ -378,7 +378,7 @@ def test_every_bridge_has_one_primary_and_the_exits_heading():
     """Packwright's library export was a plain button where Clay's is the
     primary; Troupe's Send and Sirens' export had no primary at all; Plotter
     had no exit on screen and Inker's sat under "Generation"."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     sources = _pane_sources()
     for name in ("packwright_bridge.py", "sirens_bridge.py", "poser_sheet.py"):
@@ -402,9 +402,9 @@ def test_every_bridge_has_one_primary_and_the_exits_heading():
 def test_every_bridge_draws_the_one_history_block():
     """Four bridges drew the pair by hand, each saying Inker drew it twice;
     Inker drew it nowhere, and its popover stepped the stack directly."""
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
 
     sources = _pane_sources()
     for name in (
@@ -433,7 +433,7 @@ def test_busy_is_one_spelling():
 
 
 def test_no_pane_draws_a_raw_separator_or_a_heading_as_body_text():
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     sources = _pane_sources()
     for name, text in sources.items():
@@ -449,7 +449,7 @@ def test_no_pane_draws_a_raw_separator_or_a_heading_as_body_text():
 def test_a_form_field_is_labelled_in_the_one_field_face():
     """``forms.Form`` drew sentence case in the body face; the seven
     workspaces' ``labeled_*`` controls drew small caps."""
-    from warlock.studio import forms
+    from realmspinner.studio import forms
 
     source = inspect.getsource(forms.Form._label)
     assert "widgets.field_label(" in source
@@ -487,25 +487,25 @@ def test_rename_is_a_double_click_in_every_list_that_renames():
 
 
 def test_the_five_modes_share_one_tab_bar_save_label_and_recents():
-    from warlock.studio import docmodes
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.clay import state as clay_state
-    from warlock.studio.modes.clay.ui import viewport as clay_viewport
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker import state as inker_state
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-    from warlock.studio.modes.packwright import fileio as packwright_io
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.packwright import state as packwright_state
-    from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
-    from warlock.studio.modes.plotter import fileio as plotter_io
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter import state as plotter_state
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
-    from warlock.studio.modes.sirens import fileio as sirens_io
-    from warlock.studio.modes.sirens import mode as sirens_mode
-    from warlock.studio.modes.sirens import state as sirens_state
-    from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
+    from realmspinner.studio import docmodes
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import state as clay_state
+    from realmspinner.studio.modes.clay.ui import viewport as clay_viewport
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.packwright import fileio as packwright_io
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.packwright import state as packwright_state
+    from realmspinner.studio.modes.packwright.ui.panes import preview as packwright_preview
+    from realmspinner.studio.modes.plotter import fileio as plotter_io
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter import state as plotter_state
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio.modes.sirens import fileio as sirens_io
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio.modes.sirens import state as sirens_state
+    from realmspinner.studio.modes.sirens.ui.panes import patterns as sirens_patterns
 
     tab_bars = (inker_canvas, clay_viewport, plotter_canvas, packwright_preview, sirens_patterns)
     for module in tab_bars:

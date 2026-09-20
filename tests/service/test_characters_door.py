@@ -15,14 +15,14 @@ from pathlib import Path
 
 import pytest
 
-from warlock import doctor
-from warlock.characters import family as family_mod
-from warlock.kernels.rig import cliplib, store, templates
-from warlock.service import characters as svc_characters
-from warlock.service import export as svc_export
-from warlock.service import jobs as svc_jobs
-from warlock.service import troupe as svc_troupe
-from warlock.service.errors import Invalid, NotFound
+from realmspinner import doctor
+from realmspinner.characters import family as family_mod
+from realmspinner.kernels.rig import cliplib, store, templates
+from realmspinner.service import characters as svc_characters
+from realmspinner.service import export as svc_export
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.service.errors import Invalid, NotFound
 
 
 def _rigged_mesh(svc, template):
@@ -298,7 +298,7 @@ def test_the_character_block_rides_every_row_of_the_chain(svc, blender):
     an allowlist of flat settings, and quietly becoming a rerun vector for a row
     that never asked for one.
     """
-    from warlock.vectors import VECTOR_PARAMS
+    from realmspinner.vectors import VECTOR_PARAMS
 
     made = svc_characters.create_character(
         svc, _recipe("wolf", name="Fang"), prompt="a grey wolf"
@@ -327,7 +327,7 @@ def test_the_character_block_rides_every_row_of_the_chain(svc, blender):
     # settings, and the block is not on it -- nor is any recipe setting a
     # top-level key of the rows that carry it, which is what would have to be
     # true for one of them to be picked up as a rerun vector.
-    from warlock.service.validation import DERIVED_PARAMS
+    from realmspinner.service.validation import DERIVED_PARAMS
 
     assert "character" not in VECTOR_PARAMS
     assert not set(model) & set(VECTOR_PARAMS)
@@ -363,7 +363,7 @@ def test_a_bad_recipe_costs_the_request_and_leaves_no_directory(svc, blender):
 def test_a_build_that_fails_halfway_takes_its_directory_with_it(svc, blender, monkeypatch):
     """``import_mesh``'s cleanup, for the same reason: a disk-full mid-write
     must not leave a truncated orphan the library then lists."""
-    from warlock.characters import instantiate as instantiate_mod
+    from realmspinner.characters import instantiate as instantiate_mod
 
     real = instantiate_mod.instantiate
     seen = []
@@ -473,7 +473,7 @@ def test_export_refuses_without_an_export_folder_in_the_librarys_exact_words(svc
 
     with pytest.raises(NotFound) as refused:
         svc_characters.export_package(svc, made["id"], sheet_id)
-    assert str(refused.value) == "no export folder configured (set WARLOCK_EXPORT_DIR)"
+    assert str(refused.value) == "no export folder configured (set REALMSPINNER_EXPORT_DIR)"
 
 
 def test_a_preview_is_a_temp_glb_and_never_a_row(svc):
@@ -561,7 +561,7 @@ def test_a_finished_character_offers_poser_once_it_is_rigged_and_clay_before(svc
     exactly what the generic ladder below the arm answers for the window
     between the mesh landing and the rig landing.
     """
-    from warlock.studio import state
+    from realmspinner.studio import state
 
     body = {
         "status": "done",

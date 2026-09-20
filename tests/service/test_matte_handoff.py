@@ -14,11 +14,11 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.studio import matte_preview
-from warlock.studio.modes.create.ui.panes import settings_3d
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.state import DEFAULT_FORM_3D, AppState
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio import matte_preview
+from realmspinner.studio.modes.create.ui.panes import settings_3d
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.state import DEFAULT_FORM_3D, AppState
 
 
 class _Ctx:
@@ -116,7 +116,7 @@ def test_an_unfinished_reference_never_opens_the_preview():
 
 def test_pump_submits_the_cutout_to_a_task_and_never_computes_it(svc, monkeypatch):
     """BiRefNet is seconds of host compute; the frame thread only asks."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
     ctx = _Ctx(svc)
@@ -134,8 +134,8 @@ def test_pump_submits_the_cutout_to_a_task_and_never_computes_it(svc, monkeypatc
 
 
 def test_a_result_for_a_job_the_user_left_is_cached_but_not_shown(svc):
-    from warlock.service import jobs as svc_jobs
-    from warlock.service import matte as svc_matte
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.service import matte as svc_matte
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
     ctx = _Ctx(svc)
@@ -149,7 +149,7 @@ def test_a_result_for_a_job_the_user_left_is_cached_but_not_shown(svc):
 
 
 def test_fix_opens_the_reference_in_inker_with_the_matte(svc, monkeypatch):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
     ctx = _Ctx(svc)
@@ -233,8 +233,8 @@ def test_apply_matte_refuses_a_plane_that_is_not_the_canvas():
 
 def test_the_matte_handoff_opens_a_dirty_tab(svc):
     """The cutout is on screen and in no file, so closing must ask first."""
-    from warlock.service import jobs as svc_jobs
-    from warlock.studio.modes.inker.state import InkerDoc
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.studio.modes.inker.state import InkerDoc
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
 
@@ -246,8 +246,8 @@ def test_the_matte_handoff_opens_a_dirty_tab(svc):
 
 
 def test_without_the_matte_the_tab_opens_clean(svc):
-    from warlock.service import jobs as svc_jobs
-    from warlock.studio.modes.inker.state import InkerDoc
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.studio.modes.inker.state import InkerDoc
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
 
@@ -260,8 +260,8 @@ def test_without_the_matte_the_tab_opens_clean(svc):
 def test_a_failed_cut_still_opens_the_reference(svc, monkeypatch):
     """The user asked for the editor; the matte is the improvement they did
     not ask for, so it log-and-swallows like every other one."""
-    from warlock.service import jobs as svc_jobs
-    from warlock.service import matte as svc_matte
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.service import matte as svc_matte
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
     monkeypatch.setattr(
@@ -297,7 +297,7 @@ def test_a_failed_cutout_is_asked_for_once_and_not_once_per_frame(svc, monkeypat
     a reference with no ``input.png`` *before* any compute -- because that is
     the one that spins at the full frame rate.
     """
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
     ctx = _Ctx(svc)
@@ -316,7 +316,7 @@ def test_a_failed_cutout_is_asked_for_once_and_not_once_per_frame(svc, monkeypat
 def test_the_modal_stays_open_after_a_failure(svc, monkeypatch):
     """The user asked to see a cutout; closing the modal under them answers a
     different question. The toast says what went wrong and Cancel still works."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
     ctx = _Ctx(svc)
@@ -333,7 +333,7 @@ def test_a_failure_for_another_reference_does_not_latch_this_one(svc, monkeypatc
     """The latch is per-stamp on the *open* preview. A result arriving for a
     reference the user has moved off must not suppress a submit that has never
     been tried."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
     ctx = _Ctx(svc)
@@ -353,7 +353,7 @@ def test_a_failure_key_that_merely_ends_with_the_open_job_id_does_not_latch_it(s
     audit, finding create-04), so a failure for such a colliding key would
     wrongly latch onto the reference the user is actually looking at, leaving
     the "Cutting the subject out..." modal stuck with no retry."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     job_id = svc_jobs.import_reference(svc, _png(_subject()))["id"]
     ctx = _Ctx(svc)

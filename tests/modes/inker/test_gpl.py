@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels.pixel import gpl
+from realmspinner.kernels.pixel import gpl
 
 SAMPLE = """GIMP Palette
 Name: Nord

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.pipelines import music_worker as worker
+from realmspinner.pipelines import music_worker as worker
 
 
 class _StubPipe:
@@ -81,7 +81,7 @@ def _req(tmp_path=None, **kw):
 
 
 def test_the_marker_is_its_own_so_a_t2i_line_is_never_read_as_a_music_one():
-    from warlock.pipelines import text2image_worker
+    from realmspinner.pipelines import text2image_worker
 
     assert worker.MARKER != text2image_worker.MARKER
 
@@ -233,10 +233,10 @@ def test_a_cancelled_generate_is_reported_as_cancelled_not_as_a_failure(tmp_path
     # From ``_workerio``, not from the vendored pipeline: importing it from
     # there would drag torch into this test, which is the whole thing the
     # exception's placement avoids.
-    from warlock.pipelines._workerio import WarlockCancelled
+    from realmspinner.pipelines._workerio import RealmspinnerCancelled
 
     def _raise(**kw):
-        raise WarlockCancelled
+        raise RealmspinnerCancelled
 
     msgs = _run([_req(tmp_path)], _StubPipe(on_call=_raise))
     # The vitals ride along with every answer, so the comparison is on the
@@ -262,10 +262,10 @@ def test_a_cancelled_generate_still_reports_the_pipeline_as_loaded(tmp_path):
     asserted ``client.loaded is True`` and failed; this is the same claim
     without a card.
     """
-    from warlock.pipelines._workerio import WarlockCancelled
+    from realmspinner.pipelines._workerio import RealmspinnerCancelled
 
     def _raise(**kw):
-        raise WarlockCancelled
+        raise RealmspinnerCancelled
 
     msgs = _run([_req(tmp_path)], _StubPipe(on_call=_raise))
     assert msgs[-1]["cancelled"] is True

@@ -7,9 +7,9 @@ smoke pass and its decisions are covered here -- the pattern
 
 from __future__ import annotations
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 
 
 def _doc_with_three_boxes() -> tuple[bd.ClayDoc, int, int, int]:

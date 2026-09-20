@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.service import export as svc_export
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Conflict
+from realmspinner.service import export as svc_export
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Conflict
 
 
 @pytest.fixture
@@ -49,12 +49,12 @@ def test_export_lists_every_file_it_will_write(svc, assets, tmp_path):
 def test_plan_export_writes_nothing_to_disk_for_a_zip_destination(svc, assets, tmp_path):
     """The zip half of the same claim: a fresh destination stays untouched."""
     a = _done_job(svc, assets)
-    dest = tmp_path / "out" / "warlock_export.zip"
+    dest = tmp_path / "out" / "realmspinner_export.zip"
 
     job = svc_export.ExportJob(svc=svc, ids=[a], names_wanted=None, as_zip=True)
     plan = svc_export.plan_export(job, dest)
 
-    assert [f.name for f in plan.files] == ["warlock_export.zip"]
+    assert [f.name for f in plan.files] == ["realmspinner_export.zip"]
     assert not dest.exists()
     assert not dest.parent.exists()
     assert plan.files[0].exists is False
@@ -64,7 +64,7 @@ def test_an_existing_destination_file_is_named_before_overwrite(svc, assets, tmp
     """A file already at the destination is marked, by name, in the plan --
     not discovered afterwards as a silently clobbered file."""
     a = _done_job(svc, assets)
-    dest = tmp_path / "out" / "warlock_export.zip"
+    dest = tmp_path / "out" / "realmspinner_export.zip"
     dest.parent.mkdir(parents=True)
     dest.write_bytes(b"an earlier export")
 
@@ -72,7 +72,7 @@ def test_an_existing_destination_file_is_named_before_overwrite(svc, assets, tmp
     plan = svc_export.plan_export(job, dest)
 
     assert len(plan.existing) == 1
-    assert plan.existing[0].name == "warlock_export.zip"
+    assert plan.existing[0].name == "realmspinner_export.zip"
     assert plan.existing[0].dest == dest
     # And the file plan_export found still holds exactly what it held before
     # -- named, not touched.

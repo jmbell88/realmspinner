@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from warlock.pipelines.conditioning import Conditioning
+from realmspinner.pipelines.conditioning import Conditioning
 
 
 def test_an_empty_conditioning_is_falsy():
@@ -66,8 +66,8 @@ class _FakePipe:
 @pytest.fixture
 def routed(monkeypatch, tmp_path):
     """Capture which pipeline class _conditioned picks, without diffusers."""
-    from warlock import models
-    from warlock.pipelines import text2image
+    from realmspinner import models
+    from realmspinner.pipelines import text2image
 
     picked: dict[str, str] = {}
 
@@ -167,8 +167,8 @@ def framed(tmp_path):
     bug: it is made before any pipeline is called, and both classes that get it
     wrong accept the wrong answer silently.
     """
-    from warlock import models
-    from warlock.pipelines import text2image
+    from realmspinner import models
+    from realmspinner.pipelines import text2image
 
     return text2image.Text2Image(models.BASE_MODELS["sdxl_cfg"], tmp_path)
 

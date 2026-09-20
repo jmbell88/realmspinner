@@ -6,7 +6,7 @@
 def test_the_history_reads_as_one_timeline_oldest_first():
     """The undone half lives newest-first on its own stack; the panel shows one
     timeline in the order things happened."""
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     doc.add_layer()
@@ -18,7 +18,7 @@ def test_the_history_reads_as_one_timeline_oldest_first():
 def test_stepping_to_an_index_goes_through_undo_and_redo():
     """Jumping is not a third operation on the stack -- an implementation that
     spliced the two lists would be a second definition of what a step is."""
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     doc.add_layer()
@@ -34,7 +34,7 @@ def test_stepping_to_an_index_goes_through_undo_and_redo():
 
 
 def test_stepping_past_either_end_is_clamped():
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     doc.add_layer()
@@ -47,7 +47,7 @@ def test_stepping_past_either_end_is_clamped():
 def test_a_step_is_labelled_from_its_own_class():
     """An Edit has no name of its own, and giving each of the twenty a string
     is twenty places for a rename to be missed."""
-    from warlock.core import undo
+    from realmspinner.core import undo
 
     class LayerAddEdit:
         pass

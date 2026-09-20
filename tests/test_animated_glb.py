@@ -1,6 +1,6 @@
 """``animated.glb``: the clip library, leaving the app as 3D animation.
 
-Warlock has authored clips, a clip editor, interpolation and an EEVEE renderer
+Realmspinner has authored clips, a clip editor, interpolation and an EEVEE renderer
 that poses an armature per cell -- and until now the *only* consumer of any of
 it was Troupe's 2D sheet. ``blender_worker._export`` hard-coded
 ``export_animations=False``, so a walk cycle could be authored, edited and
@@ -22,14 +22,14 @@ from pathlib import Path
 
 import pytest
 
-from warlock import clips
-from warlock.kernels import charsheet
-from warlock.kernels import sheet as sheetlib
-from warlock.kernels.geom3d import glbio
-from warlock.kernels.rig import blender_spec, cliplib
-from warlock.pipelines import blender_run
-from warlock.service import NotReady, derive, files
-from warlock.studio import artifacts
+from realmspinner import clips
+from realmspinner.kernels import charsheet
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.kernels.geom3d import glbio
+from realmspinner.kernels.rig import blender_spec, cliplib
+from realmspinner.pipelines import blender_run
+from realmspinner.service import NotReady, derive, files
+from realmspinner.studio import artifacts
 
 #: A rig import plus five keyed actions and a glTF export. Well past the
 #: suite's 120 s hang net, and still a hang net rather than a budget.
@@ -168,7 +168,7 @@ def test_the_spec_refuses_a_skeleton_with_nothing_authored(tmp_path):
 def test_blender_does_no_interpolation():
     """The host/worker split ``fit_template`` establishes: frames arrive
     resolved, so the timing stays under test with no ``bpy``."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     # The docstring says the word; the body must not.
     body = inspect.getsource(blender_worker.op_animate).split('"""')[-1]
@@ -181,7 +181,7 @@ def test_an_animated_export_carries_the_rest_armature():
     """The inverse of ``_export``'s own rule, and one decision rather than two
     knobs: a track is a rotation *from rest*, so a file carrying one has to
     carry the rest armature to play it against. A posed bake still must not."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     source = inspect.getsource(blender_worker._export)
     assert "export_animations=animations" in source
@@ -240,7 +240,7 @@ def test_a_rigged_mesh_may_be_animated(svc):
 def test_a_retarget_reports_the_animation_as_stale_with_the_rig(svc):
     """It is baked *from* rig.glb, so a retarget leaves it describing a
     skeleton skinned to a mesh that no longer exists."""
-    from warlock.service import _jobs_rework
+    from realmspinner.service import _jobs_rework
 
     job_id = _rigged(svc)
     job_dir = svc.job_dir(job_id)
@@ -299,7 +299,7 @@ def test_an_animated_glb_records_the_library_it_was_baked_from(svc, monkeypatch)
     out = derive.get_file(svc, job_id, "animated.glb")
 
     assert calls == [1]
-    stamp = glbio.root_extras(out.read_bytes())["warlock_animation"]
+    stamp = glbio.root_extras(out.read_bytes())["realmspinner_animation"]
     assert stamp["clips_digest"] == clips.library_digest("humanoid")
 
 
@@ -317,7 +317,7 @@ def test_an_animated_glb_records_the_rig_it_was_baked_from(svc, monkeypatch):
     out = derive.get_file(svc, job_id, "animated.glb")
 
     assert calls == [1]
-    stamp = glbio.root_extras(out.read_bytes())["warlock_animation"]
+    stamp = glbio.root_extras(out.read_bytes())["realmspinner_animation"]
     assert stamp["rig_digest"] == derive._rig_digest(job_dir)
     assert stamp["rig_digest"], "a real rig.json must hash to something, not the empty fallback"
 
@@ -331,7 +331,7 @@ def test_the_loop_set_rides_the_file(svc, monkeypatch):
 
     out = derive.get_file(svc, job_id, "animated.glb")
 
-    stamp = glbio.root_extras(out.read_bytes())["warlock_animation"]
+    stamp = glbio.root_extras(out.read_bytes())["realmspinner_animation"]
     assert stamp["loops"] == list(clips.loop_names("humanoid"))
 
 
@@ -382,7 +382,7 @@ def test_a_bake_stamped_before_rig_digests_existed_is_rebaked_once(svc, monkeypa
     job_dir = svc.job_dir(job_id)
     stamped = glbio.set_root_extras(
         _minimal_glb(),
-        "warlock_animation",
+        "realmspinner_animation",
         {
             "clips_digest": clips.library_digest("humanoid"),
             "loops": list(clips.loop_names("humanoid")),
@@ -491,7 +491,7 @@ def test_an_animated_glb_baked_before_a_clip_edit_is_rebaked_on_next_request(
         assert len(calls) == 2, "the edited library should cost exactly one rebake"
         stamp = glbio.root_extras(
             (svc.job_dir(job_id) / "animated.glb").read_bytes()
-        )["warlock_animation"]
+        )["realmspinner_animation"]
         assert stamp["clips_digest"] == clips.library_digest("humanoid")
     finally:
         cliplib.set_user_clip_dir(None)
@@ -500,7 +500,7 @@ def test_an_animated_glb_baked_before_a_clip_edit_is_rebaked_on_next_request(
 def _stamp_digest(svc, job_id: str) -> str:
     """The ``clips_digest`` already stamped on a job's ``animated.glb``."""
     path = svc.job_dir(job_id) / "animated.glb"
-    return glbio.root_extras(path.read_bytes())["warlock_animation"]["clips_digest"]
+    return glbio.root_extras(path.read_bytes())["realmspinner_animation"]["clips_digest"]
 
 
 def test_a_clip_edit_during_a_bake_leaves_the_file_stale(svc, monkeypatch, tmp_path):
@@ -553,7 +553,7 @@ def test_a_clip_edit_during_a_bake_leaves_the_file_stale(svc, monkeypatch, tmp_p
 
         stamp = glbio.root_extras(
             (svc.job_dir(job_id) / "animated.glb").read_bytes()
-        )["warlock_animation"]
+        )["realmspinner_animation"]
         # The bake ran against the library as it was *before* the mid-bake
         # edit, so the stamp must record that digest -- not the edited one
         # that landed while "Blender" was running.
@@ -568,7 +568,7 @@ def test_a_skeleton_with_no_resolvable_clip_library_is_a_refusal_not_a_traceback
     ``clips.library_digest`` outside the door's own ``ValueError`` handling,
     so a template this build cannot resolve a clip library for (an unknown
     key -- ``templates.get_template`` raises ``ValueError`` for one) escaped as
-    a bare traceback instead of the same :class:`~warlock.service.NotReady`
+    a bare traceback instead of the same :class:`~realmspinner.service.NotReady`
     refusal ``files.py``'s readiness door already gives for "nothing
     authored", worded identically so the two do not disagree."""
     path = tmp_path / "animated.glb"
@@ -581,7 +581,7 @@ def test_a_skeleton_with_no_resolvable_clip_library_is_a_refusal_not_a_traceback
     # this refusal.
     stamped = glbio.set_root_extras(
         _minimal_glb(),
-        "warlock_animation",
+        "realmspinner_animation",
         {"clips_digest": "whatever", "loops": [], "rig_digest": "matching-rig"},
     )
     path.write_bytes(stamped)
@@ -601,11 +601,11 @@ def test_a_corrupt_animated_glb_is_rebaked_not_served(svc, monkeypatch, caplog):
     job_dir = svc.job_dir(job_id)
     (job_dir / "animated.glb").write_bytes(b"not a glb at all")
 
-    with caplog.at_level(logging.WARNING, logger="warlock.service.derive"):
+    with caplog.at_level(logging.WARNING, logger="realmspinner.service.derive"):
         out = derive.get_file(svc, job_id, "animated.glb")
 
     assert calls == [1]
-    assert glbio.root_extras(out.read_bytes())["warlock_animation"]["clips_digest"] == (
+    assert glbio.root_extras(out.read_bytes())["realmspinner_animation"]["clips_digest"] == (
         clips.library_digest("humanoid")
     )
     assert any("rebak" in rec.message for rec in caplog.records)

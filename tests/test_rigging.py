@@ -16,9 +16,9 @@ from pathlib import Path
 
 import pytest
 
-import warlock
-from warlock.kernels.rig import blender_spec, cliplib, poses, skeleton, store, templates
-from warlock.pipelines import blender_run
+import realmspinner
+from realmspinner.kernels.rig import blender_spec, cliplib, poses, skeleton, store, templates
+from realmspinner.pipelines import blender_run
 
 # --- template registry ------------------------------------------------------
 
@@ -47,9 +47,9 @@ def test_every_shipped_template_parses():
 def test_template_dir_resolves_to_the_real_directory():
     """The depth-sensitive climb in ``templates.py`` lands on the shipped data.
 
-    P4 (2026-09-17) moved this code from ``src/warlock/rigging.py``, which
+    P4 (2026-09-17) moved this code from ``src/realmspinner/rigging.py``, which
     reached its package data with one ``.parent``, to
-    ``src/warlock/kernels/rig/templates.py``, which needs three. Getting that
+    ``src/realmspinner/kernels/rig/templates.py``, which needs three. Getting that
     count wrong raises nothing: ``TEMPLATE_DIR.glob("*.json")`` over a
     directory that does not exist yields nothing, ``_load_templates`` logs
     and moves on, and the registry comes back *empty* -- so Poser offers no
@@ -62,7 +62,7 @@ def test_template_dir_resolves_to_the_real_directory():
     that restates the climb passes for any climb), and the registry is
     asserted non-empty, which is the symptom a wrong climb actually shows.
     """
-    expected = Path(warlock.__file__).resolve().parent / "templates"
+    expected = Path(realmspinner.__file__).resolve().parent / "templates"
     assert expected == templates.TEMPLATE_DIR
     assert templates.TEMPLATE_DIR.is_dir()
     assert (templates.TEMPLATE_DIR / "humanoid.json").is_file()
@@ -423,7 +423,7 @@ def test_the_worker_fits_the_landmark_template_not_the_shipped_one(tmp_path):
     """The whole seam in one assertion: with landmarks in the spec, the joints
     the armature is built from are the ones measured off the reference image,
     scaled onto the mesh bbox by the same fit_template every rig uses."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     spec = blender_spec.rig_spec(
         tmp_path, "humanoid", template_bones=_landmarks(), fit={"method": "pose2d"}
@@ -441,7 +441,7 @@ def test_the_worker_fits_the_landmark_template_not_the_shipped_one(tmp_path):
 
 
 def test_a_rig_with_no_landmarks_records_the_bbox_fit(tmp_path):
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     _, fit = blender_worker._rig_bones(
         blender_spec.rig_spec(tmp_path, "humanoid"), [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]
@@ -451,7 +451,7 @@ def test_a_rig_with_no_landmarks_records_the_bbox_fit(tmp_path):
 
 def test_joints_the_user_moved_still_beat_the_landmarks(tmp_path):
     """Adjust-joints is the user overruling the fit, whichever fit it was."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     template = templates.get_template("humanoid")
     corrected = skeleton.fit_template(template, [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0])
@@ -467,7 +467,7 @@ def test_landmarks_that_are_not_this_templates_bones_are_ignored(tmp_path):
     """The worker reads its spec off a pipe. A bone list that does not name
     this template's bones would build an armature whose parents do not resolve,
     so it falls back to the fit that is always available and says so."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     spec = blender_spec.rig_spec(
         tmp_path, "humanoid", template_bones=[{"name": "tentacle", "parent": None,
@@ -544,7 +544,7 @@ def test_the_deformation_battery_declares_delta_space():
     legs up behind the head and "arms overhead" pointing the arms straight
     forward) -- see blender_worker.POSE_SPACES for why a node-local value
     bakes in the rest orientation of the skeleton it was authored against."""
-    from warlock.kernels.rig import poses as rig_poses
+    from realmspinner.kernels.rig import poses as rig_poses
 
     poses = rig_poses.deform_battery("humanoid")
     assert poses, "the humanoid battery should not be empty"
@@ -795,7 +795,7 @@ def test_every_template_with_a_clip_library_expands_to_the_frame_table(key, fram
     legacy five -- and one direction each: the claim here is about the
     per-clip frame table, and a library with ten clips at ``directions=8``
     would trip ``MAX_CELLS`` for a reason this test is not about."""
-    from warlock import clips
+    from realmspinner import clips
 
     library = cliplib.clip_library(key)
     names = [c["name"] for c in library["clips"]]
@@ -813,8 +813,8 @@ def test_every_template_with_a_clip_library_expands_to_the_frame_table(key, fram
 def test_every_authored_library_fills_troupes_default_frame_table(key):
     """The layout a user gets without touching anything asks for all five
     animations, so a library carrying only three refuses the default sheet."""
-    from warlock import clips
-    from warlock.kernels import charsheet
+    from realmspinner import clips
+    from realmspinner.kernels import charsheet
 
     records = clips.expand_clips(key)
     assert set(records) == {name for name, *_rest in charsheet.ANIMATIONS}
@@ -850,7 +850,7 @@ def test_a_quadruped_walk_moves_the_diagonal_pairs_out_of_phase():
     the delta quaternion's x component is ``sin(swing / 2)`` -- negative
     forward. That is why the swing can be read straight off the record.
     """
-    from warlock import clips
+    from realmspinner import clips
 
     records = clips.expand_clips(
         "quadruped", {"movements": [{"name": "walk", "frames": 8}]}
@@ -1006,7 +1006,7 @@ def test_every_one_shot_attack_leaves_the_rest_bounding_box(key):
     Asserted on the expansion through ``fit_template`` and
     ``poses.node_from_delta``, with no bpy, so it stays in the default lane.
     """
-    from warlock import clips
+    from realmspinner import clips
 
     rest_crown = max(p[2] for p in _joint_points(key))
     records = clips.expand_clips(key, {"movements": [{"name": "attack", "frames": 6}]})["attack"]
@@ -1172,7 +1172,7 @@ class _FakeArm:
 
 
 def _skin_with(fail: str | None, weights: bool):
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy = _FakeBpy(fail, weights)
     mesh = _FakeMesh(weights)
@@ -1213,7 +1213,7 @@ def test_rig_meta_round_trips_the_weighting_reason_through_rig_json(tmp_path):
     Host-side on purpose -- ``_rig_meta`` is pure, so this pins the contract
     on a machine with no bpy, which is every machine the app ships on.
     """
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     template = templates.get_template("humanoid")
     meta = blender_worker._rig_meta(
@@ -1237,7 +1237,7 @@ def test_rig_meta_round_trips_the_weighting_reason_through_rig_json(tmp_path):
 
 
 def test_a_successful_rig_records_no_reason(tmp_path):
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     meta = blender_worker._rig_meta(
         templates.get_template("humanoid"),
@@ -1253,7 +1253,7 @@ def test_a_successful_rig_records_no_reason(tmp_path):
 
 
 def test_the_weighting_reason_is_derived_and_cannot_be_inherited_by_a_reroll():
-    from warlock.service.validation import DERIVED_PARAMS
+    from realmspinner.service.validation import DERIVED_PARAMS
 
     assert "weighting" in DERIVED_PARAMS
     assert "weighting_reason" in DERIVED_PARAMS
@@ -1262,7 +1262,7 @@ def test_the_weighting_reason_is_derived_and_cannot_be_inherited_by_a_reroll():
 def test_the_inspector_calls_envelope_a_degraded_outcome():
     """A pure function for the reason ``seam_verdict`` is one: the wording is
     the feature, and it has to be assertable without a GL context."""
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     assert inspector.weighting_verdict({}) is None
     assert inspector.weighting_verdict({"weighting": "automatic"})[1] == "weighting: automatic"
@@ -1286,8 +1286,8 @@ def test_rigging_stays_importable_with_no_bpy_anywhere():
     import pathlib
     import re
 
-    import warlock.kernels.rig as rig_pkg
-    import warlock.pipelines.blender_run as blender_run_mod
+    import realmspinner.kernels.rig as rig_pkg
+    import realmspinner.pipelines.blender_run as blender_run_mod
 
     host_files = [
         pathlib.Path(rig_pkg.__file__).parent / name
@@ -1314,8 +1314,8 @@ def test_rigging_stays_importable_with_no_bpy_anywhere():
             sys.executable,
             "-c",
             "import sys; sys.modules['bpy'] = None; "
-            "from warlock.kernels.rig import templates, cliplib, skeleton, poses, store, "
-            "blender_spec; import warlock.pipelines.blender_run",
+            "from realmspinner.kernels.rig import templates, cliplib, skeleton, poses, store, "
+            "blender_spec; import realmspinner.pipelines.blender_run",
         ],
         capture_output=True,
         text=True,
@@ -1537,7 +1537,7 @@ def _fake_bpy_with_incoming_armature(scene_objects):
 def test_op_remesh_measures_a_supplied_rigged_meshs_bounds_correctly(monkeypatch, tmp_path):
     import types
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     armature = types.SimpleNamespace(type="ARMATURE", data=types.SimpleNamespace(bones=[1, 2, 3]))
     mesh = types.SimpleNamespace(
@@ -1585,7 +1585,7 @@ def test_retexture_frame_measures_a_supplied_rigged_meshs_bounds_correctly(monke
     and op_project."""
     import types
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     armature = types.SimpleNamespace(type="ARMATURE", data=types.SimpleNamespace(bones=[1]))
     mesh = types.SimpleNamespace(
@@ -1631,7 +1631,7 @@ def test_op_rig_validate_joints_failure_falls_back_to_the_bbox_fit(monkeypatch, 
     rig'."""
     import types
 
-    from warlock.pipelines import blender_worker, jointfit
+    from realmspinner.pipelines import blender_worker, jointfit
 
     class _IdentityMatrix:
         def __matmul__(self, other):
@@ -1699,7 +1699,7 @@ def test_op_rig_records_a_measured_joint_fit_as_jointfit_not_manual_and_not_adju
     only 'the user moved these'"."""
     import types
 
-    from warlock.pipelines import blender_worker, jointfit
+    from realmspinner.pipelines import blender_worker, jointfit
 
     class _IdentityMatrix:
         def __matmul__(self, other):
@@ -1757,7 +1757,7 @@ def test_end_to_end_rig_of_a_generated_cube(tmp_path):
     pytest.importorskip("bpy")
     import bpy  # noqa: F401  -- only to confirm the same interpreter has it
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     # A cube is manifold, so this exercises the heat-weighting path rather
     # than the envelope fallback.
@@ -1798,7 +1798,7 @@ def test_a_landmark_informed_rig_builds_the_armature_from_the_landmarks(tmp_path
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.mesh.primitive_cube_add(size=2)
@@ -2113,7 +2113,7 @@ def test_interpolate_carries_endpoint_root_offsets_through_the_clip():
     vertical bob and a jump's rise are made of, and every consumer downstream
     (``root_offset_world``, ``_sheet_root_offsets``, ``op_sheet``'s per-cell
     ``root_offset``) was already keyed per frame and ready for it."""
-    from warlock.kernels import sheet as sheetlib
+    from realmspinner.kernels import sheet as sheetlib
 
     plain = {"id": "a" * 12, "name": "A", "bones": {"hips": [0, 0, 0, 1]}}
     offset = {
@@ -2172,7 +2172,7 @@ def test_a_posed_glb_carries_back_exactly_the_rotations_it_was_given(tmp_path):
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)
@@ -2208,7 +2208,7 @@ def test_posing_a_bone_the_rig_lacks_is_reported_not_fatal(tmp_path):
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)
@@ -2327,8 +2327,8 @@ def test_op_armature_exports_a_meshless_skeleton(tmp_path):
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock import poselib
-    from warlock.pipelines import blender_worker
+    from realmspinner import poselib
+    from realmspinner.pipelines import blender_worker
 
     out = tmp_path / ".preview.tmp.glb"
     result = blender_worker.op_armature(
@@ -2383,7 +2383,7 @@ def test_op_pose_bakes_the_root_offset_and_only_when_asked(tmp_path):
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)
@@ -2431,7 +2431,7 @@ def test_op_rig_builds_the_armature_from_supplied_joints_not_the_fit(tmp_path):
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)
@@ -2483,7 +2483,7 @@ def test_max_skeleton_bones_matches_the_viewer_shader_uniform():
     on screen (viewer.scene's warning). The two constants must never drift
     apart independently, or the skeleton editor could build a rig the viewer
     silently fails to animate."""
-    from warlock.studio.viewer.programs import MAX_JOINTS
+    from realmspinner.studio.viewer.programs import MAX_JOINTS
 
     assert skeleton.MAX_SKELETON_BONES == MAX_JOINTS
 
@@ -2985,7 +2985,7 @@ def test_a_custom_skeleton_with_a_broken_structure_falls_back_to_the_bbox_fit(ca
     """The spec crosses a pipe as plain JSON; a custom skeleton that failed to
     round-trip must cost the informed placement, never the rig -- the same
     rule ``template_bones`` already follows for a mismatched landmark set."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     template = templates.get_template("humanoid")
     broken = [{"name": "a", "parent": "nonexistent", "head": [0, 0, 0], "tail": [0, 0, 1]}]
@@ -2998,7 +2998,7 @@ def test_a_custom_skeleton_with_a_broken_structure_falls_back_to_the_bbox_fit(ca
 
 
 def test_a_valid_custom_skeleton_is_used_unchanged():
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     custom = skeleton.add_bone(
         _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
@@ -3010,7 +3010,7 @@ def test_a_valid_custom_skeleton_is_used_unchanged():
 
 
 def test_rig_meta_carries_a_custom_skeletons_root_and_pairs():
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     template = templates.get_template("humanoid")
     meta = blender_worker._rig_meta(
@@ -3034,7 +3034,7 @@ def test_rig_meta_carries_a_custom_skeletons_root_and_pairs():
 def test_rig_meta_defaults_to_the_template_shape():
     """Every rig before the skeleton editor existed, and every ordinary joint
     move today, must write exactly what it always wrote."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     template = templates.get_template("humanoid")
     meta = blender_worker._rig_meta(
@@ -3058,7 +3058,7 @@ def test_op_rig_records_a_custom_skeleton_end_to_end(tmp_path):
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)

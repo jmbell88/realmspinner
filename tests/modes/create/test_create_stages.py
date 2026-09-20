@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.modes.create.ui import stages as create_stages
-from warlock.studio.state import AppState
+from realmspinner.studio.modes.create.ui import stages as create_stages
+from realmspinner.studio.state import AppState
 
 
 def job(**kwargs):
@@ -223,7 +223,7 @@ def test_an_errored_or_cancelled_asset_blocks_the_export_stage_with_a_reason():
     to explain a click that does nothing. The wording is
     ``service.validation.STATUS_SENTENCES``, the same source
     ``asset_exits._status_reason`` draws from for the identical complaint."""
-    from warlock.service.validation import not_done_message
+    from realmspinner.service.validation import not_done_message
 
     assert create_stages.available("export", job(status="error")) == not_done_message(
         "This", "error"
@@ -316,7 +316,7 @@ def test_go_is_the_only_thing_that_writes_the_stage():
     # The whole studio package, not ``create_stages``'s own directory: since P5
     # that directory is ``modes/create/ui/``, and a root derived from the
     # module's parent silently stopped covering every other mode and pane.
-    from warlock import studio
+    from realmspinner import studio
 
     root = pathlib.Path(studio.__file__).resolve().parent
     here = pathlib.Path(create_stages.__file__).resolve()
@@ -528,7 +528,7 @@ class FakeViewer:
 
 
 def _posing(unsaved):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx([rigged(id="bbbbbbbbbbbb")], selected="bbbbbbbbbbbb")
     ctx.state.mode = create_stages.MODE

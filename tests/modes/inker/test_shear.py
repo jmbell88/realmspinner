@@ -14,9 +14,9 @@ import math
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import transform as tf
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.selection import FloatingBuffer, SelectionMask
+from realmspinner.kernels.pixel import transform as tf
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.selection import FloatingBuffer, SelectionMask
 
 RED = (255, 0, 0, 255)
 

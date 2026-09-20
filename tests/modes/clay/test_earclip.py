@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import earclip as ec
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh import earclip as ec
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as prim
 
 # An L-shaped hexagon in the XZ plane, wound counter-clockwise seen from +Y, so
 # its Newell normal is +Y. Corner 2 is the reflex one.

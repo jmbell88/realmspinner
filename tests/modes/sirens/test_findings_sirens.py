@@ -34,12 +34,12 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.modes.sirens import mode as sirens_mode
-from warlock.studio.modes.sirens.engine import document as D
-from warlock.studio.modes.sirens.engine import envelope, notes, synth, wsng
-from warlock.studio.modes.sirens.engine import instruments as inst
-from warlock.studio.modes.sirens.ui.panes import envelopes as sirens_envelopes
-from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
+from realmspinner.studio.modes.sirens import mode as sirens_mode
+from realmspinner.studio.modes.sirens.engine import document as D
+from realmspinner.studio.modes.sirens.engine import envelope, notes, rsng, synth
+from realmspinner.studio.modes.sirens.engine import instruments as inst
+from realmspinner.studio.modes.sirens.ui.panes import envelopes as sirens_envelopes
+from realmspinner.studio.modes.sirens.ui.panes import patterns as sirens_patterns
 
 from .test_sirens_mode import FakeCtx, _Event, _tab
 
@@ -191,26 +191,26 @@ def test_two_manifest_entries_for_one_sample_key_are_refused_by_name():
 
     doc = D.new_song()
     doc.set_sample("hit", np.zeros(64, dtype=np.float32))
-    raw = wsng.wsng_bytes(doc)
+    raw = rsng.rsng_bytes(doc)
 
     out = bytearray()
     import io
 
     source = zipfile.ZipFile(io.BytesIO(raw))
-    manifest = json.loads(source.read(wsng.MANIFEST))
+    manifest = json.loads(source.read(rsng.MANIFEST))
     entry = dict(manifest["samples"][0])
     manifest["samples"] = [entry, dict(entry)]
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as zf:
         for member in source.namelist():
-            if member == wsng.MANIFEST:
+            if member == rsng.MANIFEST:
                 zf.writestr(member, json.dumps(manifest))
             else:
                 zf.writestr(member, source.read(member))
     out = buffer.getvalue()
 
     with pytest.raises(ValueError, match="twice"):
-        wsng.read_wsng(out)
+        rsng.read_rsng(out)
 
 
 # --- the envelope editor's two invisible states -------------------------------
@@ -267,7 +267,7 @@ def test_the_envelope_arithmetic_is_reachable_with_no_imgui_frame():
     is what pins the package's outward set; this asserts the consequence."""
     import sys
 
-    assert "warlock.studio.modes.sirens.engine.envelope" in sys.modules
+    assert "realmspinner.studio.modes.sirens.engine.envelope" in sys.modules
     assert envelope.marker_bounds(inst.Sequence(values=(1, 2, 3)), "release") == (1, 2)
 
 
@@ -462,7 +462,7 @@ def test_a_busy_tab_refuses_the_interpolate_chord():
 
 
 def test_typing_a_note_asks_for_a_preview(monkeypatch):
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -478,7 +478,7 @@ def test_typing_a_note_asks_for_a_preview(monkeypatch):
 def test_the_song_wins_over_a_preview(monkeypatch):
     """One reserved mixer channel, so a preview would cut whatever is on it --
     and typing into bar 3 while bar 1 plays is what follow mode is for."""
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
     monkeypatch.setattr(sirens_audio, "playing", lambda: True)
@@ -491,7 +491,7 @@ def test_the_song_wins_over_a_preview(monkeypatch):
 
 
 def test_a_preview_switched_off_costs_nothing(monkeypatch):
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -596,7 +596,7 @@ def test_the_moved_table_names_each_thing_once_and_no_ghosts():
 
     for name, module in sirens_mode._MOVED.items():
         assert name not in vars(sirens_mode), f"{name} is in both places"
-        assert hasattr(import_module(f"warlock.studio.modes.sirens.{module}"), name)
+        assert hasattr(import_module(f"realmspinner.studio.modes.sirens.{module}"), name)
 
 
 def test_dir_still_finds_the_moved_names():
@@ -686,7 +686,7 @@ def test_caret_span_rings_a_nibble_only_on_two_digit_columns():
 
 def test_the_loop_point_follows_an_entry_that_moves_under_it():
     """``sirens_orders.moved_loop``, the order list's own pure half."""
-    from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
+    from realmspinner.studio.modes.sirens.ui.panes import orders as sirens_orders
 
     assert sirens_orders.moved_loop(2, 2, 0) == 0
     assert sirens_orders.moved_loop(0, 2, 0) == 1
@@ -698,7 +698,7 @@ def test_reused_patterns_are_counted_in_the_order_list():
     at 00 and 03 was the same pattern rather than two coincidentally similar
     ones. ``reuse_counts`` is the row's own arithmetic, pulled out pure the
     way ``pattern_room`` and ``moved_loop`` beside it are."""
-    from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
+    from realmspinner.studio.modes.sirens.ui.panes import orders as sirens_orders
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -743,7 +743,7 @@ def test_add_to_order_reason_greys_the_button_at_max_order():
     """sirens-02's other half: ``add_to_order_reason`` must grey the button
     before ``set_order`` ever gets a chance to raise, the same way
     ``pattern_room`` already greys "Add a pattern" at ``MAX_PATTERNS``."""
-    from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
+    from realmspinner.studio.modes.sirens.ui.panes import orders as sirens_orders
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -781,7 +781,7 @@ def test_effects_add_reason_names_both_ceilings_the_refusal_can_hit():
 
     source = inspect.getsource(
         __import__(
-            "warlock.studio.modes.sirens.ui.panes.effects", fromlist=["_add"]
+            "realmspinner.studio.modes.sirens.ui.panes.effects", fromlist=["_add"]
         )._add
     )
     assert "MAX_PATTERNS" in source, (
@@ -797,7 +797,7 @@ def test_an_effect_can_be_picked_by_name():
     out pure so this does not need a mouse to drive it, the
     ``column_at``/``first_channel`` idiom this file already uses for the grid.
     """
-    from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
+    from realmspinner.studio.modes.sirens.ui.panes import patterns as sirens_patterns
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -828,7 +828,7 @@ def test_add_pattern_button_refuses_gracefully_at_max_patterns():
     presses. Reproduced against the unfixed code: ``sirens_orders`` has no
     ``pattern_room`` at all, so this fails with an ``AttributeError`` rather
     than the greyed button the fix provides."""
-    from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
+    from realmspinner.studio.modes.sirens.ui.panes import orders as sirens_orders
 
     doc = D.new_song()
     while len(doc.patterns) < D.MAX_PATTERNS:
@@ -857,7 +857,7 @@ def test_add_instrument_button_refuses_gracefully_at_max_instruments():
     ``add_instrument`` with no cap check and no try/except, the same defect as
     the pattern buttons. Reproduced against the unfixed code: ``instrument_room``
     does not exist there."""
-    from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
+    from realmspinner.studio.modes.sirens.ui.panes import instruments as sirens_instruments
 
     doc = D.new_song()
     while len(doc.instruments) < D.MAX_INSTRUMENTS:
@@ -883,8 +883,8 @@ def test_delete_reasons_name_the_state_that_is_actually_true():
     nothing selected showed the busy sentence -- each state naming the
     other's. Reproduced against the unfixed code: the busy case answered "No
     sound effect is selected." instead of the busy sentence."""
-    from warlock.studio.modes.sirens.ui.panes import effects as sirens_effects
-    from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
+    from realmspinner.studio.modes.sirens.ui.panes import effects as sirens_effects
+    from realmspinner.studio.modes.sirens.ui.panes import instruments as sirens_instruments
 
     assert sirens_effects.delete_reason(True, False) == "No sound effect is selected."
     assert sirens_effects.delete_reason(False, False) == sirens_effects._BUSY_WHY
@@ -914,8 +914,8 @@ def test_follow_playhead_updates_order_index_so_a_reused_patterns_highlight_surv
     stale (as a click on the order list, then Play, leaves it), and
     ``follow_playhead`` reports no movement and leaves ``playhead_row`` mute.
     """
-    from warlock.studio.modes.sirens import audio as sirens_audio
-    from warlock.studio.modes.sirens.state import Sounding
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens.state import Sounding
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -942,7 +942,7 @@ def test_the_sample_delete_reason_is_never_the_empty_string_while_busy():
     ``disabled_button``'s docstring exists to prevent, at the moment it most
     needs explaining. Reproduced against the unfixed code: the busy case
     answers "" rather than a sentence."""
-    from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
+    from realmspinner.studio.modes.sirens.ui.panes import instruments as sirens_instruments
 
     assert sirens_instruments.sample_delete_reason(False, False) == (
         sirens_instruments._BUSY_WHY
@@ -970,7 +970,7 @@ def test_column_chars_length_agrees_with_document_columns(monkeypatch):
     """
     import importlib
 
-    from warlock.studio.modes.sirens.engine import document as D
+    from realmspinner.studio.modes.sirens.engine import document as D
 
     original = D.COLUMNS
     monkeypatch.setattr(D, "COLUMNS", original + 1)
@@ -998,7 +998,7 @@ def test_column_chars_values_are_unused_by_channel_width():
     """
     import inspect
 
-    from warlock.studio.modes.sirens.ui.panes import patterns as sp
+    from realmspinner.studio.modes.sirens.ui.panes import patterns as sp
 
     source = inspect.getsource(sp)
     assert "only its *length* is read" in source, (
@@ -1031,7 +1031,7 @@ def test_add_to_order_reason_names_the_state_that_is_actually_true():
     the unfixed code: ``sirens_orders`` has no ``add_to_order_reason`` at all,
     so this fails with an ``AttributeError``.
     """
-    from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
+    from realmspinner.studio.modes.sirens.ui.panes import orders as sirens_orders
 
     with_pattern = _FakeOrderDoc([object()])
     without_pattern = _FakeOrderDoc([])
@@ -1067,7 +1067,7 @@ def test_bridge_export_and_compose_reasons_are_pulled_out_and_tested():
     unfixed code: ``sirens_bridge`` has no ``export_reason``/``compose_reason``
     at all, so this fails with an ``AttributeError``.
     """
-    from warlock.studio.modes.sirens.ui.panes import bridge as sirens_bridge
+    from realmspinner.studio.modes.sirens.ui.panes import bridge as sirens_bridge
 
     assert sirens_bridge.export_reason(ready=True, busy=False) == ""
     assert sirens_bridge.export_reason(ready=True, busy=True) == (
@@ -1102,15 +1102,15 @@ def test_preview_note_does_not_reencode_the_song_while_a_preview_is_already_rend
     monkeypatch,
 ):
     """Finding sirens-01. ``audition``, ``preview_note`` and ``play_pattern``
-    used to build ``wsng.wsng_bytes(tab.doc)`` -- a whole-document DEFLATE and
+    used to build ``rsng.rsng_bytes(tab.doc)`` -- a whole-document DEFLATE and
     sample encode, on the frame thread -- before asking ``ctx.busy(key)``,
     although ``submit`` refuses a key already in flight regardless and
     ``request_render`` already asks first for exactly this reason. Reproduced
-    against the unfixed code by making ``wsng_bytes`` raise: with the busy
+    against the unfixed code by making ``rsng_bytes`` raise: with the busy
     check first, a preview asked for while one is already rendering never
     reaches it."""
-    from warlock.studio.modes.sirens import audio as sirens_audio
-    from warlock.studio.modes.sirens.engine import wsng
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens.engine import rsng
 
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -1118,7 +1118,7 @@ def test_preview_note_does_not_reencode_the_song_while_a_preview_is_already_rend
     def _boom(_doc):
         raise AssertionError("re-encoded the song although the key was busy")
 
-    monkeypatch.setattr(wsng, "wsng_bytes", _boom)
+    monkeypatch.setattr(rsng, "rsng_bytes", _boom)
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1130,8 +1130,8 @@ def test_preview_note_does_not_reencode_the_song_while_a_preview_is_already_rend
 
 def test_audition_does_not_reencode_the_song_while_already_rendering(monkeypatch):
     """The same finding, sirens-01, for ``audition``."""
-    from warlock.studio.modes.sirens import audio as sirens_audio
-    from warlock.studio.modes.sirens.engine import wsng
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens.engine import rsng
 
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -1139,7 +1139,7 @@ def test_audition_does_not_reencode_the_song_while_already_rendering(monkeypatch
     def _boom(_doc):
         raise AssertionError("re-encoded the song although the key was busy")
 
-    monkeypatch.setattr(wsng, "wsng_bytes", _boom)
+    monkeypatch.setattr(rsng, "rsng_bytes", _boom)
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1150,8 +1150,8 @@ def test_audition_does_not_reencode_the_song_while_already_rendering(monkeypatch
 
 def test_play_pattern_does_not_reencode_the_song_while_already_rendering(monkeypatch):
     """The same finding, sirens-01, for ``play_pattern``."""
-    from warlock.studio.modes.sirens import audio as sirens_audio
-    from warlock.studio.modes.sirens.engine import wsng
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens.engine import rsng
 
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -1159,7 +1159,7 @@ def test_play_pattern_does_not_reencode_the_song_while_already_rendering(monkeyp
     def _boom(_doc):
         raise AssertionError("re-encoded the song although the key was busy")
 
-    monkeypatch.setattr(wsng, "wsng_bytes", _boom)
+    monkeypatch.setattr(rsng, "rsng_bytes", _boom)
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1180,7 +1180,7 @@ def test_every_name_defined_in_the_split_modules_is_in_the_moved_table(module):
     against the unfixed code: both names are module-level in their files and
     absent from ``sirens_mode._MOVED``.
     """
-    import warlock.studio as studio_pkg
+    import realmspinner.studio as studio_pkg
 
     path = Path(studio_pkg.__file__).parent / "modes" / "sirens" / f"{module}.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -1204,8 +1204,8 @@ def test_audition_reason_names_the_state_that_is_actually_true():
     audit. Reproduced against the unfixed code: ``sirens_effects`` has no
     ``audition_reason`` at all, so this fails with an ``AttributeError``.
     """
-    from warlock.studio.modes.sirens import audio as sirens_audio
-    from warlock.studio.modes.sirens.ui.panes import effects as sirens_effects
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens.ui.panes import effects as sirens_effects
 
     assert sirens_effects.audition_reason(False) == sirens_effects._BUSY_WHY
     assert sirens_effects.audition_reason(True) == sirens_audio.unavailable_reason()
@@ -1225,7 +1225,7 @@ def test_the_playhead_goes_dark_during_the_release_tail_after_the_last_row():
     probe): a query far past the last mark's offset still answered with that
     row rather than ``None``.
     """
-    from warlock.studio.modes.sirens.state import Sounding
+    from realmspinner.studio.modes.sirens.state import Sounding
 
     marks = ((0, 0, 100, 0), (1000, 0, 100, 1), (2000, 0, 100, 2))
     sounding = Sounding(marks=marks, anchor=0, wrap=None, generation=1)
@@ -1251,7 +1251,7 @@ def test_add_to_order_reason_names_busy_even_when_the_caret_is_on_an_effect():
     until the save lands. Reproduced against the unfixed code: this same
     call answered the effect sentence instead of the busy one.
     """
-    from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
+    from realmspinner.studio.modes.sirens.ui.panes import orders as sirens_orders
 
     with_pattern = _FakeOrderDoc([object()])
     assert sirens_orders.add_to_order_reason("Coin", with_pattern, False) == (

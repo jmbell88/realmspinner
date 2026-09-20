@@ -22,7 +22,7 @@ import queue
 import sys
 import threading
 
-MARKER = "@@warlock-t2i@@ "
+MARKER = "@@realmspinner-t2i@@ "
 
 _cancel = threading.Event()
 _requests: queue.Queue = queue.Queue()

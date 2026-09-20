@@ -1,0 +1,332 @@
+"""The top-level modes, as data.
+
+One list, in the order the switch draws them. Deliberately data and nothing
+else -- the dispatch that turns ``state.mode`` into a pane stays hand-coded in
+:mod:`.main`, because "``state.mode`` is the only thing that decides what a
+pane shows" is only true while there is exactly one place doing the deciding.
+A table of callbacks here would be a second one.
+
+The module imports :mod:`.icons` and nothing else, so it stays importable from
+anywhere without dragging imgui in.
+"""
+
+from __future__ import annotations
+
+from .. import icons
+
+# (key, label, icon, purpose). The key is what lands in ``AppState.mode``.
+# ``purpose`` is a short, plain sentence saying what the mode is *for* -- a
+# fourth field of the tuple rather than a table kept beside it (as ``PURPOSE``
+# used to be, see below), because the order-and-grouping tuple is not the only
+# thing every reader of this file needs: the rail wants a sentence to show
+# beside the glyph and the label alike, and a lookup table drifts from the
+# tuple it was hand-copied from the moment a mode is added to one and not the
+# other. ``PURPOSE`` is still exported, derived rather than duplicated, for
+# the call sites that only want the sentence keyed by mode.
+#
+# **The order is the rail's order** (the UI redesign, wave 3): where you start and
+# what you look at, then the eight creative workspaces, then Settings. It used to
+# be the *segmented control's* order, grouped by a predicate over
+# ``WORK_MODES`` -- a rule that rendered correctly and explained nothing, and
+# which put Library and Review on the far side of a break from the panes they
+# are about. The grouping is written out in ``RAIL_GROUPS`` now, and this list
+# is the flattening of it (a test asserts exactly that), so the two cannot
+# drift while remaining two spellings of one fact.
+#
+# Two modes left this list in wave 3. ``manual`` is still here in spirit: help
+# is consulted *about* a screen, so taking that screen away to show it answered
+# the question by removing it -- it is ``manual.render.draw_overlay`` now,
+# raised by F1 and by every ``help_button``. ``profiles`` was a shelf of saved
+# settings in the top-level navigation beside the creative workspaces, which
+# said that "manage my styles" is a place you travel to; it became a sheet over
+# the Reference stage and was then deleted outright -- a recipe is copied off a
+# finished result, not curated in a second store.
+MODES: list[tuple[str, str, str, str]] = [
+    ("home", "Home", icons.HOUSE, "Recent work and starters."),
+    # A real mode rather than a sub-view of Home. The Library and Review were
+    # tiles on the chooser and a ``state.landing_view`` enum behind it, which
+    # is what a destination looks like when there is nowhere to put it; Home
+    # stopped being a tile grid, so they went where everything else already
+    # was. The glyph is the one ``landing._SUBVIEW_ICONS`` already assigned --
+    # moved, not re-picked, because a screen the user has seen should not
+    # change its pictures for a refactor.
+    #
+    # It sits *before* Create because that is the order of the question: what
+    # do I have, then make another one.
+    (
+        "library", "Library", icons.FOLDER_OPEN,
+        "Every asset made so far.",
+    ),
+    # **One mode, not two** (the UI redesign, wave 5). "2D" and "3D" were the two
+    # halves of a single journey -- you write a prompt, you get a picture, you
+    # turn the picture into a mesh -- presented as two destinations you had to
+    # know to travel between. Worse, the names described the *artifact* rather
+    # than the act: a user who wants a barrel does not first decide to do some
+    # 2D. The halves are stages of Create now (``create_stages.STAGES``), drawn
+    # as a rail above the settings column, and which one you are on is a
+    # property of the asset in front of you rather than a place in the
+    # navigation. The glyph is neither of the two it replaces, deliberately:
+    # IMAGE and BOX went with the stages that kept their meanings.
+    ("create", "Create", icons.SPARKLES, "Prompt to picture to mesh."),
+    ("inker", "Inker", icons.PEN_TOOL, "Paint and animate pixel art."),
+    ("clay", "Clay", icons.RULER, "Build meshes from shapes."),
+    # Mason: the fourteenth mode, and the counterpart to Plotter one dimension
+    # up. Plotter answers "what does my world look like" for a tile map and
+    # nothing answered it for a mesh -- a user with thirty generated props and
+    # a Clay blockout could look at each of them alone and never at the place
+    # they are for.
+    #
+    # It sits *after Clay* rather than beside Plotter, and the two claims are
+    # in tension so this settles it: Plotter is the mode Mason is the answer
+    # *to*, but Clay is the mode it is the answer *with*. A scene is assembled
+    # out of meshes, a blockout becomes a building, and the two are used in one
+    # sitting -- so the adjacency that helps is the 3D one.
+    #
+    # A workspace and not a stage of Create for Plotter's reasons exactly: it
+    # owns a document type (``.rscn``), it has its own tabs and its own undo
+    # stack, and what it makes is an arrangement rather than a job row. What it
+    # *contains* is job rows, which is the thing that makes it a workspace
+    # rather than a second library -- a scene references assets and is not one.
+    ("mason", "Mason", icons.BLOCKS, "Build 3D scenes, export to engines."),
+    # Troupe folded into Poser as a stage (P9, 2026-09-18): rig, then clips,
+    # then a character sheet, one workspace rather than a hand-off between
+    # two. What Troupe added to the purpose line below -- *watching* a walk
+    # cycle play continuously and judging it, a use of the whole window and
+    # not of a 300px column beside a form -- is still true of the sheet
+    # section; it is no longer a second door to get there through.
+    ("poser", "Poser", icons.PERSON_STANDING, "Rig a mesh, author clips and sheets."),
+    ("plotter", "Plotter", icons.GRID, "Paint maps, export to Tiled."),
+    ("packwright", "Packwright", icons.LAYERS, "Pack sprites into an atlas."),
+    # Muse: the thirteenth mode, and the one whose output is a **job row**.
+    #
+    # Sirens' comment below justifies its own workspace status partly with
+    # "nothing it produces is a job row", and that sentence is about Sirens and
+    # stays true. So this one has to say why a mode whose results *are* job rows
+    # is still a workspace and not a stage of Create: because a Create stage is
+    # a position on ``create_stages.STAGES``, and the rail above that column
+    # computes over things Muse has none of. There is no ``state.create.stage`` a take
+    # advances to, no asset viewport to frame it in, and no lineage -- a track
+    # is not promoted into anything and nothing is reconstructed from it. What
+    # Muse owns is a form and a tray of results, which is a workspace.
+    #
+    # It sits *before* Sirens: generative first, then the tracker that edits by
+    # hand. That also keeps ``RAIL_GROUPS[1][-1] == "sirens"``, which a test
+    # asserts -- and the ordering was chosen for the first reason, not the
+    # second.
+    #
+    # The glyph is a *note* against Sirens' waveform, which reads as the right
+    # distinction: a waveform is sound you build, a note is a song you ask for.
+    ("muse", "Muse", icons.MUSIC, "Generate a soundtrack."),
+    # Sirens: the twelfth mode, and the first thing in this app that makes a
+    # sound. A workspace rather than a stage of Create for the reason Plotter
+    # and Packwright are: it owns a document type (``.rsng``), it has its own
+    # tabs and its own undo stack, and nothing it produces is a job row. It
+    # sits at the end of the Workspaces group because it was the newest when
+    # it landed and because the group has no other ordering to respect -- the
+    # rest are not a pipeline. Muse arrived later and went *before* it all the
+    # same, for the reason written against Muse: those two are a pair, and the
+    # pair has an order the rest of the group does not.
+    ("sirens", "Sirens", icons.AUDIO_WAVEFORM, "Chiptune music and effects."),
+    # Review is footer matter, beside Settings, and shares its glyph history
+    # with the Library above (both were Home tiles). It is the one place you
+    # go to *judge* rather than to make, and it is entered rarely and left
+    # again -- which is the same shape as Settings and not the shape of the
+    # workspaces it used to sit among.
+    ("review", "Review", icons.CIRCLE_CHECK, "Grade finished assets."),
+    ("settings", "Settings", icons.SETTINGS, "Models, folders, appearance."),
+]
+
+# The rail's sections, hand-written. **Not derived**, and that is the reversal
+# of what ``GROUP_BREAKS`` used to be: deriving the gaps from "is this a work
+# mode" was right while the only claim being made was *workspaces are not
+# places*, and it is wrong now, because no predicate over ``WORK_MODES`` can
+# derive this grouping: the first group is one work mode and two that are not,
+# and the footer is one of each. Home, the Library and Create are where an
+# asset *begins* -- what do I have, and make another one -- and that is a
+# claim about the user's question, not about whether a pane has a form in it.
+# A rule that cannot state the grouping is not a better version of stating it.
+#
+# The last group is the rail's *footer*, and now that it holds two items it
+# needs a meaning: it is the end matter -- the two destinations where you are
+# not making something. Review is where you judge what came out and Settings
+# is where you configure the machine; both are entered rarely and left again.
+# It used to be drawn against the bottom edge beside a health badge and an
+# expand toggle; the editor shell moved both of those to the status bar and
+# the Window menu, so the footer is now simply the last group in the one
+# column -- distinguished by carrying no caption rather than by a separate
+# drawing path.
+RAIL_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("home", "library", "create"),
+    ("inker", "clay", "mason", "poser", "plotter", "packwright", "muse", "sirens"),
+    ("review", "settings"),
+)
+
+#: What each group is called, when the rail is wide enough to say so. One entry
+#: per group in :data:`RAIL_GROUPS`, footer included -- its own is the empty
+#: string and is never drawn, because a caption over a single item is a label
+#: for a label. ``rail._caption`` returns on an empty label rather than drawing
+#: nothing in a full row, and ``rail.draw``'s offset arithmetic skips the row
+#: for the same groups: the two loops have to agree or the selection pill lands
+#: a caption-height off the item it names.
+#:
+#: The grouping above is a *claim* ("these three are one pipeline;
+#: these nine are workspaces") and until these existed the only thing asserting
+#: it was a gap, which at a glance reads as an accident of spacing.
+RAIL_GROUP_LABELS: tuple[str, ...] = ("Pipeline", "Workspaces", "")
+
+# The modes that own a viewport or a form, and so have work in them. Home, the
+# Manual and Settings are places you pass through: they have no form to
+# submit and no viewport to frame, which is why they take no keyboard
+# shortcuts at all.
+WORK_MODES = frozenset(
+    {
+        "create", "inker", "clay", "mason", "poser", "review", "plotter",
+        "packwright", "muse", "sirens",
+    }
+)
+
+# The subset that draws the *asset* viewport, and therefore the only modes
+# whose selection is worth loading a mesh for. One member since wave 5, and
+# still a set rather than an ``== "create"``: it is the *question* "does this
+# mode frame the selected asset" and the answer has been one, two and one
+# again. Which of Create's stages a viewport shows is a second question, asked
+# of ``create_stages`` -- see ``_sync_viewer``.
+#
+# Inker and Clay each own their
+# own centre pane -- Clay's draws a live document rather than a file, so
+# ``_sync_viewer`` has nothing to do for it and returns early. Review is not
+# here either, and deliberately: it *borrows* the shared viewer, but for a
+# sweep unit's mesh rather than for the library selection, so leaving it out is
+# what stops ``_sync_viewer`` reloading the selected asset over it.
+VIEWPORT_MODES = frozenset({"create"})
+
+# Neither one pane nor the asset viewport: a mode that fills the window with
+# its own three-column workspace. Inker, Clay, Mason, Poser, Review, Plotter,
+# Packwright, Muse and Sirens are the nine (Troupe folded into Poser as a
+# stage, P9 2026-09-18); Library is a single pane, not a workspace, and joins
+# Home/Manual/Settings there. The three categories partition KEYS exactly --
+# which matters because ``_build_ui``'s dispatch ends in a bare ``else``, so
+# an unlisted mode would draw one of these rather than fail.
+WORKSPACE_MODES = frozenset(
+    {
+        "inker", "clay", "mason", "poser", "review", "plotter", "packwright",
+        "muse", "sirens",
+    }
+)
+
+# The modes that bind the arrow keys or Space themselves, and so keep them from
+# imgui's keyboard navigation (UX-02). Home and the Library move a selection
+# with Up/Down, Review steps units with Left/Right, and Inker and Plotter hold
+# Space to pan -- for all five, one press must not also step a focus ring.
+#
+# The rule is stated in ``imgui_backend._NAV_KEYS``: Tab traverses everywhere,
+# the arrows belong to the surface. This is the "which surface" half, listed
+# here beside the other mode groupings rather than inside the backend, because
+# it is a fact about the modes and not about the input door.
+# Poser joins them for Troupe's own version of the same clash, folded in
+# whole (P9, 2026-09-18): with the character-sheet section on screen, Space
+# toggles playback and Left/Right step one frame of a clip, so one press must
+# not also move a focus ring through the direction buttons.
+# Muse joins them for the mildest version: Space auditions the selected take,
+# which must not also activate whatever button the focus ring is on.
+# Sirens joins them for the sharpest version of the clash: all four arrows move
+# the pattern caret, Space starts and stops playback, and Page Up/Down move a
+# bar -- so every key imgui would use to walk a focus ring is a key the grid
+# has already spoken for.
+NAV_KEY_MODES = frozenset(
+    {"home", "library", "review", "inker", "plotter", "poser", "muse", "sirens"}
+)
+
+KEYS = tuple(key for key, _label, _icon, _purpose in MODES)
+
+#: One line saying what each mode is *for*, keyed by mode -- derived from
+#: ``MODES``' own fourth field, not hand-copied, so the two cannot drift.
+#:
+#: The rail is the primary navigation and nine of its fourteen labels --
+#: Inker, Clay, Mason, Poser, Troupe, Plotter, Packwright, Muse, Sirens -- are
+#: invented names. A new user hovering one used to get a word and an icon,
+#: because ``rail._item`` suppresses its accessible-name tooltip once the
+#: label is legible (correctly: a tooltip repeating a word already on screen
+#: is noise) and no call site had anything more to say. ``purpose`` is the
+#: something more, shown beside the label in the rail's tooltip and again as
+#: a second, muted line when the rail is expanded.
+PURPOSE: dict[str, str] = {key: purpose for key, _label, _icon, purpose in MODES}
+
+#: Modes whose maturity the rail says out loud, and the word it uses.
+#:
+#: **Troupe's own "Experimental" chip did not move with it into Poser** (P9,
+#: 2026-09-18, decision 3 of the folding brief): dropped outright rather than
+#: relabelled onto the merged mode. Troupe's provisional keyframes and
+#: untested-by-reconstruction caveats are still true and still worth a
+#: reader's caution, but they belong in the manual's own prose now
+#: (``docs/manual``) rather than as a rail-wide badge on a mode most of whose
+#: surface -- ordinary pose authoring -- was never provisional at all.
+#:
+#: **Sirens' chip came off on 2026-09-02.** It went on because the mode shipped
+# in halves, and the note was narrowed at every landing rather than left
+# standing, because a chip whose sentence names what is already there teaches
+# the reader to ignore the chip. The absences it named in turn -- no manual
+# chapter, no guided tour, four of a cell's five columns taking no keyboard
+# (closed 2026-08-27, ``tests/modes/sirens/test_sirens_keys.py``), and finally a block
+# selection that could be transposed and cleared but not copied, cut or pasted
+# -- are all closed; the last by ``sirens_mode.copy_selection`` / ``cut_selection``
+# / ``paste`` on Ctrl+C/X/V, through the document's one ``set_cells`` door. A
+# mode joins this dict when there is a sentence to put under it, and leaves it
+# when there is not.
+MATURITY: dict[str, str] = {}
+
+#: What the chip's own tooltip adds, past the word.
+MATURITY_NOTE: dict[str, str] = {}
+
+#: Registry rows a mode's *primary work* cannot happen without.
+#:
+#: Row keys as literals rather than ``f"base:{config.DEFAULT_BASE_MODEL}"``,
+#: because this module imports :mod:`.icons` and nothing else and must stay
+#: importable without dragging the registry in.
+#: ``tests/studio/test_mode_gate.py`` asserts every key here resolves through
+#: ``fetch.find``, so a renamed model breaks a test rather than silently
+#: ungating a mode.
+#:
+#: Only the two generation modes are listed. The eight editing workspaces need
+#: no weights at all, and Home, Library, Review and **Settings** are never
+#: gated -- Settings is where the download lives, so gating it would lock the
+#: user out of the only thing that unlocks anything.
+NEEDS_ROWS: dict[str, tuple[str, ...]] = {
+    # ``engine:trellis_runtime`` joined this tuple 2026-09-10, when the
+    # reconstruction engine's own binaries (``trellis-server.exe`` and the
+    # ggml/CUDA libraries beside it) stopped shipping in the installer and
+    # became a download of their own. Without it Create's rail item, refusal
+    # and palette row all read the GGUF weights as sufficient and let the
+    # user in to a mode that cannot actually reconstruct anything.
+    "create": ("engine:trellis_gguf", "engine:trellis_runtime", "base:sdxl_cfg"),
+    "muse": ("music:ace_step_v1",),
+}
+
+
+# **There is no positional Alt+digit binding, and there deliberately is not.**
+# It existed while there were ten modes and ten digits, on the argument that the
+# binding was the picture on screen rather than a second table. That argument
+# stopped holding the moment Library and Profiles became modes: twelve segments
+# against ten digits means either two modes with no key, or a second table
+# saying which two -- and the second table is exactly what the positional
+# scheme existed to avoid. So mode switching is a mouse action and a palette
+# (Ctrl+K) action, and the digits go back to the workspace modes that were
+# already reaching for them.
+
+
+# **Quit has no control anywhere in the shell, and that is the decision.**
+#
+# It was never a mode -- it does not land in ``AppState.mode``, it has no pane,
+# and the three categories above partition ``KEYS`` exactly. What it *had* was
+# a place to be drawn: an eleventh segment of the switch until UX.md Phase 2,
+# then a power icon in the header's right-hand strip. Both were a destructive
+# action one click from every mode, mitigated by an unconditional confirm
+# rather than fixed, and the second was only less bad than the first.
+#
+# The rail has no strip for it, so the ``QUIT`` tuple is gone with the header
+# that read it. The ways out are the window's own X -- which routes through
+# ``App._ask_quit`` (the UI redesign, wave 3; it used to bypass the preflight
+# summary and go straight to ``_request_quit``, which was survivable only while
+# the icon existed to carry it) -- and the palette's Quit command, which calls
+# the same guard. Both ask about unsaved work; neither is a button somebody's
+# pointer can find by accident.

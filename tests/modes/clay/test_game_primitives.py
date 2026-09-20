@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
 
 from .topo_asserts import assert_closed, assert_consistently_oriented, assert_wound_outward
 

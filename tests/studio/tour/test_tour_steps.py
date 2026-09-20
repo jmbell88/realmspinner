@@ -17,12 +17,12 @@ import ast
 import re
 from pathlib import Path
 
-from warlock.kernels.manual import loader, parser
-from warlock.studio import modes
-from warlock.studio.tour import TOURS
-from warlock.studio.tour.steps import CONDITIONS
+from realmspinner.kernels.manual import loader, parser
+from realmspinner.studio import modes
+from realmspinner.studio.tour import TOURS
+from realmspinner.studio.tour.steps import CONDITIONS
 
-SRC = Path(__file__).resolve().parents[3] / "src" / "warlock" / "studio"
+SRC = Path(__file__).resolve().parents[3] / "src" / "realmspinner" / "studio"
 
 #: ``anchors.mark("x")`` and ``anchors.mark_window("x")`` call sites.
 _MARK = re.compile(r"""anchors\.mark(?:_window)?\(\s*["']([^"']+)["']""")

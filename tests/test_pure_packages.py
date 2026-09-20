@@ -30,9 +30,9 @@ def test_a_relative_import_of_a_gl_module_is_not_counted_pure(tmp_path: Path):
     tmp tree keeps the claim -- "a relative import chain into a window is
     not invisible" -- true independent of that move.
     """
-    studio = tmp_path / "warlock" / "studio"
+    studio = tmp_path / "realmspinner" / "studio"
     studio.mkdir(parents=True)
-    (tmp_path / "warlock" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "realmspinner" / "__init__.py").write_text("", encoding="utf-8")
     (studio / "__init__.py").write_text("", encoding="utf-8")
 
     # A leaf that is a window at module scope -- the same shape as the real
@@ -62,7 +62,7 @@ def test_familiar_left_pure_packages_the_same_day_it_left_studio():
     """``familiar`` no longer answers to :func:`pp.pure_packages` at all --
     not because it stopped being pure, but because P3 of the core-vs-subsystems
     restructure (``dev/RESTRUCTURE.md``) moved it straight out of ``studio/``
-    to ``warlock/familiar/``, one layer down (L3, beside ``service`` and
+    to ``realmspinner/familiar/``, one layer down (L3, beside ``service`` and
     ``characters``) from the L1 kernels and mode-owned ``studio/`` packages
     this function's docstring says it is for.
 

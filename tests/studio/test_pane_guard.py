@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio import guard, layout
+from realmspinner.studio import guard, layout
 
 STACKS = (
     "size_of_window_stack",
@@ -53,7 +53,7 @@ def imgui_ctx(gl):
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import imgui_backend, theme
+    from realmspinner.studio import imgui_backend, theme
 
     prev_ctx = imgui.get_current_context()
     prev_screen = type(gl).__dict__.get("screen")
@@ -406,7 +406,7 @@ def _overlays_tree():
     import inspect
     import textwrap
 
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import main as main_mod
 
     src = textwrap.dedent(inspect.getsource(main_mod.App._overlays))
     return ast.parse(src).body[0]
@@ -449,7 +449,7 @@ def test_the_guard_clears_its_census_beside_the_other_three():
     import inspect
     import textwrap
 
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import main as main_mod
 
     src = textwrap.dedent(inspect.getsource(main_mod.App._build_ui))
     calls = {
@@ -479,7 +479,7 @@ def test_the_guard_never_catches_baseexception():
     import ast
     import inspect
 
-    from warlock.studio import layout as layout_mod
+    from realmspinner.studio import layout as layout_mod
 
     for module in (guard, layout_mod):
         tree = ast.parse(inspect.getsource(module))
@@ -502,7 +502,7 @@ def test_the_app_turns_the_recovery_assert_off_where_it_makes_its_context():
     import inspect
     import textwrap
 
-    from warlock.studio import main as main_mod
+    from realmspinner.studio import main as main_mod
 
     tree = ast.parse(textwrap.dedent(inspect.getsource(main_mod.App.setup_window)))
     calls = [
@@ -557,7 +557,7 @@ def test_no_studio_module_uses_the_write_marking_current_window_accessor():
     import ast
     import pathlib
 
-    import warlock.studio as studio_pkg
+    import realmspinner.studio as studio_pkg
 
     root = pathlib.Path(studio_pkg.__file__).parent
     offenders = []

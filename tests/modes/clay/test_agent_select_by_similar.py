@@ -32,9 +32,9 @@ from dataclasses import replace
 
 import numpy as np
 
-from warlock.kernels.mesh import select as clay_select_mod
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.kernels.mesh import select as clay_select_mod
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
 from .test_agent_clay import _Ctx, _new_agent_tab, _payload
 

@@ -15,14 +15,14 @@ from pathlib import Path
 import pytest
 from _panes import pane_files
 
-from warlock.studio import layout, theme, tokens
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-from warlock.studio.modes.inker.ui.panes import colors as inker_colors
-from warlock.studio.modes.inker.ui.panes import textures as inker_textures
-from warlock.studio.modes.inker.ui.panes import tools as inker_tools
-from warlock.studio.shell import paintview
+from realmspinner.studio import layout, theme, tokens
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
+from realmspinner.studio.modes.inker.ui.panes import textures as inker_textures
+from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
+from realmspinner.studio.shell import paintview
 
 #: Every pane-drawing module, via ``tests._panes.pane_files``. ``panes/*.py``
 #: alone was the whole set until Create became a mode package and put three
@@ -364,7 +364,7 @@ def test_a_live_transform_says_so_in_the_accent_colour() -> None:
     because the numeric handles read and write the floating buffer the canvas
     is already holding. What has to stay true is that a transform in flight is
     *announced*, and in the accent colour."""
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     source = Path(inker_canvas.__file__).read_text(encoding="utf-8")
     assert 'widgets.text_colored(theme.ACCENT, "Transform")' in source
@@ -563,7 +563,7 @@ def test_the_canvas_settings_are_reachable() -> None:
     2026-08-31, out of a toolbox popover opened by a flip-horizontal glyph and
     named after neither of them.
     """
-    from warlock.studio.modes.inker.ui.panes import context as inker_context
+    from realmspinner.studio.modes.inker.ui.panes import context as inker_context
 
     bar = Path(inker_context.__file__).read_text(encoding="utf-8")
     assert "imgui.open_popup(SYMMETRY_POPUP)" in bar
@@ -601,7 +601,7 @@ def test_the_inker_workspace_has_drag_handles_of_its_own() -> None:
     derives the handle from it. ``tests/studio/test_layout.py`` gates every key in
     both sources at once.
     """
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     columns = skeletons.inker(None)
     keys = {slot.share_key for slot in columns["right"].slots if slot.share_key}
@@ -627,10 +627,10 @@ def test_both_floors_are_named_where_the_panes_are() -> None:
     reserves nothing and gives way to nothing. What is here now is one floor
     per pane that can be squeezed, in both columns.
     """
-    from warlock.studio import skeletons
-    from warlock.studio.modes.inker.ui.panes import generate as inker_generate
-    from warlock.studio.modes.inker.ui.panes import picker as inker_picker
-    from warlock.studio.modes.inker.ui.panes import tiles as inker_tiles
+    from realmspinner.studio import skeletons
+    from realmspinner.studio.modes.inker.ui.panes import generate as inker_generate
+    from realmspinner.studio.modes.inker.ui.panes import picker as inker_picker
+    from realmspinner.studio.modes.inker.ui.panes import tiles as inker_tiles
 
     assert inker_colors.PANEL_FLOOR > 0
     assert inker_tiles.PANEL_FLOOR > 0
@@ -751,7 +751,7 @@ def test_the_tool_grid_widens_with_the_pane_rather_than_staying_two_across()    
     """Two across was the rail's answer and it does not survive it: a 300 px
     column drawing a 68 px strip of buttons down one edge is the same defect
     the rail had, mirrored."""
-    from warlock.studio import tokens
+    from realmspinner.studio import tokens
 
     step = inker_tools.BUTTON_W + inker_tools.GRID_GAP
     assert inker_tools.columns_for(0.0) == inker_tools.COLUMNS
@@ -783,7 +783,7 @@ def test_a_zoom_rung_cannot_outlive_an_undrawn_canvas() -> None:
     # ``_inker_workspace`` -- the invisible-centre-pane branch's own drop --
     # moved out of ``studio/main.py`` in the P4 restructure, into
     # ``studio/modes/inker/ui/workspace.py``.
-    from warlock.studio.modes.inker.ui import workspace as inker_workspace
+    from realmspinner.studio.modes.inker.ui import workspace as inker_workspace
 
     workspace = Path(inker_workspace.__file__)
     assert "pending_zoom_rung = 0" in workspace.read_text(encoding="utf-8")
@@ -919,7 +919,7 @@ def test_the_picker_floor_is_the_height_its_own_content_needs() -> None:
     ended at 902 -- clipped away, unclickable, the last such control in Inker.
     The floor has to be what the pane actually needs, or it is decoration.
     """
-    from warlock.studio.modes.inker.ui.panes import picker as inker_picker
+    from realmspinner.studio.modes.inker.ui.panes import picker as inker_picker
 
     assert inker_picker.PICKER_FLOOR >= 400.0
 
@@ -932,9 +932,9 @@ def test_the_colour_pane_gives_way_to_the_pickers_floor() -> None:
     content. ``give_way`` is the mechanism that stops it, and this is the
     arithmetic that says it does.
     """
-    from warlock.studio import layout
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
-    from warlock.studio.modes.inker.ui.panes import picker as inker_picker
+    from realmspinner.studio import layout
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.studio.modes.inker.ui.panes import picker as inker_picker
 
     avail = 833.0
     share = layout.SHARE_DEFAULTS.get("inker-colors", 0.55)

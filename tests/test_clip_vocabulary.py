@@ -24,11 +24,11 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels import charsheet
-from warlock.kernels import sheet as sheetlib
-from warlock.kernels.rig import cliplib, templates
-from warlock.pipelines import spritesynth
-from warlock.service import clips as svc_clips
+from realmspinner.kernels import charsheet
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.kernels.rig import cliplib, templates
+from realmspinner.pipelines import spritesynth
+from realmspinner.service import clips as svc_clips
 
 SPECIES = ("humanoid", "quadruped", "bird", "blob")
 

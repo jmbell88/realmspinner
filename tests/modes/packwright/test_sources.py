@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel.document import Document
-from warlock.studio.modes.packwright.engine import sources
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.studio.modes.packwright.engine import sources
 
 
 def _doc(width: int = 8, height: int = 8) -> Document:

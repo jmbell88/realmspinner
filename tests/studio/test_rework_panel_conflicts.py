@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.studio.panes import remesh_panel, retarget_panel, texture_panel
+from realmspinner.studio.panes import remesh_panel, retarget_panel, texture_panel
 
 
 def _job(status: str, source_job: str | None, kind: str = "retexture") -> dict[str, Any]:

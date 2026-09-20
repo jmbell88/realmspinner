@@ -36,11 +36,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import sheetout
-from warlock.kernels.pixel.animation import DirectionalLayout
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import sheetout
+from realmspinner.kernels.pixel.animation import DirectionalLayout
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)
 

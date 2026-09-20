@@ -8,11 +8,11 @@ reason the panel exists rather than staying a menu.
 
 from __future__ import annotations
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import sheetout
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker.state import InkerDoc
-from warlock.studio.modes.inker.ui.panes import generate as inker_generate
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import sheetout
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker.state import InkerDoc
+from realmspinner.studio.modes.inker.ui.panes import generate as inker_generate
 
 
 def test_every_button_names_an_op_that_actually_exists():

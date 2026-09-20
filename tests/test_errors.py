@@ -5,7 +5,7 @@ import subprocess
 
 import httpx
 
-from warlock.errors import MAX_MESSAGE, friendly, write_error_log
+from realmspinner.errors import MAX_MESSAGE, friendly, write_error_log
 
 
 def test_a_multi_line_exception_keeps_only_its_first_line():
@@ -43,7 +43,7 @@ def test_a_failed_helper_program_points_at_the_log():
     exc = subprocess.CalledProcessError(3, ["blender", "--background"])
     message = friendly(exc)
     assert "blender" in message
-    assert "warlock.log" in message
+    assert "realmspinner.log" in message
 
 
 def test_host_memory_exhaustion_is_not_reported_as_a_gpu_problem():

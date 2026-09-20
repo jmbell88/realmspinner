@@ -1,7 +1,7 @@
 """Write the ``update-manifest.json`` a release has to publish to be offered.
 
 Run after ``installer\\build.ps1`` (or ``scripts/rebuild.ps1``) has produced
-``dist\\WarlockSetup-v<version>.exe``:
+``dist\\RealmspinnerSetup-v<version>.exe``:
 
     uv run python scripts/make_update_manifest.py
 
@@ -13,10 +13,10 @@ the build it came from, and a copy of it inside the app could only ever
 describe the version already installed.
 
 The generated shape is the whole contract with
-``warlock.pipelines.update_worker``:
+``realmspinner.pipelines.update_worker``:
 
     {"version": "0.0.37",
-     "installer": {"filename": "WarlockSetup-v0.0.37.exe",
+     "installer": {"filename": "RealmspinnerSetup-v0.0.37.exe",
                    "size_bytes": 846950916,
                    "sha256": "..."}}
 
@@ -43,8 +43,8 @@ CHUNK = 1 << 20
 def project_version() -> str:
     """The version ``pyproject.toml`` declares.
 
-    Read from there rather than from ``warlock.__version__`` because the
-    installer's filename comes from the same place (``installer/warlock.iss``'s
+    Read from there rather than from ``realmspinner.__version__`` because the
+    installer's filename comes from the same place (``installer/realmspinner.iss``'s
     ``AppVersion``), and the manifest has to name the file that exists.
     """
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         "--installer",
         type=Path,
         default=None,
-        help="the built setup executable (default: dist/WarlockSetup-v<version>.exe)",
+        help="the built setup executable (default: dist/RealmspinnerSetup-v<version>.exe)",
     )
     parser.add_argument(
         "--out",
@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     version = project_version()
-    installer = args.installer or (ROOT / "dist" / f"WarlockSetup-v{version}.exe")
+    installer = args.installer or (ROOT / "dist" / f"RealmspinnerSetup-v{version}.exe")
     if not installer.is_file():
         # Named rather than raised through: the ordinary way to reach this is
         # running the generator before the build, and "build it first" is the

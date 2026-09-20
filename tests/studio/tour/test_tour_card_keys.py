@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.studio.panes import tour as tour_mod
+from realmspinner.studio.panes import tour as tour_mod
 
 
 class _Key:

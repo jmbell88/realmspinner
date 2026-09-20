@@ -14,14 +14,14 @@ build and the steps -- and the gates below are deliberately narrow:
 Byte-level determinism is *not* asserted here. Our writer is not trying to
 reproduce Tiled's bytes; it is trying to preserve Tiled's document. The
 byte-identity rule applies to our own output only, and lives in
-``test_tmx.py`` and ``test_wmap.py`` where it always has.
+``test_tmx.py`` and ``test_rmap.py`` where it always has.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from warlock.studio.modes.plotter.engine import tmx
+from realmspinner.studio.modes.plotter.engine import tmx
 
 from ._corpus import FIXTURE_DIR, MANIFEST, loaders_for, pairs
 from ._semantics import doc_facts
@@ -88,15 +88,15 @@ def test_the_json_writer_agrees_with_the_xml_writer(stem):
 @pytest.mark.parametrize("stem", MANIFEST)
 def test_a_tiled_map_survives_our_own_save_format(stem):
     """The third round trip, and the one the studio actually uses: a Tiled
-    file opened, saved as ``.wmap``, and reopened. ``doc_facts`` is uid-free
+    file opened, saved as ``.rmap``, and reopened. ``doc_facts`` is uid-free
     by construction, which is what makes it the right comparator here --
-    ``.wmap`` stores indices and mints fresh uids on read, so a comparator
+    ``.rmap`` stores indices and mints fresh uids on read, so a comparator
     that saw uids would fail this on every document."""
-    from warlock.studio.modes.plotter.engine import wmap
+    from realmspinner.studio.modes.plotter.engine import rmap
 
     loaders = loaders_for(FIXTURE_DIR)
     original = tmx.read_tmx((FIXTURE_DIR / f"{stem}.tmx").read_bytes(), **loaders)
-    again = wmap.read_wmap(wmap.wmap_bytes(original))
+    again = rmap.read_rmap(rmap.rmap_bytes(original))
     assert doc_facts(again) == doc_facts(original)
 
 

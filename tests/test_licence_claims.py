@@ -1,7 +1,7 @@
 """THIRD-PARTY-NOTICES.md's licence-surfacing claim, checked against the code.
 
 The 2026-09-06 audit, finding docs-03: the notices file's closing paragraph
-said ``warlock.models`` carries a ``license`` field "on every entry" and that
+said ``realmspinner.models`` carries a ``license`` field "on every entry" and that
 the model picker and download confirmation show it for all of them. Only
 three of the ten registry dataclasses (``BaseModel``, ``MusicModel``,
 ``SeparationModel``) declare the field -- ``EngineModel``, ``MattingModel``,
@@ -12,7 +12,7 @@ seven and no licence line is shown for them, including TRELLIS.2-4B and
 BiRefNet, both of which the table above the paragraph lists as MIT by hand.
 
 This test does not hard-code which classes carry the field: it walks
-``warlock.models`` itself (every module-level dict built by that module's own
+``realmspinner.models`` itself (every module-level dict built by that module's own
 ``_table()`` is one registry, and the type of its values is one "registry
 dataclass"), and derives the license-bearing subset from ``dataclasses.fields``.
 It then reads the same three facts back out of the notices paragraph and
@@ -28,7 +28,7 @@ import dataclasses
 import re
 from pathlib import Path
 
-from warlock import models as models_mod
+from realmspinner import models as models_mod
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTICES = ROOT / "THIRD-PARTY-NOTICES.md"
@@ -36,11 +36,11 @@ MODELS_DOC = ROOT / "docs" / "MODELS.md"
 
 
 def _registry_dataclasses() -> dict[str, type]:
-    """One dataclass type per ``_table()``-built registry in ``warlock.models``.
+    """One dataclass type per ``_table()``-built registry in ``realmspinner.models``.
 
     A "registry dataclass" is defined structurally, not by a hard-coded list:
     any module-level attribute that is a non-empty ``dict`` whose values are
-    all instances of the same dataclass defined in ``warlock.models`` itself
+    all instances of the same dataclass defined in ``realmspinner.models`` itself
     (excluding ``Fetch``, which is a field *of* those dataclasses, not a
     registry entry type on its own -- it has no ``_table()`` dict of its own).
     """
@@ -159,7 +159,7 @@ def test_notices_paragraph_license_bearing_list_matches_the_code():
     claimed = _backtick_class_names(segment)
     assert claimed == _license_bearing_classes(), (
         f"notices paragraph claims license-bearing classes {claimed}, "
-        f"but warlock.models says {_license_bearing_classes()}"
+        f"but realmspinner.models says {_license_bearing_classes()}"
     )
 
 

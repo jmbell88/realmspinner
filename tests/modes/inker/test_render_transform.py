@@ -17,8 +17,8 @@ import inspect
 
 import numpy as np
 
-from warlock.kernels.pixel import selection
-from warlock.kernels.pixel.selection import render_transform
+from realmspinner.kernels.pixel import selection
+from realmspinner.kernels.pixel.selection import render_transform
 
 
 def _square(size: int = 8, at=(2, 2, 6, 6)) -> tuple[np.ndarray, np.ndarray]:
@@ -60,7 +60,7 @@ def test_scale_then_shear_then_rotate_is_the_order():
     pixels, mask = _square()
     both = render_transform(pixels, mask, 40.0, (2.0, 1.0), (0.0, 0.0), "nearest")[0]
 
-    from warlock.kernels.pixel import transform as tf
+    from realmspinner.kernels.pixel import transform as tf
 
     scaled_first = tf.rotate(
         tf.scale(pixels, (16, 8), resample="nearest"), 40.0, expand=True, resample="nearest"
@@ -103,7 +103,7 @@ def test_it_stays_a_module_function_with_two_callers():
     assert inspect.isfunction(render_transform)
     doc_selection = inspect.getsource(
         __import__(
-            "warlock.kernels.pixel._doc_selection", fromlist=["_doc_selection"]
+            "realmspinner.kernels.pixel._doc_selection", fromlist=["_doc_selection"]
         )
     )
     assert "render_transform(" in doc_selection

@@ -19,8 +19,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.service import jobs as svc_jobs
-from warlock.studio.modes.library.ui.panes import library
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.studio.modes.library.ui.panes import library
 
 
 def _done_job(svc, assets, name: str = "model.glb") -> str:
@@ -112,7 +112,7 @@ def test_replacing_after_browse_writes_to_the_browsed_folder_not_the_configured_
 
 
 def test_replacing_after_browse_succeeds_with_no_export_dir_configured(svc, tmp_path, monkeypatch):
-    """The same browsed-folder write, but with ``WARLOCK_EXPORT_DIR`` never
+    """The same browsed-folder write, but with ``REALMSPINNER_EXPORT_DIR`` never
     set at all. Unfixed, "Replace" refused with "no export folder configured"
     even though the popup had a real, user-picked destination in hand --
     because the guard checked ``svc.config.export_dir`` instead of the plan

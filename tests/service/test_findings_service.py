@@ -6,11 +6,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.bench import findings as bench_findings
-from warlock.service import findings as svc_findings
-from warlock.service import verdicts as svc_verdicts
-from warlock.service.validation import DERIVED_PARAMS
-from warlock.vectors import BINARY_GRADES
+from realmspinner.bench import findings as bench_findings
+from realmspinner.service import findings as svc_findings
+from realmspinner.service import verdicts as svc_verdicts
+from realmspinner.service.validation import DERIVED_PARAMS
+from realmspinner.vectors import BINARY_GRADES
 
 
 def test_the_vector_is_the_allowlist_and_nothing_else():
@@ -166,7 +166,7 @@ def test_a_blank_label_is_recordable_against_a_job_that_was_refused(svc):
 
 def test_a_blank_label_still_needs_an_image_to_be_about(svc):
     """The other half of the same rule: no picture, no label."""
-    from warlock.service.errors import Invalid
+    from realmspinner.service.errors import Invalid
 
     job_id = svc.store.create("image", "a chest", {}, stage="model", status="error")
     svc.job_dir(job_id).mkdir(parents=True, exist_ok=True)
@@ -179,7 +179,7 @@ def test_a_mesh_verdict_still_needs_a_finished_job(svc):
     """Unchanged, and it must stay that way: filing an accept against a mesh
     that never existed poisons the corpus permanently, because the vector
     snapshot outlives the job."""
-    from warlock.service.errors import Invalid
+    from realmspinner.service.errors import Invalid
 
     job_id = svc.store.create("image", "a chest", {}, stage="model", status="error")
 
@@ -188,7 +188,7 @@ def test_a_mesh_verdict_still_needs_a_finished_job(svc):
 
 
 def test_a_verdict_names_a_stage_the_vocabulary_knows(svc):
-    from warlock.service.errors import Invalid
+    from realmspinner.service.errors import Invalid
 
     job_id = _judged(svc, "accept")
 
@@ -216,7 +216,7 @@ def test_the_marginals_are_also_broken_out_per_subject(svc):
     rogue-sweep units -- the other four were old wood-prompt rejects, pooled
     into a marginal about a character.
     """
-    from warlock import vectors
+    from realmspinner import vectors
 
     _judged_about(svc, "a wooden crate", "reject", platform="pc")
     _judged_about(svc, "a wooden crate", "reject", platform="pc")
@@ -252,7 +252,7 @@ def test_a_verdict_with_no_prompt_joins_no_subject_scope(svc):
 def test_the_per_subject_scope_carries_machine_evidence_too(svc):
     """An observation is scoped for the same reason a verdict is, and it is the
     tier that fires without anyone reviewing anything."""
-    from warlock import vectors
+    from realmspinner import vectors
 
     for i in range(5):
         svc.store.add_observation(
@@ -433,14 +433,14 @@ def test_a_refusal_rate_is_shown_where_the_setting_is_chosen(svc):
 def test_the_suite_never_writes_findings_into_the_real_bench_directory(svc, tmp_path):
     """refresh() writes under the *fixture's* bench dir, not PROJECT_ROOT/bench.
 
-    Without the WARLOCK_BENCH_DIR pin in conftest, every test that recomputed
+    Without the REALMSPINNER_BENCH_DIR pin in conftest, every test that recomputed
     findings wrote over the repository's own bench/findings.json -- the file the
     2D and 3D panes read for their accept-rate hints -- replacing a corpus built
     from ~93 real verdicts with whatever the test had just invented. It is
     derived rather than precious, which is exactly why nobody noticed: it can
     always be rebuilt, and nothing rebuilt it.
     """
-    from warlock.config import PROJECT_ROOT
+    from realmspinner.config import PROJECT_ROOT
 
     written = svc_findings.refresh(svc)
 

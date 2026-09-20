@@ -36,7 +36,7 @@ spelling: Plotter canonicalizes layer data to CSV and bundles external assets
 under collision-free paths.
 
 **The `tiledversion` this build writes is `1.12.2`** — see
-`src/warlock/studio/modes/plotter/engine/tsx.py`'s `TILED_VERSION` — and it says what it
+`src/realmspinner/studio/modes/plotter/engine/tsx.py`'s `TILED_VERSION` — and it says what it
 means as of **2026-08-29**. It was held at `1.10.2` behind a gate that only a
 human with Tiled installed could open: a real Tiled 1.12.2 had to be confirmed
 to open one of our exports without complaint. (The gate was briefly deleted and
@@ -64,7 +64,7 @@ the paragraph after next.
 
 **Two kinds of positive row, and the difference matters.** A `round-trips` row
 is a claim about *Tiled*: the feature is one Tiled has, and a file carrying it
-survives the trip in both directions. A `warlock-dialect` row is a claim only
+survives the trip in both directions. A `realmspinner-dialect` row is a claim only
 about this editor: Plotter reads and writes the construct, no Tiled release
 does, and a `.tmx`/`.tmj` carrying one is a file only Plotter opens. The
 dialect rows are **distributed through the tables below and marked in place**,
@@ -74,14 +74,14 @@ about. Today there are five, under *Maps*, *Layers*, *Objects* (two) and
 *Properties*. They exist
 because the document model grew features Tiled has no spelling for, and the
 alternative — inventing syntax and *calling* it Tiled — is what the
-`tiledversion` gate above exists to stop. `.wmap` is the format that holds all
+`tiledversion` gate above exists to stop. `.rmap` is the format that holds all
 of them without qualification.
 
 States mean:
 
 - **round-trips** — read, modeled and written without semantic loss, against
   Tiled;
-- **warlock-dialect** — modeled and written, but no Tiled release reads it
+- **realmspinner-dialect** — modeled and written, but no Tiled release reads it
   back. Marked in place, in the section its feature belongs to, rather than
   collected at the end;
 - **refused** — stopped by name before a partial document can be edited;
@@ -91,7 +91,7 @@ States mean:
 The refused rows are checked in both directions against every
 `TiledUnsupported` site. Positive rows are checked for a real fixture pair by
 `tests/modes/plotter/test_compat_matrix.py`; the corpus then exercises Tiled XML →
-Plotter → Tiled XML, Tiled XML → Plotter JSON, and `.wmap` round trips.
+Plotter → Tiled XML, Tiled XML → Plotter JSON, and `.rmap` round trips.
 
 **A `round-trips` row can still fall back or draw nothing on one input, and
 since W3.2 that no longer reaches only the log.** The *Maps* table's
@@ -103,7 +103,7 @@ map covers — falls back the same way. Both are now read by
 `tmx.read_tmx`/`read_tmj` into `tmx.ImportWarning` rows, one per fallback,
 carrying the layer or object name it is about (empty for a map-level
 fallback like the stagger case). The Map file pane
-(`src/warlock/studio/modes/plotter/ui/panes/bridge.py`) shows them under the import row, grouped by
+(`src/realmspinner/studio/modes/plotter/ui/panes/bridge.py`) shows them under the import row, grouped by
 layer, so a map that opened looking wrong says why without the log open. The
 `log.warning` call each already made is unchanged and still fires first — the
 pane is a second channel for the same fact, not a replacement for the first.
@@ -134,7 +134,7 @@ inventing a `1.12` format-version value.
 ### The `M{n}` citations
 
 A milestone number used to be cited as `M{n}` from comments under
-`src/warlock/studio/modes/plotter/engine/`, from the project's internal invariants ledger and from the table
+`src/realmspinner/studio/modes/plotter/engine/`, from the project's internal invariants ledger and from the table
 below. **They referred to `docs/PLOTTER_PLAN.md`, which was deleted in
 `09c64b4`** — chase it with `git log --all --diff-filter=D --
 '*PLOTTER_PLAN.md'`, the same way a retired plan file's citation is chased. This is the
@@ -147,10 +147,10 @@ is minted**. Write what the deferred work is instead of a number for it.
 (chunked) map storage, and it shipped: those comments now say what arrived
 rather than what was owed. The seams it had held open are worth naming because
 each did its job — `project.Lattice`'s `stagger_axis`/`stagger_index`/`hex_side`
-fields, `.wmap`'s reserved `infinite` key, `scene.resolve` never asking a layer
-for a dense `(h, w)` rectangle, and the two `WmapUnstorable` handlers that keep
+fields, `.rmap`'s reserved `infinite` key, `scene.resolve` never asking a layer
+for a dense `(h, w)` rectangle, and the two `RmapUnstorable` handlers that keep
 a writer-door refusal from reaching the frame thread as a crash. The one
-reservation deliberately left unused is `.wmap`'s `chunks`-beside-`data` layer
+reservation deliberately left unused is `.rmap`'s `chunks`-beside-`data` layer
 entry: the document holds a dense window plus an origin, so an infinite map's
 tile layer is the same one array as any other's.
 
@@ -160,7 +160,7 @@ tile layer is the same one array as any other's.
 |---|---|---|
 | `orthogonal projection` | round-trips | Geometry, picking and rendering; fixture: `core-112`. |
 | `isometric projection` | round-trips | Tiled object-coordinate conversion and depth order; fixture: `basic-iso`. |
-| `oblique projection` | warlock-dialect | `orientation="oblique"` with `skewx`/`skewy`. **Tiled has no oblique orientation.** Modeled, drawn and written, including negative skew; fixture: `oblique-112`. |
+| `oblique projection` | realmspinner-dialect | `orientation="oblique"` with `skewx`/`skewy`. **Tiled has no oblique orientation.** Modeled, drawn and written, including negative skew; fixture: `oblique-112`. |
 | `map class and parallax origin` | round-trips | Map class plus both parallax-origin components; fixture: `core-112`. |
 | `renderorder` | round-trips | All four orthogonal/oblique orders are modeled and rendered; fixture: `oblique-112`. |
 | `backgroundcolor` | round-trips | Preserved and painted by the flat renderer; fixture: `core-112`. |
@@ -178,7 +178,7 @@ tile layer is the same one array as any other's.
 | `recursive group layers` | round-trips | Nested order and inherited decorations; fixture: `core-112`. |
 | `image layers` | round-trips | Images, repeat flags and stacking; fixture: `core-112`. |
 | `layer class, tint, offset and parallax` | round-trips | Common fields on every layer kind; fixture: `core-112`. |
-| `layer blend modes` | warlock-dialect | A `mode` attribute on a layer. **Tiled has no per-layer blend mode.** The names and the compositing arithmetic are the W3C/SVG ones, so an engine that implements them agrees with our flat renderer; fixture: `core-112`. |
+| `layer blend modes` | realmspinner-dialect | A `mode` attribute on a layer. **Tiled has no per-layer blend mode.** The names and the compositing arithmetic are the W3C/SVG ones, so an engine that implements them agrees with our flat renderer; fixture: `core-112`. |
 | `object-layer draw order and color` | round-trips | Both `topdown` and `index`, plus editor outline color; fixture: `core-112`. |
 | `layer tile coordinates` | refused | Deprecated nonzero tile-space layer x/y cannot be confused with pixel offsets. |
 | `an image layer transparent colour` | refused | Deprecated color-key transparency is named instead of discarded. |
@@ -192,11 +192,11 @@ tile layer is the same one array as any other's.
 |---|---|---|
 | `rectangle and point objects` | round-trips | Geometry, visibility, ids, class and properties; fixture: `core-112`. |
 | `ellipse objects` | round-trips | The `<ellipse/>` tag and its JSON `ellipse: true`; fixture: `core-112`. |
-| `capsule objects` | warlock-dialect | A `<capsule/>` tag beside `<ellipse/>`. **Tiled has no capsule shape.** Modeled, hit-tested, drawn, written and -- since W4 -- authorable from the object toolbox (`C`); fixture: `core-112`. |
+| `capsule objects` | realmspinner-dialect | A `<capsule/>` tag beside `<ellipse/>`. **Tiled has no capsule shape.** Modeled, hit-tested, drawn, written and -- since W4 -- authorable from the object toolbox (`C`); fixture: `core-112`. |
 | `polygon and polyline objects` | round-trips | Ordered floating-point vertices; fixture: `core-112`. |
 | `tile and text objects` | round-trips | Gid transforms and complete Tiled text styling fields; fixture: `core-112`. |
 | `object rotation` | round-trips | Tiled's clockwise degrees about the object origin, editable and undoable. Authored on the canvas by the **rotation grip** above the selected object's top edge as well as by the sidebar's number, and the grip turns about `(x, y)` -- the origin corner Tiled's angle is measured from -- rather than the visual centre. Snapped to 15 degrees while snapping is on, which is Tiled's step; fixture: `core-112`. |
-| `object opacity` | warlock-dialect | An `opacity` attribute on an object. **Tiled has per-*layer* opacity, not per-object.** Modeled, editable, undoable and written; fixture: `core-112`. |
+| `object opacity` | realmspinner-dialect | An `opacity` attribute on an object. **Tiled has per-*layer* opacity, not per-object.** Modeled, editable, undoable and written; fixture: `core-112`. |
 | `object templates` | refused | Templates are an explicit project/workflow non-goal. |
 
 ### Tilesets and terrain
@@ -213,7 +213,7 @@ tile layer is the same one array as any other's.
 | `tileset image transparent colour` | round-trips | Applied at decode, so nothing downstream sees the key colour. The deprecated image-layer twin stays refused. fixture: `presentation-112`. |
 | `an external .tsj tileset` | round-trips | Read through the same JSON tileset definition an embedded one uses; which spelling a reference names is the host's question. fixture: `tsj-112`. |
 | `Wang sets / terrain brushes` | round-trips | Generic corner/edge/mixed sets are read as data and painted by wangid constraint matching (ties by colour probability, then lowest id; **no match leaves the cell untouched** rather than writing a near-miss). The blob preset is still recognised first and keeps its positional terrain rows and a byte-identical export. fixture: `wang-112`. **Authored in the tileset editor's Terrain tab** since 2026-08-30, and until then this row was a one-way claim: a set could be read, painted with and written back, but the only way to *get* one was to import a file Tiled wrote -- the single `wangset` reference anywhere in `panes/` was a read-only swatch enumeration. The tab creates and deletes whole sets, adds, renames, recolours, weights and removes their colours, and writes a tile's eight slots by clicking the corner or edge itself; a set's `kind` is fixed at creation, because changing it would either strand values in slots that no longer count or throw them away. Every edit goes through the same undoable `replace_tileset` the Inker polish trip does, one click to one step. Removing a colour **renumbers every wangid**, since a slot names a position in the colour list. A blob set exported with phase variants (`phases > 1`, declared by an int `phases` tileset property) writes every phase sub-row with the same wangid per case: Tiled's terrain brush treats equal wangids as random alternatives and keeps working, at the accepted cost that it *randomises* phases where Plotter derives them from cell coordinates. Exported layers carry concrete gids per cell, so position-baked phases travel exactly. |
-| `a tileset carrying both a generated terrain set and a hand-authored Wang set` | refused | **Stopped by name at both doors, and this row is why.** A `.tsx` holds one `<wangsets>` block: the blob preset writes one and the general Wang model writes another, and a tileset carrying both would emit two -- invalid against Tiled's schema and off the exporter's byte-identical pin. Merging them into one block would not help, because the reader drops the general model whenever the preset is present, so the hand-authored set would be **silently dropped** on reopen -- the one state this ledger says it has no rows in. So the Terrain tab does not offer *Create* on a tileset that carries a generated set and says why in its place (a set generated by Warlock already *is* a terrain brush, so nothing is lost), the `create_wangset` door refuses the same combination with the same sentence, and the writer refuses it too -- reachable only from a document a build between 2026-08-30's Terrain tab and this refusal could write, whose way out is to delete the hand-authored set on that tab. |
+| `a tileset carrying both a generated terrain set and a hand-authored Wang set` | refused | **Stopped by name at both doors, and this row is why.** A `.tsx` holds one `<wangsets>` block: the blob preset writes one and the general Wang model writes another, and a tileset carrying both would emit two -- invalid against Tiled's schema and off the exporter's byte-identical pin. Merging them into one block would not help, because the reader drops the general model whenever the preset is present, so the hand-authored set would be **silently dropped** on reopen -- the one state this ledger says it has no rows in. So the Terrain tab does not offer *Create* on a tileset that carries a generated set and says why in its place (a set generated by Realmspinner already *is* a terrain brush, so nothing is lost), the `create_wangset` door refuses the same combination with the same sentence, and the writer refuses it too -- reachable only from a document a build between 2026-08-30's Terrain tab and this refusal could write, whose way out is to delete the hand-authored set on that tab. |
 | `terrain types` | refused | Deprecated pre-Wang terrain syntax. |
 | `per-tile animation` | round-trips | Ordered frames of local ids and durations; the canvas plays them and every export draws frame 1. Authored in the **tileset editor's Animation tab**, where a frame's duration is editable, the order is changed by the row arrows in one undo step, and **Play** previews the animation through the same clock the canvas substitutes gids with. fixture: `tilemeta-112`. |
 | `per-tile collision shapes` | round-trips | Rect, ellipse and polygon outlines, stored on the tile. Authored in the **tileset editor's Collision tab** (Tileset > Edit tileset), one tile drawn large with its shapes over it, and written through the same undoable `set_tile_meta` the class and probability fields use. All three are now editable on the tile: a box or an ellipse is added covering the whole tile and then moved and resized by its eight handles, and a polygon is added as the same square and reshaped corner by corner (drag to move one, Ctrl+click an edge to add one, Alt+click to remove one). One drag is one undo step. Until 2026-08-30 the geometry was hard-coded to the whole tile and could not be changed, so every shape this app wrote was the same full-tile box. Shapes authored in Tiled survive the round trip intact. Never hit-tested against the map: collision is metadata an engine reads. Two things Tiled's collision editor can author are **not modeled and are dropped at import, by name into the log**: point/polyline collision members, and a shape's `rotation`. fixture: `tilemeta-112`. |
@@ -233,7 +233,7 @@ tile layer is the same one array as any other's.
 |---|---|---|
 | `scalar, file and object properties` | round-trips | Tiled scalar values, paths and persistent object ids; fixture: `typed-embedded-112`. |
 | `recursive class properties` | round-trips | XML keeps self-describing member types; JSON keeps the values its schema contains; fixture: `typed-embedded-112`. |
-| `recursive list properties` | warlock-dialect | A `list` property type, spelled as nested `<item>` elements in XML and typed records in JSON. **Tiled has no list property type**; its eight are string, int, float, bool, color, file, object and class. Modeled recursively, including lists inside classes and inside other lists; fixture: `typed-embedded-112`. |
+| `recursive list properties` | realmspinner-dialect | A `list` property type, spelled as nested `<item>` elements in XML and typed records in JSON. **Tiled has no list property type**; its eight are string, int, float, bool, color, file, object and class. Modeled recursively, including lists inside classes and inside other lists; fixture: `typed-embedded-112`. |
 | `a custom property of type {}` | refused | Types outside the eight Tiled kinds and the one dialect kind stop by name. |
 
 JSON class members are bare values in Tiled's map format; their declared member
@@ -318,9 +318,9 @@ three fixtures that would settle the first question.
 | Group opacity | dropped | — | Aseprite's UI offers a group none, and `asein._group_tree` hands every group back `1.0` whatever byte is stored — any value but 255 would be a number nobody could ever read again, so every group row writes opacity 255. |
 | `Track.alpha_lock` | dropped | — | An editing aid, not picture data; the format has no bit for it. |
 | An empty group | dropped | — | A group is a *run* of the layer list here, so one with no members has no run to write (`_install_groups` prunes the same shape on read). |
-| a background layer | round-trips | -- | **Divergence #6 is retired** (6.5). A background layer is a flag on the bottom layer, written into the layer chunk's own flags (`0x08`) and into `stack.xml` as `warlock-background`, and read back from both. What it means is that the layer composites opaque -- so erasing on it reveals the colour under the eraser rather than a hole. `Document.matte` remains as the *stand-in* for a document that has no background layer, and converting one folds the matte into the pixels and clears it: the flatten-time overlay becomes a layer every format can store. |
-| the flatten matte (`Document.matte`) | dropped | -- | `.aseprite` has no field for what a flattened export puts behind transparency, so a document saved here and reopened *infers* one with `matte_for`: white if every pixel is opaque, off otherwise. The user's own answer survives only in `.ora`, as `warlock-matte` on the `<image>` root -- and that attribute is the one `warlock-*` attribute written **unconditionally**, because the setting is tri-state (on / off / nobody said) and absence has to keep meaning "infer" for Krita files and for files written before it existed. Sheet imports infer for the same reason. |
-| a reference layer | round-trips | -- | Read since the reader landed (opened hidden, because Aseprite's own export omits one) and **kept as a layer type** since 6.5 rather than folded into `visible`: `Layer.reference` is written into the chunk flags (`0x40`) and into `stack.xml` as `warlock-reference`, and it refuses every tool write through the door the content lock already uses. |
+| a background layer | round-trips | -- | **Divergence #6 is retired** (6.5). A background layer is a flag on the bottom layer, written into the layer chunk's own flags (`0x08`) and into `stack.xml` as `realmspinner-background`, and read back from both. What it means is that the layer composites opaque -- so erasing on it reveals the colour under the eraser rather than a hole. `Document.matte` remains as the *stand-in* for a document that has no background layer, and converting one folds the matte into the pixels and clears it: the flatten-time overlay becomes a layer every format can store. |
+| the flatten matte (`Document.matte`) | dropped | -- | `.aseprite` has no field for what a flattened export puts behind transparency, so a document saved here and reopened *infers* one with `matte_for`: white if every pixel is opaque, off otherwise. The user's own answer survives only in `.ora`, as `realmspinner-matte` on the `<image>` root -- and that attribute is the one `realmspinner-*` attribute written **unconditionally**, because the setting is tri-state (on / off / nobody said) and absence has to keep meaning "infer" for Krita files and for files written before it existed. Sheet imports infer for the same reason. |
+| a reference layer | round-trips | -- | Read since the reader landed (opened hidden, because Aseprite's own export omits one) and **kept as a layer type** since 6.5 rather than folded into `visible`: `Layer.reference` is written into the chunk flags (`0x40`) and into `stack.xml` as `realmspinner-reference`, and it refuses every tool write through the door the content lock already uses. |
 | Palette-constrained RGB's own palette | dropped | #19 | The chunks *are* written — a file Aseprite opens carries its colour table — but the constraint itself has nowhere to live in the format; see the aseprite → ORA row below for why re-opening it does not bring the constraint back either. Pinned, not fixed: `tests/modes/inker/fixtures/aseprite/palette-constrained-rgb.aseprite` in the corpus. |
 | Grayscale storage | normalized | #2 | `(v, v, v, a)` writes as the format's own `(value, alpha)` pair — lossless for every *visible* pixel; see the next row for the one place it is not. |
 | Dead colour under a grayscale pixel's alpha 0 | dropped | #2 | The funnel deliberately leaves whatever colour an eraser stroke exposed alone rather than rewriting it (a no-op write should stay a no-op), so an invisible pixel's RGB is real per-channel data this format's two-channel storage cannot carry — it is written as its own red channel alone and reads back `(v, v, v, 0)`. |
@@ -372,7 +372,7 @@ three fixtures that would settle the first question.
 `ora.py` is both halves — reader and writer — so unlike the Aseprite pair there
 is no asymmetry to tabulate, only what the format carries that this document
 model has nowhere to put. Everything here is a **round-trip loss**: open in
-Warlock, save, reopen in Krita, and the column is gone for good. That is worth
+Realmspinner, save, reopen in Krita, and the column is gone for good. That is worth
 stating plainly rather than leaving in code comments, because "the pixels are
 fine" is true of every row and is not the question a user asks.
 

@@ -22,10 +22,10 @@ from pathlib import Path
 
 import pytest
 
-from warlock import poselib
-from warlock.kernels.rig import cliplib
-from warlock.service import Conflict, Failed, Invalid, NotFound
-from warlock.service import clips as svc_clips
+from realmspinner import poselib
+from realmspinner.kernels.rig import cliplib
+from realmspinner.service import Conflict, Failed, Invalid, NotFound
+from realmspinner.service import clips as svc_clips
 
 TEMPLATE = "humanoid"
 

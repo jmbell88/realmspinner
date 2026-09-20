@@ -17,15 +17,15 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock import doctor
-from warlock.doctor import Check
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.geom3d.gltf import Model, Node
-from warlock.kernels.rig import cliplib, templates
-from warlock.pipelines import blender_run
-from warlock.service import poses as svc_poses
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.viewer.pose import PoseEditor
+from realmspinner import doctor
+from realmspinner.doctor import Check
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.geom3d.gltf import Model, Node
+from realmspinner.kernels.rig import cliplib, templates
+from realmspinner.pipelines import blender_run
+from realmspinner.service import poses as svc_poses
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.viewer.pose import PoseEditor
 
 
 class _Asks:
@@ -91,7 +91,7 @@ class FakeCtx:
 
 #: ``test_frame_thread_doors.py``'s own worker thread name -- reused here so a
 #: failure reads the same way theirs does.
-WORKER = "warlock-task-test"
+WORKER = "realmspinner-task-test"
 
 
 class _ThreadedCtx(FakeCtx):
@@ -146,7 +146,7 @@ class FakeViewer:
         self.onion: list = []
         # The real camera, because the view keys are about what it does and a
         # stub would pass whatever they did.
-        from warlock.studio.viewer.camera import Camera
+        from realmspinner.studio.viewer.camera import Camera
 
         self.camera = Camera()
         # ``enter_pose_mode``'s stand-in for "the loaded GLB has a skeleton" --
@@ -964,7 +964,7 @@ def test_rerig_control_is_gated_by_the_pane_s_own_blender_check():
     false; this pins that the control never grew a second, silent gate."""
     import inspect
 
-    from warlock.studio.modes.poser.ui.panes import library as poser_library
+    from realmspinner.studio.modes.poser.ui.panes import library as poser_library
 
     source = inspect.getsource(poser_library.draw)
     assert "_rerig(ctx, state)" in source, "the control must actually be wired in"
@@ -1075,7 +1075,7 @@ def test_apply_skeleton_records_a_field_addressed_refusal(svc, monkeypatch):
     straight out of :func:`poser_mode.apply_skeleton` here -- the real
     ``TaskRunner`` instead catches it into a ``Done`` and hands it to
     :func:`poser_mode.on_task_failed`, which is exercised directly below."""
-    from warlock.service.errors import Invalid
+    from realmspinner.service.errors import Invalid
 
     ctx, viewer, job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
     poser_mode.enter_skeleton_edit(ctx)
@@ -1214,7 +1214,7 @@ def test_skeleton_state_resets_on_open_and_close_but_not_on_template_switch(svc,
     # editing session it says nothing about -- ``_reset_for_template`` is not
     # in the call chain for a mid-session skeleton edit at all, but this pins
     # that adding a field there was a deliberate choice, not an oversight.
-    import warlock.studio.modes.poser.mode as poser_mode_module
+    import realmspinner.studio.modes.poser.mode as poser_mode_module
 
     fields_reset = poser_mode_module._reset_for_template.__code__.co_names
     assert "skeleton_editing" not in fields_reset
@@ -1516,7 +1516,7 @@ def test_deleting_the_edited_pose_clears_current(svc):
 
 
 def test_guard_asks_only_for_the_poser_session(svc):
-    from warlock.studio.panes import pose_panel
+    from realmspinner.studio.panes import pose_panel
 
     ctx = FakeCtx(svc)
     ctx.poser_viewer = _bound_viewer()
@@ -1593,7 +1593,7 @@ def test_both_mirror_buttons_go_through_their_pane_s_guard(module, guard_name):
     import importlib
     import inspect
 
-    source = inspect.getsource(importlib.import_module(f"warlock.studio.{module}"))
+    source = inspect.getsource(importlib.import_module(f"realmspinner.studio.{module}"))
     assert f'{guard_name}(ctx, "mirror the pose", viewer.mirror)' in source
     assert "viewer.mirror()" not in source
 
@@ -1629,7 +1629,7 @@ def test_poser_results_are_claimed_before_the_asset_pose_branches():
     """
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._on_task_done)
     poser = source.index('key.startswith(("poser-", "troupe-"))')
@@ -1720,7 +1720,7 @@ def test_poser_has_clays_view_keys_under_the_same_ctrl(svc):
     2026-09-05 consistency pass: one chord, both viewports."""
     import pygame
 
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     ctx = FakeCtx(svc)
     viewer = ctx.poser_viewer = _bound_viewer()
@@ -1752,7 +1752,7 @@ def test_poser_has_clays_view_keys_under_the_same_ctrl(svc):
 
 
 def test_the_mode_is_wired_into_the_switch():
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     assert "poser" in modes.KEYS
     assert "poser" in modes.WORK_MODES
@@ -1982,7 +1982,7 @@ def test_frame_time_snaps_to_the_library_step():
 
 
 def test_the_frame_time_control_writes_duration_ms_and_a_save_round_trips(monkeypatch):
-    from warlock.service import clips as svc_clips
+    from realmspinner.service import clips as svc_clips
 
     ctx, state = _clip_ctx()
     poser_mode.set_duration(ctx, 250)
@@ -2040,7 +2040,7 @@ def test_saving_keeps_the_provisional_flag(monkeypatch):
     """``provisional``/``source`` ride in the working copy untouched, so a
     save of a shipped provisional clip (attack_02, cast, fall, hit, death)
     cannot silently drop the flag an animator's pass still owes."""
-    from warlock.service import clips as svc_clips
+    from realmspinner.service import clips as svc_clips
 
     ctx, state = _clip_ctx()
     record = state.open_clip()
@@ -2180,7 +2180,7 @@ def test_a_revert_asked_with_unsaved_edits_is_adopted_when_it_lands(monkeypatch)
     just confirmed. ``set_easing`` (rather than the newer ``set_duration``)
     is what dirties the working copy here, so this reaches ``revert_clips``
     and ``on_task_done`` exactly as they existed when the defect was live."""
-    from warlock.service import clips as svc_clips
+    from realmspinner.service import clips as svc_clips
 
     ctx, state = _clip_ctx()
     poser_mode.set_easing(ctx, "ease_in")
@@ -2315,8 +2315,8 @@ def test_import_clip_asks_for_a_file_on_the_task_thread(tmp_path, monkeypatch):
     """``troupe_mode.export_package``'s arrangement: a blocking OS picker on
     the frame thread freezes the window behind it, so it has to be asked from
     inside the submitted task, not before ``ctx.submit`` is even called."""
-    from warlock.service import clip_import as svc_clip_import
-    from warlock.studio import dialogs
+    from realmspinner.service import clip_import as svc_clip_import
+    from realmspinner.studio import dialogs
 
     ctx = _ThreadedCtx(tmp_path)
     state = poser_mode.ensure(ctx)
@@ -2347,7 +2347,7 @@ def test_import_clip_asks_for_a_file_on_the_task_thread(tmp_path, monkeypatch):
 
 
 def test_a_cancelled_import_changes_nothing(monkeypatch):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx, state = _clip_ctx()
     before = json.loads(json.dumps(state.clips))
@@ -2471,7 +2471,7 @@ def test_imported_pose_names_never_overwrite_working_copy_poses():
 
 
 def test_import_clip_is_disabled_without_blender_with_a_reason():
-    from warlock.studio.modes.poser.ui.panes.clips import _import_clip_reason
+    from realmspinner.studio.modes.poser.ui.panes.clips import _import_clip_reason
 
     assert (
         _import_clip_reason(False, True, False)
@@ -2493,7 +2493,7 @@ def test_import_clip_is_disabled_with_a_reason_while_a_skeleton_edit_is_open():
     than pretend Blender or the library is the reason. Checked first: even
     with Blender missing and no library at all, this is still the one true
     reason while a skeleton edit is open."""
-    from warlock.studio.modes.poser.ui.panes.clips import _import_clip_reason
+    from realmspinner.studio.modes.poser.ui.panes.clips import _import_clip_reason
 
     assert (
         _import_clip_reason(True, True, False, True)
@@ -2522,7 +2522,7 @@ def test_saving_after_an_import_keeps_where_the_clip_came_from(monkeypatch):
     """``source`` rides in the working copy untouched, the same
     ``test_saving_keeps_the_provisional_flag`` argument -- so a later Save
     keeps the file it came from, the map that was used, and the date."""
-    from warlock.service import clips as svc_clips
+    from realmspinner.service import clips as svc_clips
 
     ctx, state = _clip_ctx()
     result = _import_result(name="run")
@@ -2584,7 +2584,7 @@ def test_node_space_libraries_are_passed_through_untouched():
 
 
 def test_the_shipped_humanoid_library_is_delta_so_the_conversion_is_load_bearing():
-    from warlock.kernels.rig import cliplib
+    from realmspinner.kernels.rig import cliplib
 
     library = cliplib.clip_library("humanoid")
     assert library["space"] == "delta"
@@ -2639,7 +2639,7 @@ def test_riggable_assets_is_throttled_page_capped_and_passes_a_files_cache(svc, 
     2026-09-18, rather than restated), and ``files_cache`` is handed to
     ``list_jobs`` so the picker is not a stat per listed name per row every
     frame its header is open."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     job_id = _rigged_job(svc)
     ctx = FakeCtx(svc)
@@ -2723,7 +2723,7 @@ def test_the_rigged_assets_picker_click_reaches_open_asset_with_the_row(svc, mon
     row straight to ``open_asset``, unmodified, and does not re-implement the
     dirty-editor guard or the template-switch discard confirm that function
     already carries."""
-    from warlock.studio.modes.poser.ui.panes import library as poser_library
+    from realmspinner.studio.modes.poser.ui.panes import library as poser_library
 
     job_id = _rigged_job(svc)
     ctx = FakeCtx(svc)

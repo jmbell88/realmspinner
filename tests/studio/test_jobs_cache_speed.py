@@ -4,9 +4,9 @@ storage accounting (C33)."""
 
 from __future__ import annotations
 
-from warlock.service import jobs as svc_jobs
-from warlock.studio.jobs_cache import IDLE_REFRESH_SECONDS, REFRESH_SECONDS, JobsCache
-from warlock.studio.state import Filters
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.studio.jobs_cache import IDLE_REFRESH_SECONDS, REFRESH_SECONDS, JobsCache
+from realmspinner.studio.state import Filters
 
 
 def test_count_is_exact_for_free_when_the_page_is_not_full(svc, monkeypatch):

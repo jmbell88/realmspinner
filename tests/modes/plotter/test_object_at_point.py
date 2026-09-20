@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.shell import paintview
+from realmspinner.studio.shell import paintview
 
 from ._drive import Scene
 

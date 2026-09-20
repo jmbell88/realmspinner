@@ -14,15 +14,15 @@ from typing import Any
 
 import numpy as np
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import filters
-from warlock.kernels.pixel.flourish import bake as B
-from warlock.kernels.pixel.flourish import engines, presets
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import opening as inker_open
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.state import AppState
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import filters
+from realmspinner.kernels.pixel.flourish import bake as B
+from realmspinner.kernels.pixel.flourish import engines, presets
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import opening as inker_open
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.state import AppState
 
 # --- shared harness: runs a submitted task inline, exactly test_flourish_ops.py's own ------
 
@@ -43,7 +43,7 @@ class _FlourishCtx:
         return None
 
     def submit(self, key: str, fn: Any, *args: Any, **kwargs: Any) -> bool:
-        from warlock.studio.tasks import Done
+        from realmspinner.studio.tasks import Done
 
         try:
             done = Done(key=key, result=fn(*args, **kwargs))

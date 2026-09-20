@@ -17,12 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from warlock.service import updates as svc_updates
-from warlock.service.errors import Invalid
+from realmspinner.service import updates as svc_updates
+from realmspinner.service.errors import Invalid
 
 
 class FakeService:
-    """Only what this module touches. ``WarlockService`` needs a database."""
+    """Only what this module touches. ``RealmspinnerService`` needs a database."""
 
     def __init__(self, home: Path) -> None:
         self.config = type("C", (), {"home": home})()

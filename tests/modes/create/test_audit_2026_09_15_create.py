@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio.modes.create.engine import assets as create_assets
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.state import default_form_2d
+from realmspinner.studio.modes.create.engine import assets as create_assets
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.state import default_form_2d
 
 
 def _copy_ctx():

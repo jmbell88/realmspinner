@@ -1,0 +1,619 @@
+"""Sirens' centre pane: the pattern grid, and the mode's heartbeat.
+
+**Drawn with the draw list, not with widgets.** A 64-row pattern over five
+channels is 1,600 cells, and one imgui widget per cell is 1,600 ids, 1,600
+hit-tests and a layout pass per frame -- for text that is never interactive
+individually. The grid is text and rectangles on one draw list, and *one*
+invisible button over the whole thing turns a click into a caret move. That is
+``plotter_canvas``'s argument at a different scale: what a canvas spends its
+effort not building is a widget tree.
+
+**Only the visible rows are drawn.** A pattern can be 256 rows and the pane can
+show forty of them; drawing the rest is text the clipper would throw away
+anyway, and at eight open tabs it is the frame budget.
+
+**This pane is the pump.** There is no per-mode update hook, so the thing that
+draws every frame is what re-arms the renderer -- ``sirens_mode.pump`` here,
+the ``motion.py`` idiom, and the same job ``packwright_preview`` does for the
+atlas. The flag is cleared inside ``request_render`` on an accepted submit, so
+calling this every frame is free when nothing changed.
+
+**No help button.** It is the canvas, not a panel -- ``plotter_canvas``'s rule,
+and ``tests/manual/test_coverage.py`` lists both by name.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ..... import anchors, controls, docmodes, icons, theme, widgets
+from .....tokens import sp
+from ... import hints as sirens_hints
+from ... import mode as sirens_mode
+from ... import state as sirens_state
+from ...engine import document as D
+
+# ``synth`` at module level, not inside ``_cell_text``: that function runs once
+# per visible cell per frame -- up to forty rows times eight channels -- and an
+# import statement there was a ``sys.modules`` lookup and a dict write per cell
+# for a table that never changes.
+from ...engine import instruments as inst
+from ...engine import notes, synth
+
+#: One row's height and one column-group's width, in design pixels. Both are
+#: measured from the monospace text they hold rather than chosen: a cell is
+#: ``"C-4 01 .. 000"`` and a group narrower than that clips the effect column,
+#: which is the one nobody notices is missing.
+ROW_H = 16.0
+GUTTER_W = 34.0
+CHANNEL_W = 116.0
+
+#: The five columns' character widths within a group, in the document's
+#: order. ``document.COLUMNS`` worth of entries -- but only its *length* is read,
+#: by the import-time assert below. Nothing in this module consults the
+#: individual widths: each column's actual on-screen width comes from
+#: ``_advance()``'s live text measurement, and the group's width is the
+#: unrelated hardcoded ``CHANNEL_W`` above. The 2026-09-16 audit (finding
+#: sirens-05) found this docstring still claiming a sixth column "must widen
+#: the group here or the grid silently stops drawing it" -- not true even
+#: before that sentence was written: adding a column here changes nothing
+#: about the group's width, only the length check below. What the tuple buys
+#: is that check: a column-count mismatch fails loudly at import time rather
+#: than drawing a column silently missing.
+COLUMN_CHARS: tuple[int, ...] = (3, 2, 2, 1, 2)
+
+# The 2026-09-08 audit found sirens-04: the docstring above claimed
+# COLUMN_CHARS was "asserted by a test", which was not true -- nothing in the
+# module or the suite ever read it, so a seventh column added to
+# ``document.COLUMNS`` without a matching entry here would have drawn a grid
+# with a column silently missing, the exact hazard the docstring claimed was
+# already guarded against. Asserted here, at import time, rather than left
+# for a test to notice on its own schedule.
+assert len(COLUMN_CHARS) == D.COLUMNS, (
+    "COLUMN_CHARS must have one entry per document.COLUMNS column, or the"
+    " grid silently stops drawing the one it forgot"
+)
+
+#: Every byte a cell can hold, formatted once. Three of the five columns are a
+#: byte, and a visible grid is up to ``visible x channels`` cells *per frame* --
+#: so this is three ``f"{n:02X}"`` calls per cell that never had to happen.
+_HEX: tuple[str, ...] = tuple(f"{value:02X}" for value in range(256))
+
+#: ``{(text, font_size): advance}``. The grid measures every column of every
+#: visible cell, twice where the caret is, and the strings come from a tiny
+#: fixed vocabulary -- 256 byte spellings, the note names, the effect letters --
+#: so the measurement is the same answer over and over. Keyed on the font size
+#: as well as the text because ``sp`` scales with the display and a cached
+#: advance from another scale would misplace every caret. Bounded by that
+#: vocabulary; nothing here is user text.
+_ADVANCE: dict[tuple[str, float], float] = {}
+
+#: The cell the open (or most recently opened) effect popup targets, as a
+#: one-element box so it can be rebound without a ``global``. imgui owns
+#: whether the popup itself is showing; this only remembers *which* cell a
+#: pick should land on, since a popup drawn a frame after the click that
+#: opened it can no longer read the mouse position that chose the cell.
+_fx_popup_target: list[tuple[int, int] | None] = [None]
+
+
+def draw(ctx: Any) -> None:
+
+    # The largest surface in the mode, and the one a tour has most reason to
+    # ring: until this mark no step could point at the grid at all.
+    anchors.mark_window("sirens/grid")
+    state = sirens_mode.ensure(ctx)
+    tab = state.active
+    # The pump, before anything can return: a frame that drew the empty state
+    # is still a frame, and a tab whose render failed must keep being offered
+    # the chance to succeed.
+    sirens_mode.pump(ctx)
+
+    _tabs(ctx, state)
+    if tab is None:
+        _empty(ctx)
+        return
+
+    # Before the grid, not after: the grid sizes its row count from the content
+    # region still available, so a strip drawn under it would be a row past the
+    # bottom of the pane.
+    _toolbar(ctx, state)
+    pattern = sirens_mode.caret_pattern(ctx, tab)
+    if pattern is None:
+        widgets.muted("This song has no patterns. Add one from the Order panel.")
+        return
+
+    from imgui_bundle import imgui
+
+    left, fits = _window(state, pattern, imgui.get_content_region_avail().x)
+    _headers(ctx, state, tab, pattern, left, fits)
+    _grid(ctx, state, tab, pattern, left, fits)
+
+
+def _headers(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) -> None:
+    """One button per channel, over the column it belongs to.
+
+    **The channels had no names on screen at all**, which is the plainest thing
+    missing from this pane: five columns of dots, and the only way to find out
+    which one was the noise channel was to type into it (the 2026-09-02 review,
+    section 8). The button carries the name, its state says whether the mix is
+    playing it, and a click mutes -- with solo on the right-hand button, since
+    the two are used together and a modifier-click is a control nobody finds.
+    """
+    from imgui_bundle import imgui
+
+    channels = list(tab.doc.channels)[: pattern.channels]
+    if not channels:
+        return
+    chan_w = sp(CHANNEL_W)
+    hidden_left, hidden_right = left, max(0, len(channels) - (left + fits))
+    # The gutter says how many channels are off to the left, because a grid
+    # that starts at channel 3 and looks exactly like one that starts at 0 is
+    # a grid you can type into the wrong part of.
+    imgui.dummy((sp(GUTTER_W) - sp(4), 1))
+    if hidden_left:
+        imgui.same_line()
+        widgets.muted(f"<{hidden_left}")
+    for index, channel in enumerate(channels[left : left + fits], start=left):
+        imgui.same_line()
+        muted, soloed, audible = sirens_mode.channel_state(ctx, channel.uid)
+        name = channel.name or f"{channel.kind.capitalize()} {index + 1}"
+        # Two buttons in one column's width: the name (mute) and an S (solo).
+        label = name if audible else f"{icons.SLASH} {name}"
+        if widgets.disabled_button(
+            f"{label}###sirens-mute-{channel.uid}",
+            True,
+            (chan_w - sp(26), 0),
+            tooltip=(
+                f"{name} -- {channel.kind}. Click to "
+                f"{'unmute' if muted else 'mute'} it in the mix."
+                + ("" if audible or muted else " Another channel is soloed.")
+            ),
+        ):
+            sirens_mode.toggle_mute(ctx, channel.uid, tab)
+        imgui.same_line()
+        if widgets.disabled_button(
+            f"{icons.CIRCLE if soloed else 'S'}###sirens-solo-{channel.uid}",
+            True,
+            (sp(20), 0),
+            tooltip=(
+                "Stop soloing this channel."
+                if soloed
+                else "Play this channel alone. Solo wins over every mute."
+            ),
+        ):
+            sirens_mode.toggle_solo(ctx, channel.uid, tab)
+        _channel_popup(ctx, tab, channel, index)
+    if hidden_right:
+        imgui.same_line()
+        widgets.muted(f"{hidden_right}>")
+
+
+def _channel_popup(ctx: Any, tab: Any, channel: Any, index: int) -> None:
+    """Right-click a channel header: its name, its voice and where it sits.
+
+    **``SongDoc.update_channel`` had no caller.** The model could rename, repan
+    and re-kind a channel and nothing on screen could ask for any of the three
+    (the 2026-09-02 review, section 8), so a song's five voices were whatever
+    ``default_channels`` made them for the life of the file. Here rather than in
+    a panel of its own because this strip is the only surface that names a
+    channel, and a property sheet somewhere else is a second place to look.
+
+    Opened from the mute button's own id, so the right-click target is the thing
+    it is about. The name commits on Enter or on losing focus (``commit=True``)
+    for the reason every other name field in the app does: a rename is one undo
+    step, not one per character.
+    """
+    from imgui_bundle import imgui
+
+    tag = f"sirens-chan-menu-{channel.uid}"
+    if imgui.begin_popup_context_item(tag, imgui.PopupFlags_.mouse_button_right.value):
+        imgui.text(f"Channel {index + 1}")
+        imgui.set_next_item_width(sp(140))
+        changed, name = controls.input_text(
+            f"Name##{tag}", channel.name, enabled=not tab.busy, commit=True
+        )
+        if changed:
+            sirens_mode.update_channel(ctx, channel.uid, name=str(name)[: inst.MAX_NAME_LEN])
+        widgets.field_label("Voice")
+        imgui.set_next_item_width(sp(140))
+        # ``##``-hidden with the name above: imgui puts a combo's label to its
+        # right, where it is simply not drawn -- ``sirens_instruments``' note.
+        changed, kind = controls.combo(
+            f"##{tag}-kind",
+            channel.kind,
+            [(one, one.title()) for one in inst.KINDS],
+            enabled=not tab.busy,
+            tooltip="What this channel plays. The notes written on it stay"
+            " where they are -- the voice is how they sound, not what they are.",
+        )
+        if changed:
+            sirens_mode.update_channel(ctx, channel.uid, kind=str(kind))
+        imgui.set_next_item_width(sp(140))
+        changed, pan = controls.slider_float(
+            f"Pan##{tag}", float(channel.pan), -1.0, 1.0, enabled=not tab.busy,
+            tooltip="-1 is hard left, +1 hard right.",
+        )
+        # One gesture, one step: a drag reports on every frame the pointer
+        # moves, and ``update_channel`` pushes a step (and rebuilds a full
+        # per-pattern snapshot) per report without this.
+        controls.fold_undo(tab.doc.history)
+        if changed:
+            sirens_mode.update_channel(ctx, channel.uid, pan=float(pan))
+        imgui.end_popup()
+
+
+def _tabs(ctx: Any, state: Any) -> None:
+
+    docmodes.tab_bar(ctx, state, "sirens-tabs", lambda tab: sirens_mode.close_tab(ctx, tab.uid))
+
+
+def _empty(ctx: Any) -> None:
+    from pathlib import Path
+
+    widgets.nothing_open(
+        "Start a song or open a .rsng.",
+        [
+            ("New song", lambda: sirens_mode.new_document(ctx)),
+            ("Open a file...", lambda: sirens_mode.ask_open(ctx)),
+            # The third is a ghost and is the odd one out in this app: no other
+            # mode offers its own tour from inside itself. This one does
+            # because a tracker is the mode a newcomer is least able to guess
+            # at, and the empty state is the one place they are guaranteed to
+            # be standing when they need it -- Ctrl+K is not knowledge somebody
+            # opening Sirens first has.
+            ("Take the tour", lambda: _start_tour(ctx)),
+        ],
+        recent_paths=sirens_mode.recent_paths(ctx),
+        on_open=lambda path: sirens_mode.open_path(ctx, Path(path)),
+    )
+
+
+def _start_tour(ctx: Any) -> None:
+    """``sirens-basics``, from the empty state. Imported here rather than at
+    module level because the tour pane draws imgui of its own and this pane is
+    the one every Sirens frame goes through."""
+    from .....panes import tour as tour_pane
+
+    tour_pane.start(ctx, "sirens-basics")
+
+
+def first_channel(caret: int, count: int, fits: int, scroll: int) -> int:
+    """Which channel is drawn leftmost, given where the caret is. Pure.
+
+    **The pane used to draw whatever fitted and stop.** A song with more
+    channels than the column is wide had the rest simply absent -- no scrollbar,
+    no marker, nothing -- while Left and Right happily walked the caret into
+    them, so typing continued into a part of the song that was not on screen
+    (the 2026-09-02 review, section 8).
+
+    The window follows the caret rather than being dragged: a tracker's
+    horizontal axis is five columns wide, not five hundred, and a scrollbar for
+    two channels of overflow is a control to operate before you can type. The
+    remembered ``scroll`` is what keeps it still -- recomputing "centre on the
+    caret" every frame would slide the whole grid sideways on every Right.
+    """
+    fits = max(1, int(fits))
+    top = max(0, int(count) - fits)
+    scroll = max(0, min(int(scroll), top))
+    caret = max(0, min(int(caret), max(0, int(count) - 1)))
+    if caret < scroll:
+        scroll = caret
+    elif caret >= scroll + fits:
+        scroll = caret - fits + 1
+    return max(0, min(scroll, top))
+
+
+def _window(state: Any, pattern: Any, avail_x: float) -> tuple[int, int]:
+    """``(leftmost channel, how many fit)``, and the scroll remembered on the
+    state. Called once per frame from :func:`draw`, so the header strip and the
+    grid cannot come to disagree about which channels are on screen."""
+    fits = max(1, int((avail_x - sp(GUTTER_W)) // sp(CHANNEL_W)))
+    fits = min(fits, pattern.channels)
+    state.chan_scroll = first_channel(
+        state.channel, pattern.channels, fits, state.chan_scroll
+    )
+    return state.chan_scroll, fits
+
+
+def _cell_text(cells: Any, row: int, channel: int) -> tuple[str, ...]:
+    """One cell's five columns, as the strings the grid draws.
+
+    ``"..."`` for an empty note and ``".."`` for an empty byte, which is the
+    tracker convention and is not decoration: a run of dots is how the eye
+    finds the rows where *something* happens, and a blank there makes a pattern
+    unreadable at a glance.
+    """
+    note = int(cells[row, channel, D.NOTE])
+    instrument = int(cells[row, channel, D.INSTRUMENT])
+    volume = int(cells[row, channel, D.VOLUME])
+    effect = int(cells[row, channel, D.EFFECT])
+    param = int(cells[row, channel, D.PARAM])
+    letter = synth.EFFECT_NAMES.get(effect, (".", ""))[0] if effect >= 0 else "."
+    return (
+        notes.name(note) if note != notes.EMPTY else "...",
+        _HEX[instrument] if instrument >= 0 else "..",
+        _HEX[volume] if volume >= 0 else "..",
+        letter,
+        _HEX[param] if param >= 0 else "..",
+    )
+
+
+def _caret_span(column: int, digit: int, part: str) -> tuple[int, int]:
+    """Which characters of a cell's text the caret rings, as ``(start, count)``.
+
+    A column typed one nibble at a time gets a caret over the **nibble**,
+    because two-digit entry is otherwise invisible: the first key changes one
+    character of the cell and nothing anywhere says a second key is still owed,
+    so an entry interrupted by an arrow key looks exactly like an entry that
+    finished. The columns taken in a single keystroke -- the note, the volume,
+    the effect letter -- keep the whole-cell caret, since they have no
+    sub-position to show and a caret narrower than the value it is over would
+    be pointing at half a thing.
+    """
+    if sirens_mode.COLUMN_DIGITS[column] > 1 and 0 <= digit < len(part):
+        return (digit, 1)
+    return (0, len(part))
+
+
+def column_at(dx: float, widths: Any, gap: float) -> int:
+    """Which of a cell's five columns a click ``dx`` into its channel is on.
+
+    ``widths`` is the drawn advance of each column's text, in order, and ``gap``
+    is the space after each -- the same two numbers the draw loop steps ``cx``
+    by, so the answer is the column under the pixel rather than a second
+    opinion about the layout.
+
+    A click in the gap after a column takes that column: the space belongs to
+    the value on its left the way a tracker's does, and a caret that refused to
+    move because the press landed one pixel wide of a glyph is a control that
+    works most of the time. Left of the first column and right of the last both
+    clamp, for the same reason the row does.
+
+    Pure, and here rather than inline in the click branch, because "click on
+    ``Fxx``, type, get a note" was the whole defect: the press moved the row and
+    the channel and left the column where it was (the 2026-09-02 review,
+    section 8).
+    """
+    edge = 0.0
+    for column, width in enumerate(widths):
+        edge += float(width) + float(gap)
+        if dx < edge:
+            return column
+    return max(0, len(tuple(widths)) - 1)
+
+
+def _advance(imgui: Any, text: str) -> float:
+    """``calc_text_size(text).x``, memoised. See :data:`_ADVANCE`."""
+    key = (text, float(imgui.get_font_size()))
+    got = _ADVANCE.get(key)
+    if got is None:
+        got = float(imgui.calc_text_size(text).x)
+        _ADVANCE[key] = got
+    return got
+
+
+def choose_effect(ctx: Any, row: int, channel: int, effect: int) -> bool:
+    """Pick an effect by id at ``(row, channel)``. -> whether it was written.
+
+    The right-click popup's own verb, pulled out so a test can drive it
+    without a mouse: point the caret at the cell's effect column and hand the
+    letter to ``sirens_edit.write_effect``, which is the single authority over
+    which ids the engine has a handler for (:func:`.sirens_edit.write_effect`
+    reads ``synth.EFFECT_NAMES`` rather than duplicating it). An id the table
+    does not have writes nothing, the same refusal typing an unknown letter
+    already gets.
+    """
+    from ...engine import document as D
+    from ...engine import synth
+
+    entry = synth.EFFECT_NAMES.get(effect)
+    if entry is None:
+        return False
+    sirens_mode.set_caret(ctx, row=row, channel=channel, column=D.EFFECT)
+    return sirens_mode.write_effect(ctx, entry[0])
+
+
+def _effect_popup(ctx: Any, name: str, row: int, channel: int) -> None:
+    """The list ``choose_effect`` is opened onto: every ``synth.EFFECT_NAMES``
+    id, its letter, and the one-line purpose beside it -- the same sentence
+    the reference table in the manual carries, read rather than retyped."""
+    from imgui_bundle import imgui
+
+    from ...engine import synth
+
+    if not imgui.begin_popup(name):
+        return
+    for effect, (letter, purpose) in sorted(synth.EFFECT_NAMES.items()):
+        # Through the control layer, not imgui.selectable: the popup is a pane
+        # row like any other and test_panes_do_not_bypass_the_presentational_
+        # control_layer holds the whole panes/ directory to that.
+        if controls.selectable(f"{letter}  {purpose}###sirens-fx-choice-{effect}")[0]:
+            choose_effect(ctx, row, channel, effect)
+    imgui.end_popup()
+
+
+def _grid(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) -> None:
+    from imgui_bundle import imgui
+
+    cells = pattern.cells
+    row_h = sp(ROW_H)
+    gutter = sp(GUTTER_W)
+    chan_w = sp(CHANNEL_W)
+    origin = imgui.get_cursor_screen_pos()
+    avail = imgui.get_content_region_avail()
+    draw_list = imgui.get_window_draw_list()
+
+    text = imgui.get_color_u32(theme.rgba(theme.TEXT))
+    muted = imgui.get_color_u32(theme.rgba(theme.MUTED))
+    accent = imgui.get_color_u32(theme.rgba(theme.ACCENT, 0.35))
+    beat = imgui.get_color_u32(theme.rgba(theme.ELEV_1))
+    caret = imgui.get_color_u32(theme.rgba(theme.ACCENT))
+    block = imgui.get_color_u32(theme.rgba(theme.ACCENT, 0.18))
+
+    visible = max(1, int(avail.y // row_h))
+    playhead = sirens_mode.playhead_row(ctx, tab)
+    # Which row sits at the top. Centred on the caret -- or on the playhead
+    # while following, which is what ``SirensState.follow`` buys: a playhead
+    # that scrolls off the pane within a bar is a playhead nobody watches.
+    focus = playhead if (state.follow and playhead is not None) else state.row
+    top = max(0, min(int(focus) - visible // 2, max(0, pattern.rows - visible)))
+    selection = state.selection()
+
+    for index in range(visible):
+        row = top + index
+        if row >= pattern.rows:
+            break
+        y = origin.y + index * row_h
+        if row % D.ROWS_PER_BEAT == 0:
+            # The beat stripe. Without it a 64-row pattern is an undifferen-
+            # tiated column of dots and counting to the downbeat is manual.
+            draw_list.add_rect_filled(
+                (origin.x, y), (origin.x + avail.x, y + row_h), beat
+            )
+        if playhead is not None and row == playhead:
+            draw_list.add_rect_filled(
+                (origin.x, y), (origin.x + avail.x, y + row_h), accent
+            )
+        draw_list.add_text((origin.x, y), muted, f"{row:03d}")
+        # Only the window ``_window`` chose: a channel past the right-hand edge
+        # was drawn nowhere and typed into all the same.
+        for channel in range(left, min(left + fits, pattern.channels)):
+            x = origin.x + gutter + (channel - left) * chan_w
+            if selection is not None:
+                srow, schan, srows, schans = selection
+                if srow <= row < srow + srows and schan <= channel < schan + schans:
+                    draw_list.add_rect_filled(
+                        (x, y), (x + chan_w, y + row_h), block
+                    )
+            parts = _cell_text(cells, row, channel)
+            cx = x
+            for column, part in enumerate(parts):
+                colour = text if part[0] not in "." else muted
+                draw_list.add_text((cx, y), colour, part)
+                if row == state.row and channel == state.channel and column == state.column:
+                    start, count = _caret_span(column, state.digit, part)
+                    lead = _advance(imgui, part[:start]) if start else 0.0
+                    width = _advance(imgui, part[start : start + count])
+                    # ``add_rect`` is (p_min, p_max, col, rounding, thickness,
+                    # flags), and the thickness comes *before* the flags. The
+                    # other order type-errors, and only on the frames that draw
+                    # a caret -- which is every frame with a grid on screen, and
+                    # which nothing caught until the panes were drawn under a
+                    # test (``tests/modes/sirens/test_sirens_panes_smoke.py``).
+                    draw_list.add_rect(
+                        (cx + lead - 1, y),
+                        (cx + lead + width + 1, y + row_h),
+                        caret,
+                        0.0,
+                        1.5,
+                    )
+                cx += _advance(imgui, part) + sp(6)
+
+    # One invisible button over the whole grid, which is what makes a click a
+    # caret move without 1,600 widget ids. Sized to the region rather than to
+    # the content so a click below the last row still lands here rather than
+    # falling through to the window.
+    imgui.invisible_button("sirens-grid", (max(avail.x, 1.0), max(avail.y, 1.0)))
+    if imgui.is_item_hovered() and imgui.is_mouse_clicked(0):
+        mouse = imgui.get_mouse_pos()
+        row = top + int((mouse.y - origin.y) // row_h)
+        channel = left + int((mouse.x - origin.x - gutter) // chan_w)
+        if mouse.x >= origin.x + gutter:
+            # The column too, measured off the cell that was actually drawn:
+            # a press that moved the row and the channel and left the column
+            # alone meant clicking on ``Fxx``, typing, and getting a note.
+            column = state.column
+            if 0 <= row < pattern.rows and 0 <= channel < pattern.channels:
+                parts = _cell_text(cells, row, channel)
+                column = column_at(
+                    mouse.x - (origin.x + gutter + (channel - left) * chan_w),
+                    [_advance(imgui, part) for part in parts],
+                    sp(6),
+                )
+            sirens_mode.set_caret(ctx, row=row, channel=channel, column=column)
+    fx_popup = "sirens-fx-popup"
+    if imgui.is_item_hovered() and imgui.is_mouse_clicked(1):
+        mouse = imgui.get_mouse_pos()
+        row = top + int((mouse.y - origin.y) // row_h)
+        channel = left + int((mouse.x - origin.x - gutter) // chan_w)
+        in_grid = 0 <= row < pattern.rows and 0 <= channel < pattern.channels
+        if mouse.x >= origin.x + gutter and in_grid:
+            column = column_at(
+                mouse.x - (origin.x + gutter + (channel - left) * chan_w),
+                [_advance(imgui, part) for part in _cell_text(cells, row, channel)],
+                sp(6),
+            )
+            # Only the fx cell opens a chooser: right-clicking a note or a hex
+            # byte has no "pick from a list" to offer, and a popup that opened
+            # everywhere would be a menu nobody could predict.
+            if column == D.EFFECT:
+                sirens_mode.set_caret(ctx, row=row, channel=channel, column=column)
+                _fx_popup_target[0] = (row, channel)
+                imgui.open_popup(fx_popup)
+    target = _fx_popup_target[0]
+    if target is not None:
+        _effect_popup(ctx, fx_popup, target[0], target[1])
+
+
+def _toolbar(ctx: Any, state: Any) -> None:
+    """The strip over the grid: what the caret is, and where it is going.
+
+    Not a pane of its own, because none of it is a *setting* -- it is the
+    caret's own state, and putting it in a sidebar would mean reading one
+    column to find out what the other column will do with the next keystroke.
+    """
+    from imgui_bundle import imgui
+
+    if state.active is None:
+        return
+    imgui.set_next_item_width(sp(90))
+    changed, value = controls.slider_int("Octave", state.octave, 0, 9)
+    if changed:
+        state.octave = int(value)
+    imgui.same_line()
+    imgui.set_next_item_width(sp(90))
+    changed, value = controls.slider_int("Step", state.step, 0, 16)
+    if changed:
+        state.step = int(value)
+    imgui.same_line()
+    changed, value = controls.checkbox("Follow", state.follow)
+    if changed:
+        state.follow = bool(value)
+    imgui.same_line()
+    changed, value = controls.checkbox(
+        "Preview",
+        state.preview,
+        tooltip="Play each note as it is typed. The song wins: a preview never"
+        " interrupts playback.",
+    )
+    if changed:
+        state.preview = bool(value)
+    imgui.same_line()
+    widgets.muted(f"{icons.AUDIO_WAVEFORM} row {state.row:03d}")
+    # **Which column the caret is in**, which is the one fact that decides what
+    # the next keystroke means and the one fact the grid never said: five
+    # columns of dots look alike, and a note typed into Volume is a hex digit.
+    # ``COLUMN_LABELS`` was written for exactly this and had no reader.
+    imgui.same_line()
+    widgets.muted(
+        f"|  {sirens_state.COLUMN_LABELS[state.column % len(sirens_state.COLUMN_LABELS)]}"
+    )
+    # **What the grid is editing, said where the editing happens.** Adding a
+    # sound effect repoints this grid at the effect's own pattern, and the
+    # panel that did it is in another column; a reader who typed into the grid
+    # afterwards had nothing on this surface telling them which of the two
+    # documents-within-the-document they were changing.
+    label = sirens_mode.caret_pattern_label(ctx)
+    if label:
+        imgui.same_line()
+        widgets.muted(f"|  {label}")
+    # The keyboard in hand, on its own line under the strip. Muted and under
+    # rather than over, which is ``clay_hud.hint_line``'s rule: it is read when
+    # you are stuck, and a line over the grid covers the thing you are stuck on.
+    # muted_wrapped, not muted: this is a full sentence, and in a narrow
+    # Sirens sidebar plain ``muted`` clipped it at the pane edge (C3).
+    widgets.muted_wrapped(
+        sirens_hints.hint(
+            state.column, has_selection=state.selection() is not None
+        )
+    )

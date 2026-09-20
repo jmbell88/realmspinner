@@ -14,12 +14,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import doctor, fetch
-from warlock import models as model_registry
-from warlock.service import downloads as svc_downloads
-from warlock.studio import widgets
-from warlock.studio.panes import model_gate
-from warlock.studio.state import AppState
+from realmspinner import doctor, fetch
+from realmspinner import models as model_registry
+from realmspinner.service import downloads as svc_downloads
+from realmspinner.studio import widgets
+from realmspinner.studio.panes import model_gate
+from realmspinner.studio.state import AppState
 
 # --- the refusal's install offer --------------------------------------------
 
@@ -120,7 +120,7 @@ def test_the_offer_draws_nothing_for_a_control_with_no_refusal():
 
 
 def test_the_command_is_lifted_out_of_a_refusal():
-    from warlock.service.validation import install_remedy
+    from realmspinner.service.validation import install_remedy
 
     text = install_remedy("SDXL 1.0", "uvx hf download stabilityai/x --local-dir y")
     assert widgets.copyable_command(text) == (
@@ -136,7 +136,7 @@ def test_a_sentence_with_no_command_offers_nothing_to_copy():
 def test_doctors_hint_is_copyable_too(tmp_path):
     """The same shape, because ``_gguf_check`` indents its command the way
     ``install_remedy`` does -- which is what lets one reader serve both."""
-    from warlock.config import Config
+    from realmspinner.config import Config
 
     config = Config(
         data_dir=tmp_path / "data", trellis_models_dir=tmp_path / "models"
@@ -152,7 +152,7 @@ def test_the_gguf_remedy_is_never_a_relative_path(tmp_path):
     """``fetch``'s module docstring already owns this rule: a literal
     ``models/...`` in a download string is the README's spelling of the
     default root, never where a fetch should actually go."""
-    from warlock.config import Config
+    from realmspinner.config import Config
 
     config = Config(
         data_dir=tmp_path / "data", trellis_models_dir=tmp_path / "models"
@@ -178,7 +178,7 @@ def test_the_gguf_remedy_is_never_a_relative_path(tmp_path):
     ],
 )
 def test_the_progress_label_carries_a_pace(rate, remaining, expected):
-    from warlock.pipelines.fetch_worker import _pace
+    from realmspinner.pipelines.fetch_worker import _pace
 
     assert _pace(rate, remaining) == expected
 
@@ -196,14 +196,14 @@ def test_a_row_names_the_repositories_it_comes_from(svc):
 def test_an_adapter_row_carries_its_trigger_words(svc):
     by_key = {r["row_key"]: r for r in svc_downloads.rows(svc)}
     row = by_key["lora:pixelxl"]
-    from warlock import models
+    from realmspinner import models
 
     assert row.get("trigger") == models.STYLE_LORAS["pixelxl"].trigger
 
 
 def test_a_base_row_carries_the_vram_number_not_only_the_verdict(svc):
     by_key = {r["row_key"]: r for r in svc_downloads.rows(svc)}
-    from warlock import models
+    from realmspinner import models
 
     row = by_key["base:sdxl"]
     assert row["vram_gib"] == models.BASE_MODELS["sdxl"].vram_gib
@@ -235,7 +235,7 @@ def test_every_registry_entry_says_what_it_is_for(svc):
 
 def test_a_description_is_absent_rather_than_empty(svc):
     """The shape every optional key in ``rows`` already uses."""
-    from warlock import models
+    from realmspinner import models
 
     plain = models.MattingModel("nameless", "Nameless", "nowhere")
     assert plain.description == ""

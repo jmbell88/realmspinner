@@ -15,8 +15,8 @@ from pathlib import Path
 
 import numpy as np
 
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.tiles import strip
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.tiles import strip
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "aseprite"
 

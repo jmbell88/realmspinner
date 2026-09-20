@@ -1,4 +1,4 @@
-"""The ``.wscn`` document format: a zip of ``scene.json``, an optional
+"""The ``.rscn`` document format: a zip of ``scene.json``, an optional
 ``terrain/heights.npy`` and any ``textures/<n>.png`` a material carries.
 
 Mason stores no geometry at all -- a scene is links (a generator's parameters,
@@ -22,12 +22,12 @@ from io import BytesIO
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import gltf
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import serialize as ser
-from warlock.studio.modes.mason.engine.document import MasonDoc
-from warlock.studio.modes.mason.engine.refs import LibraryRef, ref_key
-from warlock.studio.modes.mason.engine.terrain import Terrain
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import serialize as ser
+from realmspinner.studio.modes.mason.engine.document import MasonDoc
+from realmspinner.studio.modes.mason.engine.refs import LibraryRef, ref_key
+from realmspinner.studio.modes.mason.engine.terrain import Terrain
 
 
 def _tex(seed: int = 0) -> tuple[int, int, bytes]:
@@ -103,7 +103,7 @@ def _doc() -> MasonDoc:
 
 
 def _roundtrip(doc: MasonDoc) -> MasonDoc:
-    return ser.read_wscn(ser.wscn_bytes(doc))
+    return ser.read_rscn(ser.rscn_bytes(doc))
 
 
 def _rewrite(data: bytes, edit) -> bytes:
@@ -289,13 +289,13 @@ def test_the_trees_shape_and_sibling_order_survive_a_round_trip() -> None:
 
 def test_two_saves_of_an_unchanged_document_are_byte_identical() -> None:
     doc = _doc()
-    assert ser.wscn_bytes(doc) == ser.wscn_bytes(doc)
+    assert ser.rscn_bytes(doc) == ser.rscn_bytes(doc)
 
 
 def test_a_save_read_save_round_trip_is_byte_identical_to_the_first_save() -> None:
     doc = _doc()
-    first = ser.wscn_bytes(doc)
-    again = ser.wscn_bytes(ser.read_wscn(first))
+    first = ser.rscn_bytes(doc)
+    again = ser.rscn_bytes(ser.read_rscn(first))
     assert again == first
 
 
@@ -389,23 +389,23 @@ def test_snapshot_performs_no_encoding_leaving_it_to_snapshot_bytes(monkeypatch)
 
     snap = ser.snapshot(_doc())
 
-    assert isinstance(snap, ser.WscnSnapshot)
+    assert isinstance(snap, ser.RscnSnapshot)
     assert snap.heights is not None
     assert len(snap.images) >= 1
 
 
-def test_snapshot_bytes_of_a_snapshot_matches_wscn_bytes() -> None:
-    """``wscn_bytes`` is ``snapshot_bytes(snapshot(doc))`` -- the two must
+def test_snapshot_bytes_of_a_snapshot_matches_rscn_bytes() -> None:
+    """``rscn_bytes`` is ``snapshot_bytes(snapshot(doc))`` -- the two must
     never drift, or a caller choosing one path over the other would write a
     different file for the same document.
     """
     doc = _doc()
-    assert ser.snapshot_bytes(ser.snapshot(doc)) == ser.wscn_bytes(doc)
+    assert ser.snapshot_bytes(ser.snapshot(doc)) == ser.rscn_bytes(doc)
 
 
 def test_a_snapshot_is_what_the_document_was_when_the_save_was_pressed() -> None:
     doc = _doc()
-    before = ser.wscn_bytes(doc)
+    before = ser.rscn_bytes(doc)
     snap = ser.snapshot(doc)
 
     doc.roots.append(nd.GroupNode(uid=nd.new_uid(), name="Late"))
@@ -449,7 +449,7 @@ def test_an_unknown_extra_key_in_a_node_entry_is_ignored() -> None:
     def mangle(scene: dict) -> None:
         _find_node(scene, "RockA")["a_future_field_this_build_has_never_heard_of"] = 42
 
-    out = ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+    out = ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
     assert any(n.name == "RockA" for n in out.all_nodes())
 
 
@@ -457,16 +457,16 @@ def test_an_unknown_extra_key_in_a_node_entry_is_ignored() -> None:
 
 
 def test_bytes_that_are_not_a_zip_are_refused() -> None:
-    with pytest.raises(ValueError, match="not a Warlock Mason scene"):
-        ser.read_wscn(b"this is not a zip file at all")
+    with pytest.raises(ValueError, match="not a Realmspinner Mason scene"):
+        ser.read_rscn(b"this is not a zip file at all")
 
 
 def test_a_zip_without_a_scene_is_refused() -> None:
     out = BytesIO()
     with zipfile.ZipFile(out, "w") as zf:
         zf.writestr("something.txt", "hello")
-    with pytest.raises(ValueError, match="not a Warlock Mason scene"):
-        ser.read_wscn(out.getvalue())
+    with pytest.raises(ValueError, match="not a Realmspinner Mason scene"):
+        ser.read_rscn(out.getvalue())
 
 
 def test_an_archive_claiming_more_than_the_ceiling_is_refused_before_it_is_read(
@@ -474,7 +474,7 @@ def test_an_archive_claiming_more_than_the_ceiling_is_refused_before_it_is_read(
 ) -> None:
     monkeypatch.setattr(ser, "MAX_DECOMPRESSED_BYTES", 16)
     with pytest.raises(ValueError, match="past the 16 this build will read"):
-        ser.read_wscn(ser.wscn_bytes(_doc()))
+        ser.read_rscn(ser.rscn_bytes(_doc()))
 
 
 def test_a_newer_version_is_refused_naming_both_version_numbers() -> None:
@@ -482,21 +482,21 @@ def test_a_newer_version_is_refused_naming_both_version_numbers() -> None:
         scene["version"] = ser.VERSION + 1
 
     with pytest.raises(ValueError, match=f"format {ser.VERSION + 1}.*reads {ser.VERSION}"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), bump))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), bump))
 
 
 def test_a_terrain_naming_a_missing_height_file_is_refused() -> None:
-    data = ser.wscn_bytes(_doc())
+    data = ser.rscn_bytes(_doc())
     stripped = _drop_members(data, lambda name: name == ser.TERRAIN_HEIGHTS)
     with pytest.raises(ValueError, match="height data is missing"):
-        ser.read_wscn(stripped)
+        ser.read_rscn(stripped)
 
 
 def test_a_material_naming_a_missing_texture_is_refused() -> None:
-    data = ser.wscn_bytes(_doc())
+    data = ser.rscn_bytes(_doc())
     stripped = _drop_members(data, lambda name: name.startswith(f"{ser.TEXTURE_DIR}/"))
     with pytest.raises(ValueError, match="texture the file does not carry"):
-        ser.read_wscn(stripped)
+        ser.read_rscn(stripped)
 
 
 def test_a_scene_with_more_nodes_than_the_ceiling_is_refused(monkeypatch) -> None:
@@ -507,13 +507,13 @@ def test_a_scene_with_more_nodes_than_the_ceiling_is_refused(monkeypatch) -> Non
     """
     monkeypatch.setattr(ser, "MAX_NODES", 2)
     with pytest.raises(ValueError, match="nodes"):
-        ser.read_wscn(ser.wscn_bytes(_doc()))
+        ser.read_rscn(ser.rscn_bytes(_doc()))
 
 
 def test_a_scene_nested_deeper_than_the_ceiling_is_refused(monkeypatch) -> None:
     monkeypatch.setattr(nd, "MAX_DEPTH", 1)
     with pytest.raises(ValueError, match="deep"):
-        ser.read_wscn(ser.wscn_bytes(_doc()))
+        ser.read_rscn(ser.rscn_bytes(_doc()))
 
 
 # --- refusals: malformed fields ------------------------------------------------
@@ -523,24 +523,24 @@ def test_a_scenes_nodes_field_that_is_not_a_list_is_refused() -> None:
     def mangle(scene: dict) -> None:
         scene["nodes"] = None
 
-    with pytest.raises(ValueError, match="not a Warlock Mason scene"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+    with pytest.raises(ValueError, match="not a Realmspinner Mason scene"):
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_scenes_materials_field_that_is_not_a_list_is_refused() -> None:
     def mangle(scene: dict) -> None:
         scene["materials"] = None
 
-    with pytest.raises(ValueError, match="not a Warlock Mason scene"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+    with pytest.raises(ValueError, match="not a Realmspinner Mason scene"):
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_scenes_prefabs_field_that_is_not_a_mapping_is_refused() -> None:
     def mangle(scene: dict) -> None:
         scene["prefabs"] = ["not", "a", "mapping"]
 
-    with pytest.raises(ValueError, match="not a Warlock Mason scene"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+    with pytest.raises(ValueError, match="not a Realmspinner Mason scene"):
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_node_that_is_not_a_mapping_is_refused() -> None:
@@ -548,7 +548,7 @@ def test_a_node_that_is_not_a_mapping_is_refused() -> None:
         scene["nodes"].append("not a mapping")
 
     with pytest.raises(ValueError, match="not a mapping"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_node_with_an_unknown_kind_is_refused() -> None:
@@ -556,7 +556,7 @@ def test_a_node_with_an_unknown_kind_is_refused() -> None:
         _find_node(scene, "RockA")["kind"] = "blob"
 
     with pytest.raises(ValueError, match="kind"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_node_missing_its_uid_is_refused() -> None:
@@ -564,7 +564,7 @@ def test_a_node_missing_its_uid_is_refused() -> None:
         del _find_node(scene, "RockA")["uid"]
 
     with pytest.raises(ValueError, match="uid"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_node_whose_uid_is_not_a_number_is_refused() -> None:
@@ -572,7 +572,7 @@ def test_a_node_whose_uid_is_not_a_number_is_refused() -> None:
         _find_node(scene, "RockA")["uid"] = "not a number"
 
     with pytest.raises(ValueError, match="uid"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 @pytest.mark.parametrize(
@@ -592,7 +592,7 @@ def test_a_transform_of_the_wrong_shape_is_refused_rather_than_rendered(key, bad
         _find_node(scene, "RockA")[key] = bad
 
     with pytest.raises(ValueError, match=key):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_transform_that_is_not_numbers_is_refused() -> None:
@@ -600,7 +600,7 @@ def test_a_transform_that_is_not_numbers_is_refused() -> None:
         _find_node(scene, "RockA")["translation"] = ["left", "up", "out"]
 
     with pytest.raises(ValueError, match="translation"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_nodes_children_that_is_not_a_list_is_refused() -> None:
@@ -608,7 +608,7 @@ def test_a_nodes_children_that_is_not_a_list_is_refused() -> None:
         _find_node(scene, "Group")["children"] = "not a list"
 
     with pytest.raises(ValueError, match="children"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_nodes_properties_that_is_not_a_mapping_is_refused() -> None:
@@ -616,7 +616,7 @@ def test_a_nodes_properties_that_is_not_a_mapping_is_refused() -> None:
         _find_node(scene, "RockA")["properties"] = ["oops"]
 
     with pytest.raises(ValueError, match="properties"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_lights_kind_outside_the_three_khr_kinds_is_refused() -> None:
@@ -624,7 +624,7 @@ def test_a_lights_kind_outside_the_three_khr_kinds_is_refused() -> None:
         _find_node(scene, "Sun")["light_kind"] = "laser"
 
     with pytest.raises(ValueError, match="kind"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_meshs_ref_that_is_not_a_mapping_is_refused() -> None:
@@ -632,7 +632,7 @@ def test_a_meshs_ref_that_is_not_a_mapping_is_refused() -> None:
         _find_node(scene, "RockA")["ref"] = "not a mapping"
 
     with pytest.raises(ValueError, match="ref"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_refs_kind_that_is_neither_primitive_nor_library_is_refused() -> None:
@@ -640,7 +640,7 @@ def test_a_refs_kind_that_is_neither_primitive_nor_library_is_refused() -> None:
         _find_node(scene, "RockA")["ref"] = {"kind": "mystery"}
 
     with pytest.raises(ValueError, match="kind"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_material_index_past_the_end_of_the_palette_is_refused() -> None:
@@ -648,7 +648,7 @@ def test_a_material_index_past_the_end_of_the_palette_is_refused() -> None:
         _find_node(scene, "RockA")["material"] = 999
 
     with pytest.raises(ValueError, match="material"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 def test_a_texture_index_past_the_end_of_the_textures_is_refused() -> None:
@@ -661,7 +661,7 @@ def test_a_texture_index_past_the_end_of_the_textures_is_refused() -> None:
         raise AssertionError("the fixture is expected to carry a textured material")
 
     with pytest.raises(ValueError, match="malformed"):
-        ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+        ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
 
 
 # --- the saved camera ---------------------------------------------------------
@@ -672,7 +672,7 @@ def test_the_camera_the_scene_was_left_at_comes_back_with_it() -> None:
     the one that writes it, so it is also the one that has to say the round
     trip works. A scene that reopened looking at the world origin every time
     would be a small, constant tax on picking work back up."""
-    out = ser.read_wscn(ser.wscn_bytes(_doc()))
+    out = ser.read_rscn(ser.rscn_bytes(_doc()))
     assert out.view == {"yaw": 0.4, "pitch": 1.1, "distance": 7.5, "target": [1.0, 2.0, 3.0]}
 
 
@@ -686,7 +686,7 @@ def test_a_camera_with_a_key_missing_costs_the_camera_and_not_the_document() -> 
     def mangle(scene: dict) -> None:
         del scene["view"]["distance"]
 
-    out = ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle))
+    out = ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle))
     assert out.view == {}
     assert len(out.all_nodes()) == len(_doc().all_nodes()), "the scene itself is untouched"
 
@@ -699,7 +699,7 @@ def test_a_camera_carrying_an_infinity_is_dropped_rather_than_restored() -> None
     def mangle(scene: dict) -> None:
         scene["view"]["yaw"] = float("inf")
 
-    assert ser.read_wscn(_rewrite(ser.wscn_bytes(_doc()), mangle)).view == {}
+    assert ser.read_rscn(_rewrite(ser.rscn_bytes(_doc()), mangle)).view == {}
 
 
 def test_a_key_the_format_does_not_carry_is_not_written_and_not_read_back() -> None:
@@ -710,4 +710,4 @@ def test_a_key_the_format_does_not_carry_is_not_written_and_not_read_back() -> N
     doc.view = dict(doc.view, fov=0.9, invented="whatever")
     scene = json.loads(ser.scene_json(doc))
     assert set(scene["view"]) == set(ser.VIEW_FIELDS) | {"target"}
-    assert "fov" not in ser.read_wscn(ser.wscn_bytes(doc)).view
+    assert "fov" not in ser.read_rscn(ser.rscn_bytes(doc)).view

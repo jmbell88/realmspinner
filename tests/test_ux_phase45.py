@@ -24,11 +24,11 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from warlock.studio import motion, ninepatch, shadows, surfaces, vibrancy
-from warlock.studio.modes.home.ui.panes import landing
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.panes import overlay
-from warlock.studio.shortcuts import filter_shortcuts
+from realmspinner.studio import motion, ninepatch, shadows, surfaces, vibrancy
+from realmspinner.studio.modes.home.ui.panes import landing
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.panes import overlay
+from realmspinner.studio.shortcuts import filter_shortcuts
 
 
 class _Settings:
@@ -120,7 +120,7 @@ def test_a_chip_clicked_twice_is_a_mis_click_rather_than_a_request():
 def test_the_chips_are_the_parsers_own_prefixes():
     """A chip offering a prefix ``parse_query`` does not know is a button that
     turns the query into free text."""
-    from warlock.studio.state import QUERY_FIELDS
+    from realmspinner.studio.state import QUERY_FIELDS
 
     assert "QUERY_FIELDS" in inspect.getsource(library.prefix_chips)
     for field in QUERY_FIELDS:
@@ -162,9 +162,9 @@ def test_the_filtered_rows_keep_their_hand_chosen_order():
 
 
 def test_the_splash_says_what_the_load_is_doing():
-    """Three seconds of "Starting Warlock Studio..." spends the whole hold
+    """Three seconds of "Starting Realmspinner..." spends the whole hold
     saying what the logo already said."""
-    from warlock.studio import splash
+    from realmspinner.studio import splash
 
     started = splash.Startup(lambda: None)
     assert started.message == splash.MESSAGE
@@ -173,7 +173,7 @@ def test_the_splash_says_what_the_load_is_doing():
 
 
 def test_a_quit_stops_the_narration_rather_than_arguing_with_it():
-    from warlock.studio import splash
+    from realmspinner.studio import splash
 
     started = splash.Startup(lambda: None)
     started.request_quit()
@@ -184,7 +184,7 @@ def test_a_quit_stops_the_narration_rather_than_arguing_with_it():
 def test_the_runtime_narrates_every_observable_pause():
     """A stage that has never taken measurable time gets no line; the ones that
     do are the doctor's probes and the worker's construction."""
-    from warlock.studio import runtime
+    from realmspinner.studio import runtime
 
     source = inspect.getsource(runtime.Runtime._start)
     assert source.count("self._note(") >= 4
@@ -220,7 +220,7 @@ def test_the_progress_card_takes_the_same_depth_treatment_as_every_other_surface
 def test_an_empty_state_has_three_registers_rather_than_one():
     """Three lines of muted text says "there is nothing here" in the typography
     as well as in the words, on one of the most-seen surfaces in the app."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     source = inspect.getsource(widgets.empty_state)
     assert "fonts.display" in source and "fonts.heading" in source
@@ -293,7 +293,7 @@ def test_the_shadow_sprites_middle_row_is_flat_where_it_gets_stretched():
 def test_the_two_shadow_recipes_occupy_the_same_space():
     """A call site must not be able to tell them apart by layout: the sprite's
     reach is the outermost stroked band's outer bound."""
-    from warlock.studio import tokens
+    from realmspinner.studio import tokens
 
     assert max(outer for _i, outer, _a in tokens.SHADOW_STEPS) == shadows.SPREAD
 
@@ -463,7 +463,7 @@ def test_a_key_seeded_afresh_leaves_at_rest(monkeypatch):
 def test_the_sliding_pill_and_the_popover_are_what_took_the_spring():
     """The two surfaces Phase 5 names, and the pill is the one whose target
     routinely changes while it is still moving."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     assert "motion.spring" in inspect.getsource(widgets.segmented_control)
     assert "motion.spring" in inspect.getsource(widgets.popover_enter)
@@ -506,7 +506,7 @@ def test_every_frosted_surface_paints_a_fill_when_there_is_no_capture_yet():
     """The caller cleared imgui's own background on ``frosted``'s word, so a
     backdrop that then failed to arrive would be a floating surface with
     nothing in it."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     source = inspect.getsource(widgets.window_backdrop)
     assert "if ref is None:" in source
@@ -516,9 +516,9 @@ def test_every_frosted_surface_paints_a_fill_when_there_is_no_capture_yet():
 def test_the_surfaces_that_float_are_the_ones_that_frost():
     """Toasts deliberately do not: the backdrop is the app as it was when the
     surface appeared, and a toast appears while what it reports on is moving."""
-    from warlock.studio import dialogs, widgets
-    from warlock.studio.manual import render as manual_render
-    from warlock.studio.panes import palette as palette_pane
+    from realmspinner.studio import dialogs, widgets
+    from realmspinner.studio.manual import render as manual_render
+    from realmspinner.studio.panes import palette as palette_pane
 
     assert "window_backdrop" in inspect.getsource(palette_pane.draw)
     assert "window_backdrop" in inspect.getsource(dialogs.ConfirmQueue.draw)

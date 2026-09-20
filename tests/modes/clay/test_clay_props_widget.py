@@ -29,7 +29,7 @@ from __future__ import annotations
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ def test_a_scalar_value_under_a_sequence_default_does_not_raise(ui) -> None:
 def test_a_box_size_still_draws_and_edits(ui, monkeypatch) -> None:
     """The case this branch exists for must keep working: a flat 3-tuple
     default with a same-shaped value is still handed to ``input_float3``."""
-    from warlock.studio import controls
+    from realmspinner.studio import controls
 
     monkeypatch.setattr(
         controls, "input_float3", lambda label, values: (True, (2.0, 1.0, 1.0))
@@ -99,7 +99,7 @@ def test_a_box_size_still_draws_and_edits(ui, monkeypatch) -> None:
 def test_a_plane_size_still_draws_and_edits(ui, monkeypatch) -> None:
     """The other case this branch exists for: a flat 2-tuple default, as
     ``plane`` and ``grid``'s ``size`` are."""
-    from warlock.studio import controls
+    from realmspinner.studio import controls
 
     monkeypatch.setattr(
         controls, "input_float2", lambda label, values: (True, (2.0, 1.0))

@@ -15,10 +15,18 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel.flourish import prims as flourish_prims
-from warlock.kernels.pixel.flourish.prims import color, hashed, particles, ramp, sprite, stamp, val
-from warlock.kernels.pixel.flourish.recipe import Layer, Phase
-from warlock.kernels.pixel.flourish.render import FrameCtx
+from realmspinner.kernels.pixel.flourish import prims as flourish_prims
+from realmspinner.kernels.pixel.flourish.prims import (
+    color,
+    hashed,
+    particles,
+    ramp,
+    sprite,
+    stamp,
+    val,
+)
+from realmspinner.kernels.pixel.flourish.recipe import Layer, Phase
+from realmspinner.kernels.pixel.flourish.render import FrameCtx
 
 
 def _ctx(width: int = 64, height: int = 64, scale: float = 2.0, frame: int = 4) -> FrameCtx:

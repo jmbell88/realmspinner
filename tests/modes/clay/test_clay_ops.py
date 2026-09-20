@@ -16,13 +16,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops as clay_ops_geom
-from warlock.kernels.mesh import ops_topo
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import ops as clay_ops
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops as clay_ops_geom
+from realmspinner.kernels.mesh import ops_topo
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import ops as clay_ops
 
 
 class _Toasts:
@@ -116,7 +116,7 @@ def test_the_registry_imports_no_gui() -> None:
     import importlib
     from pathlib import Path
 
-    source = importlib.import_module("warlock.studio.modes.clay.ops").__file__
+    source = importlib.import_module("realmspinner.studio.modes.clay.ops").__file__
     assert source is not None
     tree = ast.parse(Path(source).read_text(encoding="utf-8"))
     imported = set()
@@ -660,7 +660,7 @@ def test_array_radial_of_four_over_90_degrees_reaches_90_degrees() -> None:
     *reach* 90, not fall short of it the way dividing by ``count`` (the
     closed-ring rule) would -- four copies over 90 would land at 22.5, 45 and
     67.5, nothing at 90."""
-    from warlock.kernels.mesh import ops as clay_ops_geom
+    from realmspinner.kernels.mesh import ops as clay_ops_geom
 
     doc, uid = _doc()
     doc.select([uid])
@@ -680,7 +680,7 @@ def test_array_radial_of_two_over_a_partial_sweep_lands_the_copy_at_the_full_ang
     copy lands at ``angle`` exactly -- the degenerate case of the open-arc
     rule, and the one most likely to silently regress to the closed-ring
     divisor since ``1`` and ``2`` differ by so little."""
-    from warlock.kernels.mesh import ops as clay_ops_geom
+    from realmspinner.kernels.mesh import ops as clay_ops_geom
 
     doc, uid = _doc()
     doc.select([uid])
@@ -1160,7 +1160,7 @@ def test_clay_agrees_with_the_other_editors_about_ctrl_d_and_ctrl_j() -> None:
     and merge on Ctrl+J, which duplicates in Plotter. Two chords meaning two
     things in two workspaces of one app is a user pressing the one they learned
     and getting the other verb."""
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     assert clay_ops.get("duplicate").key == "Ctrl+J"
     assert not any(op.key == "Ctrl+D" for op in clay_ops.OPS)
@@ -1221,7 +1221,7 @@ def test_every_op_hint_names_a_binding_that_exists() -> None:
 
 
 def test_every_ops_boolean_kind_has_a_human_reachable_op() -> None:
-    from warlock.kernels.mesh import ops_boolean
+    from realmspinner.kernels.mesh import ops_boolean
 
     op_names = {op.name for op in clay_ops.OPS}
     missing = [kind for kind in ops_boolean.KINDS if kind not in op_names]
@@ -1399,7 +1399,7 @@ def test_distribute_appears_in_the_object_menu() -> None:
 
 
 def test_drop_to_ground_rests_a_rotated_scaled_objects_world_box_on_y_zero() -> None:
-    from warlock.kernels.geom3d import math3d as m3
+    from realmspinner.kernels.geom3d import math3d as m3
 
     doc = bd.ClayDoc()
     rotation = m3.quat_from_axis_angle(np.array([0.0, 0.0, 1.0]), np.radians(45.0))

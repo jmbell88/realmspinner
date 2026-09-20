@@ -23,8 +23,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import _view_frame
-from warlock.studio.modes.clay.ui.view import ClayView
+from realmspinner.studio import _view_frame
+from realmspinner.studio.modes.clay.ui.view import ClayView
 
 #: Every import ``_view_frame`` is allowed to make, as ``(module, name)`` --
 #: ``name`` is ``None`` for a plain ``import x``. Both package-relative entries
@@ -118,8 +118,8 @@ def test_every_3d_host_resolves_the_frame_plumbing_to_the_leaf():
     viewport argument, plus an inlined ``_frame_unchanged`` and an
     ``_alt_held`` that was ``_mods``' third answer. Restructure P7 folded
     them in; a host that grows a local copy again fails here by name."""
-    from warlock.studio.modes.mason.ui.view import MasonView
-    from warlock.studio.viewer_embed import Viewer
+    from realmspinner.studio.modes.mason.ui.view import MasonView
+    from realmspinner.studio.viewer_embed import Viewer
 
     names = sorted(n for n in vars(_view_frame.FrameOps) if not n.startswith("__"))
     assert names, "the scan found no methods on FrameOps at all"

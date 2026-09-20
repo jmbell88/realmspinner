@@ -27,7 +27,7 @@ import queue
 import sys
 import threading
 
-MARKER = "@@warlock-music@@ "
+MARKER = "@@realmspinner-music@@ "
 
 _cancel = threading.Event()
 _requests: queue.Queue = queue.Queue()

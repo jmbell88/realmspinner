@@ -30,7 +30,7 @@ def test_the_resize_popup_caps_growth_and_leaves_shrinking_free():
     """The popup stored ``(max(1, w), max(1, h))`` -- a floor and no ceiling --
     and fed it to ``doc.scale``, which has none either. ``100000`` is 40 GB a
     layer, on the frame thread, holding an unsaved document."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     assert inker_mode.clamp_resize((512, 512), 100_000, 100_000) == (
         inker_mode.NEW_MAX,
@@ -45,14 +45,14 @@ def test_the_resize_popup_caps_growth_and_leaves_shrinking_free():
 def test_an_oversized_document_stays_resizable():
     """A canvas imported at 12,000 px must not snap to 8192 the moment its
     owner opens the popup to crop it."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     assert inker_mode.clamp_resize((12_000, 12_000), 12_000, 12_000) == (12_000, 12_000)
     assert inker_mode.clamp_resize((12_000, 12_000), 200_000, 4)[0] == 12_000
 
 
 def test_a_typed_nonsense_size_keeps_what_the_document_has():
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     assert inker_mode.clamp_resize((64, 32), None, "x") == (64, 32)
 
@@ -85,7 +85,7 @@ class _FakeGL:
 def test_the_thumbnail_cache_is_bounded_by_bytes_as_well_as_by_count():
     """``max_side`` is a per-call argument and the manual passes 1600, so the
     same "limit of 120" spans 31 MiB of VRAM and 1.2 GiB."""
-    from warlock.studio.textures import ThumbnailCache
+    from realmspinner.studio.textures import ThumbnailCache
 
     cache = ThumbnailCache(_FakeGL(), limit=100, budget=4 * 64 * 64 * 4)
     for i in range(8):
@@ -100,7 +100,7 @@ def test_the_thumbnail_cache_is_bounded_by_bytes_as_well_as_by_count():
 
 def test_the_byte_total_comes_back_down_when_entries_go():
     """A total maintained beside every insert is a total that can drift."""
-    from warlock.studio.textures import ThumbnailCache
+    from realmspinner.studio.textures import ThumbnailCache
 
     cache = ThumbnailCache(_FakeGL())
     cache.begin_frame()
@@ -157,7 +157,7 @@ class _AnimDoc:
 def test_inker_frame_textures_have_a_vram_budget(monkeypatch):
     """The CPU flatten cache is bounded (``document.FRAME_CACHE_BYTES``) and
     the GL side was not, while the frame count is capped at nothing at all."""
-    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
+    from realmspinner.studio.modes.inker.ui.panes import textures as inker_textures
 
     monkeypatch.setattr(inker_textures, "FRAME_TEXTURE_BYTES", 4 * 64 * 64 * 4)
     ctx = _Ctx()
@@ -179,7 +179,7 @@ def test_inker_frame_textures_have_a_vram_budget(monkeypatch):
 def test_the_frame_texture_count_is_bounded_for_a_tiny_document(monkeypatch):
     """A 64-square document is 16 KB a frame, so the byte budget alone would
     let thousands of entries into the list the sweep walks."""
-    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
+    from realmspinner.studio.modes.inker.ui.panes import textures as inker_textures
 
     monkeypatch.setattr(inker_textures, "FRAME_TEXTURE_CAP", 5)
     ctx = _Ctx()
@@ -194,9 +194,9 @@ def test_the_frame_texture_count_is_bounded_for_a_tiny_document(monkeypatch):
 
 def _grid(levels: int):
     """A cube subdivided *levels* times: 6, 24, 96, 384 faces."""
-    from warlock.kernels.mesh import elements as el
-    from warlock.kernels.mesh import ops_subdiv
-    from warlock.kernels.mesh import primitives as bp
+    from realmspinner.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import ops_subdiv
+    from realmspinner.kernels.mesh import primitives as bp
 
     mesh = bp.box()
     for _ in range(levels):
@@ -207,8 +207,8 @@ def _grid(levels: int):
 def test_smooth_refuses_to_multiply_past_the_triangle_budget(monkeypatch):
     """Catmull-Clark is four times the faces per press, and ``MAX_TRIANGLES``
     gated the import door only."""
-    from warlock.kernels.mesh import elements as el
-    from warlock.kernels.mesh import ops_subdiv
+    from realmspinner.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import ops_subdiv
 
     mesh = _grid(2)
     monkeypatch.setattr(ops_subdiv, "MAX_SUBDIVIDED_FACES", 16)
@@ -218,9 +218,9 @@ def test_smooth_refuses_to_multiply_past_the_triangle_budget(monkeypatch):
 
 def test_the_budget_stops_the_second_press_as_well_as_the_first(monkeypatch):
     """Per level, not once: each level is its own allocation."""
-    from warlock.kernels.mesh import elements as el
-    from warlock.kernels.mesh import mesh as bm
-    from warlock.kernels.mesh import ops_subdiv
+    from realmspinner.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import ops_subdiv
 
     mesh = _grid(0)
     monkeypatch.setattr(ops_subdiv, "MAX_SUBDIVIDED_FACES", 40)
@@ -231,8 +231,8 @@ def test_the_budget_stops_the_second_press_as_well_as_the_first(monkeypatch):
 
 
 def test_linear_subdivide_shares_the_budget(monkeypatch):
-    from warlock.kernels.mesh import elements as el
-    from warlock.kernels.mesh import ops_subdiv
+    from realmspinner.kernels.mesh import elements as el
+    from realmspinner.kernels.mesh import ops_subdiv
 
     monkeypatch.setattr(ops_subdiv, "MAX_SUBDIVIDED_FACES", 4)
     with pytest.raises(el.OpError, match="Subdividing"):
@@ -240,7 +240,7 @@ def test_linear_subdivide_shares_the_budget(monkeypatch):
 
 
 def _sprite(key: str):
-    from warlock.studio.modes.packwright.engine.sources import Sprite
+    from realmspinner.studio.modes.packwright.engine.sources import Sprite
 
     return Sprite(key=key, name=key, pixels=np.zeros((2, 2, 4), np.uint8))
 
@@ -248,7 +248,7 @@ def _sprite(key: str):
 def test_packwright_refuses_a_sprite_past_the_pack_ceiling(monkeypatch):
     """``MAX_SPRITES`` was asked at pack time, of a document that had already
     accepted them -- so the only way past a full pack was to delete some."""
-    from warlock.studio.modes.packwright.engine import document as pd
+    from realmspinner.studio.modes.packwright.engine import document as pd
 
     monkeypatch.setattr(pd, "MAX_SPRITES", 3)
     doc = pd.PackDoc()
@@ -264,8 +264,8 @@ def test_packwright_refuses_a_sprite_past_the_pack_ceiling(monkeypatch):
 def test_load_more_stops_at_the_service_ceiling(monkeypatch):
     """``limit`` grew forever while ``list_jobs`` clamped the read, so past the
     ceiling every press moved a number and changed nothing else."""
-    from warlock.service import jobs as svc_jobs
-    from warlock.studio import jobs_cache
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.studio import jobs_cache
 
     monkeypatch.setattr(svc_jobs, "MAX_LIST_LIMIT", 500)
     cache = jobs_cache.JobsCache(svc=None)
@@ -276,8 +276,8 @@ def test_load_more_stops_at_the_service_ceiling(monkeypatch):
 
 
 def test_the_window_can_still_widen_below_the_ceiling(monkeypatch):
-    from warlock.service import jobs as svc_jobs
-    from warlock.studio import jobs_cache
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.studio import jobs_cache
 
     monkeypatch.setattr(svc_jobs, "MAX_LIST_LIMIT", 5000)
     cache = jobs_cache.JobsCache(svc=None)
@@ -310,7 +310,7 @@ class _FakeImgui:
 
 
 def _clipped(monkeypatch, count: int, view: float, scroll: float, selected=None):
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     fake = _FakeImgui(view, scroll)
     monkeypatch.setattr(library, "imgui", fake)
@@ -333,14 +333,14 @@ def _clipped(monkeypatch, count: int, view: float, scroll: float, selected=None)
 def test_a_short_library_is_never_clipped(monkeypatch):
     """The threshold is not about correctness -- it keeps a scroll-dependent
     path from underneath the ordinary case."""
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     drawn, _ = _clipped(monkeypatch, library.CLIP_THRESHOLD - 1, 400.0, 0.0)
     assert drawn is None
 
 
 def test_a_long_library_draws_only_what_is_on_screen(monkeypatch):
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     count = 400
     drawn, fake = _clipped(monkeypatch, count, 400.0, 0.0)
@@ -360,7 +360,7 @@ def test_the_selected_card_is_drawn_even_when_it_is_off_screen(monkeypatch):
 
 
 def test_scrolling_moves_which_cards_are_drawn(monkeypatch):
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     drawn, _ = _clipped(monkeypatch, 400, 400.0, 100.0 * library.CARD_HEIGHT)
     assert drawn is not None and drawn[0] >= 99
@@ -372,7 +372,7 @@ def test_scrolling_moves_which_cards_are_drawn(monkeypatch):
 def test_motion_forgets_keys_nothing_is_drawing_any_more():
     """Four dictionaries keyed on strings with job ids in them, and ``forget``
     had one caller. ``_FRAME`` is already an exact record of liveness."""
-    from warlock.studio import motion
+    from realmspinner.studio import motion
 
     motion.reset()
     try:
@@ -391,7 +391,7 @@ def test_motion_forgets_keys_nothing_is_drawing_any_more():
 def test_a_key_that_was_snapped_but_never_asked_for_is_swept_too():
     """``snap`` writes ``_STATE`` with no ``_FRAME`` entry, so a liveness test
     that only looked at ``_FRAME`` would never reach it."""
-    from warlock.studio import motion
+    from realmspinner.studio import motion
 
     motion.reset()
     try:
@@ -403,7 +403,7 @@ def test_a_key_that_was_snapped_but_never_asked_for_is_swept_too():
 
 
 def test_the_sweep_runs_rarely_rather_than_every_frame():
-    from warlock.studio import motion
+    from realmspinner.studio import motion
 
     motion.reset()
     try:
@@ -419,7 +419,7 @@ def test_the_sweep_runs_rarely_rather_than_every_frame():
 def test_the_confirm_queue_refuses_a_runaway_caller():
     """A cap and not a smaller queue: dropping the *second* question was the
     bug this queue exists to have fixed."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     queue = dialogs.ConfirmQueue()
     for i in range(dialogs.MAX_QUEUED + 20):
@@ -430,7 +430,7 @@ def test_the_confirm_queue_refuses_a_runaway_caller():
 
 
 def test_the_prompt_queue_shares_the_cap():
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     queue = dialogs.PromptQueue()
     for i in range(dialogs.MAX_QUEUED + 5):
@@ -441,7 +441,7 @@ def test_the_prompt_queue_shares_the_cap():
 def test_the_texture_registry_says_so_when_it_outgrows_itself(caplog):
     """No sweep, deliberately -- the renderer cannot tell whether an owner
     still wants an entry. What was missing was any signal at all."""
-    from warlock.studio import imgui_backend
+    from realmspinner.studio import imgui_backend
 
     backend = imgui_backend.ImguiRenderer.__new__(imgui_backend.ImguiRenderer)
     backend._textures = {}
@@ -471,7 +471,7 @@ def test_every_per_tab_preview_key_is_swept_when_the_tab_closes():
     import re
     from pathlib import Path
 
-    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
+    from realmspinner.studio.modes.inker.ui.panes import textures as inker_textures
 
     # P5 folded Inker into ``modes/inker/`` and dropped the ``inker_`` prefix
     # from every file it moved, so a glob keyed on that prefix (or a fixed
@@ -516,7 +516,7 @@ def test_the_per_tab_key_list_holds_no_prefix_nothing_writes():
     used to mean something."""
     from pathlib import Path
 
-    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
+    from realmspinner.studio.modes.inker.ui.panes import textures as inker_textures
 
     # Same walk as the sibling test above, for the same reason: a prefix- or
     # filename-keyed list drops every file P5 renamed out of it silently.

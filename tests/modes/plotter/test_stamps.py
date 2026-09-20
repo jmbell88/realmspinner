@@ -12,7 +12,7 @@ has it and is saved.
 a session and storing nine times, so the cheap gesture goes to the frequent one
 -- the opposite way round would be a hand reaching for Ctrl+Shift on every stamp.
 
-**A stamp is undoable and dirties the map.** It is written into the ``.wmap``,
+**A stamp is undoable and dirties the map.** It is written into the ``.rmap``,
 so a map with a stamp stored and not saved really does have unsaved work in it.
 """
 
@@ -22,9 +22,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from warlock.studio.modes.plotter import mode as plotter_mode
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter import mode as plotter_mode
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 def _session():
@@ -208,7 +208,7 @@ def test_an_object_reorder_is_one_undo_step():
     """Order is draw order, and Tiled's Raise/Lower is exactly this. Two steps
     would put a state on the stack in which the object does not exist."""
 
-    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapObject, new_uid
 
     doc = MapDoc(8, 8, 16, 16)
     layer = doc.add_object_layer()
@@ -225,7 +225,7 @@ def test_an_object_reorder_is_one_undo_step():
 
 
 def test_a_reorder_off_either_end_does_nothing_and_says_so():
-    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapObject, new_uid
 
     doc = MapDoc(8, 8, 16, 16)
     layer = doc.add_object_layer()

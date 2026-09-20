@@ -28,7 +28,7 @@ import tokenize
 from pathlib import Path
 from types import SimpleNamespace
 
-from warlock.studio import main as main_mod
+from realmspinner.studio import main as main_mod
 
 STUDIO = Path(main_mod.__file__).parent
 

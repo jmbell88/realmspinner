@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import scratch as clay_scratch
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import scratch as clay_scratch
 
 
 def _obj(name: str = "obj", mesh=None, **kwargs) -> bd.Obj:
@@ -80,7 +80,7 @@ def test_scratch_clone_carries_every_obj_field():
     caught and fixed the same way once before (see ``clone``'s own comment).
 
     Rather than re-deriving "did clone forget a field" from ``clone``'s own
-    source, this builds one :class:`~warlock.kernels.mesh.document.Obj` with
+    source, this builds one :class:`~realmspinner.kernels.mesh.document.Obj` with
     a value that differs from every field's own dataclass default, clones
     it, and checks every value survived. The value table's keys are checked
     against ``dataclasses.fields(Obj)`` first: adding a field to ``Obj``
@@ -89,7 +89,7 @@ def test_scratch_clone_carries_every_obj_field():
     """
     import dataclasses
 
-    from warlock.kernels.mesh import modifiers as mod
+    from realmspinner.kernels.mesh import modifiers as mod
 
     non_default: dict[str, object] = {
         "name": "distinctive",
@@ -253,7 +253,7 @@ def test_transplant_surfaces_a_material_the_real_document_refused_to_drop():
     document, whose undo stack holds a deleted object that named the slot.
     Before this fix the refusal was silently swallowed: the palette just
     didn't shrink, with no signal on the result."""
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import mesh as bm
 
     doc = bd.ClayDoc()  # materials: [default] at index 0
     extra = doc.add_material()  # index 1 -- the slot this test drops
@@ -293,7 +293,7 @@ def test_transplant_with_material_removal_keeps_face_indices_right():
     faces = obj.mesh.material.copy()
     third_index = next(i for i, m in enumerate(doc.materials) if m is third_material)
     faces[: len(faces) // 2] = third_index
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import mesh as bm
 
     repainted = bm.Mesh(
         positions=obj.mesh.positions, loops=obj.mesh.loops, starts=obj.mesh.starts,

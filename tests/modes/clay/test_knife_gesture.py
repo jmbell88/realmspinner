@@ -24,13 +24,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import ops as clay_ops
-from warlock.studio.modes.clay.ui import view as clay_view
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import ops as clay_ops
+from realmspinner.studio.modes.clay.ui import view as clay_view
 
 RECT = (0.0, 0.0, 128.0, 96.0)
 

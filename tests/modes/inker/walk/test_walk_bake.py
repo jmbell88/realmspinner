@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 from _figure import SIZE, figure
 
-from warlock.kernels.pixel import ora, sheetout
-from warlock.kernels.pixel.walk import bake, gait
-from warlock.kernels.pixel.walk import rig as R
+from realmspinner.kernels.pixel import ora, sheetout
+from realmspinner.kernels.pixel.walk import bake, gait
+from realmspinner.kernels.pixel.walk import rig as R
 
 
 def _settings(rig: R.Rig, **changes: float) -> gait.WalkSettings:

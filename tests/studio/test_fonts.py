@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio import fonts, icons
+from realmspinner.studio import fonts, icons
 
 pytest.importorskip("fontTools", reason="fonttools is a dev-group tool")
 
@@ -141,7 +141,7 @@ def test_familiar_sigil_is_covered_by_the_vendored_faces():
     ``icons.SPARKLES``, would otherwise slip past a check that only compared
     sets.
     """
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     assert "✦" in menus.FAMILIAR_LABEL, (
         "FAMILIAR_LABEL must carry the literal ✦ (U+2726), not a stand-in icon"

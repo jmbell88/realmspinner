@@ -9,7 +9,7 @@ tests here are the ones that would catch exactly that -- the header parse pins
 the numbers, and the asymmetric mask tells a dilate from an erode by result.
 
 The parity half runs only where the DLL exists; everything else runs both ways
-(WARLOCK_NATIVE=0 included), because the table is consulted before the kernel
+(REALMSPINNER_NATIVE=0 included), because the table is consulted before the kernel
 is and must answer the same on a machine with no compiler.
 """
 
@@ -21,12 +21,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock import native
-from warlock.kernels.pixel import selection as sel
+from realmspinner import native
+from realmspinner.kernels.pixel import selection as sel
 
 MORPH_C = Path(__file__).resolve().parents[1] / "native" / "morph.c"
 
-needs_dll = pytest.mark.skipif(not native.available(), reason="warlockc.dll not built")
+needs_dll = pytest.mark.skipif(not native.available(), reason="realmspinnerc.dll not built")
 
 
 def _header_ids() -> dict[str, int]:

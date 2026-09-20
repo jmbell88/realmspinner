@@ -12,13 +12,13 @@ import math
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import analyze
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops as clay_ops
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import analyze
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops as clay_ops
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.elements import OpError
 
 
 def _obj(mesh, *, translation=(0.0, 0.0, 0.0), rotation=None, name: str = "obj") -> bd.Obj:

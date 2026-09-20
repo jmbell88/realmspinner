@@ -14,9 +14,9 @@ import threading
 import pytest
 from PIL import Image
 
-from warlock.service import files as svc_files
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Conflict, Invalid, NotFound, TooLarge
+from realmspinner.service import files as svc_files
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Conflict, Invalid, NotFound, TooLarge
 
 
 def _png(size=(64, 64), colour=(200, 30, 30, 255)) -> bytes:
@@ -257,7 +257,7 @@ def test_promotion_after_an_edit_carries_the_edited_pixels(svc):
 def test_promotion_is_judged_on_the_edited_pixels_and_force_still_wins(svc, monkeypatch):
     """The gate used to read a report measured from the generated image, which
     after an edit is a verdict about pixels nobody will ever see again."""
-    from warlock.pipelines import reference
+    from realmspinner.pipelines import reference
 
     job_id = _reference(svc)
 
@@ -289,7 +289,7 @@ def test_a_save_leaves_no_temp_file_behind(svc):
 
 
 def _ora(size=(64, 64), layers=2) -> bytes:
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = inker.Document.blank(*size)
     doc.stack[0].pixels[:, :] = (200, 30, 30, 255)

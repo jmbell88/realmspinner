@@ -21,8 +21,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.state import AppState
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.state import AppState
 
 
 class FakeCtx:

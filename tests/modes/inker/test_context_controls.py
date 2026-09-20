@@ -18,12 +18,12 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import brush
-from warlock.studio import probe, widgets
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import context as inker_context
-from warlock.studio.shell import paintview
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import brush
+from realmspinner.studio import probe, widgets
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import context as inker_context
+from realmspinner.studio.shell import paintview
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ def test_the_selection_combine_row_starts_flush_left_like_every_other_context_ba
     have added to): with the bug, the combine control lands one
     ``ItemSpacing.x`` to the right of it; fixed, the two line up exactly.
     """
-    from warlock.studio import controls
+    from realmspinner.studio import controls
 
     ctx, state, tab, _written = _scene(monkeypatch)
     tab.doc.select_all()

@@ -23,8 +23,8 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import journal, mode_manifest, modes, palette
-from warlock.studio.modes.home.ui.panes import landing
+from realmspinner.studio import journal, mode_manifest, modes, palette
+from realmspinner.studio.modes.home.ui.panes import landing
 
 from .test_studio_wiring import FakeSettings, _ctx, _teardown_app
 
@@ -46,7 +46,7 @@ def fake_pygame(monkeypatch):
 def _all_mode_modules() -> dict[str, Any]:
     """Every document-mode module, imported once for the sweeps below."""
     return {
-        entry.module: import_module(f"warlock.studio.{entry.module}")
+        entry.module: import_module(f"realmspinner.studio.{entry.module}")
         for entry in mode_manifest.DOC_MODES
     }
 
@@ -66,7 +66,7 @@ def test_teardown_calls_persist_for_every_mode_the_manifest_reports(fake_pygame,
     """
     called: list[str] = []
     for entry in mode_manifest.persisting_modes():
-        module = import_module(f"warlock.studio.{entry.module}")
+        module = import_module(f"realmspinner.studio.{entry.module}")
         monkeypatch.setattr(module, "persist", lambda ctx, _k=entry.key: called.append(_k))
 
     _teardown_app(_ctx(FakeSettings())).teardown()
@@ -107,7 +107,7 @@ def test_every_manifest_module_exists_and_is_importable():
     surface later as a mysterious ``ensure_providers`` log line."""
     for entry in mode_manifest.DOC_MODES:
         try:
-            import_module(f"warlock.studio.{entry.module}")
+            import_module(f"realmspinner.studio.{entry.module}")
         except ImportError as exc:  # pragma: no cover - failure path
             pytest.fail(f"{entry.key}: module {entry.module!r} does not exist ({exc})")
 
@@ -139,14 +139,14 @@ def test_every_manifest_module_registers_its_claimed_journal_kind():
 
 
 def test_every_opener_module_is_importable_and_exposes_open_path():
-    """``KIND_OPENERS``'s own bug (a ``.wsng`` row that did nothing on click)
+    """``KIND_OPENERS``'s own bug (a ``.rsng`` row that did nothing on click)
     was exactly a module named in the table that could not do what the table
     claimed. This is that check, run over the manifest instead of the table
     it now generates."""
     for entry in mode_manifest.DOC_MODES:
         if entry.opener is None:
             continue
-        module = import_module(f"warlock.studio.{entry.opener}")
+        module = import_module(f"realmspinner.studio.{entry.opener}")
         assert callable(getattr(module, "open_path", None)), (
             f"{entry.key}: opener {entry.opener!r} has no open_path()"
         )

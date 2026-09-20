@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels.mesh import colliders
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.kernels.mesh import colliders
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
 from .test_agent_clay import _Ctx, _history_len, _new_agent_tab, _payload
 
@@ -230,7 +230,7 @@ def test_clay_scene_names_the_collider_role_and_kind() -> None:
 
 
 def test_clay_catalog_collider_kinds_names_every_kind() -> None:
-    from warlock.studio.modes.clay.agent import schema as agent_clay_schema
+    from realmspinner.studio.modes.clay.agent import schema as agent_clay_schema
 
     ctx = _Ctx()
     session = agent_clay.Session()

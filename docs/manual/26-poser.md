@@ -362,7 +362,7 @@ frames is not sampled at all — Blender skips it rather than failing the whole 
 no entry of its own; it is named above them as **Skipped**, with the reason, and a file whose every
 action is skipped says so in the toast rather than reading "Imported 0 clip(s)".
 
-**Licensing.** Warlock downloads nothing for this — you supply the file. The animation data itself
+**Licensing.** Realmspinner downloads nothing for this — you supply the file. The animation data itself
 is governed by wherever you got it: Mixamo's motion library is Adobe's, under Adobe's own terms, and
 those terms are what to check before using or redistributing anything you import here, not this
 project's licence.

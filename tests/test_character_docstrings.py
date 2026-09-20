@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.kernels import charsheet
-from warlock.service import characters as svc_characters
+from realmspinner.kernels import charsheet
+from realmspinner.service import characters as svc_characters
 
 
 def test_export_godot_docstring_names_the_module_that_actually_defines_rename_animations():
@@ -18,7 +18,7 @@ def test_export_godot_docstring_names_the_module_that_actually_defines_rename_an
     runs on a copy of the exported bytes, but ``export_godot`` itself calls
     ``glbio.rename_animations`` -- ``godotscene.__all__`` has no such function
     at all."""
-    from warlock import godotscene
+    from realmspinner import godotscene
 
     assert not hasattr(godotscene, "rename_animations")
     doc = inspect.getdoc(svc_characters.export_godot) or ""

@@ -22,10 +22,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import nineslice
-from warlock.kernels.pixel.document import Document
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+from realmspinner.kernels.pixel import nineslice
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
 
 CORNER = (10, 20, 30, 255)
 EDGE_H = (40, 50, 60, 255)
@@ -196,7 +196,7 @@ def test_the_greyed_out_check_and_the_click_reach_the_same_answer():
 def ui():
     from imgui_bundle import imgui
 
-    from warlock.studio import theme
+    from realmspinner.studio import theme
 
     previous = imgui.get_current_context()
     ctx = imgui.create_context()

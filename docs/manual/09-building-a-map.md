@@ -141,15 +141,15 @@ different mental model, not a switch that removes a limit.
 
 ## Tiled interoperability
 
-Plotter saves `.wmap` natively and exports `.tmx` / `.tmj` with `.tsx` tilesets for Tiled.
+Plotter saves `.rmap` natively and exports `.tmx` / `.tmj` with `.tsx` tilesets for Tiled.
 
 Most things round-trip: every Tiled projection, infinite maps, all four layer kinds with their
 decorations, every Tiled object shape, object rotation, external and embedded and image-collection tilesets, per-tile
 animation, collision, properties, class and probability, and both blob and generic Wang sets.
 
-Some things are **Warlock dialect** — modelled and written, but no Tiled release reads them back:
+Some things are **Realmspinner dialect** — modelled and written, but no Tiled release reads them back:
 oblique projection with skew, per-layer blend modes, the capsule object shape, per-object opacity,
-and the recursive list property type. Use them freely if Warlock is your only editor; avoid them if
+and the recursive list property type. Use them freely if Realmspinner is your only editor; avoid them if
 the map has to survive a round trip through Tiled.
 
 A few things are refused by name rather than half-supported: object templates, Automapping, projects
@@ -158,8 +158,8 @@ and worlds, plugins, and 120° hex tile rotation. Those are non-goals, not gaps.
 One honest caveat, smaller than it was. Plotter now writes `tiledversion` 1.12.2, because on
 2026-08-29 a real Tiled 1.12.x opened a Plotter export and a real Tiled 1.12.2 map was read back
 here. But that was one orthogonal map each way — **the compatibility test corpus is still authored
-by Plotter itself**, every fixture a file this editor wrote. A green test proves that Warlock's
-reader and Warlock's writer agree with each other. Beyond plain CSV ground — flipped tiles, objects,
+by Plotter itself**, every fixture a file this editor wrote. A green test proves that Realmspinner's
+reader and Realmspinner's writer agree with each other. Beyond plain CSV ground — flipped tiles, objects,
 properties, infinite maps — it still does not prove that Tiled agrees with either.
 
 ## Try it

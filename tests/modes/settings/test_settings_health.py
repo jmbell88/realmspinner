@@ -3,7 +3,7 @@
 The checks were readable in one place, a popup, and when that popup was removed
 nothing inherited the list. A fatal check still reaches the error banner; a
 non-fatal one -- Blender missing so rigging is unavailable, a style LoRA whose
-file has been moved -- became a count on Home and a tooltip, and `warlock
+file has been moved -- became a count on Home and a tooltip, and `realmspinner
 doctor` in a terminal was the only way to read what it actually said.
 
 These assert the wording rather than the drawing, which is why the rows are
@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock.studio import icons, theme
-from warlock.studio.modes.settings.ui.panes import app_settings
-from warlock.studio.state import AppState
+from realmspinner.studio import icons, theme
+from realmspinner.studio.modes.settings.ui.panes import app_settings
+from realmspinner.studio.state import AppState
 
 
 def _check(

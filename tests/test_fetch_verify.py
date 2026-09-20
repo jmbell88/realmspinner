@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock import fetch, hashes
-from warlock.config import Config
+from realmspinner import fetch, hashes
+from realmspinner.config import Config
 
 # ``fetch_worker`` is imported *inside* the tests that need it, never at module
 # scope. Importing it sets ``HF_HUB_OFFLINE=0`` in the current process -- which
@@ -34,7 +34,7 @@ from warlock.config import Config
 
 
 def _worker():
-    from warlock.pipelines import fetch_worker
+    from realmspinner.pipelines import fetch_worker
 
     return fetch_worker
 
@@ -258,7 +258,7 @@ def test_a_digest_entry_that_escapes_the_install_directory_is_skipped(tmp_path: 
 def test_verify_all_walks_the_manifests_rather_than_the_registry(tmp_path, monkeypatch):
     """The question is "is what is installed intact", and a directory whose
     registry row has since been renamed is still a directory on this disk."""
-    monkeypatch.setenv("WARLOCK_T2I_ROOT", str(tmp_path))
+    monkeypatch.setenv("REALMSPINNER_T2I_ROOT", str(tmp_path))
     _install(tmp_path, "thing", {"a.bin": b"a"})
     _install(tmp_path, "other", {"b.bin": b"b"})
     (tmp_path / "no-manifest").mkdir()
@@ -290,7 +290,7 @@ def test_nothing_verifies_on_startup():
     something anybody asked for at the moment they opened the app."""
     import inspect
 
-    from warlock.studio import runtime
+    from realmspinner.studio import runtime
 
     source = inspect.getsource(runtime)
     assert "verify_manifest" not in source

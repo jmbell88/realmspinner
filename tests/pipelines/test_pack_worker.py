@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from warlock.pipelines import pack_worker
+from realmspinner.pipelines import pack_worker
 
 BODY = b"a wheel-shaped pile of bytes"
 DIGEST = hashlib.sha256(BODY).hexdigest()
@@ -96,7 +96,7 @@ def test_a_bundled_wheel_is_taken_from_where_the_installer_staged_it(tmp_path):
 
     The three sdist-only distributions are compiled by the build and staged
     into the application's own ``packs`` directory; the cache the child downloads into is under the
-    user's Warlock home, and on a per-user install those are routinely two
+    user's Realmspinner home, and on a per-user install those are routinely two
     drives. Without this the music pack could only ever fail three wheels from
     the end, on the user's machine, with everything else already downloaded.
     """
@@ -120,7 +120,7 @@ def test_a_bundled_wheel_is_taken_from_where_the_installer_staged_it(tmp_path):
 def test_a_staged_bundled_wheel_from_another_build_is_refused(tmp_path):
     """A bundled wheel is pinned by digest exactly as a downloaded one is: it
     is about to go into the site-packages the app is running out of, and a
-    file left behind by a different build of Warlock is precisely the one that
+    file left behind by a different build of Realmspinner is precisely the one that
     would otherwise be installed without anyone noticing."""
     staged = tmp_path / "app-packs"
     staged.mkdir()
@@ -425,7 +425,7 @@ def test_the_two_workers_pace_functions_have_not_drifted():
     import re
     from pathlib import Path
 
-    src = Path(__file__).resolve().parents[2] / "src" / "warlock" / "pipelines"
+    src = Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "pipelines"
 
     def body(path: Path) -> str:
         text = (src / path).read_text(encoding="utf-8")

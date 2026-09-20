@@ -13,10 +13,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import native
+from realmspinner import native
 
 pytestmark = pytest.mark.skipif(
-    not native.available(), reason="warlockc is not built in this checkout"
+    not native.available(), reason="realmspinnerc is not built in this checkout"
 )
 
 
@@ -96,20 +96,20 @@ def test_no_queries_at_all() -> None:
 
 
 def _both_ways(monkeypatch, run):
-    """Run ``run`` with the kernel and again with ``WARLOCK_NATIVE=0``."""
+    """Run ``run`` with the kernel and again with ``REALMSPINNER_NATIVE=0``."""
     with_kernel = run()
-    monkeypatch.setenv("WARLOCK_NATIVE", "0")
+    monkeypatch.setenv("REALMSPINNER_NATIVE", "0")
     native.reset()
     try:
         without = run()
     finally:
-        monkeypatch.delenv("WARLOCK_NATIVE", raising=False)
+        monkeypatch.delenv("REALMSPINNER_NATIVE", raising=False)
         native.reset()
     return with_kernel, without
 
 
 def test_snap_agrees_with_and_without_the_kernel(monkeypatch) -> None:
-    from warlock.kernels.pixel import indexed as ix
+    from realmspinner.kernels.pixel import indexed as ix
 
     rng = np.random.default_rng(2)
     pixels = np.zeros((32, 32, 4), dtype=np.uint8)
@@ -124,7 +124,7 @@ def test_snap_agrees_with_and_without_the_kernel(monkeypatch) -> None:
 
 
 def test_ordered_dithering_agrees_with_and_without_the_kernel(monkeypatch) -> None:
-    from warlock.kernels.pixel import dither
+    from realmspinner.kernels.pixel import dither
 
     rng = np.random.default_rng(6)
     pixels = np.zeros((24, 24, 4), dtype=np.uint8)
@@ -138,7 +138,7 @@ def test_ordered_dithering_agrees_with_and_without_the_kernel(monkeypatch) -> No
 
 
 def test_resolve_agrees_with_and_without_the_kernel(monkeypatch) -> None:
-    from warlock.kernels.pixel import index_plane as ixp
+    from realmspinner.kernels.pixel import index_plane as ixp
 
     rng = np.random.default_rng(8)
     pixels = np.zeros((16, 16, 4), dtype=np.uint8)
@@ -261,7 +261,7 @@ def test_random_masks_agree() -> None:
 
 
 def test_flood_mask_agrees_with_and_without_the_kernel(monkeypatch) -> None:
-    from warlock.studio.modes.plotter.engine import tools
+    from realmspinner.studio.modes.plotter.engine import tools
 
     rng = np.random.default_rng(17)
     match = rng.random((32, 32)) > 0.3

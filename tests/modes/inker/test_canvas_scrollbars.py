@@ -22,10 +22,10 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels import pixel as inker
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-from warlock.studio.shell import paintview
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+from realmspinner.studio.shell import paintview
 
 SIZE = (2000, 2000)
 REGION = (400.0, 300.0)
@@ -202,7 +202,7 @@ def test_the_bars_keep_off_the_rulers(ui):
     bottom ones, so neither overlay ever draws through the other -- and the
     corner where the two bars would meet belongs to neither."""
     state, _tab = _scene(rulers=True)
-    from warlock.studio.tokens import sp
+    from realmspinner.studio.tokens import sp
 
     band = sp(inker_canvas.RULER_THICKNESS)
     horizontal = _track(state, 0)

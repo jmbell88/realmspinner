@@ -7,9 +7,9 @@ import gc
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import adjacency as adj
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh import adjacency as adj
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as prim
 
 
 def _plane_grid() -> bm.Mesh:

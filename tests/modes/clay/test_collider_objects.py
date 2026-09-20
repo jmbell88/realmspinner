@@ -3,7 +3,7 @@
 ``colliders.py``'s own pure-kernel fits (box/sphere/capsule/convex/compound)
 are pinned in ``test_colliders.py``; this file is the document-level door
 that turns one of those fits into a live ``Obj`` -- ``ClayDoc.add_collider``
--- and the ``.wblk`` v3 round trip for ``Obj.role``/``Obj.collider_kind``.
+-- and the ``.rblk`` v3 round trip for ``Obj.role``/``Obj.collider_kind``.
 See ``document.py``'s own module docstring (tranche 7 paragraph) and
 ``add_collider``'s own docstring for the design this holds it to: parenting
 places it (a collider's mesh is already expressed in the source's own local
@@ -19,11 +19,11 @@ import json
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import colliders as cl
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.mesh import colliders as cl
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.elements import OpError
 
 
 def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
@@ -129,17 +129,17 @@ def test_add_collider_is_one_undo_step() -> None:
     assert doc.history.head == head
 
 
-# --- .wblk v3: role / collider_kind -----------------------------------------
+# --- .rblk v3: role / collider_kind -----------------------------------------
 
 
-def test_wblk_round_trips_role_and_collider_kind() -> None:
-    from warlock.kernels.mesh import serialize as ser
+def test_rblk_round_trips_role_and_collider_kind() -> None:
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("Crate"))
     new = doc.add_collider(a.uid, cl.fit_capsule(a.mesh))
 
-    out = ser.read_wblk(ser.wblk_bytes(doc))
+    out = ser.read_rblk(ser.rblk_bytes(doc))
     restored = out.by_uid(new.uid)
     assert restored.role == "collider"
     assert restored.collider_kind == "capsule"
@@ -147,7 +147,7 @@ def test_wblk_round_trips_role_and_collider_kind() -> None:
 
 
 def test_an_ordinary_mesh_object_writes_no_role_or_kind_keys() -> None:
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     doc.add_object(_obj("A"))
@@ -157,19 +157,19 @@ def test_an_ordinary_mesh_object_writes_no_role_or_kind_keys() -> None:
 
 
 def test_a_document_with_a_collider_is_still_byte_identical_when_repeated() -> None:
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("Crate"))
     doc.add_collider(a.uid, cl.fit_box(a.mesh))
-    assert ser.wblk_bytes(doc) == ser.wblk_bytes(doc)
+    assert ser.rblk_bytes(doc) == ser.rblk_bytes(doc)
 
 
 def _hand_edit_scene(data: bytes, mutate) -> bytes:
     import zipfile
     from io import BytesIO
 
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     out = BytesIO()
     with zipfile.ZipFile(BytesIO(data)) as src, zipfile.ZipFile(out, "w") as dst:
@@ -183,36 +183,36 @@ def _hand_edit_scene(data: bytes, mutate) -> bytes:
     return out.getvalue()
 
 
-def test_wblk_refuses_an_unknown_role() -> None:
-    from warlock.kernels.mesh import serialize as ser
+def test_rblk_refuses_an_unknown_role() -> None:
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     doc.add_object(_obj("A"))
-    data = ser.wblk_bytes(doc)
+    data = ser.rblk_bytes(doc)
     bad = _hand_edit_scene(data, lambda s: s["objects"][0].__setitem__("role", "giraffe"))
     with pytest.raises(ValueError, match="role"):
-        ser.read_wblk(bad)
+        ser.read_rblk(bad)
 
 
-def test_wblk_refuses_a_collider_kind_that_names_nothing() -> None:
-    from warlock.kernels.mesh import serialize as ser
+def test_rblk_refuses_a_collider_kind_that_names_nothing() -> None:
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     doc.add_object(_obj("A", role="collider", collider_kind="box"))
-    data = ser.wblk_bytes(doc)
+    data = ser.rblk_bytes(doc)
     bad = _hand_edit_scene(
         data, lambda s: s["objects"][0].__setitem__("collider_kind", "not-a-kind")
     )
     with pytest.raises(ValueError, match="collider kind"):
-        ser.read_wblk(bad)
+        ser.read_rblk(bad)
 
 
-def test_wblk_refuses_a_collider_kind_on_a_non_collider_object() -> None:
-    from warlock.kernels.mesh import serialize as ser
+def test_rblk_refuses_a_collider_kind_on_a_non_collider_object() -> None:
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     doc.add_object(_obj("A"))
-    data = ser.wblk_bytes(doc)
+    data = ser.rblk_bytes(doc)
     bad = _hand_edit_scene(data, lambda s: s["objects"][0].__setitem__("collider_kind", "box"))
     with pytest.raises(ValueError, match="collider_kind"):
-        ser.read_wblk(bad)
+        ser.read_rblk(bad)

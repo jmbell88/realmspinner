@@ -14,13 +14,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import native
-from warlock.kernels.grid2d import gid
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter.engine import render
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner import native
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter.engine import render
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
-needs_dll = pytest.mark.skipif(not native.available(), reason="warlockc.dll not built")
+needs_dll = pytest.mark.skipif(not native.available(), reason="realmspinnerc.dll not built")
 
 
 def _sheet(tiles: int = 8, size: int = 8, *, binary: bool = True, seed: int = 5):

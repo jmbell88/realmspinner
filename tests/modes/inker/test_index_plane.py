@@ -12,8 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import dither
-from warlock.kernels.pixel import index_plane as ixp
+from realmspinner.kernels.pixel import dither
+from realmspinner.kernels.pixel import index_plane as ixp
 
 # Slots 1 and 3 are the *same red*. Every duplicate-identity assertion below
 # leans on that, and on slot 0 being the transparent one while carrying an
@@ -189,7 +189,7 @@ def test_histogram_counts_slots_and_not_colours():
     """The measurement ``indexed.histogram`` cannot make: it counts by colour,
     so it reports both identical reds as holding every red pixel. This is what
     makes deleting an unused duplicate safe."""
-    from warlock.kernels.pixel import indexed as ix
+    from realmspinner.kernels.pixel import indexed as ix
 
     plane = np.asarray([[1, 1, 3]], dtype=np.uint8)
     assert ixp.histogram(plane, len(PALETTE)) == [0, 2, 0, 1]

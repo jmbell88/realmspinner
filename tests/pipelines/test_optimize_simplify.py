@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock import winjob
-from warlock.pipelines import optimize
+from realmspinner import winjob
+from realmspinner.pipelines import optimize
 
 VENDORED_EXE = Path("vendor/gltfpack/gltfpack.exe")
 needs_real_gltfpack = pytest.mark.skipif(
@@ -206,12 +206,12 @@ def test_a_real_uv_sphere_simplifies_and_reparses(tmp_path, monkeypatch):
     regression here that quietly drops the flag from the argv would make
     this test's own face-count assertion fail, which is the point.
     """
-    monkeypatch.setenv("WARLOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("REALMSPINNER_HOME", str(tmp_path))
 
-    from warlock.kernels.geom3d import glbwrite
-    from warlock.kernels.mesh import document as bd
-    from warlock.kernels.mesh import glbimport
-    from warlock.kernels.mesh import primitives as bp
+    from realmspinner.kernels.geom3d import glbwrite
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import glbimport
+    from realmspinner.kernels.mesh import primitives as bp
 
     defaults, generator = bp.GENERATORS["uv_sphere"]
     params = {**defaults, "segments": 32, "rings": 16}

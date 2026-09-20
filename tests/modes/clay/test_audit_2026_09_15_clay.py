@@ -15,15 +15,15 @@ from types import SimpleNamespace
 import numpy as np
 from familiar.test_familiar_ui import _canned_calls, _FakeCtx  # shared rather than duplicated
 
-from warlock.kernels.mesh import diagnose
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.service import errors as service_errors
-from warlock.service import familiar as svc_familiar
-from warlock.studio.assistant import ui as familiar_ui
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.ui import view as clay_view
-from warlock.studio.tasks import Done
+from realmspinner.kernels.mesh import diagnose
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.service import errors as service_errors
+from realmspinner.service import familiar as svc_familiar
+from realmspinner.studio.assistant import ui as familiar_ui
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.ui import view as clay_view
+from realmspinner.studio.tasks import Done
 
 RECT = (0.0, 0.0, 128.0, 96.0)
 

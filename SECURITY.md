@@ -12,12 +12,12 @@ person's project.
 
 ## What is in scope
 
-Warlock Studio is an offline desktop application. It has no server, no account
+Realmspinner is an offline desktop application. It has no server, no account
 system and no network listener beyond `127.0.0.1`, so the realistic threat is
 **a malicious file**, not a malicious peer. In scope:
 
 - **Any file the app opens.** `.ora`, `.aseprite`, `.tmx`/`.tsx` and their JSON
-  spellings `.tmj`/`.tsj`, `.wmap`, `.wblk`, `.wpack`, `.wscn`, `.wsng`, `.glb`, and
+  spellings `.tmj`/`.tsj`, `.rmap`, `.rblk`, `.rpack`, `.rscn`, `.rsng`, `.glb`, and
   every image format Pillow handles.
   These are files people download from asset sites, so a crafted one reaching
   code execution, a decompression bomb, or a write outside the chosen directory
@@ -28,13 +28,13 @@ system and no network listener beyond `127.0.0.1`, so the realistic threat is
   (`HF_HUB_OFFLINE=1`, set before any import) is a security property here, not
   only a convenience. There are three user-initiated exceptions, each its own
   subprocess: the `fetch_worker` (model weights, from Hugging Face), the
-  `pack_worker` (`src/warlock/pipelines/pack_worker.py`, spawned by
-  `src/warlock/service/packs.py`, downloading and installing optional
+  `pack_worker` (`src/realmspinner/pipelines/pack_worker.py`, spawned by
+  `src/realmspinner/service/packs.py`, downloading and installing optional
   dependency packs — Create/Muse/rigging extras — from Settings -> Packs), and
-  the `update_worker` (`src/warlock/pipelines/update_worker.py`, reading the
+  the `update_worker` (`src/realmspinner/pipelines/update_worker.py`, reading the
   release feed and fetching an installer when the user asks Settings to check
   for an update).
-- **The MCP agent bridge.** `src/warlock/mcp/` listens on a named pipe
+- **The MCP agent bridge.** `src/realmspinner/mcp/` listens on a named pipe
   (Unix socket elsewhere) and accepts JSON-RPC from another process running as
   the same user on the same machine, so an agent can drive Clay and, since the
   character pipeline landed, a second, narrower surface. It is **off
@@ -52,11 +52,11 @@ system and no network listener beyond `127.0.0.1`, so the realistic threat is
   export of a copy can only ever overwrite an earlier export *it* made of the
   same asset, never a human's export of a same-named one. It is still an
   untrusted-input parser like any file format above: its framing
-  (`src/warlock/mcp/protocol.py`) and its pipe (`pipe.py`) are in scope, and so
+  (`src/realmspinner/mcp/protocol.py`) and its pipe (`pipe.py`) are in scope, and so
   is anything reachable through either derived tool surface that escapes its
   own bound — Clay's one tab, or the character pipeline's read-any/write-
   additive-only rule.
-- **Familiar's local listener.** `src/warlock/pipelines/llama.py` spawns
+- **Familiar's local listener.** `src/realmspinner/pipelines/llama.py` spawns
   `llama-server.exe`, a second loopback HTTP listener distinct from the named
   pipe above, bound to `127.0.0.1` only. It exists only while Familiar is in
   use — spawned on demand, not on startup — and every spawn writes a fresh
@@ -76,7 +76,7 @@ system and no network listener beyond `127.0.0.1`, so the realistic threat is
 - **Model weights and what they generate.** The app runs whatever checkpoint you
   point it at, in-process, by design. A malicious `.safetensors` is a supply
   chain question about where you downloaded it from.
-- **`WARLOCK_*` environment variables.** They are configuration, set by whoever
+- **`REALMSPINNER_*` environment variables.** They are configuration, set by whoever
   is already running the process.
 - Anything requiring an attacker who already has code execution as your user.
 - The known, documented traversal allowance in `.tmx`/`.tsx` external

@@ -11,16 +11,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import doctor, winjob
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel.flourish import bake as B
-from warlock.kernels.pixel.flourish import keywords, presets
-from warlock.pipelines import recipe_worker
-from warlock.studio.modes.inker import flourish as inker_flourish
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.tasks import Done
+from realmspinner import doctor, winjob
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel.flourish import bake as B
+from realmspinner.kernels.pixel.flourish import keywords, presets
+from realmspinner.pipelines import recipe_worker
+from realmspinner.studio.modes.inker import flourish as inker_flourish
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.tasks import Done
 
 
 class _Ctx:
@@ -149,11 +149,11 @@ def test_with_a_model_the_answer_is_clamped_through_the_same_funnel(tmp_path, mo
 
     monkeypatch.setattr(winjob, "run", fake_run)
     assert inker_mode.flourish_prompt(ctx, tab, text="make the core enormous")
-    assert seen["argv"][-1] == "warlock.pipelines.recipe_worker"
+    assert seen["argv"][-1] == "realmspinner.pipelines.recipe_worker"
     assert seen["request"]["request"] == "make the core enormous"
     assert "uid" not in json.dumps(seen["request"]["recipe"])
     pending = state.flourish_pending[group]
-    from warlock.kernels.pixel.flourish import prims
+    from realmspinner.kernels.pixel.flourish import prims
 
     assert _core(pending).params["radius"] == prims.params_of("core")["radius"].hi
     assert pending.seed == 7

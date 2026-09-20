@@ -10,7 +10,7 @@ accumulation order, not closeness: every assertion below must be
 
 import numpy as np
 
-from warlock.pipelines import retexture
+from realmspinner.pipelines import retexture
 
 
 def _reference_combine(colours, weights, base, vis=None):

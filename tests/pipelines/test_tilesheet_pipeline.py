@@ -22,8 +22,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.pipelines import tilesheet
-from warlock.service.validation import MAX_SEED
+from realmspinner.pipelines import tilesheet
+from realmspinner.service.validation import MAX_SEED
 
 
 def _noise(width: int, height: int, seed: int = 7) -> np.ndarray:
@@ -399,7 +399,7 @@ def test_the_sidecar_carries_the_lattice_the_generation_was_drawn_on():
 
     from PIL import Image
 
-    from warlock.pipelines import pixel
+    from realmspinner.pipelines import pixel
 
     doc = tilesheet.sheet_sidecar(
         prompt="brick",
@@ -516,7 +516,7 @@ def test_no_palette_and_no_dither_is_quantize_shared_byte_for_byte():
     assignment and a nearest-in-Oklab remap of the same table lands a pixel near
     a box boundary on a different entry -- so a default sheet has to go through
     the old call itself, not through the new pair."""
-    from warlock.pipelines.pixelsheet import quantize_shared
+    from realmspinner.pipelines.pixelsheet import quantize_shared
 
     atlas = _atlas()
     want, want_palette = quantize_shared(atlas, 16)
@@ -627,7 +627,7 @@ def test_dither_alone_records_the_source_and_the_flag_and_no_file():
 
 
 def test_a_named_palette_records_its_file_and_a_digest_of_its_colours():
-    from warlock.pipelines import pixel
+    from realmspinner.pipelines import pixel
 
     entries = ((26, 28, 44), (244, 244, 244))
     record = tilesheet.palette_record(

@@ -1,4 +1,4 @@
-"""``~/.warlock`` is the app's home, and getting there is a one-time move.
+"""``~/.realmspinner`` is the app's home, and getting there is a one-time move.
 
 Two subjects in one file because they are one change: where the roots resolve
 (``config``) and what happens to a library still sitting at the old address
@@ -17,22 +17,22 @@ from pathlib import Path
 
 import pytest
 
-from warlock import migrate
-from warlock.config import SETTINGS, Config
+from realmspinner import migrate
+from realmspinner.config import SETTINGS, Config
 
 # Every variable that would override a default. Cleared wholesale, because the
 # machine running the suite is the machine the feature exists for and is
 # therefore the machine most likely to have half of these set.
 _ROOT_VARS = (
-    "WARLOCK_HOME",
-    "WARLOCK_DATA_DIR",
-    "WARLOCK_DB",
-    "WARLOCK_BENCH_DIR",
-    "WARLOCK_PALETTE_DIR",
-    "WARLOCK_T2I_ROOT",
-    "WARLOCK_TRELLIS_MODELS",
-    "WARLOCK_TRELLIS_EXE",
-    "WARLOCK_TRELLIS_RUNTIME",
+    "REALMSPINNER_HOME",
+    "REALMSPINNER_DATA_DIR",
+    "REALMSPINNER_DB",
+    "REALMSPINNER_BENCH_DIR",
+    "REALMSPINNER_PALETTE_DIR",
+    "REALMSPINNER_T2I_ROOT",
+    "REALMSPINNER_TRELLIS_MODELS",
+    "REALMSPINNER_TRELLIS_EXE",
+    "REALMSPINNER_TRELLIS_RUNTIME",
 )
 
 
@@ -44,14 +44,14 @@ def home(tmp_path, monkeypatch):
     fake = tmp_path / "home"
     fake.mkdir()
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake))
-    return fake / ".warlock"
+    return fake / ".realmspinner"
 
 
 @pytest.fixture
 def legacy(tmp_path, monkeypatch):
     """A checkout with a populated library at the old addresses. -> its root."""
-    monkeypatch.delenv("WARLOCK_NO_MIGRATE", raising=False)
-    monkeypatch.delenv("WARLOCK_MIGRATE_KEEP", raising=False)
+    monkeypatch.delenv("REALMSPINNER_NO_MIGRATE", raising=False)
+    monkeypatch.delenv("REALMSPINNER_MIGRATE_KEEP", raising=False)
     root = tmp_path / "checkout"
     (root / "assets" / "abcdef012345").mkdir(parents=True)
     (root / "assets" / "abcdef012345" / "model.glb").write_bytes(b"mesh")
@@ -92,7 +92,7 @@ def test_the_vendored_binary_stays_with_the_checkout(home):
     ``test_resolve_trellis_exe_tries_override_then_download_then_vendor``
     below for what replaced this half of the claim.
     """
-    from warlock.config import PROJECT_ROOT
+    from realmspinner.config import PROJECT_ROOT
 
     config = Config()
     assert config.gltfpack_exe.is_relative_to(PROJECT_ROOT)
@@ -103,11 +103,11 @@ def test_resolve_trellis_exe_tries_override_then_download_then_vendor(tmp_path, 
     ``trellis_server_exe`` used to be -- it is a three-step probe, and this is
     the order: an unset override falls all the way back to the vendored
     checkout path; a file landing in the downloaded runtime directory beats
-    that fallback; and an explicit ``WARLOCK_TRELLIS_EXE`` still beats the
+    that fallback; and an explicit ``REALMSPINNER_TRELLIS_EXE`` still beats the
     download, because it is the sideload path for a machine that cannot reach
     GitHub at all.
     """
-    from warlock.config import PROJECT_ROOT, TRELLIS_SERVER_NAME
+    from realmspinner.config import PROJECT_ROOT, TRELLIS_SERVER_NAME
 
     config = Config()
 
@@ -134,9 +134,9 @@ def test_resolve_trellis_exe_tries_override_then_download_then_vendor(tmp_path, 
     assert config.resolve_trellis_exe() == override
 
 
-def test_warlock_home_moves_every_root_at_once(tmp_path, home, monkeypatch):
+def test_realmspinner_home_moves_every_root_at_once(tmp_path, home, monkeypatch):
     elsewhere = tmp_path / "elsewhere"
-    monkeypatch.setenv("WARLOCK_HOME", str(elsewhere))
+    monkeypatch.setenv("REALMSPINNER_HOME", str(elsewhere))
     config = Config()
     assert config.home == elsewhere
     assert config.data_dir == elsewhere / "assets"
@@ -149,8 +149,8 @@ def test_warlock_home_moves_every_root_at_once(tmp_path, home, monkeypatch):
 def test_a_per_root_variable_still_wins_over_the_home(tmp_path, home, monkeypatch):
     """The point of resolving the home per field rather than once: an existing
     setup that pinned one directory keeps it."""
-    monkeypatch.setenv("WARLOCK_HOME", str(tmp_path / "elsewhere"))
-    monkeypatch.setenv("WARLOCK_T2I_ROOT", str(tmp_path / "big-disk" / "models"))
+    monkeypatch.setenv("REALMSPINNER_HOME", str(tmp_path / "elsewhere"))
+    monkeypatch.setenv("REALMSPINNER_T2I_ROOT", str(tmp_path / "big-disk" / "models"))
     config = Config()
     assert config.t2i_model_root == tmp_path / "big-disk" / "models"
     assert config.data_dir == tmp_path / "elsewhere" / "assets"
@@ -159,7 +159,7 @@ def test_a_per_root_variable_still_wins_over_the_home(tmp_path, home, monkeypatc
 def test_home_is_a_listed_setting():
     """S140's table is asserted in both directions elsewhere; this is the
     readout actually naming the variable a user would reach for first."""
-    assert ("home", "WARLOCK_HOME") in SETTINGS
+    assert ("home", "REALMSPINNER_HOME") in SETTINGS
 
 
 # --- the move ---------------------------------------------------------------
@@ -213,7 +213,7 @@ def test_a_populated_destination_is_left_alone(home, legacy):
 
 
 def test_a_root_the_user_pinned_is_not_moved(home, legacy, monkeypatch, tmp_path):
-    monkeypatch.setenv("WARLOCK_T2I_ROOT", str(tmp_path / "pinned"))
+    monkeypatch.setenv("REALMSPINNER_T2I_ROOT", str(tmp_path / "pinned"))
     migrate.run(Config())
     assert (legacy / "models" / "weights.safetensors").exists()
     assert not (tmp_path / "pinned").exists()
@@ -221,23 +221,23 @@ def test_a_root_the_user_pinned_is_not_moved(home, legacy, monkeypatch, tmp_path
 
 
 def test_a_home_pointed_back_at_the_checkout_migrates_nothing(legacy, monkeypatch):
-    """The documented escape hatch. ``WARLOCK_HOME=<checkout>`` makes source
+    """The documented escape hatch. ``REALMSPINNER_HOME=<checkout>`` makes source
     and destination the same directory, and the move has to see that rather
     than copy a tree onto itself."""
-    monkeypatch.setenv("WARLOCK_HOME", str(legacy))
+    monkeypatch.setenv("REALMSPINNER_HOME", str(legacy))
     assert migrate.run(Config()) == []
     assert (legacy / "assets" / "jobs.sqlite").exists()
 
 
 def test_no_migrate_examines_nothing(home, legacy, monkeypatch):
-    monkeypatch.setenv("WARLOCK_NO_MIGRATE", "1")
+    monkeypatch.setenv("REALMSPINNER_NO_MIGRATE", "1")
     assert migrate.run(Config()) == []
     assert (legacy / "assets").exists()
     assert not home.exists()
 
 
 def test_keep_runs_the_copy_but_not_the_delete(home, legacy, monkeypatch):
-    monkeypatch.setenv("WARLOCK_MIGRATE_KEEP", "1")
+    monkeypatch.setenv("REALMSPINNER_MIGRATE_KEEP", "1")
     migrate.run(Config())
     assert (home / "assets" / "jobs.sqlite").exists()
     assert (legacy / "assets" / "jobs.sqlite").exists()
@@ -251,13 +251,13 @@ def test_too_little_room_refuses_and_moves_nothing(home, legacy, monkeypatch):
         migrate.run(Config())
 
     message = str(caught.value)
-    assert "WARLOCK_HOME" in message  # the escape hatch is in the refusal
+    assert "REALMSPINNER_HOME" in message  # the escape hatch is in the refusal
     assert (legacy / "assets" / "jobs.sqlite").exists()
     assert not (home / "assets").exists()
 
 
 def test_a_live_writer_refuses_and_moves_nothing(home, legacy):
-    """A second Warlock holding the library open. Tested by taking the lock the
+    """A second Realmspinner holding the library open. Tested by taking the lock the
     real one holds, rather than by the session marker -- a marker survives a
     crash and would wedge the migration permanently."""
     db = legacy / "assets" / "jobs.sqlite"
@@ -272,7 +272,7 @@ def test_a_live_writer_refuses_and_moves_nothing(home, legacy):
     finally:
         conn.close()
 
-    assert "another Warlock" in str(caught.value)
+    assert "another Realmspinner" in str(caught.value)
     assert (legacy / "assets").exists()
     assert not (home / "assets").exists()
 
@@ -341,7 +341,7 @@ def test_a_later_roots_migration_failure_does_not_strand_an_earlier_roots_legacy
     assert (legacy / "palettes").exists()
 
 
-def test_a_custom_warlock_db_is_carried_over_after_a_later_roots_migration_fails_and_is_retried(
+def test_a_custom_db_is_carried_over_after_a_later_roots_migration_fails_and_retries(
     home, legacy, monkeypatch, tmp_path
 ):
     """service-queue-01 (the 2026-09-16 audit): ``_carry_the_database`` used to
@@ -349,15 +349,15 @@ def test_a_custom_warlock_db_is_carried_over_after_a_later_roots_migration_fails
     ``assets`` (which carries ``jobs.sqlite``) succeeds before ``bench`` (the
     second root) fails, exactly the ordering
     ``test_a_later_roots_migration_failure_does_not_strand_an_earlier_roots_legacy_copy``
-    above uses -- except a custom ``WARLOCK_DB`` is configured this time. The
+    above uses -- except a custom ``REALMSPINNER_DB`` is configured this time. The
     old code left the custom database unpopulated after this run, and because
     ``_delete_legacy_roots`` had already removed ``assets``'s legacy copy,
     ``_pending`` would not offer ``assets`` again on the later, successful
-    retry either -- so the custom ``WARLOCK_DB`` was never populated, even
+    retry either -- so the custom ``REALMSPINNER_DB`` was never populated, even
     once every root had finished migrating.
     """
     elsewhere = tmp_path / "fast-disk" / "jobs.sqlite"
-    monkeypatch.setenv("WARLOCK_DB", str(elsewhere))
+    monkeypatch.setenv("REALMSPINNER_DB", str(elsewhere))
 
     real = migrate._tree_size
 
@@ -395,7 +395,7 @@ def test_the_exclusive_hold_survives_the_copy_and_not_only_the_check(home, legac
     """RUN-02: the guarantee has to cover the *copy*, not one instant before it.
 
     The precondition used to be ``BEGIN EXCLUSIVE`` / ``ROLLBACK`` on the legacy
-    store, with the connection closed immediately -- so a second Warlock
+    store, with the connection closed immediately -- so a second Realmspinner
     launched during the multi-minute cross-volume copy passed its own identical
     precondition, opened the store, and wrote into ``assets/`` while its
     contents were being copied out from under it. The recount catches a file
@@ -441,19 +441,19 @@ def test_the_exclusive_hold_survives_the_copy_and_not_only_the_check(home, legac
     assert not (legacy / "assets").exists()
 
 
-def test_a_custom_warlock_db_gets_the_migrated_job_history(
+def test_a_custom_realmspinner_db_gets_the_migrated_job_history(
     home, legacy, monkeypatch, tmp_path
 ):
     """The advertised "SSD index over a spinning-disk library" setup.
 
-    ``_ROOTS`` moves ``assets`` as one unit keyed on ``WARLOCK_DATA_DIR``, and
-    ``jobs.sqlite`` normally rides along inside it. With ``WARLOCK_DB`` pointed
+    ``_ROOTS`` moves ``assets`` as one unit keyed on ``REALMSPINNER_DATA_DIR``, and
+    ``jobs.sqlite`` normally rides along inside it. With ``REALMSPINNER_DB`` pointed
     elsewhere it used to ride along anyway -- and ``JobStore`` then opened the
     custom path, found nothing and silently created an empty database. Every
     job's files sat on disk unread, and the verdict corpus went with them.
     """
     elsewhere = tmp_path / "fast-disk" / "jobs.sqlite"
-    monkeypatch.setenv("WARLOCK_DB", str(elsewhere))
+    monkeypatch.setenv("REALMSPINNER_DB", str(elsewhere))
 
     migrate.run(Config())
 
@@ -476,7 +476,7 @@ def test_an_existing_custom_database_is_never_overwritten(
     elsewhere = tmp_path / "fast-disk" / "jobs.sqlite"
     elsewhere.parent.mkdir(parents=True)
     elsewhere.write_bytes(b"mine")
-    monkeypatch.setenv("WARLOCK_DB", str(elsewhere))
+    monkeypatch.setenv("REALMSPINNER_DB", str(elsewhere))
 
     migrate.run(Config())
 
@@ -485,7 +485,7 @@ def test_an_existing_custom_database_is_never_overwritten(
 
 def test_carry_the_database_copies_a_wal_only_commit(tmp_path):
     """``_carry_the_database`` copies the moved-to directory's ``jobs.sqlite``
-    onto a custom ``WARLOCK_DB`` path. That store runs in WAL mode, so a
+    onto a custom ``REALMSPINNER_DB`` path. That store runs in WAL mode, so a
     committed row can live only in the ``-wal`` sidecar until something
     checkpoints it -- ``shutil.copy2`` of the ``.sqlite`` bytes alone would
     silently drop it. Exercised directly against the function (rather than

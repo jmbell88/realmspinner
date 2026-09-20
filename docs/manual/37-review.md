@@ -200,12 +200,12 @@ in — so a run you finished with weeks ago keeps its row until you press this. 
 units left** rather than "0/0 reviewed".
 
 Whatever is removed, the files are copied to the **evidence archive** first — every unit you graded,
-either way, and anything a benchmark run tagged. Warlock used to lose those: filing the last verdict
+either way, and anything a benchmark run tagged. Realmspinner used to lose those: filing the last verdict
 of a sweep is what triggers the automatic cleanup, so finishing a grading pass was also what deleted
 the meshes that pass had just judged, and a later question about them had a row saying "this was bad"
 with nothing behind it. The archive lives beside your library rather than inside it, so no delete
 reaches it; [Settings → Storage](42-app-settings.md#storage) says how big it is, and
-`warlock doctor` prints the same figure. Deleting one asset by hand is unaffected — that is one
+`realmspinner doctor` prints the same figure. Deleting one asset by hand is unaffected — that is one
 deliberate act on one named thing, and it is still the way to make a mesh really go.
 
 Both this and the per-sweep trash normally leave behind any unit you accepted, and any image you

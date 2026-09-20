@@ -20,14 +20,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import adjacency as adj
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import uv as uv_mod
-from warlock.kernels.mesh import uvtools
-from warlock.studio.modes.clay import ops as clay_ops
+from realmspinner.kernels.mesh import adjacency as adj
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import uv as uv_mod
+from realmspinner.kernels.mesh import uvtools
+from realmspinner.studio.modes.clay import ops as clay_ops
 
 
 class _Toasts:
@@ -279,7 +279,7 @@ def test_texel_density_normalizes_to_the_requested_reading_as_one_step() -> None
     assert len(doc.history) == depth + 1
     # texture_size choice index 1 is CLAY_TEXTURE_SIZES[1] -- read back
     # through the same kernel function the row itself calls.
-    from warlock.kernels.rig import blender_spec
+    from realmspinner.kernels.rig import blender_spec
 
     px = blender_spec.CLAY_TEXTURE_SIZES[1]
     assert uvtools.texel_density(doc.by_uid(uid).mesh, texture_px=px) == pytest.approx(512.0)
@@ -310,7 +310,7 @@ def test_the_agent_clay_op_enum_picks_up_every_new_row_with_no_edit_there() -> N
     tranche 5 copy of it). This is that same promise for tranche 6's five new
     rows specifically.
     """
-    from warlock.studio.modes.clay.agent import dispatch as agent_clay
+    from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
     tools = {t.name: t for t in agent_clay.tools()}
     enum = set(tools["clay_op"].schema["properties"]["name"]["enum"])

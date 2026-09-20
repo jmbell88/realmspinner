@@ -18,16 +18,16 @@ from typing import Any
 
 import pytest
 
-from warlock.kernels.geom3d import glbwrite
-from warlock.kernels.geom3d import gltf as gltf_mod
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import primitives as bp
-from warlock.pipelines import blender_run, clay_blender
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay import ops as clay_ops
-from warlock.studio.modes.clay import state as clay_state
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
-from warlock.studio.modes.clay.agent.tools_ops import _OpCtx
+from realmspinner.kernels.geom3d import glbwrite
+from realmspinner.kernels.geom3d import gltf as gltf_mod
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.pipelines import blender_run, clay_blender
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay import ops as clay_ops
+from realmspinner.studio.modes.clay import state as clay_state
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.studio.modes.clay.agent.tools_ops import _OpCtx
 
 # --- Ctx doubles, decimate's own shapes -------------------------------------
 

@@ -12,8 +12,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter.engine import tsx
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter.engine import tsx
 
 
 def _pixels(w: int = 64, h: int = 64) -> np.ndarray:
@@ -75,7 +75,7 @@ def test_read_tile_meta_json_logs_dropped_rotation_and_polyline_collision_member
             }
         ]
     }
-    with caplog.at_level("WARNING", logger="warlock.studio.modes.plotter.engine.tsx"):
+    with caplog.at_level("WARNING", logger="realmspinner.studio.modes.plotter.engine.tsx"):
         out = tsx.read_tile_meta_json(entry)
     assert len(out[0].collision) == 1  # the rotated rect, rotation dropped
     messages = [record.getMessage() for record in caplog.records]
@@ -348,7 +348,7 @@ def test_a_collection_writes_no_atlas_image_and_zero_columns():
 def test_a_collection_cannot_be_a_terrain_set():
     """Terrain roles are positional over a 47-column atlas; a collection has no
     positions to read them off."""
-    from warlock.kernels.grid2d.tileset import TerrainSpec, compose_collection
+    from realmspinner.kernels.grid2d.tileset import TerrainSpec, compose_collection
 
     atlas, collection = compose_collection(_collection_pixels())
     with pytest.raises(ValueError, match="cannot be a terrain set"):
@@ -363,7 +363,7 @@ def test_a_collection_cannot_be_a_terrain_set():
 
 
 def test_composing_an_empty_collection_is_refused():
-    from warlock.kernels.grid2d.tileset import compose_collection
+    from realmspinner.kernels.grid2d.tileset import compose_collection
 
     with pytest.raises(ValueError, match="at least one tile"):
         compose_collection({})
@@ -378,7 +378,7 @@ def test_composing_a_collection_past_the_pixel_ceiling_is_refused():
     The fixture shares one array between every id rather than building ten
     thousand of them, because the refusal happens before any of them is read.
     """
-    from warlock.kernels.grid2d.tileset import compose_collection
+    from realmspinner.kernels.grid2d.tileset import compose_collection
 
     one = _tile_image(1024, 1024, 7)
     images = dict.fromkeys(range(10_000), one)
@@ -400,7 +400,7 @@ def test_the_collection_ceiling_refuses_before_it_copies_anything(monkeypatch):
     Pinned by making the copy itself fail: if anything is read before the
     refusal, this raises ``AssertionError`` rather than ``ValueError``.
     """
-    from warlock.kernels.grid2d import tileset
+    from realmspinner.kernels.grid2d import tileset
 
     def _refuse_to_copy(*_args, **_kwargs):
         raise AssertionError("a frame was copied before the ceiling refused")
@@ -415,7 +415,7 @@ def test_the_collection_ceiling_refuses_before_it_copies_anything(monkeypatch):
 
 def test_an_ordinary_collection_still_composes():
     """The ceiling must not be felt by a real collection of images."""
-    from warlock.kernels.grid2d.tileset import compose_collection
+    from realmspinner.kernels.grid2d.tileset import compose_collection
 
     atlas, collection = compose_collection(_collection_pixels())
     assert collection.cell_w == 16 and collection.cell_h == 32
@@ -516,8 +516,8 @@ def test_tiled_unsupported_is_a_value_error():
 
 
 def _terrain_tileset(k: int, terrains: int = 2) -> Tileset:
-    from warlock.kernels.grid2d import blob
-    from warlock.kernels.grid2d.tileset import TerrainSpec
+    from realmspinner.kernels.grid2d import blob
+    from realmspinner.kernels.grid2d.tileset import TerrainSpec
 
     tile = 8
     specs = tuple(

@@ -15,9 +15,9 @@ import threading
 
 import numpy as np
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives
 
 
 def _mesh() -> bm.Mesh:

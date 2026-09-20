@@ -64,7 +64,7 @@ with a fixed shape: `base` and `capital` are the *heights* of the plinth and the
 and setting both to zero leaves a plain shaft. A **lathe** is the general case of a column — a
 `profile` of `[radius, y]` stations, bottom to top, revolved into whatever silhouette they trace,
 which is what a bottle, a vase, a goblet, a handle or a turned finial needs and a column's two fixed
-numbers cannot reach. The `y` values are read as a shape, not a place — Warlock re-centres them for
+numbers cannot reach. The `y` values are read as a shape, not a place — Realmspinner re-centres them for
 you, so a profile running 0 to 1 builds the same silhouette as one running -0.5 to 0.5 and the
 object still sits wherever Properties says it does. A station of zero radius at either end comes to
 a point rather than a flat cap, which is how a lathe reaches a finial or a chess pawn's rounded top.
@@ -79,7 +79,7 @@ to loft into, on purpose — a frustum, a pedestal and a twisted column are what
 and two sliders already reach all three. As with a lathe's `profile`, there is no outline editor
 yet either: Properties shows a placed sweep's corners as a read-only line, and — unlike every other
 shape here — a self-crossing outline (a figure-eight) is not caught, so a sweep is the one primitive
-where keeping the shape simple is on you rather than on Warlock. A **tube** is a circular
+where keeping the shape simple is on you rather than on Realmspinner. A **tube** is a circular
 cross-section of one `radius`, swept along a `path` — a cable, a hose, a handle, a pipe run, a bent
 exhaust, anything that goes somewhere rather than sitting on one straight or rotational axis, which
 is what neither a lathe nor a sweep reaches on its own. The ring stays square to the path the whole
@@ -912,7 +912,7 @@ quietly reverting to grey and flat. That is true whichever door asked for the re
 this panel or an agent building in Clay over MCP behave identically here.
 
 Clay paints no textures — but it **carries** them. A material that arrived with an imported asset
-keeps its baked maps: they render in the viewport, they are stored in the `.wblk`, and they are
+keeps its baked maps: they render in the viewport, they are stored in the `.rblk`, and they are
 written back into an exported GLB. The properties panel shows which slots a material carries as a
 read-only line, because there is nothing here that could replace one and offering a control that
 looked like it could would be promising a feature that does not exist.
@@ -923,7 +923,7 @@ with a surface.
 
 ## Saving
 
-`Ctrl+S` saves the document as a `.wblk` — a zip holding `scene.json` (the objects, their
+`Ctrl+S` saves the document as a `.rblk` — a zip holding `scene.json` (the objects, their
 transforms, their generator parameters and the palette) plus one compressed mesh per object. The
 JSON half is sorted and indented so it is readable and diffable, and two saves of an unchanged
 document produce byte-identical files.
@@ -979,7 +979,7 @@ neither materials nor texture coordinates, so each arrives as one grey object wi
 joined back into one surface.
 
 **Open in Clay** prefers the document you authored. If the asset was exported from Clay, its
-`build.wblk` sidecar is reopened — objects, names, generator parameters and all. If it was not, the
+`build.rblk` sidecar is reopened — objects, names, generator parameters and all. If it was not, the
 served `model.glb` is imported instead: that is the optimized, grounded mesh, not the raw
 reconstruction.
 
@@ -1002,11 +1002,11 @@ since every edit rebuilds the whole mesh and you should know that before you pre
 ## Where the files go
 
 An exported asset is an ordinary job directory, and the document that produced it is stored beside
-the mesh as `build.wblk` (the on-disk name predates the rename). That copy is never served or
+the mesh as `build.rblk` (the on-disk name predates the rename). That copy is never served or
 downloadable — it exists so that reopening a built asset brings its objects back instead of one
 frozen mesh — and it goes away with the job when the job is deleted.
 
-Dropping a `.wblk` on the window while Clay is on screen opens it, and dropping a `.glb` imports it
+Dropping a `.rblk` on the window while Clay is on screen opens it, and dropping a `.glb` imports it
 — see [Importing an asset](#importing-an-asset).
 
 Every binding is listed in [Keyboard shortcuts](38-shortcuts.md).

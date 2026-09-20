@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MANUAL = ROOT / "docs" / "manual"
-STUDIO = ROOT / "src" / "warlock" / "studio"
+STUDIO = ROOT / "src" / "realmspinner" / "studio"
 
 
 def _chapter(name: str) -> str:
@@ -109,7 +109,7 @@ def test_before_you_begin_manual_names_the_show_me_around_button():
 def test_manual_chapter_12_places_the_count_control_in_the_command_bar():
     # Derived from the module rather than spelled as a path: the file moved
     # once already (studio/create_brief.py -> modes/create/ui/brief.py).
-    from warlock.studio.modes.create.ui import brief as create_brief
+    from realmspinner.studio.modes.create.ui import brief as create_brief
 
     brief = Path(create_brief.__file__).read_text(encoding="utf-8")
     assert "def _count(" in brief
@@ -144,7 +144,7 @@ def test_home_chapter_names_every_tour_in_TOURS():
     import sys
 
     sys.path.insert(0, str(ROOT / "src"))
-    from warlock.studio.tour.scripts import TOURS
+    from realmspinner.studio.tour.scripts import TOURS
 
     text = _flat(_section(_chapter("21-home.md"), "New here?"))
     assert "five tours" in text
@@ -178,8 +178,8 @@ def test_manual_lock_paragraph_matches_pick_not_being_gated_by_locked():
 
 def test_compat_md_aseprite_user_data_row_matches_partial_retirement():
     # P3 of the restructure (dev/RESTRUCTURE.md) moved studio/inker/ to
-    # warlock/kernels/pixel/, aseout.py included.
-    aseout = (ROOT / "src" / "warlock" / "kernels" / "pixel" / "aseout.py").read_text(
+    # realmspinner/kernels/pixel/, aseout.py included.
+    aseout = (ROOT / "src" / "realmspinner" / "kernels" / "pixel" / "aseout.py").read_text(
         encoding="utf-8"
     )
     assert "_user_data_chunks" in aseout

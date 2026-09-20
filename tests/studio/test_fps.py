@@ -1,4 +1,4 @@
-from warlock.studio.fps import FpsMeter
+from realmspinner.studio.fps import FpsMeter
 
 
 def test_an_empty_meter_reports_zero_rather_than_dividing_by_nothing():

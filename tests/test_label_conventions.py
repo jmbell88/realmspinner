@@ -8,9 +8,9 @@ it by then.
 
 from __future__ import annotations
 
-from warlock.studio import dialogs
-from warlock.studio.modes.clay import ops as clay_ops
-from warlock.studio.modes.inker import ops as inker_ops
+from realmspinner.studio import dialogs
+from realmspinner.studio.modes.clay import ops as clay_ops
+from realmspinner.studio.modes.inker import ops as inker_ops
 
 #: Every one-line ``"Export ..."`` string literal in a module. A label is one
 #: line by construction, so the newline excludes the docstrings that open with
@@ -45,7 +45,7 @@ def test_every_export_door_agrees_with_the_file_menu_about_the_ellipsis():
     tooltips and failure messages in that module that legitimately open with
     the same word and are not labels.
     """
-    from warlock.studio.modes.inker import export as inker_export
+    from realmspinner.studio.modes.inker import export as inker_export
 
     assert len(inker_export.DOORS) == 5, inker_export.DOORS
     for door in inker_export.DOORS:
@@ -58,7 +58,7 @@ def test_the_timeline_still_says_so_on_the_labels_it_kept():
     import re
     from pathlib import Path
 
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     source = Path(inker_timeline.__file__).read_text(encoding="utf-8")
     labels = set(re.findall(_EXPORT_LABEL, source))
@@ -89,12 +89,12 @@ def test_every_close_without_saving_goes_through_the_one_helper():
     Inker over [Close]."""
     from pathlib import Path
 
-    from warlock.studio import docmodes
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio import docmodes
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
 
     # The question moved into ``docmodes.close_tab`` on 2026-09-05, so the
     # five modes ask it by calling that and none spells it out any more.

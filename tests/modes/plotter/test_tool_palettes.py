@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.modes.plotter import state as plotter_state
-from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter import state as plotter_state
+from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
 
 def _doc() -> MapDoc:

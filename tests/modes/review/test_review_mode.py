@@ -21,9 +21,9 @@ from typing import Any
 
 import pytest
 
-from warlock.service import verdicts as svc_verdicts
-from warlock.studio.modes.review import mode as review_mode
-from warlock.studio.state import AppState
+from realmspinner.service import verdicts as svc_verdicts
+from realmspinner.studio.modes.review import mode as review_mode
+from realmspinner.studio.state import AppState
 
 # --- the harness -------------------------------------------------------------
 
@@ -33,7 +33,7 @@ class FakeCtx:
     would have done without needing one."""
 
     def __init__(self, svc: Any, *, accept: bool = True) -> None:
-        from warlock.service import system as svc_system
+        from realmspinner.service import system as svc_system
 
         self.svc = svc
         self.runtime = _Runtime(svc.config)
@@ -164,7 +164,7 @@ def _press(ctx, key_name: str, mod: int = 0) -> bool:
 
 
 def test_review_is_a_work_mode_and_a_workspace_but_not_a_viewport_mode():
-    from warlock.studio import main, modes
+    from realmspinner.studio import main, modes
 
     assert "review" in modes.KEYS
     assert "review" in modes.WORK_MODES
@@ -174,7 +174,7 @@ def test_review_is_a_work_mode_and_a_workspace_but_not_a_viewport_mode():
 
 
 def test_the_three_categories_still_partition_the_modes():
-    from warlock.studio import main, modes
+    from realmspinner.studio import main, modes
 
     categories = [
         set(main._SINGLE_PANE_MODES),
@@ -446,8 +446,8 @@ def test_the_grade_scale_is_derived_from_vectors_everywhere():
     """``vectors.py`` owns GRADE_MIN/GRADE_MAX; the button row and the grade
     keyboard must be derived from it, so widening the scale there moves the UI
     with it rather than leaving it drawing last week's buttons."""
-    from warlock import vectors
-    from warlock.studio import widgets
+    from realmspinner import vectors
+    from realmspinner.studio import widgets
 
     assert tuple(range(vectors.GRADE_MIN, vectors.GRADE_MAX + 1)) == widgets.GRADES
     assert {str(i): i for i in range(1, vectors.GRADE_MAX + 1)} == review_mode.GRADE_KEYS
@@ -460,8 +460,8 @@ def test_the_tag_rows_and_the_tag_keyboard_share_one_order():
     """
     import inspect
 
-    from warlock import vectors
-    from warlock.studio import widgets
+    from realmspinner import vectors
+    from realmspinner.studio import widgets
 
     assert list(review_mode.GOOD_TAG_KEYS.values()) == list(vectors.GOOD_TAGS)
     assert list(review_mode.BAD_TAG_KEYS.values()) == list(vectors.BAD_TAGS)
@@ -1347,7 +1347,7 @@ def test_review_sweep_list_hides_axis_and_values_under_blinding():
     ``review_mode.score_line`` already withholds the judge's opinion the same
     way; ``review_panes._review_sweep_summary`` is that rule for this line.
     """
-    from warlock.studio.modes.review.ui import workspace as review_panes
+    from realmspinner.studio.modes.review.ui import workspace as review_panes
 
     spec = {
         "axes": [{"param": "trellis_gss", "values": [1.0, 1.5]}],
@@ -1376,7 +1376,7 @@ def test_single_sweep_delete_confirm_uses_the_blinded_label():
     open. Covers both message branches (``units`` present and the already-gone
     "0 job(s)" case), since both interpolated the raw label.
     """
-    from warlock.studio.modes.review.ui import workspace as review_panes
+    from realmspinner.studio.modes.review.ui import workspace as review_panes
 
     sweep = {"id": "abcdef0123456789", "label": "lora sweep", "units": [1, 2, 3]}
     state = review_mode.ReviewState()
@@ -1463,7 +1463,7 @@ def test_review_runs_and_delete_button_route_through_the_blind_helpers():
     own source and checks the wiring, the way ``test_review_mode_imports_no_imgui``
     above reads ``review_mode``'s.
     """
-    from warlock.studio.modes.review.ui import workspace as review_panes
+    from realmspinner.studio.modes.review.ui import workspace as review_panes
 
     source = Path(review_panes.__file__).read_text("utf-8")
     assert _blind_routing_violations(source) == []
@@ -1568,7 +1568,7 @@ def test_review_persists_nothing_at_all(ctx, svc):
 def test_review_claims_its_own_task_prefix_on_both_paths():
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     collect = inspect.getsource(main.App._collect_tasks)
     assert 'startswith("review-")' in collect
@@ -1579,7 +1579,7 @@ def test_review_claims_its_own_task_prefix_on_both_paths():
 def test_review_takes_first_refusal_on_the_keyboard():
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._shortcut)
     review_at = source.index("review_mode.handle_key")
@@ -1593,7 +1593,7 @@ def test_the_workspace_decides_what_to_load_the_way_sync_viewer_does():
     the two answers drift apart in the first place."""
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._review_load)
     assert "self.viewer.path == wanted" in source
@@ -1604,7 +1604,7 @@ def test_the_workspace_decides_what_to_load_the_way_sync_viewer_does():
 def test_the_workspace_asks_whether_there_is_a_unit_before_asking_the_viewer():
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._review_viewport)
     assert source.index("if unit is None") < source.index("self.viewer.has_model")
@@ -1613,7 +1613,7 @@ def test_the_workspace_asks_whether_there_is_a_unit_before_asking_the_viewer():
 def test_the_workspace_refuses_to_load_over_the_pose_editor():
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._review_viewport)
     pose_at = source.index("self.viewer.pose_mode")
@@ -1624,7 +1624,7 @@ def test_the_workspace_refuses_to_load_over_the_pose_editor():
 def test_the_workspace_clears_a_stale_compare_split_before_drawing():
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._review_viewport)
     comparing_at = source.index("ctx.state.comparing")
@@ -1637,7 +1637,7 @@ def test_the_workspace_clears_a_stale_compare_split_before_drawing():
 def test_arriving_in_review_scans_and_arriving_repeatedly_does_not():
     import inspect
 
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._build_ui)
     assert "review_mode.scan" in source
@@ -1689,7 +1689,7 @@ class _FakeApp:
     is one frame plus the task landing: the parse is submitted from the draw
     and adopted when it returns (T2), and the fake ctx runs it inline."""
 
-    from warlock.studio import main as _main
+    from realmspinner.studio import main as _main
 
     _review_load = _main.App._review_load
     _adopt_review_model = _main.App._adopt_review_model
@@ -1947,7 +1947,7 @@ def test_a_row_the_judge_had_no_opinion_about_shows_nothing(ctx, svc):
 
 
 def test_retraining_the_blank_probe_throws_every_score_away_and_asks_again(ctx, svc):
-    """The ``warlockc`` staleness rule: an absent answer is obvious, one
+    """The ``realmspinnerc`` staleness rule: an absent answer is obvious, one
     silently computed by a probe that has since changed its mind is not."""
     _sweep(svc, n=2)
     state = _scanned(ctx)
@@ -2052,7 +2052,7 @@ def test_every_axis_param_either_resolves_or_has_a_help_line(ctx):
 
 
 def test_every_sweep_axis_param_is_described(ctx):
-    from warlock.service import sweeps as svc_sweeps
+    from realmspinner.service import sweeps as svc_sweeps
 
     described = {row["param"] for row in review_mode.axis_options(ctx)}
     assert described == set(svc_sweeps.axis_params())
@@ -2173,7 +2173,7 @@ def test_the_scan_carries_each_sweeps_spec(ctx, svc):
     """``list_sweeps`` has always parsed it and this bucket always dropped it,
     which left the list identifying a run by whatever name was typed at the
     time."""
-    from warlock.service import sweeps as svc_sweeps
+    from realmspinner.service import sweeps as svc_sweeps
 
     svc.store.create_sweep("test2", "a chest", {"axes": [{"param": "lora_weight",
                                                           "values": [0.4, 0.9]}],
@@ -2260,7 +2260,7 @@ def test_accept_and_reject_file_the_binary_grades(ctx, svc):
     """Read back through the store, not off the in-memory unit: the point is
     that the pass writes real verdicts through the same door everything else
     does."""
-    from warlock.vectors import BINARY_GRADES
+    from realmspinner.vectors import BINARY_GRADES
 
     sweep_id, _ids = _sweep(svc, n=2)
     state = _scanned(ctx)

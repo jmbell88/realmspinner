@@ -13,7 +13,7 @@ instead, changing the brush because somebody typed in a search box.
 
 from __future__ import annotations
 
-from warlock.studio.modes.plotter.state import visible_tilesets
+from realmspinner.studio.modes.plotter.state import visible_tilesets
 
 NAMES = ["Grass", "Dungeon walls", "props", "GRASS interior"]
 

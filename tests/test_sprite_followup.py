@@ -21,14 +21,14 @@ import asyncio
 
 import pytest
 
-from warlock import models
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.pipelines import spritesynth
-from warlock.queue import Worker
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Invalid
-from warlock.service.validation import MAX_SEED
+from realmspinner import models
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.pipelines import spritesynth
+from realmspinner.queue import Worker
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Invalid
+from realmspinner.service.validation import MAX_SEED
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ def test_the_block_is_stored_on_the_reference_job(svc):
         sprite_sheet={"sheet_type": "walk", "logical_size": 32, "colors": 16},
     )
     params = svc.store.get(made["id"])["params"]
-    from warlock.service import sprites as svc_sprites
+    from realmspinner.service import sprites as svc_sprites
 
     assert params["sprite_sheet"] == {
         "sheet_type": "walk",
@@ -100,7 +100,7 @@ def test_an_empty_block_takes_the_sprite_defaults(svc):
     """The pane always sends all three, but the API may not -- and a follow-up
     minted from a half-filled block would be a sheet whose layout nobody
     chose."""
-    from warlock.service import sprites as svc_sprites
+    from realmspinner.service import sprites as svc_sprites
 
     made = svc_jobs.create_job(
         svc, kind="text", prompt="a ranger", output="reference", sprite_sheet={}
@@ -170,7 +170,7 @@ def test_a_missing_controlnet_is_refused_before_the_character_is_drawn(svc):
     """Both adapters are mandatory for a synthesis, so a host missing one would
     draw the character, queue the sheet and fail it -- which reads as a bug
     rather than as a download the user has not done."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     spec = models.CONTROLNETS["canny"]
     (svc.config.t2i_model_root / spec.dir_name / "config.json").unlink()
@@ -191,8 +191,8 @@ def test_the_follow_ups_card_is_admitted_at_the_references_door(svc, monkeypatch
     (``sprites.create_sprite_synthesis``) admits it. Without it, a coexist
     card that fits the reference but not the sprite sum drew the character and
     failed the sheet at dispatch, with no remedy in sight."""
-    from warlock.service import _jobs_create
-    from warlock.service import sprites as svc_sprites
+    from realmspinner.service import _jobs_create
+    from realmspinner.service import sprites as svc_sprites
 
     seen: list[tuple] = []
     monkeypatch.setattr(
@@ -214,7 +214,7 @@ def test_a_reroll_holds_the_same_door_the_first_submit_did(svc):
     user has pruned since -- and the row that would load these weights is minted
     by the *worker*, which cannot refuse anything. Without this the character
     redraws, the sheet queues behind it, and the pair fails at dispatch."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     made = svc_jobs.create_job(
         svc, kind="text", prompt="a ranger", output="reference", sprite_sheet={}
@@ -231,7 +231,7 @@ def test_a_reroll_holds_the_same_door_the_first_submit_did(svc):
 def test_a_reroll_of_a_plain_reference_is_untouched_by_that_door(svc):
     """The guard is keyed on the block, not on the kind: a reference with no
     follow-up request must not start needing a synthesis' weights to reroll."""
-    from warlock import fetch
+    from realmspinner import fetch
 
     made = svc_jobs.create_job(svc, kind="text", prompt="a ranger", output="reference")
     spec = models.CONTROLNETS["canny"]
@@ -309,7 +309,7 @@ async def test_the_follow_up_pins_the_sprite_base_rather_than_inheriting_one(wor
     would be wrong too -- it checks this constant's weights and prices this
     constant's VRAM.
     """
-    from warlock.service import sprites as svc_sprites
+    from realmspinner.service import sprites as svc_sprites
 
     job_id = _reference(
         worker,

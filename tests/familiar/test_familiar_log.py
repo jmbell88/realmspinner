@@ -1,11 +1,11 @@
 """The dev-only Familiar recorder: ``service/familiar_log.py``.
 
-Gated by :data:`familiar_log.ENV_KEY` (``WARLOCK_FAMILIAR_LOG``) -- off by
+Gated by :data:`familiar_log.ENV_KEY` (``REALMSPINNER_FAMILIAR_LOG``) -- off by
 default, so the first test proves the off-state is truly silent (no file at
 all, not just an empty one) before the rest turn it on with
 ``monkeypatch.setenv``. Every test calls :func:`familiar_log.reset` first so
 an earlier test's open session file (and its cached path) never leaks into
-the next one's ``WARLOCK_HOME``.
+the next one's ``REALMSPINNER_HOME``.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.familiar import llama_client
-from warlock.service import familiar as svc_familiar
-from warlock.service import familiar_log
+from realmspinner.familiar import llama_client
+from realmspinner.service import familiar as svc_familiar
+from realmspinner.service import familiar_log
 
 
 class _FakeSvc:
@@ -38,7 +38,7 @@ def _lines(path) -> list[dict]:
 
 def test_record_writes_no_file_when_the_env_var_is_unset(tmp_path, monkeypatch):
     monkeypatch.delenv(familiar_log.ENV_KEY, raising=False)
-    monkeypatch.setenv("WARLOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("REALMSPINNER_HOME", str(tmp_path))
     familiar_log.reset()
 
     familiar_log.record("submit", submit_kind="chat", prompt="hello")
@@ -60,7 +60,7 @@ def test_an_unwritable_log_directory_does_not_raise(monkeypatch, tmp_path):
 
 
 def test_call_failure_records_the_error_and_still_raises(tmp_path, monkeypatch):
-    monkeypatch.setenv("WARLOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("REALMSPINNER_HOME", str(tmp_path))
     monkeypatch.setenv(familiar_log.ENV_KEY, "1")
     familiar_log.reset()
 
@@ -99,12 +99,12 @@ def test_submit_request_and_outcome_share_one_exchange_id(tmp_path, monkeypatch)
     together. Driven through ``familiar_ui`` rather than hand-written records:
     the id reaching the worker thread through ``run()``'s closure is the part
     that can silently break."""
-    from warlock.studio.assistant import ui as familiar_ui
-    from warlock.studio.tasks import Done
+    from realmspinner.studio.assistant import ui as familiar_ui
+    from realmspinner.studio.tasks import Done
 
     from .test_familiar_ui import _FakeCtx
 
-    monkeypatch.setenv("WARLOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("REALMSPINNER_HOME", str(tmp_path))
     monkeypatch.setenv(familiar_log.ENV_KEY, "1")
     familiar_log.reset()
 

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.service import jobs as svc_jobs
-from warlock.service import verdicts as svc_verdicts
-from warlock.service.errors import Conflict
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import verdicts as svc_verdicts
+from realmspinner.service.errors import Conflict
 
 
 def _finished(svc, *, image: bool = False) -> str:

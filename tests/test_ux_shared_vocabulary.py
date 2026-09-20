@@ -13,17 +13,17 @@ from __future__ import annotations
 import inspect
 import re
 
-from warlock.studio import modes, state, verbs
-from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker.ui.panes import context as inker_context
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.modes.muse.ui.panes import results as muse_results
-from warlock.studio.modes.packwright.ui.panes import bridge as packwright_bridge
-from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
-from warlock.studio.modes.plotter.ui.panes import menu as plotter_menu
-from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
-from warlock.studio.panes import inspector, sheet_panel, sprite_panel
+from realmspinner.studio import modes, state, verbs
+from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker.ui.panes import context as inker_context
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.modes.muse.ui.panes import results as muse_results
+from realmspinner.studio.modes.packwright.ui.panes import bridge as packwright_bridge
+from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
+from realmspinner.studio.modes.plotter.ui.panes import menu as plotter_menu
+from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
+from realmspinner.studio.panes import inspector, sheet_panel, sprite_panel
 
 # --- property labels --------------------------------------------------------
 

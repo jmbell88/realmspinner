@@ -1,0 +1,2538 @@
+"""OpenRaster: a zip of layer PNGs and a stack.xml describing them.
+
+The native format is ORA rather than something of our own for one reason --
+a layered document that only this app can open is a document the user cannot
+get out. ORA is a handful of stdlib calls (``zipfile`` plus Pillow), and Krita
+and GIMP both read and write it.
+
+The writer follows the spec's fiddly parts because readers depend on them: the
+``mimetype`` entry is first and stored uncompressed (it is a magic number, read
+at a fixed offset), the stack is listed *top layer first*, and ``mergedimage.png``
+is required -- a viewer that does not composite shows that and nothing else.
+
+The reader is deliberately tolerant. A composite-op we cannot reproduce becomes
+normal, a layer with an offset is pasted at it rather than refused, and a nested
+stack is flattened into the list. An unreadable file is a bug report; a file
+that opens slightly wrong is a file the user still has.
+
+An **animated** document adds a second member, ``animation.json``, and that one
+is authoritative: it carries the grid -- durations, track properties, which
+slots hold which cel, and which slots share one -- while ``stack.xml`` becomes
+an interop *projection* of it, one nested ``<stack>`` group per frame. The two
+cannot be derived from each other (XML has nowhere to put a duration and no way
+to say "these two entries are the same cel, not two equal ones"), so rather than
+split the truth between them, one is the record and the other is the picture
+foreign editors get. Frames after the first are written hidden, on the group and
+on every layer inside it, so an editor that flattens groups -- Krita, GIMP, and
+this reader's own fallback -- shows frame 1 rather than the whole clip stacked
+on top of itself.
+
+The JSON stores **indices, not uids**: uids are minted per process and mean
+nothing in a file. And the reader treats any way of ``animation.json`` not
+making sense -- a wrong version, an index outside the grid it declares, a cel
+naming a PNG the archive does not hold -- as a reason to fall back to the flat
+read rather than to raise, which is the same bargain the rest of this module
+makes: a file that opens as a still image is a file the user still has. What it
+deliberately does *not* do is cross-check the JSON against ``stack.xml``. The
+XML is the projection and the JSON is the record, so a disagreement between them
+is the XML being wrong about a document the JSON describes correctly, and
+throwing the grid away over it would lose the animation to fix the picture of
+it.
+
+A third member, ``realmspinner.json``, carries what this app knows about a document
+that ORA has nowhere for and that is not part of the grid -- today, its slices.
+It is written **only when there is something to write**, so an archive from a
+document with no slices is byte-for-byte what this writer produced before the
+member existed. It is separate from ``animation.json`` because slices live on
+still documents too, and because that member fails whole-grid on purpose while a
+malformed slice must never cost a document its timeline.
+
+The accepted cost, stated because it is not recoverable: an older build of this
+app opens an animated file (seeing frame 1) and saving it writes it back flat.
+That is inherent to forward compatibility with a format that has no version
+gate; the hidden groups limit the damage to what is displayed, not to what a
+foreign save discards.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import logging
+import zipfile
+from pathlib import Path
+from xml.etree import ElementTree
+
+import numpy as np
+
+from ...core.safeio import atomic, pixelguard, xmlguard, zipguard
+from ..grid2d import gid
+from ..grid2d.tileset import Tileset
+from . import composite as cp
+from . import gpl
+from . import index_plane as ixp
+from .animation import (
+    DEFAULT_DURATION_MS,
+    Animation,
+    DirectionalLayout,
+    Frame,
+    Note,
+    Tag,
+    Track,
+)
+from .layers import Layer, LayerStack
+from .tiles import TilemapCel, TilesetSlot, grid_shape, materialize
+
+THUMBNAIL_MAX = 256
+
+#: Bumped when a reader written against version N could get an N+1 file wrong in
+#: a way it cannot detect. Adding a key does not qualify -- every read below is
+#: ``.get``-based -- so this has stayed at 1 through the whole of v1.
+ANIMATION_VERSION = 1
+ANIMATION_MEMBER = "animation.json"
+
+#: An indexed document's colour table, written as a plain ``.gpl``. Additive
+#: and versionless: a reader that does not know about it opens the file as an
+#: ordinary RGBA document, which is exactly what the pixels already are -- see
+#: :mod:`.indexed`. ``.gpl`` rather than another JSON key because ``gpl.py``
+#: already reads and writes it, because it is the one interchange format for a
+#: row of swatches, and because a member of that name is a palette anyone can
+#: pull out of the zip. Alpha does not survive it and does not need to: a
+#: palette constrains colour and never opacity.
+PALETTE_MEMBER = "palette.gpl"
+
+#: Everything this app knows about a document that ORA has no place for and
+#: that is not part of the *grid*. Today that is slices; the version gate is
+#: here for the same reason ``animation.json`` has one and has stayed at 1 for
+#: the same reason -- every read below is ``.get``-based, so adding a key does
+#: not qualify.
+#:
+#: A member of its own rather than a key in ``animation.json``, and the two
+#: reasons are both about failure. Slices exist on a **still** document (a
+#: nine-slice button is one PNG), which has no ``animation.json`` at all; and
+#: ``animation.json`` fails whole-grid by design -- half a timeline is harder to
+#: notice than none of one -- where a slice going wrong must never cost the
+#: document its frames.
+REALMSPINNER_MEMBER = "realmspinner.json"
+REALMSPINNER_VERSION = 1
+
+#: What this member was called before the 2026-09-19 rename, and the one place
+#: the old product name still has to be read. Unlike a ``.rblk``, an ``.ora``
+#: written by Warlock Studio is a *valid* OpenRaster file: dropping the member
+#: would open the document and silently lose its slices and tilesets, which is
+#: a worse failure than refusing it outright. Read-only and never written --
+#: one save under the new name migrates the file.
+LEGACY_MEMBER = "warlock.json"
+
+
+def _read_sidecar(zf: zipfile.ZipFile) -> bytes:
+    """The app's own metadata member, under either name.
+
+    Raises ``KeyError`` when neither is present, so every call site keeps the
+    ``except KeyError`` it already had for "this document has no such block".
+    """
+    try:
+        return zf.read(REALMSPINNER_MEMBER)
+    except KeyError:
+        return zf.read(LEGACY_MEMBER)
+
+#: A document's tilesets, track bindings and cel refs -- Wave 3 chunk 3.4.
+#: Its own member and its own version, ``REALMSPINNER_MEMBER``'s reasons restated
+#: one layer further in: tile *structure* is metadata about a picture that is
+#: already fully and honestly on the canvas -- every ``TilemapCel``'s own PNG
+#: is written and read exactly like any other layer's -- so a broken or
+#: unknown member here must cost the structure and never a pixel or a frame.
+#: Written only when ``doc.tilesets`` is non-empty, so a document that has
+#: never touched a tileset produces the exact archive this writer wrote before
+#: tilesets existed.
+TILES_MEMBER = "tiles.json"
+TILES_VERSION = 1
+
+# 1980-01-01, the earliest a zip can express, and the same constant the three
+# younger formats in this repo (``.rblk``, ``.rmap``, ``.rpack``) fix their
+# members at. Without it every member is stamped with the wall clock, so two
+# saves of a document nobody touched produced two different files -- which makes
+# a save look like a change to anything that hashes or diffs one.
+#
+# It is safe against a foreign reader, and the file itself is the evidence: the
+# ``mimetype`` member has carried this exact stamp since this writer was written
+# (it is what a bare ``ZipInfo`` defaults to) and it is the first thing every ORA
+# reader touches. The OpenRaster spec says nothing whatever about modification
+# times -- it specifies member *names*, the ordering of ``mimetype`` and its
+# being stored uncompressed -- and Krita's and GIMP's readers are ordinary zip
+# readers that never look. This is also the floor rather than an arbitrary
+# choice: MS-DOS date fields cannot express anything earlier, and ``zipfile``
+# raises on a date below it.
+_EPOCH = (1980, 1, 1, 0, 0, 0)
+
+# A zip's directory declares what each member unpacks to and nothing makes that
+# number honest -- a few kilobytes of archive can claim terabytes, and the read
+# that discovers this is the one that has already exhausted memory. The
+# ``clay/serialize.py`` constant verbatim, as ``packwright/rpack.py`` and
+# ``plotter/rmap.py`` also carry it; ORA was the one container door in the tree
+# without it, which mattered more here than anywhere else because a ``.rblk``
+# is ours and an ORA is explicitly *anyone's*. Read from module globals at call
+# time for their reason too: a test lowers it rather than building a gigabyte.
+MAX_DECOMPRESSED_BYTES = 1 << 30
+
+#: The absolute ceiling on how many layers one drawing may hold. A hard number
+#: rather than only a pixel budget, so a 1x1 canvas naming ten thousand PNGs is
+#: still refused; the budget below is the one that usually binds.
+MAX_ORA_LAYERS = 1024
+
+#: The absolute ceiling on how many entries ``animation.json``'s "frames" list
+#: may declare. A frame is cheap on its own -- a duration and a uid, none of it
+#: canvas-sized -- so this is a bare count and not a pixel budget: the same
+#: number ``gifin.MAX_GIF_FRAMES``/``sheetin.MAX_SHEET_FRAMES`` already use for
+#: the same reason. The 2026-09-11 audit found a 1,349-byte ``.ora`` naming
+#: 200,000 tracks (frames carry the identical shape) cost 370.0 MiB and 9.26s
+#: with nothing bounding either list.
+MAX_ORA_FRAMES = 4096
+
+#: The absolute ceiling on how many entries the cheap per-item metadata lists
+#: in ``realmspinner.json``/``animation.json`` may declare: "slices", a slice's own
+#: "keys", "groups"."nodes" and "flourish". Each entry is as cheap as a frame
+#: -- a handful of scalars, none of it canvas-sized -- so this reuses
+#: :data:`MAX_ORA_FRAMES`'s order of magnitude rather than inventing a second
+#: number for the same shape of risk. The 2026-09-16 audit found all four had
+#: no ceiling at all: a 770 KB ``.ora`` naming 300,000 slices opened with no
+#: refusal, spending 1.19s building one ``Slice`` object per declared entry --
+#: the same amplification ``MAX_ORA_FRAMES`` was added for on 2026-09-11.
+MAX_ORA_METADATA_ENTRIES = MAX_ORA_FRAMES
+
+
+def _layer_budget(width: int, height: int) -> int:
+    """How many layers a ``width`` x ``height`` drawing may hold.
+
+    The bound the other five container doors already carry and this one did
+    not. ``zipguard`` bounds the bytes an archive claims and ``pixelguard``
+    bounds one canvas, and neither can see the product: every ``<layer>``
+    element is placed onto the *canvas* by ``_place``/``resize_canvas``, so a
+    fifteen-kilobyte file naming five hundred layers of one 1x1 PNG asks for
+    five hundred full canvases -- 134 GB at the 8192-square ceiling, from an
+    archive that is honest about every byte it holds.
+
+    Expressed as a pixel budget rather than a layer count because that is what
+    is actually scarce: the same number of layers is fine at 64x64 and absurd
+    at 8192x8192. One whole canvas' worth of decode is the unit, and
+    :data:`pixelguard.MAX_DECODE_PIXELS` is already the size of the largest one
+    this build will open.
+    """
+    per_layer = max(1, int(width) * int(height))
+    return max(1, min(MAX_ORA_LAYERS, pixelguard.MAX_DECODE_PIXELS // per_layer))
+
+log = logging.getLogger(__name__)
+
+
+def _member(name: str) -> zipfile.ZipInfo:
+    """A deflated archive member at the fixed epoch.
+
+    ``writestr`` builds one of these itself when it is handed a plain name --
+    with the wall clock, which is the whole problem -- and takes the compression
+    and the mode off the ``ZipInfo`` when it is handed one instead. So both have
+    to be restated here: a bare ``ZipInfo`` says ``ZIP_STORED``, and a writer
+    that forgot this line would silently stop compressing and treble the size of
+    every file it wrote.
+    """
+    info = zipfile.ZipInfo(name, _EPOCH)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o600 << 16
+    return info
+
+
+def _png(pixels: np.ndarray) -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.fromarray(pixels, "RGBA").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _png_indexed(indices: np.ndarray, palette, transparent: int) -> bytes:
+    """An index plane as a **PNG mode-P image**: ``PLTE``, ``tRNS``, raw slots.
+
+    The record/projection doctrine a third time (``animation.json`` and
+    ``mergedimage.png`` are the other two). These bytes are the record for both
+    the indices and the *full-alpha* table; ``palette.gpl`` stays the interop
+    projection and ``stack.xml``'s colours stay the picture a foreign editor
+    gets. Writing our own container instead would have bought a format only this
+    app can read, in exchange for nothing.
+
+    **Old and foreign readers degrade perfectly**, which is the whole reason
+    this shape was chosen: ``_decode`` already ends in ``im.convert("RGBA")``,
+    which honours ``PLTE`` + ``tRNS``, so a build that has never heard of index
+    planes opens the file with the right pixels and lands in
+    palette-constrained RGB via ``palette.gpl``. Krita and GIMP decode a P-PNG
+    natively. The stated forward-compat cost mirrors ``animation.json``'s: an
+    old build that *re-saves* writes RGBA planes back, and index identity is
+    gone.
+
+    The transparent slot keeps its **stored colour** in ``PLTE`` and gets alpha
+    zero in ``tRNS``. Zeroing the colour too would be an edit rather than a
+    projection, and a ``.aseprite`` writer has to put that colour back.
+    """
+    from PIL import Image
+
+    height, width = indices.shape
+    im = Image.frombytes("P", (width, height), indices.tobytes())
+    entries = [tuple(colour) for colour in palette]
+    rgb: list[int] = []
+    for colour in entries:
+        rgb.extend(int(c) for c in colour[:3])
+    im.putpalette(rgb)
+    alpha = bytes(
+        0 if i == transparent else int(colour[3]) if len(colour) > 3 else 255
+        for i, colour in enumerate(entries)
+    )
+    buf = io.BytesIO()
+    # ``optimize`` is deliberately off (it is off by default and stated here
+    # because turning it on would be a plausible-looking change): Pillow's
+    # optimiser drops unused palette entries and renumbers the plane, which is
+    # exactly the identity this member exists to preserve. A slot nothing is
+    # painted in is still a slot the user authored.
+    im.save(buf, "PNG", transparency=alpha)
+    return buf.getvalue()
+
+
+def _read_indexed_png(data: bytes, size: tuple[int, int]):
+    """``(indices, palette)`` out of a P-PNG, or None when it is not one.
+
+    None rather than a raise, this reader's rule throughout: a document whose
+    ``color`` block says indexed but whose planes are ordinary RGBA -- an old
+    build re-saved it, or the archive was assembled by hand -- opens as the
+    picture it is, with the indices re-inferred from the pixels. Losing
+    duplicate-slot identity is a real cost and a much smaller one than refusing
+    the file.
+    """
+    with pixelguard.opened(io.BytesIO(data), "a layer in this drawing") as im:
+        if im.mode != "P":
+            return None
+        im.load()
+        indices = np.asarray(im, dtype=np.uint8).copy()
+        raw = im.getpalette() or []
+        transparency = im.info.get("transparency", b"")
+    count = len(raw) // 3
+    if not count:
+        return None
+    # ``transparency`` comes back in **two shapes**, and reading only one of
+    # them silently loses the table's alpha. Pillow writes a ``tRNS`` chunk only
+    # as long as it needs to (trailing opaque entries are dropped), and when
+    # exactly one leading entry is transparent it hands the whole chunk back as
+    # a bare ``int`` -- the "single transparent index" form. A palette carrying
+    # a translucent swatch gets the ``bytes`` form. Both mean the same thing:
+    # every entry the chunk does not reach is opaque.
+    if isinstance(transparency, int):
+        alphas = bytes([255] * transparency) + b"\x00"
+    elif isinstance(transparency, (bytes, bytearray)):
+        alphas = bytes(transparency)
+    else:
+        alphas = b""
+    palette = [
+        (
+            raw[i * 3],
+            raw[i * 3 + 1],
+            raw[i * 3 + 2],
+            alphas[i] if i < len(alphas) else 255,
+        )
+        for i in range(count)
+    ]
+    width, height = size
+    if (indices.shape[1], indices.shape[0]) != (width, height):
+        return None
+    return indices, palette
+
+
+def _group_nester(doc, container):
+    """A ``member uid -> element`` function that opens a ``<stack>`` per group.
+
+    ORA has no membership list: a group *is* a nested element, so writing the
+    tree means opening and closing elements as the walk moves through the
+    stack. That is sound for exactly the reason the tree has an invariant --
+    a group's leaves are contiguous, so each group is opened once and closed
+    once, and the walk never has to come back to it.
+
+    On a document with no groups every uid answers ``container`` and no element
+    is ever created, so the XML is byte-identical to what this writer produced
+    before groups existed. That is the negative control, and it is a property
+    of this function rather than of a branch at the call site.
+    """
+    from . import groups as gp
+
+    open_uids: list[int] = []
+    open_els = [container]
+
+    def element_for(member_uid: int):
+        chain = list(reversed(gp.ancestry(doc.group_of, member_uid)))
+        shared = 0
+        while (
+            shared < len(open_uids)
+            and shared < len(chain)
+            and open_uids[shared] == chain[shared]
+        ):
+            shared += 1
+        del open_uids[shared:]
+        del open_els[shared + 1 :]
+        for guid in chain[shared:]:
+            node = doc.groups.get(guid)
+            if node is None:  # pragma: no cover - a dangling parent
+                continue
+            attrs = {
+                "name": node.name,
+                "opacity": f"{float(node.opacity):.6f}",
+                "visibility": "visible" if node.visible else "hidden",
+                # ``auto`` is ORA's spelling of pass-through and ``isolate`` of
+                # the second compositing pass, and this now writes whichever
+                # one the group actually is -- so a reader that honours the
+                # attribute renders what this app drew, which is the whole of
+                # why it stopped being hard-coded.
+                "isolation": "isolate" if gp.isolated(node) else "auto",
+                **_lock_attr(False, node.locked),
+            }
+            # The mode is written only when there *is* one, rather than
+            # spelling the default onto every group. ``svg:src-over`` is what a
+            # reader assumes from an absent attribute, so writing it would add
+            # a byte difference to every file that has ever had a folder in it
+            # and say nothing -- and a pass-through group has no result for a
+            # mode to act on anyway (``groups.isolated`` is where that rule
+            # lives, and it is why this needs no second condition).
+            if node.blend != "normal":
+                attrs["composite-op"] = cp.ORA_OPS.get(node.blend, "svg:src-over")
+            element = ElementTree.SubElement(open_els[-1], "stack", attrs)
+            open_uids.append(guid)
+            open_els.append(element)
+        return open_els[-1]
+
+    return element_for
+
+
+def _read_resolution(root) -> tuple[int, int] | None:
+    """``(xres, yres)`` off the ``<image>`` element, or None.
+
+    ORA's physical-size fields. Anything non-numeric or non-positive reads as
+    absent rather than raising: a resolution is metadata, and a drawing whose
+    pixels are perfectly readable must not fail to open over it.
+    """
+    try:
+        xres, yres = int(root.get("xres") or 0), int(root.get("yres") or 0)
+    except (TypeError, ValueError):
+        return None
+    return (xres, yres) if xres > 0 and yres > 0 else None
+
+
+def _image_attrs(doc) -> dict[str, str]:
+    """The ``<image>`` element's attributes, resolution included when known.
+
+    ``xres``/``yres`` are ORA's physical-size fields. Nothing in this editor
+    renders at a physical size, so they are read into ``Document.dpi`` and
+    written straight back out -- carried, not used. Omitted entirely when the
+    document has none, because writing a guessed 72 would be asserting a fact
+    about a canvas nobody stated one for.
+    """
+    width, height = doc.size
+    attrs = {"version": "0.0.3", "w": str(width), "h": str(height)}
+    dpi = getattr(doc, "dpi", None)
+    if dpi:
+        attrs["xres"], attrs["yres"] = str(int(dpi[0])), str(int(dpi[1]))
+    # Unconditional, unlike its siblings -- see ``MATTE_ATTR``. Both writers go
+    # through here, so the still and animated stacks agree for free.
+    attrs[MATTE_ATTR] = _matte_attr(getattr(doc, "matte", None))
+    return attrs
+
+
+def _stack_xml(doc) -> bytes:
+    root = ElementTree.Element("image", _image_attrs(doc))
+    stack = ElementTree.SubElement(root, "stack")
+    parent_for = _group_nester(doc, stack)
+    # Top first: ORA's document order is the painter's, reversed. Reversing
+    # keeps each group's members adjacent, because contiguity is a property of
+    # the order and not of its direction.
+    for index, layer in enumerate(reversed(list(doc.stack))):
+        ElementTree.SubElement(
+            parent_for(layer.uid),
+            "layer",
+            {
+                "name": layer.name,
+                "src": f"data/layer{index}.png",
+                "x": "0",
+                "y": "0",
+                "opacity": f"{float(layer.opacity):.6f}",
+                "visibility": "visible" if layer.visible else "hidden",
+                "composite-op": cp.ORA_OPS.get(layer.blend, "svg:src-over"),
+                **_lock_attr(
+                    layer.alpha_lock,
+                    layer.locked,
+                    getattr(layer, "background", False),
+                    getattr(layer, "reference", False),
+                ),
+            },
+        )
+    return ElementTree.tostring(root, encoding="UTF-8", xml_declaration=True)
+
+
+# Ours, and prefixed with the app name to say so. ORA readers ignore attributes
+# they do not recognise -- that tolerance is what the format is built on and
+# what ``_foreign`` exercises from the other side -- so a locked layer opens in
+# Krita as an ordinary layer rather than as an error. It is written only when
+# set, so a document nobody has locked anything in produces byte-identical XML
+# to the one this build wrote before the attribute existed.
+#
+# A hyphen, **not** ``realmspinner:alpha-lock``: a colon in an attribute name is an
+# XML namespace prefix, and an undeclared one makes the whole ``stack.xml``
+# unparseable -- so the private attribute would have cost every reader the
+# entire file, this one included.
+LOCK_ATTR = "realmspinner-alpha-lock"
+
+#: The content lock, on the same terms and for the same reasons. A separate
+#: attribute rather than a value on the first, because the two locks are
+#: independent -- a layer can preserve transparency, refuse writes, both or
+#: neither -- and because a reader that only knows the older one must go on
+#: reading it correctly.
+CONTENT_LOCK_ATTR = "realmspinner-content-lock"
+
+#: The two layer types of 6.5, written **only when set** -- the content lock's
+#: own rule, and its reason: an ordinary document's ``stack.xml`` stays
+#: byte-identical to what this writer produced before they existed.
+BACKGROUND_ATTR = "realmspinner-background"
+REFERENCE_ATTR = "realmspinner-reference"
+
+#: The document's flatten matte, on the ``<image>`` root -- it is document
+#: state, not a layer's.
+#:
+#: Written **unconditionally**, which is the one place this writer breaks the
+#: "only when set" rule its four siblings above follow, and deliberately: the
+#: setting is tri-state -- on, off, and *no stored answer* -- and absence has
+#: to go on meaning "infer with ``matte_for``" for Krita files and for files
+#: written before this attribute existed. A write-only-when-set rule cannot
+#: express the third state, so "the user turned the matte off" would be
+#: indistinguishable from "nobody said", and an opaque drawing would silently
+#: get its matte back on every reopen.
+MATTE_ATTR = "realmspinner-matte"
+
+
+def _matte_attr(matte) -> str:
+    """``none`` or ``#rrggbbaa``. See ``MATTE_ATTR`` for why never absent."""
+    if matte is None:
+        return "none"
+    red, green, blue, alpha = (list(matte) + [255, 255, 255, 255])[:4]
+    return f"#{int(red):02x}{int(green):02x}{int(blue):02x}{int(alpha):02x}"
+
+
+def _read_matte(doc, root) -> None:
+    """Put the stored matte back, or infer one. Never raises.
+
+    Absent -> ``matte_for``, the call this reader always made. ``none`` -> off.
+    ``#rrggbbaa`` -> that colour. Anything else warns and falls back to
+    ``matte_for``: the same degradation contract every optional member in this
+    reader follows -- a drawing whose pixels are perfectly readable must not
+    fail to open over one bad metadata attribute.
+    """
+    from .document import matte_for
+
+    raw = root.get(MATTE_ATTR)
+    if raw is None:
+        doc.matte = matte_for(doc.composite)
+        return
+    text = raw.strip().lower()
+    if text == "none":
+        doc.matte = None
+        return
+    try:
+        if not text.startswith("#") or len(text) != 9:
+            raise ValueError(raw)
+        doc.matte = tuple(int(text[at : at + 2], 16) for at in (1, 3, 5, 7))
+    except ValueError:
+        log.warning("ignoring unreadable %s=%r; inferring instead", MATTE_ATTR, raw)
+        doc.matte = matte_for(doc.composite)
+
+
+def _lock_attr(
+    alpha_lock: bool,
+    locked: bool = False,
+    background: bool = False,
+    reference: bool = False,
+) -> dict[str, str]:
+    """The lock and layer-type attributes, written only where they are set.
+
+    Absent rather than ``"0"``, so a document nobody has locked anything in --
+    and nobody has made a background of -- produces byte-identical XML to the
+    one this build wrote before any of these attributes existed, which is what
+    the determinism pin is measuring.
+    """
+    out: dict[str, str] = {}
+    if alpha_lock:
+        out[LOCK_ATTR] = "1"
+    if locked:
+        out[CONTENT_LOCK_ATTR] = "1"
+    if background:
+        out[BACKGROUND_ATTR] = "1"
+    if reference:
+        out[REFERENCE_ATTR] = "1"
+    return out
+
+
+#: Attributes this writer puts on a group's ``<stack>``, and therefore the ones
+#: its reader knows how to put back. Anything else a foreign file carries on one
+#: -- Krita's ``composite-op``, a selection or an alpha-inheritance flag -- is
+#: dropped with a log line rather than guessed at, which is the same bargain the
+#: layer reader makes with a composite-op it cannot reproduce.
+GROUP_ATTRS = frozenset(
+    {
+        "name",
+        "opacity",
+        "visibility",
+        "isolation",
+        "composite-op",
+        LOCK_ATTR,
+        CONTENT_LOCK_ATTR,
+    }
+)
+
+
+def _cel_names(anim) -> dict[int, str]:
+    """One PNG per *distinct* cel, so a linked cel is stored once.
+
+    Keyed by ``id(layer)`` and ordered by ``unique_cel_layers``, which is
+    deterministic -- so saving an unchanged document twice produces the same
+    names, and a slot sharing another's ``src`` is exactly how a link survives
+    into the file.
+    """
+    return {id(layer): f"data/cel{i}.png" for i, layer in enumerate(anim.unique_cel_layers())}
+
+
+def _stack_xml_animated(doc, names: dict[int, str]) -> bytes:
+    anim = doc.anim
+    root = ElementTree.Element("image", _image_attrs(doc))
+    outer = ElementTree.SubElement(root, "stack")
+    for index, frame in enumerate(anim.frames):
+        hidden = index > 0
+        group = ElementTree.SubElement(
+            outer,
+            "stack",
+            {
+                "name": f"frame:{index + 1:04d}",
+                "visibility": "hidden" if hidden else "visible",
+            },
+        )
+        # Top first inside each group, as in the still writer. The properties
+        # come off the *track*, which is authoritative; a cel's own copy is a
+        # materialisation detail and may be stale.
+        #
+        # A fresh nester per frame: the layer groups are nested *inside* each
+        # frame's group, because the XML is the picture a foreign editor gets
+        # and that picture is one frame with its folders in it. The record --
+        # where the grouping survives a round trip -- is ``animation.json``.
+        parent_for = _group_nester(doc, group)
+        for track in reversed(anim.tracks):
+            layer = anim.cels.get((track.uid, frame.uid))
+            if layer is None:
+                continue
+            ElementTree.SubElement(
+                parent_for(track.uid),
+                "layer",
+                {
+                    "name": track.name,
+                    "src": names[id(layer)],
+                    "x": "0",
+                    "y": "0",
+                    "opacity": f"{float(track.opacity):.6f}",
+                    # Hidden on every layer as well as on the group: a reader
+                    # that flattens groups keeps the layers and would otherwise
+                    # show every frame at once.
+                    "visibility": "visible" if track.visible and not hidden else "hidden",
+                    "composite-op": cp.ORA_OPS.get(track.blend, "svg:src-over"),
+                    **_lock_attr(
+                        track.alpha_lock,
+                        track.locked,
+                        getattr(track, "background", False),
+                        getattr(track, "reference", False),
+                    ),
+                },
+            )
+    return ElementTree.tostring(root, encoding="UTF-8", xml_declaration=True)
+
+
+def _note_payload(note) -> dict:
+    """``{}`` for an unset note, and only the halves that are set otherwise.
+
+    One builder for all three places a note is written -- tracks, cels and tags
+    -- because "written only when it is set" is a rule about *each field*, not
+    about the record: a note that is a colour and no text must not put an empty
+    string into the member, or a document with one coloured row would stop
+    being byte-comparable with the same document written a build later.
+
+    The colour goes out as a **list**, which is what ``json`` makes of a tuple
+    anyway; :class:`~.animation.Note` coerces it back to a quadruple on the way
+    in, so the asymmetry lives in one place.
+    """
+    if not note:
+        return {}
+    out: dict = {}
+    if note.text:
+        out["user_data"] = note.text
+    if note.colour:
+        out["colour"] = list(note.colour)
+    return out
+
+
+def _read_note(entry: dict):
+    """:func:`_note_payload`'s inverse. ``.get``-based, like every additive key.
+
+    A file written before notes existed reads back as an empty one rather than
+    failing the whole grid, which is why ``ANIMATION_VERSION`` stays where it
+    is.
+    """
+    return Note(text=str(entry.get("user_data") or ""), colour=entry.get("colour"))
+
+
+def _animation_json(doc, names: dict[int, str]) -> bytes:
+    anim = doc.anim
+    tracks = {track.uid: i for i, track in enumerate(anim.tracks)}
+    frames = {frame.uid: i for i, frame in enumerate(anim.frames)}
+    cels = [
+        {
+            "track": tracks[track_uid],
+            "frame": frames[frame_uid],
+            "data": names[id(layer)],
+            # Per-cel opacity, written **only when it is set**, which is
+            # ``continuous``'s and ``repeat``'s rule and for their reason: 1.0
+            # is what every cel ever written already means, so a document that
+            # has never been dimmed writes the bytes it always wrote and the
+            # determinism pin depends on exactly that. It rides on the *cel*
+            # rather than on the layer because a linked cel is one ``data`` PNG
+            # named by two entries, and the two may legitimately disagree --
+            # putting it beside "data" is what lets them.
+            **(
+                {"opacity": anim.cel_alpha(track_uid, frame_uid)}
+                if anim.cel_alpha(track_uid, frame_uid) < 1.0
+                else {}
+            ),
+            # Per-cel user data, on the same terms as the opacity above and for
+            # the same reasons: written only when it is set, so an unannotated
+            # document's bytes do not move, and beside ``data`` rather than on
+            # the layer, because a linked cel is one PNG named by two entries
+            # and the two may legitimately disagree.
+            **_note_payload(anim.cel_note(track_uid, frame_uid)),
+            # Per-cel z-index, additive on exactly the same terms: written only
+            # when it is nonzero, so a document that never lifted a cel writes
+            # the bytes it always wrote and the determinism pin holds, and
+            # beside ``data`` rather than on the layer because a linked cel is
+            # one PNG named by two entries that may sit at two heights.
+            **(
+                {"z": anim.cel_zindex(track_uid, frame_uid)}
+                if anim.cel_zindex(track_uid, frame_uid)
+                else {}
+            ),
+        }
+        for (track_uid, frame_uid), layer in anim.cels.items()
+        if track_uid in tracks and frame_uid in frames
+    ]
+    cels.sort(key=lambda cel: (cel["frame"], cel["track"]))
+    payload = {
+        "version": ANIMATION_VERSION,
+        "frames": [
+            {
+                "duration_ms": int(frame.duration_ms),
+                # The frame's own colour table, written **only when it has
+                # one** -- ``continuous``'s rule and its reason: absence is
+                # what every frame ever written already means, so a document
+                # that has never used a per-frame palette keeps the bytes it
+                # had and the determinism pin holds.
+                **(
+                    {"palette": [list(colour) for colour in table]}
+                    if (table := anim.frame_palette(frame.uid))
+                    else {}
+                ),
+            }
+            for frame in anim.frames
+        ],
+        # ``continuous`` is written **only when it is set**, which is
+        # ``repeat``'s rule below rather than ``direction``'s: false is what
+        # every track ever written already means, so omitting it keeps a
+        # document with no continuous rows byte-identical to what it was, and
+        # the determinism pin depends on exactly that. Built here rather than
+        # inside ``Track.props`` because that dict is *also* the six-property
+        # copy-down list, and this is not one of the six.
+        "tracks": [
+            {
+                **track.props(),
+                **({"continuous": True} if track.continuous else {}),
+                # ``continuous``'s rule again, and built out here for its
+                # reason: ``Track.props`` is *also* the copy-down list and a
+                # note is not one of the six.
+                **_note_payload(track.note),
+            }
+            for track in anim.tracks
+        ],
+        "cels": cels,
+        # ``direction`` is additive and the version is unchanged deliberately:
+        # every reader of this section is ``.get``-based, so an older build
+        # opens the file and plays every tag forwards, which is exactly what it
+        # did before the field existed.
+        "tags": [
+            {
+                "name": tag.name,
+                "start": int(tag.start),
+                "end": int(tag.end),
+                "loop": bool(tag.loop),
+                "direction": str(tag.direction),
+                # ``repeat`` goes one step further than ``direction`` and is
+                # written **only when it is set**, which is ``layout``'s rule
+                # rather than this list's: 0 is the value every tag ever
+                # written already has, so omitting it keeps a repeat-less
+                # document's ``animation.json`` byte-identical to what it was
+                # -- the determinism pin depends on exactly that.
+                **({"repeat": int(tag.repeat)} if tag.repeat else {}),
+                # ``repeat``'s rule, third time: a tag that was never annotated
+                # writes the keys it always wrote.
+                **_note_payload(tag.note),
+            }
+            for tag in anim.tags
+        ],
+    }
+    if anim.layout is not None:
+        # Additive and the version stays 1, for the reason ``direction`` above
+        # gives: an older build reads this section with ``.get`` and simply has
+        # no layout, which is what every document had before sprite sheets
+        # existed. Written only when set, so a layout-less document's
+        # ``animation.json`` is byte-identical to what it was.
+        #
+        # Only the kind, because that is all a ``DirectionalLayout`` is -- the
+        # grid is derived, so there is no second number here to disagree with
+        # the reader's.
+        payload["layout"] = {"kind": anim.layout.kind}
+    grouping = _groups_payload(doc, tracks)
+    if grouping is not None:
+        # Additive and the version stays 1, for ``layout``'s reason: the reader
+        # is guarded on its own and a build that does not know the key opens the
+        # file as a flat grid, which is exactly the document it was before
+        # groups existed. Written only when there is a group, so an ungrouped
+        # document's ``animation.json`` is byte-identical to what it was.
+        payload["groups"] = grouping
+    base = getattr(doc, "sheet_base", None)
+    if base is not None:
+        # Additive and the version stays 1, for ``groups``' reason exactly: the
+        # reader is guarded on its own, and a build that does not know this key
+        # opens the file as the document it was before the key existed. Written
+        # only when a sheet base is actually held, so an ordinary document's
+        # ``animation.json`` stays byte-identical to what it was.
+        # ``frames`` is already uid -> index, built at the top of this
+        # function; a second copy here is a second thing to keep in step.
+        block = base.payload(frames)
+        if block is not None:
+            payload["sheet"] = block
+    effects = _flourish_payload(doc, tracks, frames)
+    if effects:
+        # Additive, version stays 1, written only when held: ``sheet``'s
+        # reason a third time. Groups are numbered as ``_groups_payload``
+        # numbers them, so the reader pairs a recipe with its folder by the
+        # same walk and never by a uid.
+        payload["flourish"] = effects
+    return json.dumps(payload, indent=2).encode("utf-8")
+
+
+def _group_order(doc, tracks: dict[int, int]) -> list[int]:
+    """Group uids in the order ``_groups_payload`` numbers them."""
+    from . import groups as gp
+
+    order: list[int] = []
+    for track_uid in tracks:
+        for guid in reversed(gp.ancestry(doc.group_of, track_uid)):
+            if guid in doc.groups and guid not in order:
+                order.append(guid)
+    return order
+
+
+def _flourish_payload(doc, tracks: dict[int, int], frames: dict[int, int]) -> list | None:
+    """Every effect group as ``{group, recipe, tracks, digests, offset}``,
+    with tracks and frames as indices for ``_animation_json``'s reason."""
+    held = getattr(doc, "flourish", None)
+    if not held:
+        return None
+    from .flourish import recipe as flourish_recipe
+
+    order = _group_order(doc, tracks)
+    index_of = {guid: i for i, guid in enumerate(order)}
+    out = []
+    for guid, state in held.items():
+        if guid not in index_of:
+            continue
+        out.append(
+            {
+                "group": index_of[guid],
+                "recipe": flourish_recipe.to_dict(state.recipe),
+                "tracks": {
+                    str(key): tracks[track_uid]
+                    for key, track_uid in state.tracks.items()
+                    if track_uid in tracks
+                },
+                "digests": [
+                    [tracks[t], frames[f], digest]
+                    for (t, f), digest in state.digests.items()
+                    if t in tracks and f in frames
+                ],
+                "conflicts": [
+                    [tracks[t], frames[f]]
+                    for (t, f) in state.conflicts
+                    if t in tracks and f in frames
+                ],
+                "offset": list(state.offset),
+                # Member names are a function of the group's number and the
+                # asset id, so the writer and the reader agree with no table.
+                "assets": {
+                    asset_id: _flourish_member(index_of[guid], asset_id)
+                    for asset_id in state.assets
+                },
+            }
+        )
+    return out or None
+
+
+def _flourish_member(group_index: int, asset_id: str) -> str:
+    return f"data/flourish{group_index}_{asset_id}.png"
+
+
+def _write_flourish_assets(zf: zipfile.ZipFile, doc, tracks: dict[int, int]) -> None:
+    """Every effect texture as its own PNG member, named as the payload says."""
+    held = getattr(doc, "flourish", None)
+    if not held:
+        return
+    order = _group_order(doc, tracks)
+    index_of = {guid: i for i, guid in enumerate(order)}
+    for guid, state in held.items():
+        if guid not in index_of:
+            continue
+        for asset_id, pixels in state.assets.items():
+            zf.writestr(_member(_flourish_member(index_of[guid], asset_id)), _png(pixels))
+
+
+def _read_flourish_assets(doc, zf: zipfile.ZipFile) -> None:
+    """Decode the members ``_read_flourish`` noted. A member that is missing
+    or will not decode costs that one texture -- the layer that named it
+    renders nothing on the next regenerate -- and never the document."""
+    for state in getattr(doc, "flourish", {}).values():
+        pending = getattr(state, "_asset_members", None) or {}
+        for asset_id, member in pending.items():
+            try:
+                data = zf.read(member)
+                with pixelguard.opened(io.BytesIO(data), "an effect texture") as im:
+                    im.load()
+                    state.assets[asset_id] = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
+            except (KeyError, OSError, ValueError) as exc:
+                log.warning("ignoring effect texture %s: %s", member, exc)
+        if hasattr(state, "_asset_members"):
+            del state._asset_members
+
+
+def _tile_refs_names(doc, anim) -> dict[int, str]:
+    """One name per *distinct* tilemap cel: ``data/tilerefs{n}.u32``.
+
+    ``_cel_names``'s pattern, extended: keyed by ``id(layer)`` so a linked cel
+    answers to one name rather than one per slot it occupies, and ``n`` counts
+    only the tilemap cels found walking the very order the cel PNGs themselves
+    use -- ``unique_cel_layers`` on an animated document, stack order on a
+    still one (``_stack_xml``'s own walk, not the reversed one ``write_ora``
+    writes PNGs in -- what matters here is a deterministic, repeatable order,
+    and ``enumerate(doc.stack)`` is the one :func:`_tiles_json`'s ``"layer"``
+    index already commits to).
+    """
+    layers = anim.unique_cel_layers() if anim is not None else list(doc.stack)
+    out: dict[int, str] = {}
+    n = 0
+    for layer in layers:
+        if isinstance(layer, TilemapCel):
+            out[id(layer)] = f"data/tilerefs{n}.u32"
+            n += 1
+    return out
+
+
+def _tiles_json(
+    doc, anim, names: dict[int, str], refs_names: dict[int, str]
+) -> bytes:
+    """The tileset/track/cel record. Indices, not uids -- ``_animation_json``'s
+    convention, restated: a uid is minted per process and means nothing in a
+    file.
+
+    Every tileset in ``doc.tilesets`` is listed, referenced or not -- a user's
+    spare tileset is not garbage, and this is what lets it survive a save it
+    was never drawn with. ``"tracks"`` appears only on an animated document (a
+    still one has no tracks at all); ``"cels"`` keys each entry by the cel's
+    own PNG member name on an animated document -- the stable cross-member key
+    :func:`_animation_json` already uses -- and by stack index on a still one.
+    """
+    tileset_index = {slot.uid: i for i, slot in enumerate(doc.tilesets)}
+    payload: dict = {
+        "version": TILES_VERSION,
+        "tilesets": [
+            {
+                "name": slot.tileset.name,
+                "tile_w": int(slot.tileset.tile_w),
+                "tile_h": int(slot.tileset.tile_h),
+                "data": f"data/tileset{i}.png",
+            }
+            for i, slot in enumerate(doc.tilesets)
+        ],
+    }
+    cels: list[dict] = []
+    if anim is not None:
+        payload["tracks"] = [
+            {"track": ti, "tileset": tileset_index[track.tileset_uid]}
+            for ti, track in enumerate(anim.tracks)
+            if track.tileset_uid is not None and track.tileset_uid in tileset_index
+        ]
+        for layer in anim.unique_cel_layers():
+            if isinstance(layer, TilemapCel) and layer.tileset_uid in tileset_index:
+                grid_h, grid_w = layer.refs.shape
+                cels.append(
+                    {
+                        "cel": names[id(layer)],
+                        "tileset": tileset_index[layer.tileset_uid],
+                        "grid_w": int(grid_w),
+                        "grid_h": int(grid_h),
+                        "refs": refs_names[id(layer)],
+                    }
+                )
+    else:
+        for index, layer in enumerate(doc.stack):
+            if isinstance(layer, TilemapCel) and layer.tileset_uid in tileset_index:
+                grid_h, grid_w = layer.refs.shape
+                cels.append(
+                    {
+                        "layer": index,
+                        "tileset": tileset_index[layer.tileset_uid],
+                        "grid_w": int(grid_w),
+                        "grid_h": int(grid_h),
+                        "refs": refs_names[id(layer)],
+                    }
+                )
+    payload["cels"] = cels
+    return json.dumps(payload, indent=2).encode("utf-8")
+
+
+def _write_tiles(zf: zipfile.ZipFile, doc, anim, names: dict[int, str]) -> None:
+    """The three tile members, in their fixed order: tileset strips, then the
+    refs blobs that name them, then ``tiles.json`` last -- it is what a reader
+    needs the first two members' own names for, so it goes out once they are
+    already in the archive.
+    """
+    for i, slot in enumerate(doc.tilesets):
+        zf.writestr(_member(f"data/tileset{i}.png"), _png(slot.tileset.pixels))
+    refs_names = _tile_refs_names(doc, anim)
+    layers = anim.unique_cel_layers() if anim is not None else list(doc.stack)
+    for layer in layers:
+        if isinstance(layer, TilemapCel):
+            # Raw, little-endian, row-major -- kilobytes at most and trivially
+            # deterministic, so a member of its own buys nothing a JSON string
+            # would not, except that JSON cannot hold binary at all.
+            zf.writestr(_member(refs_names[id(layer)]), layer.refs.astype("<u4").tobytes())
+    zf.writestr(_member(TILES_MEMBER), _tiles_json(doc, anim, names, refs_names))
+
+
+def _rect_json(rect) -> dict[str, int]:
+    """A rectangle as ``{x, y, w, h}``.
+
+    The sidecar's spelling, not this package's ``x0 y0 x1 y1``, and
+    deliberately: the ``.ora`` is a file other programs open, ``{x, y, w, h}``
+    is what every one of them already means by a rectangle, and the two
+    conversions live in this module's two functions rather than in a reader
+    somebody else writes.
+    """
+    x0, y0, x1, y1 = (int(v) for v in rect)
+    return {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
+
+
+def _rect_of(entry, key: str):
+    """``{x, y, w, h}`` back into exclusive bounds, or None when it is absent.
+
+    Raises for a rectangle that is present and malformed, which is what makes
+    the reader's "an entry failing on its own terms drops the member" rule
+    reachable: a missing key is a file written before the field, and a key
+    holding a string is a file that is wrong about itself.
+    """
+    raw = entry.get(key)
+    if raw is None:
+        return None
+    x, y = int(raw["x"]), int(raw["y"])
+    return (x, y, x + int(raw["w"]), y + int(raw["h"]))
+
+
+def _slice_json(entry, frames: dict[int, int]) -> dict:
+    """One slice, with only the fields it actually carries.
+
+    ``pivot``, ``center`` and ``keys`` are written **only when set**, which is
+    what keeps this member small and, more usefully, keeps a document whose
+    slices are plain rectangles producing the same bytes it did before pivots
+    existed.
+
+    Keys are stored by frame **index**, the ``cels`` precedent: a uid is minted
+    per process and means nothing in a file. A key whose frame has left the grid
+    is skipped rather than failing the save -- the same accepted leak
+    ``_placeholder_uids`` takes, and the alternative is refusing to write a
+    document over metadata for a frame that no longer exists.
+    """
+    out: dict = {"name": entry.name, "bounds": _rect_json(entry.bounds)}
+    if entry.pivot is not None:
+        out["pivot"] = {"x": float(entry.pivot[0]), "y": float(entry.pivot[1])}
+    if entry.center is not None:
+        out["center"] = _rect_json(entry.center)
+    keys = []
+    for frame_uid, key in entry.keys.items():
+        index = frames.get(frame_uid)
+        if index is None:
+            continue
+        record: dict = {"frame": index, "bounds": _rect_json(key.bounds)}
+        if key.pivot is not None:
+            record["pivot"] = {"x": float(key.pivot[0]), "y": float(key.pivot[1])}
+        if key.center is not None:
+            record["center"] = _rect_json(key.center)
+        keys.append(record)
+    if keys:
+        # Sorted, so two saves of an unchanged document are byte-identical
+        # however the dictionary happened to be built -- the same property
+        # ``_animation_json`` sorts its cels for.
+        keys.sort(key=lambda record: record["frame"])
+        out["keys"] = keys
+    return out
+
+
+def _realmspinner_json(doc) -> bytes:
+    anim = getattr(doc, "anim", None)
+    frames = (
+        {} if anim is None else {frame.uid: i for i, frame in enumerate(anim.frames)}
+    )
+    payload = {
+        "version": REALMSPINNER_VERSION,
+        "slices": [_slice_json(entry, frames) for entry in doc.slices],
+    }
+    colour = _colour_block(doc)
+    if colour is not None:
+        payload["color"] = colour
+    return json.dumps(payload, indent=2).encode("utf-8")
+
+
+def _colour_block(doc) -> dict | None:
+    """The colour mode, or None on an ordinary RGB document.
+
+    **Additive, and written only when it is not the default**, which is what
+    keeps ``REALMSPINNER_VERSION`` at 1 and every RGB document's archive byte-for-byte
+    what this writer produced before the block existed. The bump rule -- "a
+    reader could get it wrong in a way it cannot detect" -- is not met: an older
+    reader ignores the key and opens the file as the RGBA picture the planes
+    already are.
+
+    A malformed block costs the *mode metadata* and never the file. The P-PNGs
+    are self-describing, so the indices survive; the transparent index recovers
+    from ``tRNS`` or falls back to zero, with a line in the log.
+    """
+    mode = getattr(doc, "color_mode", "rgb")
+    if mode == "rgb":
+        return None
+    block: dict = {"mode": mode}
+    if mode == "indexed":
+        block["transparent"] = int(getattr(doc, "transparent_index", 0))
+    return block
+
+
+def _group_node_payload(node) -> dict:
+    """One group as JSON, with the compositing keys written only when set.
+
+    Omitted-when-default for the ORA writer's reason one level up: a document
+    that never touched isolation writes exactly the four keys it always wrote,
+    so every file this app has already saved round-trips byte for byte. The
+    reader defaults both back, which is what makes the omission lossless.
+    """
+    out = {
+        "name": node.name,
+        "visible": bool(node.visible),
+        "opacity": float(node.opacity),
+        "locked": bool(node.locked),
+    }
+    if node.blend != "normal":
+        out["blend"] = node.blend
+    if node.isolate:
+        out["isolate"] = True
+    return out
+
+
+def _groups_payload(doc, tracks: dict[int, int]) -> dict | None:
+    """The layer-group tree as indices, or None when there is no tree.
+
+    Indices, not uids, for ``_animation_json``'s reason -- uids are minted per
+    process and mean nothing in a file. Groups are numbered by the order they
+    are first opened walking the tracks bottom-first, which is deterministic
+    and is also the order the nested ``<stack>`` elements come out in.
+    """
+    from . import groups as gp
+
+    if not getattr(doc, "groups", None):
+        return None
+    order: list[int] = []
+    for track_uid in tracks:
+        for guid in reversed(gp.ancestry(doc.group_of, track_uid)):
+            if guid in doc.groups and guid not in order:
+                order.append(guid)
+    if not order:
+        return None
+    index_of = {guid: i for i, guid in enumerate(order)}
+    return {
+        "nodes": [_group_node_payload(doc.groups[guid]) for guid in order],
+        "tracks": [
+            {"track": tracks[uid], "group": index_of[doc.group_of[uid]]}
+            for uid in tracks
+            if doc.group_of.get(uid) in index_of
+        ],
+        "nesting": [
+            {"group": index_of[guid], "parent": index_of[doc.group_of[guid]]}
+            for guid in order
+            if doc.group_of.get(guid) in index_of
+        ],
+    }
+
+
+def _frame_flatten(doc, frame) -> np.ndarray:
+    """Frame 1's pixels, whatever the playhead is on.
+
+    ``mergedimage.png`` has to be a function of the document and not of where
+    the user happened to be looking, or saving the same file twice produces two
+    different files.
+    """
+    # ``frame_stack``, not a bare ``LayerStack``: it carries the layer-group
+    # fold, without which a hidden group would be hidden on screen and visible
+    # in ``mergedimage.png``.
+    return cp.flatten_onto(doc.frame_stack(frame).flatten(), doc.matte)
+
+
+def write_ora(doc, path: Path) -> None:
+    """Blocking; callers encode on a task thread."""
+    from PIL import Image
+
+    path = Path(path)
+    anim = getattr(doc, "anim", None)
+    names = _cel_names(anim) if anim is not None else {}
+    merged = doc.flatten() if anim is None else _frame_flatten(doc, anim.frames[0])
+    thumb = Image.fromarray(merged, "RGBA")
+    thumb.thumbnail((THUMBNAIL_MAX, THUMBNAIL_MAX))
+    thumb_buf = io.BytesIO()
+    thumb.save(thumb_buf, "PNG")
+
+    # ``atomic.staged``, the app's one staging idiom, rather than the
+    # hand-rolled temporary-and-replace this had: ``replace`` only runs on
+    # success, so a failed encode left the staging file sitting beside the
+    # user's document forever. Not data loss -- the destination is never
+    # touched -- just a stray file per failure. A zip is written *into* the
+    # staged path rather than handed over as bytes, which is what the context
+    # manager form is for.
+    with atomic.staged(path) as tmp, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Stored, and first: the spec makes this a magic number at a fixed
+        # offset, and a deflated one is not readable as such.
+        zf.writestr(
+            zipfile.ZipInfo("mimetype", _EPOCH), b"image/openraster", zipfile.ZIP_STORED
+        )
+        # One encoder for both paths, chosen by the document's mode rather than
+        # per layer: a document is indexed or it is not, and a mixed archive is
+        # a state no reader (ours least of all) has a sensible answer for.
+        def encode(layer) -> bytes:
+            if getattr(doc, "color_mode", "rgb") == "indexed" and layer.indices is not None:
+                return _png_indexed(layer.indices, doc.palette, doc.transparent_index)
+            return _png(layer.pixels)
+
+        if anim is None:
+            zf.writestr(_member("stack.xml"), _stack_xml(doc))
+            for index, layer in enumerate(reversed(list(doc.stack))):
+                zf.writestr(_member(f"data/layer{index}.png"), encode(layer))
+        else:
+            zf.writestr(_member("stack.xml"), _stack_xml_animated(doc, names))
+            # One PNG per name, with no de-duplication needed: ``_cel_names``
+            # is built from the same ``unique_cel_layers`` walk and gives each
+            # distinct cel its own name, so the two can only ever agree.
+            for layer in anim.unique_cel_layers():
+                zf.writestr(_member(names[id(layer)]), encode(layer))
+            zf.writestr(_member(ANIMATION_MEMBER), _animation_json(doc, names))
+        # Only when there is a tileset to record -- a document that has never
+        # touched one produces the exact archive this writer wrote before
+        # tilesets existed, which is what the determinism suite pins.
+        if getattr(doc, "tilesets", None):
+            _write_tiles(zf, doc, anim, names)
+        # Same bargain: only an effect with a texture adds members.
+        if anim is not None and getattr(doc, "flourish", None):
+            _write_flourish_assets(
+                zf, doc, {track.uid: i for i, track in enumerate(anim.tracks)}
+            )
+        if getattr(doc, "palette", None):
+            zf.writestr(_member(PALETTE_MEMBER), gpl.dumps(doc.palette).encode("utf-8"))
+        # Only when there are slices *or* a colour mode to record. A plain RGB
+        # document with neither produces an archive byte-identical to the one
+        # this build wrote before either existed, which is what the determinism
+        # suite pins and what makes both additions invisible to every reader
+        # that has never heard of them.
+        if getattr(doc, "slices", None) or _colour_block(doc) is not None:
+            zf.writestr(_member(REALMSPINNER_MEMBER), _realmspinner_json(doc))
+        zf.writestr(_member("mergedimage.png"), _png(merged))
+        zf.writestr(_member("Thumbnails/thumbnail.png"), thumb_buf.getvalue())
+
+
+def ora_bytes(doc) -> bytes:
+    """The same file, in memory -- for a save that goes through a service."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "doc.ora"
+        write_ora(doc, path)
+        return path.read_bytes()
+
+
+# --- reading ----------------------------------------------------------------
+
+
+def _layer_elements(node, tree=None, parent=None) -> list:
+    """Depth-first, flattening nested stacks *and* recording them as groups.
+
+    The flattening is unchanged and still load-bearing: the flat stack is
+    authoritative for paint order, so a nested file has always come out as one
+    list and always will. What is new is that the nesting is no longer thrown
+    away -- ``tree`` collects ``(groups, group_of)`` on the way through, so a
+    Krita file's folders survive a round trip instead of being silently lost.
+
+    Each layer comes back as ``(element, parent group uid or None)``. Depth-
+    first order is what makes the result satisfy the contiguity invariant for
+    free: a group's layers are exactly the run this walk emits while it is
+    inside that group's element.
+
+    An **empty** ``<stack>`` records no group. Empty groups are disallowed in
+    the model, and a foreign file is entitled to contain one -- as is one of
+    ours whose layer PNGs went missing.
+
+    ``tree`` of ``None`` flattens without recording anything, which is exactly
+    what this function did before groups existed. :func:`read_ora` passes None
+    for the frame-projection case; see :func:`has_frame_groups`.
+    """
+    from .groups import GroupNode
+
+    found: list = []
+    for child in node:
+        if child.tag == "layer":
+            found.append((child, parent))
+        elif child.tag == "stack":
+            if tree is None:
+                found.extend(_layer_elements(child, None, parent))
+                continue
+            groups, group_of = tree
+            node_group = GroupNode(
+                name=child.get("name") or f"Group {len(groups) + 1}",
+                visible=child.get("visibility", "visible") != "hidden",
+                opacity=float(child.get("opacity") or 1.0),
+                locked=child.get(CONTENT_LOCK_ATTR) == "1",
+                blend=cp.OPS_ORA.get(child.get("composite-op", ""), "normal"),
+                isolate=child.get("isolation") == "isolate",
+            )
+            inner = _layer_elements(child, tree, node_group.uid)
+            if not inner:
+                continue
+            unmodelled = set(child.attrib) - GROUP_ATTRS
+            if unmodelled:
+                log.debug(
+                    "dropping unmodelled group attributes on %r: %s",
+                    node_group.name,
+                    ", ".join(sorted(unmodelled)),
+                )
+            groups[node_group.uid] = node_group
+            if parent is not None:
+                group_of[node_group.uid] = parent
+            found.extend(inner)
+    return found
+
+
+#: What ``_stack_xml_animated`` names each frame's ``<stack>``: ``frame:0001``
+#: and up. It is a *projection* marker rather than a folder, so the reader has
+#: to recognise it.
+FRAME_GROUP_PREFIX = "frame:"
+
+
+def has_frame_groups(node) -> bool:
+    """Whether this root stack is one of our animated frame projections.
+
+    It matters only on the **flat fallback** -- when ``animation.json`` is
+    missing or would not parse and the grid could not be rebuilt. The XML still
+    says what it always said: one nested ``<stack>`` per frame. Those are frames,
+    never folders, so reading them as layer groups turned a degraded path into a
+    noisy one, handing back N folders called ``frame:0001`` where the same file
+    previously opened flat.
+
+    Group construction is suppressed for the whole read rather than per element,
+    and that is the point: each frame group carries its *own* copy of the
+    document's real folders, so recognising the frames alone would still give a
+    forty-frame clip forty folders called "Ink". The pixels are all present
+    either way, which is the bargain this whole reader makes.
+
+    A foreign file with a top-level group genuinely called ``frame:0001`` loses
+    its folders here. That is the accepted cost, and it is bounded: the layers,
+    their order and their properties are unaffected.
+    """
+    return any(
+        child.tag == "stack" and (child.get("name") or "").startswith(FRAME_GROUP_PREFIX)
+        for child in node
+    )
+
+
+def _place(pixels: np.ndarray, size: tuple[int, int], offset: tuple[int, int]) -> np.ndarray:
+    """Paste a layer onto a canvas-sized plane at its ORA offset.
+
+    Offsets exist on disk and not in memory: every op in this app is a plain
+    slice, and the price of that is doing the placement once, here.
+    """
+    from .transform import resize_canvas
+
+    return resize_canvas(pixels, size, offset)
+
+
+def _decode(data: bytes, size: tuple[int, int]) -> np.ndarray:
+    with pixelguard.opened(io.BytesIO(data), "a layer in this drawing") as im:
+        im.load()
+        pixels = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
+    width, height = size
+    if (pixels.shape[1], pixels.shape[0]) != (width, height):
+        pixels = _place(pixels, size, (0, 0))
+    return pixels
+
+
+def _known_blend(name: object, zf: zipfile.ZipFile) -> str:
+    """A track's blend mode, or ``normal`` and a log line for one we lack.
+
+    The same tolerance the ``stack.xml`` reader has always had, which
+    ``animation.json`` did not: ``Layer.__post_init__`` refuses an unknown mode,
+    that refusal happens while the grid is being built, and the ``except`` around
+    it drops the **whole timeline** back to a flat read. So a file written by a
+    build that carries one more mode than this one cost a user every frame of
+    their animation over a string. A mode is how a layer composites, not what it
+    contains -- ``Tag.direction``'s rule, for the same reason.
+    """
+    if isinstance(name, str) and name in cp.BLEND_MODES:
+        return name
+    log.warning(
+        "unknown blend mode %r in %s; using normal", name, getattr(zf, "filename", "?")
+    )
+    return "normal"
+
+
+def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
+    """The grid and the payload it came from, or None to fall back to flat.
+
+    The payload rides back out because the *grouping* is read from it too, and
+    it has to be read after the ``Document`` exists -- membership is keyed on
+    track uids, which the tracks only have once they are built. Re-reading the
+    member to get at it would parse the same JSON twice and give two chances
+    for the two readers to disagree about what it said.
+
+    Every way of being wrong ends the same way -- a log line and the flat read
+    -- because the alternative is refusing to open a file whose pixels are all
+    present and intact. The one thing worth being strict about is *silent*
+    wrongness, so a cel naming a missing PNG or an out-of-range index fails the
+    whole grid rather than being skipped: half a timeline is harder to notice
+    than none of one, and the flat fallback at least looks like what it is.
+    """
+    try:
+        raw = zf.read(ANIMATION_MEMBER)
+    except KeyError:
+        return None
+    try:
+        payload = json.loads(raw)
+        if int(payload.get("version", 0)) != ANIMATION_VERSION:
+            raise ValueError(f"animation.json version {payload.get('version')!r}")
+        # 2026-09-11 audit, finding inker-05: a track becomes one full-canvas
+        # ``Layer`` the moment ``anim.layers_for`` runs a few lines below in
+        # ``read_ora``, exactly the shape ``_layer_budget`` already exists to
+        # bound on the flat layer path -- and this list had no such bound. A
+        # frame is cheap in isolation (a duration and a uid) but nothing
+        # bounded its count either, and a 1,349-byte file naming 200,000
+        # tracks cost 370.0 MiB and 9.26s. Refused before either list is
+        # built, so the file falls back to the flat read below rather than
+        # spending the allocation first -- this member's own rule for every
+        # other way of being wrong.
+        allowed_tracks = _layer_budget(*size)
+        if len(payload["tracks"]) > allowed_tracks:
+            raise ValueError(
+                f"animation.json holds more than the {allowed_tracks} tracks"
+                f" of {size[0]}x{size[1]} this build will open"
+            )
+        if len(payload["frames"]) > MAX_ORA_FRAMES:
+            raise ValueError(
+                f"animation.json holds more than the {MAX_ORA_FRAMES} frames"
+                " this build will open"
+            )
+        # An absent duration is a file written by something that does not carry
+        # one, so it gets the default a new frame gets. Falling through to
+        # ``clamp_duration``'s floor instead gave it 1 ms -- a hundred times too
+        # fast, and silently, since a clip that plays is not obviously wrong.
+        frames = [
+            Frame(duration_ms=entry.get("duration_ms", DEFAULT_DURATION_MS))
+            for entry in payload["frames"]
+        ]
+        # The per-frame colour tables, keyed by uid once the frames exist.
+        # ``.get``-based like every other key here, so a file written before
+        # the feature reads as a document with one palette -- which is what it
+        # is -- rather than failing the whole grid.
+        frame_palettes: dict[int, list] = {}
+        for frame, entry in zip(frames, payload["frames"], strict=False):
+            table = entry.get("palette")
+            if table:
+                # The 2026-09-14 audit (inker-11): the document's own palette
+                # is capped at ``MAX_COLOURS`` on every write path
+                # (``_doc_indexed.set_palette``'s ``ValueError``, from the
+                # 2026-09-13 audit's inker-04), but a per-frame override read
+                # here had no ceiling at all -- an untrusted file could name
+                # thousands of entries per frame with nothing to catch it.
+                # Refused the same way as the document table: a ``ValueError``
+                # here is caught by this function's own handler and falls
+                # back to the flat read, exactly like an oversized track or
+                # frame count above.
+                if len(table) > ixp.MAX_COLOURS:
+                    raise ValueError(
+                        f"a palette holds at most {ixp.MAX_COLOURS} colours"
+                    )
+                frame_palettes[frame.uid] = [
+                    tuple(int(v) for v in colour[:4]) for colour in table
+                ]
+        tracks = [
+            Track(
+                name=entry.get("name") or f"Layer {i + 1}",
+                opacity=float(entry.get("opacity", 1.0)),
+                visible=bool(entry.get("visible", True)),
+                blend=_known_blend(entry.get("blend", "normal"), zf),
+                alpha_lock=bool(entry.get("alpha_lock", False)),
+                # ``.get``-based like every other key here, so a file written
+                # before the content lock existed reads as unlocked rather than
+                # failing the whole grid. That is why the version stays 1.
+                locked=bool(entry.get("locked", False)),
+                # The seventh and eighth track properties. ``Track.props``
+                # has written both since 6.5; this reader never read them
+                # back, so every animated document lost its background and
+                # reference flags on load -- the ``Layer.copy`` bug again,
+                # in the one copy site that hand-lists its fields.
+                background=bool(entry.get("background", False)),
+                reference=bool(entry.get("reference", False)),
+                # Same ``.get``, same reason -- and no ``stack.xml`` attribute
+                # to go with it: a foreign editor has no concept for "new cels
+                # start as a copy of the last one", so there is nowhere honest
+                # to put it outside our own section.
+                continuous=bool(entry.get("continuous", False)),
+                # Same ``.get``, same reason -- and no ``stack.xml`` attribute
+                # either: a foreign editor has no concept for "the note this
+                # row carries on our timeline", so our own section is the only
+                # honest place for it.
+                note=_read_note(entry),
+            )
+            for i, entry in enumerate(payload["tracks"])
+        ]
+        if not frames or not tracks:
+            raise ValueError("an animation has at least one frame and one track")
+
+        # Decoded once per distinct ``data`` path and *shared* across the slots
+        # that name it -- which is the whole of how a link survives a save and a
+        # reload. Decoding per slot would give equal pixels in separate objects,
+        # and the break would only show on the next stroke.
+        planes: dict[str, Layer] = {}
+        cels: dict[tuple[int, int], Layer] = {}
+        cel_opacity: dict[tuple[int, int], float] = {}
+        cel_notes: dict[tuple[int, int], Note] = {}
+        cel_z: dict[tuple[int, int], int] = {}
+        for entry in payload["cels"]:
+            ti, fi, src = int(entry["track"]), int(entry["frame"]), entry["data"]
+            if not (0 <= ti < len(tracks) and 0 <= fi < len(frames)):
+                raise ValueError(f"cel at ({ti}, {fi}) is outside the grid")
+            layer = planes.get(src)
+            if layer is None:
+                # The flat read's bound, on the branch that allocates the same
+                # way: every distinct ``data`` path here is one ``_decode`` onto
+                # the full canvas, so the count that matters is the number of
+                # *distinct planes*, not the number of cels naming them.
+                allowed = _layer_budget(*size)
+                if len(planes) >= allowed:
+                    raise ValueError(
+                        f"this drawing holds more than the {allowed} layers of "
+                        f"{size[0]}x{size[1]} this build will open"
+                    )
+                track = tracks[ti]
+                # Read once and used twice: the RGBA decode and the index plane
+                # beside it are two readings of the same bytes, and reading the
+                # member twice would be two chances for them to disagree.
+                data = zf.read(src)
+                # ``Track.props()``, never a hand list: the copied-down set is
+                # the one ``CEL_PROPS`` names, and a reader that spells it out
+                # is a fifth place for it to fall behind -- which is exactly how
+                # ``background`` and ``reference`` came to be copied by some of
+                # the sites and forgotten by others.
+                layer = Layer(pixels=_decode(data, size), **track.props())
+                if reader is not None:
+                    reader.attach(layer, data)
+                planes[src] = layer
+            cels[(tracks[ti].uid, frames[fi].uid)] = layer
+            # ``.get``-based like every other additive key here, so a file
+            # written before per-cel opacity existed reads back at 1.0 rather
+            # than failing the whole grid -- which is why the version stays 1.
+            # Stored sparsely for ``_set_cel_opacity``'s reason: a 1.0 entry
+            # would be written straight back out and cost the file its
+            # byte-for-byte round trip.
+            alpha = float(entry.get("opacity", 1.0))
+            if alpha < 1.0:
+                cel_opacity[(tracks[ti].uid, frames[fi].uid)] = max(0.0, alpha)
+            # Sparse for the opacity's reason one line up: an empty note stored
+            # here would be written straight back out and cost the file its
+            # byte-for-byte round trip.
+            note = _read_note(entry)
+            if note:
+                cel_notes[(tracks[ti].uid, frames[fi].uid)] = note
+            # And the z, ``.get``-based and sparse for the two reasons above:
+            # a file written before the key existed reads back flat rather than
+            # failing the grid, and a stored 0 would be written straight out
+            # again and cost the file its byte-for-byte round trip. Clamped to
+            # the ``.aseprite`` field's own range, so a number out of somebody
+            # else's writer cannot make a file this build can save but not
+            # re-read.
+            try:
+                zed = int(entry.get("z", 0))
+            except (TypeError, ValueError):
+                zed = 0
+            if zed:
+                cel_z[(tracks[ti].uid, frames[fi].uid)] = max(-32768, min(32767, zed))
+
+        tags = [
+            Tag(
+                name=entry.get("name") or "tag",
+                start=int(entry.get("start", 0)),
+                end=int(entry.get("end", 0)),
+                loop=bool(entry.get("loop", True)),
+                # A file written before the field, or by something that spells
+                # it differently, gets ``Tag``'s own coercion to forward rather
+                # than failing the whole grid: a direction is how a tag plays,
+                # not what it contains.
+                direction=str(entry.get("direction", "forward")),
+                # Absent in every file written before repeats existed, and 0
+                # is exactly "the loop flag decides" -- so an old document
+                # reads back playing precisely as it did.
+                repeat=int(entry.get("repeat", 0) or 0),
+                note=_read_note(entry),
+            )
+            for entry in payload.get("tags", [])
+        ]
+    except (
+        AttributeError,
+        KeyError,
+        ValueError,
+        TypeError,
+        OSError,
+        json.JSONDecodeError,
+    ) as exc:
+        # ``_read_colour``'s verbatim five, plus ``OSError``: this member is
+        # the one whose entries name *PNGs* to decode, and Pillow's
+        # ``UnidentifiedImageError`` on a member holding non-image bytes is an
+        # ``OSError`` -- without it a corrupt cel crashed the open instead of
+        # falling back flat. ``AttributeError`` for ``_read_slices``' reason:
+        # a payload key of the wrong shape fails on its first ``.get``.
+        log.warning("ignoring animation.json in %s: %s", getattr(zf, "filename", "?"), exc)
+        return None
+
+    # Its own guard, outside the block above, and deliberately: a layout is
+    # metadata *about* a grid whose pixels are all present and correct, so a
+    # malformed or unknown one must cost the document its export shortcut, not
+    # its timeline. ``DirectionalLayout.of`` already answers None for a kind
+    # this build does not carry; this catches a "layout" that is not a mapping
+    # at all.
+    layout = None
+    try:
+        raw_layout = payload.get("layout")
+        if raw_layout is not None:
+            layout = DirectionalLayout.of(raw_layout["kind"])
+    except (KeyError, TypeError) as exc:
+        log.warning("ignoring animation.json layout in %s: %s",
+                    getattr(zf, "filename", "?"), exc)
+
+    return Animation(
+        tracks=tracks,
+        frames=frames,
+        cels=cels,
+        cel_opacity=cel_opacity,
+        cel_notes=cel_notes,
+        cel_z=cel_z,
+        frame_palettes=frame_palettes,
+        tags=tags,
+        current=0,
+        layout=layout,
+    ), payload
+
+
+def _read_sheet_base(doc, payload: dict) -> None:
+    """Rebuild the recorded render digests, or leave the document without one.
+
+    ``_read_groups``' guard, one key over and for a stronger version of its
+    reason: a base digest is metadata about a picture that is already whole, so
+    a block we cannot use costs the document its *merge* and never its pixels.
+
+    ``sheetmerge.base_from_payload`` does the validating and answers ``None``
+    for everything it does not recognise -- including an algorithm it cannot
+    recompute, which is deliberately in that class. Digests that cannot be
+    reproduced are worse than none: every cell would classify as edited and the
+    merge would refuse to take anything, silently and for a reason nothing on
+    screen could explain.
+    """
+    from . import sheetmerge
+
+    raw = payload.get("sheet")
+    if raw is None:
+        return
+    try:
+        # The 2026-09-19 audit, finding inker-05: ``sheetmerge.base_from_
+        # payload`` walks "cells" and "conflicts" with no ceiling of its own,
+        # unlike every sibling list this module already bounds --
+        # ``sheetmerge`` may not import ``ora`` (layering), so the refusal
+        # lives here, before the call, rather than inside that function. The
+        # audit's probe walked 4,000,000 "cells" in ~1s to keep one digest.
+        if isinstance(raw, dict):
+            cells = raw.get("cells")
+            if isinstance(cells, list) and len(cells) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"this drawing's sheet block names more than "
+                    f"{MAX_ORA_METADATA_ENTRIES} cells"
+                )
+            conflicts = raw.get("conflicts")
+            if isinstance(conflicts, list) and len(conflicts) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"this drawing's sheet block names more than "
+                    f"{MAX_ORA_METADATA_ENTRIES} conflicts"
+                )
+        uid_at = [frame.uid for frame in doc.anim.frames] if doc.anim else []
+        base = sheetmerge.base_from_payload(raw, uid_at)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        log.warning("could not read this sheet's recorded render; merging is off")
+        return
+    if base is None:
+        log.warning("this sheet's recorded render is not one we can use; merging is off")
+        return
+    doc.sheet_base = base
+
+
+def _read_groups(doc, payload: dict) -> None:
+    """Rebuild the layer-group tree from ``animation.json``, or leave it empty.
+
+    Guarded exactly like ``layout`` and for the same reason, one level up: a
+    grouping is metadata *about* a grid whose pixels are all present and
+    correct, so a malformed one must cost the document its folders and never
+    its timeline. Anything wrong -- a track index outside the grid, a parent
+    that is not a group, a "groups" that is not a mapping -- logs and leaves
+    the document flat.
+    """
+    from .groups import GroupNode
+
+    raw = payload.get("groups")
+    if raw is None:
+        return
+    try:
+        # The 2026-09-16 audit: "nodes" had no ceiling, unlike every sibling
+        # list this module already bounds -- a crafted file could build one
+        # ``GroupNode`` per declared entry with no refusal at all.
+        if len(raw["nodes"]) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"animation.json names more than {MAX_ORA_METADATA_ENTRIES}"
+                " group nodes"
+            )
+        nodes = [
+            GroupNode(
+                name=entry.get("name") or f"Group {i + 1}",
+                visible=bool(entry.get("visible", True)),
+                opacity=float(entry.get("opacity", 1.0)),
+                locked=bool(entry.get("locked", False)),
+                blend=str(entry.get("blend", "normal")),
+                isolate=bool(entry.get("isolate", False)),
+            )
+            for i, entry in enumerate(raw["nodes"])
+        ]
+        tracks = doc.anim.tracks
+        group_of: dict[int, int] = {}
+        # The 2026-09-19 audit, finding inker-05: "tracks" and "nesting" had
+        # no ceiling either, the same gap "nodes" had before the 2026-09-16
+        # audit closed it -- a crafted file could repeat one binding tens of
+        # thousands of times and pay a dict write per copy with no refusal.
+        raw_tracks = raw.get("tracks", [])
+        if len(raw_tracks) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"animation.json names more than {MAX_ORA_METADATA_ENTRIES}"
+                " group track bindings"
+            )
+        for entry in raw_tracks:
+            ti, gi = int(entry["track"]), int(entry["group"])
+            if not (0 <= ti < len(tracks) and 0 <= gi < len(nodes)):
+                raise ValueError(f"track {ti} names group {gi}")
+            group_of[tracks[ti].uid] = nodes[gi].uid
+        raw_nesting = raw.get("nesting", [])
+        if len(raw_nesting) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"animation.json names more than {MAX_ORA_METADATA_ENTRIES}"
+                " group nesting entries"
+            )
+        for entry in raw_nesting:
+            gi, pi = int(entry["group"]), int(entry["parent"])
+            if not (0 <= gi < len(nodes) and 0 <= pi < len(nodes)) or gi == pi:
+                raise ValueError(f"group {gi} names parent {pi}")
+            group_of[nodes[gi].uid] = nodes[pi].uid
+    except (KeyError, ValueError, TypeError, AttributeError) as exc:
+        log.warning("ignoring animation.json groups: %s", exc)
+        return
+    _install_groups(doc, ({node.uid: node for node in nodes}, {}), group_of)
+    _read_flourish(doc, payload, nodes)
+
+
+def _read_flourish(doc, payload: dict, nodes: list) -> None:
+    """Rebuild the effect records, or leave the document with none.
+
+    Guarded like ``sheet``: a recipe is metadata about cels that are already
+    whole, so a block we cannot read costs the document its *regenerate* --
+    the layers stay, as if the effect had been detached -- and never a pixel.
+    A recipe of a newer schema, a group index off the end, a track that is
+    not in the grid: each logs and is skipped on its own.
+    """
+    raw = payload.get("flourish")
+    if not raw or doc.anim is None:
+        return
+    if len(raw) > MAX_ORA_METADATA_ENTRIES:
+        # The 2026-09-16 audit: this list had no ceiling, unlike every sibling
+        # this module already bounds. Guarded the same way as every other
+        # way of being wrong here -- the layers stay, the document just loses
+        # its *regenerate*.
+        log.warning(
+            "ignoring animation.json flourish: more than %d entries",
+            MAX_ORA_METADATA_ENTRIES,
+        )
+        return
+    from ._doc_flourish import FlourishState
+    from .flourish import recipe as flourish_recipe
+
+    tracks = doc.anim.tracks
+    frames = doc.anim.frames
+    for entry in raw:
+        try:
+            node = nodes[int(entry["group"])]
+            if node.uid not in doc.groups:
+                continue
+            recipe = flourish_recipe.from_dict(entry["recipe"])
+            flourish_recipe.reserve_uids(recipe)
+            state = FlourishState(recipe=recipe)
+            # The 2026-09-19 audit, finding inker-05: this entry's own
+            # "tracks"/"digests"/"conflicts" had no ceiling either, unlike
+            # the "flourish" list itself (capped just above since the
+            # 2026-09-16 audit) -- a single crafted entry could repeat one
+            # binding, digest or conflict tens of thousands of times with no
+            # refusal, costing this document its regenerate the same as any
+            # other malformed entry does.
+            entry_tracks = dict(entry.get("tracks") or {})
+            if len(entry_tracks) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"a flourish entry names more than {MAX_ORA_METADATA_ENTRIES}"
+                    " tracks"
+                )
+            for key, ti in entry_tracks.items():
+                state.tracks[int(key)] = tracks[int(ti)].uid
+            entry_digests = entry.get("digests") or []
+            if len(entry_digests) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"a flourish entry names more than {MAX_ORA_METADATA_ENTRIES}"
+                    " digests"
+                )
+            for ti, fi, digest in entry_digests:
+                state.digests[(tracks[int(ti)].uid, frames[int(fi)].uid)] = str(digest)
+            entry_conflicts = entry.get("conflicts") or []
+            if len(entry_conflicts) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"a flourish entry names more than {MAX_ORA_METADATA_ENTRIES}"
+                    " conflicts"
+                )
+            for ti, fi in entry_conflicts:
+                state.conflicts.add((tracks[int(ti)].uid, frames[int(fi)].uid))
+            offset = entry.get("offset") or [0, 0]
+            state.offset = (int(offset[0]), int(offset[1]))
+            members = entry.get("assets") or {}
+            state._asset_members = {  # noqa: SLF001 -- consumed by _read_flourish_assets
+                str(k): str(v) for k, v in dict(members).items() if str(v).startswith("data/")
+            }
+        except (KeyError, IndexError, ValueError, TypeError) as exc:
+            log.warning("ignoring an animation.json flourish entry: %s", exc)
+            continue
+        doc.flourish[node.uid] = state
+
+
+def _read_palette(zf) -> list | None:
+    """The document's colour table, or None when the file carries none.
+
+    Tolerant in the way the rest of this reader is: a palette member that will
+    not parse costs the *indexed constraint*, never the file. The pixels are
+    already snapped -- they were written that way -- so a document that opens
+    without its table is the same picture with the constraint lifted, which is
+    a far better outcome than refusing to open it.
+    """
+    try:
+        raw = zf.read(PALETTE_MEMBER)
+    except KeyError:
+        return None
+    try:
+        return gpl.parse(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        log.warning("ignoring %s in %s: %s", PALETTE_MEMBER, getattr(zf, "filename", "?"), exc)
+        return None
+
+
+def _read_colour(zf) -> tuple[str, int]:
+    """``(mode, transparent index)``, defaulting to plain RGB.
+
+    Read from ``realmspinner.json`` before anything decodes a plane, because it is
+    what decides *how* the planes are read. It fails the way every optional
+    member here fails -- to the default, with a log line -- and the failure is
+    cheap by design: the P-PNGs are self-describing, so a lost block costs the
+    mode label and the transparent index, not a pixel.
+    """
+    try:
+        raw = _read_sidecar(zf)
+    except KeyError:
+        return ("rgb", 0)
+    try:
+        payload = json.loads(raw)
+        if int(payload.get("version", 0)) != REALMSPINNER_VERSION:
+            raise ValueError(f"{REALMSPINNER_MEMBER} version {payload.get('version')!r}")
+        block = payload.get("color")
+        if not isinstance(block, dict):
+            return ("rgb", 0)
+        mode = str(block.get("mode", "rgb"))
+        if mode not in ("rgb", "indexed", "grayscale"):
+            raise ValueError(f"unknown colour mode {mode!r}")
+        return (mode, int(block.get("transparent", 0)))
+    except (AttributeError, KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        log.warning("ignoring colour mode in %s: %s", getattr(zf, "filename", "?"), exc)
+        return ("rgb", 0)
+
+
+class _IndexReader:
+    """Collects index planes off the P-PNGs as the layers decode.
+
+    A small object rather than a return value threaded through two decode paths,
+    because the *table* is a whole-document fact discovered inside a per-layer
+    loop: the first plane that carries one wins, and every later plane in a
+    well-formed archive carries the same one. It is optional throughout -- every
+    RGB document reads with ``None`` here and pays nothing.
+    """
+
+    def __init__(self, size):
+        self.size = size
+        self.palette = None
+
+    def attach(self, layer, data: bytes) -> None:
+        got = _read_indexed_png(data, self.size)
+        if got is None:
+            return
+        indices, palette = got
+        layer.indices = indices
+        if self.palette is None:
+            self.palette = palette
+
+
+def _finish_colour(doc, mode: str, transparent: int, reader, palette) -> None:
+    """Install the colour mode once the layers exist, and make it consistent.
+
+    Last rather than first because it needs the document: the planes have to be
+    on layers before the table can be applied to them, and a half-built indexed
+    document is exactly the state ``check_materialized`` exists to catch.
+
+    Two degradations are deliberate. A file whose block says indexed but which
+    carries **no table at all** stays RGB with a log line -- an indexed document
+    with nothing to index onto is not a document. A file whose block says
+    indexed but whose *planes* are RGBA (an old build re-saved it) has its
+    indices re-inferred, which is exactly the forward-compat cost this format
+    states: the picture is intact and the duplicate-slot identity is gone.
+
+    The table comes from the P-PNGs where they carry one, because ``tRNS`` holds
+    per-entry alpha and ``palette.gpl`` cannot. The ``.gpl`` is the fallback and
+    the interop projection, never the record.
+    """
+    if mode == "grayscale":
+        doc.color_mode = "grayscale"
+        # The writer records ``palette.gpl`` for a grayscale document too --
+        # the funnel's own rule is two ``if``s, not an ``elif``, because "a
+        # grayscale document with a palette gets both". Dropping the table
+        # here lost it permanently on the first save-open-save. ``snap=False``
+        # for the RGB branch's reason: the pixels were written snapped.
+        if palette:
+            doc.set_palette(palette, snap=False)
+        return
+    if mode != "indexed":
+        return
+    table = (reader.palette if reader is not None else None) or palette
+    if not table:
+        log.warning("a document declared indexed carries no colour table; opening as RGB")
+        return
+    doc.palette = [tuple(colour) for colour in table]
+    doc.color_mode = "indexed"
+    doc.transparent_index = transparent if 0 <= transparent < len(doc.palette) else 0
+    # The transparent slot's ``tRNS`` byte is *forced* to zero on the way out --
+    # it has to be, or the hole is not a hole to Krita, GIMP or a browser -- so
+    # reading it back literally would be reading back the writer's own
+    # requirement as though it were the user's data. Canonically opaque here, in
+    # the one place that knows which slot it is: the RGB (which Aseprite
+    # displays and a writer must put back) survives untouched, the alpha does
+    # not exist to survive, and save-open-save is a fixpoint.
+    hole = doc.transparent_index
+    entry = doc.palette[hole]
+    doc.palette[hole] = (entry[0], entry[1], entry[2], 255)
+    lut = doc._index_lut()
+    layers = doc.stack if doc.anim is None else doc.anim.unique_cel_layers()
+    for layer in layers:
+        if layer.indices is None:
+            layer.indices = ixp.resolve(layer.pixels, lut, doc.transparent_index)
+        doc._rematerialize(layer, lut, notify=False)
+    doc.invalidate_all()
+
+
+def _read_slices(zf: zipfile.ZipFile, anim: Animation | None) -> list:
+    """Rebuild ``doc.slices`` from ``realmspinner.json``, or answer with none.
+
+    All-or-nothing *within the member*, and never beyond it. A wrong version, a
+    payload that is not the shape it claims, or any single entry failing on its
+    own terms drops the whole member and the file opens as a drawing with no
+    slices on it -- which is what every ORA in the world already is. Half a
+    slice list is the outcome worth avoiding: a nine-slice panel missing its
+    centre still exports, silently, and stretches wrong in the game.
+
+    Keys are read by frame index and resolved against the grid. When there is no
+    grid -- either a still document or, more importantly, an
+    ``animation.json`` the reader has already rejected -- the keys are dropped
+    with a line in the log rather than guessed at: an index into a timeline that
+    was not restored names nothing.
+    """
+    from .slices import Slice, SliceKey
+
+    try:
+        raw = _read_sidecar(zf)
+    except KeyError:
+        return []
+    frames = [] if anim is None else anim.frames
+    dropped = 0
+    try:
+        payload = json.loads(raw)
+        if int(payload.get("version", 0)) != REALMSPINNER_VERSION:
+            raise ValueError(f"{REALMSPINNER_MEMBER} version {payload.get('version')!r}")
+        # The 2026-09-16 audit: "slices" (and a slice's own "keys") had no
+        # ceiling, unlike every sibling list this module already bounds -- a
+        # 770 KB file naming 300,000 slices built one ``Slice`` per entry
+        # with no refusal at all. Refused here, before either list is built,
+        # the same way an oversized "tracks"/"frames" refuses in
+        # ``_read_animation``.
+        raw_slices = payload.get("slices", [])
+        if len(raw_slices) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"{REALMSPINNER_MEMBER} names more than {MAX_ORA_METADATA_ENTRIES}"
+                " slices"
+            )
+        out = []
+        for entry in raw_slices:
+            bounds = _rect_of(entry, "bounds")
+            if bounds is None:
+                raise ValueError("a slice with no bounds")
+            pivot = entry.get("pivot")
+            keys: dict[int, SliceKey] = {}
+            raw_keys = entry.get("keys", [])
+            if len(raw_keys) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"a slice names more than {MAX_ORA_METADATA_ENTRIES} keys"
+                )
+            for record in raw_keys:
+                index = int(record["frame"])
+                if not 0 <= index < len(frames):
+                    dropped += 1
+                    continue
+                key_bounds = _rect_of(record, "bounds")
+                if key_bounds is None:
+                    raise ValueError("a slice key with no bounds")
+                key_pivot = record.get("pivot")
+                keys[frames[index].uid] = SliceKey(
+                    bounds=key_bounds,
+                    pivot=(
+                        None
+                        if key_pivot is None
+                        else (float(key_pivot["x"]), float(key_pivot["y"]))
+                    ),
+                    center=_rect_of(record, "center"),
+                )
+            out.append(
+                Slice(
+                    name=str(entry.get("name") or f"Slice {len(out) + 1}"),
+                    bounds=bounds,
+                    pivot=(
+                        None if pivot is None else (float(pivot["x"]), float(pivot["y"]))
+                    ),
+                    center=_rect_of(entry, "center"),
+                    keys=keys,
+                )
+            )
+    except (AttributeError, KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        # ``AttributeError`` as well as the four ``_read_animation`` catches:
+        # a ``"slices"`` that is a *string* iterates into characters, and the
+        # first ``.get`` on one is the shape check this member would otherwise
+        # be missing.
+        log.warning("ignoring %s in %s: %s", REALMSPINNER_MEMBER, getattr(zf, "filename", "?"), exc)
+        return []
+    if dropped:
+        log.warning(
+            "dropped %d slice key(s) in %s: no such frame",
+            dropped,
+            getattr(zf, "filename", "?"),
+        )
+    return out
+
+
+def _install_groups(doc, tree: tuple[dict, dict], parents: dict[int, int]) -> None:
+    """Put a read tree onto the document, dropping whatever is now empty.
+
+    A group whose layers were all skipped -- a missing ``src``, a PNG the
+    archive does not hold -- must not survive as an empty folder, and neither
+    must its ancestors. Pruning here rather than refusing the file is the whole
+    of this reader's bargain: a file that opens slightly wrong is a file the
+    user still has.
+    """
+    from . import groups as gp
+
+    nodes, nesting = tree
+    if not nodes:
+        return
+    doc.groups = dict(nodes)
+    doc.group_of = {**nesting, **parents}
+    order = doc.member_uids()
+    for guid in list(doc.groups):
+        if not gp.leaves_of(doc.group_of, order, guid):
+            doc._drop_group(guid)
+    doc.invalidate_all()
+
+
+def _read_tiles(zf: zipfile.ZipFile, doc, anim: Animation | None) -> None:
+    """Rebuild ``doc.tilesets`` and swap the cels ``tiles.json`` names into
+    :class:`~.tiles.TilemapCel`, or leave the document exactly as the grid or
+    flat read already built it.
+
+    Read after the document and its stack exist -- a still document's layers
+    are already at their final positions and an animated one's cels are
+    already the objects ``anim.cels`` and ``doc.stack`` share, so a name in
+    ``tiles.json`` resolves straight onto them. Its own guard, outside every
+    other member's, for ``_read_slices``'s reason one level further: tile
+    *structure* is metadata about a picture that is already fully and
+    honestly on the canvas -- every tilemap cel's own PNG decoded RGBA,
+    complete -- so a wrong version or any single entry failing on its own
+    terms drops the whole member and costs the structure alone. Nothing is
+    written onto ``doc`` until every entry in the member has validated cleanly
+    **and every replacement cel has been rebuilt from its own refs**, so a
+    failure partway through leaves the document exactly as it already was,
+    never half-swapped. Validating covers the refs grid against this canvas,
+    not merely against the blob's own length: ``materialize`` is tolerant by
+    design, so an undersized grid would otherwise be accepted and quietly
+    blank whatever it did not cover.
+
+    On success every named cel is replaced **in place**: the same uid, and
+    the same *object* wherever it is linked, which is what lets a linked cel
+    stay linked. Trusting the file's own pixels would let stale ones survive
+    a hand-edited archive, so every replaced cel is re-materialized from its
+    own refs afterwards -- refs are authoritative once this runs, the
+    funnel's own invariant restated for the one path that does not go through
+    it.
+    """
+    try:
+        raw = zf.read(TILES_MEMBER)
+    except KeyError:
+        return
+    try:
+        payload = json.loads(raw)
+        if int(payload.get("version", 0)) != TILES_VERSION:
+            raise ValueError(f"{TILES_MEMBER} version {payload.get('version')!r}")
+
+        # 2026-09-11 audit, finding inker-03: ``pixelguard`` bounds one
+        # tileset PNG's own size and nothing bounded the *sum* across every
+        # entry this list names -- unlike the flat layer reader, which never
+        # decodes past its own ``_layer_budget``. A 1,134-byte archive naming
+        # the same 512x512 PNG 500 times cost 502.6 MiB and 1.28s, one
+        # independent decode per entry. The count is refused up front, cheaply
+        # and before any decode, the same hard-number half of
+        # ``MAX_ORA_LAYERS``'s own reasoning; the running pixel total below is
+        # the other half, so a handful of maximal tilesets cannot pass the
+        # count check and still exhaust memory the way the layer path's own
+        # ``_layer_budget`` would refuse them.
+        if len(payload["tilesets"]) > MAX_ORA_LAYERS:
+            raise ValueError(
+                f"{TILES_MEMBER} names more than the {MAX_ORA_LAYERS} tilesets"
+                " this build will open"
+            )
+        slots: list[TilesetSlot] = []
+        tileset_pixels = 0
+        for entry in payload["tilesets"]:
+            with pixelguard.opened(
+                io.BytesIO(zf.read(entry["data"])), "a tileset in this drawing"
+            ) as im:
+                im.load()
+                pixels = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
+            tileset_pixels += pixels.shape[0] * pixels.shape[1]
+            if tileset_pixels > pixelguard.MAX_DECODE_PIXELS:
+                raise ValueError(
+                    f"{TILES_MEMBER} tilesets hold more than the "
+                    f"{pixelguard.MAX_DECODE_PIXELS} pixels this build will open"
+                )
+            tileset = Tileset(
+                name=str(entry.get("name") or "tiles"),
+                pixels=pixels,
+                tile_w=int(entry["tile_w"]),
+                tile_h=int(entry["tile_h"]),
+            )
+            slots.append(TilesetSlot(tileset=tileset))
+
+        track_binds: list[tuple[int, int]] = []
+        # 2026-09-19 audit, finding inker-06: this list had no ceiling
+        # either, unlike "tilesets" above (the 2026-09-11 audit's own gap in
+        # this member) -- a binding is as cheap as a metadata entry
+        # elsewhere in this module, so it reuses that ceiling rather than
+        # ``MAX_ORA_LAYERS``.
+        raw_tracks = payload.get("tracks", [])
+        if len(raw_tracks) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"{TILES_MEMBER} names more than {MAX_ORA_METADATA_ENTRIES}"
+                " track bindings"
+            )
+        for entry in raw_tracks:
+            ti, si = int(entry["track"]), int(entry["tileset"])
+            if anim is None or not (0 <= ti < len(anim.tracks) and 0 <= si < len(slots)):
+                raise ValueError(f"{TILES_MEMBER} track {ti} names tileset {si}")
+            track_binds.append((ti, si))
+
+        def _new_cel(layer: Layer, entry: dict) -> TilemapCel:
+            si = int(entry["tileset"])
+            if not 0 <= si < len(slots):
+                raise ValueError(f"{TILES_MEMBER} cel names tileset {si}")
+            grid_h, grid_w = int(entry["grid_h"]), int(entry["grid_w"])
+            blob = zf.read(entry["refs"])
+            expected = grid_h * grid_w * 4
+            if len(blob) != expected:
+                raise ValueError(
+                    f"{entry['refs']} is {len(blob)} bytes, expected {expected}"
+                )
+            refs = np.frombuffer(blob, dtype="<u4").reshape(grid_h, grid_w).astype(gid.DTYPE)
+            ts = slots[si].tileset
+            # **The grid the canvas has, not merely a grid the blob fits.**
+            # The byte-length check above only proves the file is
+            # self-consistent, and ``materialize`` is deliberately tolerant --
+            # it breaks out past the canvas edge and clamps unknown ids -- so a
+            # refs grid smaller than the canvas was accepted, silently blanked
+            # the uncovered remainder, and discarded the decoded PNG that had
+            # been holding those pixels honestly.
+            wanted = grid_shape(doc.size, ts.tile_w, ts.tile_h)
+            if (grid_h, grid_w) != wanted:
+                raise ValueError(
+                    f"{entry['refs']} is a {grid_h}x{grid_w} grid; this "
+                    f"{doc.size[0]}x{doc.size[1]} canvas at {ts.tile_w}x{ts.tile_h} "
+                    f"tiles is {wanted[0]}x{wanted[1]}"
+                )
+            if ts.tile_w != ts.tile_h and (refs & gid.DTYPE(gid.FLIP_D)).any():
+                # The refs door's own mask (``_doc_tiles._strip_diagonal``),
+                # applied to what a file carries: a diagonal flip of a
+                # non-square tile has the wrong footprint, and a commit over
+                # one reads neighbour pixels back into the atlas. A file from
+                # before the door was sealed degrades to the unturned
+                # placement, the member's own log-and-keep contract.
+                log.warning(
+                    "dropping diagonal flips on a %dx%d tileset in %s",
+                    ts.tile_w,
+                    ts.tile_h,
+                    getattr(zf, "filename", "?"),
+                )
+                refs = refs & gid.DTYPE(0xFFFFFFFF ^ gid.FLIP_D)
+            return TilemapCel(
+                pixels=layer.pixels,
+                name=layer.name,
+                opacity=layer.opacity,
+                visible=layer.visible,
+                blend=layer.blend,
+                alpha_lock=layer.alpha_lock,
+                locked=layer.locked,
+                indices=layer.indices,
+                uid=layer.uid,
+                refs=refs,
+                tileset_uid=slots[si].uid,
+            )
+
+        # 2026-09-19 audit, finding inker-06: "cels" entries are not
+        # deduplicated, and each one runs ``_new_cel`` below -- a full
+        # canvas-sized ``materialize``, the same per-entry cost "tilesets"
+        # above is capped for -- so this reuses ``MAX_ORA_LAYERS`` rather
+        # than the cheaper metadata ceiling.
+        raw_cels = payload.get("cels", [])
+        if len(raw_cels) > MAX_ORA_LAYERS:
+            raise ValueError(
+                f"{TILES_MEMBER} names more than the {MAX_ORA_LAYERS} cels"
+                " this build will open"
+            )
+        replacements: dict[int, TilemapCel] = {}
+        if anim is not None:
+            # ``_cel_names`` recomputed, not passed in: it is a pure function
+            # of ``anim.unique_cel_layers()``, which walks in frame-then-track
+            # order -- the same deterministic walk that named this exact cel
+            # when the file was written, so the names agree without anything
+            # having to be threaded through the read path to prove it.
+            names = _cel_names(anim)
+            by_name: dict[str, Layer] = {}
+            for cel_layer in anim.unique_cel_layers():
+                by_name[names[id(cel_layer)]] = cel_layer
+            for entry in raw_cels:
+                layer = by_name.get(entry.get("cel"))
+                if layer is None:
+                    raise ValueError(
+                        f"{TILES_MEMBER} cel names an unknown layer: {entry.get('cel')!r}"
+                    )
+                replacements[id(layer)] = _new_cel(layer, entry)
+        else:
+            stack_layers = list(doc.stack)
+            for entry in raw_cels:
+                li = int(entry["layer"])
+                if not 0 <= li < len(stack_layers):
+                    raise ValueError(f"{TILES_MEMBER} cel names layer {li}")
+                layer = stack_layers[li]
+                replacements[id(layer)] = _new_cel(layer, entry)
+        # **Materialized here, inside the guard, before anything is swapped
+        # in.** The cels in ``replacements`` are still standalone objects at
+        # this point, so a failure in this loop -- a ``MemoryError`` on a large
+        # canvas is the reachable one -- costs the member and nothing else.
+        # Run after the swap, as it was, it left the document holding tilemap
+        # cels whose pixels had never been rebuilt, with the decoded PNG that
+        # had been standing in for them already dropped.
+        by_uid = {slot.uid: slot for slot in slots}
+        for new_cel in replacements.values():
+            slot = by_uid[new_cel.tileset_uid]
+            new_cel.pixels = materialize(new_cel.refs, slot.tileset, new_cel.size)
+    except (
+        AttributeError,
+        KeyError,
+        ValueError,
+        TypeError,
+        MemoryError,
+        OSError,
+        json.JSONDecodeError,
+    ) as exc:
+        # ``OSError`` beyond ``_read_colour``'s verbatim five, for
+        # ``_read_animation``'s reason: this member's entries name embedded
+        # images, and Pillow's ``UnidentifiedImageError`` on a strip member
+        # holding non-image bytes is an ``OSError``.
+        log.warning("ignoring %s in %s: %s", TILES_MEMBER, getattr(zf, "filename", "?"), exc)
+        return
+
+    # Everything above is read-only against ``doc`` -- what follows is pure
+    # assignment, safe now that every entry has validated *and* every
+    # replacement cel has been rebuilt. ``MemoryError`` joins the caught five
+    # for that reason: the rebuild is this member's one genuinely large
+    # allocation, and it is now inside the guard rather than after it.
+    doc.tilesets.extend(slots)
+    if anim is not None:
+        for ti, si in track_binds:
+            anim.tracks[ti].tileset_uid = slots[si].uid
+        # Every slot a linked cel occupies is re-registered, not just one --
+        # ``id(cel)`` is the same key for all of them, so this is what keeps a
+        # link a link rather than unlinking it into one real cel and one stale
+        # copy.
+        for key, cel in list(anim.cels.items()):
+            new = replacements.get(id(cel))
+            if new is not None:
+                anim.cels[key] = new
+    for i, layer in enumerate(doc.stack.layers):
+        new = replacements.get(id(layer))
+        if new is not None:
+            doc.stack.layers[i] = new
+    doc.invalidate_all()
+
+
+def _parse_stack(data: bytes):
+    """``stack.xml``, through the shared XML door.
+
+    This used to be a second copy of ``plotter/tsx.py``'s four-line substring
+    probe, written twice deliberately because this package imports nothing from
+    ``plotter`` and the alternative was a new shared leaf for four lines. The
+    leaf exists now (:mod:`..xmlguard`) because the probe was wrong in both
+    copies: a UTF-16 document encodes the declaration as ``<\\x00!\\x00D...``,
+    and five thousand bytes of legal prolog comment put it past byte 4096.
+    Both were reproduced by direct execution. The refusal is on the parser's
+    own DOCTYPE event now, which sees the declaration whatever it is spelled
+    in, and the same door caps nesting depth -- a value this reader could not
+    have checked afterwards, because the walkers that would trip over it run on
+    the frame thread once a document is open.
+    """
+    return xmlguard.fromstring(data, "this drawing's stack.xml")
+
+
+def read_ora(path: Path, *, budget: int | None = None):
+    from .document import Document
+    from .undo import UNDO_BYTES, UndoStack
+
+    with zipguard.BoundedZip(path) as zf:
+        # Before the first read, which is the only place the refusal is cheap:
+        # the directory says what every member unpacks to, and a read that
+        # discovers the archive lied has already spent the memory. The
+        # ``rpack``/``rmap``/``rblk`` door, fourth instance.
+        claimed = sum(int(info.file_size) for info in zf.infolist())
+        ceiling = MAX_DECOMPRESSED_BYTES
+        if claimed > ceiling:
+            raise ValueError(
+                f"this drawing claims {claimed} bytes unpacked, "
+                f"which is past the {ceiling}-byte ceiling"
+            )
+        root = _parse_stack(zf.read("stack.xml"))
+        # Checked here, where the numbers arrive, because nothing downstream
+        # ever asks: ``_read_animation``, ``_place``/``resize_canvas`` and
+        # ``Layer.empty`` all take this size as given and allocate from it, so
+        # ``w="200000" h="200000"`` in a 2 KB archive is a 160 GB request that
+        # the directory ceiling four lines up cannot see -- the archive is
+        # honest about every byte it holds, and one 1x1 PNG is all it needs.
+        width = int(root.get("w") or 0)
+        height = int(root.get("h") or 0)
+        pixelguard.check(width, height, "this drawing's canvas")
+        # Carried, not used -- see ``Document.dpi``. Both axes or neither: a
+        # file that states one and not the other is stating nothing usable, and
+        # inventing the missing half would be inventing a canvas shape.
+        found_dpi = _read_resolution(root)
+
+        # JSON first, and only when the XML told us how big the canvas is: the
+        # grid's cels are decoded against that size, and guessing it from the
+        # first PNG would be guessing for every later one too.
+        palette = _read_palette(zf)
+        # Before any plane decodes, because it decides how they are read.
+        mode, transparent = _read_colour(zf)
+        reader = _IndexReader((width, height)) if mode == "indexed" else None
+        got = _read_animation(zf, (width, height), reader) if width and height else None
+        anim, grid_payload = got if got is not None else (None, None)
+        # After the grid, and outside its guard: the keys are stored by frame
+        # index, so they can only be resolved against the timeline that was
+        # actually restored -- and a grid that fell back to the flat read has no
+        # timeline to resolve them against.
+        found_slices = _read_slices(zf, anim)
+        if anim is not None:
+            stack = LayerStack(
+                anim.layers_for(anim.frames[0], (width, height)),
+                len(anim.tracks) - 1,
+            )
+            doc = Document(
+                stack=stack,
+                history=UndoStack(UNDO_BYTES if budget is None else budget),
+                anim=anim,
+                slices=found_slices,
+            )
+            _read_groups(doc, grid_payload)
+            _read_flourish_assets(doc, zf)
+            _read_sheet_base(doc, grid_payload)
+            _read_matte(doc, root)
+            doc.file_format = "ora"
+            doc.dpi = found_dpi
+            doc.path = Path(path)
+            # ``snap=False``: the pixels in the file were written snapped, so
+            # re-snapping them would cost a whole-document rewrite on every
+            # open and push an undo step for opening a file.
+            if mode == "rgb":
+                doc.set_palette(palette, snap=False)
+            else:
+                _finish_colour(doc, mode, transparent, reader, palette)
+            # Last: tile structure is metadata about a picture that is
+            # already fully and correctly built above it.
+            _read_tiles(zf, doc, anim)
+            return doc
+
+        layers: list[Layer] = []
+        planes_data: list[bytes] = []
+        tree: tuple[dict, dict] = ({}, {})
+        parents: dict[int, int] = {}
+        # From the document's own root ``<stack>``, not from ``<image>``: the
+        # outer stack is the document, and reading it as a group would wrap
+        # every file this reader opens in one folder called "Group 1".
+        outer = root.find("stack")
+        top = root if outer is None else outer
+        # Reaching here with frame groups present means the animated read fell
+        # back: no grid, and the nested stacks are frames rather than folders.
+        collect = None if has_frame_groups(top) else tree
+        for element, parent in _layer_elements(top, collect):
+            src = element.get("src")
+            if not src:
+                continue
+            try:
+                data = zf.read(src)
+            except KeyError:
+                continue
+            try:
+                with pixelguard.opened(io.BytesIO(data), "a layer in this drawing") as im:
+                    im.load()
+                    pixels = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
+            except OSError as exc:
+                # A member that is not an image (Pillow's
+                # ``UnidentifiedImageError`` is an ``OSError``) costs that one
+                # layer, exactly as a missing member does one branch up --
+                # the degradation contract every optional member here follows.
+                log.warning("skipping undecodable %s in %s: %s", src, path, exc)
+                continue
+            planes_data.append(data)
+            if not width or not height:
+                width, height = pixels.shape[1], pixels.shape[0]
+            # Counted here rather than before the decode: until the first PNG
+            # lands a headerless ``stack.xml`` has not said how big the canvas
+            # is, and the budget is a budget *in canvases*. One layer past the
+            # bound is the refusal, so the allocation the next ``_place`` would
+            # make never happens.
+            allowed = _layer_budget(width, height)
+            if len(layers) >= allowed:
+                raise ValueError(
+                    f"this drawing holds more than the {allowed} layers of "
+                    f"{width}x{height} this build will open"
+                )
+            offset = (int(element.get("x") or 0), int(element.get("y") or 0))
+            if offset != (0, 0) or (pixels.shape[1], pixels.shape[0]) != (width, height):
+                pixels = _place(pixels, (width, height), offset)
+            layers.append(
+                Layer(
+                    pixels=pixels,
+                    name=element.get("name") or f"Layer {len(layers) + 1}",
+                    opacity=float(element.get("opacity") or 1.0),
+                    visible=element.get("visibility", "visible") != "hidden",
+                    blend=cp.OPS_ORA.get(element.get("composite-op", ""), "normal"),
+                    alpha_lock=element.get(LOCK_ATTR) == "1",
+                    # A foreign file carries neither attribute, so every layer
+                    # in it opens unlocked -- which is the answer a Krita or
+                    # GIMP document should give, since neither writes ours.
+                    locked=element.get(CONTENT_LOCK_ATTR) == "1",
+                    background=element.get(BACKGROUND_ATTR) == "1",
+                    reference=element.get(REFERENCE_ATTR) == "1",
+                )
+            )
+            if parent is not None:
+                # Recorded against the layer's uid only once the layer exists,
+                # which is what keeps a group whose PNGs are all missing from
+                # coming back as an empty one.
+                parents[layers[-1].uid] = parent
+
+        # Inside the same ``with`` as the animated branch above, rather than
+        # closing it first, ``tiles.json`` needs it -- widened deliberately so
+        # a still document reading it stays on the same footing as an
+        # animated one.
+        if not layers:
+            layers = [Layer.empty(max(1, width), max(1, height), "Background")]
+        layers.reverse()  # file order is top-first; ours is bottom-first
+        doc = Document(
+            stack=LayerStack(layers, len(layers) - 1),
+            history=UndoStack(UNDO_BYTES if budget is None else budget),
+            slices=found_slices,
+        )
+        _install_groups(doc, tree, parents)
+        _read_matte(doc, root)
+        doc.file_format = "ora"
+        doc.dpi = found_dpi
+        doc.path = Path(path)
+        if mode == "rgb":
+            doc.set_palette(palette, snap=False)
+        else:
+            if reader is not None:
+                # Paired after the reverse, not inside the loop: the flat path
+                # reverses its list before building the stack, so attaching in
+                # file order would put every plane on the wrong layer.
+                for layer, data in zip(reversed(layers), planes_data, strict=False):
+                    reader.attach(layer, data)
+            _finish_colour(doc, mode, transparent, reader, palette)
+        _read_tiles(zf, doc, None)
+        return doc

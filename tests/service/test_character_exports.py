@@ -21,15 +21,15 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from warlock import clips
-from warlock.kernels import charsheet
-from warlock.kernels import sheet as sheetlib
-from warlock.kernels.geom3d import glbio
-from warlock.kernels.rig import store
-from warlock.service import characters as svc_characters
-from warlock.service import derive as svc_derive
-from warlock.service import export as svc_export
-from warlock.service.errors import Invalid, NotReady
+from realmspinner import clips
+from realmspinner.kernels import charsheet
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.kernels.geom3d import glbio
+from realmspinner.kernels.rig import store
+from realmspinner.service import characters as svc_characters
+from realmspinner.service import derive as svc_derive
+from realmspinner.service import export as svc_export
+from realmspinner.service.errors import Invalid, NotReady
 
 # --- fixtures: a rendered character sheet, built the way ``_q_troupe`` does --
 
@@ -448,7 +448,7 @@ def _fake_glb(
     gltf = {
         "asset": {"version": "2.0"},
         "animations": [{"name": name} for name in animation_names],
-        "extras": {"warlock_animation": stamp},
+        "extras": {"realmspinner_animation": stamp},
     }
     return glbio.rebuild_glb(header, gltf, b"")
 
@@ -460,7 +460,7 @@ def _rigged_and_animated(
     # the rig's -- so ``derive.get_file`` serves this file instead of trying to
     # rebake it from the fake ``rig.glb`` (a stamp missing ``rig_digest`` reads
     # as a bake from before a re-rig and is rebuilt).
-    from warlock.service import derive as svc_derive
+    from realmspinner.service import derive as svc_derive
 
     job_id = _new_job(svc, name=name)
     job_dir = svc.job_dir(job_id)

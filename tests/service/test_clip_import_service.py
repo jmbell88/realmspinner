@@ -31,13 +31,13 @@ from test_cliptransfer import (
     _rest_frame_bones,
 )
 
-from warlock import clips as pure_clips
-from warlock import cliptransfer, doctor, poselib
-from warlock.doctor import Check
-from warlock.kernels.rig import cliplib
-from warlock.pipelines import blender_run
-from warlock.service import Conflict, Failed, Invalid, clip_import
-from warlock.service import clips as svc_clips
+from realmspinner import clips as pure_clips
+from realmspinner import cliptransfer, doctor, poselib
+from realmspinner.doctor import Check
+from realmspinner.kernels.rig import cliplib
+from realmspinner.pipelines import blender_run
+from realmspinner.service import Conflict, Failed, Invalid, clip_import
+from realmspinner.service import clips as svc_clips
 
 TEMPLATE = "humanoid"
 

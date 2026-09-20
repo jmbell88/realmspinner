@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import contextlib
 
-from warlock.studio import probe
+from realmspinner.studio import probe
 
 
 @contextlib.contextmanager
@@ -47,7 +47,7 @@ def imgui_context(monkeypatch):
     """An imgui context with the control census on, torn down after."""
     from imgui_bundle import imgui
 
-    from warlock.studio import theme
+    from realmspinner.studio import theme
 
     previous = imgui.get_current_context()
     ctx = imgui.create_context()

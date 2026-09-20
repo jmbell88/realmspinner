@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.grid2d import gid
-from warlock.kernels.pixel import tiles
-from warlock.kernels.pixel.tiles import materialize, oriented, strip
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.pixel import tiles
+from realmspinner.kernels.pixel.tiles import materialize, oriented, strip
 
 RED = (255, 0, 0, 255)
 GREEN = (0, 255, 0, 255)

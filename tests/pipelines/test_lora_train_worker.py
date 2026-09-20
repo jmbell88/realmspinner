@@ -12,7 +12,7 @@ from __future__ import annotations
 import io
 import json
 
-from warlock.pipelines import lora_train_worker as worker
+from realmspinner.pipelines import lora_train_worker as worker
 
 
 def _spec(tmp_path) -> dict:

@@ -1,0 +1,1250 @@
+"""Artifact naming, gating and the two image paths in and out of a job dir."""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import os
+import secrets
+import time
+from pathlib import Path
+from typing import Any
+
+from .errors import Conflict, Invalid, NotFound, TooLarge
+from .validation import (
+    MAX_IMAGE_PIXELS,
+    MAX_THUMB_BYTES,
+    MAX_UPLOAD_BYTES,
+    check_job_id,
+    not_done_message,
+)
+
+log = logging.getLogger(__name__)
+
+# The complete artifact allowlist. It is also the export allowlist: the point
+# is that a caller-supplied name never becomes a path component without
+# passing through this dict first.
+MEDIA = {
+    "model.glb": "model/gltf-binary",
+    # The one artifact a music job produces. No source/derived pair, because
+    # unlike source.glb/model.glb there is no second, differently-useful version
+    # of what the model made -- the same reason a reference job has only
+    # input.png.
+    "track.wav": "audio/wav",
+    # The compressed and lossless re-encodings of it, derived on first request
+    # exactly the way the mesh exports derive from model.glb -- so every take
+    # already on disk gains them. ``pipelines/audioout`` is the whole
+    # implementation and libsndfile is the whole dependency.
+    "track.flac": "audio/flac",
+    "track.mp3": "audio/mpeg",
+    "track.ogg": "audio/ogg",
+    "track.aiff": "audio/aiff",
+    # The four stems, as *literal* keys rather than a ``stems/{name}.wav``
+    # pattern -- the reason the pixel sizes are literals. MEDIA is the allowlist
+    # that keeps a caller-supplied string off the filesystem, and a pattern is
+    # a hole in exactly that. ``SeparationModel.sources`` is the same four names
+    # from the other side; ``tests/test_separation.py`` asserts they agree.
+    "stems/drums.wav": "audio/wav",
+    "stems/bass.wav": "audio/wav",
+    "stems/other.wav": "audio/wav",
+    "stems/vocals.wav": "audio/wav",
+    # The trellis response model.glb is derived from, kept downloadable so a
+    # user can take the full-density reconstruction if they want it.
+    "source.glb": "model/gltf-binary",
+    "input.png": "image/png",
+    # The three conditioning images, which together answer "why does the mesh
+    # look like that": what the user supplied, what trellis was actually
+    # handed, and what the ControlNet actually saw.
+    "ref.png": "image/png",
+    "reference.png": "image/png",
+    "control.png": "image/png",
+    "model.stl": "model/stl",
+    "model_obj.zip": "application/zip",
+    "collision.glb": "model/gltf-binary",
+    "model.fbx": "application/octet-stream",
+    "textures.zip": "application/zip",
+    "rig.glb": "model/gltf-binary",
+    # The rig with every authored clip baked on as a named glTF animation.
+    # Derived from rig.glb rather than model.glb -- see ``DERIVED_RIG`` -- and
+    # the only artifact in this table that carries motion.
+    "animated.glb": "model/gltf-binary",
+    # The deformation battery rendered against the rig: the poses a rig is
+    # reviewed in, one atlas, written by the rig job into the mesh's own
+    # directory the way rig.glb is. Its sidecar is deliberately not here --
+    # nothing outside the app reads it, and MEDIA is an export allowlist.
+    "rig_qa.png": "image/png",
+    "thumb.png": "image/png",
+    # The 2D exports. Derived from input.png on a finished reference exactly
+    # the way the mesh exports derive from model.glb -- so every reference
+    # already on disk gains them, which is the whole reason they are derived
+    # rather than produced by a second kind of job.
+    #
+    # Each pixel size is its own literal name because MEDIA is the allowlist
+    # that keeps a caller-supplied string off the filesystem: a pixel_{n}.png
+    # pattern would put the number back in the caller's hands.
+    "icon.png": "image/png",
+    "sprite.png": "image/png",
+    "pixel_32.png": "image/png",
+    "pixel_64.png": "image/png",
+    "pixel_128.png": "image/png",
+    # A tile's own export, and the only one the cutouts are replaced by: the
+    # texture rolled by half in both axes, so what was the wrap seam runs
+    # through the middle of the frame where a discontinuity is visible.
+    "wrap_preview.png": "image/png",
+    # The material set derived from a tile: height, tangent-space normal and
+    # roughness, plus a zip of all four images with a glTF material fragment.
+    # Each name is a literal for the reason the pixel sizes are -- MEDIA is the
+    # allowlist that keeps a caller-supplied string off the filesystem.
+    "material_height.png": "image/png",
+    "material_normal.png": "image/png",
+    "material_roughness.png": "image/png",
+    "material.zip": "application/zip",
+    "manifest.json": "application/json",
+    # The web re-encodings of input.png itself -- WebP and JPEG, mirroring
+    # ``track.flac``/``track.mp3``/``track.ogg`` from ``pipelines/audioout``
+    # exactly, but for the reference or tile's own picture rather than the
+    # cutouts made from it. Literal names for the allowlist's own reason:
+    # sharing input.png's basename says what they are re-encodings *of*
+    # without opening a ``{name}.{ext}`` pattern a caller could point anywhere.
+    "input.webp": "image/webp",
+    "input.jpg": "image/jpeg",
+    # The traceback errors.write_error_log already writes per job. The DB only
+    # ever holds the one-line friendly sentence, so without this the actual
+    # failure is on disk and unreachable from the UI.
+    "error.log": "text/plain; charset=utf-8",
+}
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+# An ORA is a zip; "PK\x03\x04" is as far as a magic-byte check can go, and the
+# ``mimetype`` entry inside is what actually identifies one.
+ORA_MAGIC = b"PK\x03\x04"
+
+# A layered document is legitimately several times the flat image it exports:
+# ten layers of a 20 MB reference is not a mistake. Still bounded, because this
+# is the one path that writes an arbitrary-sized blob into a job directory.
+MAX_INKER_BYTES = 20 * MAX_UPLOAD_BYTES
+
+
+class ImageTooLarge(ValueError):
+    """The upload decodes to more pixels than the pipeline will accept."""
+
+
+def _staged_write(dest, data, *, text: bool = False) -> None:
+    """Write ``data`` onto ``dest`` through a unique dot-prefixed temp sibling.
+
+    The shape ``_save_source`` documents as the fix, applied at the sites that
+    still had the old one (SVC-01). Two things were wrong with
+    ``dest.with_suffix(".png.tmp")``:
+
+    * **Not dot-prefixed, and never cleaned up.** An ENOSPC or a
+      ``PermissionError`` between the write and the rename stranded a visible
+      ``model.png.tmp`` -- up to ~22 MB -- in the user's job directory forever,
+      with nothing that would ever remove it.
+    * **A fixed name.** ``save_edited_image``'s temp is the same string for
+      every caller, so two concurrent saves of one job wrote into one file and
+      could rename a torn result onto the served ``input.png``.
+
+    A token in the name fixes the second; the ``finally`` fixes the first.
+    """
+    tmp = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        if text:
+            tmp.write_text(data, encoding="utf-8")
+        else:
+            tmp.write_bytes(data)
+        os.replace(tmp, dest)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+
+
+def to_png(data: bytes) -> bytes:
+    """Re-encode any uploaded image as PNG; trellis.cpp only decodes PNG/JPEG.
+
+    Alpha is preserved only when the source already had it, so a pre-matted
+    upload (RGBA/LA/PA, or a palette image with a transparency entry) keeps
+    its alpha for the server's bg-removal auto-detection, without forcing an
+    opaque photo through the same path.
+    """
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(data)) as im:
+        # Checked from the header, before any pixel is decoded: a flat 20 MP
+        # PNG is a few hundred KB on disk and hundreds of MB decoded, and
+        # PIL's own bomb guard doesn't bite until ~178 MP.
+        if im.width * im.height > MAX_IMAGE_PIXELS:
+            raise ImageTooLarge(
+                f"image is {im.width}x{im.height}; the limit is {MAX_IMAGE_PIXELS:,} pixels"
+            )
+        has_alpha = im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info
+        out = io.BytesIO()
+        im.convert("RGBA" if has_alpha else "RGB").save(out, "PNG")
+        return out.getvalue()
+
+
+def save_thumbnail(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
+    """Store a rendered preview of the mesh beside its job.
+
+    Rendered by the viewer rather than by a pipeline: the viewport already has
+    the model loaded and framed when the user first opens it, so the snapshot
+    is free -- while a Blender render would need a place on the serial GPU
+    queue for something purely cosmetic.
+
+    The magic-byte check is the whole validation: this is written under a fixed
+    filename inside a job directory that already exists, so the only thing
+    worth refusing is a body that is not the image it claims to be.
+    """
+    check_job_id(job_id)
+    if svc.store.get(job_id) is None:
+        raise NotFound("no such job")
+    if len(data) > MAX_THUMB_BYTES:
+        raise TooLarge("thumbnail too large")
+    if not data.startswith(PNG_MAGIC):
+        raise Invalid("thumbnail must be a PNG")
+    job_dir = svc.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    # Staged, like every other write onto a served name here: thumb.png is read
+    # by the library grid on the frame thread while the viewer is saving it, so
+    # a direct write_bytes is a torn PNG in the one place a decode failure is
+    # most visible. The re-save case is the real one -- the file already exists
+    # and is already being shown when the second snapshot lands on it.
+    dest = job_dir / "thumb.png"
+    _staged_write(dest, data)
+    return {"ok": True}
+
+
+# The untouched generated image, kept the first time a hand edit overwrites
+# input.png. Deliberately absent from MEDIA and LISTED: it is an internal
+# backup, never listed and never downloadable, and it goes away with the job
+# directory for free.
+ORIGINAL = "input.orig.png"
+
+# The layered working file behind a hand-edited reference. Absent from MEDIA and
+# LISTED for the same reason ORIGINAL is: it is internal working state, never
+# served and never downloadable, and it goes away with the job directory for
+# free. input.png stays the one name every consumer reads -- this only exists so
+# that reopening an edited reference brings its layers back instead of a
+# flattened image.
+#
+# The filename keeps its pre-rename spelling on purpose: it is a compatibility
+# contract with every asset directory already on disk, and the mtime-staleness
+# rule below only works while there is exactly one name to compare against.
+INKER_WORKING = "paint.ora"
+
+
+def inker_working_path(svc: Any, job_id: str) -> Path:
+    check_job_id(job_id)
+    return svc.job_dir(job_id) / INKER_WORKING
+
+
+def inker_working_status(svc: Any, job_id: str) -> dict[str, Any]:
+    """Whether a layered working file exists and is newer than input.png.
+
+    The mtime comparison is the whole rule. A revert, a regenerate or a remesh
+    rewrites input.png without touching paint.ora, which would otherwise
+    resurrect the layers of an image that is no longer there -- so an older
+    working file is treated as stale rather than as the truth.
+    """
+    check_job_id(job_id)
+    job_dir = svc.job_dir(job_id)
+    working = job_dir / INKER_WORKING
+    flat = job_dir / "input.png"
+    if not working.exists():
+        return {"exists": False, "fresh": False}
+    try:
+        fresh = not flat.exists() or working.stat().st_mtime >= flat.stat().st_mtime
+    except OSError:
+        fresh = False
+    return {"exists": True, "fresh": bool(fresh)}
+
+
+def save_inker_working(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
+    """Store the layered source beside the reference it flattens to."""
+    _editable_image(svc, job_id)
+    if len(data) > MAX_INKER_BYTES:
+        raise TooLarge("layered document too large")
+    if not data.startswith(ORA_MAGIC):
+        raise Invalid("the layered source must be an OpenRaster file")
+    dest = svc.job_dir(job_id) / INKER_WORKING
+    _staged_write(dest, data)
+    return {"ok": True}
+
+
+def discard_inker_working(svc: Any, job_id: str) -> None:
+    """Drop the layers. Called when a revert makes them describe pixels that
+    are no longer the reference."""
+    check_job_id(job_id)
+    with contextlib.suppress(OSError):
+        (svc.job_dir(job_id) / INKER_WORKING).unlink(missing_ok=True)
+
+
+# The authored Clay document behind a built asset, following the paint.ora
+# precedent exactly: absent from MEDIA and LISTED, never served, never
+# downloadable, and it goes away with the job directory for free. model.glb
+# stays the one name every consumer reads; this exists only so that reopening a
+# built asset brings its objects back instead of a single frozen mesh.
+CLAY_SOURCE = "build.rblk"  # the on-disk name predates the Clay rename
+
+# A .rblk is scene.json plus one npz per object. Geometry compresses, and Phase
+# 1 documents are a handful of primitives -- but a Phase 3 subdivided scene is
+# the case this bounds, and it is bounded on the same reasoning as every other
+# ceiling here rather than left open because today's files are small.
+MAX_CLAY_SOURCE_BYTES = 5 * MAX_UPLOAD_BYTES
+
+
+def clay_source_path(svc: Any, job_id: str) -> Path:
+    check_job_id(job_id)
+    return svc.job_dir(job_id) / CLAY_SOURCE
+
+
+def clay_source_status(svc: Any, job_id: str) -> dict[str, Any]:
+    """Whether an authored source exists for this asset.
+
+    **No staleness rule**, unlike :func:`inker_working_status`, and the
+    difference is not an oversight. That rule exists because a revert, a
+    regenerate or a remesh rewrites ``input.png`` behind the layers, leaving
+    them describing an image that is gone. Nothing does that here: a build
+    export writes the GLB and the ``.rblk`` in one operation, and the one thing
+    that later rewrites ``model.glb`` -- a triangle retarget -- does not make
+    the authored document wrong. It makes the served mesh a *derivative* of it,
+    which is the whole point of keeping the source.
+    """
+    check_job_id(job_id)
+    return {"exists": (svc.job_dir(job_id) / CLAY_SOURCE).exists()}
+
+
+def save_clay_source(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
+    """Store the authored document beside the mesh it exported to.
+
+    Written through a temp and ``os.replace``, as the layered source is: the
+    file is read whole by the reader and a torn one is a document that will not
+    open. The caller writes the GLB first and this second, so a crash between
+    the two leaves the sidecar absent rather than lying about a mesh it did not
+    produce.
+    """
+    check_job_id(job_id)
+    if svc.store.get(job_id) is None:
+        raise NotFound("no such job")
+    if len(data) > MAX_CLAY_SOURCE_BYTES:
+        raise TooLarge("clay document too large")
+    if not data.startswith(ORA_MAGIC):
+        # The same four bytes: a .rblk is a zip, as an .ora is.
+        raise Invalid("the clay source must be a .rblk archive")
+    dest = svc.job_dir(job_id) / CLAY_SOURCE
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _staged_write(dest, data)
+    return {"ok": True}
+
+
+# The authored Plotter and Packwright documents behind an exported asset,
+# following the ``paint.ora`` / ``build.rblk`` precedent exactly: absent from
+# MEDIA and LISTED, never served, never downloadable, and gone with the job
+# directory for free. ``input.png`` stays the one name every consumer reads;
+# these exist only so reopening an exported map or atlas brings the document
+# back instead of a single flattened picture.
+#
+# **No staleness rule**, for ``clay_source_status``'s reason rather than
+# ``inker_working_status``'s. That rule exists because a revert, a regenerate
+# or a remesh rewrites ``input.png`` behind the layers, leaving them describing
+# an image that is gone. Nothing rewrites one of these behind its document: an
+# export writes the PNG and the source in one operation, and a later hand-edit
+# of the flattened picture makes the render a *derivative* of the document
+# rather than making the document wrong.
+PLOTTER_SOURCE = "map.rmap"
+PACKWRIGHT_SOURCE = "pack.rpack"
+
+# And the Mason scene behind an exported arrangement, on the *mesh* side of the
+# same precedent: the row this one sits beside is a ``model`` row minted by
+# ``import_mesh``, where the other three sit beside a reference. Nothing about
+# the rule changes -- absent from MEDIA and LISTED, never served, never
+# downloadable, gone with the job directory -- and ``model.glb`` stays the one
+# name every consumer reads.
+MASON_SOURCE = "scene.rscn"
+
+# Both are zips: a ``.rmap`` embeds one PNG per tileset and a ``.rpack`` one per
+# source sprite, so an atlas assembled from a hundred frames is the case these
+# bound. Bounded on the same reasoning as every other ceiling here rather than
+# left open because today's files are small.
+MAX_MAP_SOURCE_BYTES = 5 * MAX_UPLOAD_BYTES
+MAX_PACK_SOURCE_BYTES = 20 * MAX_UPLOAD_BYTES
+
+# A ``.rscn`` is the smallest of the four by construction: it stores **no
+# geometry at all** (``studio.mason.serialize``'s own rule -- primitives
+# regenerate from their parameters and library assets are links), so what it
+# actually holds is a node tree as text, one terrain height array, and a PNG
+# per hand-painted material override. The same number ``studio.mason_io``
+# refuses a file at on the way *in*, imported from here rather than restated,
+# so the door the user's file comes through and the door an export goes out of
+# cannot be set to two different sizes.
+MAX_SCENE_SOURCE_BYTES = 50 * 1024 * 1024
+
+
+def job_dir_file(svc: Any, job_id: str, name: str) -> Path:
+    """One named file inside a job's directory, with the id checked.
+
+    ``name`` is a *fixed* string chosen by the caller, never user input -- the
+    three call sites ask for ``input.png`` or ``sheet.json`` -- so this
+    validates the half that can come from outside (``job_id``) and, since L03,
+    the half that used to be trusted outright too: ``name`` was joined onto
+    the job directory with no check at all. No caller passes anything but a
+    literal today, so there is no exploit here yet -- but "every caller
+    happens to be well-behaved" is not a property this function could ever
+    verify about the *next* one, and a bare-leaf requirement costs every
+    current caller nothing. Existence is still the caller's problem: every one
+    of them is about to read the file and would rather have the OSError than a
+    second question.
+    """
+    check_job_id(job_id)
+    # A bare leaf: no separator (of either flavour, since a caller on Windows
+    # could hand this a backslash), no ``..``, and the resolved join must stay
+    # inside the job directory. Belt and suspenders rather than either alone --
+    # the name check catches the readable cases in the error message, and the
+    # containment check is what actually holds if a future caller's name
+    # string turns out not to be as fixed as today's two are.
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        raise Invalid(f"{name!r} is not a bare file name", field="name")
+    job_dir = svc.job_dir(job_id)
+    path = job_dir / name
+    if path.resolve().parent != job_dir.resolve():
+        raise Invalid(f"{name!r} does not name a file directly in the job directory", field="name")
+    return path
+
+
+def plotter_source_path(svc: Any, job_id: str) -> Path:
+    check_job_id(job_id)
+    return svc.job_dir(job_id) / PLOTTER_SOURCE
+
+
+def packwright_source_path(svc: Any, job_id: str) -> Path:
+    check_job_id(job_id)
+    return svc.job_dir(job_id) / PACKWRIGHT_SOURCE
+
+
+def mason_source_path(svc: Any, job_id: str) -> Path:
+    check_job_id(job_id)
+    return svc.job_dir(job_id) / MASON_SOURCE
+
+
+def _save_source(
+    svc: Any, job_id: str, data: bytes, *, name: str, limit: int, what: str
+) -> dict[str, Any]:
+    """The write ``save_clay_source`` does, for the two documents that arrived
+    after it. Through ``_staged_write`` for the same reason: the file is read
+    whole by its reader, and a torn one is a document that will not open --
+    and a fixed temp name is one concurrent saver away from a torn one anyway.
+
+    Written inline rather than through ``pipelines.postprocess._staged``:
+    ``derive`` imports this module at module scope, so reaching the other way
+    round is an import cycle.
+    """
+    check_job_id(job_id)
+    if svc.store.get(job_id) is None:
+        raise NotFound("no such job")
+    if len(data) > limit:
+        raise TooLarge(f"{what} too large")
+    if not data.startswith(ORA_MAGIC):
+        # The same four bytes: every authored document here is a zip.
+        raise Invalid(f"the {what} must be a zip archive")
+    dest = svc.job_dir(job_id) / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _staged_write(dest, data)
+    return {"ok": True}
+
+
+def save_plotter_source(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
+    """Store the map beside the flat render it exported to."""
+    return _save_source(
+        svc,
+        job_id,
+        data,
+        name=PLOTTER_SOURCE,
+        limit=MAX_MAP_SOURCE_BYTES,
+        what="map document",
+    )
+
+
+def save_packwright_source(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
+    """Store the atlas document beside the atlas it exported to."""
+    return _save_source(
+        svc,
+        job_id,
+        data,
+        name=PACKWRIGHT_SOURCE,
+        limit=MAX_PACK_SOURCE_BYTES,
+        what="atlas document",
+    )
+
+
+def save_mason_source(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
+    """Store the scene beside the merged mesh it exported to.
+
+    The caller writes the GLB first (through ``import_mesh``, which is what
+    creates the row at all) and this second, ``save_clay_source``'s own
+    ordering for its own reason: a crash between the two leaves the sidecar
+    absent rather than describing an arrangement the mesh on disk is not.
+    """
+    return _save_source(
+        svc,
+        job_id,
+        data,
+        name=MASON_SOURCE,
+        limit=MAX_SCENE_SOURCE_BYTES,
+        what="scene document",
+    )
+
+
+# The two stages whose input.png *is* the asset, and so the two that can be
+# hand-edited. A model job's input.png is the picture it was reconstructed
+# from, and editing it would change nothing about the mesh on disk while
+# invalidating the recipe that describes it.
+EDITABLE_STAGES = ("reference", "tile")
+
+
+def _editable_image(svc: Any, job_id: str) -> tuple[dict[str, Any], Path]:
+    """The gates every hand-edit path agrees on.
+
+    Both image stages, not just references. A tile's albedo is exactly as
+    editable as a reference's picture -- more so, arguably, since the whole
+    material set is derived from it and re-derives against its mtime for free
+    -- and the three writers below (flat save, revert, layered sidecar) are
+    stage-agnostic once the measurement is. ``_remeasure`` is the part that is
+    not, and it branches rather than being skipped.
+    """
+    check_job_id(job_id)
+    job = svc.store.get(job_id)
+    if job is None:
+        raise NotFound("no such job")
+    stage = job["stage"]
+    if stage not in EDITABLE_STAGES:
+        raise Invalid("this job has no image to edit")
+    noun = "That tile" if stage == "tile" else "That reference"
+    if job["status"] != "done":
+        raise Invalid(not_done_message(noun, job["status"]))
+    src = svc.job_dir(job_id) / "input.png"
+    if not src.exists():
+        raise Invalid(f"{noun.split()[-1]} has no image")
+    return job, src
+
+
+def _remeasure(
+    svc: Any, job_id: str, src: Path, *, hand_edited: bool, stage: str = "reference"
+) -> None:
+    """Re-run this stage's measurement over the pixels that are now on disk.
+
+    promote_to_model refuses a reference whose stored report says it cannot
+    reconstruct, and that report was measured from the *generated* pixels. An
+    edit -- or a revert -- makes it a verdict about an image that no longer
+    exists, so it is recomputed here. ``hand_edited`` rides along because
+    ``params["recipe"]`` claims a seed and a model produced this image, which
+    after an edit is no longer the whole truth.
+
+    Which measurement is the stage's, and it is the same split ``queue._generate``
+    makes when the image is first drawn: a composition report is entirely about
+    where a *subject* sits, and a tile has none, so a tile gets its seam ratio
+    re-measured instead. Editing an albedo is in fact the likeliest way to
+    introduce a seam there is -- a brush stroke does not wrap -- so leaving the
+    generated verdict in place would be worse than having none.
+
+    A tile whose measurement fails keeps no stale verdict: the key is removed
+    rather than left describing pixels that are gone. That is the one place
+    this differs from ``queue``'s log-and-swallow, and the reason is that there
+    the alternative is no key at all, while here it is a wrong one.
+    """
+    changes: dict[str, Any] = {}
+    remove: tuple[str, ...] = ()
+    if stage == "tile":
+        from ..pipelines import seam
+
+        try:
+            changes["seam_report"] = seam.report(src)
+        except Exception:
+            log.exception("seam re-measurement failed for job %s", job_id)
+            remove += ("seam_report",)
+    else:
+        from ..pipelines import reference
+
+        try:
+            changes["reference_report"] = reference.measure_file(src).as_dict()
+        except Exception:
+            # The tile branch's own shape, extended here (the 2026-09-08
+            # audit, service-02): a measurement failure after an edit or a
+            # revert has already changed input.png on disk used to raise out
+            # of this whole function, aborting the merge_params call below --
+            # which left the stale, pre-edit reference_report standing (a
+            # verdict about pixels the user no longer has) and dropped
+            # hand_edited too, since the same call records both. Degrading to
+            # "no stored verdict" beats "a wrong one".
+            log.exception("reference re-measurement failed for job %s", job_id)
+            remove += ("reference_report",)
+    if hand_edited:
+        changes["hand_edited"] = True
+    else:
+        # Appended, never assigned: a failed tile measurement above has already
+        # put a key in here, and a plain assignment would drop it and leave the
+        # stale verdict on the row -- which is the one thing this branch exists
+        # to prevent.
+        remove += ("hand_edited",)
+    # merge_params, not set_params: this runs off the frame thread while the
+    # worker may be writing other keys on the same row.
+    svc.store.merge_params(job_id, changes, remove=remove)
+
+
+def reference_edit_status(svc: Any, job_id: str) -> dict[str, Any]:
+    """Whether this job can be opened in the 2D editor, and whether it has a
+    backup to revert to. Two stats; safe from the frame thread."""
+    check_job_id(job_id)
+    job = svc.store.get(job_id)
+    job_dir = svc.job_dir(job_id)
+    editable = (
+        job is not None
+        and job["stage"] in EDITABLE_STAGES
+        and job["status"] == "done"
+        and (job_dir / "input.png").exists()
+    )
+    return {"editable": bool(editable), "has_original": (job_dir / ORIGINAL).exists()}
+
+
+def save_edited_image(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
+    """Overwrite a reference's input.png with a hand-edited version.
+
+    In place rather than beside, because every consumer of a reference --
+    promote, remesh, export, the thumbnail -- reads that one name; a second
+    "edited.png" would mean teaching all of them which to prefer. The original
+    is preserved once, on the first save, so the edit is still undoable after
+    the session that made it is gone.
+    """
+    job, dest = _editable_image(svc, job_id)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise TooLarge("image too large")
+    if not data.startswith(PNG_MAGIC):
+        raise Invalid("the edited image must be a PNG")
+    _check_pixels(data)
+
+    original = dest.parent / ORIGINAL
+    # Locked like the sibling doors in service/derive.py lock a derived
+    # artifact: the 2026-09-07 audit (service-03) found this check-then-copy
+    # -then-write unguarded, so two concurrent saves could each see "no
+    # backup yet", and whichever copied *second* copied the other save's
+    # already-edited dest -- turning input.orig.png, undo's only anchor to
+    # the generated pixels, into a copy of an edit. revert_reference takes
+    # the same lock so a save and a revert cannot interleave either.
+    with svc.convert_lock(job_id, ORIGINAL):
+        if not original.exists():
+            # Once, and never clobbered: a second save must not make the
+            # *first* edit the thing "Revert to original" restores.
+            #
+            # Through _staged_write, not a bare shutil.copyfile (the
+            # 2026-09-08 audit, service-05): this is the one-time backup that
+            # is undo's only anchor to the pre-edit pixels, gated on
+            # original.exists() so a truncated file is never retried -- a
+            # crash or a write failure partway through a direct copyfile
+            # would have left a truncated input.orig.png as the permanent
+            # "revert to original" target, and revert_reference's
+            # os.replace(original, dest) would install those truncated bytes
+            # onto the served input.png.
+            _staged_write(original, dest.read_bytes())
+        # Staged: promote_to_model and remesh copy input.png with a bare
+        # copyfile, so a direct write_bytes onto a served name is a torn
+        # read waiting to happen.
+        _staged_write(dest, data)
+        # Inside the lock, like matte.prepare's own merge_params -- the
+        # 2026-09-18 audit, finding service-04: this used to run after the
+        # lock released, so a racing save/revert pair could have their two
+        # _remeasure calls land in the opposite order from their two writes.
+        # A revert that renamed the pristine backup onto dest and released
+        # first could still lose the race to record hand_edited=False if this
+        # save's _remeasure(hand_edited=True) ran after it -- leaving the row
+        # claiming a hand edit over pixels that are, in fact, the untouched
+        # original, with the backup already consumed and no way back.
+        _remeasure(svc, job_id, dest, hand_edited=True, stage=job["stage"])
+    return {"ok": True}
+
+
+def revert_reference(svc: Any, job_id: str) -> dict[str, Any]:
+    """Put the untouched generated image back, consuming the backup."""
+    job, dest = _editable_image(svc, job_id)
+    original = dest.parent / ORIGINAL
+    # Same lock as save_edited_image (service-03): a revert reads and
+    # consumes the same backup a concurrent save would check and replace.
+    with svc.convert_lock(job_id, ORIGINAL):
+        if not original.exists():
+            raise Conflict("this reference has no unedited original")
+        os.replace(original, dest)
+        # Touched, because a restore is the one write here that would
+        # otherwise arrive wearing an *older* timestamp than the pixels it
+        # replaces: the backup was copied when the first edit was made, and
+        # shutil.copyfile does not preserve mtimes, so the restored file
+        # carries that moment rather than this one. fresh_2d compares every
+        # derived export against this mtime, so without the touch a revert
+        # would leave the exports of the edit looking current -- the exact
+        # staleness the comparison exists to catch, in the only direction
+        # where the content changes and the clock goes backwards.
+        os.utime(dest)
+        # Inside the lock -- see save_edited_image's comment. Moved together
+        # with that one, the 2026-09-18 audit, finding service-04: run after
+        # the lock released, this revert's own hand_edited=False could still
+        # lose to a racing save's hand_edited=True landing second, leaving
+        # the row claiming a hand edit over the pristine pixels this call
+        # just restored.
+        _remeasure(svc, job_id, dest, hand_edited=False, stage=job["stage"])
+    return {"ok": True}
+
+
+def _check_pixels(data: bytes) -> None:
+    """The header pixel cap, without decoding. Same guard to_png applies."""
+    import io
+
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            width, height = im.width, im.height
+    except Exception as exc:
+        # The formats, named (E53). "That is not a readable image" is true of a
+        # PDF, a .psd, a truncated download and a file the user renamed to
+        # .png, and it tells apart none of them -- while the one thing the user
+        # can act on is knowing what would have worked. Spelled from the same
+        # list the file picker offers, so the dialog and the refusal agree.
+        raise Invalid(
+            "That is not a readable image. PNG, JPEG, WebP and BMP are accepted."
+        ) from exc
+    if width * height > MAX_IMAGE_PIXELS:
+        raise TooLarge(f"image is {width}x{height}; the limit is {MAX_IMAGE_PIXELS:,} pixels")
+
+
+def dir_size(path: Path) -> int:
+    """One directory's recursive byte count; 0 when it does not exist."""
+    total = 0
+    try:
+        walk = path.rglob("*")
+    except OSError:
+        return 0
+    for f in walk:
+        # Symlinks and vanishing files (a concurrent delete) shouldn't
+        # abort the whole measurement.
+        with contextlib.suppress(OSError):
+            if f.is_file():
+                total += f.stat().st_size
+    return total
+
+
+def storage_sizes(data_dir: Path) -> dict[str, int]:
+    """``{directory name: bytes}`` for every job directory under data_dir.
+
+    The decomposed form of :func:`measure_storage`, kept so an incremental
+    accounting (a job finishing re-measures its own directory only) shares
+    the walk with the full one rather than restating it.
+
+    ``autosave/`` and ``poser/`` live under data_dir too and are counted here
+    as if they were job directories -- a byte total under a different heading,
+    not a correctness issue, and cheaper than teaching the walk which names
+    are not jobs.
+    """
+    sizes: dict[str, int] = {}
+    if data_dir.exists():
+        for entry in data_dir.iterdir():
+            if entry.is_dir():
+                sizes[entry.name] = dir_size(entry)
+    return sizes
+
+
+def measure_storage(data_dir: Path) -> dict[str, Any]:
+    """Total bytes and directory count under data_dir. Blocking; call off the
+    frame thread."""
+    sizes = storage_sizes(data_dir)
+    return {"job_dirs": len(sizes), "bytes": sum(sizes.values())}
+
+
+# Everything that is a pure function of model.glb: derivable exactly when
+# model.glb itself is ready, and never independently of it.
+DERIVED = ("model.stl", "model_obj.zip", "collision.glb", "textures.zip", "model.fbx")
+
+#: Where a take's stems land, inside the *take's* own directory.
+#:
+#: **A note for the manual, not a shared constant.** Sirens also exports into a
+#: folder called ``stems/``. Same word, two unrelated places -- and they
+#: deliberately do not share a name in code, because ``service/files.py`` must
+#: not reach into ``studio/``. One sentence in the chapter prevents the
+#: confusion; a shared import would create a dependency to prevent it.
+STEMS_DIR = "stems"
+
+#: The audio re-encodings, derived from ``track.wav`` on first request.
+#:
+#: Its own tuple beside ``DERIVED`` and ``DERIVED_2D`` rather than a member of
+#: either: those two are keyed on ``model.glb`` and ``input.png``, and which
+#: source an artifact is derived *from* is the thing ``ready`` and
+#: ``unready_reason`` branch on. A fourth name in ``DERIVED`` would make a music
+#: job's FLAC wait for a mesh it will never have.
+#:
+#: **No staleness rule**, deliberately, and it is stated rather than left out:
+#: ``input.png`` has three writers, which is what ``fresh_2d`` exists for, and
+#: ``track.wav`` has one that never touches it again. Existence is the test.
+#:
+#: **``track.wav`` is a member of its own format list**, which reads oddly
+#: until ``pipelines.audioout.convert``'s docstring: it is served directly
+#: whenever it exists (``ready``'s own ``track.wav`` branch, checked before
+#: this tuple is even consulted), and belongs here anyway so the Library's
+#: Convert door and the Downloads grid can offer WAV beside FLAC/MP3/OGG/AIFF
+#: as one uniform list under one lock, instead of a WAV-shaped special case in
+#: both. The fallback path -- a plain file copy, for the vanishingly rare race
+#: where this is reached with the file not yet on disk -- exists for the same
+#: robustness reason ``model.fbx``'s and ``animated.glb``'s branches do.
+DERIVED_AUDIO = ("track.wav", "track.flac", "track.mp3", "track.ogg", "track.aiff")
+
+#: The web re-encodings of a reference or tile's own ``input.png`` --
+#: ``pipelines/imageout``'s whole format list, named here for the reason
+#: ``DERIVED_AUDIO`` gives ``pipelines/audioout``'s: which source an artifact
+#: is derived *from* is what ``ready``/``unready_reason`` branch on, so a
+#: format list belongs beside the tuple naming its source rather than folded
+#: into ``DERIVED_2D``.
+#:
+#: **Not folded into REFERENCE_2D/TILE_2D even though the source is the same
+#: input.png**, because the *set* is not stage-dependent the way theirs is: a
+#: reference has the cutouts and a tile has the wrapped view and neither has
+#: the other's, but every 2D-producing stage has the same one picture to
+#: re-encode, so the same two names are offered everywhere ``DERIVED_2D``'s
+#: stage split would otherwise have to repeat.
+#:
+#: **Shares DERIVED_2D's staleness rule, not DERIVED_AUDIO's.** input.png has
+#: the three writers ``fresh_2d`` exists for -- a hand edit or a revert
+#: rewrites it in place -- and a WebP derived from the pixels *before* that
+#: edit is exactly as stale as an icon would be. ``fresh_2d`` is taught these
+#: two names for that reason rather than this tuple inventing a second
+#: mtime comparison that says the same thing.
+DERIVED_IMAGE = ("input.webp", "input.jpg")
+
+#: Derived from ``rig.glb``, not from ``model.glb``.
+#:
+#: Its own tuple for ``DERIVED_AUDIO``'s stated reason: which source an
+#: artifact is derived *from* is the thing ``ready`` and ``unready_reason``
+#: branch on, and a name in ``DERIVED`` would make this wait on a mesh being
+#: finished while ignoring whether the thing it is actually made of exists.
+#: The second gate is the clip library: a skeleton nobody authored a walk cycle
+#: for has nothing to animate, which is ``create_charsheet``'s refusal in
+#: another door.
+#:
+#: **Digest staleness, not bare existence** (design decision D6): existence
+#: alone could never reach a clip edited in Poser after the bake, or a clip
+#: newly shipped for a template that already has an ``animated.glb`` -- the
+#: file would sit there correct-looking and permanently behind. So ``derive``
+#: stamps the clip library's own ``clips.library_digest`` into the file's root
+#: extras the moment the export lands, and a request compares that stamp
+#: against the template's *current* digest, rebaking on a mismatch (or on a
+#: file too mangled to carry one) rather than trusting that presence means
+#: current. ``derive`` still stages the export and renames it in regardless --
+#: a Blender that dies part way through would otherwise leave a truncated file
+#: that is served for the life of the job directory, ``model.fbx``'s incident,
+#: on the one other artifact a subprocess writes -- so the digest answers
+#: "is this the right file" and the stage-then-replace still answers "is it a
+#: whole one".
+DERIVED_RIG = ("animated.glb",)
+
+#: The stem artifacts, as the names ``MEDIA`` and ``LISTED`` know them.
+#: Derived from ``MEDIA`` rather than re-typed, so the two cannot drift.
+STEM_FILES = tuple(f"{STEMS_DIR}/{name}.wav" for name in ("drums", "bass", "other", "vocals"))
+
+# Everything that is a pure function of a *reference's* input.png. Kept apart
+# from DERIVED rather than merged into it: the two sets have different sources,
+# different readiness rules and different jobs they apply to, and one tuple
+# would have to be filtered at every use anyway.
+REFERENCE_2D = (
+    "icon.png",
+    "sprite.png",
+    "pixel_32.png",
+    "pixel_64.png",
+    "pixel_128.png",
+    "manifest.json",
+)
+
+# The PBR set. Estimates rather than measurements -- see pipelines/material --
+# and derived here for the reason every other 2D export is: they are a pure
+# function of a finished tile's input.png, so every tile already on disk gains
+# them without a second kind of job existing.
+#
+# Written out rather than imported from ``pipelines.material.MAP_NAMES``, which
+# is the same call ``config.SETTINGS`` makes: this file is the allowlist and an
+# allowlist assembled from somewhere else is one whose contents can change
+# without this file being edited. ``tests/service/test_material.py`` asserts the two
+# agree in both directions, which is what makes writing them out safe.
+MATERIAL_2D = (
+    "material_height.png",
+    "material_normal.png",
+    "material_roughness.png",
+    "material.zip",
+)
+
+# And what a *tile's* input.png can produce, which is deliberately almost none
+# of the reference set. Every cutout is the operation of lifting a subject off
+# its background, and a seamless texture is background: an icon of one is the
+# whole frame with a matte guessed over it, and a sprite of one is a trim box
+# around nothing. What a tile has instead is the wrapped view -- the only
+# export that says something true about it that the PNG itself does not -- and
+# the material set, which is the same argument from the other side: these are
+# whole-frame transforms, and a texture is the one thing they mean anything for.
+TILE_2D = ("wrap_preview.png", *MATERIAL_2D, "manifest.json")
+
+# The union: what ``fresh_2d`` and ``derivable_2d`` answer about a *name*,
+# independently of the job asking. The per-stage split above is what decides
+# whether a given job may ask.
+# Composed rather than written out, and that is not tidiness: the two halves
+# overlap in manifest.json and a hand-written union is only ever right by
+# coincidence. A tile-only artifact added to TILE_2D and missed here would be
+# ``ready`` -- derived_2d_for says so -- while get_file's derivation gate and
+# fresh_2d, which both key on this tuple, would never produce it: an enabled
+# button that answers NotReady for ever.
+DERIVED_2D = REFERENCE_2D + tuple(n for n in TILE_2D if n not in REFERENCE_2D)
+
+
+def derived_2d_for(stage: str | None) -> tuple[str, ...]:
+    """Which 2D exports this stage's input.png can produce.
+
+    One function rather than a condition restated wherever the question comes
+    up: it is asked by ``ready``, by the Export tab's grid and by the pane's
+    copy of the derivability rule, and those three drifting apart is a button
+    that lights up and then produces an error toast.
+    """
+    if stage == "tile":
+        return TILE_2D
+    if stage == "reference":
+        return REFERENCE_2D
+    # Everything else -- a mesh, a tile sheet -- derives nothing here, and for
+    # one reason stated two ways. Every entry in the two sets
+    # above is a whole-frame transform of *one picture*: a cutout lifts a single
+    # subject off its background, a wrapped view claims the frame repeats, and
+    # the material set reads the frame as one surface. A sheet is sixty-four
+    # pictures in a grid, so each of those would be answering about the grid as
+    # though it were a subject. Cutting a sheet up is a real operation and it
+    # already has a home -- Packwright's tileset import -- which takes the sheet
+    # as a file rather than as a derivation.
+    return ()
+
+# Which pixel-art size each artifact name means. The names are literals for the
+# allowlist's sake; this is where they get their number back.
+PIXEL_ARTIFACTS = {"pixel_32.png": 32, "pixel_64.png": 64, "pixel_128.png": 128}
+
+# The palette caps a pixel artifact may be quantized to (0 = no cap). One
+# source for the service's validation and the inspector's combo, like
+# ALLOWED_RESOLUTIONS.
+PIXEL_COLOR_CHOICES = (0, 8, 16, 32, 64)
+
+# The order attach_files lists them in. Derived artifacts are deliberately
+# absent: they are produced on request, so listing them would claim a file that
+# usually isn't on disk.
+LISTED = (
+    "input.png",
+    "ref.png",
+    "reference.png",
+    "control.png",
+    "model.glb",
+    "source.glb",
+    "rig.glb",
+    "rig_qa.png",
+    "thumb.png",
+    # A finished take. Absent until now, which meant a done music job reported
+    # no files anywhere outside Muse's own tray: the Library could neither list
+    # it nor offer it, and ``state.primary_action`` fell through the whole
+    # ladder to ``None`` -- a finished card with no action at all.
+    "track.wav",
+    *STEM_FILES,
+    "error.log",
+)
+
+
+def fresh_2d(job_dir: Path, name: str) -> bool:
+    """Whether a derived 2D artifact still describes the input.png on disk.
+
+    An mtime comparison, and deliberately the same idiom -- for the same
+    reason -- as ``inker_working_status``'s. ``input.png`` has several writers:
+    ``save_edited_image``, ``revert_reference``, and the Inker's linked save,
+    which writes input.png *first* precisely so that this comparison decides
+    staleness. Invalidating by unlinking beside each of them is a rule every
+    writer added later has to remember, and the one that forgets serves an icon
+    of pixels that no longer exist -- forever, because ``get_file`` caches on
+    existence. A file older than its source cannot be forgotten about, because
+    the question is asked at the only moment that matters: when somebody wants
+    to serve it.
+
+    A name that is not derived from input.png is always fresh. This is a
+    freshness rule and not an existence check, so any caller may ask it of any
+    name -- but for a 2D artifact "does not exist" and "is stale" are the same
+    answer, which is what lets ``get_file`` treat both as "derive it".
+
+    ``DERIVED_IMAGE`` is checked here too, alongside ``DERIVED_2D`` -- not a
+    scope creep, because the question this function answers ("is this file at
+    least as new as input.png") is *identical* for ``input.webp``/``input.jpg``
+    and for ``icon.png``: same source, same three writers, same mtime
+    comparison. ``DERIVED_IMAGE`` stays its own tuple elsewhere (``ready`` and
+    ``derive.get_file`` treat it as a re-encoding rather than a cutout, the way
+    ``pipelines.imageout`` differs from ``asset2d``/``matting``), but there is
+    only one staleness rule for "derived from input.png" and this is it.
+    """
+    if name not in DERIVED_2D and name not in DERIVED_IMAGE:
+        return True
+    path = job_dir / name
+    source = job_dir / "input.png"
+    try:
+        if not path.exists():
+            return False
+        if not source.exists():
+            # Nothing left to be stale against. ``ready`` has already refused
+            # the whole set when input.png is missing, so this is reachable
+            # only in a race, and the artifact is the better answer than a
+            # spurious re-derivation that has no source to read.
+            return True
+        return path.stat().st_mtime_ns >= source.stat().st_mtime_ns
+    except OSError:
+        return False
+
+
+def _rig_has_clips(job_dir: Path) -> bool:
+    """Whether this job's rig is on a skeleton with authored clips.
+
+    Read off ``rig.json``, which is where the template is recorded and the only
+    place it is -- ``create_charsheet`` asks the same question of the same file.
+    Through ``kernels.rig`` rather than ``service.troupe``: that module imports
+    this one, and a listing loop must not depend on a door.
+    """
+    from ..kernels.rig import cliplib, store
+
+    try:
+        template = str((store.read_rig(job_dir) or {}).get("template") or "")
+        return bool(cliplib.clip_library(template).get("clips"))
+    except (ValueError, OSError):
+        return False
+
+
+def ready(job: dict[str, Any], job_dir: Path, name: str) -> bool:
+    """Whether ``name`` may be served/exported for this job. The one place the
+    rules live.
+
+    They used to be restated in five callers and had drifted apart -- the
+    listing gated model.glb on status while the file route and the exporter
+    served it on mere existence, which is a half-written mesh handed to a
+    concurrent reader.
+    """
+    path = job_dir / name
+    if name in ("model.glb", "source.glb"):
+        # Gated on status, not just existence: the worker still writes to
+        # model.glb after the file first appears (queue.py:_apply_scale), and
+        # source.glb is the reconstruction the same run produced.
+        return job.get("status") == "done" and path.exists()
+    if name == "rig_qa.png":
+        # Gated on its sidecar for the reason rig.glb is gated on rig.json: the
+        # atlas is written first and the sidecar last, by a *different* job
+        # than the one this directory belongs to, so existence alone can hand a
+        # reader an atlas that is still being packed.
+        return (job_dir / "rig_qa.json").exists() and path.exists()
+    if name == "rig.glb":
+        # Gated on rig.json, not on its own existence and not on this job's
+        # status. The rig lands in the *source* job's directory, so this job is
+        # usually already 'done' while a separate rig job is still writing --
+        # and the worker writes rig.json last, which makes it the completion
+        # marker for the pair.
+        return (job_dir / "rig.json").exists() and path.exists()
+    if name == "input.png" and job.get("stage") == "tilesheet":
+        # The one stage where input.png is *output*. Everywhere else it is the
+        # picture the run was given, complete before the run began, which is why
+        # the fallthrough below serves it on existence alone. A tile sheet
+        # publishes its own grid under that name and then writes ``sheet.json``
+        # last as the completion marker -- so existence alone hands a reader the
+        # sheet of a job that errored between the two writes, sixty-four tiles
+        # of which the last rows may be blank, and the library lists and exports
+        # it as finished. Gated on the sidecar for rig.glb's reason, not on
+        # status: the row is marked failed after the artifacts are already on
+        # disk.
+        return (job_dir / "sheet.json").exists() and path.exists()
+    if name in DERIVED_2D:
+        # A reference's or a tile's pixels, and only those: a mesh job's
+        # input.png is the picture it was reconstructed *from*, so an icon
+        # derived from it would quietly claim to be an export of the mesh. The
+        # two image stages take different halves of the set -- see
+        # ``derived_2d_for`` -- so the stage decides the name as well as the
+        # permission.
+        return (
+            name in derived_2d_for(job.get("stage"))
+            and job.get("status") == "done"
+            and (job_dir / "input.png").exists()
+        )
+    if name in DERIVED_IMAGE:
+        # The web re-encodings of input.png, gated on the same three stages
+        # DERIVED_2D's own comment argues for: a mesh job's input.png is the
+        # picture it was reconstructed *from*, and a WebP of it would quietly
+        # claim to be an export of the mesh the way a stray icon would. Unlike
+        # DERIVED_2D there is no further per-name split within those stages --
+        # both names are offered on all three, so this checks the stage
+        # directly rather than through a ``derived_2d_for``-shaped filter.
+        return (
+            job.get("stage") in ("reference", "tile", "tilesheet")
+            and job.get("status") == "done"
+            and (job_dir / "input.png").exists()
+        )
+    if name in STEM_FILES:
+        # Gated on the sidecar for ``rig.glb``'s reason: the stems land in this
+        # job's directory but are written by a *different* job, one at a time,
+        # so existence alone can hand a reader three of four. ``stems.json`` is
+        # written last as the completion gate.
+        return (job_dir / STEMS_DIR / "stems.json").exists() and path.exists()
+    if name == "track.wav":
+        # Gated on status for model.glb's reason: the worker writes the file
+        # through the vendored pipeline and the row is marked done afterwards,
+        # so existence alone can hand a reader a half-encoded take. Checked
+        # *before* the ``DERIVED_AUDIO`` branch below on purpose: track.wav is
+        # now a member of that tuple too (see its docstring), and the generic
+        # "derivable, not present" branch recursing into ``ready(..., "track.
+        # wav")`` for name == "track.wav" itself would be infinite recursion.
+        return job.get("status") == "done" and path.exists()
+    if name in DERIVED_AUDIO:
+        # Derivable, not present -- ``DERIVED``'s arm on the other source.
+        return ready(job, job_dir, "track.wav")
+    if name in DERIVED_RIG:
+        # Derivable, not present -- ``DERIVED``'s arm on the other source --
+        # and only for a rig whose skeleton has clips authored for it.
+        return ready(job, job_dir, "rig.glb") and _rig_has_clips(job_dir)
+    if name in DERIVED:
+        # Derivable, not present: the caller still has to produce it.
+        return ready(job, job_dir, "model.glb")
+    # input.png, ref/reference/control.png, thumb.png and error.log are each
+    # written in one call (the last three through a temp-and-rename) and are
+    # complete the moment they exist -- error.log before the row is even marked
+    # failed, thumb.png by the viewer long after the job finished.
+    return path.exists()
+
+
+def unready_reason(job: dict[str, Any], job_dir: Path, name: str) -> str:
+    """Why ``name`` is not servable, as a sentence (E51).
+
+    Explanatory only. :func:`ready` stays the gate and the authority -- this is
+    called on the refusal path, having already been refused, so a sentence that
+    disagreed with it would be a slightly wrong explanation rather than a wrong
+    permission. Written as a separate function for exactly that reason: folding
+    it into ``ready`` would put string formatting inside the per-row, per-name
+    listing loop that ``attach_files`` exists to keep cheap.
+
+    "file not ready" was the whole message before, on all three refusal paths at
+    once, and it is the least actionable sentence in the app: the job is queued,
+    the mesh is still being written, the rig has not been made, the export has
+    to be derived first and the model has no textures to derive it from are five
+    different situations with five different responses.
+    """
+    status = job.get("status")
+    derived_from_a_run = (
+        name in ("model.glb", "source.glb", "track.wav")
+        or name in DERIVED
+        or name in DERIVED_2D
+        or name in DERIVED_IMAGE
+        or name in DERIVED_AUDIO
+        or name in DERIVED_RIG
+    )
+    if status in ("queued", "running", "error", "cancelled") and derived_from_a_run:
+        return not_done_message(f"{name} is not available yet: this job", str(status))
+    if name == "rig.glb" and not (job_dir / "rig.json").exists():
+        return "This asset has not been rigged yet."
+    if name == "rig_qa.png" and not (job_dir / "rig_qa.json").exists():
+        return "The deformation sheet is only made when a rig is."
+    if (
+        name == "input.png"
+        and job.get("stage") == "tilesheet"
+        and not (job_dir / "sheet.json").exists()
+    ):
+        return "This tile sheet did not finish drawing, so some of its tiles are blank."
+    if name in DERIVED_2D and name not in derived_2d_for(job.get("stage")):
+        return f"{name} is only offered for a reference or a tile, not for a mesh."
+    if name in DERIVED_2D and not (job_dir / "input.png").exists():
+        return f"{name} is derived from the reference image, which is not on disk."
+    if name in DERIVED_IMAGE and job.get("stage") not in ("reference", "tile", "tilesheet"):
+        return f"{name} is only offered for a reference, a tile or a tile sheet, not for a mesh."
+    if name in DERIVED_IMAGE and not (job_dir / "input.png").exists():
+        return f"{name} is derived from the reference image, which is not on disk."
+    if name in DERIVED_RIG and not (job_dir / "rig.json").exists():
+        return "This asset has not been rigged yet."
+    if name in DERIVED_RIG and not _rig_has_clips(job_dir):
+        # ``create_charsheet``'s sentence, so one fact has one wording wherever
+        # it is met.
+        return (
+            "An animated GLB is baked from a clip library, and nothing is "
+            "authored for this rig's skeleton."
+        )
+    if name in DERIVED and not (job_dir / "model.glb").exists():
+        return f"{name} is derived from the mesh, which is not on disk."
+    # ``name != "track.wav"``: it is a member of DERIVED_AUDIO itself (see the
+    # tuple's docstring), and without the guard this would tell the reader
+    # track.wav is derived from track.wav.
+    if name in DERIVED_AUDIO and name != "track.wav" and not (job_dir / "track.wav").exists():
+        return f"{name} is derived from the track, which is not on disk."
+    if name in STEM_FILES:
+        return "This take has not been split into stems yet."
+    return f"{name} is not on disk for this job."
+
+
+# How old a job directory's mtime must be before that mtime is trusted as a
+# cache key. Above Windows' 15.6 ms default system-clock tick with room to
+# spare, and a tenth of the 500 ms list refresh, so at most one extra listing
+# per write. See the racily-clean paragraph in ``attach_files``.
+MTIME_RACE_NS = 50_000_000
+
+
+def attach_files(job: dict[str, Any], job_dir: Path, *, cache: dict | None = None) -> None:
+    """List which of ``LISTED`` this job actually has.
+
+    ``cache`` is an optional ``{job_id: (stamp, names)}`` the caller owns, and
+    it exists because this is the frame loop's single largest syscall cost:
+    ``LISTED`` is ``len(LISTED)`` names (fifteen, as of the ``track.wav``,
+    ``STEM_FILES`` and ``error.log`` additions -- the 2026-09-06 audit, finding
+    docs-23, found this docstring stuck at the original nine) and ``ready``
+    stats one or two files for each, so a two-hundred row page costs upwards of
+    two thousand ``stat`` calls -- twice a second, on the thread that must not
+    block, growing without limit as "load more" widens the window.
+
+    The stamp is ``(status, the job directory's own mtime)``. Sound because
+    every name here is answered by *existence*: a file appearing or being
+    removed adds or removes a directory entry, which is what moves a
+    directory's mtime -- and a status change is the other thing that can change
+    the answer (a queued job's ``model.glb`` is not servable). One stat per row
+    instead of ten. The names are copied out, because a caller that edits
+    ``job["files"]`` must not edit what the next tick will hand somebody else.
+
+    **But a directory's mtime has a resolution, and it is coarse.** Windows
+    updates it from the system clock, whose tick is 15.6 ms unless something has
+    asked for better; measured here, adding a file left the mtime *unchanged*
+    155 times out of 200 (see ``dev/measurements/2026-08-07-directory-mtime-
+    granularity.md``). So a write that lands after this listing but still inside
+    the stamped mtime's tick is invisible to the stamp -- and not for one tick,
+    but **forever**, because every later comparison keeps matching. That is
+    exactly the case the second half of the stamp exists for: a rig lands in the
+    *source* job's directory while that job stays ``done``.
+
+    The answer is git's racily-clean rule. A stamp is only stored once its mtime
+    is comfortably in the past; a directory touched moments ago is answered
+    correctly and simply not remembered, so the next tick asks the disk again.
+    **The clock is read after the listing, not before, and that ordering is the
+    proof**: the hazard needs a write later than our listing yet still in the
+    mtime's tick, so if the listing itself already finished more than one tick
+    after the mtime, no such write exists. Costs one extra listing per write, on
+    one row, since ticks are 500 ms apart and the window is 50.
+    """
+    if cache is None:
+        job["files"] = [n for n in LISTED if ready(job, job_dir, n)]
+        return
+    try:
+        stamp: tuple[Any, int | None] = (job.get("status"), job_dir.stat().st_mtime_ns)
+    except OSError:
+        # No directory at all yet -- a text job has none until the worker
+        # writes into it. That is a perfectly good stamp of its own: the answer
+        # is "no files", and the moment a directory appears the stamp changes.
+        # Cached rather than fallen through, because a queued job is exactly
+        # the row that sits on screen being re-listed twice a second.
+        stamp = (job.get("status"), None)
+    hit = cache.get(job["id"])
+    if hit is not None and hit[0] == stamp:
+        job["files"] = list(hit[1])
+        return
+    names = [n for n in LISTED if ready(job, job_dir, n)]
+    job["files"] = list(names)
+    # None races with nothing: a directory appearing changes the stamp from
+    # None to a number whatever the clock did, so that one is always storable.
+    # A backwards clock step makes the difference negative, which declines to
+    # cache -- slower, never wrong, which is the right way round.
+    if stamp[1] is None or time.time_ns() - stamp[1] > MTIME_RACE_NS:
+        cache[job["id"]] = (stamp, names)

@@ -22,7 +22,7 @@ import errno
 # invariant forbids and which two tests in ``test_fetch.py`` assert against.
 # The translator lives in ``download`` precisely so it can be tested without
 # that side effect.
-from warlock.pipelines.download import describe_failure
+from realmspinner.pipelines.download import describe_failure
 
 
 def _reset(code: int = 10054) -> OSError:
@@ -101,7 +101,7 @@ def test_an_unrecognised_failure_names_itself_and_points_at_the_log():
     """No guessing. The one thing worse than a raw exception is a wrong remedy."""
     said = describe_failure(RuntimeError("something else entirely"))
     assert "RuntimeError" in said and "something else entirely" in said
-    assert "warlock.log" in said
+    assert "realmspinner.log" in said
 
 
 def test_a_network_error_with_no_code_still_gets_a_remedy():
@@ -118,4 +118,4 @@ def test_a_network_error_with_no_code_still_gets_a_remedy():
 
     ConnectionError_.__name__ = "ConnectionError"
     said = describe_failure(ConnectionError_("Network error: Request middleware error"))
-    assert "online" in said.lower() and "warlock.log" not in said
+    assert "online" in said.lower() and "realmspinner.log" not in said

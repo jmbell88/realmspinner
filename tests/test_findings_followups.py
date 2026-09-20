@@ -15,15 +15,15 @@ from PIL import Image
 
 
 def test_every_recent_kind_has_an_opener_with_an_open_path():
-    """``open_row``'s opener table and ``_KIND_MODES`` had drifted: a ``.wsng``
+    """``open_row``'s opener table and ``_KIND_MODES`` had drifted: a ``.rsng``
     row did nothing on click, with no toast."""
-    from warlock.studio import recents
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio import recents
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     assert set(landing.KIND_OPENERS) == set(recents.KINDS)
     for kind, module in landing.KIND_OPENERS.items():
         assert kind in landing._KIND_MODES
-        assert callable(import_module(f"warlock.studio.{module}").open_path)
+        assert callable(import_module(f"realmspinner.studio.{module}").open_path)
 
 
 def test_play_refuses_a_stale_buffer(monkeypatch):
@@ -31,8 +31,8 @@ def test_play_refuses_a_stale_buffer(monkeypatch):
     import numpy as np
     from modes.sirens.test_sirens_mode import FakeCtx, _tab
 
-    from warlock.studio.modes.sirens import audio as sirens_audio
-    from warlock.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
 
     played: list = []
     monkeypatch.setattr(sirens_audio, "available", lambda: True)
@@ -53,7 +53,7 @@ def test_play_refuses_a_stale_buffer(monkeypatch):
 def test_xray_picks_through_the_surface():
     """Three places say a click in X-ray picks through the surface; the pick
     always passed the surface depth."""
-    from warlock.studio.modes.clay.ui import _view_pick
+    from realmspinner.studio.modes.clay.ui import _view_pick
 
     source = inspect.getsource(_view_pick)
     assert 'xray = getattr(self, "xray", False)' in source
@@ -61,7 +61,7 @@ def test_xray_picks_through_the_surface():
 
 
 def test_the_shortcut_sheet_lists_the_sirens_clipboard():
-    from warlock.studio.shortcuts import shortcut_sections
+    from realmspinner.studio.shortcuts import shortcut_sections
 
     sections = dict(shortcut_sections())
     keys = " ".join(key for key, _what in sections["Sirens"])
@@ -122,7 +122,7 @@ def test_no_document_miscounts_the_workspaces():
     ``len(modes.KEYS) == 11`` was deleted: a literal in a guard is a second
     place to update, and the update is exactly what gets forgotten.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     group = modes.RAIL_GROUPS[modes.RAIL_GROUP_LABELS.index("Workspaces")]
     offenders = []
@@ -158,7 +158,7 @@ def test_no_document_still_describes_the_deleted_profiles_feature():
 
 
 def test_json_number_keeps_a_stored_zero():
-    from warlock.studio.modes.plotter.engine.props import json_number
+    from realmspinner.studio.modes.plotter.engine.props import json_number
 
     assert json_number({"probability": 0}, "probability", 1.0) == 0.0
     assert json_number({"opacity": None}, "opacity", 1.0) == 1.0
@@ -170,7 +170,7 @@ def test_a_tmj_keeps_a_stored_zero_opacity_and_origin():
     an invisible layer drew, and an object at the origin moved."""
     import json
 
-    from warlock.studio.modes.plotter.engine import tmx
+    from realmspinner.studio.modes.plotter.engine import tmx
 
     payload = {
         "type": "map",
@@ -219,7 +219,7 @@ def test_a_tmj_keeps_a_stored_zero_opacity_and_origin():
 def _sirens():
     from modes.sirens.test_sirens_mode import FakeCtx, _tab
 
-    from warlock.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -230,9 +230,9 @@ def _sirens():
 
 
 def test_a_typed_note_and_its_instrument_are_one_undo_step():
-    from warlock.studio.modes.sirens import mode as sirens_mode
-    from warlock.studio.modes.sirens.engine import document as D
-    from warlock.studio.modes.sirens.engine import notes
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio.modes.sirens.engine import document as D
+    from realmspinner.studio.modes.sirens.engine import notes
 
     ctx, tab, state, pattern = _sirens()
     state.instrument = 0
@@ -247,9 +247,9 @@ def test_a_typed_note_and_its_instrument_are_one_undo_step():
 
 
 def test_a_two_digit_hex_entry_is_one_undo_step():
-    from warlock.studio.modes.sirens import mode as sirens_mode
-    from warlock.studio.modes.sirens.engine import document as D
-    from warlock.studio.modes.sirens.engine import notes
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio.modes.sirens.engine import document as D
+    from realmspinner.studio.modes.sirens.engine import notes
 
     ctx, tab, state, pattern = _sirens()
     sirens_mode.set_caret(ctx, column=D.PARAM)
@@ -263,7 +263,7 @@ def test_a_two_digit_hex_entry_is_one_undo_step():
 
 
 def test_shift_up_at_row_zero_does_not_wrap():
-    from warlock.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
 
     ctx, tab, state, pattern = _sirens()
     sirens_mode.move_caret(ctx, drow=-1, select=True)
@@ -273,8 +273,8 @@ def test_shift_up_at_row_zero_does_not_wrap():
 
 
 def test_a_paste_ends_the_nibble_being_typed():
-    from warlock.studio.modes.sirens import mode as sirens_mode
-    from warlock.studio.modes.sirens.engine import document as D
+    from realmspinner.studio.modes.sirens import mode as sirens_mode
+    from realmspinner.studio.modes.sirens.engine import document as D
 
     ctx, tab, state, pattern = _sirens()
     sirens_mode.set_caret(ctx, column=D.PARAM)
@@ -289,8 +289,8 @@ def test_a_paste_ends_the_nibble_being_typed():
 
 
 def test_a_row_still_checking_is_not_ready():
-    from warlock.doctor import Check
-    from warlock.studio.panes import first_run
+    from realmspinner.doctor import Check
+    from realmspinner.studio.panes import first_run
 
     pending = Check("CUDA", True, "still checking in the background", False)
     assert first_run._settled(pending) is False
@@ -302,7 +302,7 @@ def test_a_row_still_checking_is_not_ready():
 
 
 def test_the_size_three_pixel_nib_is_a_plus():
-    from warlock.kernels.pixel import brush
+    from realmspinner.kernels.pixel import brush
 
     assert brush.make_stamp(3, 1.0, "pixel").astype(int).tolist() == [
         [0, 1, 0],
@@ -331,9 +331,9 @@ def test_promote_to_models_mismatched_cutout_refusal_carries_the_same_field_as_i
     same user-facing situation rang a control for two of the three refusals
     and reached the UI as a bare toast for the one checked first.
     """
-    from warlock.service import jobs as svc_jobs
-    from warlock.service import matte as svc_matte
-    from warlock.service.errors import Invalid
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.service import matte as svc_matte
+    from realmspinner.service.errors import Invalid
 
     a = svc_jobs.import_reference(svc, _flat_png(), name="a")["id"]
     b = svc_jobs.import_reference(svc, _flat_png((90, 20, 20)), name="b")["id"]

@@ -29,10 +29,10 @@ from typing import Any
 
 import pytest
 
-from warlock.kernels.mesh import readiness
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay import ops as clay_ops
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.kernels.mesh import readiness
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay import ops as clay_ops
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
 # --- a ctx double, the same minimal shape test_agent_clay.py's own _Ctx is --
 
@@ -212,7 +212,7 @@ def test_decimate_runs_its_gltfpack_subprocess_inline_as_one_undo_step(
     ``isError`` one: a per-object refusal inside ``clay_ops.run`` still
     answers a successful-looking ``clay_op`` reply with ``ran: false``).
     """
-    from warlock.pipelines import optimize as pipe_optimize
+    from realmspinner.pipelines import optimize as pipe_optimize
 
     calls: list[dict[str, Any]] = []
 

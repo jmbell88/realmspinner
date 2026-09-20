@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import vram
-from warlock.service.errors import NotFound
+from realmspinner import vram
+from realmspinner.service.errors import NotFound
 
 # --- P120: hole_worst is inverted, and nothing may imply otherwise ----------
 
@@ -29,7 +29,7 @@ def test_no_reader_paints_a_low_hole_fraction_green():
     """
     import inspect
 
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     source = inspect.getsource(widgets.quality_badge)
     audit_half = source.split('audit = params.get("mesh_audit")', 1)[1]
@@ -50,7 +50,7 @@ def test_the_review_line_reports_the_reading_that_exists():
     """``mesh_audit`` has no ``verdict`` key -- the worker stores worst, mean,
     faces and resolution -- so the branch that read one was dead from the day
     it was typed, exactly as ``report["verdict"]`` was in the badge."""
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     lines = review_mode.mesh_lines({"params": {"mesh_audit": {"worst": 0.0304, "mean": 0.01}}})
     assert any("3.0%" in line for line in lines)
@@ -58,7 +58,7 @@ def test_the_review_line_reports_the_reading_that_exists():
 
 
 def test_the_band_sweep_table_does_not_state_the_inverted_rule_generally(capsys):
-    from warlock import sweep as sweep_mod
+    from realmspinner import sweep as sweep_mod
 
     sweep_mod.print_table(
         [
@@ -90,7 +90,7 @@ def test_the_dispatch_refusal_offers_the_job_s_own_remedies():
     assert "close other GPU applications" in message
     assert "ControlNet" in message
     assert "IP-Adapter" in message
-    assert "WARLOCK_VRAM_EXCLUSIVE" in message
+    assert "REALMSPINNER_VRAM_EXCLUSIVE" in message
 
 
 def test_both_refusals_share_one_remedy_list():
@@ -100,7 +100,7 @@ def test_both_refusals_share_one_remedy_list():
     )
     door = vram.shortfall_message(20.0, plan, params)
     dispatch = vram.dispatch_shortfall_message(20.0, 8.0, 8.0, params, exclusive=False)
-    for remedy in ("turn off ControlNet conditioning", "WARLOCK_VRAM_EXCLUSIVE=1"):
+    for remedy in ("turn off ControlNet conditioning", "REALMSPINNER_VRAM_EXCLUSIVE=1"):
         assert remedy in door
         assert remedy in dispatch
 
@@ -111,7 +111,7 @@ def test_both_refusals_share_one_remedy_list():
 def test_the_loader_counts_images_it_could_not_use():
     """Counted per image *source*, not per material reference: ``_images``
     memoizes, so one unreadable atlas shared by six primitives is one loss."""
-    from warlock.kernels.geom3d import gltf
+    from realmspinner.kernels.geom3d import gltf
 
     reader = gltf._Reader({"images": [], "bufferViews": []}, b"")
     assert reader.skipped == 0
@@ -122,7 +122,7 @@ def test_the_loader_counts_images_it_could_not_use():
 
 
 def test_a_model_reports_its_losses():
-    from warlock.kernels.geom3d import gltf
+    from realmspinner.kernels.geom3d import gltf
 
     model = gltf.Model([], [], [], [], skipped_textures=3)
     assert model.skipped_textures == 3
@@ -131,7 +131,7 @@ def test_a_model_reports_its_losses():
 def test_a_model_defaults_to_no_losses():
     """Every existing construction site passes four arguments and must keep
     meaning "nothing was lost"."""
-    from warlock.kernels.geom3d import gltf
+    from realmspinner.kernels.geom3d import gltf
 
     assert gltf.Model([], [], [], []).skipped_textures == 0
 
@@ -140,7 +140,7 @@ def test_a_model_defaults_to_no_losses():
 
 
 def test_an_empty_file_name_is_distinguishable_from_an_unknown_one(svc):
-    from warlock.service import derive as svc_derive
+    from realmspinner.service import derive as svc_derive
 
     with pytest.raises(NotFound) as empty:
         svc_derive.get_file(svc, "0123456789ab", "")
@@ -151,7 +151,7 @@ def test_an_empty_file_name_is_distinguishable_from_an_unknown_one(svc):
 
 
 def test_an_empty_job_id_is_distinguishable_from_a_pruned_one():
-    from warlock.service.validation import check_job_id
+    from realmspinner.service.validation import check_job_id
 
     with pytest.raises(NotFound) as empty:
         check_job_id("")

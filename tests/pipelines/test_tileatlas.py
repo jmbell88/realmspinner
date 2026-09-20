@@ -28,8 +28,8 @@ import json
 import numpy as np
 import pytest
 
-from warlock.pipelines import tileatlas, tilemask, tilesheet
-from warlock.service.validation import MAX_SEED
+from realmspinner.pipelines import tileatlas, tilemask, tilesheet
+from realmspinner.service.validation import MAX_SEED
 
 
 def _blocks(width: int, height: int, block: int) -> np.ndarray:
@@ -670,5 +670,5 @@ def test_this_module_imports_no_studio_and_no_service():
     source = (
         __import__("pathlib").Path(tileatlas.__file__).read_text(encoding="utf-8")
     )
-    for banned in ("import torch", "from warlock.studio", "from ..studio", "from ..service"):
+    for banned in ("import torch", "from realmspinner.studio", "from ..studio", "from ..service"):
         assert banned not in source

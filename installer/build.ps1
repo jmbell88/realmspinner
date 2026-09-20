@@ -16,7 +16,7 @@ $BaseRequirements = Join-Path $BuildRoot "requirements-base.txt"
 $PackDir = Join-Path $BuildRoot "packs"
 $Manifest = Join-Path $PSScriptRoot "runtime-manifest.json"
 $Verifier = Join-Path $PSScriptRoot "verify_runtime.py"
-$Iss = Join-Path $PSScriptRoot "warlock.iss"
+$Iss = Join-Path $PSScriptRoot "realmspinner.iss"
 
 function Assert-LastExit([string]$What) {
     if ($LASTEXITCODE -ne 0) {
@@ -33,7 +33,7 @@ function Assert-UnderRoot([string]$Path, [string]$Parent) {
 }
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    throw "uv is required to build Warlock Studio"
+    throw "uv is required to build Realmspinner"
 }
 if (-not $Iscc) {
     $Compiler = Get-Command iscc -ErrorAction SilentlyContinue
@@ -49,10 +49,10 @@ if (-not (Test-Path -LiteralPath $Iscc -PathType Leaf)) {
 $VersionOutput = (& uv version --short | Out-String).Trim()
 Assert-LastExit "uv version"
 $Version = ($VersionOutput -split '\s+')[-1]
-$InitText = Get-Content -LiteralPath (Join-Path $Root "src\warlock\__init__.py") -Raw
+$InitText = Get-Content -LiteralPath (Join-Path $Root "src\realmspinner\__init__.py") -Raw
 $RuntimeMatch = [regex]::Match($InitText, '(?m)^__version__ = "([^"]+)"')
 if (-not $RuntimeMatch.Success -or $RuntimeMatch.Groups[1].Value -ne $Version) {
-    throw "version mismatch: uv says $Version and src\warlock\__init__.py says $($RuntimeMatch.Groups[1].Value)"
+    throw "version mismatch: uv says $Version and src\realmspinner\__init__.py says $($RuntimeMatch.Groups[1].Value)"
 }
 
 $ManagedPython = (& uv python find --managed-python --no-python-downloads --no-project 3.13 | Out-String).Trim()
@@ -103,7 +103,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $Stage "python\Lib\os.py") -PathType
 # A uv-managed CPython carries Lib\EXTERNALLY-MANAGED, and `uv pip sync` refuses
 # to install into an interpreter that declares it. The marker is a true statement
 # about uv's own copy under AppData and a false one about this staged tree, which
-# is Warlock's private application runtime and is never managed by uv again --
+# is Realmspinner's private application runtime and is never managed by uv again --
 # leaving it would also refuse anyone installing into the shipped runtime later.
 $ExternallyManaged = Join-Path $Stage "python\Lib\EXTERNALLY-MANAGED"
 if (Test-Path -LiteralPath $ExternallyManaged -PathType Leaf) {
@@ -138,7 +138,7 @@ Assert-LastExit "staged PyTorch CUDA 12.8 check"
 #   1. `scripts/make_packs.py` measures what each distribution occupies
 #      *unpacked*, and the only place that figure exists is an installed tree.
 #      Measured after the prune below there would be nothing to measure, and
-#      `warlock.packs.installed_bytes` would withhold the whole install figure
+#      `realmspinner.packs.installed_bytes` would withhold the whole install figure
 #      -- so the pane would offer a 3 GB download with nothing said about the
 #      6 GB it lands as.
 #   2. The CUDA 12.8 assertion above is what proves the wheels the packs are
@@ -200,7 +200,7 @@ foreach ($Wheel in $Bundled) {
 Write-Host "Collected $($PackManifest.wheels.Count) pack wheels, $($Bundled.Count) of them bundled"
 
 New-Item -ItemType Directory -Path (Join-Path $Stage "src") -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $Root "src\warlock") -Destination (Join-Path $Stage "src") -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $Root "src\realmspinner") -Destination (Join-Path $Stage "src") -Recurse -Force
 New-Item -ItemType Directory -Path (Join-Path $Stage "docs") -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $Root "docs\manual") -Destination (Join-Path $Stage "docs") -Recurse -Force
 New-Item -ItemType Directory -Path (Join-Path $Stage "vendor") -Force | Out-Null
@@ -212,12 +212,12 @@ New-Item -ItemType Directory -Path (Join-Path $Stage "vendor") -Force | Out-Null
 # working unchanged: `Config.resolve_trellis_exe()` falls back to this
 # `vendor\trellis` directory when it exists, which is why it is not deleted
 # here -- only left out of what gets copied into the stage.
-foreach ($RuntimeDir in @("gltfpack", "warlockc")) {
+foreach ($RuntimeDir in @("gltfpack", "realmspinnerc")) {
     Copy-Item -LiteralPath (Join-Path $Root "vendor\$RuntimeDir") -Destination (Join-Path $Stage "vendor") -Recurse -Force
 }
 # LICENSE and THIRD-PARTY-NOTICES.md are not optional paperwork here. This
 # installer packs GPL-3.0 `bpy` and two vendored binaries -- MIT gltfpack and
-# a small MIT native kernel (`warlockc`) -- into one executable. MIT requires
+# a small MIT native kernel (`realmspinnerc`) -- into one executable. MIT requires
 # its notice to travel *with the binary*, and the GPL requires the licence to
 # reach whoever receives the program. Until 2026-08-24 the binaries were
 # copied bare and no licence text was staged at all.
@@ -227,7 +227,7 @@ foreach ($RuntimeDir in @("gltfpack", "warlockc")) {
 # installer at all, and **that makes its notice a smaller obligation rather
 # than a homeless one**. MIT and the NVIDIA EULA bind a redistributor, and
 # after 2026-09-10 this project is not one: the bytes go from trellis.cpp's
-# own GitHub release to the user, and what Warlock ships is a URL and a
+# own GitHub release to the user, and what Realmspinner ships is a URL and a
 # digest. So no notice has to travel beside the fetched DLLs, and inventing a
 # mechanism to put one there would be paperwork for an obligation nobody has.
 # THIRD-PARTY-NOTICES.md keeps the three components documented anyway, in a
@@ -241,17 +241,17 @@ foreach ($Document in @("pyproject.toml", "CHANGELOG.md", "README.md", "LICENSE"
 # terms without knowing to look at the install root.
 Copy-Item -LiteralPath (Join-Path $Root "THIRD-PARTY-NOTICES.md") -Destination (Join-Path $Stage "vendor") -Force
 
-# warlock.iss points UninstallDisplayIcon and both shortcuts at {app}\warlock.ico.
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot "warlock.ico") -Destination $Stage -Force
+# realmspinner.iss points UninstallDisplayIcon and both shortcuts at {app}\realmspinner.ico.
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "realmspinner.ico") -Destination $Stage -Force
 
 # Build caches are never an input. compileall below creates only the caches that
 # match the interpreter being shipped.
-Get-ChildItem -LiteralPath (Join-Path $Stage "src\warlock") -Directory -Filter "__pycache__" -Recurse |
+Get-ChildItem -LiteralPath (Join-Path $Stage "src\realmspinner") -Directory -Filter "__pycache__" -Recurse |
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 
 $SitePackages = Join-Path $Stage "python\Lib\site-packages"
 New-Item -ItemType Directory -Path $SitePackages -Force | Out-Null
-Set-Content -LiteralPath (Join-Path $SitePackages "warlock_app.pth") -Value "../../../src" -Encoding ascii
+Set-Content -LiteralPath (Join-Path $SitePackages "realmspinner_app.pth") -Value "../../../src" -Encoding ascii
 
 Copy-Item -LiteralPath $Manifest -Destination (Join-Path $Stage "runtime-manifest.json") -Force
 $ManifestHash = (Get-FileHash -LiteralPath $Manifest -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -260,7 +260,7 @@ $PythonVersion = (& $StagedPython -c "import platform; print(platform.python_ver
 Assert-LastExit "staged Python version"
 $InstallRecord = [ordered]@{
     schema = 1
-    product = "Warlock Studio"
+    product = "Realmspinner"
     version = $Version
     python = $PythonVersion
     runtime_manifest_sha256 = $ManifestHash
@@ -273,25 +273,25 @@ New-Item -ItemType Directory -Path (Join-Path $Stage "bin") -Force | Out-Null
 $Doctor = @'
 @echo off
 setlocal
-"%~dp0..\python\python.exe" -m warlock doctor %*
+"%~dp0..\python\python.exe" -m realmspinner doctor %*
 '@
-Set-Content -LiteralPath (Join-Path $Stage "bin\warlock-doctor.cmd") -Value $Doctor -Encoding ascii
+Set-Content -LiteralPath (Join-Path $Stage "bin\realmspinner-doctor.cmd") -Value $Doctor -Encoding ascii
 
-# An installed Warlock has no `uv` and no checkout, so 46-extending.md's
+# An installed Realmspinner has no `uv` and no checkout, so 46-extending.md's
 # `claude mcp add` command needs something an MCP client's config can point
 # at that still routes through the staged interpreter. This is deliberately
-# not a Start Menu or desktop shortcut (see [Icons] in warlock.iss): an MCP
+# not a Start Menu or desktop shortcut (see [Icons] in realmspinner.iss): an MCP
 # client spawns it as a stdio subprocess, and a person who double-clicked it
 # instead would just get a console window holding a relay that talks to
 # nothing on its own.
 $Mcp = @'
 @echo off
 setlocal
-"%~dp0..\python\python.exe" -m warlock mcp %*
+"%~dp0..\python\python.exe" -m realmspinner mcp %*
 '@
-Set-Content -LiteralPath (Join-Path $Stage "bin\warlock-mcp.cmd") -Value $Mcp -Encoding ascii
+Set-Content -LiteralPath (Join-Path $Stage "bin\realmspinner-mcp.cmd") -Value $Mcp -Encoding ascii
 
-& $StagedPython -m compileall -q (Join-Path $Stage "src\warlock")
+& $StagedPython -m compileall -q (Join-Path $Stage "src\realmspinner")
 Assert-LastExit "compileall"
 & $StagedPython $Verifier --root $Stage --manifest (Join-Path $Stage "runtime-manifest.json")
 Assert-LastExit "staged runtime verification"
@@ -302,10 +302,10 @@ if (Test-Path -LiteralPath $SmokeHome) {
     Remove-Item -LiteralPath $SmokeHome -Recurse -Force
 }
 New-Item -ItemType Directory -Path $SmokeHome -Force | Out-Null
-$PreviousWarlockHome = $env:WARLOCK_HOME
+$PreviousRealmspinnerHome = $env:REALMSPINNER_HOME
 try {
-    $env:WARLOCK_HOME = $SmokeHome
-    $DoctorOutput = (& $StagedPython -m warlock doctor 2>&1 | Out-String)
+    $env:REALMSPINNER_HOME = $SmokeHome
+    $DoctorOutput = (& $StagedPython -m realmspinner doctor 2>&1 | Out-String)
     $DoctorExit = $LASTEXITCODE
     # Exit 0, and that is the assertion. A stage with no model weights and no
     # engine is a *healthy* install -- weights and the engine are all
@@ -328,18 +328,18 @@ try {
             throw "staged doctor output did not mention $Expected"
         }
     }
-    & $StagedPython -c "import warlock.studio.main"
-    Assert-LastExit "staged Studio import"
+    & $StagedPython -c "import realmspinner.studio.main"
+    Assert-LastExit "staged Realmspinner import"
     # The packs, read back through the app's own reader in the runtime that
-    # will read them. A manifest `warlock.packs` refuses is not a pack, and an
+    # will read them. A manifest `realmspinner.packs` refuses is not a pack, and an
     # installer that shipped one would offer three rows that all refuse on
     # click -- with the three modes they unlock unreachable from a build that
     # deliberately no longer carries their dependencies.
     # A *literal* here-string: everything inside is Python, and `$pack.key`
     # in an interpolating one would be expanded by PowerShell into nothing.
     $PackCheck = @'
-from warlock import packs
-from warlock.service import packs as service_packs
+from realmspinner import packs
+from realmspinner.service import packs as service_packs
 
 manifest = packs.load_manifest(service_packs.manifest_path())
 for pack in packs.PACKS:
@@ -362,11 +362,11 @@ for pack in packs.PACKS:
     Write-Host $PackOutput
 }
 finally {
-    if ($null -eq $PreviousWarlockHome) {
-        Remove-Item Env:WARLOCK_HOME -ErrorAction SilentlyContinue
+    if ($null -eq $PreviousRealmspinnerHome) {
+        Remove-Item Env:REALMSPINNER_HOME -ErrorAction SilentlyContinue
     }
     else {
-        $env:WARLOCK_HOME = $PreviousWarlockHome
+        $env:REALMSPINNER_HOME = $PreviousRealmspinnerHome
     }
 }
 
@@ -374,4 +374,4 @@ New-Item -ItemType Directory -Path (Join-Path $Root "dist") -Force | Out-Null
 & $Iscc "/DAppVersion=$Version" "/DStageDir=$Stage" $Iss
 Assert-LastExit "Inno Setup"
 
-Write-Host "Built dist\WarlockSetup-v$Version.exe"
+Write-Host "Built dist\RealmspinnerSetup-v$Version.exe"

@@ -8,13 +8,13 @@ import dataclasses
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import _doc_flourish, flourish, ora
-from warlock.kernels.pixel.flourish import bake as B
-from warlock.kernels.pixel.flourish import presets
-from warlock.kernels.pixel.flourish.bake import Bake, Facing
-from warlock.kernels.pixel.flourish.recipe import Layer as RecipeLayer
-from warlock.kernels.pixel.flourish.recipe import Phase, Recipe
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import _doc_flourish, flourish, ora
+from realmspinner.kernels.pixel.flourish import bake as B
+from realmspinner.kernels.pixel.flourish import presets
+from realmspinner.kernels.pixel.flourish.bake import Bake, Facing
+from realmspinner.kernels.pixel.flourish.recipe import Layer as RecipeLayer
+from realmspinner.kernels.pixel.flourish.recipe import Phase, Recipe
 
 _PUFF = presets.load("smoke_puff")
 
@@ -424,7 +424,7 @@ def test_opening_a_flourish_document_preserves_its_layer_uids(tmp_path):
     only proof a doc-only finding has that it once failed."""
     import inspect
 
-    from warlock.kernels.pixel.flourish import render as render_mod
+    from realmspinner.kernels.pixel.flourish import render as render_mod
 
     doc = inker.Document.blank(40, 40)
     rec = _recipe(seed=5)
@@ -456,7 +456,7 @@ def test_read_flourish_refuses_past_a_metadata_ceiling(tmp_path, monkeypatch):
     import json
     import zipfile
 
-    from warlock.kernels.pixel.flourish import recipe as flourish_recipe
+    from realmspinner.kernels.pixel.flourish import recipe as flourish_recipe
 
     doc = inker.Document.blank(40, 40)
     rec = _recipe(seed=5)
@@ -586,7 +586,7 @@ def test_an_ordinary_document_writes_no_flourish_key(tmp_path):
 
 
 def test_aseprite_keeps_the_layers_and_drops_the_recipe(tmp_path):
-    from warlock.kernels.pixel import asein, aseout
+    from realmspinner.kernels.pixel import asein, aseout
 
     doc = inker.Document.blank(32, 32)
     group = doc.insert_flourish(B.bake(_small_layer_recipe()))

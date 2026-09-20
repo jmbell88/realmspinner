@@ -1,0 +1,220 @@
+"""Sirens' right-bottom pane: where this song lives, and the undo stack.
+
+``plotter_bridge``'s shape and its reasoning: the shared document header (the
+four file verbs and the status line -- ``widgets.document_header``), the two
+history verbs, and the recent list. The File menu carries the same rows.
+
+**Export is here rather than in the transport**, next to Save and the file's
+own path, because that is what it is: the second thing this document can be
+written out as. The transport is about what you are hearing now.
+
+**The button names the folder rather than a file**, because that is what the
+picker asks for -- ``song.wav`` lands beside a ``stems/`` and an ``sfx/``
+directory, all of them derived from the ``.rsng`` and none of them named by the
+user. The panel says so before the click rather than after it.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ..... import anchors, icons, tokens, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import mode as sirens_mode
+
+#: What this pane refuses to shrink past, in design pixels: the document
+#: header's two button rows, the path and status lines, the undo/redo row, and
+#: far enough into Export to reach its primary button.
+#:
+#: ``plotter_bridge.BRIDGE_FLOOR`` and ``clay_bridge.BRIDGE_FLOOR``'s reasoning,
+#: read for a FILL slot under three SHARE panes instead of one or two: the
+#: fill's own floor is what ``layout_skeleton.heights`` reserves out of the
+#: shares above it before any of them see room, and before ``Layout.saved_share``
+#: existed at all this pane -- along with Sound effects, the SHARE pane above
+#: it -- was drawn at zero height on every launch nobody had dragged a splitter
+#: on (the 0.0.39 ``dev/screenshots/dark-sirens.png``, before that release's own
+#: fix refreshed it: a 15 px sliver of "Song file" and
+#: nothing more). The wrapped export summary, the Compose-in-Muse button and
+#: the Closeness slider under it, all below the Export button, are past this floor and
+#: scroll rather than being counted in it, the way ``layout.pane`` lets any
+#: pane's tail do.
+BRIDGE_FLOOR = 190.0
+
+#: The one sentence both ``*_reason`` functions below share for "busy" -- one
+#: string rather than two copies drifting apart.
+_BUSY_WHY = "This song is being written; the button comes back when it lands."
+
+
+def export_reason(ready: bool, busy: bool) -> str:
+    """"Export audio..."'s disabled reason, in priority order. -> "" when the
+    button should be enabled.
+
+    Pulled out pure for the 2026-09-11 audit's finding sirens-04: this pane
+    picked its ``reason=`` with an inline ternary keyed only on ``ready``
+    (``"busy" if ready else "nothing to export"``), which read right for
+    today's two buttons only because disabling the button ever required
+    ``not ready or busy`` and ``ready`` happened to settle which of those two
+    was true -- the exact fragile, untested shape that produced findings
+    sirens-03/04/05 (2026-09-07, in ``pattern_room``,
+    ``sirens_instruments.instrument_room``, ``sirens_effects.delete_reason``,
+    ``sirens_instruments.sample_delete_reason``) and again
+    ``sirens_orders.add_to_order_reason`` (2026-09-08), whose own docstring
+    names an inline ternary with untested priority among competing disabled
+    causes as precisely what produced those.
+    """
+    if not ready:
+        return "There is nothing in the order list to export yet."
+    if busy:
+        return _BUSY_WHY
+    return ""
+
+
+def compose_reason(has_order: bool, busy: bool) -> str:
+    """"Compose in Muse..."'s disabled reason, in priority order. -> "" when
+    the button should be enabled. Same reasoning as :func:`export_reason`.
+    """
+    if not has_order:
+        return "There is nothing in the order list to compose from."
+    if busy:
+        return _BUSY_WHY
+    return ""
+
+
+def draw(ctx: Any) -> None:
+    from imgui_bundle import imgui
+
+    anchors.mark_window("sirens/bridge")
+    state = sirens_mode.ensure(ctx)
+    tab = state.active
+    widgets.section("Song file")
+    manual_render.help_button(ctx, "sirens-bridge")
+
+    if tab is None:
+        # The recent list and nothing else -- the grid's empty state already
+        # carries the New/Open pair and the same sentence twice on one screen
+        # reads as two problems.
+        _recent(ctx)
+        return
+
+    # The shared header: the four file verbs and the one-sentence status
+    # ladder, the same in every document mode (2026-09-05). The File menu
+    # keeps its rows; these are the same functions a second way.
+    widgets.document_header(
+        tab,
+        new=lambda: sirens_mode.new_document(ctx),
+        open_=lambda: sirens_mode.ask_open(ctx),
+        save=lambda: sirens_mode.save(ctx, tab),
+        save_as=lambda: sirens_mode.save_as(ctx, tab),
+    )
+
+    imgui.dummy((0, sp(tokens.SP_2)))
+    _history(ctx, tab)
+    imgui.dummy((0, sp(tokens.SP_2)))
+    widgets.section("Export")
+    _export(ctx, tab)
+    _recent(ctx)
+
+
+def _export(ctx: Any, tab: Any) -> None:
+    """The audio, out. One button and one sentence about what it writes.
+
+    Enabled on a document with *something* to render -- an order list or a
+    sound effect -- rather than always, because a brand-new song would otherwise
+    open a folder picker and then write a folder of empty WAVs.
+    ``sirens_io.export_files`` refuses the same case; this is the same refusal
+    said before the click instead of after it.
+    """
+    from imgui_bundle import imgui
+
+    doc = tab.doc
+    ready = bool(doc.order or doc.oneshots)
+    if widgets.primary_button(
+        f"{icons.DOWNLOAD} Export audio...",
+        (-1, 0),
+        enabled=ready and not tab.busy,
+        reason=export_reason(ready, tab.busy),
+        tooltip="Ctrl+Shift+E",
+    ):
+        sirens_mode.export_files(ctx, tab)
+    counts = [f"{len(doc.channels)} stem(s)"]
+    if doc.oneshots:
+        counts.append(f"{len(doc.oneshots)} effect(s)")
+    imgui.dummy((0, sp(tokens.SP_1)))
+    widgets.muted_wrapped(
+        f"Into a folder you pick: {sirens_mode.SONG_NAME}, then"
+        f" {sirens_mode.STEM_DIR}/ and {sirens_mode.SFX_DIR}/ -- "
+        + " and ".join(counts)
+        + ". The .rsng is the composition; every WAV is derived from it."
+    )
+    # The reverse bridge, under the heading every workspace's in-app exits
+    # share: a folder is an export, the other audio mode is a move inside the
+    # app. ``muse_mode.open_in_sirens`` is the leg the manual already
+    # documented; this is the one it called deliberately unbuilt.
+    widgets.exits()
+    if widgets.disabled_button(
+        f"{icons.MUSIC} Compose in Muse...",
+        bool(doc.order) and not tab.busy,
+        (-1, 0),
+        reason=compose_reason(bool(doc.order), tab.busy),
+        tooltip=(
+            "Render this song and hand it to the music model as a reference. "
+            "Your loop points travel with it."
+        ),
+    ):
+        from ....muse import mode as muse_mode
+
+        muse_mode.compose_from_sirens(ctx, tab)
+    # Under the button it governs: until the 2026-09-18 audit (finding
+    # sirens-03) it was drawn under Export audio, which it has no effect on.
+    _closeness(ctx)
+
+
+def _history(ctx: Any, tab: Any) -> None:
+    """Undo and Redo, on screen.
+
+    ``sirens_mode.undo``/``redo`` rather than ``tab.doc.undo()``, so the button
+    and the chord carry the same side effects -- the caret clamp and the
+    re-render, both of which belong to *undoing* rather than to the keyboard.
+    """
+    widgets.history_block(
+        ctx,
+        tab,
+        key="sirens",
+        undo=lambda: sirens_mode.undo(ctx, tab),
+        redo=lambda: sirens_mode.redo(ctx, tab),
+        step=lambda index: sirens_mode.step_history(ctx, tab, index),
+    )
+
+
+def _recent(ctx: Any) -> None:
+    from pathlib import Path
+
+    widgets.recent_files(
+        sirens_mode.recent_paths(ctx),
+        lambda path: sirens_mode.open_path(ctx, Path(path)),
+    )
+
+
+def _closeness(ctx: Any) -> None:
+    """*Closeness*, beside the button it governs (W1, 2026-09-05).
+
+    The same knob the derive door draws as *Closeness* on a take, and drawn
+    from the same table so there is one label, one range and one hint rather
+    than a second set that agrees today. It is here rather than in Muse's brief
+    because it is a property of *this hand-off*: how near the model stays to
+    the song being handed over says nothing about a brief generated from
+    scratch, whose Generate ignores it entirely.
+
+    Before this, the door wrote a hard-coded 0.5 and the manual sent the reader
+    to *Make more -> Something like this* to adjust it -- a control on a
+    different job, which is a documentation bug whether or not this ships.
+    """
+    from ....muse import mode as muse_mode
+    from ....muse.ui.panes.results import DERIVE_FIELDS
+
+    label, low, high, hint = DERIVE_FIELDS["ref_audio_strength"]
+    state = muse_mode.ensure(ctx)
+    _, state.compose_strength = widgets.labeled_slider_float(
+        label, float(state.compose_strength), low, high, help_text=hint
+    )

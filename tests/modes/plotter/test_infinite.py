@@ -7,7 +7,7 @@ the statements worth making are that a true coordinate survives every hop, that
 growth is one undoable step, and that the two shapes agree at the seam.
 
 The corpus gate (``test_fixture_corpus``) already reads ``infinite-112`` through
-both readers, both writers and ``.wmap``; what is here is the behaviour a
+both readers, both writers and ``.rmap``; what is here is the behaviour a
 fixture cannot state.
 """
 
@@ -22,10 +22,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid as gidlib
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter.engine import tilemap, tmx, tools, wmap
-from warlock.studio.modes.plotter.engine.tilemap import new_uid
+from realmspinner.kernels.grid2d import gid as gidlib
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter.engine import rmap, tilemap, tmx, tools
+from realmspinner.studio.modes.plotter.engine.tilemap import new_uid
 
 
 def _pixels() -> np.ndarray:
@@ -200,7 +200,7 @@ def test_resize_closes_an_open_object_edit_session_before_shifting_it():
 def test_an_object_position_converts_at_the_tiled_door_and_nowhere_else():
     """A file gives object positions in *true* pixels, which is the space its
     chunk coordinates are in. Converting at the codec is what lets both
-    renderers, every tool and ``.wmap`` stay window-relative and unaware."""
+    renderers, every tool and ``.rmap`` stay window-relative and unaware."""
     doc = tmx.read_tmx(
         (_FIXTURES / "infinite-112.tmx").read_bytes(), **_corpus_loaders()
     )
@@ -404,20 +404,20 @@ def test_our_own_export_reads_back_with_its_cells_where_they_were():
     assert (column + back.origin_x, row + back.origin_y) == (1, 1)
 
 
-def test_wmap_stores_the_origin_and_gates_the_version():
+def test_rmap_stores_the_origin_and_gates_the_version():
     """The reserved key activating exactly as reserved -- and the gate, because
     an old reader that ignored ``origin`` would open the map with every cell at
     a different true coordinate."""
     doc = _doc()
     doc.grow_to_hold(-5, -6, 0, 0)
-    manifest = json.loads(wmap.manifest_json(doc))
+    manifest = json.loads(rmap.manifest_json(doc))
     assert manifest["infinite"] is True
     assert manifest["origin"] == [-5, -6]
     # ``INFINITE_VERSION`` rather than ``VERSION``: 10 stopped being the
     # ceiling when named stamps took 11, and a test that equated the two
     # would start asserting that an infinite map carries a stamp.
-    assert manifest["version"] == wmap.INFINITE_VERSION
-    back = wmap.read_wmap(wmap.wmap_bytes(doc))
+    assert manifest["version"] == rmap.INFINITE_VERSION
+    back = rmap.read_rmap(rmap.rmap_bytes(doc))
     assert (back.origin_x, back.origin_y) == (-5, -6)
 
 

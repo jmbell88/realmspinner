@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import regen, shading
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import regen, shading
 
 
 def test_a_rebuild_that_keeps_its_face_count_keeps_the_per_face_material() -> None:

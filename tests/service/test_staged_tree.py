@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock.service import export as svc_export
-from warlock.service.errors import Invalid
+from realmspinner.service import export as svc_export
+from realmspinner.service.errors import Invalid
 
 
 def _leftover_dirs(dest_root: Path) -> list[Path]:

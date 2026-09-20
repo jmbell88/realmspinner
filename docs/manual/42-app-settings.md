@@ -42,7 +42,7 @@ of the renderer rather than of the palette, and making it follow the theme means
 into the render-skip key so a theme switch triggers a redraw. It is a known gap, deliberately left
 open. *Show frame rate* is the same toggle as `F10`.
 
-*Startup* chooses which screen opens when you launch Warlock. **Home** is the default and unchanged
+*Startup* chooses which screen opens when you launch Realmspinner. **Home** is the default and unchanged
 from every earlier build — a fresh install, or a settings file written before this setting existed,
 opens on Home exactly as it always has. **Last workspace** reopens whatever mode you were last in,
 whatever that was — a workspace, the Library, even Settings itself. If that mode needs model weights
@@ -113,7 +113,7 @@ last model using it does. A recipe with no files of its own — *SDXL 1.0 (full 
 case — has nothing to remove and shows no button at all.
 
 Removal asks first, and refuses in three cases rather than doing something surprising. It will not
-run while any job is queued or running. It will not touch a directory `WARLOCK_T2I_DIR` points at:
+run while any job is queued or running. It will not touch a directory `REALMSPINNER_T2I_DIR` points at:
 that is a folder you pointed the app at, not one it downloaded. And it never deletes anything
 outside the model root. Removing the *default* base model **is** allowed, and the consequence is
 that generation refuses every job that does not name another model until you reinstall one or pick a
@@ -136,7 +136,7 @@ this list.
 
 The engine is the one row that does not come from Hugging Face — it is a single archive published by
 trellis.cpp, so the app checks it against a fingerprint rather than a version number, unpacks it, and
-puts it under your Warlock home. It needs an NVIDIA card; there is no version that runs on the
+puts it under your Realmspinner home. It needs an NVIDIA card; there is no version that runs on the
 processor. **Create stays greyed on the rail until both rows are present**, and clicking it brings
 you here with them already ticked.
 
@@ -149,7 +149,7 @@ buttons, one list.
 model site — and asks for the four things the picker and the loader read: a name, the trigger
 words it was trained with, its working weight, and which family it fits (SDXL or FLUX.2 klein; an
 adapter never loads onto the other). Tick *Licensed for commercial use* only if you know that it
-is; the picker shows the answer beside the style. The file is copied under `~/.warlock/models/
+is; the picker shows the answer beside the style. The file is copied under `~/.realmspinner/models/
 loras/` and appears in every LoRA picker immediately.
 
 **Train from a folder...** trains one here, on your card, from your own art. Point it at a folder
@@ -194,7 +194,7 @@ arrive here, chosen:
 | **Music generation** | Muse, and stem separation |
 
 Each row says what the pack is for, which workspaces it unlocks, and what it costs — in two figures,
-because they land in two places: the download goes to a wheel cache under `~/.warlock/packs`, and
+because they land in two places: the download goes to a wheel cache under `~/.realmspinner/packs`, and
 the unpacked packages go into the app's own runtime, which on a per-user install is often another
 drive. Both are checked for free space before anything starts, and the whole pack is refused if
 either will not hold it.
@@ -228,7 +228,7 @@ row prints the `uv sync --extra ...` line that does the same job. See
 
 ## Updates
 
-Warlock does not check for a new version unless you ask it to. **Check for Updates** is the only
+Realmspinner does not check for a new version unless you ask it to. **Check for Updates** is the only
 always-on trigger, and the switch below it — **Check for updates on startup**, off until you turn it
 on — is the only way anything happens without a click. Everything else on this page stays dark on a
 machine that never presses either.
@@ -241,11 +241,11 @@ work is generated changes.
 If there is a newer version, the page names it and offers three things: **Release notes**, which
 opens the release page in your browser; **Download Update**, with the installer's size on the
 button; and, once that has finished, **Run Installer** and **Show in Folder**. The download goes
-into `updates` under your Warlock home — beside the [pack cache](#packs), and it survives closing
+into `updates` under your Realmspinner home — beside the [pack cache](#packs), and it survives closing
 the app, so an installer you downloaded last night is still there this morning. **Cancel** is safe
 at any point during it: nothing exists until the whole file has arrived and been checked.
 
-**Warlock never runs the installer for you, and that is deliberate.** What it does instead is prove
+**Realmspinner never runs the installer for you, and that is deliberate.** What it does instead is prove
 the file: the release publishes the installer's SHA-256, and the download is checked against it
 before it is given a name you can double-click. A file that does not match is deleted rather than
 offered. The page will not say "Update ready" about a file it has not just re-checked, so an
@@ -307,7 +307,7 @@ checks are otherwise only recomputed at launch. **Troubleshooting** opens
 [Troubleshooting](43-troubleshooting.md), which is where a check that keeps failing after its remedy
 is covered.
 
-Below them, the summary line and every check `warlock doctor` runs, as a table: a coloured glyph, the
+Below them, the summary line and every check `realmspinner doctor` runs, as a table: a coloured glyph, the
 check's name, and the one line of detail saying what it found. Green is passing, amber is a warning,
 red is fatal. The line above the table counts the failures, which is the same number Home's health
 row shows — clicking that row opens this page.
@@ -351,30 +351,30 @@ pane is always listed here with one click to bring it back. This section is on t
 specifically because Settings itself never changes shape with the layout, so it is reachable even
 when a saved layout has gone wrong.
 
-**AI agents.** *Allow AI agents to drive the Studio* lets a program that speaks the Model Context
+**AI agents.** *Allow AI agents to drive Realmspinner* lets a program that speaks the Model Context
 Protocol build in Clay for you, and take a character from a species name to a rigged, animated
 sprite sheet on its own. It is off on a fresh install and nothing listens until you switch it
-on. Doing so writes a key into `mcp.token` in your Warlock home and opens a local named pipe: there
-is no port, no firewall prompt, and nothing off your machine can reach it. Warlock runs exactly one
+on. Doing so writes a key into `mcp.token` in your Realmspinner home and opens a local named pipe: there
+is no port, no firewall prompt, and nothing off your machine can reach it. Realmspinner runs exactly one
 language model of its own, Familiar, on this computer only, and still connects to nothing — an agent
-already running on this computer connects inward to Warlock itself, never to Familiar and never the
+already running on this computer connects inward to Realmspinner itself, never to Familiar and never the
 other way round. While one is attached the menu bar's status group
 says so. What it may touch is a two-part
 rule: in Clay it works in a tab it opens for itself and cannot address any other document, so
 nothing you have open is at risk; against your character Library it may read any row but can only
 add to it — a new mesh, rig or sprite sheet, or a copy in your export folder — never rewrite,
 re-rig, delete or rerun one, and it can cancel only the jobs it started itself. See
-[Extending Warlock Studio](46-extending.md#driving-warlock-from-an-ai-agent) for the tools it is
+[Extending Realmspinner](46-extending.md#driving-realmspinner-from-an-ai-agent) for the tools it is
 given and how to point one at the app.
 
 **Configuration.** *Effective configuration* lists every environment variable the app reads and what
 this process resolved it to, with the ones actually set by the environment first and named by their
-variable. It is the same table `warlock doctor` prints, and *Copy as text* puts it on the clipboard
+variable. It is the same table `realmspinner doctor` prints, and *Copy as text* puts it on the clipboard
 for a bug report. It is read-only:
 every entry is consumed at import time, so an editable version would have to say "restart to apply"
 under every field.
 
-**If Warlock crashes**, it says so on the way out rather than simply vanishing: a small dialog
+**If Realmspinner crashes**, it says so on the way out rather than simply vanishing: a small dialog
 reports that something went wrong, tells you whether there is unsaved work waiting to be offered
 back on the next launch, and asks whether to open the folder your log is in. Answering no costs
 nothing — the log is written either way, and the recovery offer does not depend on it.

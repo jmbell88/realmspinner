@@ -26,11 +26,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock import guidance, models
-from warlock.config import get_config
-from warlock.pipelines import tilesheet
-from warlock.pipelines.conditioning import Conditioning
-from warlock.pipelines.text2image import Text2Image
+from realmspinner import guidance, models
+from realmspinner.config import get_config
+from realmspinner.pipelines import tilesheet
+from realmspinner.pipelines.conditioning import Conditioning
+from realmspinner.pipelines.text2image import Text2Image
 
 pytestmark = pytest.mark.gpu
 
@@ -64,7 +64,7 @@ def sheet(pipe, tmp_path_factory):
     the sheet is one artifact, and a test that generated its own would be
     measuring a different roll of the same dice.
     """
-    from warlock import fetch
+    from realmspinner import fetch
 
     canny = models.CONTROLNETS["canny"]
     if not fetch.present(get_config(), "control", canny):

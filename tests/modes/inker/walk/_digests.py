@@ -16,7 +16,7 @@ def main() -> int:
     # The same two functions the test uses, imported from it so they cannot drift.
     from test_walk_render import _composites, _digest  # noqa: PLC0415
 
-    from warlock.kernels.pixel import walk  # noqa: PLC0415
+    from realmspinner.kernels.pixel import walk  # noqa: PLC0415
 
     got = {"figure": _digest(_composites())}
     out = HERE / "digests.json"

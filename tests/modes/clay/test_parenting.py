@@ -5,7 +5,7 @@ A document with no parenting must behave exactly as it did before this
 tranche: that is the backstop every test in the first section pins. The rest
 exercise the actual feature -- world placement kept across a reparent or a
 deleted parent, the cycle refusal, three levels of composition, and the real
-glTF hierarchy :func:`~warlock.kernels.mesh.document.to_model` now emits.
+glTF hierarchy :func:`~realmspinner.kernels.mesh.document.to_model` now emits.
 """
 
 from __future__ import annotations
@@ -13,13 +13,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import glbwrite, gltf
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import modifiers as mod
-from warlock.kernels.mesh import ops_boolean
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.geom3d import glbwrite, gltf
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import modifiers as mod
+from realmspinner.kernels.mesh import ops_boolean
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.elements import OpError
 
 
 def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
@@ -45,7 +45,7 @@ def test_roots_of_an_unparented_document_is_every_object() -> None:
 
 
 def test_world_matrix_of_a_root_is_its_own_local_trs() -> None:
-    from warlock.kernels.geom3d import math3d as m3
+    from realmspinner.kernels.geom3d import math3d as m3
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A", translation=(1.0, 2.0, 3.0), scale=(2.0, 2.0, 2.0)))
@@ -338,7 +338,7 @@ def test_export_hierarchy_round_trips_through_glbwrite_and_gltf() -> None:
     doc.set_parent(b.uid, a.uid, keep_world=False)
 
     glb = glbwrite.write_glb(bd.to_model(doc))
-    from warlock.kernels.geom3d import glbio
+    from realmspinner.kernels.geom3d import glbio
 
     json_doc, _bin = glbio.read_glb(glb)
     nodes = json_doc["nodes"]
@@ -473,11 +473,11 @@ def test_a_pure_ancestor_move_invalidates_a_boolean_modifiers_cache() -> None:
     )
 
 
-# --- .wblk v3: parent/locked/tags -------------------------------------------
+# --- .rblk v3: parent/locked/tags -------------------------------------------
 
 
-def test_wblk_round_trips_parent_locked_and_tags() -> None:
-    from warlock.kernels.mesh import serialize as ser
+def test_rblk_round_trips_parent_locked_and_tags() -> None:
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A"))
@@ -485,7 +485,7 @@ def test_wblk_round_trips_parent_locked_and_tags() -> None:
     doc.set_parent(b.uid, a.uid)
     doc.set_props(b.uid, locked=True, tags=("Prop", "hero"))
 
-    out = ser.read_wblk(ser.wblk_bytes(doc))
+    out = ser.read_rblk(ser.rblk_bytes(doc))
     restored = out.by_uid(b.uid)
     assert restored.parent == a.uid
     assert restored.locked is True
@@ -493,21 +493,21 @@ def test_wblk_round_trips_parent_locked_and_tags() -> None:
     assert np.allclose(doc.world_matrix(b.uid), out.world_matrix(b.uid))
 
 
-def test_wblk_round_trips_a_colliders_parent_alongside_its_role() -> None:
+def test_rblk_round_trips_a_colliders_parent_alongside_its_role() -> None:
     """Tranche 7: ``ClayDoc.add_collider`` parents the collider onto its
     source (see that method's own docstring) -- this is the one point where
     tranche 3's own hierarchy and tranche 7's role/kind fields have to agree
-    about the same object at once, which neither ``test_wblk_round_trips_
+    about the same object at once, which neither ``test_rblk_round_trips_
     parent_locked_and_tags`` above nor ``test_collider_objects.py``'s own
     role/kind-focused round trip exercises together."""
-    from warlock.kernels.mesh import colliders as cl
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import colliders as cl
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A"))
     collider = doc.add_collider(a.uid, cl.fit_box(a.mesh))
 
-    out = ser.read_wblk(ser.wblk_bytes(doc))
+    out = ser.read_rblk(ser.rblk_bytes(doc))
     restored = out.by_uid(collider.uid)
     assert restored.parent == a.uid
     assert restored.role == "collider"
@@ -518,7 +518,7 @@ def test_wblk_round_trips_a_colliders_parent_alongside_its_role() -> None:
 def test_an_object_at_every_default_writes_no_hierarchy_keys() -> None:
     import json
 
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     doc.add_object(_obj("A"))
@@ -529,26 +529,26 @@ def test_an_object_at_every_default_writes_no_hierarchy_keys() -> None:
 
 
 def test_a_document_with_parenting_is_still_byte_identical_when_repeated() -> None:
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A"))
     b = doc.add_object(_obj("B"))
     doc.set_parent(b.uid, a.uid)
     doc.set_props(b.uid, locked=True, tags=("hero",))
-    assert ser.wblk_bytes(doc) == ser.wblk_bytes(doc)
+    assert ser.rblk_bytes(doc) == ser.rblk_bytes(doc)
 
 
-def test_wblk_refuses_a_parent_naming_an_absent_uid() -> None:
+def test_rblk_refuses_a_parent_naming_an_absent_uid() -> None:
     import json
     import zipfile
     from io import BytesIO
 
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     doc.add_object(_obj("A"))
-    data = ser.wblk_bytes(doc)
+    data = ser.rblk_bytes(doc)
     out = BytesIO()
     with zipfile.ZipFile(BytesIO(data)) as src, zipfile.ZipFile(out, "w") as dst:
         for name in src.namelist():
@@ -560,21 +560,21 @@ def test_wblk_refuses_a_parent_naming_an_absent_uid() -> None:
                 dst.writestr(name, src.read(name))
 
     with pytest.raises(ValueError, match="does not carry"):
-        ser.read_wblk(out.getvalue())
+        ser.read_rblk(out.getvalue())
 
 
-def test_wblk_refuses_a_cycle_in_the_file() -> None:
+def test_rblk_refuses_a_cycle_in_the_file() -> None:
     import json
     import zipfile
     from io import BytesIO
 
-    from warlock.kernels.mesh import serialize as ser
+    from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A"))
     b = doc.add_object(_obj("B"))
     doc.set_parent(b.uid, a.uid, keep_world=False)
-    data = ser.wblk_bytes(doc)
+    data = ser.rblk_bytes(doc)
     out = BytesIO()
     with zipfile.ZipFile(BytesIO(data)) as src, zipfile.ZipFile(out, "w") as dst:
         for name in src.namelist():
@@ -591,4 +591,4 @@ def test_wblk_refuses_a_cycle_in_the_file() -> None:
                 dst.writestr(name, src.read(name))
 
     with pytest.raises(ValueError, match="cycle"):
-        ser.read_wblk(out.getvalue())
+        ser.read_rblk(out.getvalue())

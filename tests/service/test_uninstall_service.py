@@ -3,7 +3,7 @@
 Every test here runs against the ``svc`` fixture's throwaway model root, which
 ``conftest._materialize_generative_weights`` fills with empty files. Nothing in
 this file may be pointed at a real install -- the fixture pins
-``WARLOCK_T2I_ROOT`` under ``tmp_path`` for exactly that reason, and the
+``REALMSPINNER_T2I_ROOT`` under ``tmp_path`` for exactly that reason, and the
 containment rule in ``fetch.removal_plan`` is the second line of defence.
 """
 
@@ -13,10 +13,10 @@ import threading
 
 import pytest
 
-from warlock import config as config_module
-from warlock import fetch
-from warlock.service import downloads as svc_downloads
-from warlock.service.errors import Conflict, Failed, Invalid, NotFound
+from realmspinner import config as config_module
+from realmspinner import fetch
+from realmspinner.service import downloads as svc_downloads
+from realmspinner.service.errors import Conflict, Failed, Invalid, NotFound
 
 
 def _lora(svc, name: str):
@@ -92,7 +92,7 @@ def test_the_env_var_override_is_refused_with_nothing_deleted(svc, monkeypatch, 
     (elsewhere / "model_index.json").write_bytes(b"")
     monkeypatch.setattr(svc.config, "t2i_turbo_dir", elsewhere)
 
-    with pytest.raises(Invalid, match="WARLOCK_T2I_DIR"):
+    with pytest.raises(Invalid, match="REALMSPINNER_T2I_DIR"):
         svc_downloads.uninstall(svc, ["base:turbo"])
     assert elsewhere.is_dir()
 
@@ -143,7 +143,7 @@ def test_an_uninstall_waits_for_a_model_thread_rather_than_deleting_under_it(
     lease keeps it out. Here the timeout is short and the refusal is what is
     asserted; in the app the wait is generous and usually simply waits.
     """
-    from warlock import leases
+    from realmspinner import leases
 
     lora = _lora(svc, "pixel-art-xl.safetensors")
     inside = threading.Event()
@@ -285,7 +285,7 @@ def test_a_failed_multi_model_rename_rolls_the_whole_selection_back(svc, monkeyp
 def test_removing_the_default_base_model_is_allowed(svc):
     """No special case: it degrades to the friendly refusal every other missing
     checkpoint gets, and a rule the user cannot see would be worse."""
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     # Everything sharing sdxl-base-1.0, so the directory actually goes.
     svc_downloads.uninstall(

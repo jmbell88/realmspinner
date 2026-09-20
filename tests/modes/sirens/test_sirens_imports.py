@@ -34,10 +34,10 @@ from pathlib import Path
 
 from _pure_packages import dotted_root, siblings_of
 
-from warlock.studio.modes.sirens import engine as sirens
+from realmspinner.studio.modes.sirens import engine as sirens
 
 ENGINE = Path(sirens.__file__).parent
-PACKAGE = "warlock.studio.modes.sirens.engine"
+PACKAGE = "realmspinner.studio.modes.sirens.engine"
 
 #: ``audio`` is this package's own kernel (``kernels/audio/wavout.py``,
 #: extracted from ``studio/sirens/wavout.py`` in P3), not a peer engine --
@@ -47,18 +47,18 @@ SHARED_LEAVES = frozenset({"audio"})
 
 OUTWARD_IMPORTS = {
     # The shared history engine, as headless as this package is.
-    ("document.py", "warlock.core.undo"),
-    ("edits.py", "warlock.core.undo"),
-    # The two container doors. A ``.wsng`` is a zip of ``.npy`` members, which
-    # is the exact pair ``.wmap`` and ``.wblk`` already go through -- the
+    ("document.py", "realmspinner.core.undo"),
+    ("edits.py", "realmspinner.core.undo"),
+    # The two container doors. A ``.rsng`` is a zip of ``.npy`` members, which
+    # is the exact pair ``.rmap`` and ``.rblk`` already go through -- the
     # archive's directory cannot see a lie one format down inside a member.
     # P3 of dev/RESTRUCTURE.md folded both into one ``core/safeio/`` package;
-    # ``wsng.py`` reaches them through a single ``from ... import`` line, one
+    # ``rsng.py`` reaches them through a single ``from ... import`` line, one
     # outward edge rather than two.
-    ("wsng.py", "warlock.core.safeio"),
+    ("rsng.py", "realmspinner.core.safeio"),
     # This package's own writer, since P3 moved it out of ``studio/sirens/``
     # into ``kernels/audio/`` -- see the module docstring.
-    ("wsng.py", "warlock.kernels.audio"),
+    ("rsng.py", "realmspinner.kernels.audio"),
 }
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
@@ -132,14 +132,14 @@ def test_the_filter_is_not_borrowed_from_scipy():
 def test_the_engine_never_imports_the_service_layer():
     for path in _modules():
         for name in _outward(path):
-            assert "warlock.service" not in name, f"{path.name} imports {name}"
+            assert "realmspinner.service" not in name, f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_queue():
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.queue"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.queue"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_another_editor():
@@ -149,9 +149,9 @@ def test_the_engine_never_imports_another_editor():
     Derived over :func:`_pure_packages.siblings_of` rather than the
     ``("inker", "clay", "plotter", "packwright", "tilegrid")`` this used to
     hard-code: three of those five renamed or moved in P3 of
-    ``dev/RESTRUCTURE.md`` (``inker`` to ``warlock.kernels.pixel``, ``clay``
-    to ``warlock.kernels.mesh``, ``tilegrid`` to ``warlock.kernels.grid2d``),
-    and a literal ``"warlock.studio.inker"`` check bans an import string
+    ``dev/RESTRUCTURE.md`` (``inker`` to ``realmspinner.kernels.pixel``, ``clay``
+    to ``realmspinner.kernels.mesh``, ``tilegrid`` to ``realmspinner.kernels.grid2d``),
+    and a literal ``"realmspinner.studio.inker"`` check bans an import string
     nothing in the tree has written since.
     """
     for other in siblings_of("sirens", allowed=SHARED_LEAVES):
@@ -168,7 +168,7 @@ def test_the_only_outward_imports_are_the_ones_written_down():
         (path.name, name)
         for path in _modules()
         for name in _outward(path)
-        if name.split(".")[0] == "warlock"
+        if name.split(".")[0] == "realmspinner"
     }
     assert found == OUTWARD_IMPORTS
 

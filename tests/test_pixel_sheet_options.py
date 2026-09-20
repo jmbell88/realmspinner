@@ -20,14 +20,14 @@ import time
 import pytest
 from PIL import Image
 
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.kernels.rig import store as rig_store
-from warlock.pipelines import pixel, pixelize, pixelsheet
-from warlock.queue import Worker
-from warlock.service import Invalid
-from warlock.service import jobs as svc_jobs
-from warlock.service import sheets as svc_sheets
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.kernels.rig import store as rig_store
+from realmspinner.pipelines import pixel, pixelize, pixelsheet
+from realmspinner.queue import Worker
+from realmspinner.service import Invalid
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import sheets as svc_sheets
 
 RAMP = ("#101020", "#5a2878", "#c85a3c", "#f5f0d2")
 RAMP_RGB = tuple(
@@ -322,7 +322,7 @@ async def test_a_named_palette_is_the_only_colours_in_the_sheet(worker):
 @pytest.mark.asyncio
 async def test_the_recipe_records_the_options_on_the_default_path_too(worker):
     """Always recorded, on both branches: leaving the keys out when nothing was
-    asked for would make "no outline" and "an older Warlock" the same reading.
+    asked for would make "no outline" and "an older Realmspinner" the same reading.
     Additive, and it does not bump ``PIXEL_SHEET_VERSION`` -- a new optional key
     readers may ignore is not a new format, and the default bytes did not move.
     """

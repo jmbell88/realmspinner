@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
+ROOT = Path(__file__).resolve().parents[1] / "src" / "realmspinner" / "studio"
 
 # Direct writes still tolerated, per file: named debt for their own work
 # packages, each entry to be struck off as its file is routed through

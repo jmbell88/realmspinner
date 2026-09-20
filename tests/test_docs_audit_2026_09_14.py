@@ -70,7 +70,7 @@ def test_third_party_notices_names_llama_cpp_and_qwen_where_it_claims_to():
 
 
 def test_manual_says_a_prefab_instance_carries_its_own_transform_not_only_position():
-    from warlock.studio.modes.mason.engine import nodes as nd
+    from realmspinner.studio.modes.mason.engine import nodes as nd
 
     node_fields = {f.name for f in dataclasses.fields(nd.Node)}
     prefab_fields = {f.name for f in dataclasses.fields(nd.PrefabNode)}
@@ -94,7 +94,7 @@ def test_manual_says_a_prefab_instance_carries_its_own_transform_not_only_positi
 
 
 def test_manual_29_reference_layer_claim_matches_asein_visibility_behaviour():
-    asein_src = _read("src/warlock/kernels/pixel/asein.py")
+    asein_src = _read("src/realmspinner/kernels/pixel/asein.py")
     # The literal warning text asein.py emits for a reference layer -- the
     # ground truth the chapter must agree with.
     warn_match = re.search(
@@ -112,13 +112,13 @@ def test_manual_29_reference_layer_claim_matches_asein_visibility_behaviour():
 
 
 # --- shell-03: "an agent already running on this computer connects to it"
-# reads as connecting to Familiar; must be unambiguously Warlock. ----------
+# reads as connecting to Familiar; must be unambiguously Realmspinner. ----------
 
 
 def test_agent_settings_help_text_never_implies_agents_reach_familiar():
     targets = [
         "docs/manual/42-app-settings.md",
-        "src/warlock/studio/modes/settings/ui/panes/app_settings.py",
+        "src/realmspinner/studio/modes/settings/ui/panes/app_settings.py",
         "docs/manual/46-extending.md",
     ]
     # The ambiguous old sentence, verbatim, in all three places docs-03
@@ -127,8 +127,8 @@ def test_agent_settings_help_text_never_implies_agents_reach_familiar():
     for rel in targets:
         text = _read(rel)
         assert not ambiguous.search(text), f"{rel} still reads ambiguously"
-        # And the fix must say plainly that the arrow points at Warlock.
-        assert "connects inward to Warlock" in text, f"{rel} lost the fix"
+        # And the fix must say plainly that the arrow points at Realmspinner.
+        assert "connects inward to Realmspinner" in text, f"{rel} lost the fix"
 
 
 # --- shell-07: the Models overview says "every model" but omits some
@@ -136,7 +136,7 @@ def test_agent_settings_help_text_never_implies_agents_reach_familiar():
 
 
 def test_models_section_overview_names_every_fetch_group_heading():
-    from warlock import fetch
+    from realmspinner import fetch
 
     # Unique headings, in the order the pane groups rows under them --
     # derived from the same table the pane itself reads (fetch.GROUPS), so a
@@ -159,7 +159,7 @@ def test_models_section_overview_names_every_fetch_group_heading():
 
 
 def test_manual_style_lora_sdxl_only_claim_does_not_contradict_the_flux2_entry():
-    from warlock import models
+    from realmspinner import models
 
     non_sdxl = [
         lora
@@ -185,11 +185,11 @@ def test_manual_style_lora_sdxl_only_claim_does_not_contradict_the_flux2_entry()
 
 
 def test_manual_packwright_chapter_names_the_document_wide_pixel_ceiling():
-    from warlock.studio.modes.packwright.engine import wpack
+    from realmspinner.studio.modes.packwright.engine import rpack
 
-    width = int(round(wpack.MAX_DOCUMENT_PIXELS**0.5))
-    assert width * width == wpack.MAX_DOCUMENT_PIXELS
-    million = round(wpack.MAX_DOCUMENT_PIXELS / 1_000_000)
+    width = int(round(rpack.MAX_DOCUMENT_PIXELS**0.5))
+    assert width * width == rpack.MAX_DOCUMENT_PIXELS
+    million = round(rpack.MAX_DOCUMENT_PIXELS / 1_000_000)
 
     text = _read("docs/manual/33-packwright.md")
     start = text.index("## Starting an atlas")
@@ -235,7 +235,7 @@ def _combo_label(source: str, key_literal: str) -> str:
 
 
 def test_manual_12_names_the_bg_removal_control_by_its_pane_label():
-    pane_src = _read("src/warlock/studio/modes/create/ui/panes/settings_3d.py")
+    pane_src = _read("src/realmspinner/studio/modes/create/ui/panes/settings_3d.py")
     label = _combo_label(pane_src, "bg_removal")
     assert label == "Background"
 
@@ -245,7 +245,7 @@ def test_manual_12_names_the_bg_removal_control_by_its_pane_label():
 
 
 def test_manual_09_names_the_tileset_layout_combo_by_its_pane_label():
-    pane_src = _read("src/warlock/studio/modes/create/ui/panes/settings_2d.py")
+    pane_src = _read("src/realmspinner/studio/modes/create/ui/panes/settings_2d.py")
     label = _combo_label(pane_src, "mode")
     assert label == "Layout"
 
@@ -278,7 +278,7 @@ def _toolbar_control_count() -> int:
     logical control (it wraps its own one or two buttons), so it counts once
     here regardless of whether the "Reset front" button beside it is shown.
     """
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     source = inspect.getsource(overlay.toolbar)
     tree = ast.parse(source)
@@ -312,7 +312,7 @@ def test_viewport_toolbar_control_count_matches_manual_claim():
     manual_text = _read("docs/manual/24-the-3d-viewport.md")
     manual_claim = _claimed_count(manual_text, r"up to (\w+) controls")
 
-    overlay_src = _read("src/warlock/studio/panes/overlay.py")
+    overlay_src = _read("src/realmspinner/studio/panes/overlay.py")
     code_claim = _claimed_count(overlay_src, r"up to (\w+) controls")
 
     assert manual_claim == real_count, (manual_claim, real_count)
@@ -324,7 +324,7 @@ def test_viewport_toolbar_control_count_matches_manual_claim():
 
 
 def test_troupe_manual_lists_256_as_a_preset_sprite_size_not_custom_only():
-    from warlock.kernels import charsheet
+    from realmspinner.kernels import charsheet
 
     assert 256 in charsheet.SIZES
 
@@ -343,7 +343,7 @@ def test_troupe_manual_lists_256_as_a_preset_sprite_size_not_custom_only():
 
 
 def test_home_chapter_lists_tours_in_TOURS_offer_order():
-    from warlock.studio.tour import scripts
+    from realmspinner.studio.tour import scripts
 
     titles = [tour.title for tour in scripts.TOURS]
     assert len(titles) == 5

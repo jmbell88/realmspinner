@@ -21,7 +21,7 @@ from pathlib import Path
 
 from _panes import pane_files
 
-STUDIO_ROOT = Path(__file__).resolve().parents[2] / "src" / "warlock" / "studio"
+STUDIO_ROOT = Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "studio"
 
 # icons.py is the rulebook, not a pane: its own docstring is required to
 # *name* the forbidden glyphs (that is where the rule is stated, per
@@ -58,7 +58,7 @@ def test_no_icon_constant_is_an_empty_string():
     glyph-less box, and nothing short of a rendered frame notices (the GL
     smoke suite runs on imgui's default atlas, where *every* icon is a
     missing-glyph box by design)."""
-    import warlock.studio.icons as icons
+    import realmspinner.studio.icons as icons
 
     empty = [
         name
@@ -75,7 +75,7 @@ def test_link_and_unlink_are_the_lucide_link_glyphs():
     empty) say U+E108 is "link" and U+E19C is "unlink"."""
     from fontTools.ttLib import TTFont
 
-    import warlock.studio.icons as icons
+    import realmspinner.studio.icons as icons
 
     font = TTFont(str(STUDIO_ROOT / "resources" / "fonts" / "lucide.ttf"))
     cmap = font.getBestCmap()

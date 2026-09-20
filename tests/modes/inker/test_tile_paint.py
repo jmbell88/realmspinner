@@ -13,12 +13,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.core.undo import CompoundEdit
-from warlock.kernels.grid2d import gid
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.layers import Layer
-from warlock.kernels.pixel.selection import FloatingBuffer, SelectionMask
-from warlock.kernels.pixel.tiles import TilemapCel, materialize, strip
+from realmspinner.core.undo import CompoundEdit
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.layers import Layer
+from realmspinner.kernels.pixel.selection import FloatingBuffer, SelectionMask
+from realmspinner.kernels.pixel.tiles import TilemapCel, materialize, strip
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio import focus, theme, tokens, widgets
-from warlock.studio.modes.create.ui.panes import settings_2d
-from warlock.studio.state import AppState
+from realmspinner.studio import focus, theme, tokens, widgets
+from realmspinner.studio.modes.create.ui.panes import settings_2d
+from realmspinner.studio.state import AppState
 
 
 def _code(obj) -> str:
@@ -79,8 +79,8 @@ def test_the_elevation_ramp_is_three_named_steps_that_increase():
 def test_every_floating_surface_draws_the_one_shadow():
     """Three call sites, one recipe. A pane inventing its own pair of alphas is
     the state ``widgets.shadow`` was extracted to end."""
-    from warlock.studio import dialogs
-    from warlock.studio.panes import palette as palette_pane
+    from realmspinner.studio import dialogs
+    from realmspinner.studio.panes import palette as palette_pane
 
     assert "shadow(" in inspect.getsource(widgets.card)
     assert "window_shadow" in inspect.getsource(dialogs.ConfirmQueue.draw)
@@ -91,9 +91,9 @@ def test_every_floating_surface_draws_the_one_shadow():
 
 def test_workflow_modals_use_the_same_overlay_recipe():
     """Generation and document setup must not fall outside dialog chrome."""
-    from warlock.studio import dialogs
-    from warlock.studio.modes.create.ui.panes import settings_3d
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio import dialogs
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     owners = (
         dialogs.ConfirmQueue.draw,
@@ -136,7 +136,7 @@ def test_a_pane_rounds_at_its_own_radius_and_the_style_says_so():
     ``tokens.RADIUS_PANE`` for why that inversion is intended here and not a
     slip of the ordering rule the surface radius above obeys.
     """
-    from warlock.studio import surfaces, theme
+    from realmspinner.studio import surfaces, theme
 
     assert tokens.RADIUS_S < tokens.RADIUS_PANE < tokens.RADIUS_M
     assert "RADIUS_PANE" in inspect.getsource(theme.apply)
@@ -163,11 +163,11 @@ def test_no_tool_palette_hand_rolls_its_selection():
     makes "which tool is armed" a fact an audit can *see* rather than a colour
     a human has to notice in a screenshot.
     """
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
-    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
-    from warlock.studio.modes.inker.ui.panes import menu as inker_menu
-    from warlock.studio.modes.inker.ui.panes import tools as inker_tools
-    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from realmspinner.studio.modes.inker.ui.panes import menu as inker_menu
+    from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
+    from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     for module in (inker_tools, clay_tools, plotter_tools, inker_bridge, inker_menu):
         source = inspect.getsource(module)
@@ -212,8 +212,8 @@ def test_the_help_marker_and_the_manual_button_use_one_glyph():
     """They mean "there is more about this" and "there is a chapter about
     this"; drawn as three ASCII characters and a circled i, nothing about them
     said they were relatives."""
-    from warlock.studio import icons
-    from warlock.studio.manual import render as manual_render
+    from realmspinner.studio import icons
+    from realmspinner.studio.manual import render as manual_render
 
     assert "icons.INFO" in _code(widgets.help_marker)
     assert "icons.INFO" in _code(manual_render.help_button)
@@ -262,7 +262,7 @@ def test_a_new_submit_is_judged_on_its_own():
 def test_the_frame_loop_carries_the_refusals_address_to_the_state():
     """``ServiceError.field`` has been carried since the class was written and
     read by nothing. This is the one place every task failure passes through."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._collect_tasks)
     assert "note_field_error" in source
@@ -273,7 +273,7 @@ def test_the_frame_loop_carries_the_refusals_pack_too():
     the same one place every task failure passes through has to read it, or a
     pack refusal reaches the toast with no Install-the-pack button under its
     ring the way a missing-weights refusal already gets."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._collect_tasks)
     assert "done.error" in source and ".packs" in source
@@ -288,17 +288,17 @@ def test_the_service_still_names_the_controls_the_panes_ring():
     import importlib
     import pkgutil
 
-    from warlock import guidance
-    from warlock import service as svc_pkg
-    from warlock.service import jobs as svc_jobs
-    from warlock.service import validation
+    from realmspinner import guidance
+    from realmspinner import service as svc_pkg
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.service import validation
 
     # ``jobs`` is a facade over ``_jobs_*.py`` siblings, so the refusals it used
     # to raise are raised from those -- scanned here so the claim this test
     # makes about the *service* stays a claim about the service rather than
     # about one file's current contents.
     siblings = [
-        importlib.import_module(f"warlock.service.{m.name}")
+        importlib.import_module(f"realmspinner.service.{m.name}")
         for m in pkgutil.iter_modules(svc_pkg.__path__)
         if m.name.startswith("_jobs_")
     ]
@@ -311,7 +311,7 @@ def test_the_service_still_names_the_controls_the_panes_ring():
                 named.add(line.split('field="', 1)[1].split('"', 1)[0])
     panes = inspect.getsource(settings_2d) + inspect.getsource(
         __import__(
-            "warlock.studio.modes.create.ui.panes.settings_3d", fromlist=["settings_3d"]
+            "realmspinner.studio.modes.create.ui.panes.settings_3d", fromlist=["settings_3d"]
         )
     )
     for key in ("prompt", "base_model", "count", "bg_removal", "profile"):
@@ -335,7 +335,7 @@ def test_the_creation_decision_is_split_between_the_bar_and_the_column():
     six sections is a second navigation inside a sidebar, and the four controls
     a common visit touches were the top and the bottom of it.
     """
-    from warlock.studio.modes.create.ui import brief as create_brief
+    from realmspinner.studio.modes.create.ui import brief as create_brief
 
     bar = inspect.getsource(create_brief)
     # ``_reset`` joined the four on 2026-09-07, when the bar absorbed the stage
@@ -425,7 +425,7 @@ def test_the_ring_is_pumped_before_the_order_is_rebuilt():
 def test_tab_is_read_from_imgui_rather_than_from_the_event_loop():
     """``App._shortcut`` is skipped entirely while a text field has the
     keyboard, and tabbing out of the prompt box is the whole job."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     assert "want_text_input" in inspect.getsource(main.App._events)
     source = inspect.getsource(focus.pump)
@@ -434,8 +434,8 @@ def test_tab_is_read_from_imgui_rather_than_from_the_event_loop():
 
 
 def test_both_generate_panes_carry_a_ring_that_ends_on_the_button():
-    from warlock.studio.modes.create.ui import brief as create_brief
-    from warlock.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.modes.create.ui import brief as create_brief
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     # Create's Generate moved to the command bar with the rest of the brief,
     # so the ring that ends on it is the bar's ring now.
@@ -457,8 +457,8 @@ def test_the_toast_vocabulary_grew_undo():
 def test_trashing_offers_the_undo_it_was_already_relying_on():
     """The card's Delete asks nothing on the grounds that the trash *is* the
     confirmation -- which was true and invisible."""
-    from warlock.studio import main
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio import main
+    from realmspinner.studio.modes.library.ui.panes import library
 
     source = inspect.getsource(library.delete_asset)
     assert '"undo"' in source
@@ -470,7 +470,7 @@ def test_trashing_offers_the_undo_it_was_already_relying_on():
 def test_the_confirms_that_stay_are_the_irreversible_ones():
     """Prune deletes from disk and empty-trash is the trash; neither has an
     undo to offer, so both keep their question."""
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     source = inspect.getsource(library)
     assert "empty_trash" in source
@@ -483,7 +483,7 @@ def test_the_confirms_that_stay_are_the_irreversible_ones():
 def test_the_mesh_resolution_control_keeps_its_real_name():
     """The 2D "detail brief" retired with the taxonomy; the 3D pane's control
     keeps the name that says what it does."""
-    from warlock.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     three_d = _code(settings_3d.draw)
     assert '"Mesh resolution"' in three_d
@@ -493,9 +493,9 @@ def test_the_mesh_resolution_control_keeps_its_real_name():
 def test_the_manual_calls_them_what_the_app_calls_them():
     from pathlib import Path
 
-    import warlock
+    import realmspinner
 
-    docs = Path(warlock.__file__).resolve().parents[2] / "docs" / "manual"
+    docs = Path(realmspinner.__file__).resolve().parents[2] / "docs" / "manual"
     if not docs.is_dir():  # a wheel install has no docs tree
         return
     body = "\n".join(p.read_text(encoding="utf-8") for p in docs.glob("*.md"))
@@ -550,7 +550,7 @@ def test_the_navigation_control_carries_navigation_and_nothing_else():
     an argument left standing with nothing pointing at its reversal is worse
     than one that fails.
     """
-    from warlock.studio import main, rail
+    from realmspinner.studio import main, rail
 
     source = inspect.getsource(rail.draw)
     assert "modes.RAIL_GROUPS" in source

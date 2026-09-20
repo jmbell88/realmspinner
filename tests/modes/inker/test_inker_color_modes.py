@@ -13,9 +13,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.kernels import pixel as inker
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
 
 BLACK = (0, 0, 0, 255)
 RED = (200, 20, 20, 255)
@@ -164,7 +164,7 @@ def test_every_foreground_assignment_in_the_studio_goes_through_set_fg():
     import ast
     from pathlib import Path
 
-    import warlock.studio as studio
+    import realmspinner.studio as studio
 
     root = Path(studio.__file__).parent
     offenders = []
@@ -198,7 +198,7 @@ def test_the_slot_reaches_the_document_before_any_branch_of_a_press():
     import inspect
     import textwrap
 
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     body = ast.parse(textwrap.dedent(inspect.getsource(inker_canvas._press))).body[0].body
     statements = [node for node in body if not isinstance(node, ast.Expr)]

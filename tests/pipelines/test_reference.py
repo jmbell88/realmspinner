@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PIL import Image, ImageDraw
 
-from warlock.pipelines import reference
+from realmspinner.pipelines import reference
 
 BG = (200, 200, 200)
 

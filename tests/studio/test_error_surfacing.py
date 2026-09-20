@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import guidance
-from warlock.service import files as svc_files
-from warlock.service.errors import Failed, Invalid, invalid_from
-from warlock.service.validation import not_done_message
+from realmspinner import guidance
+from realmspinner.service import files as svc_files
+from realmspinner.service.errors import Failed, Invalid, invalid_from
+from realmspinner.service.validation import not_done_message
 
 # --- E43 / E45: the two silent cache failures -------------------------------
 
@@ -41,7 +41,7 @@ class _Svc:
 
 
 def _cache(rows, limit):
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.studio.jobs_cache import JobsCache
 
     cache = JobsCache(_Svc(_BrokenCount(rows)), limit=limit)
     return cache
@@ -51,7 +51,7 @@ def test_a_failed_count_is_recorded_rather_than_hidden_behind_a_full_page(monkey
     """E43. The fallback ``total = len(jobs)`` is indistinguishable from "this
     *is* the whole history" on a full page, which silently retracts the only
     control that reaches anything older."""
-    from warlock.studio import jobs_cache as mod
+    from realmspinner.studio import jobs_cache as mod
 
     rows = [{"id": f"j{i}", "status": "done"} for i in range(4)]
     monkeypatch.setattr(mod.svc_jobs, "list_jobs", lambda *a, **k: rows)
@@ -63,7 +63,7 @@ def test_a_failed_count_is_recorded_rather_than_hidden_behind_a_full_page(monkey
 
 
 def test_a_recovered_count_clears_the_warning(monkeypatch):
-    from warlock.studio import jobs_cache as mod
+    from realmspinner.studio import jobs_cache as mod
 
     rows = [{"id": "j0", "status": "done"}]
     monkeypatch.setattr(mod.svc_jobs, "list_jobs", lambda *a, **k: rows)
@@ -75,7 +75,7 @@ def test_a_recovered_count_clears_the_warning(monkeypatch):
 def test_a_failed_storage_walk_says_so_and_keeps_the_last_good_figure(monkeypatch):
     """E45. Returning the previous dict is right -- a stale figure beats a
     blank one -- but on its own it presents last hour's number as current."""
-    from warlock.studio import jobs_cache as mod
+    from realmspinner.studio import jobs_cache as mod
 
     def boom(_svc):
         raise OSError("the data directory vanished")
@@ -93,7 +93,7 @@ def test_a_failed_storage_walk_says_so_and_keeps_the_last_good_figure(monkeypatc
 
 
 def test_a_picker_that_fails_to_open_raises_rather_than_looking_like_a_cancel(monkeypatch):
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     class _Boom:
         def __init__(self, *a, **k):
@@ -111,7 +111,7 @@ def test_a_picker_that_fails_to_open_raises_rather_than_looking_like_a_cancel(mo
 def test_a_cancelled_picker_is_still_plain_none(monkeypatch):
     """The other half, and the reason the raise is safe: every caller reads
     ``None`` as "the user changed their mind" and must keep doing so."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     class _Cancelled:
         def __init__(self, *a, **k):
@@ -170,7 +170,7 @@ def test_every_bounded_guidance_field_names_itself(raw, field):
 
 
 def test_the_service_wraps_rather_than_forwards_a_guidance_message(svc):
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     with pytest.raises(Invalid) as caught:
         svc_jobs.create_job(
@@ -238,7 +238,7 @@ def test_an_unreadable_upload_names_the_formats_that_would_have_worked():
 
 
 def test_a_failed_carries_the_log_action_and_an_invalid_does_not():
-    from warlock.studio.tasks import TaskRunner
+    from realmspinner.studio.tasks import TaskRunner
 
     runner = TaskRunner(workers=1)
     try:

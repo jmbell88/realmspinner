@@ -11,10 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.service.errors import Invalid, TooLarge
-from warlock.service.validation import MAX_UPLOAD_BYTES
-from warlock.studio.modes.create.ui.panes import settings_3d
-from warlock.studio.state import DEFAULT_FORM_3D
+from realmspinner.service.errors import Invalid, TooLarge
+from realmspinner.service.validation import MAX_UPLOAD_BYTES
+from realmspinner.studio.modes.create.ui.panes import settings_3d
+from realmspinner.studio.state import DEFAULT_FORM_3D
 
 
 class _Ctx:
@@ -121,7 +121,7 @@ def test_upload_kwargs_sends_custom_triangles_when_profile_is_custom(tmp_path, m
 
 class _Ctx2D:
     def __init__(self, **form) -> None:
-        from warlock.studio.state import AppState, default_form_2d
+        from realmspinner.studio.state import AppState, default_form_2d
 
         # A real ``AppState`` for the parts that are state rather than stubs:
         # ``generate`` clears the field-error rings before it submits (UX.md
@@ -152,7 +152,7 @@ class _Ctx2D:
 def test_the_reference_is_read_off_the_frame_thread(tmp_path, monkeypatch, installed_recipes):
     """Same rule as the 3D upload: picking a 20 MB reference must not freeze
     the window for as long as the disk takes."""
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     seen = {}
     monkeypatch.setattr(
@@ -173,7 +173,7 @@ def test_the_reference_is_read_off_the_frame_thread(tmp_path, monkeypatch, insta
 
 
 def test_an_unreadable_reference_becomes_a_readable_error(tmp_path, installed_recipes):
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     ctx = _Ctx2D(prompt="a barrel", ref_path=str(tmp_path / "gone.png"))
     settings_2d.generate(ctx, ctx.state.form_2d)
@@ -185,7 +185,7 @@ def test_an_unreadable_reference_becomes_a_readable_error(tmp_path, installed_re
 def test_no_reference_means_no_reference_kwarg(tmp_path, monkeypatch, installed_recipes):
     """The unconditioned submit must be exactly what it was before any of this
     existed -- create_job is never handed reference=None to interpret."""
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     seen = {}
     monkeypatch.setattr(
@@ -203,8 +203,8 @@ def test_no_reference_means_no_reference_kwarg(tmp_path, monkeypatch, installed_
 def test_a_scale_is_sent_only_with_the_selection_it_scales():
     """Mirrors lora_weight: an unused slider must not reach params as a live
     setting the next run would inherit."""
-    from warlock.studio.modes.create.engine import recipe as create_recipe
-    from warlock.studio.state import default_form_2d
+    from realmspinner.studio.modes.create.engine import recipe as create_recipe
+    from realmspinner.studio.state import default_form_2d
 
     bare = create_recipe.submit_kwargs({**default_form_2d(), "prompt": "a barrel"})
     assert bare["ip_scale"] is None
@@ -228,8 +228,8 @@ def test_validate_catches_what_a_restored_form_can_still_be():
     """ref_path is VOLATILE, so a persisted selection outlives the image that
     justified it -- and the base model can be changed after a control is
     picked."""
-    from warlock.studio.modes.create.engine import recipe as create_recipe
-    from warlock.studio.state import default_form_2d
+    from realmspinner.studio.modes.create.engine import recipe as create_recipe
+    from realmspinner.studio.state import default_form_2d
 
     orphan = {**default_form_2d(), "prompt": "a barrel", "ip_adapter": "plus"}
     assert any("reference image" in p for p in create_recipe.validate(orphan))

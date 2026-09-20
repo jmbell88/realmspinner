@@ -22,10 +22,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import menus
-from warlock.studio.modes.inker import export as inker_export
-from warlock.studio.modes.inker.ui.panes import generate as inker_generate
-from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+from realmspinner.studio import menus
+from realmspinner.studio.modes.inker import export as inker_export
+from realmspinner.studio.modes.inker.ui.panes import generate as inker_generate
+from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
 LABELS = (
     "Export sheet...",
@@ -47,7 +47,7 @@ def test_each_export_label_is_spelled_in_exactly_one_module():
     ``modes/inker/ops.py`` is the one other module allowed to hold a door's
     label, and only for the two ops that predate the doors -- which ``menus``
     then suppresses, so the File menu still spells each door once. Everything
-    else, every pane included, must ask :mod:`warlock.studio.modes.inker.export`.
+    else, every pane included, must ask :mod:`realmspinner.studio.modes.inker.export`.
 
     Owners are relative paths, not bare filenames: P5 renamed the two files
     this pins to ``export.py``/``ops.py`` inside ``modes/inker/``, and those
@@ -67,7 +67,7 @@ def test_each_export_label_is_spelled_in_exactly_one_module():
             label,
             owners,
         )
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     for name in menus.SHADOWED_BY_DOORS:
         assert inker_ops.get(name).menu == "File"
@@ -106,7 +106,7 @@ def _tab(*, busy=False, tags=(), splits=1, anim=True):
 
 @pytest.fixture
 def one_layer(monkeypatch):
-    from warlock.kernels.pixel import sheetout
+    from realmspinner.kernels.pixel import sheetout
 
     monkeypatch.setattr(sheetout, "layer_splits", lambda doc: [object()])
 

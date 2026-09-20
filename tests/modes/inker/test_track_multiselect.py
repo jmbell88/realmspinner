@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels.pixel.document import Document
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import timeline as tl
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import timeline as tl
 
 
 def _tab(tracks: int = 5) -> inker_state.InkerDoc:

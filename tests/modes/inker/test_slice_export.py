@@ -22,10 +22,10 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel.slices import SliceKey
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc, InkerState
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel.slices import SliceKey
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -68,7 +68,7 @@ def _paint(doc, rect, colour) -> None:
 
 def _saved(monkeypatch, dest) -> None:
     """Point ``dialogs.save_file`` at a fixed destination for the run closure."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: dest)
 

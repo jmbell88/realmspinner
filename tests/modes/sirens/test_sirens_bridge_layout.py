@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio.modes.sirens.ui.panes import bridge
+from realmspinner.studio.modes.sirens.ui.panes import bridge
 
 
 def test_closeness_is_drawn_under_compose_in_muse_not_under_export_audio() -> None:

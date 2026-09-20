@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import inspect
 
-from warlock import queue as queue_mod
-from warlock.kernels.rig import store
+from realmspinner import queue as queue_mod
+from realmspinner.kernels.rig import store
 
 
 def test_the_retexture_staging_file_is_cleaned_up_on_every_path():

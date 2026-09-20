@@ -2,9 +2,9 @@
 
 No such module existed before the 2026-09-07 audit's packwright-01 -- the
 document's mechanics were exercised only indirectly, through ``test_pack_meta``
-(metadata plumbing) and ``test_wpack`` (the file format). This file is where a
+(metadata plumbing) and ``test_rpack`` (the file format). This file is where a
 door on ``PackDoc`` gets a test of its own, starting with the one the audit
-found had none: the pixel ceiling ``.wpack`` enforces on the way back in but
+found had none: the pixel ceiling ``.rpack`` enforces on the way back in but
 nothing enforced on the way in.
 """
 
@@ -13,30 +13,30 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.packwright.engine.document import PackDoc
-from warlock.studio.modes.packwright.engine.sources import Sprite
+from realmspinner.studio.modes.packwright.engine.document import PackDoc
+from realmspinner.studio.modes.packwright.engine.sources import Sprite
 
 
 def test_a_document_with_a_source_past_max_source_pixels_is_refused_at_add_not_only_on_reopen(
     monkeypatch,
 ):
     """packwright-01: ``MAX_SOURCE_PIXELS`` (16,000,000) was enforced only in
-    ``read_wpack``'s ``_pixels_from`` -- ``PackDoc.add_source`` refused a
+    ``read_rpack``'s ``_pixels_from`` -- ``PackDoc.add_source`` refused a
     duplicate key and a full pack but had no pixel ceiling, and neither did
     ``replace_source``. A 4096x4096 sprite (16,777,216 pixels) was accepted
-    here, written to a ``.wpack`` by ``wpack_bytes``, and refused only when
-    Warlock tried to reopen the file it had just written -- a document
-    Warlock itself authored that Warlock itself could never read back, which
+    here, written to a ``.rpack`` by ``rpack_bytes``, and refused only when
+    Realmspinner tried to reopen the file it had just written -- a document
+    Realmspinner itself authored that Realmspinner itself could never read back, which
     breaks the reopenable-exports contract (INVARIANTS:215) with no help from
     a hand-edited file at all.
     """
-    from warlock.studio.modes.packwright.engine import wpack
+    from realmspinner.studio.modes.packwright.engine import rpack
 
     # The audit's own numbers: one hair past the real ceiling, refused right
     # here rather than written first.
     doc = PackDoc()
     huge = Sprite(key="a", name="a", pixels=np.zeros((4096, 4096, 4), dtype=np.uint8))
-    assert huge.width * huge.height > wpack.MAX_SOURCE_PIXELS
+    assert huge.width * huge.height > rpack.MAX_SOURCE_PIXELS
     with pytest.raises(ValueError, match="the atlas format's limit"):
         doc.add_source(huge)
     assert doc.sources == [], "refused at the door, not left half-added"
@@ -44,7 +44,7 @@ def test_a_document_with_a_source_past_max_source_pixels_is_refused_at_add_not_o
     # The same ceiling refuses a *replacement*, not only a fresh add --
     # exercised at a monkeypatched ceiling so this half does not also
     # allocate 64 MB to make its point.
-    monkeypatch.setattr(wpack, "MAX_SOURCE_PIXELS", 100)
+    monkeypatch.setattr(rpack, "MAX_SOURCE_PIXELS", 100)
     doc.add_source(Sprite(key="b", name="b", pixels=np.zeros((4, 4, 4), dtype=np.uint8)))
     uid = doc.sources[0].uid
     with pytest.raises(ValueError, match="the atlas format's limit is 100 pixels"):
@@ -64,9 +64,9 @@ def test_a_document_of_many_near_ceiling_sprites_is_refused_before_the_aggregate
     had no ceiling on their total at all. Exercised at a monkeypatched
     document budget so this proves refusal without allocating anywhere near
     the real one (8192 squared)."""
-    from warlock.studio.modes.packwright.engine import wpack
+    from realmspinner.studio.modes.packwright.engine import rpack
 
-    monkeypatch.setattr(wpack, "MAX_DOCUMENT_PIXELS", 100)
+    monkeypatch.setattr(rpack, "MAX_DOCUMENT_PIXELS", 100)
     doc = PackDoc()
     # Each sprite is 40 pixels, comfortably under any per-sprite ceiling; two
     # of them (80) still fit the patched document budget of 100, a third

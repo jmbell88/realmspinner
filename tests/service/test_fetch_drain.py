@@ -3,7 +3,7 @@
 Both are about a promise that is invisible while everything works: a child that
 stalls has to be killed rather than waited on forever, and a move that fails
 partway has to leave the destination as it was rather than half-populated --
-which is the state every presence probe in ``warlock.fetch`` reads as a finished
+which is the state every presence probe in ``realmspinner.fetch`` reads as a finished
 download forever.
 """
 
@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock.service import downloads
-from warlock.service.errors import Invalid
+from realmspinner.service import downloads
+from realmspinner.service.errors import Invalid
 
 # ``fetch_worker`` is imported *inside* a fixture, never at module scope, and
 # the flag is put back afterwards. Importing it sets ``HF_HUB_OFFLINE=0`` at
@@ -35,7 +35,7 @@ def fetch_worker():
     import os as _os
 
     before = _os.environ.get("HF_HUB_OFFLINE")
-    from warlock.pipelines import fetch_worker as mod
+    from realmspinner.pipelines import fetch_worker as mod
 
     if before is None:
         _os.environ.pop("HF_HUB_OFFLINE", None)
@@ -185,7 +185,7 @@ def test_a_dead_childs_stderr_still_reaches_the_refusal(tmp_path, monkeypatch):
 def test_the_fetch_child_is_tracked_under_the_fetch_prefix(tmp_path, monkeypatch):
     """The download Cancel button kills by ``winjob.terminate_tracked("fetch")``,
     so the registry entry's wording is load-bearing, not decorative."""
-    from warlock import winjob
+    from realmspinner import winjob
 
     script = tmp_path / "quick2.py"
     script.write_text(
@@ -322,8 +322,8 @@ def test_a_failure_partway_installs_nothing_at_all(svc, monkeypatch):
     The whole selection is staged before any of it is put in place, so the
     honest message is now the strong one: your models are exactly as they were.
     """
-    from warlock.service import downloads
-    from warlock.service.errors import Failed, Invalid
+    from realmspinner.service import downloads
+    from realmspinner.service.errors import Failed, Invalid
 
     seen: list[str] = []
 
@@ -353,8 +353,8 @@ def test_a_failure_partway_installs_nothing_at_all(svc, monkeypatch):
 def test_the_journal_is_gone_once_the_transaction_commits(svc, monkeypatch):
     """It exists only while a publish is in flight. One left behind would make
     the next launch roll back a download that succeeded."""
-    from warlock import publish
-    from warlock.service import downloads
+    from realmspinner import publish
+    from realmspinner.service import downloads
 
     monkeypatch.setattr(downloads, "_run_worker", lambda job, **_kw: stage_for(job))
     downloads.download(svc, ["base:sdxl"])
@@ -373,8 +373,8 @@ def test_two_repositories_sharing_one_destination_keep_both_staging_trees(
     tree before the transaction began, so a successful two-row selection
     silently installed only the last adapter.
     """
-    from warlock import fetch
-    from warlock.service import downloads
+    from realmspinner import fetch
+    from realmspinner.service import downloads
 
     def stage_distinct(job, **_kw):
         name = f"{job.repo_id.rsplit('/', 1)[-1]}.safetensors"
@@ -393,7 +393,7 @@ def test_two_repositories_sharing_one_destination_keep_both_staging_trees(
 
 def test_shared_destination_recovery_keeps_each_repositorys_backup(tmp_path):
     """Two repositories updating loras/ must not share one backup tree."""
-    from warlock import publish
+    from realmspinner import publish
 
     root = tmp_path / "home"
     dest = tmp_path / "models" / "loras"
@@ -426,8 +426,8 @@ def test_shared_destination_recovery_keeps_each_repositorys_backup(tmp_path):
 
 def test_a_journal_write_failure_prevents_every_publish(svc, monkeypatch):
     """Transaction state is mandatory: no journal means no file may move."""
-    from warlock import publish
-    from warlock.service import downloads
+    from realmspinner import publish
+    from realmspinner.service import downloads
 
     monkeypatch.setattr(downloads, "_run_worker", lambda job, **_kw: stage_for(job))
 
@@ -448,8 +448,8 @@ def test_a_kill_mid_publish_is_rolled_back_on_the_next_launch(svc):
     before the first file moves, so a later process can put the disk back --
     and it rolls *back* rather than forward, because the one thing known about
     a process that died mid-write is that its last write may be torn."""
-    from warlock import publish
-    from warlock.service import downloads
+    from realmspinner import publish
+    from realmspinner.service import downloads
 
     root = svc.config.t2i_model_root
     root.mkdir(parents=True, exist_ok=True)
@@ -489,8 +489,8 @@ def test_a_replaced_file_comes_back_out_of_the_backup_tree(svc):
     """The other half of an undo. ``move_into`` parks whatever it overwrites in
     a deterministic sibling, and a rollback that only removed the *added* files
     would leave a directory missing everything the publish had replaced."""
-    from warlock import publish
-    from warlock.service import downloads
+    from realmspinner import publish
+    from realmspinner.service import downloads
 
     root = svc.config.t2i_model_root
     dest = root / "sdxl-base-1.0"
@@ -521,7 +521,7 @@ def test_a_replaced_file_comes_back_out_of_the_backup_tree(svc):
 
 def test_a_failed_recovery_retains_everything_needed_for_a_retry(svc, monkeypatch):
     """A locked destination cannot turn the recovery attempt into data loss."""
-    from warlock import publish
+    from realmspinner import publish
 
     root = svc.config.t2i_model_root
     dest = root / "sdxl-base-1.0"
@@ -561,15 +561,15 @@ def test_a_failed_recovery_retains_everything_needed_for_a_retry(svc, monkeypatc
 def test_recovering_nothing_is_silent_and_cheap(svc):
     """The overwhelmingly common startup: no journal, nothing to do, and no
     generation bump -- which would invalidate a resident pipe for no reason."""
-    from warlock.service import downloads
+    from realmspinner.service import downloads
 
     assert downloads.recover(svc.config) == []
 
 
 def test_engine_publish_recovers_from_the_canonical_home_journal(svc):
     """Engine weights live outside the image-model root but share one journal."""
-    from warlock import publish
-    from warlock.service import downloads
+    from realmspinner import publish
+    from realmspinner.service import downloads
 
     root = svc.config.home
     dest = svc.config.trellis_models_dir
@@ -593,8 +593,8 @@ def test_the_sweep_spares_a_staging_tree_an_open_journal_needs(svc):
     ``.thing.fetch.part``, correctly identifies it as the litter of an
     interrupted fetch, and deletes the only copy of the files the rollback was
     about to put back."""
-    from warlock import fetch, publish
-    from warlock.service import downloads
+    from realmspinner import fetch, publish
+    from realmspinner.service import downloads
 
     root = svc.config.t2i_model_root
     root.mkdir(parents=True, exist_ok=True)
@@ -620,7 +620,7 @@ def test_staging_left_by_a_killed_fetch_is_swept_before_the_next_one(svc, monkey
     cannot. The names are deterministic, so the next download finds them --
     otherwise the disk quietly holds a second copy of a checkpoint that no
     presence probe will ever look at."""
-    from warlock.service import downloads
+    from realmspinner.service import downloads
 
     root = svc.config.t2i_model_root
     root.mkdir(parents=True, exist_ok=True)
@@ -650,8 +650,8 @@ def test_the_journal_names_every_file_before_the_first_one_moves(svc, monkeypatc
     arbitrary prefix of a model with no manifest and nothing that would ever
     clean it up.
     """
-    from warlock import fetch, publish
-    from warlock.service import downloads
+    from realmspinner import fetch, publish
+    from realmspinner.service import downloads
 
     root = svc.config.home
     seen: list[list[str]] = []
@@ -682,8 +682,8 @@ def test_a_kill_before_any_file_moved_undoes_nothing_and_loses_nothing(svc):
     ``undo_into`` skips a name that is not at the destination, so the same
     entry serves a publish that got nowhere, one that got halfway, and one that
     finished."""
-    from warlock import publish
-    from warlock.service import downloads
+    from realmspinner import publish
+    from realmspinner.service import downloads
 
     root = svc.config.t2i_model_root
     root.mkdir(parents=True, exist_ok=True)
@@ -719,7 +719,7 @@ def test_planned_names_is_what_move_into_actually_publishes(tmp_path):
     """The plan and the doing are one list or they are two bugs. ``move_into``
     iterates this function, so the agreement is structural -- this pins that it
     stays so, including the completion marker's exclusion."""
-    from warlock import publish
+    from realmspinner import publish
 
     staging = tmp_path / "staged"
     (staging / "nested").mkdir(parents=True)

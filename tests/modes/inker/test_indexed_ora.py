@@ -24,9 +24,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.kernels.pixel import Document
-from warlock.kernels.pixel import index_plane as ixp
-from warlock.kernels.pixel.ora import WARLOCK_MEMBER, read_ora, write_ora
+from realmspinner.kernels.pixel import Document
+from realmspinner.kernels.pixel import index_plane as ixp
+from realmspinner.kernels.pixel.ora import REALMSPINNER_MEMBER, read_ora, write_ora
 
 BLACK = (0, 0, 0, 255)
 RED = (200, 20, 20, 255)
@@ -151,14 +151,14 @@ def test_a_grayscale_document_writes_ordinary_rgba_planes(tmp_path):
 
 def test_an_rgb_archive_carries_no_colour_block_at_all(tmp_path):
     """Additive means invisible. The block is written only when it is not the
-    default, which is what keeps ``WARLOCK_VERSION`` at 1 and every existing
+    default, which is what keeps ``REALMSPINNER_VERSION`` at 1 and every existing
     document's bytes exactly what they were."""
     doc = Document.blank(4, 4)
     doc.stack.active.pixels[:, :] = RED
     write_ora(doc, tmp_path / "plain.ora")
 
     with zipfile.ZipFile(tmp_path / "plain.ora") as zf:
-        assert WARLOCK_MEMBER not in zf.namelist()
+        assert REALMSPINNER_MEMBER not in zf.namelist()
         with Image.open(zf.open("data/layer0.png")) as im:
             assert im.mode == "RGBA"
 
@@ -172,7 +172,7 @@ def test_a_palette_constrained_rgb_archive_carries_no_colour_block(tmp_path):
     write_ora(doc, tmp_path / "constrained.ora")
 
     with zipfile.ZipFile(tmp_path / "constrained.ora") as zf:
-        assert WARLOCK_MEMBER not in zf.namelist()
+        assert REALMSPINNER_MEMBER not in zf.namelist()
         assert "palette.gpl" in zf.namelist()
 
     back = read_ora(tmp_path / "constrained.ora")
@@ -186,7 +186,7 @@ def test_a_sliced_rgb_document_still_writes_slices_and_no_colour_block(tmp_path)
     write_ora(doc, tmp_path / "sliced.ora")
 
     with zipfile.ZipFile(tmp_path / "sliced.ora") as zf:
-        payload = json.loads(zf.read(WARLOCK_MEMBER))
+        payload = json.loads(zf.read(REALMSPINNER_MEMBER))
     assert payload["slices"] and "color" not in payload
 
 
@@ -226,7 +226,7 @@ def test_a_missing_colour_block_opens_as_the_picture_it_is(tmp_path):
     exactly right and exactly what an older build already did."""
     doc = _doc()
     write_ora(doc, tmp_path / "x.ora")
-    _rewrite(tmp_path / "x.ora", {WARLOCK_MEMBER: None})
+    _rewrite(tmp_path / "x.ora", {REALMSPINNER_MEMBER: None})
 
     back = read_ora(tmp_path / "x.ora")
     assert not back.is_indexed
@@ -237,7 +237,7 @@ def test_a_missing_colour_block_opens_as_the_picture_it_is(tmp_path):
 def test_a_malformed_colour_block_costs_the_mode_and_not_the_file(tmp_path, caplog):
     doc = _doc()
     write_ora(doc, tmp_path / "x.ora")
-    _rewrite(tmp_path / "x.ora", {WARLOCK_MEMBER: b"{ this is not json"})
+    _rewrite(tmp_path / "x.ora", {REALMSPINNER_MEMBER: b"{ this is not json"})
 
     back = read_ora(tmp_path / "x.ora")
     assert not back.is_indexed
@@ -248,7 +248,7 @@ def test_an_unknown_colour_mode_is_ignored_rather_than_adopted(tmp_path):
     doc = _doc()
     write_ora(doc, tmp_path / "x.ora")
     payload = {"version": 1, "slices": [], "color": {"mode": "cmyk"}}
-    _rewrite(tmp_path / "x.ora", {WARLOCK_MEMBER: json.dumps(payload).encode()})
+    _rewrite(tmp_path / "x.ora", {REALMSPINNER_MEMBER: json.dumps(payload).encode()})
 
     back = read_ora(tmp_path / "x.ora")
     assert back.color_mode == "rgb"
@@ -258,7 +258,7 @@ def test_a_transparent_index_outside_the_table_falls_back_to_zero(tmp_path):
     doc = _doc()
     write_ora(doc, tmp_path / "x.ora")
     payload = {"version": 1, "slices": [], "color": {"mode": "indexed", "transparent": 99}}
-    _rewrite(tmp_path / "x.ora", {WARLOCK_MEMBER: json.dumps(payload).encode()})
+    _rewrite(tmp_path / "x.ora", {REALMSPINNER_MEMBER: json.dumps(payload).encode()})
 
     back = read_ora(tmp_path / "x.ora")
     assert back.is_indexed and back.transparent_index == 0
@@ -349,7 +349,7 @@ def test_the_crash_journal_carries_the_indices(tmp_path):
     """The journal's payload is ``ora_bytes(doc)``, so recovery becomes honest
     for free -- but "for free" is a claim worth a test, because it is only true
     while the ORA writer is the one that carries index planes."""
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     doc = _doc()
     blob = inker.ora_bytes(doc)
@@ -367,7 +367,7 @@ def test_the_crash_journal_carries_the_indices(tmp_path):
 
 @pytest.mark.parametrize("count", [1, 2, 255, 256])
 def test_every_legal_palette_size_encodes_and_decodes(tmp_path, count):
-    from warlock.kernels.pixel.ora import _png_indexed, _read_indexed_png
+    from realmspinner.kernels.pixel.ora import _png_indexed, _read_indexed_png
 
     palette = [(i, (i * 7) % 256, (i * 13) % 256, 255) for i in range(count)]
     plane = (np.arange(16).reshape(4, 4) % count).astype(np.uint8)
@@ -383,7 +383,7 @@ def test_every_legal_palette_size_encodes_and_decodes(tmp_path, count):
 
 
 def test_reading_an_rgba_png_as_an_index_plane_answers_none():
-    from warlock.kernels.pixel.ora import _png, _read_indexed_png
+    from realmspinner.kernels.pixel.ora import _png, _read_indexed_png
 
     data = _png(np.zeros((4, 4, 4), np.uint8))
     assert _read_indexed_png(data, (4, 4)) is None
@@ -393,14 +393,14 @@ def test_a_plane_of_the_wrong_size_is_refused_rather_than_placed():
     """A P-PNG whose dimensions do not match the canvas is a file we did not
     write. Placing it would guess an offset; answering None re-infers from the
     pixels, which the RGBA path has already placed correctly."""
-    from warlock.kernels.pixel.ora import _png_indexed, _read_indexed_png
+    from realmspinner.kernels.pixel.ora import _png_indexed, _read_indexed_png
 
     data = _png_indexed(np.zeros((2, 2), np.uint8), [BLACK, RED], 0)
     assert _read_indexed_png(data, (4, 4)) is None
 
 
 def test_the_encoder_and_index_plane_agree_about_the_hole():
-    from warlock.kernels.pixel.ora import _png_indexed, _read_indexed_png
+    from realmspinner.kernels.pixel.ora import _png_indexed, _read_indexed_png
 
     plane = np.asarray([[0, 1]], dtype=np.uint8)
     got = _read_indexed_png(_png_indexed(plane, [BLACK, RED], 0), (2, 1))

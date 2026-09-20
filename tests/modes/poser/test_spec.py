@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.modes.poser.engine import spec as troupe_spec
+from realmspinner.studio.modes.poser.engine import spec as troupe_spec
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +45,7 @@ def test_the_eight_directions_are_evenly_spaced_and_agree_with_the_four(spec):
 
 
 def test_the_atlas_fits_in_one_texture_at_every_rung(spec):
-    from warlock.kernels import sheet
+    from realmspinner.kernels import sheet
 
     for size in spec.sizes:
         w, h = spec.atlas_size(size)

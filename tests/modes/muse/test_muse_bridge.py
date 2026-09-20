@@ -20,10 +20,10 @@ import wave
 
 import pytest
 
-from warlock.kernels.audio import wavout
-from warlock.service import _jobs_music as door
-from warlock.service.errors import Invalid
-from warlock.studio.modes.sirens.engine import synth
+from realmspinner.kernels.audio import wavout
+from realmspinner.service import _jobs_music as door
+from realmspinner.service.errors import Invalid
+from realmspinner.studio.modes.sirens.engine import synth
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +47,7 @@ def _render(seconds: float = 30.0, rate: int = synth.SAMPLE_RATE) -> bytes:
 def test_the_two_engines_already_agree_about_the_sample_rate():
     """Asserted rather than claimed in a comment, which is the whole point:
     ``synth.SAMPLE_RATE`` is what Sirens renders at and 44100 is what
-    ``WARLOCK 5/6`` makes Muse write, so neither leg of the bridge needs a
+    ``REALMSPINNER 5/6`` makes Muse write, so neither leg of the bridge needs a
     resample and a change to either would fail here rather than silently
     transpose a song."""
     assert synth.SAMPLE_RATE == 44100
@@ -104,7 +104,7 @@ def test_an_imported_reference_becomes_an_ordinary_audio2audio_row(svc):
 def test_the_queue_sends_it_as_a_reference_rather_than_a_source_path(svc):
     """``__call__`` asserts that ``src_audio_path`` implies repaint/edit/extend,
     so sending both would trip an assertion inside the child."""
-    from warlock import _q_music
+    from realmspinner import _q_music
 
     out = door.create_music_job(
         svc, prompt="dark ambient", duration=30.0, reference_wav=_render()
@@ -215,14 +215,14 @@ def test_the_composers_default_closeness_is_the_derive_paths_own(svc):
     """One knob, one default. Before this the mode's default and the door's
     were two independent ``0.5``s that merely happened to agree.
     """
-    from warlock.studio.modes.muse import state as muse_state
+    from realmspinner.studio.modes.muse import state as muse_state
 
     state = muse_state.MuseState()
     assert state.compose_strength == pytest.approx(
         muse_state.DEFAULT_DERIVE["ref_audio_strength"]
     )
     low, high = 0.0, 0.9
-    from warlock.studio.modes.muse.ui.panes.results import DERIVE_FIELDS
+    from realmspinner.studio.modes.muse.ui.panes.results import DERIVE_FIELDS
 
     assert DERIVE_FIELDS["ref_audio_strength"][1:3] == (low, high)
     assert low <= state.compose_strength <= high

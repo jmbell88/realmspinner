@@ -14,8 +14,8 @@ from types import MethodType, SimpleNamespace
 import pygame
 import pytest
 
-from warlock.studio import dialogs, main, modes
-from warlock.studio.state import AppState
+from realmspinner.studio import dialogs, main, modes
+from realmspinner.studio.state import AppState
 
 # --- I75: Alt+1..8 -----------------------------------------------------------
 
@@ -86,7 +86,7 @@ def test_the_digit_helpers_are_gone_rather_than_left_unused():
     ``studio/shell/events.py``; checked there too, or this would go on
     passing regardless of what ``_shortcut`` did.
     """
-    from warlock.studio.shell import events
+    from realmspinner.studio.shell import events
 
     for name in ("mode_for_digit", "digit_key_label", "digit_for_mode"):
         assert not hasattr(modes, name)
@@ -208,8 +208,8 @@ def test_no_mode_shortcut_is_persisted():
     pass vacuously once nothing that writes to settings was left in it, which
     is not the same claim as "nothing anywhere writes these two keys".
     """
-    from warlock.studio.shell import events
-    from warlock.studio.shell import quit as quit_mod
+    from realmspinner.studio.shell import events
+    from realmspinner.studio.shell import quit as quit_mod
 
     source = inspect.getsource(main) + inspect.getsource(events) + inspect.getsource(quit_mod)
     for name in ("previous_mode", "mode_observed"):
@@ -285,12 +285,12 @@ def test_request_quit_no_longer_nests_its_guards_by_hand():
 
 
 def test_the_quit_chain_stops_at_the_first_cancel():
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.poser import mode as poser_mode
-    from warlock.studio.panes import pose_panel
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.poser import mode as poser_mode
+    from realmspinner.studio.panes import pose_panel
 
     quit_calls: list[str] = []
     ctx = SimpleNamespace(
@@ -430,7 +430,7 @@ def test_modal_open_sees_both_queues():
     # caller has never built a state object.
     from types import SimpleNamespace as _NS
 
-    from warlock.studio.modes.poser.ui.panes import send as poser_send
+    from realmspinner.studio.modes.poser.ui.panes import send as poser_send
 
     ctx.prompts.dismiss()
     assert main.App._modal_open(app) is False
@@ -443,7 +443,7 @@ def test_modal_open_sees_the_muse_derive_popup():
     ``imgui.begin_popup_modal``, but was never one of ``modal_open``'s answers,
     so Ctrl+Enter reached ``muse_mode.handle_key`` and queued a fresh job from
     the top brief while the popup believed it alone had the keyboard (I77)."""
-    from warlock.studio.modes.muse.state import MuseState
+    from realmspinner.studio.modes.muse.state import MuseState
 
     ctx = SimpleNamespace(
         confirms=dialogs.ConfirmQueue(),
@@ -465,7 +465,7 @@ def test_modal_open_sees_the_packwright_tileset_popup():
     import named -- still reached the app while the popup had the user's
     attention: the UX-08 shape ``modal_open``'s own docstring names the matte
     preview for."""
-    from warlock.studio.modes.packwright.state import PackwrightState
+    from realmspinner.studio.modes.packwright.state import PackwrightState
 
     ctx = SimpleNamespace(
         confirms=dialogs.ConfirmQueue(),
@@ -553,14 +553,14 @@ def test_a_workspace_mode_never_falls_through_to_the_shared_block(mode, monkeypa
     """
     fired: list[str] = []
     monkeypatch.setattr(
-        f"warlock.studio.{_WORKSPACE_ARMS[mode]}.handle_key",
+        f"realmspinner.studio.{_WORKSPACE_ARMS[mode]}.handle_key",
         lambda ctx, event: False,
     )
     for target, name in (
-        ("warlock.studio.modes.library.ui.panes.library.delete_asset", "delete_asset"),
-        ("warlock.studio.modes.library.ui.panes.library.select_relative", "select_relative"),
-        ("warlock.studio.modes.create.ui.panes.settings_2d.generate", "generate"),
-        ("warlock.studio.modes.create.ui.panes.settings_3d.promote", "promote"),
+        ("realmspinner.studio.modes.library.ui.panes.library.delete_asset", "delete_asset"),
+        ("realmspinner.studio.modes.library.ui.panes.library.select_relative", "select_relative"),
+        ("realmspinner.studio.modes.create.ui.panes.settings_2d.generate", "generate"),
+        ("realmspinner.studio.modes.create.ui.panes.settings_3d.promote", "promote"),
     ):
         monkeypatch.setattr(target, (lambda n: lambda *a, **k: fired.append(n))(name))
 

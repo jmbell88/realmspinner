@@ -58,7 +58,7 @@ def test_add_style_is_disabled_while_a_different_lora_operation_is_running():
     """shell-settings-01: "Add style" used to gate on
     ``ctx.busy("lora:import")`` -- its own exact submit key -- alone.
     """
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     assert _uses_any_busy_lora_prefix(app_settings._lora_import_form), (
         "_lora_import_form never calls ctx.tasks.any_busy(\"lora:\"), the "
@@ -76,7 +76,7 @@ def test_train_style_is_disabled_while_a_different_lora_operation_is_running():
     ``ctx.busy("lora:train")`` -- its own exact submit key -- alone, so
     pressing it while, say, an import was in flight was not blocked.
     """
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     assert _uses_any_busy_lora_prefix(app_settings._lora_train_form), (
         "_lora_train_form never calls ctx.tasks.any_busy(\"lora:\"), the "
@@ -105,8 +105,8 @@ def test_lora_remove_and_import_do_not_toast_completion_before_the_task_runs():
     previously unclaimed there, so a landed removal or import fell through
     to the silent "nothing claimed it" path with no toast at all.
     """
-    from warlock.studio.modes.settings.ui.panes import app_settings
-    from warlock.studio.shell import tasks as shell_tasks
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.shell import tasks as shell_tasks
 
     remove_source = inspect.getsource(app_settings._loras)
     import_source = inspect.getsource(app_settings._lora_import_form)

@@ -1,12 +1,12 @@
 # Rigging and posing
 
 A rig is a skeleton fitted to a mesh and bound to its surface, so that rotating a bone bends the
-model. Warlock fits one automatically, and once a mesh is rigged you can pose it, save those poses,
+model. Realmspinner fits one automatically, and once a mesh is rigged you can pose it, save those poses,
 and render sheets from them.
 
 **This chapter needs Blender.** That means the `rig` extra, which means Python 3.13 — see
 [Before you begin](01-before-you-begin.md#what-you-need). Without it every control in this chapter is
-hidden rather than greyed out, and `warlock doctor` says why.
+hidden rather than greyed out, and `realmspinner doctor` says why.
 
 ## Rigging a mesh
 

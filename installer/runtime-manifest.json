@@ -9,7 +9,7 @@
   },
   "roots": [
     "vendor/gltfpack",
-    "vendor/warlockc"
+    "vendor/realmspinnerc"
   ],
   "files": [
     {
@@ -18,9 +18,9 @@
       "sha256": "ff64f45e84aac9a1f58880e40934b3f29277413e2d0b3ed257322261ec021d2b"
     },
     {
-      "path": "vendor/warlockc/warlockc.dll",
+      "path": "vendor/realmspinnerc/realmspinnerc.dll",
       "size": 131584,
-      "sha256": "4d223297782913d40f5e1738053c8f718f682cea9b7d9a5649ba825348b0a9a7"
+      "sha256": "dde809be3198b47d8976e6117eec3a2d1a739fcfe43d1da6169ec5390bd38f14"
     }
   ]
 }

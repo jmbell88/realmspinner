@@ -11,13 +11,13 @@ from typing import Any
 
 from _ui_context import imgui_context
 
-from warlock.studio.modes.mason.engine import document as md
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import scene as mscene
-from warlock.studio.modes.mason.ui.panes import bridge as mason_bridge
-from warlock.studio.modes.mason.ui.panes import outliner as mason_outliner
-from warlock.studio.modes.mason.ui.panes import palette as mason_palette
-from warlock.studio.modes.mason.ui.panes import props as mason_props
+from realmspinner.studio.modes.mason.engine import document as md
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import scene as mscene
+from realmspinner.studio.modes.mason.ui.panes import bridge as mason_bridge
+from realmspinner.studio.modes.mason.ui.panes import outliner as mason_outliner
+from realmspinner.studio.modes.mason.ui.panes import palette as mason_palette
+from realmspinner.studio.modes.mason.ui.panes import props as mason_props
 
 
 class _AppState:
@@ -61,21 +61,21 @@ def test_mason_palette_primitive_grid_gets_a_button_for_a_fake_generator_it_has_
     ``clay.primitives.GENERATORS`` has never heard of and checking the grid
     draws it anyway -- the same fake-registration shape
     ``tests/modes/clay/test_primitives.py`` uses to pin ``clay_tools``'s own grid."""
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio import probe
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio import probe
 
     def fake_build(**kwargs):  # pragma: no cover - never invoked by this test
         raise NotImplementedError
 
     monkeypatch.setitem(bp.GENERATORS, "widget_zzz", ({}, fake_build))
 
-    from warlock.studio import icons
+    from realmspinner.studio import icons
 
     expected_label = f"{icons.BOX}##masonaddwidget_zzz"
 
     with imgui_context(monkeypatch) as imgui:
         ctx = FakeCtx()
-        from warlock.studio.modes.mason import mode as mason_mode
+        from realmspinner.studio.modes.mason import mode as mason_mode
 
         state = mason_mode.ensure(ctx)
 
@@ -176,7 +176,7 @@ def test_mason_bridge_facts_warn_only_past_the_real_threshold(monkeypatch):
     doc = md.MasonDoc(
         roots=[nd.MeshNode(uid=nd.new_uid(), name=f"m{i}") for i in range(5)]
     )
-    from warlock.studio.modes.mason import mode as mason_mode
+    from realmspinner.studio.modes.mason import mode as mason_mode
 
     class _Tab:
         def __init__(self, doc):
@@ -207,7 +207,7 @@ class _Settings:
 
 
 def _ctx_with_a_scene():
-    from warlock.studio.modes.mason import mode as mason_mode
+    from realmspinner.studio.modes.mason import mode as mason_mode
 
     ctx = FakeCtx()
     ctx.settings = _Settings()
@@ -217,7 +217,7 @@ def _ctx_with_a_scene():
 
 def _drawn(monkeypatch, draw, *args):
     """Every control one pane body drew this frame, by label."""
-    from warlock.studio import probe
+    from realmspinner.studio import probe
 
     with imgui_context(monkeypatch) as imgui:
         probe.begin_frame()
@@ -235,7 +235,7 @@ def test_the_assets_pane_offers_a_button_for_every_registered_brush(monkeypatch)
     the day it is written -- the rule the primitive grid already follows and for
     the same reason: a hand-listed palette is a palette that silently lags the
     engine."""
-    from warlock.studio.modes.mason import state as mason_state
+    from realmspinner.studio.modes.mason import state as mason_state
 
     ctx, mason_mode = _ctx_with_a_scene()
     state = mason_mode.ensure(ctx)
@@ -287,7 +287,7 @@ def test_the_prefabs_pane_is_in_the_column_only_while_the_scene_has_a_template()
     """The first conditional slot in this workspace: a permanently-empty panel in
     a four-panel column costs the outliner and Properties the height it sits in,
     on every scene that never authors a prefab."""
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     ctx, mason_mode = _ctx_with_a_scene()
     right = skeletons.mason(ctx)["right"]
@@ -309,7 +309,7 @@ def test_the_prefabs_pane_counts_the_instances_in_the_scene_tree():
     that only exists inside another template's subtree is deliberately not
     counted: that number would change when the *outer* template was placed
     again."""
-    from warlock.studio.modes.mason.ui.panes import prefabs as mason_prefabs
+    from realmspinner.studio.modes.mason.ui.panes import prefabs as mason_prefabs
 
     doc = md.MasonDoc()
     doc.prefabs["post"] = nd.MeshNode(uid=nd.new_uid(), name="post")
@@ -322,9 +322,9 @@ def test_the_make_prefab_gesture_is_not_in_the_pane_that_needs_one_to_exist():
     """A pane that only exists once a template does cannot be where the first one
     is made. The gesture lives on the selection instead -- the viewport's context
     menu and the outliner's row menu."""
-    from warlock.studio.modes.mason.ui.panes import menu as mason_menu
-    from warlock.studio.modes.mason.ui.panes import outliner as mason_outliner
-    from warlock.studio.modes.mason.ui.panes import prefabs as mason_prefabs
+    from realmspinner.studio.modes.mason.ui.panes import menu as mason_menu
+    from realmspinner.studio.modes.mason.ui.panes import outliner as mason_outliner
+    from realmspinner.studio.modes.mason.ui.panes import prefabs as mason_prefabs
 
     assert "define_prefab_from_selection" not in inspect.getsource(mason_prefabs)
     assert "define_prefab_from_selection" in inspect.getsource(mason_menu)
@@ -372,9 +372,9 @@ def test_every_accelerator_a_mason_menu_advertises_is_one_handle_key_answers():
     """
     import re
 
-    from warlock.studio.modes.mason import mode as mason_mode
-    from warlock.studio.modes.mason.ui.panes import menu as mason_menu
-    from warlock.studio.modes.mason.ui.panes import outliner as mason_outliner
+    from realmspinner.studio.modes.mason import mode as mason_mode
+    from realmspinner.studio.modes.mason.ui.panes import menu as mason_menu
+    from realmspinner.studio.modes.mason.ui.panes import outliner as mason_outliner
 
     # What the mode dispatches on, from the two functions that do the
     # dispatching: the ``name == "x"`` arms, plus the tool letters and the axis
@@ -420,8 +420,8 @@ def test_arming_a_primitive_after_a_prefab_disarms_the_prefab():
     This must fail against the unfixed call sites: ``place_prefab`` would
     still read ``"Barrel"`` after arming a plain primitive.
     """
-    from warlock.studio.modes.mason import state as mason_state
-    from warlock.studio.modes.mason.ui.panes import palette as mason_palette
+    from realmspinner.studio.modes.mason import state as mason_state
+    from realmspinner.studio.modes.mason.ui.panes import palette as mason_palette
 
     state = mason_state.MasonState()
     state.place_prefab = "Barrel"  # armed earlier from the Prefabs pane
@@ -445,8 +445,8 @@ def test_the_move_hint_does_not_promise_typed_entry_the_mode_lacks():
     This must fail against the unfixed hint, whose text names "type a
     number" and "X/Y/Z".
     """
-    from warlock.studio.modes.mason import state as mason_state
-    from warlock.studio.modes.mason.ui.panes import hud as mason_hud
+    from realmspinner.studio.modes.mason import state as mason_state
+    from realmspinner.studio.modes.mason.ui.panes import hud as mason_hud
 
     state = mason_state.MasonState()
     state.tool = "move"
@@ -472,7 +472,7 @@ def test_align_on_three_nodes_undoes_in_one_step():
     ``TransformEdit`` pushes, so one ``undo()`` would restore only the last
     node moved and leave the other two at their aligned position.
     """
-    from warlock.studio.modes.mason.ui.panes import tools as mason_tools
+    from realmspinner.studio.modes.mason.ui.panes import tools as mason_tools
 
     a = nd.GroupNode(uid=nd.new_uid(), name="A")
     b = nd.GroupNode(uid=nd.new_uid(), name="B")
@@ -510,7 +510,7 @@ def test_drop_to_ground_context_menu_row_undoes_in_one_step(monkeypatch):
     """
     import numpy as np
 
-    from warlock.studio.modes.mason.ui.panes import menu as mason_menu
+    from realmspinner.studio.modes.mason.ui.panes import menu as mason_menu
 
     a = nd.GroupNode(uid=nd.new_uid(), name="A")
     b = nd.GroupNode(uid=nd.new_uid(), name="B")

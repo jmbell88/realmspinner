@@ -1,0 +1,225 @@
+"""What changed in each release, read off the shipped ``CHANGELOG.md``.
+
+Pure in the way :mod:`~realmspinner.vram` and :mod:`~realmspinner.memlog` are: stdlib
+only, no imports from ``service``/``queue``/``studio``, and ``[]`` rather than
+an exception for every way of having nothing to say -- the file is absent, it is
+unreadable, it parses to nothing. Home draws this, and a screen the app opens on
+may not be the thing that fails to start.
+
+**Nothing here is derived from git.** Not because commit subjects lack detail --
+most name what changed and why -- but because a changelog derived from them
+would still be *commit-shaped*: one entry per change, in developer language,
+with no editorial judgment about what a player actually needs to know. These
+entries are written for whoever reads them next, which is usually not a
+developer (``CHANGELOG.md``'s own "A note on how this reads" says so). The
+file is hand-written and this module only reads it.
+
+The parse is deliberately forgiving in one direction and one direction only: a
+line that is neither a ``##`` heading nor a ``-`` bullet is *ignored* rather
+than fatal, so the file can carry a preamble, a note or a table without this
+becoming a Markdown implementation. What it will not do is guess -- a bullet
+before any heading belongs to no release and is dropped.
+
+Two concessions to the file being real Markdown, and both were bugs first. An
+*indented* line under a bullet continues it, because the file is hard-wrapped
+at 80 columns like everything else in this repository and treating a
+continuation as an ignorable line silently truncated every bullet at its first
+newline. And ``**emphasis**`` is stripped, because imgui draws one weight: the
+markers rendered literally, which is worse than losing the emphasis.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass, field
+from importlib import resources
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+FILENAME = "CHANGELOG.md"
+
+# ``## 0.0.15 — 2026-08-09``, with the date optional and either dash accepted.
+# The version is the first whitespace-delimited run after the hashes, which is
+# what keeps "## 0.0.15" and "## v0.0.15 - unreleased" both readable.
+_HEADING = re.compile(r"^##\s+v?(?P<version>[0-9][^\s]*)\s*(?:[-–—]\s*(?P<date>.+))?$")
+_BULLET = re.compile(r"^[-*]\s+(?P<text>.+)$")
+_EMPHASIS = re.compile(
+    r"\*\*(.+?)\*\*|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
+    # ``re.S``, because a bullet is a *wrapped paragraph* and its bolded
+    # lead sentence routinely runs over the line. Without it ``.`` stopped
+    # at the newline, the opening ``**`` found no partner, and the markers
+    # went to the screen -- which is the exact failure this function's
+    # docstring says it exists to prevent. v0.0.41's third bullet shipped
+    # that way, drawn across Home's What's new card in every theme, and
+    # the screenshot pass is what found it. Whether a bullet happens to
+    # wrap is a property of the prose, so the flag is the fix rather than
+    # rewrapping CHANGELOG.md.
+    re.S,
+)
+
+
+def _plain(text: str) -> str:
+    """``**bold**`` and ``*italic*`` down to their words. imgui draws one
+    weight, so the markers rendered literally and looked like a parse bug."""
+    return _EMPHASIS.sub(lambda m: m.group(1) or m.group(2) or "", text)
+
+
+@dataclass(frozen=True)
+class Release:
+    version: str
+    date: str = ""
+    bullets: tuple[str, ...] = field(default_factory=tuple)
+
+
+#: A candidate end for a bullet's opening sentence: one of ``.!?`` followed by
+#: whitespace or the end of the string.
+_TERMINATOR = re.compile(r"[.!?](?:\s|$)")
+
+#: Abbreviations whose trailing period is not a sentence break. The 2026-09-16
+#: audit found ``_LEAD``'s old single-regex match stopping at "e.g." mid-bullet
+#: -- the doc comment claimed a three-character lower bound "so a stray 'e.g.'
+#: cannot be a lead", but "e.g." is four characters, so the bound never did
+#: what the comment said. Named rather than inferred from shape (e.g. "single
+#: letter, dot, single letter") because that shape also matches a real
+#: sentence that happens to end on a one-letter word.
+_ABBREVIATIONS = ("e.g.", "i.e.", "etc.", "vs.")
+
+
+def lead(bullet: str) -> str:
+    """``bullet``'s opening sentence -- what the What's New card shows.
+
+    Every bullet in the shipped file opens with a bolded lead sentence naming
+    what changed, and the rest is the argument for it. The card was drawing
+    three whole bullets, which at ~150 words each took a quarter of Home above
+    the fold for something a user reads once per release; the full text is
+    still one click away in "All release notes...".
+
+    Computed rather than stored beside the bullet, so there is one string per
+    bullet and no parallel tuple to fall out of step with it. The emphasis
+    markers are already gone by the time this sees anything (:func:`_plain`),
+    which is why this matches on the sentence and not on the ``**``.
+
+    Walked terminator by terminator rather than matched in one regex, because
+    "the bullet's real first sentence-ending punctuation" and "the first
+    ``[.!?]`` followed by whitespace" are different claims once an
+    abbreviation like "e.g." is in play, and only walking can skip the second
+    kind of match and keep looking for the first.
+    """
+    text = " ".join(bullet.split())
+    search_from = 0
+    while True:
+        match = _TERMINATOR.search(text, search_from)
+        if match is None or match.start() > 120:
+            break
+        if match.start() < 3:
+            search_from = match.end()
+            continue
+        if any(text[: match.start() + 1].endswith(abbr) for abbr in _ABBREVIATIONS):
+            search_from = match.end()
+            continue
+        return text[: match.start() + 1]
+    return text if len(text) <= 120 else text[:117].rstrip() + "..."
+
+
+def changelog_path() -> Path:
+    """The packaged copy if there is one, the repo root otherwise.
+
+    Mirrors :func:`.kernels.manual.loader.manual_dir` exactly, and for the same
+    reason: the canonical file is at the repo root where GitHub renders it, and
+    hatchling force-includes it into the wheel beside the manual.
+    """
+    packaged = Path(str(resources.files("realmspinner"))) / FILENAME
+    if packaged.is_file():
+        return packaged
+    # Dev checkout: src/realmspinner/changelog.py -> the repo root is parents[2].
+    return Path(__file__).resolve().parents[2] / FILENAME
+
+
+def parse(text: str) -> list[Release]:
+    """The releases in ``text``, in the order they appear (newest first)."""
+    out: list[Release] = []
+    version = ""
+    date = ""
+    bullets: list[str] = []
+
+    def flush() -> None:
+        # **Emphasis is stripped from the assembled bullet, not from each line
+        # as it arrives.** Doing it per line is what this used to do, and it
+        # cannot work: the file is hard-wrapped at 80 columns, so a bolded lead
+        # sentence longer than one line puts its opening ``**`` on one line and
+        # its partner on the next, and neither half is a match on its own. The
+        # markers then went to the screen, which is the exact failure
+        # :func:`_plain` exists to prevent -- v0.0.41's third bullet shipped
+        # that way and was drawn across Home's What's new card in every theme
+        # until the screenshot pass found it. Joining first and stripping
+        # afterwards is what makes the pattern see the sentence as written.
+        if version:
+            out.append(
+                Release(version=version, date=date, bullets=tuple(_plain(b) for b in bullets))
+            )
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        heading = _HEADING.match(line)
+        if heading is not None:
+            flush()
+            version = heading.group("version")
+            date = (heading.group("date") or "").strip()
+            bullets = []
+            continue
+        bullet = _BULLET.match(line)
+        # A bullet before any heading belongs to no release, so it is dropped
+        # rather than attached to the first one that comes along.
+        if bullet is not None and version:
+            bullets.append(bullet.group("text").strip())
+            continue
+        # An indented continuation of the bullet above it. Indentation in the
+        # *raw* line, not the stripped one: an unindented paragraph after a
+        # bullet is prose the file is allowed to carry, and folding that into
+        # the last bullet is how a note becomes a release note.
+        if bullets and line and raw[:1] in (" ", "\t"):
+            bullets[-1] = f"{bullets[-1]} {line}"
+    flush()
+    return out
+
+
+# One parse per path per process: Home draws the result every frame, and the
+# file ships inside the wheel, so it cannot change under a running process.
+# Keyed on the path rather than a single slot because the tests hand ``entries``
+# their own files; ``parse`` stays pure and uncached for the same reason.
+_CACHE: dict[Path, list[Release]] = {}
+
+
+def entries(path: Path | None = None) -> list[Release]:
+    """Every release, newest first. ``[]`` when there is nothing to read."""
+    target = path or changelog_path()
+    cached = _CACHE.get(target)
+    if cached is not None:
+        return cached
+    releases: list[Release] = []
+    try:
+        text = target.read_text(encoding="utf-8")
+    except OSError:
+        log.debug("no changelog at %s", target)
+    else:
+        try:
+            releases = parse(text)
+        except Exception:
+            log.exception("could not parse %s", target)
+    _CACHE[target] = releases
+    return releases
+
+
+def current(version: str, path: Path | None = None) -> Release | None:
+    """The release ``version`` names, else the newest, else ``None``.
+
+    Falling back to the newest rather than to nothing is the point: a dev
+    checkout routinely runs a version the file has not been written for yet,
+    and "what changed recently" is still the right answer there.
+    """
+    releases = entries(path)
+    if not releases:
+        return None
+    return next((r for r in releases if r.version == version), releases[0])

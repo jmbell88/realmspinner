@@ -8,8 +8,8 @@ import asyncio
 
 import pytest
 
-from warlock import sweep
-from warlock.config import Config
+from realmspinner import sweep
+from realmspinner.config import Config
 
 
 def test_auto_becomes_none_so_the_flag_is_omitted():

@@ -1,4 +1,4 @@
-"""What ``warlock.characters`` is allowed to reach for, pinned exactly.
+"""What ``realmspinner.characters`` is allowed to reach for, pinned exactly.
 
 The ``tests/modes/poser/test_poser_imports.py`` pin, sixth instance, with the structural
 difference that package's docstring anticipates: this one owns a *package with
@@ -26,9 +26,9 @@ from pathlib import Path
 
 import pytest
 
-import warlock
+import realmspinner
 
-ROOT = Path(warlock.__file__).parent
+ROOT = Path(realmspinner.__file__).parent
 PACKAGE = ROOT / "characters"
 
 #: The archetype subpackages -- the four body plans. Named rather than globbed
@@ -44,22 +44,22 @@ ARCHETYPE_PACKAGES = {"humanoid", "quadruped", "winged", "amorphous"}
 #: manifoldness asserted -- so a generator that grew an import its siblings did
 #: not would be a body plan that had stopped being built the shared way.
 _GENERATOR_IMPORTS = {
-    "warlock.kernels.rig.templates",
-    "warlock.kernels.rig.skeleton",
-    "warlock.kernels.mesh.adjacency",
-    "warlock.kernels.mesh.document",
-    "warlock.kernels.mesh.elements",
-    "warlock.kernels.mesh.mesh",
-    "warlock.kernels.mesh.ops_boolean",
-    "warlock.kernels.mesh.ops_subdiv",
-    "warlock.kernels.mesh.ops_topo",
-    "warlock.kernels.mesh.primitives",
-    "warlock.kernels.mesh.topo",
-    "warlock.kernels.geom3d.glbwrite",
-    "warlock.kernels.geom3d.gltf",
+    "realmspinner.kernels.rig.templates",
+    "realmspinner.kernels.rig.skeleton",
+    "realmspinner.kernels.mesh.adjacency",
+    "realmspinner.kernels.mesh.document",
+    "realmspinner.kernels.mesh.elements",
+    "realmspinner.kernels.mesh.mesh",
+    "realmspinner.kernels.mesh.ops_boolean",
+    "realmspinner.kernels.mesh.ops_subdiv",
+    "realmspinner.kernels.mesh.ops_topo",
+    "realmspinner.kernels.mesh.primitives",
+    "realmspinner.kernels.mesh.topo",
+    "realmspinner.kernels.geom3d.glbwrite",
+    "realmspinner.kernels.geom3d.gltf",
 }
 
-#: ``relative path -> every ``warlock.*`` name it imports``, exactly.
+#: ``relative path -> every ``realmspinner.*`` name it imports``, exactly.
 OUTWARD_IMPORTS: dict[str, set[str]] = {
     # Nothing at all: a refusal type that imported anything would be a refusal
     # type that could not be raised from the module that needed it most.
@@ -69,7 +69,7 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
     # The frame table, and only the frame table: what a recipe expands into is
     # ``charsheet``'s arithmetic, and a second copy here would be a second
     # opinion about what cell 137 depicts.
-    "recipe.py": {"warlock.kernels.charsheet"},
+    "recipe.py": {"realmspinner.kernels.charsheet"},
     # **Nothing outward at all**, and that is the resolver's whole claim: it
     # turns a sentence into controls with a fixed vocabulary, so it must be
     # decidable with no pipeline, no service and no model behind it. The camera
@@ -85,10 +85,10 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
     # through the same ``skeleton.validate_joints`` a hand-corrected rig
     # comes in by.
     "instantiate.py": {
-        "warlock.kernels.rig.templates",
-        "warlock.kernels.rig.skeleton",
-        "warlock.kernels.geom3d.glbwrite",
-        "warlock.kernels.geom3d.gltf",
+        "realmspinner.kernels.rig.templates",
+        "realmspinner.kernels.rig.skeleton",
+        "realmspinner.kernels.geom3d.glbwrite",
+        "realmspinner.kernels.geom3d.gltf",
     },
     # **The one outward edge that leaves the app's own back end.** A theme
     # declares ``effects=("embers",)`` and Flourish is the thing in this repo
@@ -99,8 +99,8 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
     # because ``characters`` is what the door imports to answer "what can we
     # make" and Flourish drags numpy and ten primitive modules in behind it.
     "effects.py": {
-        "warlock.kernels.pixel.flourish.recipe",
-        "warlock.kernels.pixel.flourish.render",
+        "realmspinner.kernels.pixel.flourish.recipe",
+        "realmspinner.kernels.pixel.flourish.render",
     },
     "__init__.py": set(),
     "humanoid/__init__.py": set(),
@@ -119,12 +119,12 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "pygame", "moderngl", "OpenGL", "glfw", "bpy", "torch"}
 
-LAZY_ONLY = {"warlock.kernels.mesh", "warlock.kernels.pixel.flourish"}
+LAZY_ONLY = {"realmspinner.kernels.mesh", "realmspinner.kernels.pixel.flourish"}
 
 
 def _package_for(rel: str) -> str:
     parts = rel.split("/")[:-1]
-    return ".".join(["warlock", "characters", *parts])
+    return ".".join(["realmspinner", "characters", *parts])
 
 
 def _imports(rel: str) -> list[tuple[str, bool]]:
@@ -171,11 +171,11 @@ def _deepest(base: str, name: str) -> str:
 
 
 def _outward(rel: str) -> set[str]:
-    """``warlock.*`` imports that leave the ``characters`` package."""
+    """``realmspinner.*`` imports that leave the ``characters`` package."""
     return {
         name
         for name, _scope in _imports(rel)
-        if name.split(".")[0] == "warlock" and not name.startswith("warlock.characters")
+        if name.split(".")[0] == "realmspinner" and not name.startswith("realmspinner.characters")
     }
 
 
@@ -188,7 +188,7 @@ def test_the_pin_covers_every_module_in_the_package():
             for p in (PACKAGE / sub).glob("*.py")
         }
     assert found == set(OUTWARD_IMPORTS), (
-        "a module joined or left warlock.characters; the pin below now measures "
+        "a module joined or left realmspinner.characters; the pin below now measures "
         "something other than the package"
     )
 
@@ -213,13 +213,13 @@ def test_no_module_imports_the_service_layer_or_the_queue(rel):
     through this package. An import back would be a cycle, and it would put a
     store-wide lock behind a function documented as pure."""
     for name, _scope in _imports(rel):
-        assert not name.startswith("warlock.service"), f"{rel} imports {name}"
-        assert not name.startswith("warlock.queue"), f"{rel} imports {name}"
-        assert not name.startswith("warlock._q"), f"{rel} imports {name}"
+        assert not name.startswith("realmspinner.service"), f"{rel} imports {name}"
+        assert not name.startswith("realmspinner.queue"), f"{rel} imports {name}"
+        assert not name.startswith("realmspinner._q"), f"{rel} imports {name}"
 
 
 @pytest.mark.parametrize("rel", sorted(OUTWARD_IMPORTS))
-def test_the_only_warlock_imports_are_the_ones_written_down(rel):
+def test_the_only_realmspinner_imports_are_the_ones_written_down(rel):
     assert _outward(rel) == OUTWARD_IMPORTS[rel], rel
 
 
@@ -245,18 +245,18 @@ def test_flourish_is_only_ever_imported_inside_a_function():
     """
     for rel in OUTWARD_IMPORTS:
         for name, module_scope in _imports(rel):
-            if name.startswith("warlock.kernels.pixel.flourish"):
+            if name.startswith("realmspinner.kernels.pixel.flourish"):
                 assert not module_scope, f"{rel} imports {name} at module scope"
 
 
 def test_the_effects_module_is_importable_with_no_studio_behind_it():
     """The pin above says the import is lazy; this says the laziness is worth
-    something. ``import warlock.characters.effects`` on a machine with no
+    something. ``import realmspinner.characters.effects`` on a machine with no
     window library must succeed, because that is what a queue worker's parent
     process does when it reads the registry to build a spec."""
     proc = _run(
-        ("imgui", "imgui_bundle", "moderngl", "pygame", "bpy", "torch", "warlock.service"),
-        "warlock.characters.effects",
+        ("imgui", "imgui_bundle", "moderngl", "pygame", "bpy", "torch", "realmspinner.service"),
+        "realmspinner.characters.effects",
     )
     assert proc.returncode == 0, proc.stderr
 
@@ -279,8 +279,8 @@ def _run(stubs: tuple[str, ...], imports: str) -> subprocess.CompletedProcess:
 
 def test_the_package_imports_with_no_studio_and_no_service():
     proc = _run(
-        ("imgui", "imgui_bundle", "moderngl", "pygame", "bpy", "torch", "warlock.service"),
-        "warlock.characters",
+        ("imgui", "imgui_bundle", "moderngl", "pygame", "bpy", "torch", "realmspinner.service"),
+        "realmspinner.characters",
     )
     assert proc.returncode == 0, proc.stderr
 
@@ -292,7 +292,7 @@ def test_instantiating_needs_no_window_and_no_boolean_kernel():
     -- the reason the assets are checked in -- pointless."""
     proc = _run(
         ("imgui", "imgui_bundle", "moderngl", "pygame", "bpy", "torch",
-         "warlock.service", "trimesh", "manifold3d"),
-        "warlock.characters.instantiate",
+         "realmspinner.service", "trimesh", "manifold3d"),
+        "realmspinner.characters.instantiate",
     )
     assert proc.returncode == 0, proc.stderr

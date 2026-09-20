@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels.pixel import indexed as ix
-from warlock.kernels.pixel.document import Document
-from warlock.studio.modes.inker.state import InkerState
+from realmspinner.kernels.pixel import indexed as ix
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.studio.modes.inker.state import InkerState
 
 BLACK = (0, 0, 0, 255)
 GREY = (128, 128, 128, 255)
@@ -286,9 +286,9 @@ def test_a_usage_count_is_not_shared_between_documents():
     other's counts. "0 px, safe to delete" is the one thing this number must
     never say wrongly."""
 
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker import state as inker_state
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
 
     state = inker_state.InkerState()
     a = inker_state.InkerDoc(doc=inker.Document.blank(4, 4), uid="ta", title="a")
@@ -311,7 +311,7 @@ def test_matte_for_answers_none_for_a_plane_with_no_alpha():
     """The guard was the crash it was guarding against."""
     import numpy as np
 
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     assert inker.matte_for(np.zeros((4, 4), np.uint8)) is None
     assert inker.matte_for(np.zeros((4, 4, 3), np.uint8)) is None

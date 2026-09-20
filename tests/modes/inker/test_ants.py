@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.modes.inker.ui import ants
+from realmspinner.studio.modes.inker.ui import ants
 
 # A 3x3 square, which is four vertices and a perimeter of twelve: long enough
 # to hold two whole six-pixel dashes and to make one cross a corner.
@@ -307,7 +307,7 @@ def test_a_basis_turns_the_dashes_without_touching_the_dash_pattern():
     transform that only turns leaves all of it alone."""
     import numpy as np
 
-    from warlock.studio.modes.inker.ui import ants
+    from realmspinner.studio.modes.inker.ui import ants
 
     verts = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 6.0], [0.0, 6.0], [0.0, 0.0]])
     cum = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(verts, axis=0), axis=1))])
@@ -326,7 +326,7 @@ def test_a_basis_turns_the_dashes_without_touching_the_dash_pattern():
 def test_no_basis_is_exactly_what_the_upright_view_always_produced():
     import numpy as np
 
-    from warlock.studio.modes.inker.ui import ants
+    from realmspinner.studio.modes.inker.ui import ants
 
     verts = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0], [0.0, 0.0]])
     cum = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(verts, axis=0), axis=1))])

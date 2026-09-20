@@ -19,10 +19,10 @@ import itertools
 import numpy as np
 import pytest
 
-from warlock import native
-from warlock.kernels.pixel import composite as cp
+from realmspinner import native
+from realmspinner.kernels.pixel import composite as cp
 
-needs_dll = pytest.mark.skipif(not native.available(), reason="warlockc.dll not built")
+needs_dll = pytest.mark.skipif(not native.available(), reason="realmspinnerc.dll not built")
 
 OPACITIES = (0.0, 0.37, 1.0)
 
@@ -241,7 +241,7 @@ def test_a_whole_editing_session_produces_identical_pixels(monkeypatch):
     document's *cached* composite is the same array either way is the one that
     would show as an editor displaying one image and saving another.
     """
-    from warlock.kernels import pixel as inker
+    from realmspinner.kernels import pixel as inker
 
     def session():
         rng = np.random.default_rng(909)

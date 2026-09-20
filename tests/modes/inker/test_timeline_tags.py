@@ -9,8 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+from realmspinner.kernels import pixel as inker
+from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
 
 @pytest.fixture

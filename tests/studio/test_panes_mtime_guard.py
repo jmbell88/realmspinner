@@ -28,9 +28,9 @@ import json
 import types
 from typing import Any
 
-from warlock.service.files import MTIME_RACE_NS
-from warlock.studio.panes import inspector, sheet_panel, stamps
-from warlock.studio.state import AppState
+from realmspinner.service.files import MTIME_RACE_NS
+from realmspinner.studio.panes import inspector, sheet_panel, stamps
+from realmspinner.studio.state import AppState
 
 
 def _settled(monkeypatch, path):
@@ -82,7 +82,7 @@ def _palette_dir(monkeypatch, svc, tmp_path, *, make=True):
 
     The note this replaces said ``palette_dir`` defaults to PROJECT_ROOT/palettes
     and that ``svc`` does not relocate it. Neither is true any more: the default
-    moved under the app's home, and ``svc`` pins WARLOCK_PALETTE_DIR at
+    moved under the app's home, and ``svc`` pins REALMSPINNER_PALETTE_DIR at
     ``tmp_path / "palettes"`` -- the very path this returned.
 
     That made ``make=False`` a no-op, and quietly. ``get_config()._ensure_dirs``
@@ -140,7 +140,7 @@ def test_a_settled_palette_directory_is_listed_once(svc, monkeypatch, tmp_path):
     _settled(monkeypatch, directory)
     walks: list[Any] = []
 
-    from warlock.service import palettes as svc_palettes
+    from realmspinner.service import palettes as svc_palettes
 
     real = svc_palettes.available
     monkeypatch.setattr(
@@ -242,7 +242,7 @@ class _SheetCtx:
 
 
 def _write_sidecar(root, frame_size):
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     path = store.sheet_pixel_path(root, SHEET_ID)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import colorsys
 
-from warlock.studio.modes.inker.ui.panes import picker as inker_picker
+from realmspinner.studio.modes.inker.ui.panes import picker as inker_picker
 
 
 class _Doc:

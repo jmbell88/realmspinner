@@ -1,5 +1,5 @@
 /* Serpentine Floyd-Steinberg error diffusion -- the loop in
- * warlock.studio.inker.dither._floyd_steinberg.
+ * realmspinner.studio.inker.dither._floyd_steinberg.
  *
  * The odd one out among these kernels: every other reference here is a numpy
  * expression whose cost is the temporaries it materialises, and this one is a
@@ -26,7 +26,7 @@
  * must stay there.
  */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
 /* As fractions of sixteen: the pixel ahead takes 7, the row below takes 3/5/1
  * across the three cells under and beside it. Every one is a power-of-two
@@ -37,7 +37,7 @@
 #define FS_BELOW (5.0f / 16.0f)
 #define FS_BELOW_AHEAD (1.0f / 16.0f)
 
-void warlockc_dither_fs(float *work, int64_t work_stride, const uint8_t *visible,
+void realmspinnerc_dither_fs(float *work, int64_t work_stride, const uint8_t *visible,
                         int64_t visible_stride, const float *entries, int64_t n_entries,
                         int64_t h, int64_t w) {
     for (int64_t y = 0; y < h; ++y) {

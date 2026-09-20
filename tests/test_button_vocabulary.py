@@ -23,7 +23,7 @@ import inspect
 
 from _ui_context import imgui_context
 
-from warlock.studio import controls, dialogs, forms, probe, toolbar, widgets
+from realmspinner.studio import controls, dialogs, forms, probe, toolbar, widgets
 
 
 def _role_button_calls(module) -> list[int]:
@@ -205,7 +205,7 @@ def test_no_review_tag_chip_is_narrower_than_the_word_in_it(monkeypatch):
     was wrong -- it was correct at any width where three columns happened to
     fit, which is why nothing caught it.
     """
-    from warlock.service import verdicts as verdicts_mod
+    from realmspinner.service import verdicts as verdicts_mod
 
     with imgui_context(monkeypatch) as imgui:
         imgui.new_frame()

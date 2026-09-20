@@ -3,7 +3,7 @@
 Packwright is the top-level packing mode: many images in, one atlas out, with a sidecar that says
 where everything landed. It is the step between drawing sprites and shipping them.
 
-It exists because every 2D engine wants an atlas and nothing else in Warlock made one. A sprite
+It exists because every 2D engine wants an atlas and nothing else in Realmspinner made one. A sprite
 sheet baked from a 3D model is a regular grid by construction; a folder of hand-drawn frames is not,
 and packing it by hand is exactly the sort of arithmetic a person should never do.
 
@@ -15,7 +15,7 @@ left, the packed atlas in the middle, the placement list and the file panel on t
 
 With nothing open, the middle column offers **New atlas** and **Open a file...**, and lists what you
 had open recently. `Ctrl+N` and `Ctrl+O` do the same from the keyboard. The document's own format is
-`.wpack`.
+`.rpack`.
 
 A document that cannot be opened is refused with the reason, not a generic failure. A file over the
 read ceiling is refused before a byte of it is read, and an archive that claims more than a
@@ -192,7 +192,7 @@ fraction of that same trimmed rectangle. A sprite with no anchor set still gets 
 centre — so the key is always there and a consumer's parser never has to handle its absence.
 
 Note that this is deliberately *not* the sidecar a [sprite sheet](27-sprite-sheets.md) writes. That
-format is Warlock's own and describes poses and view directions; this one describes an arbitrary
+format is Realmspinner's own and describes poses and view directions; this one describes an arbitrary
 pile of pictures. They answer different questions and have one writer each.
 
 An unchanged document exports byte-identical files however its sources happen to be ordered, because
@@ -201,20 +201,20 @@ the packer is deterministic all the way down.
 ## Sending an atlas to the library
 
 **Export to the library** (`Ctrl+E`) mints the atlas as an ordinary reference asset, with the
-document kept beside it as `pack.wpack` — which is what lets **Open in Packwright** on the card
+document kept beside it as `pack.rpack` — which is what lets **Open in Packwright** on the card
 reopen the real document rather than a flat picture. It follows the same precedent as Inker's
-`paint.ora` and Clay's `build.wblk`.
+`paint.ora` and Clay's `build.rblk`.
 
 ## Where the files go
 
 | File | What it is |
 | --- | --- |
-| `<name>.wpack` | The document: sources and settings. The atlas is derived, not stored. |
+| `<name>.rpack` | The document: sources and settings. The atlas is derived, not stored. |
 | `<name>.png` | An exported atlas. |
 | `<name>.json` | Its sidecar, in TexturePacker's Array or Hash JSON schema. |
 | `<name>.tsx` | A Tiled tileset, written for a grid pack whose geometry agrees with Tiled's own. |
-| `~/.warlock/assets/<job>/input.png` | The atlas, for one exported to the library. |
-| `~/.warlock/assets/<job>/pack.wpack` | The document behind it. Not served; reopened by **Open in Packwright**. |
+| `~/.realmspinner/assets/<job>/input.png` | The atlas, for one exported to the library. |
+| `~/.realmspinner/assets/<job>/pack.rpack` | The document behind it. Not served; reopened by **Open in Packwright**. |
 
 See [Keyboard shortcuts](38-shortcuts.md) for every binding, and [Plotter](32-plotter.md) for the
 mode that consumes a grid pack as a tileset.

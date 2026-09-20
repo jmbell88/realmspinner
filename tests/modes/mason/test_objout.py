@@ -16,12 +16,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.modes.mason.engine import document as doc
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import objout, refs, scene
-from warlock.studio.modes.mason.engine import terrain as tr
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.studio.modes.mason.engine import document as doc
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import objout, refs, scene
+from realmspinner.studio.modes.mason.engine import terrain as tr
 
 
 def _prim(
@@ -401,7 +401,7 @@ def test_the_obj_uses_the_shared_naming_rule_and_not_the_glbs_actual_names():
     are a self-contained pair referring to nothing outside themselves. This is
     the test that keeps that a stated position rather than a surprise.
     """
-    from warlock.studio.modes.mason.engine import gltfout
+    from realmspinner.studio.modes.mason.engine import gltfout
 
     d = doc.MasonDoc()
     group = nd.GroupNode(uid=nd.new_uid(), name="Rock")

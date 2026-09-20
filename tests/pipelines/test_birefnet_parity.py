@@ -4,7 +4,7 @@ MDL-03. ``matting`` used to build this model with ``trust_remote_code=True``,
 which executes whatever ``birefnet.py`` the snapshot on disk holds -- in this
 process, with the user's filesystem and network permissions, and with nothing
 in ``uv.lock`` describing it. The modelling code lives in
-``src/warlock/pipelines/birefnet/`` now; see its ``ATTRIBUTION.md``.
+``src/realmspinner/pipelines/birefnet/`` now; see its ``ATTRIBUTION.md``.
 
 The risk of a vendoring is not that it fails to import. It is that it imports,
 loads, runs, and returns a *slightly different* mask -- which would show up as
@@ -62,7 +62,7 @@ def test_nothing_in_the_source_tree_trusts_remote_code():
     """
     import ast
 
-    src = Path(__file__).resolve().parents[2] / "src" / "warlock"
+    src = Path(__file__).resolve().parents[2] / "src" / "realmspinner"
     offenders: list[str] = []
     for path in sorted(src.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -77,7 +77,7 @@ def test_nothing_in_the_source_tree_trusts_remote_code():
 def test_the_registry_no_longer_declares_remote_code():
     """The field stays -- it is where a future entry would have to say it, and
     doctor's warning sentence keys off it -- but nothing sets it."""
-    from warlock import models
+    from realmspinner import models
 
     assert not any(spec.remote_code for spec in models.MATTING_MODELS.values())
 
@@ -86,7 +86,7 @@ def test_the_download_no_longer_pulls_python_into_a_model_directory():
     """Not merely unused: Python left in a model directory that nothing runs is
     worse than either extreme, because a reader finding it would reasonably
     assume it *is* what runs."""
-    from warlock import models
+    from realmspinner import models
 
     spec = models.MATTING_MODELS["birefnet"]
     patterns = [p for one in spec.fetch for p in one.allow_patterns]
@@ -97,7 +97,7 @@ def test_the_download_no_longer_pulls_python_into_a_model_directory():
 def test_the_vendored_module_imports_with_no_weights_and_no_network():
     """It is ordinary Python in this checkout now, so importing it is a fact
     about the repository rather than about the user's models directory."""
-    from warlock.pipelines.birefnet import modeling
+    from realmspinner.pipelines.birefnet import modeling
 
     assert modeling.BACKBONES, "the backbone table is populated at import"
     assert "swin_v1_l" in modeling.BACKBONES
@@ -107,7 +107,7 @@ def test_every_dispatch_that_was_an_eval_is_a_table_now():
     """A block name out of a config file reaching ``eval`` is arbitrary
     execution with extra steps, and ``dec_blk``/``lat_blk``/``squeeze_block``/
     ``refine`` are all strings a config can set."""
-    from warlock.pipelines.birefnet import modeling
+    from realmspinner.pipelines.birefnet import modeling
 
     assert set(modeling.BLOCKS) >= {"BasicDecBlk", "BasicLatBlk", "ResBlk"}
     assert set(modeling.REFINERS) == {"RefUNet", "Refiner", "RefinerPVTInChannels4"}
@@ -116,7 +116,7 @@ def test_every_dispatch_that_was_an_eval_is_a_table_now():
 
 
 def test_an_unknown_backbone_is_refused_by_name():
-    from warlock.pipelines.birefnet import modeling
+    from realmspinner.pipelines.birefnet import modeling
 
     with pytest.raises(ValueError, match="unknown BiRefNet backbone"):
         modeling.build_backbone("not_a_backbone")
@@ -125,7 +125,7 @@ def test_an_unknown_backbone_is_refused_by_name():
 def test_the_torchvision_backbones_refuse_rather_than_downloading():
     """They were reachable only through ``pretrained=True``, whose weights are
     URLs -- and this app may never touch the network outside the fetch child."""
-    from warlock.pipelines.birefnet import modeling
+    from realmspinner.pipelines.birefnet import modeling
 
     for name in ("vgg16", "vgg16bn", "resnet50"):
         with pytest.raises(ValueError, match="deliberately cannot download"):
@@ -137,7 +137,7 @@ def test_no_weights_enum_survives_in_the_vendored_source():
     is what would put ``download.pytorch.org`` back in reach."""
     path = (
         Path(__file__).resolve().parents[2]
-        / "src" / "warlock" / "pipelines" / "birefnet" / "modeling.py"
+        / "src" / "realmspinner" / "pipelines" / "birefnet" / "modeling.py"
     )
     # Comments excluded for ``test_nothing_..._trusts_remote_code``'s reason:
     # the modification's own note names the symbols it deleted, and it should.
@@ -154,10 +154,10 @@ def test_no_weights_enum_survives_in_the_vendored_source():
 def test_the_attribution_names_the_commit_the_registry_pins():
     """A vendored file whose provenance note points at a different snapshot
     than the one the registry downloads is a note that misleads."""
-    from warlock import models
+    from realmspinner import models
 
     here = Path(__file__).resolve().parents[2]
-    doc = (here / "src/warlock/pipelines/birefnet/ATTRIBUTION.md").read_text(encoding="utf-8")
+    doc = (here / "src/realmspinner/pipelines/birefnet/ATTRIBUTION.md").read_text(encoding="utf-8")
     revision = models.MATTING_MODELS["birefnet"].fetch[0].revision
     assert revision in doc
 
@@ -180,7 +180,7 @@ def test_a_real_backbone_is_constructed_by_the_dispatch(name: str):
     test below actually runs.
     """
     pytest.importorskip("torch")
-    from warlock.pipelines.birefnet import modeling
+    from realmspinner.pipelines.birefnet import modeling
 
     bb = modeling.build_backbone(name)
     assert bb is not None
@@ -193,7 +193,7 @@ def test_the_two_mlp_classes_are_still_upstreams_problem_and_not_ours():
     it, this fails and the note in the test above can go."""
     path = (
         Path(__file__).resolve().parents[2]
-        / "src" / "warlock" / "pipelines" / "birefnet" / "modeling.py"
+        / "src" / "realmspinner" / "pipelines" / "birefnet" / "modeling.py"
     )
     defs = [
         n
@@ -213,7 +213,7 @@ def test_params_settings_is_parsed_rather_than_executed(monkeypatch):
     backbone can show it -- ``pvt_v2_b0`` swallows ``**kwargs`` without using
     them and ``swin_v1_t`` takes no arguments at all.
     """
-    from warlock.pipelines.birefnet import modeling
+    from realmspinner.pipelines.birefnet import modeling
 
     seen: dict = {}
 
@@ -238,7 +238,7 @@ def test_the_parse_keeps_upstreams_answer_for_the_two_real_backbones():
     also why this argument is a dead path upstream: the only caller is
     ``RefinerPVTInChannels4``, and ``Config`` disables the refiner."""
     pytest.importorskip("torch")
-    from warlock.pipelines.birefnet import modeling
+    from realmspinner.pipelines.birefnet import modeling
 
     assert modeling.build_backbone("pvt_v2_b0", params_settings="in_channels=4") is not None
     with pytest.raises(TypeError):
@@ -260,9 +260,9 @@ def test_the_vendored_model_reproduces_the_mask_bit_for_bit():
     weights this host may not have".
     """
     pytest.importorskip("torch")
-    from warlock import models
-    from warlock.config import Config
-    from warlock.pipelines import birefnet, matting
+    from realmspinner import models
+    from realmspinner.config import Config
+    from realmspinner.pipelines import birefnet, matting
 
     weights = Path(Config().t2i_model_root) / models.MATTING_MODELS["birefnet"].dir_name
     if not (weights / birefnet.WEIGHTS_NAME).exists():

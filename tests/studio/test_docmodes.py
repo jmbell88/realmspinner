@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio import docmodes
+from realmspinner.studio import docmodes
 
 
 class _Confirms:
@@ -86,7 +86,7 @@ def test_it_imports_no_window_and_no_service_at_module_scope():
     import ast
 
     source = (
-        Path(__file__).resolve().parents[2] / "src" / "warlock" / "studio" / "docmodes.py"
+        Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "studio" / "docmodes.py"
     ).read_text(encoding="utf-8")
     roots: set[str] = set()
     for node in ast.parse(source).body:
@@ -128,7 +128,7 @@ def test_a_refused_submit_unlocks_the_tab():
 
 
 def test_a_title_is_the_file_name_and_nothing_is_untitled():
-    assert docmodes.title_for(Path("D:/atlases/hero.wpack")) == "hero.wpack"
+    assert docmodes.title_for(Path("D:/atlases/hero.rpack")) == "hero.rpack"
     assert docmodes.title_for(None) == "Untitled"
 
 
@@ -169,7 +169,7 @@ class _Renderer:
 @pytest.fixture()
 def _renderer(monkeypatch):
     log: list[str] = []
-    from warlock.studio import imgui_backend
+    from realmspinner.studio import imgui_backend
 
     monkeypatch.setattr(imgui_backend, "current", lambda: _Renderer(log))
     return log
@@ -256,14 +256,14 @@ def test_one_question_covers_however_many_are_dirty():
 def test_every_mode_reaches_for_the_shared_helpers():
     """The point of the module. A fourth copy that happens to agree today is
     the drift this replaced."""
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker import state as inker_state
-    from warlock.studio.modes.inker.ui.panes import textures as inker_textures
-    from warlock.studio.modes.packwright.ui.panes import textures as packwright_textures
-    from warlock.studio.modes.plotter import fileio as plotter_io
-    from warlock.studio.modes.plotter import state as plotter_state
-    from warlock.studio.modes.plotter.ui.panes import textures as plotter_textures
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.inker.ui.panes import textures as inker_textures
+    from realmspinner.studio.modes.packwright.ui.panes import textures as packwright_textures
+    from realmspinner.studio.modes.plotter import fileio as plotter_io
+    from realmspinner.studio.modes.plotter import state as plotter_state
+    from realmspinner.studio.modes.plotter.ui.panes import textures as plotter_textures
 
     assert clay_mode._start is docmodes.start_save
     assert inker_mode._start is docmodes.start_save
@@ -373,7 +373,7 @@ def _modules_calling_docmodes_close_tab() -> set[str]:
     than hand-listed, so a future mode that grows a document tab enrols
     itself here the same way it enrols in ``_pure_packages``.
 
-    Returned as the full dotted path *relative to* ``warlock.studio``
+    Returned as the full dotted path *relative to* ``realmspinner.studio``
     (``"modes.mason.mode"``, but ``"modes.clay.mode"`` for Clay since P5 folded it
     into a mode package) rather than the bare file stem: a bare stem worked
     while every caller was a flat ``studio/<mode>_mode.py``, but Clay's is now
@@ -390,7 +390,7 @@ def _modules_calling_docmodes_close_tab() -> set[str]:
     """
     import ast
 
-    studio_dir = Path(__file__).resolve().parents[2] / "src" / "warlock" / "studio"
+    studio_dir = Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "studio"
     files = sorted(studio_dir.rglob("*.py"))
     assert len(files) > 200, (
         f"only {len(files)} files under {studio_dir} -- did the sweep root break?"
@@ -425,7 +425,7 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
     class" is assumed, and that convention already has to hold for
     ``close_tab``'s own ``release`` callback to reach the right document.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     caller_modules = _modules_calling_docmodes_close_tab()
     # Sanity floor: at least the six modes known to have document tabs today
@@ -445,7 +445,7 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
 
     checked = 0
     for module_name in caller_modules:
-        module = importlib.import_module(f"warlock.studio.{module_name}")
+        module = importlib.import_module(f"realmspinner.studio.{module_name}")
         # The mode key a caller's own *State class should derive to: the mode
         # package's own name for a nested caller (`modes.clay.mode` -> "clay"),
         # or the first underscore-joined word for the flat `<mode>_mode.py`
@@ -470,10 +470,10 @@ def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
 def test_clay_titles_a_tab_by_stem_on_purpose():
     """Deliberately *not* shared: a Clay tab is named for the document rather
     than for the file it came from."""
-    from warlock.studio.modes.clay import state as clay_state
+    from realmspinner.studio.modes.clay import state as clay_state
 
     assert clay_state.title_for is not docmodes.title_for
-    assert clay_state.title_for(Path("D:/x/hero.wblk")) == "hero"
+    assert clay_state.title_for(Path("D:/x/hero.rblk")) == "hero"
 
 
 # -- DocTabs: one tab list for every document mode (restructure P7) ----------
@@ -527,7 +527,7 @@ def test_every_document_mode_inherits_the_one_tab_list():
     a list method rather than a hook fails here by name. Sirens' ``activate``
     is the one recorded override: it stops the other song first (S6).
     Poser journals a pose viewer rather than a tab list, so it is not here."""
-    from warlock.studio.mode_manifest import DOC_MODES, module_of
+    from realmspinner.studio.mode_manifest import DOC_MODES, module_of
 
     allowed = {("sirens", "activate")}
     names = ("active", "any_dirty", "add", "get", "close", "activate", "cycle", "find_path")

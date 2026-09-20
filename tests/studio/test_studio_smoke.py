@@ -18,22 +18,22 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.service import jobs as svc_jobs
-from warlock.studio import icons, toolbar
-from warlock.studio.app_ctx import Ctx
-from warlock.studio.jobs_cache import JobsCache
-from warlock.studio.settings import Settings
-from warlock.studio.state import AppState, Eta, Filters
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.studio import icons, toolbar
+from realmspinner.studio.app_ctx import Ctx
+from realmspinner.studio.jobs_cache import JobsCache
+from realmspinner.studio.settings import Settings
+from realmspinner.studio.state import AppState, Eta, Filters
 
 
 @pytest.fixture
 def app_ctx(gl, svc, tmp_path, imgui_ctx):
-    from warlock.service import sheets as svc_sheets
-    from warlock.service import system as svc_system
-    from warlock.studio import textures
-    from warlock.studio.runtime import Runtime
-    from warlock.studio.tasks import TaskRunner
-    from warlock.studio.viewer_embed import Viewer
+    from realmspinner.service import sheets as svc_sheets
+    from realmspinner.service import system as svc_system
+    from realmspinner.studio import textures
+    from realmspinner.studio.runtime import Runtime
+    from realmspinner.studio.tasks import TaskRunner
+    from realmspinner.studio.viewer_embed import Viewer
 
     runtime = Runtime(svc.config)
     runtime.store = svc.store
@@ -83,7 +83,7 @@ def imgui_ctx(gl):
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import imgui_backend, theme
+    from realmspinner.studio import imgui_backend, theme
 
     # A standalone context has no default framebuffer; the renderer targets
     # ctx.screen, so give it one that exists.
@@ -99,7 +99,7 @@ def imgui_ctx(gl):
     # and this fixture outlived the file, so every later test in the worker drew
     # its sections forced open -- the same shape as the ``vram._published`` leak
     # ``tests/conftest.py`` resets, and invisible for the same reason.
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     prev_force = widgets.FORCE_SECTIONS_OPEN
     widgets.FORCE_SECTIONS_OPEN = True
@@ -167,7 +167,7 @@ def _seeded(ctx, kind="text", **overrides):
 
 
 def test_the_first_run_overlay_builds_and_dismisses(app_ctx, imgui_ctx, monkeypatch):
-    from warlock.studio.panes import first_run
+    from realmspinner.studio.panes import first_run
 
     app_ctx.first_run = True
     app_ctx.first_run_info = {
@@ -199,13 +199,13 @@ def test_the_first_run_overlay_builds_and_dismisses(app_ctx, imgui_ctx, monkeypa
 
 
 def test_the_2d_pane_builds_with_an_empty_form(app_ctx, imgui_ctx):
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     _frame(imgui_ctx, lambda: settings_2d.draw(app_ctx))
 
 
 def test_the_2d_pane_builds_with_advanced_open_and_a_lora_chosen(app_ctx, imgui_ctx):
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["style_lora"] = "render3d"
     app_ctx.state.form_2d["prompt"] = "a barrel"
@@ -219,7 +219,7 @@ def test_the_2d_pane_builds_every_output_kind(app_ctx, imgui_ctx):
     swap the count radios for a bare seed field. Drawn rather than reasoned
     about because the failure this catches is a layout one: ``same_line`` past
     the content edge puts a control nowhere, and no pure test sees it."""
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "mossy dungeon"
     for asset_type in ("model_3d", "seamless_tile", "tileset_top_down"):
@@ -236,7 +236,7 @@ def test_the_2d_pane_builds_the_character_column_and_its_refusal(app_ctx, imgui_
     reasoned about for this test's own reason -- the failures here are layout
     ones, and no pure test sees a control put nowhere.
     """
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["asset_type"] = "character"
     for prompt in ("an attacking fire ogre, 3/4 top down", "a manticore", ""):
@@ -247,8 +247,8 @@ def test_the_2d_pane_builds_the_character_column_and_its_refusal(app_ctx, imgui_
 def test_the_2d_pane_builds_both_arms_of_the_sheet_output(app_ctx, imgui_ctx):
     """The two arms draw different controls off the same form dict, and the
     sprite arm's are the ones a stale tile-arm value can reach."""
-    from warlock.service import tilesheets as svc_tilesheets
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.service import tilesheets as svc_tilesheets
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "a hooded ranger"
     # Every view the service offers, off the service's own list rather than a
@@ -281,8 +281,8 @@ def test_the_2d_pane_builds_every_tile_layout(app_ctx, imgui_ctx):
     function of the layout, and a segmented row whose current value is off its
     own menu is the failure no pure test sees.
     """
-    from warlock.service import tilesheets as svc_tilesheets
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.service import tilesheets as svc_tilesheets
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "mossy dungeon"
     app_ctx.state.form_2d["asset_type"] = "tileset"
@@ -307,8 +307,8 @@ def test_the_2d_pane_draws_the_pixel_look_on_both_arms(app_ctx, imgui_ctx, tmp_p
     never been drawn. Both arms, because only one of them draws the outline row
     and only one of them lists palettes through ``sprite_palettes``.
     """
-    from warlock.studio.modes.create.ui.panes import settings_2d
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.panes import inspector
 
     directory = tmp_path / "smoke-palettes"
     directory.mkdir(exist_ok=True)
@@ -337,7 +337,7 @@ def test_the_sheet_output_pins_the_count_to_one(app_ctx, imgui_ctx):
     """Both doors refuse a batch, so the radios are not drawn -- and the value
     is persisted, so a 4 left over from the Object output has to be written
     back rather than merely ignored."""
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.state.form_2d["prompt"] = "mossy dungeon"
     app_ctx.state.form_2d["count"] = 4
@@ -347,7 +347,7 @@ def test_the_sheet_output_pins_the_count_to_one(app_ctx, imgui_ctx):
 
 
 def test_the_3d_pane_builds_with_and_without_rigging(app_ctx, imgui_ctx):
-    from warlock.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     _frame(imgui_ctx, lambda: settings_3d.draw(app_ctx))
     app_ctx.rigging_available = True
@@ -356,7 +356,7 @@ def test_the_3d_pane_builds_with_and_without_rigging(app_ctx, imgui_ctx):
 
 
 def test_the_library_builds_empty_and_populated(app_ctx, imgui_ctx):
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     _frame(imgui_ctx, lambda: library.draw(app_ctx))
     job_id = _seeded(app_ctx)
@@ -368,7 +368,7 @@ def test_the_library_builds_empty_and_populated(app_ctx, imgui_ctx):
 def test_the_library_offers_a_way_to_the_failed_jobs(app_ctx, imgui_ctx):
     """A failed job says why it failed in the inspector and nowhere else, so
     the only route to the reason was to already know which card to click."""
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     job_id = _seeded(app_ctx)
     app_ctx.svc.store.set_status(job_id, "error", error="it broke")
@@ -386,7 +386,7 @@ def test_the_failure_affordance_is_absent_once_the_filter_is_already_on_errors()
     raises if the count is ever computed, which is what proves the guard runs
     before the work rather than merely before the button.
     """
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     class Detonating:
         @property
@@ -411,9 +411,9 @@ def test_the_library_filter_row_fits_the_sidebar(app_ctx, imgui_ctx):
     fits.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.studio import layout as layout_mod
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.tokens import sp
 
     measured: list[float] = []
 
@@ -434,9 +434,9 @@ def test_a_library_cards_action_row_stays_inside_the_card(app_ctx, imgui_ctx):
     which started 73 px to the right on the status pill's line and put the
     favourite star off the edge of the card, where it could not be clicked."""
     imgui, _renderer = imgui_ctx
-    from warlock.studio import layout as layout_mod
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.tokens import sp
 
     app_ctx.rigging_available = True
     _seeded(app_ctx)  # no mesh_report and no mesh_audit: an ordinary reference
@@ -489,11 +489,11 @@ def test_an_evidence_hint_stays_inside_the_pane(app_ctx, imgui_ctx, pane, param,
     imgui, _renderer = imgui_ctx
     import importlib
 
-    from warlock.studio import layout as layout_mod
-    from warlock.studio import widgets
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio import widgets
+    from realmspinner.studio.tokens import sp
 
-    module = importlib.import_module(f"warlock.studio.modes.create.ui.panes.{pane}")
+    module = importlib.import_module(f"realmspinner.studio.modes.create.ui.panes.{pane}")
     _seed_findings(app_ctx, param, value)
     (app_ctx.state.form_2d if pane == "settings_2d" else app_ctx.state.form_3d)[param] = value
     # The base-model combo -- and so the hint attached to it -- is an Advanced
@@ -551,27 +551,27 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     imgui, _renderer = imgui_ctx
     import traceback
 
-    from warlock.studio import layout as layout_mod
-    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
-    from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
-    from warlock.studio.modes.inker.ui.panes import generate as inker_generate
-    from warlock.studio.modes.inker.ui.panes import menu as inker_menu
-    from warlock.studio.modes.inker.ui.panes import picker as inker_picker
-    from warlock.studio.modes.inker.ui.panes import tools as inker_tools
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.modes.settings.ui.panes import app_settings
-    from warlock.studio.panes import (
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.studio.modes.inker.ui.panes import generate as inker_generate
+    from realmspinner.studio.modes.inker.ui.panes import menu as inker_menu
+    from realmspinner.studio.modes.inker.ui.panes import picker as inker_picker
+    from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.panes import (
         candidates_panel,
         inspector,
         pose_panel,
         retarget_panel,
         sheet_panel,
     )
-    from warlock.studio.tokens import sp
+    from realmspinner.studio.tokens import sp
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
@@ -603,7 +603,7 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
         a wrapped detail with ``same_line``, and the actions under it are a row
         of buttons in a 640-wide column.
         """
-        from warlock.doctor import Check
+        from realmspinner.doctor import Check
 
         before = app_ctx.state.preview.get(app_settings.CATEGORY_SLOT)
         app_ctx.state.preview[app_settings.CATEGORY_SLOT] = "health"
@@ -685,7 +685,7 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
 
 
 def test_the_inspector_builds_for_every_status(app_ctx, imgui_ctx):
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     _frame(imgui_ctx, lambda: inspector.draw(app_ctx))  # nothing selected
     job_id = _seeded(app_ctx, mesh_report={"verdict": "good", "reasons": []})
@@ -704,7 +704,7 @@ def test_the_candidate_picker_builds_running_and_finished(app_ctx, imgui_ctx):
     to build with nothing selected as well as with a candidate selected -- the
     rows it lists are hidden from the library, and it is the only way back to
     them."""
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     app_ctx.state.mode = "create"
     app_ctx.state.create.stage = "mesh"
@@ -723,7 +723,7 @@ def test_the_candidate_picker_builds_running_and_finished(app_ctx, imgui_ctx):
     app_ctx.cache.tick()
     # The rows really do reach the picker through the cache -- without this the
     # frames below would draw nothing at all and pass regardless.
-    from warlock.studio import candidates as candidates_mod
+    from realmspinner.studio import candidates as candidates_mod
 
     assert candidates_mod.pending(app_ctx.cache.jobs) is not None
 
@@ -748,7 +748,7 @@ def test_the_candidate_picker_builds_running_and_finished(app_ctx, imgui_ctx):
 def test_the_retarget_panel_builds_with_and_without_a_reconstruction(
     app_ctx, imgui_ctx, monkeypatch
 ):
-    from warlock.studio.panes import retarget_panel
+    from realmspinner.studio.panes import retarget_panel
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
@@ -773,7 +773,7 @@ def test_the_retarget_panel_builds_with_and_without_a_reconstruction(
 
 
 def test_the_pose_panel_builds_rigged_and_unrigged(app_ctx, imgui_ctx):
-    from warlock.studio.panes import pose_panel
+    from realmspinner.studio.panes import pose_panel
 
     job_id = _seeded(app_ctx)
     job = app_ctx.cache.get(job_id)
@@ -793,7 +793,7 @@ def test_the_pose_panel_builds_rigged_and_unrigged(app_ctx, imgui_ctx):
 
 
 def test_the_sheet_panel_builds_with_poses_and_a_clip(app_ctx, imgui_ctx):
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     job_id = _seeded(app_ctx)
     job = app_ctx.cache.get(job_id)
@@ -818,7 +818,7 @@ def test_the_sheet_preview_advances_a_cell_per_frame(app_ctx, imgui_ctx):
     strip genuinely in progress, which is the branch a static frame misses."""
     from PIL import Image
 
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     job_id = _seeded(app_ctx)
     job = app_ctx.cache.get(job_id)
@@ -878,11 +878,11 @@ def test_the_sheet_preview_advances_a_cell_per_frame(app_ctx, imgui_ctx):
 
 
 def test_the_overlay_builds_with_a_toolbar_and_a_banner(app_ctx, imgui_ctx):
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     eta = Eta()
     app_ctx.state.note_error("trellis: the exe is missing")
-    app_ctx.state.note_error("The GPU worker is not running. Restart Warlock.")
+    app_ctx.state.note_error("The GPU worker is not running. Restart Realmspinner.")
     _frame(
         imgui_ctx,
         lambda: (
@@ -902,7 +902,7 @@ def test_the_overlay_offers_clear_only_where_there_is_something_to_clear(app_ctx
     Reference stage because a *mesh* happened to be loaded would appear to do
     nothing at all.
     """
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.panes import overlay
 
     app_ctx.clear_viewport = lambda: None
     was_mode = app_ctx.state.mode
@@ -938,8 +938,8 @@ def test_wireframe_and_turntable_hide_until_a_mesh_is_loaded(app_ctx, imgui_ctx,
     Wireframe and Turntable drew over an empty viewport with nothing for
     either to affect. They belong on ``viewer.has_model`` instead.
     """
-    from warlock.studio import widgets
-    from warlock.studio.panes import overlay
+    from realmspinner.studio import widgets
+    from realmspinner.studio.panes import overlay
 
     drawn: list[str] = []
     real_toggle = widgets.toggle
@@ -967,7 +967,7 @@ def test_wireframe_and_turntable_hide_until_a_mesh_is_loaded(app_ctx, imgui_ctx,
 
 
 def test_toasts_and_dialogs_build(app_ctx, imgui_ctx):
-    from warlock.studio import dialogs, widgets
+    from realmspinner.studio import dialogs, widgets
 
     app_ctx.state.toast("finished", "info")
     app_ctx.state.toast("it broke", "error")
@@ -993,11 +993,11 @@ def test_the_whole_frame_builds_at_once(app_ctx, imgui_ctx):
     hand-copy of its inspector/library split sitting next to the function
     that exists to prevent exactly that.
     """
-    from warlock.studio import layout as layout_mod
-    from warlock.studio.modes.create.ui.panes import settings_2d
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.panes import inspector, overlay
-    from warlock.studio.shell import frame as frame_mod
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.panes import inspector, overlay
+    from realmspinner.studio.shell import frame as frame_mod
 
     _seeded(app_ctx)
     imgui, renderer = imgui_ctx
@@ -1035,9 +1035,9 @@ def test_the_right_sidebar_splits_inspector_and_library_by_settings_share(app_ct
     ratio (or dropping the splitter) throws the measured heights off by more
     than a pixel.
     """
-    from warlock.studio import layout as layout_mod
-    from warlock.studio.shell import frame as frame_mod
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio.shell import frame as frame_mod
+    from realmspinner.studio.tokens import sp
 
     imgui, _renderer = imgui_ctx
     lay = layout_mod.Layout(app_ctx.settings)
@@ -1072,7 +1072,7 @@ def test_the_right_sidebar_splits_inspector_and_library_by_settings_share(app_ct
 def test_the_landing_screen_builds_empty_and_with_something_to_resume(app_ctx, imgui_ctx):
     """Both states, because Home's empty state is the frame that shows none of
     its Resume rows -- which is the half a seeded smoke run never reaches."""
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     _frame(imgui_ctx, lambda: landing.draw(app_ctx))
     _seeded(app_ctx)
@@ -1087,8 +1087,8 @@ def test_the_landing_columns_are_bordered_and_rounded_surfaces(app_ctx, imgui_ct
     the same registers ``widgets.card`` uses for a tile."""
     from imgui_bundle import imgui
 
-    from warlock.studio import tokens
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio import tokens
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     seen: dict[str, tuple[int, float]] = {}
     real = imgui.begin_child
@@ -1117,12 +1117,12 @@ def test_the_landing_screen_builds_with_unsaved_work_to_offer(app_ctx, imgui_ctx
     unadoptable branch, which is a kind this build has no provider for and must
     render as a greyed row rather than vanish.
     """
-    from warlock.studio import journal
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio import journal
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     app_ctx.state.recovery = [
         journal.Recovered(path=Path("sketch-pd9.ora"), kind="inker", title="sketch", at=1.0),
-        journal.Recovered(path=Path("scene.wmap"), kind="plotter", title="scene", at=2.0),
+        journal.Recovered(path=Path("scene.rmap"), kind="plotter", title="scene", at=2.0),
         journal.Recovered(
             path=Path("mystery.bin"), kind="from-the-future", title="mystery", at=3.0
         ),
@@ -1135,7 +1135,7 @@ def test_the_landing_screen_builds_with_unsaved_work_to_offer(app_ctx, imgui_ctx
     # build-it-and-see test silently, which is the whole failure mode here.
     labels = _drawn_labels(imgui, lambda: landing.draw(app_ctx), "##home-recovery")
     assert _index_of(labels, "Recover##sketch-pd9.ora") >= 0
-    assert _index_of(labels, "Recover##scene.wmap") >= 0
+    assert _index_of(labels, "Recover##scene.rmap") >= 0
     assert _index_of(labels, "Discard all") >= 0
     assert _index_of(labels, "Recover##mystery.bin") == -1, "no provider, no button"
 
@@ -1143,7 +1143,7 @@ def test_the_landing_screen_builds_with_unsaved_work_to_offer(app_ctx, imgui_ctx
 def test_the_library_builds_as_its_own_mode(app_ctx, imgui_ctx):
     """It was a sub-view of Home behind an enum; it is a single-pane mode now,
     drawn by the same call Home used to make."""
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     _seeded(app_ctx)
     app_ctx.state.mode = "library"
@@ -1157,7 +1157,7 @@ def test_the_manual_builds_embedded(app_ctx, imgui_ctx):
     The loader falls back to the repo's docs/manual in this checkout, so this
     parses and draws the real chapters.
     """
-    from warlock.studio.manual import render
+    from realmspinner.studio.manual import render
 
     _frame(imgui_ctx, lambda: render.draw_body(app_ctx))
     # A real chapter key, and *asserted* to be one rather than written out.
@@ -1169,7 +1169,7 @@ def test_the_manual_builds_embedded(app_ctx, imgui_ctx):
     # the not-found path rather than the renderer this test exists for, and
     # neither renumbering that moved the chapter could fail here. Looking the
     # key up means the next one cannot go stale in silence either.
-    from warlock.kernels.manual import loader
+    from realmspinner.kernels.manual import loader
 
     shortcuts = next(c.key for c in loader.chapters() if c.key.endswith("-shortcuts"))
     app_ctx.state.manual.open_at(shortcuts, None)
@@ -1190,8 +1190,8 @@ def test_every_step_of_every_tour_builds(app_ctx, imgui_ctx):
     section is exactly this -- and it is the path a first-step-only test would
     never reach.
     """
-    from warlock.studio.panes import tour as tour_pane
-    from warlock.studio.tour import TOURS
+    from realmspinner.studio.panes import tour as tour_pane
+    from realmspinner.studio.tour import TOURS
 
     for one in TOURS:
         tour_pane.start(app_ctx, one.key)
@@ -1206,7 +1206,7 @@ def test_every_step_of_every_tour_builds(app_ctx, imgui_ctx):
 def test_the_tour_draws_nothing_when_none_is_running(app_ctx, imgui_ctx):
     """The overlay is called every frame, from every mode, forever."""
 
-    from warlock.studio.panes import tour as tour_pane
+    from realmspinner.studio.panes import tour as tour_pane
 
     app_ctx.state.tour.stop()
     _frame(imgui_ctx, lambda: tour_pane.draw(app_ctx))
@@ -1220,8 +1220,8 @@ def test_a_tour_whose_steps_went_away_stops_rather_than_raising(app_ctx, imgui_c
     the frame -- an exception here is one the user cannot dismiss, because
     dismissing it is the frame that crashed.
     """
-    from warlock.studio.panes import tour as tour_pane
-    from warlock.studio.tour import TOURS
+    from realmspinner.studio.panes import tour as tour_pane
+    from realmspinner.studio.tour import TOURS
 
     tour_pane.start(app_ctx, TOURS[0].key)
     app_ctx.state.tour.index = 9_999
@@ -1239,8 +1239,8 @@ def test_pressing_enter_in_an_unrelated_text_field_does_not_advance_the_tour(
     if some other window, a rename field's say, currently owned the keyboard
     instead of ``##tour-card``.
     """
-    from warlock.studio.panes import tour as tour_pane
-    from warlock.studio.tour import TOURS
+    from realmspinner.studio.panes import tour as tour_pane
+    from realmspinner.studio.tour import TOURS
 
     imgui, _renderer = imgui_ctx
     tour_pane.start(app_ctx, TOURS[0].key)
@@ -1271,9 +1271,9 @@ def test_the_tours_own_arrow_does_not_also_move_the_library_grid_underneath(
 
     import pygame
 
-    from warlock.studio.main import App
-    from warlock.studio.panes import tour as tour_pane
-    from warlock.studio.tour import TOURS
+    from realmspinner.studio.main import App
+    from realmspinner.studio.panes import tour as tour_pane
+    from realmspinner.studio.tour import TOURS
 
     app = App(app_ctx.runtime)
     app.app_ctx = app_ctx
@@ -1309,8 +1309,8 @@ def test_a_chapter_with_a_screenshot_uploads_and_draws_it(app_ctx, imgui_ctx):
     Any chapter carrying a screenshot exercises the same seam, and only three of
     them do, so the search is also the assertion that some chapter still does.
     """
-    from warlock.kernels.manual import loader, parser
-    from warlock.studio.manual import render
+    from realmspinner.kernels.manual import loader, parser
+    from realmspinner.studio.manual import render
 
     found = (
         (c.key, b)
@@ -1339,8 +1339,8 @@ def test_a_missing_screenshot_degrades_to_its_alt_text(app_ctx, imgui_ctx):
     """Which is why alt text is required rather than optional: the chapters
     ship and the captures are generated, so "not there yet" is an ordinary
     state and must read as a caption rather than as damage."""
-    from warlock.kernels.manual import parser
-    from warlock.studio.manual import render
+    from realmspinner.kernels.manual import parser
+    from realmspinner.studio.manual import render
 
     block = parser.Image("The Inker toolbar", "img/not-generated-yet.png")
     _frame(imgui_ctx, lambda: render._draw_image(app_ctx, block))
@@ -1355,8 +1355,8 @@ def test_the_toc_tree_draws_its_sections_and_follows_the_scroll(app_ctx, imgui_c
     identically-named sections apart, and the scroll read that has to happen
     inside the page child rather than the host.
     """
-    from warlock.kernels.manual import loader, parser
-    from warlock.studio.manual import render
+    from realmspinner.kernels.manual import loader, parser
+    from realmspinner.studio.manual import render
 
     ms = app_ctx.state.manual
     inker = next(c.key for c in loader.chapters() if c.key.endswith("-inker"))
@@ -1390,7 +1390,7 @@ def test_the_manual_overlay_builds_over_a_mode(app_ctx, imgui_ctx):
     Closed as well as open: the early return is the branch every frame in the
     app but a handful takes.
     """
-    from warlock.studio.manual import render
+    from realmspinner.studio.manual import render
 
     imgui, renderer = imgui_ctx
 
@@ -1406,7 +1406,7 @@ def test_the_manual_overlay_builds_over_a_mode(app_ctx, imgui_ctx):
 
     app_ctx.state.manual.open = False
     frame()
-    from warlock.kernels.manual import loader
+    from realmspinner.kernels.manual import loader
 
     shortcuts = next(c.key for c in loader.chapters() if c.key.endswith("-shortcuts"))
     render.open_at(app_ctx, (shortcuts, None))
@@ -1473,7 +1473,7 @@ def _model_rows() -> list[dict]:
 def test_the_settings_pane_builds(app_ctx, imgui_ctx):
     """Three times: bare, populated, and with a download in flight, because the
     pane reads its lists off the Ctx with getattr and all three must build."""
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     app_ctx.base_models = []
     app_ctx.style_loras = []
@@ -1513,8 +1513,8 @@ def test_the_settings_pane_help_button_stays_inside_the_pane(app_ctx, imgui_ctx,
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import widgets
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio import widgets
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     seen: dict[str, float] = {}
     real = widgets.icon_button
@@ -1543,8 +1543,8 @@ def test_the_settings_rail_help_button_stays_inside_the_rail(app_ctx, imgui_ctx,
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import widgets
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio import widgets
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     seen: dict[str, float] = {}
     real = widgets.icon_button
@@ -1571,7 +1571,7 @@ def test_the_settings_rail_and_body_get_their_own_window_padding(app_ctx, imgui_
     comments)."""
     from imgui_bundle import imgui
 
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     seen: dict[str, int] = {}
     real = imgui.begin_child
@@ -1598,9 +1598,9 @@ def test_the_health_pane_draws_its_actions_before_the_checks_table(
     green checks to reach the button that does it."""
     from imgui_bundle import imgui
 
-    from warlock.doctor import Check
-    from warlock.studio import controls
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.doctor import Check
+    from realmspinner.studio import controls
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     app_ctx.runtime.checks = [Check("trellis-server.exe", True, "found", fatal=False)]
 
@@ -1633,7 +1633,7 @@ def test_the_settings_pane_draws_one_category_at_a_time(app_ctx, imgui_ctx, monk
     control replaced -- so the assertion worth making is not that the switch
     renders but that the *other bodies do not run*.
     """
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     drawn: list[str] = []
     for name in (
@@ -1667,7 +1667,7 @@ def test_the_packs_category_draws_a_pack_this_machine_has_not_got(app_ctx, imgui
     checkout has every extra -- so the branch that draws a *missing* pack, with
     its cost and its Install button, is the one nothing exercises by accident.
     """
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     app_ctx.pack_rows = [
         {
@@ -1692,8 +1692,8 @@ def test_the_settings_column_is_bounded_and_centred(app_ctx, imgui_ctx):
     opposite ends of the desk. Narrower than the bound, it takes what it has."""
     from imgui_bundle import imgui
 
-    from warlock.studio import tokens
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio import tokens
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     seen: dict[str, tuple[float, float]] = {}
 
@@ -1726,8 +1726,8 @@ def test_the_bulk_deletes_left_the_library_footer_for_settings(app_ctx, imgui_ct
     """
     import inspect
 
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     footer = inspect.getsource(library._storage)
     assert "ask_prune" not in footer and "ask_clean" not in footer
@@ -1748,7 +1748,7 @@ def test_the_bulk_deletes_left_the_library_footer_for_settings(app_ctx, imgui_ct
 def test_the_2d_pane_builds_with_a_reference_chosen(app_ctx, imgui_ctx):
     """The conditioning group is hidden until ref_path is set, so the empty-form
     smoke test never reaches it."""
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     form = app_ctx.state.form_2d
     form["prompt"] = "a barrel"
@@ -1784,12 +1784,12 @@ def test_a_non_sdxl_base_disables_the_style_lora_control_and_says_why(app_ctx, i
     makes this test assert something about *this* base rather than about
     whatever Automatic resolves to on whoever's machine runs it.
     """
-    from warlock.studio.modes.create.engine import recipe as create_recipe
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.engine import recipe as create_recipe
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     form = app_ctx.state.form_2d
     form["prompt"] = "a barrel"
-    from warlock import models
+    from realmspinner import models
 
     form["base_model"] = "sdxl_cfg"
     form["model_mode"] = "advanced"
@@ -1825,7 +1825,7 @@ def test_a_non_sdxl_base_disables_the_style_lora_control_and_says_why(app_ctx, i
 
 
 def test_the_inspector_builds_with_a_reference_report(app_ctx, imgui_ctx):
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     _seeded(app_ctx)
     job_id = app_ctx.state.selected
@@ -1853,14 +1853,14 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
     a PNG, so this seeds a real image -- opening one is a decode."""
     from imgui_bundle import imgui
 
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker import state as inker_state
-    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
-    from warlock.studio.modes.inker.ui.panes import tiles as inker_tiles
-    from warlock.studio.modes.inker.ui.panes import tools as inker_tools
-    from warlock.studio.tokens import sp
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.studio.modes.inker.ui.panes import tiles as inker_tiles
+    from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
+    from realmspinner.studio.tokens import sp
 
     job_id = _reference_job(app_ctx)
     app_ctx.state.mode = "inker"
@@ -1945,7 +1945,7 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
     # each is a branch of ``_filter_control`` that only a real frame walks.
     # Selecting one also seeds its values, which is where Invert's popup turns
     # its three toggles on.
-    from warlock.kernels.pixel import filters as inker_filters
+    from realmspinner.kernels.pixel import filters as inker_filters
 
     for name in inker_filters.FILTERS:
         state.filter_name = name
@@ -2026,7 +2026,7 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
     # over one shared state object while the session lives on one document, so
     # switching tabs with it up used to cancel on whichever tab was now in front
     # -- leaving the previewed one holding pixels nobody would ever answer for.
-    from warlock.kernels.pixel.document import Document as _Document
+    from realmspinner.kernels.pixel.document import Document as _Document
 
     wants_convert.append(1)
     _frame(imgui_ctx, build)
@@ -2088,7 +2088,7 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
     # only state where the tile panel draws its picker rather than its "nothing
     # yet" branch -- and the only one that uploads an atlas texture, which the
     # close below has to give back with the rest.
-    from warlock.kernels.pixel.tiles import strip as _strip
+    from realmspinner.kernels.pixel.tiles import strip as _strip
 
     tiles = np.zeros((3, 8, 8, 4), dtype=np.uint8)
     tiles[1, ..., 0] = tiles[1, ..., 3] = 255
@@ -2125,10 +2125,10 @@ def test_the_context_bar_draws_every_tools_own_options(app_ctx, imgui_ctx):
     can be drawn. The bucket's three Aseprite options were the case that made
     the difference matter -- the exercise pass presses tool *groups* and leaves
     the bar showing the brush's widgets, so nothing rendered them."""
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker import state as inker_state
-    from warlock.studio.modes.inker.ui.panes import context as inker_context
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.inker.ui.panes import context as inker_context
 
     app_ctx.state.mode = "inker"
     state = inker_mode.ensure(app_ctx)
@@ -2149,9 +2149,9 @@ def test_the_timeline_draws_group_headers_open_and_folded(app_ctx, imgui_ctx):
     unbalances the id stack takes the frame loop down and the plan alone
     cannot say."""
 
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     app_ctx.state.mode = "inker"
     state = inker_mode.ensure(app_ctx)
@@ -2194,13 +2194,13 @@ def test_the_animated_inker_builds_and_gives_its_frame_textures_back(app_ctx, im
     """
     from imgui_bundle import imgui
 
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
-    from warlock.studio.modes.inker.ui.panes import tools as inker_tools
-    from warlock.studio.tokens import sp
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
+    from realmspinner.studio.tokens import sp
 
     job_id = _reference_job(app_ctx)
     app_ctx.state.mode = "inker"
@@ -2292,7 +2292,7 @@ def test_the_animated_inker_builds_and_gives_its_frame_textures_back(app_ctx, im
 def test_a_finished_mesh_is_not_offered_paint(app_ctx, imgui_ctx):
     """Paint edits the *generated reference*, and a mesh job's input.png is
     whatever it was reconstructed from."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
@@ -2301,7 +2301,7 @@ def test_a_finished_mesh_is_not_offered_paint(app_ctx, imgui_ctx):
 
 
 def _done(key, result):
-    from warlock.studio.tasks import Done
+    from realmspinner.studio.tasks import Done
 
     return Done(key=key, result=result)
 
@@ -2330,7 +2330,7 @@ def _reference_job(app_ctx) -> str:
 def test_the_widget_kit_builds_every_new_widget(app_ctx, imgui_ctx):
     """The Phase-2 widgets (segmented control, toggle, pill, card, buttons,
     empty state, animated toasts) all draw through the real backend."""
-    from warlock.studio import icons, widgets
+    from realmspinner.studio import icons, widgets
 
     imgui, renderer = imgui_ctx
     state = app_ctx.state
@@ -2361,7 +2361,7 @@ def test_the_quiet_registers_build(app_ctx, imgui_ctx):
     """The UI redesign wave 2's three additions: a button with no resting fill, a
     borderless glyph, a primary that has stopped being accent-coloured because
     it cannot be pressed, and the shared "nothing open" screen."""
-    from warlock.studio import icons, widgets
+    from realmspinner.studio import icons, widgets
 
     def build():
         widgets.ghost_button("View all")
@@ -2397,9 +2397,9 @@ def test_a_toolbar_row_never_draws_past_the_pane_it_is_in(app_ctx, imgui_ctx, sc
     the defect is invisible at scale 1.0 in a wide window, which is the only
     configuration the rest of this file draws.
     """
-    from warlock.studio import icons, tokens
-    from warlock.studio import toolbar as toolbar_mod
-    from warlock.studio import widgets as widgets_mod
+    from realmspinner.studio import icons, tokens
+    from realmspinner.studio import toolbar as toolbar_mod
+    from realmspinner.studio import widgets as widgets_mod
 
     imgui, _renderer = imgui_ctx
     items = [
@@ -2458,9 +2458,9 @@ def test_a_toolbar_row_never_draws_past_the_pane_it_is_in(app_ctx, imgui_ctx, sc
 
 def _clay_tab(app_ctx, *, objects: int = 2):
     """A Clay document with objects in it, adopted as the active tab."""
-    from warlock.kernels.mesh import document as bd
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     doc = bd.ClayDoc()
     for i in range(objects):
@@ -2478,11 +2478,11 @@ def _clay_tab(app_ctx, *, objects: int = 2):
 
 def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
     """Every one of them has to survive the state the mode opens in."""
-    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
-    from warlock.studio.modes.clay.ui.panes import header as clay_header
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     # ``clay_header`` is the strip over the viewport rather than a sidebar
     # pane, and it walks with them for the reason they walk: an unbalanced
@@ -2492,11 +2492,11 @@ def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
 
 
 def test_the_clay_panes_build_with_a_document_and_a_selection(app_ctx, imgui_ctx):
-    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
-    from warlock.studio.modes.clay.ui.panes import header as clay_header
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
@@ -2511,11 +2511,11 @@ def test_the_clay_panes_build_while_a_save_is_in_flight(app_ctx, imgui_ctx):
     """``saving`` puts every mutating control inside ``begin_disabled``, and an
     unbalanced disable stack is exactly the class of mistake this file exists
     to catch."""
-    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
-    from warlock.studio.modes.clay.ui.panes import header as clay_header
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
@@ -2533,9 +2533,9 @@ def test_the_clay_context_menu_and_its_parameter_popup_build(app_ctx, imgui_ctx)
     range, the stale-name recovery and the saving gate."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.clay import ops as clay_ops
-    from warlock.studio.modes.clay.ui.panes import menu as clay_menu
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay.ui.panes import menu as clay_menu
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
@@ -2577,8 +2577,8 @@ def test_the_op_params_popup_draws_a_checkbox_and_a_combo(app_ctx, imgui_ctx):
     round-trip test in ``tests/modes/clay/test_clay_ops.py``."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.clay.ui.panes import menu as clay_menu
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import menu as clay_menu
 
     tab = _clay_tab(app_ctx, objects=3)
     tab.doc.select([obj.uid for obj in tab.doc.objects])
@@ -2596,7 +2596,7 @@ def test_the_clay_properties_pane_builds_for_a_frozen_object(app_ctx, imgui_ctx)
     """Phase 2's state: no generator, so the panel shows counts instead of
     parameters. Unreachable from the UI today and drawn here anyway, because it
     is one line away from being reachable."""
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     tab = _clay_tab(app_ctx, objects=1)
     obj = tab.doc.objects[0]
@@ -2608,9 +2608,9 @@ def test_the_clay_properties_pane_builds_for_a_frozen_object(app_ctx, imgui_ctx)
 def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx):
     """The parameter widgets come off the registry, so every default type in it
     has to have a widget -- a float, an int and a tuple today."""
-    from warlock.kernels.mesh import document as bd
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     tab = _clay_tab(app_ctx, objects=0)
     for name, (defaults, build) in bp.GENERATORS.items():
@@ -2627,8 +2627,8 @@ def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx)
 
 
 def test_the_clay_outliner_builds_with_a_rename_in_flight(app_ctx, imgui_ctx):
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 
     tab = _clay_tab(app_ctx)
     clay_mode.ensure(app_ctx).renaming = tab.doc.objects[0].uid
@@ -2646,9 +2646,9 @@ def test_the_clay_properties_pane_enumerates_a_generator_it_has_never_seen(
     labels are read back off the frame, so a default type with no widget shows
     up as a missing label rather than as a pane that merely did not crash.
     """
-    from warlock.kernels.mesh import document as bd
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     def wedge(width: float = 2.0, steps: int = 3, footprint=(1.0, 1.0)):
         return bp.box(size=(width, 1.0, 1.0))
@@ -2689,8 +2689,8 @@ def test_the_clay_viewport_draws_through_the_real_imgui_backend(app_ctx, imgui_c
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import widgets
-    from warlock.studio.modes.clay.ui import view as clay_view
+    from realmspinner.studio import widgets
+    from realmspinner.studio.modes.clay.ui import view as clay_view
 
     tab = _clay_tab(app_ctx)
     view = clay_view.ClayView(gl, app_ctx)
@@ -2713,11 +2713,11 @@ def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, mon
     (W1.5). The viewport now says so itself, through the same
     ``overlay.centred_empty`` every other empty viewport in the app uses.
     """
-    from warlock.kernels.mesh import document as bd
-    from warlock.studio import widgets
-    from warlock.studio.main import App
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.panes import overlay
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.studio import widgets
+    from realmspinner.studio.main import App
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.panes import overlay
 
     app = App(app_ctx.runtime)
     app.app_ctx = app_ctx
@@ -2753,8 +2753,8 @@ def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, mon
 def test_a_built_document_renders_the_flat_reference_trellis_is_given(app_ctx, gl):
     """No grid, no gizmos, no overlays, on a plain background: trellis is being
     handed a subject, and a grid line in the picture is a subject too."""
-    from warlock.studio.modes.clay.ui import view as clay_view
-    from warlock.studio.viewer import capture, glctx
+    from realmspinner.studio.modes.clay.ui import view as clay_view
+    from realmspinner.studio.viewer import capture, glctx
 
     tab = _clay_tab(app_ctx)
     view = clay_view.ClayView(gl, app_ctx)
@@ -2800,7 +2800,7 @@ class _ReviewApp:
     other methods here -- so this is enough to build them for real.
     """
 
-    from warlock.studio import main as _main
+    from realmspinner.studio import main as _main
 
     _review_runs = _main.App._review_runs
     _review_delete_button = _main.App._review_delete_button
@@ -2820,7 +2820,7 @@ class _ReviewApp:
 
 
 def _review_state(ctx, *, with_units=True):
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     state = review_mode.ensure(ctx)
     units = []
@@ -2866,7 +2866,7 @@ def _review_state(ctx, *, with_units=True):
 
 
 def test_the_review_panes_build_with_a_sweep_and_a_unit(app_ctx, imgui_ctx):
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -2886,7 +2886,7 @@ def test_the_review_panes_build_with_a_sweep_and_a_unit(app_ctx, imgui_ctx):
 def test_the_review_panes_build_with_a_judging_pass_running(app_ctx, imgui_ctx):
     """The entry card gives way to the in-pane controls, and the verdict panel
     grows an Accept/Reject pair above the grade row it does not replace."""
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -2905,7 +2905,7 @@ def test_the_review_panes_build_with_a_judging_pass_running(app_ctx, imgui_ctx):
 
 
 def test_the_review_panes_build_the_judging_entry_card(app_ctx, imgui_ctx):
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -2916,7 +2916,7 @@ def test_the_review_panes_build_the_judging_entry_card(app_ctx, imgui_ctx):
 
 
 def test_the_review_panes_build_the_judging_report(app_ctx, imgui_ctx):
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -2929,7 +2929,7 @@ def test_the_review_panes_build_the_judging_report(app_ctx, imgui_ctx):
 
 
 def test_the_review_panes_build_with_nothing_recorded(app_ctx, imgui_ctx):
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx, with_units=False)
@@ -2950,8 +2950,8 @@ def test_the_sweep_list_is_blinded_in_both_the_filter_and_the_row_text(app_ctx, 
     beside it exists to hide. ``bucket_label`` is the one spelling of the
     blinding rule (``review_mode.bucket_label``'s own docstring); this asserts
     the pane actually calls it rather than the dict key directly."""
-    from warlock.studio import controls
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio import controls
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -3002,8 +3002,8 @@ def test_the_verdict_headers_second_line_is_blinded_too(app_ctx, imgui_ctx):
     """L: that line used to print ``unit["job_id"]`` in full regardless of
     blinding, handing back the id the truncated ``#abcdef`` label above it was
     withholding."""
-    from warlock.studio import widgets
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio import widgets
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -3033,7 +3033,7 @@ def _label_pass(ctx, stage="blank", rows=3):
 
     from PIL import Image as _Image
 
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     state = review_mode.ensure(ctx)
     made = []
@@ -3065,7 +3065,7 @@ def _label_pass(ctx, stage="blank", rows=3):
 def test_the_labelling_grid_builds_and_uploads_one_cell_per_frame(app_ctx, imgui_ctx):
     """Three cells, three frames: ``StripRender``'s rule, and the reason the grid
     draws a placeholder for a cell whose texture has not been uploaded yet."""
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _label_pass(app_ctx)
@@ -3085,7 +3085,7 @@ def test_the_labelling_grid_builds_and_uploads_one_cell_per_frame(app_ctx, imgui
 
 
 def test_the_labelling_grid_builds_with_nothing_left_to_label(app_ctx, imgui_ctx):
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _label_pass(app_ctx, rows=0)
@@ -3100,7 +3100,7 @@ def test_the_labelling_grid_builds_with_nothing_left_to_label(app_ctx, imgui_ctx
 
 
 def test_the_labelling_grid_builds_while_the_listing_is_still_reading(app_ctx, imgui_ctx):
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _label_pass(app_ctx, rows=0)
@@ -3110,8 +3110,8 @@ def test_the_labelling_grid_builds_while_the_listing_is_still_reading(app_ctx, i
 
 
 def test_the_runs_pane_offers_both_labelling_passes(app_ctx, imgui_ctx):
-    from warlock.studio import main
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio import main
+    from realmspinner.studio.modes.review import mode as review_mode
 
     app = _ReviewApp()
     state = _review_state(app_ctx)
@@ -3138,7 +3138,7 @@ def test_the_review_pane_builds_a_findings_table(app_ctx, imgui_ctx):
     frame with an empty findings.json never touches the rows."""
     import json
 
-    from warlock.studio.modes.review import mode as review_mode
+    from realmspinner.studio.modes.review import mode as review_mode
 
     bench = app_ctx.svc.config.bench_dir
     bench.mkdir(parents=True, exist_ok=True)
@@ -3171,14 +3171,14 @@ def test_the_review_pane_builds_a_findings_table(app_ctx, imgui_ctx):
 def test_the_2d_pane_builds_with_stale_vector_preset_settings(app_ctx, imgui_ctx):
     # The vector-preset save mechanism retired with the taxonomy; a
     # studio_settings.json still carrying old entries must not break the pane.
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     app_ctx.settings.set("vector_presets", {"chests": {"genre": "fantasy", "platform": "pc"}})
     _frame(imgui_ctx, lambda: settings_2d.draw(app_ctx))
 
 
 def test_the_inspector_builds_its_verdict_section_with_and_without_staged_tags(app_ctx, imgui_ctx):
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.panes import inspector
 
     app_ctx.state.mode = "create"
     app_ctx.state.create.stage = "mesh"
@@ -3202,7 +3202,7 @@ def test_the_bulk_bar_says_how_much_of_the_selection_is_off_screen(app_ctx, imgu
     defensible is the destructive path describing a smaller act than it
     performs, so the count and the confirm both name what is no longer shown."""
     imgui, _renderer = imgui_ctx
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     kept = _seeded(app_ctx)
     gone = _seeded(app_ctx)
@@ -3244,11 +3244,11 @@ def test_the_rail_fits_the_resize_floor_at_every_scale(app_ctx, imgui_ctx, scale
     floor, at the scales the old tests ran at plus the one in the middle.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.doctor import Check
-    from warlock.studio import main as main_mod
-    from warlock.studio import modes as modes_mod
-    from warlock.studio import rail as rail_mod
-    from warlock.studio import tokens
+    from realmspinner.doctor import Check
+    from realmspinner.studio import main as main_mod
+    from realmspinner.studio import modes as modes_mod
+    from realmspinner.studio import rail as rail_mod
+    from realmspinner.studio import tokens
 
     # Something failing, so the footer draws its badge: the widest the rail
     # ever is vertically, and the case the old health-label test was about.
@@ -3314,8 +3314,8 @@ def test_the_health_badge_is_drawn_only_when_something_is_failing(app_ctx, imgui
     the corner of every frame it ever drew. The diagnostics list stays reachable
     when it is green through the palette, which is where a thing you
     occasionally want and never need belongs."""
-    from warlock.doctor import Check
-    from warlock.studio import status_bar
+    from realmspinner.doctor import Check
+    from realmspinner.studio import status_bar
 
     app_ctx.runtime.checks = [Check("trellis-server.exe", True, "found", fatal=True)]
     app_ctx.state.errors = []
@@ -3331,7 +3331,7 @@ def test_the_rail_carries_a_door_to_the_shortcut_sheet(app_ctx, imgui_ctx):
     went with the header, so the footer carries one -- and it sets the same
     one-shot flag, because a popup opened inside the rail child would be
     scoped to the child."""
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     row = next(row for row in menus.specs(app_ctx) if row.identity == "command:shortcuts")
     assert row.path == ("Help",)
@@ -3349,9 +3349,9 @@ def test_the_expanded_rail_gives_way_before_the_columns_do(app_ctx, imgui_ctx):
     UX-01's whole story, one column further left.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.studio import main as main_mod
-    from warlock.studio import motion, tokens
-    from warlock.studio import rail as rail_mod
+    from realmspinner.studio import main as main_mod
+    from realmspinner.studio import motion, tokens
+    from realmspinner.studio import rail as rail_mod
 
     layout = SimpleNamespace(rail="labels")
     old_scale = tokens.SCALE
@@ -3403,11 +3403,11 @@ def test_no_two_of_a_panes_icon_buttons_are_drawn_on_top_of_each_other(app_ctx, 
     """
     imgui, _renderer = imgui_ctx
 
-    from warlock.studio import layout as layout_mod
-    from warlock.studio import widgets as widgets_mod
-    from warlock.studio.manual import render as manual_render
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio import widgets as widgets_mod
+    from realmspinner.studio.manual import render as manual_render
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.tokens import sp
 
     _seeded(app_ctx)
     rects: list[tuple[str, tuple[float, float, float, float]]] = []
@@ -3506,7 +3506,7 @@ def test_two_rows_with_the_same_icon_and_tooltip_keep_separate_hover_state(imgui
     out before it has a chance to decay -- the "wrong icon lights up" bug.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     seen: list[str] = []
     real_note_hover = widgets.note_hover
@@ -3554,7 +3554,7 @@ def test_two_ghost_buttons_with_the_same_label_keep_separate_hover_state(imgui_c
     every other visible card's as hovered too.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     seen: list[str] = []
     real_note_hover = widgets.note_hover
@@ -3597,11 +3597,11 @@ def test_a_library_card_says_which_kind_of_asset_it_is(app_ctx, imgui_ctx, stage
     glance. Asserted through the chip the card actually draws rather than
     through the table it reads: a badge nothing calls is the failure here."""
     imgui, _renderer = imgui_ctx
-    from warlock.studio import layout as layout_mod
-    from warlock.studio import theme
-    from warlock.studio import widgets as widgets_mod
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio import theme
+    from realmspinner.studio import widgets as widgets_mod
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.tokens import sp
 
     # rig/sheet rows are follow-up jobs, minted with no ``stage=``, so they
     # keep the jobs table's column default of "model" (INVARIANTS.md) -- the
@@ -3646,7 +3646,7 @@ def test_the_stage_badges_tell_pixels_from_geometry_by_glyph():
     """The icon is what carries the distinction, so no glyph may serve both
     sides of it -- and the words stay ASCII, because imgui's default atlas is
     Basic Latin plus Latin-1 and anything outside it renders as a box."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     flat = {widgets.STAGE_BADGES[k][0] for k in ("reference", "tile")}
     solid = {widgets.STAGE_BADGES[k][0] for k in ("model", "rig", "sheet")}
@@ -3677,7 +3677,7 @@ def test_a_rig_row_that_keeps_the_stage_column_default_is_badged_rig_not_model(
     ``STAGE_BADGES["rig"]``/``["sheet"]`` unreachable. It now keys on
     ``state.card_kind(job)``, the same table the thumbnail glyph already
     uses."""
-    from warlock.studio import widgets as widgets_mod
+    from realmspinner.studio import widgets as widgets_mod
 
     job = {"kind": kind, "stage": "model"}
     chips: list[str] = []
@@ -3707,9 +3707,9 @@ def _overflow_labels(app_ctx, imgui_ctx) -> list[str]:
     stack, which is what the ellipsis button already relies on.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.studio import layout as layout_mod
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.tokens import sp
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.tokens import sp
 
     labels: list[str] = []
     real_overflow = library._overflow
@@ -3746,7 +3746,7 @@ def _overflow_labels(app_ctx, imgui_ctx) -> list[str]:
 def test_the_library_offers_a_finished_reference_to_the_inker(app_ctx, imgui_ctx):
     """The 2D half of Open in Clay. Inker could already open a job's reference
     and reuse an open tab for it; nothing in the library said so."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     job_id = _seeded(app_ctx)
     app_ctx.svc.store.set_stage(job_id, "reference")
@@ -3774,7 +3774,7 @@ def test_editing_a_big_mesh_in_clay_still_asks_first(app_ctx):
     every reconstruction -- which is the feature, not a nuisance. Raising the
     threshold past what the pipeline produces would delete it while leaving it
     in the file."""
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     assert clay_mode.SLOW_TRIANGLES == 200_000
     asked: list = []
@@ -3789,7 +3789,7 @@ def test_editing_a_big_mesh_in_clay_still_asks_first(app_ctx):
 def test_the_command_palette_builds_and_runs_a_command(app_ctx, imgui_ctx):
     """A modal drawn over whatever mode is up, so it has to build from a mode
     that owns its whole window as well as from a generate mode."""
-    from warlock.studio.panes import palette
+    from realmspinner.studio.panes import palette
 
     _seeded(app_ctx)
     for mode in ("home", "3d", "inker"):
@@ -3808,7 +3808,7 @@ def test_the_command_palette_builds_and_runs_a_command(app_ctx, imgui_ctx):
 
 
 def test_the_palette_rows_put_the_commands_above_the_assets(app_ctx):
-    from warlock.studio.panes import palette
+    from realmspinner.studio.panes import palette
 
     _seeded(app_ctx)
     app_ctx.state.palette_query = "barrel"
@@ -3820,7 +3820,7 @@ def test_the_palette_rows_put_the_commands_above_the_assets(app_ctx):
 def test_arrow_keys_walk_the_library_and_ask_it_to_scroll(app_ctx):
     """I79. The list walked is the one on screen -- filtered and sorted -- so
     Down always goes to the card below."""
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     first = _seeded(app_ctx)
     second = _seeded(app_ctx)
@@ -3840,7 +3840,7 @@ def test_arrow_keys_walk_the_library_and_ask_it_to_scroll(app_ctx):
 
 
 def test_arrow_keys_with_nothing_selected_enter_from_the_near_end(app_ctx):
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     _seeded(app_ctx)
     _seeded(app_ctx)
@@ -3857,7 +3857,7 @@ def test_the_full_window_library_builds_in_every_column_arrangement(app_ctx, img
     """The UI redesign, wave 4.4. Four states, because the middle column's width is
     a function of whether the inspector is there and the grid is a function of
     which pile it is drawing."""
-    from warlock.studio.modes.library.ui.panes import full as library_full
+    from realmspinner.studio.modes.library.ui.panes import full as library_full
 
     # Empty: the grid reuses the library's own empty state.
     app_ctx.state.select(None)
@@ -3889,8 +3889,8 @@ def test_the_grid_publishes_its_column_count_for_the_keyboard(app_ctx, imgui_ctx
     been laid out -- so the grid says how wide it was and the keyboard reads it
     back. A pane that has never drawn answers one, not zero: zero would make
     both keys do nothing at all."""
-    from warlock.studio.modes.library.ui.panes import full as library_full
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import full as library_full
+    from realmspinner.studio.modes.library.ui.panes import library
 
     app_ctx.state.preview.pop(library.COLUMNS_SLOT, None)
     assert library.columns(app_ctx) == 1
@@ -3915,7 +3915,7 @@ def test_the_grid_publishes_its_column_count_for_the_keyboard(app_ctx, imgui_ctx
 def test_only_a_finished_reference_can_be_dragged(app_ctx):
     """A card that lifts and a slot that refuses it is worse than a card that
     does not lift -- so the predicate is stated once and both use it."""
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     assert library.can_drag({"stage": "reference", "status": "done"})
     assert not library.can_drag({"stage": "reference", "status": "running"})
@@ -3926,7 +3926,7 @@ def test_the_3d_source_slot_builds_while_a_drag_is_in_flight(app_ctx, imgui_ctx)
     """The outline is drawn from the group's rect, which only exists after
     ``end_group`` -- a frame with a drag in flight is the one that exercises
     it."""
-    from warlock.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
@@ -3941,7 +3941,7 @@ def test_the_toast_stack_and_its_history_build(app_ctx, imgui_ctx):
     """Every level, the over-cap counter, an action button, and the history in
     the diagnostics popup -- all of which draw only when something has been
     raised, which is why nothing had built them."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     for level in ("info", "success", "warn", "error"):
         app_ctx.toast(f"a {level} notice", level)
@@ -3957,8 +3957,8 @@ def test_the_toast_stack_and_its_history_build(app_ctx, imgui_ctx):
 
 
 def test_the_placeholder_builds_in_every_mode(app_ctx, imgui_ctx):
-    from warlock.studio import modes
-    from warlock.studio.panes import overlay
+    from realmspinner.studio import modes
+    from realmspinner.studio.panes import overlay
 
     for mode in modes.KEYS:
         app_ctx.state.mode = mode
@@ -3966,7 +3966,7 @@ def test_the_placeholder_builds_in_every_mode(app_ctx, imgui_ctx):
 
 
 def test_a_card_with_no_thumbnail_builds_its_placeholder(app_ctx, imgui_ctx):
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     job_id = _seeded(app_ctx)
     # No thumb.png was written, so every card takes the placeholder path.
@@ -3979,9 +3979,9 @@ def test_a_card_with_no_thumbnail_builds_its_placeholder(app_ctx, imgui_ctx):
 def test_the_library_builds_in_every_view_and_density(app_ctx, imgui_ctx):
     """J85/J89/J91. The trash view, the compact rows and the date headings are
     all branches nothing else builds."""
-    from warlock.service import jobs as svc_jobs
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.state import SORTS
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.state import SORTS
 
     job_id = _seeded(app_ctx)
     app_ctx.state.mode = "create"
@@ -4010,7 +4010,7 @@ def test_the_library_builds_in_every_view_and_density(app_ctx, imgui_ctx):
 
 def test_the_prune_confirm_builds_its_keep_count(app_ctx, imgui_ctx):
     """O116: a confirm with a widget in it, which nothing else exercises."""
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     library.ask_prune(app_ctx)
     assert app_ctx.confirms.pending is not None
@@ -4022,7 +4022,7 @@ def test_the_panel_search_boxes_build_and_hide_themselves(app_ctx, imgui_ctx):
     """J86. The box only appears once a list is long enough to search, and the
     query is cleared when it is not -- a filter running with nothing on screen
     to say so looks like a panel that has lost its contents."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     seen: list[str] = []
 
@@ -4046,11 +4046,11 @@ def test_the_whole_frame_builds_under_every_palette(app_ctx, imgui_ctx, palette)
     builds under it; what is worth the frames is each palette somebody has to
     *switch into*.
     """
-    from warlock.studio import theme, tokens
-    from warlock.studio.modes.home.ui.panes import landing
-    from warlock.studio.modes.library.ui.panes import library
-    from warlock.studio.modes.settings.ui.panes import app_settings
-    from warlock.studio.panes import inspector
+    from realmspinner.studio import theme, tokens
+    from realmspinner.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.panes import inspector
 
     imgui, _renderer = imgui_ctx
     _seeded(app_ctx)
@@ -4071,13 +4071,13 @@ def test_the_whole_frame_builds_under_every_palette(app_ctx, imgui_ctx, palette)
 
 
 def test_the_home_resume_rows_build_with_the_keyboard_cursor_on_each(app_ctx, imgui_ctx):
-    from warlock.studio import recents
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio import recents
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     app_ctx.state.mode = "home"
     _seeded(app_ctx)
     for index in range(4):
-        recents.remember(app_ctx.settings, "clay", f"f{index}.wblk", when=float(index))
+        recents.remember(app_ctx.settings, "clay", f"f{index}.rblk", when=float(index))
     for index in range(len(landing.rows(app_ctx))):
         app_ctx.state.home_index = index
         _frame(imgui_ctx, lambda: landing.draw(app_ctx))
@@ -4086,7 +4086,7 @@ def test_the_home_resume_rows_build_with_the_keyboard_cursor_on_each(app_ctx, im
 def test_the_3d_form_builds_with_a_custom_budget(app_ctx, imgui_ctx, monkeypatch):
     """K94/K95: the disabled single-option path *and* the custom-triangles
     widget, which the shipped tier list never reaches."""
-    from warlock.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     app_ctx.state.mode = "create"
     app_ctx.state.create.stage = "mesh"
@@ -4100,7 +4100,7 @@ def test_the_3d_form_builds_with_a_custom_budget(app_ctx, imgui_ctx, monkeypatch
 
 
 def _tileset(size: int = 32, tile: int = 16):
-    from warlock.kernels.grid2d.tileset import Tileset
+    from realmspinner.kernels.grid2d.tileset import Tileset
 
     pixels = np.zeros((size, size, 4), dtype=np.uint8)
     pixels[..., 3] = 255
@@ -4113,17 +4113,17 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
     none of the mode's controls, which is exactly why it is drawn first."""
     from imgui_bundle import imgui
 
-    from warlock.kernels.grid2d import gid
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter import state as plotter_state
-    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
-    from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
-    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
-    from warlock.studio.modes.plotter.ui.panes import textures as plotter_textures
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
-    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
-    from warlock.studio.tokens import sp
+    from realmspinner.kernels.grid2d import gid
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter import state as plotter_state
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapObject, new_uid
+    from realmspinner.studio.modes.plotter.ui.panes import bridge as plotter_bridge
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
+    from realmspinner.studio.modes.plotter.ui.panes import textures as plotter_textures
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
+    from realmspinner.studio.tokens import sp
 
     app_ctx.state.mode = "plotter"
     state = plotter_mode.ensure(app_ctx)
@@ -4209,7 +4209,7 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
 
     from modes.plotter._terrainset import terrain_tileset
 
-    from warlock.studio.modes.plotter.engine import terrain as terrainlib
+    from realmspinner.studio.modes.plotter.engine import terrain as terrainlib
 
     ground = tab.doc.add_tileset(terrain_tileset(tile_w=16, tile_h=16))
     state.terrain = (tab.doc.tilesets.index(ground), 0)
@@ -4219,11 +4219,11 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
         state.tool = tool
         _frame(imgui_ctx, build)
 
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     # Both property editors, with a property in each so the value row and the
     # remove button rasterise rather than only the empty new-key form.
-    from warlock.studio.modes.plotter.engine.tsx import Prop
+    from realmspinner.studio.modes.plotter.engine.tsx import Prop
 
     widgets.request_open("plotter/map-props")
     widgets.request_open("plotter/layer-props")
@@ -4309,17 +4309,17 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
 def test_packwright_builds_empty_and_with_an_atlas(app_ctx, imgui_ctx):
     from imgui_bundle import imgui
 
-    from warlock.studio.modes.packwright import mode as packwright_mode
-    from warlock.studio.modes.packwright.engine import compose as composelib
-    from warlock.studio.modes.packwright.engine import layout as laylib
-    from warlock.studio.modes.packwright.engine.sources import Sprite
-    from warlock.studio.modes.packwright.ui.panes import bridge as packwright_bridge
-    from warlock.studio.modes.packwright.ui.panes import items as packwright_items
-    from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
-    from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
-    from warlock.studio.modes.packwright.ui.panes import sources as packwright_sources
-    from warlock.studio.modes.packwright.ui.panes import textures as packwright_textures
-    from warlock.studio.tokens import sp
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.packwright.engine import compose as composelib
+    from realmspinner.studio.modes.packwright.engine import layout as laylib
+    from realmspinner.studio.modes.packwright.engine.sources import Sprite
+    from realmspinner.studio.modes.packwright.ui.panes import bridge as packwright_bridge
+    from realmspinner.studio.modes.packwright.ui.panes import items as packwright_items
+    from realmspinner.studio.modes.packwright.ui.panes import preview as packwright_preview
+    from realmspinner.studio.modes.packwright.ui.panes import settings as packwright_settings
+    from realmspinner.studio.modes.packwright.ui.panes import sources as packwright_sources
+    from realmspinner.studio.modes.packwright.ui.panes import textures as packwright_textures
+    from realmspinner.studio.tokens import sp
 
     app_ctx.state.mode = "packwright"
     packwright_mode.ensure(app_ctx)
@@ -4393,8 +4393,8 @@ def test_a_segmented_control_takes_its_compact_labelling_rather_than_clipping(im
     control does: wave 4 gives it the Settings pane's categories.
     """
     imgui, renderer = imgui_ctx
-    from warlock.studio import icons, tokens
-    from warlock.studio import widgets as widgets_mod
+    from realmspinner.studio import icons, tokens
+    from realmspinner.studio import widgets as widgets_mod
 
     options = [
         ("appearance", f"{icons.PALETTE} Appearance"),
@@ -4443,9 +4443,9 @@ def test_the_create_pane_builds_at_every_stage(app_ctx, imgui_ctx):
     wave 5 is that they are one pane with a breadcrumb -- and through
     ``shell.frame._stage_pane`` rather than a copy of it, so a stage that the
     rail offers and the dispatch has no branch for fails here."""
-    from warlock.studio import main
-    from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.shell import frame as frame_mod
+    from realmspinner.studio import main
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.shell import frame as frame_mod
 
     _seeded(app_ctx)
     app_ctx.rigging_available = True
@@ -4467,8 +4467,8 @@ def test_the_inspector_builds_at_every_stage(app_ctx, imgui_ctx):
     Create -- the rail is the tab bar -- so a stage with no ``_STAGE_SECTIONS``
     entry silently shows a header and nothing else, and only a build of all
     five says so."""
-    from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.panes import inspector
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.panes import inspector
 
     _seeded(app_ctx)
     app_ctx.rigging_available = True
@@ -4482,9 +4482,9 @@ def test_the_inspector_builds_at_every_stage(app_ctx, imgui_ctx):
 def test_the_create_pane_builds_at_every_stage_with_nothing_selected(app_ctx, imgui_ctx):
     """The empty case, which is the one a first run sees: no selection, and
     four stages of which three are about an asset that does not exist."""
-    from warlock.studio import main
-    from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.shell import frame as frame_mod
+    from realmspinner.studio import main
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.shell import frame as frame_mod
 
     app_ctx.state.select(None)
     app_ctx.state.mode = create_stages.MODE
@@ -4498,7 +4498,7 @@ def test_the_create_pane_builds_at_every_stage_with_nothing_selected(app_ctx, im
 
 
 def _stage_items(blocked=()):
-    from warlock.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.modes.create.ui import stages as create_stages
 
     return [
         (
@@ -4550,9 +4550,9 @@ def test_the_stage_rail_compacts_rather_than_clipping_a_stage(imgui_ctx, scale):
     pipeline with no way in.
     """
     imgui, renderer = imgui_ctx
-    from warlock.studio import layout as layout_mod
-    from warlock.studio import tokens
-    from warlock.studio.modes.create.ui import rail as create_rail
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio import tokens
+    from realmspinner.studio.modes.create.ui import rail as create_rail
 
     old_scale = tokens.SCALE
     tokens.set_scale(scale)
@@ -4584,7 +4584,7 @@ def _rail_probe(imgui_ctx, rail_id, items, current, done):
     padding, the font and therefore the segment widths are all scale-dependent.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.studio.modes.create.ui import rail as create_rail
+    from realmspinner.studio.modes.create.ui import rail as create_rail
 
     seen: dict[str, float] = {}
 
@@ -4602,7 +4602,7 @@ def _rail_probe(imgui_ctx, rail_id, items, current, done):
 
 
 def test_a_stage_rail_segment_can_be_picked(imgui_ctx):
-    from warlock.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.modes.create.ui import stages as create_stages
 
     build, seen = _rail_probe(imgui_ctx, "rail-pick", _stage_items(), "reference", "mesh")
     _click(imgui_ctx, build, (-100.0, -100.0))
@@ -4614,7 +4614,7 @@ def test_a_blocked_stage_cannot_be_picked(imgui_ctx):
     """The reason is a tooltip, not a refusal after the fact. A blocked
     segment is still an item -- it has to be hoverable to carry its sentence --
     so the click is *dropped* rather than the button not being drawn."""
-    from warlock.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.modes.create.ui import stages as create_stages
 
     last = create_stages.STAGES[-1]
     build, seen = _rail_probe(
@@ -4639,7 +4639,7 @@ def test_a_shadow_sprite_uploads_and_a_card_draws_through_it(imgui_ctx):
     pinned elsewhere; what this adds is that the texture builds on a real
     context and that ``widgets.shadow`` takes the sliced branch rather than
     quietly falling back to the drawn bands for the life of the session."""
-    from warlock.studio import shadows, tokens, widgets
+    from realmspinner.studio import shadows, tokens, widgets
 
     shadows.release_all()
     sprite = shadows.sprite(tokens.RADIUS_L, shadows.SPREAD)
@@ -4672,7 +4672,7 @@ def test_a_shadow_sprite_uploads_and_a_card_draws_through_it(imgui_ctx):
 def test_a_squircle_sprite_uploads_and_is_refused_below_its_own_threshold(imgui_ctx):
     """UX.md's own rule about where the shape stops being visible, on the side
     of it that needs a renderer to answer."""
-    from warlock.studio import surfaces, tokens
+    from realmspinner.studio import surfaces, tokens
 
     surfaces.release_all()
     sprite = surfaces.sprite(tokens.RADIUS_L)
@@ -4686,7 +4686,7 @@ def test_the_backdrop_captures_the_frame_and_skips_the_frames_it_was_used_on(img
     """The one rule the whole design rests on: a floating surface must never
     sample a blur of itself, which is enforced by *not capturing* on a frame
     something asked for the backdrop."""
-    from warlock.studio import vibrancy
+    from realmspinner.studio import vibrancy
 
     vibrancy.release_all()
     try:
@@ -4725,7 +4725,7 @@ def test_a_staged_tag_is_the_only_thing_that_repaints_a_toggle(app_ctx, imgui_ct
     not what is being protected.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     pushed: list = []
     real_push = imgui.push_style_color
@@ -4771,8 +4771,8 @@ def test_the_model_gate_is_silent_on_a_host_that_has_everything(app_ctx, imgui_c
     The direction that matters: a snapshot that has not arrived yet must not
     read as "everything is missing" and grey out a working install.
     """
-    from warlock.service import sprites as svc_sprites
-    from warlock.studio.panes import model_gate
+    from realmspinner.service import sprites as svc_sprites
+    from realmspinner.studio.panes import model_gate
 
     app_ctx.model_rows = []
     assert model_gate.missing(app_ctx, svc_sprites.SPRITE_ROWS) == []
@@ -4782,7 +4782,7 @@ def test_the_model_gate_is_silent_on_a_host_that_has_everything(app_ctx, imgui_c
 
 
 def test_the_model_gate_names_only_the_absent_rows(app_ctx, imgui_ctx):
-    from warlock.studio.panes import model_gate
+    from realmspinner.studio.panes import model_gate
 
     app_ctx.model_rows = _model_rows()
     rows = model_gate.missing(app_ctx, ("base:turbo", "lora:pixelxl", "base:nope"))
@@ -4797,7 +4797,7 @@ def test_the_model_gate_names_only_the_absent_rows(app_ctx, imgui_ctx):
 def test_requesting_an_install_ticks_the_rows_and_opens_settings(app_ctx):
     """The click body, without a frame. ``set_mode`` rather than a direct
     ``state.mode`` write -- ``tests/test_mode_writes.py`` scans for the other."""
-    from warlock.studio.panes import model_gate
+    from realmspinner.studio.panes import model_gate
 
     app_ctx.state.mode = "create"
     app_ctx.state.create.stage = "reference"
@@ -4815,7 +4815,7 @@ def test_requesting_an_install_ticks_the_rows_and_opens_settings(app_ctx):
 def test_the_install_offer_draws_a_button_for_a_rows_refusal(app_ctx, imgui_ctx):
     """The ring's own offer, over a real frame -- ``install_offer`` reads
     ``imgui.get_item_rect_*`` internals nothing else here exercises."""
-    from warlock.studio.panes import model_gate
+    from realmspinner.studio.panes import model_gate
 
     app_ctx.state.note_field_error("base_model", "not downloaded", ("base:sdxl_cfg",), 7.0)
     drew: list[bool] = []
@@ -4828,7 +4828,7 @@ def test_the_install_offer_draws_a_pack_button_when_only_a_pack_is_missing(app_c
     rows -- ``validation.check_pack``'s shape -- still draws a button, and
     must not be mistaken for "nothing to offer" the way a rows-only reader
     would leave it."""
-    from warlock.studio.panes import model_gate
+    from realmspinner.studio.panes import model_gate
 
     app_ctx.state.note_field_error("base_model", "not installed", packs=("text2image",))
     drew: list[bool] = []
@@ -4839,8 +4839,8 @@ def test_the_install_offer_draws_a_pack_button_when_only_a_pack_is_missing(app_c
 def test_requesting_a_pack_offer_opens_settings_at_packs(app_ctx):
     """The click body, without a frame -- the pack twin of
     ``request_install``, which routes to Models rather than Packs."""
-    from warlock.studio.modes.settings.ui.panes import app_settings
-    from warlock.studio.panes import model_gate
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.panes import model_gate
 
     app_ctx.state.mode = "muse"
     model_gate.request_pack(app_ctx, ("music",))
@@ -4851,7 +4851,7 @@ def test_requesting_a_pack_offer_opens_settings_at_packs(app_ctx):
 def test_the_sprite_form_locks_its_submit_while_weights_are_missing(app_ctx, imgui_ctx):
     """The pane half, through the real ``_submit``: with the pixel LoRA absent
     the gate draws and the button is disabled."""
-    from warlock.studio.panes import sprite_panel
+    from realmspinner.studio.panes import sprite_panel
 
     app_ctx.model_rows = _model_rows()
     job_id = _seeded(app_ctx)
@@ -4879,8 +4879,8 @@ def test_the_sprite_button_and_note_state_what_the_door_will_actually_do(
     through ``_submit`` as well as asserted as strings, because a note nothing
     draws is a note that can go stale unnoticed.
     """
-    from warlock.service import sprites as svc_sprites
-    from warlock.studio.panes import sprite_panel
+    from realmspinner.service import sprites as svc_sprites
+    from realmspinner.studio.panes import sprite_panel
 
     app_ctx.model_rows = []
     job_id = _seeded(app_ctx)
@@ -4933,7 +4933,7 @@ def test_the_settings_pane_draws_a_fit_badge_and_a_recommendation(app_ctx, imgui
     """The two W4 surfaces, in the pane that owns them. What is asserted is
     that the pane builds with a ``vram`` verdict on one row and none on the
     others -- the absence path is the one that would crash a naive read."""
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     rows = _model_rows()
     rows[0]["vram"] = "no"
@@ -4950,8 +4950,8 @@ def test_the_settings_pane_draws_a_fit_badge_and_a_recommendation(app_ctx, imgui
 def test_starting_a_removal_submits_under_the_remove_prefix(app_ctx):
     """The click body without a frame. The prefix is load-bearing: the pane's
     busy check and the App's task-done handler both switch on it."""
-    from warlock.studio import app_ctx as app_ctx_mod
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio import app_ctx as app_ctx_mod
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     app_settings._start_removal(app_ctx, "lora:pixelxl")
     key = app_ctx_mod.remove_key("lora:pixelxl")
@@ -4962,7 +4962,7 @@ def test_starting_a_removal_submits_under_the_remove_prefix(app_ctx):
 def test_a_present_row_with_nothing_to_free_draws_no_trash_button(app_ctx, imgui_ctx):
     """A recipe whose every file is shared has nothing to offer, and a button
     that refused on click would be worse than no button."""
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     rows = _model_rows()
     rows[0]["removable"] = False
@@ -5018,7 +5018,7 @@ def _transform_items():
 
 
 def _transport_items():
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     items = [
         toolbar.Item(key, label, tooltip=tip, pinned=True)
@@ -5054,9 +5054,9 @@ def _bulk_items():
 
 def _rows():
     """``(label, items, dispatcher)`` for every row wave 4.2 rewrote."""
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.library.ui.panes import library
 
     return [
         ("inker-transform", _transform_items(), inker_canvas._transform_action),
@@ -5108,7 +5108,7 @@ def _assert_fits(imgui, items, label, scale):
 
 @pytest.mark.parametrize("scale", SCALES)
 def test_every_rewritten_row_fits_or_is_all_pinned(imgui_ctx, scale):
-    from warlock.studio import theme, tokens
+    from realmspinner.studio import theme, tokens
 
     imgui, renderer = imgui_ctx
     old = tokens.SCALE
@@ -5145,8 +5145,8 @@ def test_every_symmetry_button_actually_moves_the_setting():
     checked by *pressing* it rather than by scanning a dispatcher's source for
     each key, which is the stronger check anyway.
     """
-    from warlock.kernels.pixel import brush
-    from warlock.studio.modes.inker.ui.panes import context as inker_context
+    from realmspinner.kernels.pixel import brush
+    from realmspinner.studio.modes.inker.ui.panes import context as inker_context
 
     # ``_symmetry_hit`` persists, and ``inker_mode.persist`` reads the whole
     # session off the context -- so the context here carries no Inker state at
@@ -5273,8 +5273,8 @@ def test_the_new_map_dialog_opens_once_per_request(app_ctx, imgui_ctx):
     re-open itself every frame and could never be cancelled -- and the five
     doors that raise it are spread across four windows, so the only place that
     can honour it is the one that draws it."""
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     state = plotter_mode.ensure(app_ctx)
     plotter_mode.ask_new_document(app_ctx)
@@ -5292,12 +5292,12 @@ def test_the_new_map_dialog_opens_once_per_request(app_ctx, imgui_ctx):
     ["tools", "tileset", "layers", "bridge", "setup"],
 )
 def test_no_two_plotter_items_claim_one_imgui_id(app_ctx, imgui_ctx, pane):
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
-    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
-    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import bridge as plotter_bridge
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5386,8 +5386,8 @@ def test_plotter_tileset_pane_leads_with_the_picker(app_ctx, imgui_ctx):
     the cost of one glyph. So what this asserts is that the strip leads, the
     bar follows it, and none of the four is drawn in the column.
     """
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5416,8 +5416,8 @@ def test_plotter_tileset_pane_leads_with_the_picker(app_ctx, imgui_ctx):
 def test_plotter_tileset_pane_is_only_the_file_door_when_empty(app_ctx, imgui_ctx):
     """With no tileset attached there is nothing to pick and nothing to polish,
     so the one way of getting one is the whole pane."""
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5438,9 +5438,9 @@ def test_the_sheet_popup_pump_runs_before_the_empty_map_return(app_ctx, imgui_ct
     that no popup ever asks about."""
     import numpy as np
 
-    from warlock.kernels.grid2d import slicing
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.kernels.grid2d import slicing
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5468,9 +5468,9 @@ def test_a_frame_without_the_sheet_popup_drops_the_pixels(app_ctx, imgui_ctx):
     megabytes: the frame that finds the popup gone is what releases them."""
     import numpy as np
 
-    from warlock.kernels.grid2d import slicing
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.kernels.grid2d import slicing
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5500,9 +5500,9 @@ def test_the_resize_popup_shows_a_detected_pixel_grid(app_ctx):
     already existed on the export path -- this is the editor reaching it."""
     import numpy as np
 
-    from warlock.kernels.pixel.document import Document as _Doc
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from realmspinner.kernels.pixel.document import Document as _Doc
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
 
     rng = np.random.default_rng(5)
     palette = np.array(
@@ -5539,9 +5539,9 @@ def test_the_seam_readout_and_wrap_button_appear_only_in_tiled_mode(app_ctx):
     to avoid."""
     import numpy as np
 
-    from warlock.kernels.pixel.document import Document as _Doc
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.kernels.pixel.document import Document as _Doc
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     state = inker_mode.ensure(app_ctx)
     tab = inker_mode._adopt(app_ctx, state, _Doc.blank(32, 32), path=None, title="tile")
@@ -5587,10 +5587,10 @@ def test_the_canvas_seam_indicator_decides_on_dominance_not_the_retired_ratio(ap
     ``SEAM_DOMINANCE_MAX`` of 1.0, correctly quiet, because the line is a
     harder join than the seam is.
     """
-    from warlock.kernels.pixel.document import Document as _Doc
-    from warlock.studio import theme
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.kernels.pixel.document import Document as _Doc
+    from realmspinner.studio import theme
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 
     state = inker_mode.ensure(app_ctx)
     tab = inker_mode._adopt(app_ctx, state, _Doc.blank(32, 32), path=None, title="tile")
@@ -5621,9 +5621,9 @@ def test_flourish_submit_refuses_a_recipe_over_the_bake_cost_ceiling():
     """
     from types import SimpleNamespace
 
-    from warlock.kernels.pixel import flourish
-    from warlock.kernels.pixel.flourish import recipe as R
-    from warlock.studio.modes.inker import flourish as inker_flourish
+    from realmspinner.kernels.pixel import flourish
+    from realmspinner.kernels.pixel.flourish import recipe as R
+    from realmspinner.studio.modes.inker import flourish as inker_flourish
 
     maxed = flourish.clamp(
         R.Recipe(
@@ -5677,7 +5677,7 @@ def test_flourish_submit_refuses_a_recipe_over_the_bake_cost_ceiling():
 def test_a_rendered_sheet_offers_both_hand_offs(app_ctx, imgui_ctx):
     """The sheet used to dead-end at Save PNG, though everything needed to open
     it in either editor already existed."""
-    from warlock.studio.panes import sheet_panel
+    from realmspinner.studio.panes import sheet_panel
 
     imgui, _renderer = imgui_ctx
     job_id = _seeded(app_ctx)
@@ -5700,7 +5700,7 @@ def test_a_rendered_sheet_offers_both_hand_offs(app_ctx, imgui_ctx):
 
 
 def test_the_offset_and_autocrop_controls_render(app_ctx, imgui_ctx):
-    from warlock.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5714,7 +5714,7 @@ def test_the_offset_and_autocrop_controls_render(app_ctx, imgui_ctx):
     state.resize_pending = True
 
     def frame() -> None:
-        from warlock.studio.modes.plotter.ui.panes import tools as pane
+        from realmspinner.studio.modes.plotter.ui.panes import tools as pane
 
         pane.resize_popup(app_ctx, state, tab)
 
@@ -5731,8 +5731,8 @@ def test_the_wand_row_renders_and_no_dead_generator_route_remains(app_ctx, imgui
     import subprocess
     from pathlib import Path as _Path
 
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     imgui, _renderer = imgui_ctx
     plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5777,8 +5777,8 @@ def test_the_menu_bar_and_bottom_pane_actually_render(app_ctx, imgui_ctx):
     is the real check, and ``imgui.end()`` would already have thrown if the
     window stack were wrong.
     """
-    from warlock.studio import menus
-    from warlock.studio.panes import bottom_pane
+    from realmspinner.studio import menus
+    from realmspinner.studio.panes import bottom_pane
 
     imgui, renderer = imgui_ctx
     imgui.new_frame()
@@ -5807,7 +5807,7 @@ def test_the_menu_bar_and_bottom_pane_actually_render(app_ctx, imgui_ctx):
 
 
 def _plotter_tab(app_ctx, tilesets=("terrain",)):
-    from warlock.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
 
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
     for name in tilesets:
@@ -5822,7 +5822,7 @@ def _plotter_tab(app_ctx, tilesets=("terrain",)):
 def test_the_object_toolbox_draws_a_capsule_button(app_ctx, imgui_ctx):
     """The shape was drawable, hit-testable and writable by four codecs, and
     reachable only by hand-editing a file."""
-    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
+    from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     imgui, _renderer = imgui_ctx
     tab = _plotter_tab(app_ctx)
@@ -5852,10 +5852,10 @@ def test_the_undo_history_popover_lists_the_stack_and_jumps(app_ctx, imgui_ctx):
 
     import numpy as np
 
-    from warlock.kernels.grid2d import gid as gidlib
-    from warlock.studio import controls
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
+    from realmspinner.kernels.grid2d import gid as gidlib
+    from realmspinner.studio import controls
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import bridge as plotter_bridge
 
     imgui, _renderer = imgui_ctx
     tab = _plotter_tab(app_ctx)
@@ -5918,9 +5918,9 @@ def test_the_undo_history_popover_lists_the_stack_and_jumps(app_ctx, imgui_ctx):
 
 def test_go_to_coordinate_draws_a_dialog_that_moves_the_view(app_ctx, imgui_ctx):
     """Menu -> flag -> popup -> door -> pan, every leg through the real code."""
-    from warlock.studio import widgets
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio import widgets
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     imgui, _renderer = imgui_ctx
     tab = _plotter_tab(app_ctx)
@@ -5956,7 +5956,7 @@ def test_go_to_coordinate_draws_a_dialog_that_moves_the_view(app_ctx, imgui_ctx)
 
 
 def test_the_tileset_strip_draws_one_tab_per_tileset(app_ctx, imgui_ctx):
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     _plotter_tab(app_ctx, tilesets=("Grass", "Dungeon", "props"))
@@ -5980,9 +5980,9 @@ def test_choosing_a_tab_changes_the_tileset_and_drops_the_brush(app_ctx, imgui_c
     import imgui_bundle
     import numpy as np
 
-    from warlock.kernels.grid2d import gid as gidlib
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.kernels.grid2d import gid as gidlib
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     _plotter_tab(app_ctx, tilesets=("Grass", "Dungeon", "props"))
@@ -6019,7 +6019,7 @@ def test_choosing_a_tab_changes_the_tileset_and_drops_the_brush(app_ctx, imgui_c
 
 def test_the_tileset_filter_appears_and_narrows_the_strip(app_ctx, imgui_ctx):
     """At the count where the strip starts scrolling, and not before."""
-    from warlock.studio.modes.plotter.ui.panes import tileset as plotter_tileset
+    from realmspinner.studio.modes.plotter.ui.panes import tileset as plotter_tileset
 
     imgui, _renderer = imgui_ctx
     names = ("Grass", "grass cliff", "Dungeon", "props", "water", "sand", "ice", "lava")
@@ -6073,9 +6073,9 @@ def test_the_palette_folder_browser_actually_loads_a_palette(app_ctx, imgui_ctx,
     read from imgui rather than computed, for the reason its own docstring
     gives.
     """
-    from warlock.studio import probe
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.studio import probe
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
 
     folder = Path(app_ctx.svc.config.palette_dir)
     folder.mkdir(parents=True, exist_ok=True)
@@ -6113,9 +6113,9 @@ def test_the_palette_folder_browser_says_so_when_the_folder_is_empty(
 ):
     """The ordinary state of a fresh install: a muted line naming the formats,
     and no control at all -- never a button that submits an empty load."""
-    from warlock.studio import probe
-    from warlock.studio.modes.inker import mode as inker_mode
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.studio import probe
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
 
     folder = Path(app_ctx.svc.config.palette_dir)
     folder.mkdir(parents=True, exist_ok=True)
@@ -6149,8 +6149,8 @@ def test_the_plotter_layer_bar_and_the_rename_field_both_render(app_ctx, imgui_c
     while it is being typed. Neither draws unless it is asked for, so neither
     rasterises in the workspace frame above.
     """
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -6198,9 +6198,9 @@ def test_the_plotter_stamp_ghost_draws_the_brush_under_the_pointer(app_ctx, imgu
     """
     import numpy as np
 
-    from warlock.kernels.grid2d import gid
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.kernels.grid2d import gid
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
 
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
     state = plotter_mode.ensure(app_ctx)
@@ -6242,9 +6242,9 @@ CLAY_CENTRE_AT_DEFAULT = 835.0
 
 def _clay_header_tiers(imgui, avail: float) -> list[str]:
     """The tier ``toolbar`` would choose for each header entry at ``avail`` px."""
-    from warlock.studio import toolbar
-    from warlock.studio.modes.clay import state as clay_state
-    from warlock.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio import toolbar
+    from realmspinner.studio.modes.clay import state as clay_state
+    from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 
     state = clay_state.ClayState()
     items = clay_header._items(state)
@@ -6281,7 +6281,7 @@ def test_the_clay_header_fits_at_the_default_window(app_ctx, imgui_ctx):
     ``tests/modes/clay/test_clay_header.py`` because measuring a font needs a live imgui
     context and that file must not build a second one.
     """
-    from warlock.studio import toolbar
+    from realmspinner.studio import toolbar
 
     imgui, _renderer = imgui_ctx
     # ``_frame`` returns nothing, so the reading is carried out in a list.
@@ -6297,7 +6297,7 @@ def test_the_clay_header_gives_up_labels_before_controls(app_ctx, imgui_ctx):
     """The ordering the module rests on: a label is cheaper to lose than a
     control, so a genuinely narrow centre drops to glyphs rather than hiding a
     button."""
-    from warlock.studio import toolbar
+    from realmspinner.studio import toolbar
 
     imgui, _renderer = imgui_ctx
     out: list[list[str]] = []
@@ -6310,8 +6310,8 @@ def test_the_clay_hud_draws_its_widget_and_its_line(app_ctx, imgui_ctx):
     the widget needs a live viewport to read a camera off."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.clay.ui.panes import hud as clay_hud
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.modes.clay.ui.panes import hud as clay_hud
+    from realmspinner.studio.viewer.camera import Camera
 
     tab = _clay_tab(app_ctx)
     view = SimpleNamespace(camera=Camera())
@@ -6359,9 +6359,9 @@ def test_the_plotter_properties_table_draws_every_branch(app_ctx, imgui_ctx):
     has been pressed, and the ``-`` in the footer is live only with a top-level
     row selected.
     """
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.engine.tsx import Prop
-    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.engine.tsx import Prop
+    from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -6422,9 +6422,9 @@ def test_the_plotter_properties_table_draws_every_branch(app_ctx, imgui_ctx):
 def test_the_plotter_objects_dock_lists_and_filters(app_ctx, imgui_ctx):
     """The dock, in each of the states it can be in: empty, listing, filtered
     to nothing, and with a selection its right-click menu can act on."""
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
-    from warlock.studio.modes.plotter.ui.panes import objects as plotter_objects
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
+    from realmspinner.studio.modes.plotter.ui.panes import objects as plotter_objects
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (16, 16, 16, 16))
@@ -6478,9 +6478,9 @@ def test_the_plotter_stamps_pane_draws_full_and_empty_slots(app_ctx, imgui_ctx):
     """
     import numpy as np
 
-    from warlock.kernels.grid2d import gid
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import stamps as plotter_stamps
+    from realmspinner.kernels.grid2d import gid
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import stamps as plotter_stamps
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -6524,8 +6524,8 @@ def test_the_plotter_stamps_pane_draws_full_and_empty_slots(app_ctx, imgui_ctx):
 def test_the_stamps_pane_is_offered_only_on_a_tile_layer(app_ctx, imgui_ctx):
     """A stamp is a block of tiles, so nine controls that cannot act is worse
     than not claiming the height."""
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.ui.panes import stamps as plotter_stamps
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.ui.panes import stamps as plotter_stamps
 
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
     assert plotter_stamps.on_tile_layer(app_ctx) is True
@@ -6539,9 +6539,9 @@ def test_the_clay_stats_overlay_draws_when_it_is_asked_for(app_ctx, imgui_ctx):
     """Off, on, and on with a selection in each element mode -- none of which
     the pane walk reaches, because the overlay draws nothing at all unless it
     has been switched on."""
-    from warlock.kernels.mesh import elements as el
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.clay.ui.panes import hud as clay_hud
+    from realmspinner.kernels.mesh import elements as el
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import hud as clay_hud
 
     tab = _clay_tab(app_ctx)
     state = clay_mode.ensure(app_ctx)
@@ -6572,8 +6572,8 @@ def test_the_clay_stats_overlay_draws_when_it_is_asked_for(app_ctx, imgui_ctx):
 def test_the_clay_header_shading_pill_and_xray_render(app_ctx, imgui_ctx):
     """Each shading mode and the X-ray switch, which the walk draws only in
     whatever state the header happens to open in."""
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 
     imgui, _renderer = imgui_ctx
     _clay_tab(app_ctx)
@@ -6600,9 +6600,9 @@ def test_a_corrupt_job_database_reaches_run_locked_as_store_unreadable(svc, monk
     ``_startup_with_splash``, before there is a window, which is why only that
     method needs stubbing here.
     """
-    from warlock.db import StoreUnreadable
-    from warlock.studio.main import App
-    from warlock.studio.runtime import Runtime
+    from realmspinner.db import StoreUnreadable
+    from realmspinner.studio.main import App
+    from realmspinner.studio.runtime import Runtime
 
     runtime = Runtime(svc.config)
     app = App(runtime)
@@ -6648,17 +6648,17 @@ def test_muse_draws_all_four_of_its_panes(app_ctx, imgui_ctx, monkeypatch):
 
     import numpy as np
 
-    from warlock.studio import layout as layout_mod
-    from warlock.studio.main import App
-    from warlock.studio.modes.muse.state import Player as MusePlayer
-    from warlock.studio.modes.muse.ui.panes import player as muse_player
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio.main import App
+    from realmspinner.studio.modes.muse.state import Player as MusePlayer
+    from realmspinner.studio.modes.muse.ui.panes import player as muse_player
 
     ctx = app_ctx
     ctx.state.mode = "muse"
     # A decoded take, because ``should_draw`` keeps the strip off screen until
     # one has been auditioned -- so without this the test would pass on a frame
     # that never asked for the strip at all.
-    from warlock.studio.modes.muse import mode as muse_mode
+    from realmspinner.studio.modes.muse import mode as muse_mode
 
     state = muse_mode.ensure(ctx)
     state.player = MusePlayer(
@@ -6692,9 +6692,9 @@ def test_a_failed_loop_search_clears_finding_instead_of_spinning_forever():
     """
     from types import SimpleNamespace
 
-    from warlock.studio.modes.muse import mode as muse_mode
-    from warlock.studio.modes.muse.state import Player as MusePlayer
-    from warlock.studio.state import AppState
+    from realmspinner.studio.modes.muse import mode as muse_mode
+    from realmspinner.studio.modes.muse.state import Player as MusePlayer
+    from realmspinner.studio.state import AppState
 
     ctx = SimpleNamespace(state=AppState())
     state = muse_mode.ensure(ctx)

@@ -11,15 +11,15 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import flourish, ora
-from warlock.kernels.pixel.flourish import bake as B
-from warlock.kernels.pixel.flourish import presets
-from warlock.studio.modes.inker import flourish as inker_flourish
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.tasks import Done
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import flourish, ora
+from realmspinner.kernels.pixel.flourish import bake as B
+from realmspinner.kernels.pixel.flourish import presets
+from realmspinner.studio.modes.inker import flourish as inker_flourish
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.tasks import Done
 
 
 class _Store:
@@ -88,7 +88,7 @@ def _scene(tmp_path):
 
 def _select(doc, x0, y0, x1, y1, colour=(200, 40, 40, 255)):
     """Paint a block on the active layer and select it."""
-    from warlock.kernels.pixel.selection import SelectionMask
+    from realmspinner.kernels.pixel.selection import SelectionMask
 
     doc.stack.active.pixels[y0:y1, x0:x1] = colour
     mask = np.zeros(doc.size[::-1], dtype=np.uint8)
@@ -293,7 +293,7 @@ def test_textures_travel_with_the_render(tmp_path, monkeypatch):
     tex[..., 3] = 255
     tab.doc.add_flourish_asset(group, tex)
     seen: dict = {}
-    import warlock.kernels.pixel.flourish.bake as bake_mod
+    import realmspinner.kernels.pixel.flourish.bake as bake_mod
 
     real = bake_mod.bake
 
@@ -350,7 +350,7 @@ def test_the_generate_door_queues_polls_decodes_and_lands(tmp_path, monkeypatch)
         calls.append(kwargs)
         return {"id": "job1"}
 
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(svc_jobs, "create_job", fake_create_job)
     assert inker_ops.run(ctx, inker_ops.get("flourish_texture_generate"))

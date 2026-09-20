@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 from _recipes import FIREBALL, solo
 
-from warlock.kernels.pixel import flourish
-from warlock.kernels.pixel.flourish import bake as B
-from warlock.kernels.pixel.flourish import engines, presets, prims
+from realmspinner.kernels.pixel import flourish
+from realmspinner.kernels.pixel.flourish import bake as B
+from realmspinner.kernels.pixel.flourish import engines, presets, prims
 
 
 def _small(raw: dict, **over) -> flourish.Recipe:

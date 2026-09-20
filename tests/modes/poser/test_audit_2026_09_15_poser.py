@@ -31,15 +31,15 @@ import json
 
 import pytest
 
-from warlock import clipmaps, cliptransfer
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.geom3d.gltf import Model, Node
-from warlock.kernels.rig import skeleton, templates
-from warlock.service import Conflict
-from warlock.service import jobs as svc_jobs
-from warlock.service import rig as svc_rig
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.viewer.pose import PoseEditor
+from realmspinner import clipmaps, cliptransfer
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.geom3d.gltf import Model, Node
+from realmspinner.kernels.rig import skeleton, templates
+from realmspinner.service import Conflict
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import rig as svc_rig
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.viewer.pose import PoseEditor
 
 # --- poser-01: capture_key must clear dirty/moved like every sibling -------
 

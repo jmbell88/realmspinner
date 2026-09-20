@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from warlock.bench import runner as runner_mod
+from realmspinner.bench import runner as runner_mod
 
 
 def _make_run(tmp_path, units=("a--s1", "b--s2")):

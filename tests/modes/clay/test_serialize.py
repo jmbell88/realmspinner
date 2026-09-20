@@ -1,4 +1,4 @@
-"""The ``.wblk`` document format: a zip of ``scene.json`` plus one npz an object.
+"""The ``.rblk`` document format: a zip of ``scene.json`` plus one npz an object.
 
 The tests that matter are the ones about what a *reload* is allowed to lose.
 Nothing, is the answer -- uids especially, because an undo step recorded before
@@ -17,13 +17,13 @@ from io import BytesIO
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import serialize as ser
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import serialize as ser
 
 
 def _doc() -> bd.ClayDoc:
@@ -65,7 +65,7 @@ def _doc() -> bd.ClayDoc:
 
 
 def _roundtrip(doc: bd.ClayDoc) -> bd.ClayDoc:
-    return ser.read_wblk(ser.wblk_bytes(doc))
+    return ser.read_rblk(ser.rblk_bytes(doc))
 
 
 # --- the round trip ----------------------------------------------------------
@@ -184,10 +184,10 @@ def test_a_uid_minted_after_a_load_cannot_collide_with_a_restored_one() -> None:
     assert bd.new_uid() > high
 
 
-def test_read_wblk_refuses_two_objects_that_declare_the_same_uid() -> None:
+def test_read_rblk_refuses_two_objects_that_declare_the_same_uid() -> None:
     """The 2026-09-16 audit: every other field on an object entry is checked
     for a shape a legitimate writer could never produce, but uid uniqueness
-    across the whole document was not. A ``.wblk`` whose ``scene.json``
+    across the whole document was not. A ``.rblk`` whose ``scene.json``
     declares two objects with the same uid used to load cleanly -- both
     archive members share the name ``meshes/<uid>.npz``, so one object's
     geometry is silently lost -- and left ``by_uid``/``index_of``/
@@ -201,7 +201,7 @@ def test_read_wblk_refuses_two_objects_that_declare_the_same_uid() -> None:
         scene["objects"][1]["uid"] = scene["objects"][0]["uid"]
 
     with pytest.raises(ValueError, match="two objects sharing uid"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), dupe))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), dupe))
 
 
 # --- refusals ----------------------------------------------------------------
@@ -226,13 +226,13 @@ def test_an_unknown_future_version_is_refused_rather_than_half_read() -> None:
         scene["version"] = ser.VERSION + 1
 
     with pytest.raises(ValueError, match="newer version"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), bump))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), bump))
 
 
 def test_a_scene_naming_a_mesh_the_archive_does_not_carry_is_refused() -> None:
     """Silently substituting an empty mesh would open the file, show an object
     with nothing in it, and let the user save that over their work."""
-    data = ser.wblk_bytes(_doc())
+    data = ser.rblk_bytes(_doc())
     stripped = BytesIO()
     with zipfile.ZipFile(BytesIO(data)) as src, zipfile.ZipFile(stripped, "w") as dst:
         for name in src.namelist():
@@ -240,7 +240,7 @@ def test_a_scene_naming_a_mesh_the_archive_does_not_carry_is_refused() -> None:
                 dst.writestr(name, src.read(name))
 
     with pytest.raises(ValueError, match="mesh"):
-        ser.read_wblk(stripped.getvalue())
+        ser.read_rblk(stripped.getvalue())
 
 
 def test_a_scene_with_objects_but_no_materials_gets_the_default_palette() -> None:
@@ -252,21 +252,21 @@ def test_a_scene_with_objects_but_no_materials_gets_the_default_palette() -> Non
     def strip(scene: dict) -> None:
         scene.pop("materials", None)
 
-    out = ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), strip))
+    out = ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), strip))
     assert len(out.materials) >= 1
 
 
 def test_bytes_that_are_not_a_zip_are_refused() -> None:
-    with pytest.raises(ValueError, match="not a Warlock Clay document"):
-        ser.read_wblk(b"this is not a zip file at all")
+    with pytest.raises(ValueError, match="not a Realmspinner Clay document"):
+        ser.read_rblk(b"this is not a zip file at all")
 
 
 def test_a_zip_without_a_scene_is_refused() -> None:
     out = BytesIO()
     with zipfile.ZipFile(out, "w") as zf:
         zf.writestr("something.txt", "hello")
-    with pytest.raises(ValueError, match="not a Warlock Clay document"):
-        ser.read_wblk(out.getvalue())
+    with pytest.raises(ValueError, match="not a Realmspinner Clay document"):
+        ser.read_rblk(out.getvalue())
 
 
 def test_an_archive_claiming_more_than_the_ceiling_is_refused_before_it_is_read(
@@ -277,7 +277,7 @@ def test_an_archive_claiming_more_than_the_ceiling_is_refused_before_it_is_read(
     read that has already exhausted memory."""
     monkeypatch.setattr(ser, "MAX_DECOMPRESSED_BYTES", 16)
     with pytest.raises(ValueError, match="past the 16 this build will read"):
-        ser.read_wblk(ser.wblk_bytes(_doc()))
+        ser.read_rblk(ser.rblk_bytes(_doc()))
 
 
 def test_a_document_with_more_objects_than_glbimports_ceiling_is_refused(monkeypatch) -> None:
@@ -293,19 +293,19 @@ def test_a_document_with_more_objects_than_glbimports_ceiling_is_refused(monkeyp
     ``scene``), so the ceiling here is monkeypatched low rather than the test
     building a 4,096-object archive to cross the real one.
     """
-    from warlock.kernels.mesh import glbimport
+    from realmspinner.kernels.mesh import glbimport
 
     monkeypatch.setattr(glbimport, "MAX_OBJECTS", 2)
-    data = ser.wblk_bytes(_doc())  # three objects
+    data = ser.rblk_bytes(_doc())  # three objects
 
     with pytest.raises(ValueError, match="3 objects, past the 2"):
-        ser.read_wblk(data)
+        ser.read_rblk(data)
 
 
-def test_read_wblk_refuses_a_document_declaring_too_many_materials(monkeypatch) -> None:
-    """The 2026-09-14 audit's clay-06: read_wblk bounded the objects array
+def test_read_rblk_refuses_a_document_declaring_too_many_materials(monkeypatch) -> None:
+    """The 2026-09-14 audit's clay-06: read_rblk bounded the objects array
     (``MAX_OBJECTS``, the test above) but not the materials array, so a
-    compact hand-edited or crash-recovered ``.wblk`` naming far more
+    compact hand-edited or crash-recovered ``.rblk`` naming far more
     materials than any document Clay writes -- cheap in bytes, since each
     entry is a few characters of JSON -- could stall the load in the
     ``_material_from`` loop with nothing to refuse it up front. ``_doc()``
@@ -313,10 +313,10 @@ def test_read_wblk_refuses_a_document_declaring_too_many_materials(monkeypatch) 
     without building a document with materials genuinely in the thousands.
     """
     monkeypatch.setattr(ser, "MAX_DECLARED_MATERIALS", 2)
-    data = ser.wblk_bytes(_doc())  # three materials
+    data = ser.rblk_bytes(_doc())  # three materials
 
     with pytest.raises(ValueError, match="3 materials, past the 2"):
-        ser.read_wblk(data)
+        ser.read_rblk(data)
 
 
 def test_a_document_with_more_triangles_than_glbimports_ceiling_is_refused(monkeypatch) -> None:
@@ -325,16 +325,16 @@ def test_a_document_with_more_triangles_than_glbimports_ceiling_is_refused(monke
     objects goes rather than before it starts -- the first object over the
     ceiling stops the read rather than every remaining one still being
     decompressed first."""
-    from warlock.kernels.mesh import glbimport
+    from realmspinner.kernels.mesh import glbimport
 
     monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
-    data = ser.wblk_bytes(_doc())  # a 12-segment cylinder alone is well past 4
+    data = ser.rblk_bytes(_doc())  # a 12-segment cylinder alone is well past 4
 
     with pytest.raises(ValueError, match="more than 4.*triangles"):
-        ser.read_wblk(data)
+        ser.read_rblk(data)
 
 
-def test_read_wblk_refuses_a_document_whose_ngons_exceed_max_triangles_once_fan_triangulated(
+def test_read_rblk_refuses_a_document_whose_ngons_exceed_max_triangles_once_fan_triangulated(
     monkeypatch,
 ) -> None:
     """clay-09 (the 2026-09-08 audit's second run): the ceiling used to add
@@ -344,7 +344,7 @@ def test_read_wblk_refuses_a_document_whose_ngons_exceed_max_triangles_once_fan_
     but fans into 6 triangles (over it), so the old, face-counting check let
     this document through and the fixed, fan-triangle-counting one refuses
     it."""
-    from warlock.kernels.mesh import glbimport
+    from realmspinner.kernels.mesh import glbimport
 
     monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
 
@@ -359,10 +359,10 @@ def test_read_wblk_refuses_a_document_whose_ngons_exceed_max_triangles_once_fan_
     doc = bd.ClayDoc()
     doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Octagon", mesh=octagon))
 
-    data = ser.wblk_bytes(doc)
+    data = ser.rblk_bytes(doc)
 
     with pytest.raises(ValueError, match="more than 4.*triangles"):
-        ser.read_wblk(data)
+        ser.read_rblk(data)
 
 
 def test_an_object_with_no_uid_is_refused_as_a_document_problem() -> None:
@@ -374,7 +374,7 @@ def test_an_object_with_no_uid_is_refused_as_a_document_problem() -> None:
             entry.pop("uid", None)
 
     with pytest.raises(ValueError, match="uid"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), drop))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), drop))
 
 
 def test_an_object_whose_uid_is_not_a_number_is_refused() -> None:
@@ -383,7 +383,7 @@ def test_an_object_whose_uid_is_not_a_number_is_refused() -> None:
             entry["uid"] = "not a number"
 
     with pytest.raises(ValueError, match="uid"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
 @pytest.mark.parametrize(
@@ -403,7 +403,7 @@ def test_a_transform_of_the_wrong_shape_is_refused_rather_than_rendered(key, bad
             entry[key] = bad
 
     with pytest.raises(ValueError, match=key):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
 def test_a_transform_that_is_not_numbers_is_refused() -> None:
@@ -412,11 +412,11 @@ def test_a_transform_that_is_not_numbers_is_refused() -> None:
             entry["translation"] = ["left", "up", "out"]
 
     with pytest.raises(ValueError, match="translation"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
 @pytest.mark.parametrize("bad", [[1, 2, 3], "ab", 5, [["k", "v"]]])
-def test_a_wblk_objects_non_dict_params_field_is_refused_by_name_not_a_bare_exception(bad) -> None:
+def test_a_rblk_objects_non_dict_params_field_is_refused_by_name_not_a_bare_exception(bad) -> None:
     """The 2026-09-11 audit, finding clay-07: an object entry's ``params``
     field was passed straight to ``dict(...)`` with no type check, unlike
     every other field on this same entry (the uid, each transform vector,
@@ -433,18 +433,18 @@ def test_a_wblk_objects_non_dict_params_field_is_refused_by_name_not_a_bare_exce
             entry["params"] = bad
 
     with pytest.raises(ValueError, match="params"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
 @pytest.mark.parametrize("bad", [None, ["x"], {"a": 1}, "not a number"])
-def test_read_wblk_refuses_an_object_whose_material_field_is_not_a_number(bad) -> None:
+def test_read_rblk_refuses_an_object_whose_material_field_is_not_a_number(bad) -> None:
     """The 2026-09-11 audit, finding clay-04: an object entry's ``material``
     field was passed straight to a bare ``int(...)``, unlike every sibling
     field on this same entry (the uid, each transform vector, ``params``,
     each material's own fields) which this module deliberately hardens into
     its own named refusal. ``None``, a list or a dict raised an unnamed
     ``TypeError`` and a string raised ``int()``'s own message, both reaching
-    the user in place of this reader's "this is not a Warlock Clay document"
+    the user in place of this reader's "this is not a Realmspinner Clay document"
     sentence.
     """
 
@@ -453,11 +453,11 @@ def test_read_wblk_refuses_an_object_whose_material_field_is_not_a_number(bad) -
             entry["material"] = bad
 
     with pytest.raises(ValueError, match="material"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
 @pytest.mark.parametrize("bad", [[1, 2, 3], 5])
-def test_read_wblk_refuses_an_object_whose_generator_field_is_not_a_string_or_none(bad) -> None:
+def test_read_rblk_refuses_an_object_whose_generator_field_is_not_a_string_or_none(bad) -> None:
     """The 2026-09-11 audit, finding clay-06: ``generator`` was read with no
     type check at all, so a non-string, non-``None`` value loaded cleanly and
     only failed later in the properties panel's ``GENERATORS[obj.generator]``
@@ -469,10 +469,10 @@ def test_read_wblk_refuses_an_object_whose_generator_field_is_not_a_string_or_no
             entry["generator"] = bad
 
     with pytest.raises(ValueError, match="generator"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
-def test_a_wblk_whose_objects_field_is_not_a_list_is_refused_with_a_value_error() -> None:
+def test_a_rblk_whose_objects_field_is_not_a_list_is_refused_with_a_value_error() -> None:
     """The 2026-09-08 audit's clay-05: ``scene["objects"]`` present but not a
     list used to reach ``len(declared)`` and raise a bare ``TypeError``,
     unlike every other malformed field in this reader (the uid, each vector,
@@ -489,11 +489,11 @@ def test_a_wblk_whose_objects_field_is_not_a_list_is_refused_with_a_value_error(
         # itself (line 596), the actual crash site the finding names.
         scene["objects"] = None
 
-    with pytest.raises(ValueError, match="not a Warlock Clay document"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+    with pytest.raises(ValueError, match="not a Realmspinner Clay document"):
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
-def test_a_wblk_whose_materials_field_is_not_a_list_is_refused_with_a_value_error() -> None:
+def test_a_rblk_whose_materials_field_is_not_a_list_is_refused_with_a_value_error() -> None:
     """Same clay-05 gap, the other field this reader forgot to guard: a
     "materials" entry that is present but not a list used to fail the list
     comprehension building the palette with a bare ``TypeError`` instead of a
@@ -502,8 +502,8 @@ def test_a_wblk_whose_materials_field_is_not_a_list_is_refused_with_a_value_erro
     def mangle(scene: dict) -> None:
         scene["materials"] = None
 
-    with pytest.raises(ValueError, match="not a Warlock Clay document"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+    with pytest.raises(ValueError, match="not a Realmspinner Clay document"):
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
 def test_a_material_with_a_null_factor_is_refused_by_name() -> None:
@@ -514,7 +514,7 @@ def test_a_material_with_a_null_factor_is_refused_by_name() -> None:
         scene["materials"][0]["metallic_factor"] = None
 
     with pytest.raises(ValueError, match="material"):
-        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
 # --- the file itself ---------------------------------------------------------
@@ -526,11 +526,11 @@ def test_two_saves_of_an_unchanged_document_are_byte_identical() -> None:
     would make a document that has not changed produce a different file every
     time it is written."""
     doc = _doc()
-    assert ser.wblk_bytes(doc) == ser.wblk_bytes(doc)
+    assert ser.rblk_bytes(doc) == ser.rblk_bytes(doc)
 
 
 def test_scene_json_is_sorted_so_the_file_is_diffable() -> None:
-    with zipfile.ZipFile(BytesIO(ser.wblk_bytes(_doc()))) as zf:
+    with zipfile.ZipFile(BytesIO(ser.rblk_bytes(_doc()))) as zf:
         raw = zf.read(ser.SCENE).decode()
     scene = json.loads(raw)
 
@@ -541,7 +541,7 @@ def test_scene_json_is_sorted_so_the_file_is_diffable() -> None:
 
 def test_the_archive_holds_one_mesh_per_object() -> None:
     doc = _doc()
-    with zipfile.ZipFile(BytesIO(ser.wblk_bytes(doc))) as zf:
+    with zipfile.ZipFile(BytesIO(ser.rblk_bytes(doc))) as zf:
         names = set(zf.namelist())
     assert names == {ser.SCENE} | {f"meshes/{o.uid}.npz" for o in doc.objects}
 
@@ -549,24 +549,24 @@ def test_the_archive_holds_one_mesh_per_object() -> None:
 # --- the frame-thread/task-thread split (clay-03, 2026-09-06 audit) ----------
 
 
-def test_snapshot_bytes_of_a_snapshot_matches_wblk_bytes() -> None:
-    """``wblk_bytes`` is now just ``snapshot_bytes(snapshot(doc))`` -- the two
+def test_snapshot_bytes_of_a_snapshot_matches_rblk_bytes() -> None:
+    """``rblk_bytes`` is now just ``snapshot_bytes(snapshot(doc))`` -- the two
     must never drift, or a caller choosing one path over the other would write
     a different file for the same document."""
     doc = _doc()
-    assert ser.snapshot_bytes(ser.snapshot(doc)) == ser.wblk_bytes(doc)
+    assert ser.snapshot_bytes(ser.snapshot(doc)) == ser.rblk_bytes(doc)
 
 
 def test_a_clay_snapshot_is_what_the_document_was_when_the_save_was_pressed() -> None:
     """The document goes on being edited while a task encodes the snapshot --
-    ``wpack.snapshot``'s own claim, made here for ``ClayDoc``. ``snapshot`` is
+    ``rpack.snapshot``'s own claim, made here for ``ClayDoc``. ``snapshot`` is
     the cheap frame-thread half ``clay_mode.save_to`` now takes before
     ``ctx.submit``; ``snapshot_bytes`` is the encode a task thread runs
     afterwards, and it must answer for the document as it was, not as it has
     become.
     """
     doc = _doc()
-    before = ser.wblk_bytes(doc)
+    before = ser.rblk_bytes(doc)
     snap = ser.snapshot(doc)
 
     doc.set_props(doc.objects[0].uid, name="renamed while the task ran")
@@ -574,7 +574,7 @@ def test_a_clay_snapshot_is_what_the_document_was_when_the_save_was_pressed() ->
     doc.materials.append(gltf.Material(name="late-material"))
 
     assert ser.snapshot_bytes(snap) == before
-    out = ser.read_wblk(ser.snapshot_bytes(snap))
+    out = ser.read_rblk(ser.snapshot_bytes(snap))
     assert [o.name for o in out.objects] == ["Cyl", "Hidden", "Frozen"]
     assert len(out.materials) == 3
 
@@ -645,8 +645,8 @@ def test_textures_round_trip_pixel_for_pixel() -> None:
     assert out.materials[0].metallic_roughness is None
 
 
-def test_read_wblk_refuses_a_document_declaring_too_many_textures(monkeypatch) -> None:
-    """The texture twin of clay-06 above: ``read_wblk`` bounded the objects
+def test_read_rblk_refuses_a_document_declaring_too_many_textures(monkeypatch) -> None:
+    """The texture twin of clay-06 above: ``read_rblk`` bounded the objects
     array and (now) the materials array but not how many textures a scene
     names, so the same stall was reachable through ``_read_textures``
     instead -- a scene can name far more texture entries than the archive
@@ -657,13 +657,13 @@ def test_read_wblk_refuses_a_document_declaring_too_many_textures(monkeypatch) -
         objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
         materials=[gltf.Material(name="m", base_color=_tex())],
     )
-    data = ser.wblk_bytes(doc)  # one texture
+    data = ser.rblk_bytes(doc)  # one texture
 
     with pytest.raises(ValueError, match="1 textures, past the 0"):
-        ser.read_wblk(data)
+        ser.read_rblk(data)
 
 
-def test_read_wblk_refuses_when_decoded_texture_bytes_sum_past_a_document_ceiling(
+def test_read_rblk_refuses_when_decoded_texture_bytes_sum_past_a_document_ceiling(
     monkeypatch,
 ) -> None:
     """The document-wide twin of ``MAX_DECLARED_TEXTURES`` above: that constant
@@ -673,7 +673,7 @@ def test_read_wblk_refuses_when_decoded_texture_bytes_sum_past_a_document_ceilin
     ``gltf.MAX_TOTAL_BYTES`` bounds the same sum for a GLB (H01). A handful of
     small, highly-compressible PNGs decode to far more RGBA bytes than their
     stored size, and ``_read_textures`` decoded every one of them in a single
-    pass with no running total, so a small ``.wblk`` could still exhaust
+    pass with no running total, so a small ``.rblk`` could still exhaust
     memory on the way in. The 2026-09-18 audit's clay-01.
     """
     monkeypatch.setattr(ser, "MAX_TOTAL_TEXTURE_BYTES", 8)
@@ -681,10 +681,10 @@ def test_read_wblk_refuses_when_decoded_texture_bytes_sum_past_a_document_ceilin
         objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
         materials=[gltf.Material(name="m", base_color=_tex())],
     )
-    data = ser.wblk_bytes(doc)  # one 2x2 texture, 16 decoded bytes, past the 8-byte cap
+    data = ser.rblk_bytes(doc)  # one 2x2 texture, 16 decoded bytes, past the 8-byte cap
 
     with pytest.raises(ValueError, match="decoded texture"):
-        ser.read_wblk(data)
+        ser.read_rblk(data)
 
 
 def test_a_shared_texture_is_written_once() -> None:
@@ -696,7 +696,7 @@ def test_a_shared_texture_is_written_once() -> None:
             gltf.Material(name="b", base_color=image, emissive=image),
         ],
     )
-    names = zipfile.ZipFile(BytesIO(ser.wblk_bytes(doc))).namelist()
+    names = zipfile.ZipFile(BytesIO(ser.rblk_bytes(doc))).namelist()
     assert [n for n in names if n.startswith("textures/")] == ["textures/0.png"]
 
     out = _roundtrip(doc)
@@ -708,14 +708,14 @@ def test_a_textured_save_is_still_byte_identical_when_repeated() -> None:
         objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=_uvd(bp.plane()))],
         materials=[gltf.Material(name="m", base_color=_tex())],
     )
-    assert ser.wblk_bytes(doc) == ser.wblk_bytes(doc)
+    assert ser.rblk_bytes(doc) == ser.rblk_bytes(doc)
 
 
 def test_a_version_1_file_still_opens_with_no_uvs_and_no_textures() -> None:
     """The whole point of making ``uv`` optional rather than required."""
     doc = _doc()
-    v1 = _rewrite_version(ser.wblk_bytes(doc), 1)
-    out = ser.read_wblk(v1)
+    v1 = _rewrite_version(ser.rblk_bytes(doc), 1)
+    out = ser.read_rblk(v1)
     assert all(obj.mesh.uv is None for obj in out.objects)
     assert all(m.base_color is None for m in out.materials)
 
@@ -725,9 +725,9 @@ def test_a_version_past_the_current_one_is_refused() -> None:
     literal ``3`` this pinned before Clay tranche 2 became the *current*
     version the day this file's own ``VERSION`` bumped, which is exactly the
     kind of drift a version-relative bound does not have."""
-    future = _rewrite_version(ser.wblk_bytes(_doc()), ser.VERSION + 1)
+    future = _rewrite_version(ser.rblk_bytes(_doc()), ser.VERSION + 1)
     with pytest.raises(ValueError, match="newer version"):
-        ser.read_wblk(future)
+        ser.read_rblk(future)
 
 
 def test_a_missing_texture_member_is_refused_rather_than_blanked() -> None:
@@ -735,7 +735,7 @@ def test_a_missing_texture_member_is_refused_rather_than_blanked() -> None:
         objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
         materials=[gltf.Material(name="m", base_color=_tex())],
     )
-    data = ser.wblk_bytes(doc)
+    data = ser.rblk_bytes(doc)
     out = BytesIO()
     source = zipfile.ZipFile(BytesIO(data))
     with zipfile.ZipFile(out, "w") as zf:
@@ -743,7 +743,7 @@ def test_a_missing_texture_member_is_refused_rather_than_blanked() -> None:
             if not name.startswith("textures/"):
                 zf.writestr(name, source.read(name))
     with pytest.raises(ValueError, match="texture the file does not carry"):
-        ser.read_wblk(out.getvalue())
+        ser.read_rblk(out.getvalue())
 
 
 def test_a_material_naming_an_out_of_range_texture_index_is_refused() -> None:
@@ -752,7 +752,7 @@ def test_a_material_naming_an_out_of_range_texture_index_is_refused() -> None:
     material would show the user a model that looks finished and is not, and
     let them save it over their work" -- but ``_material_from`` only enforced
     that for a texture named by a PNG member absent from the archive, not for
-    an index naming a slot past the end of the textures list ``read_wblk``
+    an index naming a slot past the end of the textures list ``read_rblk``
     actually decoded, which is exactly the shape of truncation its own
     crash-recovery path can hand this reader.
     """
@@ -760,7 +760,7 @@ def test_a_material_naming_an_out_of_range_texture_index_is_refused() -> None:
         objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
         materials=[gltf.Material(name="m", base_color=_tex())],
     )
-    data = ser.wblk_bytes(doc)
+    data = ser.rblk_bytes(doc)
     source = zipfile.ZipFile(BytesIO(data))
     scene = json.loads(source.read(ser.SCENE))
     scene["materials"][0]["textures"]["base_color"] = 5  # only one texture exists
@@ -771,7 +771,7 @@ def test_a_material_naming_an_out_of_range_texture_index_is_refused() -> None:
             if name != ser.SCENE:
                 zf.writestr(name, source.read(name))
     with pytest.raises(ValueError, match="malformed"):
-        ser.read_wblk(out.getvalue())
+        ser.read_rblk(out.getvalue())
 
 
 # --- the camera (Clay23) ------------------------------------------------------
@@ -787,7 +787,7 @@ class _Camera:
 def test_a_camera_round_trips_through_the_archive():
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))
-    data = ser.wblk_bytes(doc, view=_Camera())
+    data = ser.rblk_bytes(doc, view=_Camera())
     out = ser.read_view(data)
     assert out == {
         "yaw": 0.4,
@@ -802,7 +802,7 @@ def test_a_document_written_without_a_camera_is_byte_for_byte_what_it_was():
     writes and reads exactly the file it did before."""
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))
-    assert ser.wblk_bytes(doc) == ser.wblk_bytes(doc, view=None)
+    assert ser.rblk_bytes(doc) == ser.rblk_bytes(doc, view=None)
     assert "view" not in json.loads(ser.scene_json(doc))
 
 
@@ -810,13 +810,13 @@ def test_a_file_with_no_camera_reads_as_none_rather_than_as_a_default():
     """A default would be indistinguishable from a camera somebody chose, and
     ``None`` is what tells the mode to frame the document instead."""
     doc = bd.ClayDoc()
-    assert ser.read_view(ser.wblk_bytes(doc)) is None
+    assert ser.read_view(ser.rblk_bytes(doc)) is None
 
 
 def test_the_camera_is_still_readable_by_a_reader_that_ignores_it():
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))
-    restored = ser.read_wblk(ser.wblk_bytes(doc, view=_Camera()))
+    restored = ser.read_rblk(ser.rblk_bytes(doc, view=_Camera()))
     assert len(restored.objects) == 1
 
 
@@ -835,9 +835,9 @@ def test_a_camera_that_makes_no_sense_answers_none_rather_than_raising(entry):
     """It is read beside a document that has already parsed, so a malformed
     camera is worth one unfitted viewport and never a refused file."""
     doc = bd.ClayDoc()
-    data = _with_view(ser.wblk_bytes(doc), entry)
+    data = _with_view(ser.rblk_bytes(doc), entry)
     assert ser.read_view(data) is None
-    assert ser.read_wblk(data) is not None
+    assert ser.read_rblk(data) is not None
 
 
 def test_a_camera_out_of_something_that_is_not_an_archive_answers_none():

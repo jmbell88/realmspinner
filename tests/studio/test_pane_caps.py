@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.kernels.rig import store
-from warlock.studio.panes import sheet_panel, sprite_panel
+from realmspinner.kernels.rig import store
+from realmspinner.studio.panes import sheet_panel, sprite_panel
 
 
 def _job(status: str, source_job: str, kind: str, **extra: Any) -> dict[str, Any]:

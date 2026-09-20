@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock import changelog
+from realmspinner import changelog
 
 FIXTURE = "## 0.2.0 - 2026-01-02\n\n- Did a thing.\n"
 OTHER = "## 9.9.9\n\n- A different file entirely.\n"

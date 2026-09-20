@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid as gidlib
-from warlock.studio.modes.plotter.engine import tools
+from realmspinner.kernels.grid2d import gid as gidlib
+from realmspinner.studio.modes.plotter.engine import tools
 
 
 def _map(width: int = 8, height: int = 8) -> np.ndarray:
@@ -222,7 +222,7 @@ def test_the_wand_set_is_the_floods_reached_set() -> None:
 
 
 def _doc(width: int = 8, height: int = 8):
-    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(width, height, 16, 16)
     doc.add_tile_layer("Tiles")
@@ -276,7 +276,7 @@ def test_an_offset_is_one_undo_step() -> None:
 
 
 def test_only_whole_map_scope_moves_objects() -> None:
-    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapObject, new_uid
 
     doc = _doc()
     layer = doc.add_object_layer("Objects")
@@ -297,7 +297,7 @@ def test_a_wrapped_offset_wraps_objects_with_the_cells() -> None:
     """The cells are normalized by modulo, so an object shifted by the
     normalized amount *un*-wrapped rode ``offset(-1)`` seven tiles right on an
     8-wide map -- off the geometry it annotates."""
-    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapObject, new_uid
 
     doc = _doc()  # 8x8 of 16px cells: 128px across
     layer = doc.add_object_layer("Objects")
@@ -316,7 +316,7 @@ def test_a_wrapped_offset_wraps_objects_with_the_cells() -> None:
 def test_a_wrapped_offset_and_back_is_the_identity_for_objects_too() -> None:
     """The docstring's identity claim, stated for the half of the document that
     used to break it."""
-    from warlock.studio.modes.plotter.engine.tilemap import MapObject, new_uid
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapObject, new_uid
 
     doc = _doc()
     layer = doc.add_object_layer("Objects")
@@ -376,7 +376,7 @@ def test_the_blob_neighbourhood_is_a_square_lattices() -> None:
     slices* of an array, and on an offset lattice those are not the
     neighbouring cells -- every other row is pushed sideways, and a hexagon has
     six neighbours rather than eight."""
-    from warlock.kernels.grid2d import blob
+    from realmspinner.kernels.grid2d import blob
 
     field = np.zeros((3, 3), dtype=bool)
     field[1, 1] = True

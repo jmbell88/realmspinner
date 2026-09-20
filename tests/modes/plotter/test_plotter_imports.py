@@ -10,7 +10,7 @@ This is the ``tests/modes/inker/test_sheetout.py`` pin applied to the second pur
 package, and it is written the same way on purpose.
 
 The tile vocabulary itself -- the gid word, the sliced atlas, the blob
-collapse -- moved out to :mod:`warlock.kernels.grid2d` on 2026-08-18: the
+collapse -- moved out to :mod:`realmspinner.kernels.grid2d` on 2026-08-18: the
 second shared leaf after ``core/undo.py``, reached for by every module here
 that used to import ``.gid``, ``.tileset`` or ``.blob`` as a sibling.
 """
@@ -20,19 +20,19 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio.modes.plotter import engine as plotter
+from realmspinner.studio.modes.plotter import engine as plotter
 
 ENGINE = Path(plotter.__file__).parent
-PACKAGE = "warlock.studio.modes.plotter.engine"
+PACKAGE = "realmspinner.studio.modes.plotter.engine"
 
 #: ``(module, imported name)`` for every import that leaves the package.
-#: :mod:`~warlock.core.undo` is the history engine the raster editor and Clay
-#: already share -- as headless as this package is, and the reason a ``.wmap``
+#: :mod:`~realmspinner.core.undo` is the history engine the raster editor and Clay
+#: already share -- as headless as this package is, and the reason a ``.rmap``
 #: undo step and an ``.ora`` one obey the same byte budget. (2026-09-17: moved
-#: from ``studio/undo.py`` to ``warlock/core/undo.py`` in P3 of
+#: from ``studio/undo.py`` to ``realmspinner/core/undo.py`` in P3 of
 #: ``dev/RESTRUCTURE.md``, which resolves the reason this needed defending as
 #: a sibling exception -- reaching down into ``core`` needs none.)
-#: :mod:`~warlock.kernels.grid2d` (``studio/tilegrid/`` before the same move)
+#: :mod:`~realmspinner.kernels.grid2d` (``studio/tilegrid/`` before the same move)
 #: and its ``.tileset`` submodule are the shared tile vocabulary -- every
 #: module that places, flips or slices a tile reaches for one or both.
 OUTWARD_IMPORTS = {
@@ -46,55 +46,55 @@ OUTWARD_IMPORTS = {
     # about a different declared number -- an image's pixel count, a ``.npy``
     # header's shape, an XML document's DTD and nesting depth. Shared leaves,
     # not sibling engines, so this package is free to reach for them. P3
-    # folded the four modules into one ``core/safeio/`` package; ``wmap.py``
+    # folded the four modules into one ``core/safeio/`` package; ``rmap.py``
     # reaches three of them through a single ``from ... import`` line, which
     # is one outward edge, not three, and ``tsx.py`` reaches the fourth the
     # same way even alone -- the collapse is about the package the name lives
     # in, not about how many names one file happens to need from it.
-    ("wmap.py", "warlock.core.safeio"),
-    ("tsx.py", "warlock.core.safeio"),
-    ("_map_geometry.py", "warlock.kernels.grid2d"),
-    ("_map_layers.py", "warlock.kernels.grid2d"),
-    ("_map_layers.py", "warlock.kernels.grid2d.tileset"),
-    ("_map_model.py", "warlock.kernels.grid2d.tileset"),
-    ("_map_paint.py", "warlock.kernels.grid2d"),
+    ("rmap.py", "realmspinner.core.safeio"),
+    ("tsx.py", "realmspinner.core.safeio"),
+    ("_map_geometry.py", "realmspinner.kernels.grid2d"),
+    ("_map_layers.py", "realmspinner.kernels.grid2d"),
+    ("_map_layers.py", "realmspinner.kernels.grid2d.tileset"),
+    ("_map_model.py", "realmspinner.kernels.grid2d.tileset"),
+    ("_map_paint.py", "realmspinner.kernels.grid2d"),
     # ``MapDoc.set_stamp`` writes a block of gids and needs their dtype. The
     # same leaf every painting module here already reaches for, for the same
     # reason: a gid is what a cell *is*, and this package is the editor of them.
-    ("tilemap.py", "warlock.kernels.grid2d"),
-    ("_map_tilesets.py", "warlock.kernels.grid2d"),
-    ("_map_tilesets.py", "warlock.kernels.grid2d.tileset"),
-    ("edits.py", "warlock.core.undo"),
-    ("render.py", "warlock.kernels.grid2d"),
-    ("scene.py", "warlock.kernels.grid2d.tileset"),
-    ("terrain.py", "warlock.kernels.grid2d"),
-    ("terrain.py", "warlock.kernels.grid2d.tileset"),
-    ("tilemap.py", "warlock.kernels.grid2d.tileset"),
-    ("tilemap.py", "warlock.core.undo"),
+    ("tilemap.py", "realmspinner.kernels.grid2d"),
+    ("_map_tilesets.py", "realmspinner.kernels.grid2d"),
+    ("_map_tilesets.py", "realmspinner.kernels.grid2d.tileset"),
+    ("edits.py", "realmspinner.core.undo"),
+    ("render.py", "realmspinner.kernels.grid2d"),
+    ("scene.py", "realmspinner.kernels.grid2d.tileset"),
+    ("terrain.py", "realmspinner.kernels.grid2d"),
+    ("terrain.py", "realmspinner.kernels.grid2d.tileset"),
+    ("tilemap.py", "realmspinner.kernels.grid2d.tileset"),
+    ("tilemap.py", "realmspinner.core.undo"),
     # The four-connected flood kernel, with the frontier dilation beside it as
     # the reference and the fallback.
-    ("tools.py", "warlock.native"),
+    ("tools.py", "realmspinner.native"),
     # The tile-blit kernel, likewise: ``_blit_cells_native`` declines for every
     # case it cannot answer and ``_blit_over`` is what runs then. ``native`` is
     # a leaf -- ctypes and a DLL path, nothing from the studio -- so the edge
     # costs this package none of the headlessness it is pinned for.
-    ("render.py", "warlock.native"),
-    ("tmx.py", "warlock.kernels.grid2d"),
-    ("tsx.py", "warlock.kernels.grid2d.wang"),
-    ("wmap.py", "warlock.kernels.grid2d.wang"),
-    ("tmx.py", "warlock.kernels.grid2d.tileset"),
-    ("tools.py", "warlock.kernels.grid2d"),
-    ("tsx.py", "warlock.kernels.grid2d"),
-    ("tsx.py", "warlock.kernels.grid2d.tileset"),
-    ("wmap.py", "warlock.kernels.grid2d"),
-    ("wmap.py", "warlock.kernels.grid2d.tileset"),
+    ("render.py", "realmspinner.native"),
+    ("tmx.py", "realmspinner.kernels.grid2d"),
+    ("tsx.py", "realmspinner.kernels.grid2d.wang"),
+    ("rmap.py", "realmspinner.kernels.grid2d.wang"),
+    ("tmx.py", "realmspinner.kernels.grid2d.tileset"),
+    ("tools.py", "realmspinner.kernels.grid2d"),
+    ("tsx.py", "realmspinner.kernels.grid2d"),
+    ("tsx.py", "realmspinner.kernels.grid2d.tileset"),
+    ("rmap.py", "realmspinner.kernels.grid2d"),
+    ("rmap.py", "realmspinner.kernels.grid2d.tileset"),
 }
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 
 #: Imported inside the functions that need it, never at module scope. Pillow
 #: costs a tenth of a second to import and most of this package never decodes a
-#: pixel; the ``.wblk`` writer follows the same rule for the same reason.
+#: pixel; the ``.rblk`` writer follows the same rule for the same reason.
 LAZY_ONLY = {"PIL"}
 
 
@@ -152,7 +152,7 @@ def test_the_engine_never_imports_a_window():
 def test_the_engine_never_imports_the_service_layer():
     for path in _modules():
         for name in _outward(path):
-            assert "warlock.service" not in name, f"{path.name} imports {name}"
+            assert "realmspinner.service" not in name, f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_queue_or_the_pipelines():
@@ -160,13 +160,13 @@ def test_the_engine_never_imports_the_queue_or_the_pipelines():
     any business in a headless test of tile arithmetic."""
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.queue"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock.pipelines"), f"{path.name} imports {name}"
-            # ``warlock._q_*`` too: the queue's worker halves are the same
+            assert not name.startswith("realmspinner.queue"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.pipelines"), f"{path.name} imports {name}"
+            # ``realmspinner._q_*`` too: the queue's worker halves are the same
             # dependency wearing a different name, and importing one of those
             # would drag torch behind a headless test as surely as importing
             # ``queue`` itself.
-            assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{path.name} imports {name}"
 
 
 def test_the_only_outward_imports_are_the_ones_written_down():
@@ -174,7 +174,7 @@ def test_the_only_outward_imports_are_the_ones_written_down():
         (path.name, name)
         for path in _modules()
         for name in _outward(path)
-        if name.split(".")[0] == "warlock"
+        if name.split(".")[0] == "realmspinner"
     }
     assert found == OUTWARD_IMPORTS
 
@@ -189,7 +189,7 @@ def test_pillow_is_never_imported_at_module_scope():
 def test_the_package_imports_with_no_optional_dependency_present():
     """Importing every module is the cheapest possible smoke test that the
     lazy-import rule above is actually being followed."""
-    from warlock.studio.modes.plotter.engine import (  # noqa: F401
+    from realmspinner.studio.modes.plotter.engine import (  # noqa: F401
         _map_geometry,
         _map_layers,
         _map_model,
@@ -203,11 +203,11 @@ def test_the_package_imports_with_no_optional_dependency_present():
         project,
         props,
         render,
+        rmap,
         scene,
         terrain,
         tilemap,
         tmx,
         tools,
         tsx,
-        wmap,
     )

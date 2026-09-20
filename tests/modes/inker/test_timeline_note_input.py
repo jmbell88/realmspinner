@@ -23,9 +23,9 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels.pixel.animation import Note
-from warlock.studio import probe
-from warlock.studio.modes.inker import state as inker_state
+from realmspinner.kernels.pixel.animation import Note
+from realmspinner.studio import probe
+from realmspinner.studio.modes.inker import state as inker_state
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ class _Prompts:
 
 
 def _doc():
-    from warlock.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel.document import Document
 
     doc = Document.blank(4, 4)
     doc.stack[0].name = "Art"
@@ -107,7 +107,7 @@ def _click(imgui, build, control):
 
 
 def _cell_menu(imgui, ctx, tab, ti=0, fi=0, has_cel=True, linked=True):
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     def build():
         if not imgui.is_popup_open("celmenu"):
@@ -118,7 +118,7 @@ def _cell_menu(imgui, ctx, tab, ti=0, fi=0, has_cel=True, linked=True):
 
 
 def _row_menu(imgui, ctx, tab, index=0):
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     def build():
         if not imgui.is_popup_open("layer-menu"):
@@ -129,7 +129,7 @@ def _row_menu(imgui, ctx, tab, index=0):
 
 
 def _tag_menu(imgui, ctx, tab, index=0):
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     def build():
         if not imgui.is_popup_open("tagmenu"):
@@ -157,7 +157,7 @@ def _named(controls, label):
 
 def test_pressing_a_cel_swatch_colours_that_slot(ui):
     """The whole point of the file: the click reaches the grid."""
-    from warlock.studio.modes.inker.ui.panes.timeline import NOTE_COLOURS
+    from realmspinner.studio.modes.inker.ui.panes.timeline import NOTE_COLOURS
 
     doc = _doc()
     ctx, tab = _ctx(), _tab(doc)
@@ -282,7 +282,7 @@ def test_an_empty_slot_offers_no_properties_block(ui):
 def test_a_still_documents_row_menu_offers_no_properties_block(ui):
     """A note lives on a ``Track`` and a still document has none, so the block
     is hidden rather than greyed -- there is nothing for it to promise."""
-    from warlock.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel.document import Document
 
     doc = Document.blank(4, 4)
     ctx, tab = _ctx(), _tab(doc)

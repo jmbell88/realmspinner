@@ -21,7 +21,7 @@ import json
 
 import pytest
 
-from warlock.pipelines import spritesynth as ss
+from realmspinner.pipelines import spritesynth as ss
 
 #: The kinds this file was written for.  Named rather than discovered as well,
 #: so deleting a template is a failure here and not a silently shorter run.

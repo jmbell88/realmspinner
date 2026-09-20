@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels import charsheet as cs
-from warlock.studio.modes.poser.engine import spec as sheet_spec
+from realmspinner.kernels import charsheet as cs
+from realmspinner.studio.modes.poser.engine import spec as sheet_spec
 
 
 @pytest.fixture(scope="module")

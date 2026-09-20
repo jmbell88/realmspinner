@@ -35,10 +35,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock import config as config_module
-from warlock import fetch, models
-from warlock.config import get_config
-from warlock.pipelines import lora_train
+from realmspinner import config as config_module
+from realmspinner import fetch, models
+from realmspinner.config import get_config
+from realmspinner.pipelines import lora_train
 
 #: One checkpoint load plus a hundred training steps at 1024 with gradient
 #: checkpointing, then a second load to verify. Well inside ``lora_train``'s
@@ -77,8 +77,8 @@ def training_images(tmp_path_factory):
     pictures and any difference in outcome is the code's.
 
     Written under ``tmp_path_factory`` and nowhere near the user's library.
-    **This lane sees the real ``~/.warlock``** -- it is exempt from
-    ``conftest.py``'s ``WARLOCK_HOME`` pinning because it has to resolve real
+    **This lane sees the real ``~/.realmspinner``** -- it is exempt from
+    ``conftest.py``'s ``REALMSPINNER_HOME`` pinning because it has to resolve real
     weights -- so every path this file writes is a temporary one.
     """
     scratch = tmp_path_factory.mktemp("lora-train-images")
@@ -99,7 +99,7 @@ def training_images(tmp_path_factory):
 @pytest.fixture(scope="module")
 def trained(base_dir, training_images, tmp_path_factory):
     """One real training run. -> (the adapter directory, the result payload)."""
-    from warlock.pipelines import blender_run
+    from realmspinner.pipelines import blender_run
 
     work = tmp_path_factory.mktemp("lora-train-out")
     out_dir = work / "adapter"
@@ -114,7 +114,7 @@ def trained(base_dir, training_images, tmp_path_factory):
     )
     result = blender_run.run_worker(
         spec,
-        module="warlock.pipelines.lora_train_worker",
+        module="realmspinner.pipelines.lora_train_worker",
         marker=lora_train.MARKER,
         name="LoRA trainer",
         timeout=lora_train.TIMEOUT,

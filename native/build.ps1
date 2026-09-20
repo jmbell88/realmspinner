@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    Build vendor/warlockc/warlockc.dll from the C sources in this directory.
+    Build vendor/realmspinnerc/realmspinnerc.dll from the C sources in this directory.
 
 .DESCRIPTION
     Vendored the way trellis-server.exe and gltfpack.exe are: a native binary
     under vendor/, which is gitignored, so every checkout builds its own and a
-    missing one is never fatal -- warlock.native falls back to the numpy
-    implementations and `warlock doctor` says so.
+    missing one is never fatal -- realmspinner.native falls back to the numpy
+    implementations and `realmspinner doctor` says so.
 
     The floating-point flags are part of the correctness contract rather than a
     tuning choice. Every kernel here must agree bit for bit with a numpy
@@ -23,8 +23,8 @@ param([switch]$Clean)
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$outDir = Join-Path (Split-Path -Parent $here) 'vendor\warlockc'
-$outDll = Join-Path $outDir 'warlockc.dll'
+$outDir = Join-Path (Split-Path -Parent $here) 'vendor\realmspinnerc'
+$outDll = Join-Path $outDir 'realmspinnerc.dll'
 $sources = @(Get-ChildItem -Path $here -Filter '*.c' | ForEach-Object { $_.FullName })
 
 if (-not $sources) { throw "no C sources found in $here" }
@@ -60,7 +60,7 @@ if ($vcvars) {
         '@echo off'
         "call `"$vcvars`" >nul || exit /b 1"
         "cl /nologo /O2 /fp:precise /W4 /WX /LD /std:c11 /I`"$here`" " +
-        "/Fo`"$objDir\\`" /Fe`"$outDll`" $srcArgs /link /IMPLIB:`"$objDir\warlockc.lib`""
+        "/Fo`"$objDir\\`" /Fe`"$outDll`" $srcArgs /link /IMPLIB:`"$objDir\realmspinnerc.lib`""
         'exit /b %ERRORLEVEL%'
     ) | Set-Content -Path $bat -Encoding ascii
 
@@ -94,10 +94,10 @@ if (-not $built) {
         if ($LASTEXITCODE -eq 0) {
             # MSVC is told /IMPLIB:$objDir; the other three write the import
             # library (and clang-cl an .exp) beside the DLL, and
-            # installer\verify_runtime.py refuses any file under vendor\warlockc
+            # installer\verify_runtime.py refuses any file under vendor\realmspinnerc
             # the manifest does not pin. Nothing loads the DLL through an
             # import library, so they go.
-            Get-ChildItem (Split-Path $outDll) -Filter 'warlockc.*' |
+            Get-ChildItem (Split-Path $outDll) -Filter 'realmspinnerc.*' |
                 Where-Object { $_.Extension -in '.lib', '.exp' } |
                 Remove-Item -Force
             $built = $true; break
@@ -117,7 +117,7 @@ Install one of:
   * zig (winget install zig.zig)
 
 The app runs without this DLL -- meshaudit falls back to numpy and
-`warlock doctor` reports the kernels as unavailable.
+`realmspinner doctor` reports the kernels as unavailable.
 "@
 }
 

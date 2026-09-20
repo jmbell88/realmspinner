@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio import widgets
+from realmspinner.studio import widgets
 
 
 @pytest.fixture
@@ -58,7 +58,7 @@ def imgui_ctx(gl):
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import imgui_backend, theme
+    from realmspinner.studio import imgui_backend, theme
 
     prev_ctx = imgui.get_current_context()
     prev_screen = type(gl).__dict__.get("screen")
@@ -242,7 +242,7 @@ def test_a_pane_is_flat_until_it_asks_for_blocks(frame):
     flat, and the tint is a thing a pane *asks* for. What this pins is that the
     ask is all it takes: one ``with`` inside the pane body and every heading
     under it is on a block, with the scope closed on the way out."""
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     def build():
         depths = []
@@ -266,7 +266,7 @@ def test_two_sibling_panes_each_get_their_own_scope(frame):
     """Never one shared splitter over two panes. Each ``begin_child`` has its
     own draw list, which is exactly why per-pane is the safe granularity -- and
     why a *nested* scope over one list has to be the no-op it is."""
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     def build():
         seen = []
@@ -287,7 +287,7 @@ def test_two_sibling_panes_each_get_their_own_scope(frame):
 def test_the_scope_survives_a_pane_that_draws_nothing(frame):
     """A culled or zero-height pane yields ``False`` and its body is skipped.
     The scope still has to balance, because the split already happened."""
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     def build():
         with layout.pane("probe-culled", (0.0, 0.0)) as visible:
@@ -348,7 +348,7 @@ def test_a_scope_inside_a_child_window_is_a_real_second_scope(frame):
     outer scope, not how a nested one behaves."""
     from imgui_bundle import imgui
 
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     def build():
         depths = []
@@ -394,9 +394,9 @@ def test_the_sidebars_the_report_named_still_ask_for_blocks():
     import ast
     import inspect
 
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
-    from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     # ``plotter_tools`` was the fourth. It is a toolbar now rather than a
     # sidebar -- a strip over the canvas with no headings to group -- so it

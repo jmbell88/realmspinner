@@ -3,7 +3,7 @@
 Every test here is about evidence rather than behaviour. The app died silently
 twice -- 2026-08-03 to commit exhaustion, 2026-08-04 to something still unknown
 -- and both investigations had to be run off Windows event logs because the
-app's own warlock.log was created on every launch and never written to. These
+app's own realmspinner.log was created on every launch and never written to. These
 pin the repairs: the file log actually receives records on the launch path the
 console script uses, uncaught exceptions reach it, teardown cannot be skipped
 by a failing stage, and an unclean exit says so on the next launch.
@@ -22,8 +22,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import main
-from warlock.studio.fps import FpsMeter
+from realmspinner.studio import main
+from realmspinner.studio.fps import FpsMeter
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def clean_root_logging():
     """Restore root logging, since _setup_logging deliberately reconfigures it.
 
     Handlers added by the test are closed, not merely dropped: on Windows an
-    open RotatingFileHandler keeps a lock on warlock.log and tmp_path cleanup
+    open RotatingFileHandler keeps a lock on realmspinner.log and tmp_path cleanup
     fails behind it.
     """
     root = logging.getLogger()
@@ -53,12 +53,12 @@ def clean_root_logging():
 
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):
-    import warlock.config as config_mod
+    import realmspinner.config as config_mod
 
     assets = tmp_path / "assets"
     assets.mkdir()
-    monkeypatch.setenv("WARLOCK_DATA_DIR", str(assets))
-    monkeypatch.setenv("WARLOCK_DB", str(assets / "jobs.sqlite"))
+    monkeypatch.setenv("REALMSPINNER_DATA_DIR", str(assets))
+    monkeypatch.setenv("REALMSPINNER_DB", str(assets / "jobs.sqlite"))
     monkeypatch.setattr(config_mod, "_config", None)
     yield assets
     monkeypatch.setattr(config_mod, "_config", None)
@@ -79,11 +79,11 @@ def test_the_file_log_survives_an_earlier_basicconfig(clean_root_logging, data_d
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 
     main._setup_logging()
-    logging.getLogger("warlock.test").info("probe-record")
+    logging.getLogger("realmspinner.test").info("probe-record")
 
     for handler in logging.getLogger().handlers:
         handler.flush()
-    assert "probe-record" in (data_dir / "warlock.log").read_text(encoding="utf-8")
+    assert "probe-record" in (data_dir / "realmspinner.log").read_text(encoding="utf-8")
 
 
 def test_the_cli_does_not_configure_logging_on_the_app_path():
@@ -92,7 +92,7 @@ def test_the_cli_does_not_configure_logging_on_the_app_path():
     import ast
     import inspect
 
-    from warlock import cli
+    from realmspinner import cli
 
     tree = ast.parse(inspect.getsource(cli.main))
     calls = [
@@ -134,7 +134,7 @@ def test_a_marker_from_a_dead_pid_reports_an_unclean_shutdown(data_dir, caplog):
 
 
 def test_a_marker_from_a_live_pid_is_read_as_a_recycled_pid(data_dir, caplog, monkeypatch):
-    """The marker's live-pid branch used to announce a second Warlock. It cannot
+    """The marker's live-pid branch used to announce a second Realmspinner. It cannot
     be one any more: ``run()`` takes an OS-level instance lock on the home
     before anything else, so a real second instance is refused with a dialog and
     never reaches this function (RUN-01). What *can* still land here is a pid the
@@ -195,18 +195,18 @@ def test_an_uncaught_exception_reaches_the_log(caplog, monkeypatch):
 
 
 def test_a_dying_daemon_thread_is_not_silent(caplog, monkeypatch):
-    """warlock-loop and trellis' stdout reader are daemons: nothing at all is
+    """realmspinner-loop and trellis' stdout reader are daemons: nothing at all is
     printed when one of them dies."""
     monkeypatch.setattr(threading, "excepthook", threading.excepthook)
     main._install_excepthooks()
 
     args = SimpleNamespace(
         exc_type=RuntimeError, exc_value=RuntimeError("gone"), exc_traceback=None,
-        thread=SimpleNamespace(name="warlock-loop"),
+        thread=SimpleNamespace(name="realmspinner-loop"),
     )
     with caplog.at_level(logging.CRITICAL):
         threading.excepthook(args)
-    assert any("warlock-loop" in (r.getMessage()) for r in caplog.records)
+    assert any("realmspinner-loop" in (r.getMessage()) for r in caplog.records)
 
     caplog.clear()
     args.exc_type = SystemExit

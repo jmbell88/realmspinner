@@ -1,4 +1,4 @@
-"""Verify the installer runtime manifest without importing Warlock.
+"""Verify the installer runtime manifest without importing Realmspinner.
 
 The build calls this once against the checkout and once against the staged
 tree. Keeping it stdlib-only means it can run before dependencies are installed

@@ -14,12 +14,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import adjacency as adj
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops_clean as oc
-from warlock.kernels.mesh import ops_topo
-from warlock.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh import adjacency as adj
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops_clean as oc
+from realmspinner.kernels.mesh import ops_topo
+from realmspinner.kernels.mesh import primitives as prim
 
 # --- mesh builders -----------------------------------------------------------
 

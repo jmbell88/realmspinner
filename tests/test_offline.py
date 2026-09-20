@@ -7,10 +7,10 @@ import os
 
 import pytest
 
-import warlock
-from warlock import models
-from warlock.config import Config
-from warlock.pipelines.text2image import Text2Image
+import realmspinner
+from realmspinner import models
+from realmspinner.config import Config
+from realmspinner.pipelines.text2image import Text2Image
 
 
 def test_package_import_sets_hf_offline_env(monkeypatch):
@@ -18,19 +18,19 @@ def test_package_import_sets_hf_offline_env(monkeypatch):
     monkeypatch.delenv("HF_HUB_DISABLE_TELEMETRY", raising=False)
     # The package is already imported by the time tests run; re-execute its
     # __init__ to observe the env side effect from a clean slate.
-    importlib.reload(warlock)
+    importlib.reload(realmspinner)
     assert os.environ["HF_HUB_OFFLINE"] == "1"
     assert os.environ["HF_HUB_DISABLE_TELEMETRY"] == "1"
 
 
 def test_package_import_does_not_override_explicit_env(monkeypatch):
     monkeypatch.setenv("HF_HUB_OFFLINE", "0")
-    importlib.reload(warlock)
+    importlib.reload(realmspinner)
     assert os.environ["HF_HUB_OFFLINE"] == "0"
 
 
 def test_the_packages_version_matches_the_distributions():
-    """``warlock.__version__`` and the packaged version are one number.
+    """``realmspinner.__version__`` and the packaged version are one number.
 
     They drifted -- 0.0.9 in ``__init__`` against 0.0.11 in pyproject -- for
     long enough that the About line and the title bar (``main.py`` reads
@@ -43,7 +43,7 @@ def test_the_packages_version_matches_the_distributions():
     """
     from importlib.metadata import version
 
-    assert warlock.__version__ == version("warlock")
+    assert realmspinner.__version__ == version("realmspinner")
 
 
 def test_missing_weights_raise_actionable_error(tmp_path):
@@ -54,13 +54,13 @@ def test_missing_weights_raise_actionable_error(tmp_path):
 
 
 def test_vram_exclusive_flag_parses_from_env(monkeypatch):
-    monkeypatch.setenv("WARLOCK_VRAM_EXCLUSIVE", "1")
+    monkeypatch.setenv("REALMSPINNER_VRAM_EXCLUSIVE", "1")
     assert Config().vram_exclusive is True
-    monkeypatch.setenv("WARLOCK_VRAM_EXCLUSIVE", "off")
+    monkeypatch.setenv("REALMSPINNER_VRAM_EXCLUSIVE", "off")
     assert Config().vram_exclusive is False
     # Tri-state: unset is neither, so vram.plan() can decide from the card
     # without overruling a user who explicitly chose coexist.
-    monkeypatch.delenv("WARLOCK_VRAM_EXCLUSIVE")
+    monkeypatch.delenv("REALMSPINNER_VRAM_EXCLUSIVE")
     assert Config().vram_exclusive is None
 
 
@@ -70,17 +70,17 @@ def test_the_measured_hole_threshold_is_the_shipped_default(monkeypatch):
     # explicitly -- so without this, a typo in the default would be invisible.
     # See dev/measurements/2026-08-04-hole-rate-baseline.md: 0.07 is the
     # midpoint of the empty gap between 0.0308 and 0.1010.
-    monkeypatch.delenv("WARLOCK_MESH_HOLE_MAX", raising=False)
-    monkeypatch.delenv("WARLOCK_MESH_RETRIES", raising=False)
+    monkeypatch.delenv("REALMSPINNER_MESH_HOLE_MAX", raising=False)
+    monkeypatch.delenv("REALMSPINNER_MESH_RETRIES", raising=False)
     assert Config().mesh_hole_max == 0.07
     # And off, which is the other half of the ruling.
     assert Config().mesh_retries == 0
-    monkeypatch.setenv("WARLOCK_MESH_HOLE_MAX", "0.25")
-    monkeypatch.setenv("WARLOCK_MESH_RETRIES", "2")
+    monkeypatch.setenv("REALMSPINNER_MESH_HOLE_MAX", "0.25")
+    monkeypatch.setenv("REALMSPINNER_MESH_RETRIES", "2")
     assert Config().mesh_hole_max == 0.25
     assert Config().mesh_retries == 2
     # Floored, so a negative budget is off rather than an infinite loop.
-    monkeypatch.setenv("WARLOCK_MESH_RETRIES", "-3")
+    monkeypatch.setenv("REALMSPINNER_MESH_RETRIES", "-3")
     assert Config().mesh_retries == 0
 
 
@@ -92,7 +92,7 @@ def test_vram_logging_never_imports_torch_itself(monkeypatch):
     import builtins
     import sys
 
-    from warlock.queue import vram_gib
+    from realmspinner.queue import vram_gib
 
     monkeypatch.delitem(sys.modules, "torch", raising=False)
     real_import = builtins.__import__
@@ -110,7 +110,7 @@ def test_vram_reports_from_an_already_loaded_torch(monkeypatch):
     import sys
     import types
 
-    from warlock.queue import vram_gib
+    from realmspinner.queue import vram_gib
 
     gib = 1024**3
     monkeypatch.setitem(
@@ -130,22 +130,22 @@ def test_vram_reports_from_an_already_loaded_torch(monkeypatch):
 @pytest.mark.parametrize(
     "module",
     [
-        "warlock.pipelines.asset2d",
-        "warlock.pipelines.conditioning",
-        "warlock.pipelines.control",
+        "realmspinner.pipelines.asset2d",
+        "realmspinner.pipelines.conditioning",
+        "realmspinner.pipelines.control",
         # Not a pure module -- it loads a model -- but the rule it has to keep
         # is the same one: available() is the question every caller asks first
         # and it must be answerable without paying for a torch import, so torch
         # stays inside _load/_model_mask where the weights already exist.
-        "warlock.pipelines.matting",
+        "realmspinner.pipelines.matting",
         # Same again, and it matters more here: this one is consulted on the
         # job queue for every humanoid rig, so a top-level torch import would
         # be paid by rigs on machines that have no pose weights at all.
-        "warlock.pipelines.pose2d",
-        "warlock.pipelines.reference",
-        "warlock.pipelines.rank",
-        "warlock.pipelines.seam",
-        "warlock.provenance",
+        "realmspinner.pipelines.pose2d",
+        "realmspinner.pipelines.reference",
+        "realmspinner.pipelines.rank",
+        "realmspinner.pipelines.seam",
+        "realmspinner.provenance",
     ],
 )
 def test_the_pure_modules_stay_torch_free(module):

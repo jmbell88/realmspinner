@@ -29,8 +29,8 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
 # --- a ctx double, the same minimal shape test_agent_clay.py's own _Ctx is --
 

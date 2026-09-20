@@ -12,8 +12,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from warlock.studio import jobs_cache, widgets
-from warlock.studio.state import TOAST_LEVELS, TOAST_STICKY, AppState
+from realmspinner.studio import jobs_cache, widgets
+from realmspinner.studio.state import TOAST_LEVELS, TOAST_STICKY, AppState
 
 # --- H68: levels -------------------------------------------------------------
 
@@ -47,7 +47,7 @@ def test_every_level_has_a_style_and_only_the_sticky_ones_can_be_closed():
 def test_no_toast_glyph_needs_a_font_the_atlas_does_not_have():
     """The icon range is a pinned lucide subset; a codepoint outside it renders
     as the missing-glyph box."""
-    from warlock.studio import icons
+    from realmspinner.studio import icons
 
     known = {value for name, value in vars(icons).items() if name.isupper()}
     for level in TOAST_LEVELS:
@@ -148,7 +148,7 @@ def test_an_unknown_sweep_says_nothing():
 def test_the_announce_path_routes_a_sweep_unit_to_the_summary():
     """One toast per sweep, not one per unit -- a twenty-unit sweep otherwise
     raises twenty notices and buries the one that matters."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     # A2: the announce logic moved out of ``_refresh`` (which now only submits
     # the read) into ``_announce_job_transition``, shared with the async
@@ -183,8 +183,8 @@ def test_a_drop_says_so_where_it_landed():
     -- so that call matched nothing and only accumulated in
     ``widgets._OPEN_REQUESTS``. Asserting it here is what kept it alive.
     """
-    from warlock.studio import main
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio import main
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     source = inspect.getsource(main.App._on_drop)
     assert '_flash_drop("2d-ref")' in source
@@ -199,7 +199,7 @@ def test_a_drop_says_so_where_it_landed():
 def test_the_wrong_file_refusal_says_what_this_mode_would_have_done():
     """One sentence for both modes was wrong in 2D, where a dropped image is a
     conditioning reference and never a mesh."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._on_drop)
     body = source.split("DROPPABLE_IMAGES", 1)[1]
@@ -217,7 +217,7 @@ def test_the_accepted_suffixes_are_stated_once():
     happen is one of them growing its own list, which is how ``.webp`` comes to
     be droppable in three modes and refused in the fourth.
     """
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     assert ".webp" in main.DROPPABLE_IMAGES
     source = inspect.getsource(main.App._on_drop)
@@ -230,8 +230,8 @@ def test_the_accepted_suffixes_are_stated_once():
 
 
 def test_a_missing_thumbnail_says_what_kind_of_thing_is_coming():
-    from warlock.studio import icons
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio import icons
+    from realmspinner.studio.modes.library.ui.panes import library
 
     assert library.thumb_glyph({"kind": "text", "stage": "model"}) == icons.BOX
     assert library.thumb_glyph({"kind": "text", "stage": "tile"}) == icons.GRID
@@ -250,9 +250,9 @@ def test_every_mode_that_draws_the_viewport_has_its_own_placeholder():
     Create is keyed per *stage* (wave 5): one mode with two viewports has two
     empty states, and answering both with one sentence is the same defect this
     test was written for."""
-    from warlock.studio import modes
-    from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.panes import overlay
+    from realmspinner.studio import modes
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.panes import overlay
 
     for key in modes.WORK_MODES:
         if key == create_stages.MODE:

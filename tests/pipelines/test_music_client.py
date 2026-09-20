@@ -23,9 +23,9 @@ from pathlib import Path
 
 import pytest
 
-from warlock import models, vram, winjob
-from warlock.pipelines import music_client
-from warlock.pipelines.music_client import ChildFailed, MusicCancelled, MusicClient
+from realmspinner import models, vram, winjob
+from realmspinner.pipelines import music_client
+from realmspinner.pipelines.music_client import ChildFailed, MusicCancelled, MusicClient
 
 FAKE = Path(__file__).parents[1] / "fixtures" / "fake_music_worker.py"
 
@@ -77,7 +77,7 @@ def test_the_silence_timeout_is_its_own_constant_not_the_image_workers():
     takes on an image latent versus on an audio one -- and sharing them would
     make the first measurement that moves one a change to both.
     """
-    from warlock.pipelines import t2i_client
+    from realmspinner.pipelines import t2i_client
 
     assert "SILENCE_TIMEOUT" in vars(music_client)
     assert music_client.SILENCE_TIMEOUT is not t2i_client.__dict__.get("SILENCE_TIMEOUT")
@@ -205,7 +205,7 @@ def test_the_cancel_exception_is_not_the_image_pipelines(client):
     stages have separate teardown, and a music cancel handled by the image
     stage's ``finally`` would unload the wrong pipe.
     """
-    from warlock.pipelines.text2image import JobCancelled
+    from realmspinner.pipelines.text2image import JobCancelled
 
     assert MusicCancelled is not JobCancelled
     assert not issubclass(MusicCancelled, JobCancelled)

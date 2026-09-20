@@ -22,9 +22,9 @@ import wave
 
 import pytest
 
-from warlock import fetch, models
-from warlock.config import get_config
-from warlock.pipelines.music_client import MusicCancelled, MusicClient
+from realmspinner import fetch, models
+from realmspinner.config import get_config
+from realmspinner.pipelines.music_client import MusicCancelled, MusicClient
 
 pytestmark = [pytest.mark.gpu, pytest.mark.timeout(1800)]
 
@@ -74,7 +74,7 @@ def test_a_generate_produces_a_wav_the_rest_of_the_app_can_read(client, tmp_path
     )
     assert got == out and out.is_file()
     rate, channels, frames = _wav(out)
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     assert rate == sirens_audio.RATE
     assert channels == sirens_audio.CHANNELS
@@ -127,7 +127,7 @@ def test_a_different_seed_gives_a_different_track(client, tmp_path):
 
 
 def test_a_cancel_stops_a_running_generation(client, tmp_path):
-    """WARLOCK 1/6, proved rather than read.
+    """REALMSPINNER 1/6, proved rather than read.
 
     ``ACEStepPipeline.__call__`` takes no cancel hook upstream; this is the one
     vendored modification the feature cannot work without, and its presence in
@@ -173,7 +173,7 @@ def test_unload_ends_the_process_and_gives_the_card_back(client, tmp_path):
     device reading the child published before it died is what the assertion
     compares against.
     """
-    from warlock import vram
+    from realmspinner import vram
 
     client.generate(
         "solo piano", tmp_path / "track.wav", audio_duration=DURATION, infer_step=STEPS
@@ -205,7 +205,7 @@ def test_the_registry_figures_are_not_under_the_real_cost(client, tmp_path, caps
     produces belong in a ``dev/measurements/`` document -- this test is how
     that document gets its numbers.
     """
-    from warlock import memlog, vram
+    from realmspinner import memlog, vram
 
     spec = models.MUSIC_MODELS[models.DEFAULT_MUSIC_MODEL]
     client.unload()

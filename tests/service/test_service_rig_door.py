@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import doctor
-from warlock.service import Conflict
-from warlock.service import jobs as svc_jobs
-from warlock.service import rig as svc_rig
+from realmspinner import doctor
+from realmspinner.service import Conflict
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import rig as svc_rig
 
 
 def _finished_mesh_job(svc, assets) -> str:

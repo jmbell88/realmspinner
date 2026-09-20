@@ -11,9 +11,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.packwright.engine import compose
-from warlock.studio.modes.packwright.engine.layout import Frame, Layout, PackSettings, layout
-from warlock.studio.modes.packwright.engine.sources import Sprite
+from realmspinner.studio.modes.packwright.engine import compose
+from realmspinner.studio.modes.packwright.engine.layout import Frame, Layout, PackSettings, layout
+from realmspinner.studio.modes.packwright.engine.sources import Sprite
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)

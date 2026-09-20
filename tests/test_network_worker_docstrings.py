@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "warlock" / "pipelines"
+SRC = Path(__file__).resolve().parents[1] / "src" / "realmspinner" / "pipelines"
 
 
 def _module_docstring(name: str) -> str:

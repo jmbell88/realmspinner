@@ -21,7 +21,7 @@ def test_the_undo_and_redo_buttons_grey_while_the_document_is_saving(monkeypatch
     ``docmodes.blocked_while_writing`` already refused the same edit's
     keyboard chord (Ctrl+Z/Y). One door -- ``history_block`` -- so every
     bridge pane that draws this pair inherits the guard."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     calls: list[tuple[str, bool, str]] = []
 
@@ -72,8 +72,8 @@ def test_the_frame_button_reservation_matches_its_own_width_not_the_tiled_toggle
     stands in for -- and wrapped the row onto a second line when the icon
     alone would have fit on the first.
     """
-    from warlock.studio import icons
-    from warlock.studio.panes import overlay
+    from realmspinner.studio import icons
+    from realmspinner.studio.panes import overlay
 
     events: list[tuple[str, str]] = []
 

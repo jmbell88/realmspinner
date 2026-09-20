@@ -20,7 +20,7 @@ import time
 
 import pytest
 
-from warlock.leases import ModelLease
+from realmspinner.leases import ModelLease
 
 
 def test_a_maintainer_waits_for_an_in_flight_model_operation():

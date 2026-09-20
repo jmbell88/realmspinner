@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import journal
+from realmspinner.studio import journal
 
 
 class _Confirms:
@@ -145,7 +145,7 @@ def test_both_files_go_through_a_temp_name(tmp_path):
     """A crash *during* the crash copy must not leave a truncated file where a
     whole one used to be, which is the one outcome worse than no copy."""
     payload = tmp_path / "x.probe"
-    import warlock.studio.journal as mod
+    import realmspinner.studio.journal as mod
 
     original = mod.os.replace
     replaced: list[tuple[str, str]] = []
@@ -163,7 +163,7 @@ def test_a_failed_write_does_not_strand_its_staging_file(tmp_path, monkeypatch):
     staging file is a dotfile and nothing ever sweeps one, so the unlink has to
     sit in a ``finally`` or a failed encode leaves it beside the journal for
     good."""
-    import warlock.studio.journal as mod
+    import realmspinner.studio.journal as mod
 
     # The payload's own write failing: non-bytes data raises inside write_bytes.
     with pytest.raises(TypeError):
@@ -335,7 +335,7 @@ def test_a_failed_write_is_not_recorded_as_a_copy_that_exists(tmp_path, kind, mo
     thread's, because that is what stops a failing disk being re-encoded
     against at the frame rate.
     """
-    import warlock.studio.journal as mod
+    import realmspinner.studio.journal as mod
 
     ctx = _Ctx(tmp_path)
     queued: list[Any] = []
@@ -418,7 +418,7 @@ def test_a_disk_that_fills_between_the_halves_publishes_neither(tmp_path, monkey
     by design, so that payload is present, permanently invisible and never
     swept: the work is there and the app will never mention it again.
     """
-    import warlock.studio.journal as mod
+    import realmspinner.studio.journal as mod
 
     payload = tmp_path / "sketch-x.probe"
     real_write_text = Path.write_text
@@ -540,7 +540,7 @@ def test_a_write_in_flight_when_the_copy_is_dropped_does_not_re_mark_it(
     """
     import threading
 
-    import warlock.studio.journal as mod
+    import realmspinner.studio.journal as mod
 
     ctx = _Ctx(tmp_path)
     queued: list[Any] = []
@@ -620,7 +620,7 @@ def test_dropping_one_document_does_not_wait_on_anothers_write(tmp_path, kind, m
     map's multi-MB write."""
     import threading
 
-    import warlock.studio.journal as mod
+    import realmspinner.studio.journal as mod
 
     ctx = _Ctx(tmp_path)
     queued: list[Any] = []
@@ -806,8 +806,8 @@ def test_the_journal_imports_nothing_heavy_at_module_scope():
     import sys
 
     code = (
-        "import warlock.studio.journal, sys; "
-        "bad = [m for m in sys.modules if m.startswith('warlock.studio.') "
+        "import realmspinner.studio.journal, sys; "
+        "bad = [m for m in sys.modules if m.startswith('realmspinner.studio.') "
         "and m.split('.')[2] in ('inker', 'clay', 'plotter', 'packwright')]; "
         "print(','.join(sorted(bad)))"
     )
@@ -869,12 +869,12 @@ def test_a_busy_tab_is_not_journalled_by_clay_mason_packwright_or_plotter(kind):
 @pytest.mark.parametrize(
     "module,cls",
     [
-        ("warlock.studio.modes.inker.state", "InkerDoc"),
-        ("warlock.studio.modes.clay.state", "ClayTab"),
-        ("warlock.studio.modes.plotter.state", "PlotterDoc"),
-        ("warlock.studio.modes.packwright.state", "PackTab"),
-        ("warlock.studio.modes.sirens.state", "SongTab"),
-        ("warlock.studio.modes.mason.state", "MasonTab"),
+        ("realmspinner.studio.modes.inker.state", "InkerDoc"),
+        ("realmspinner.studio.modes.clay.state", "ClayTab"),
+        ("realmspinner.studio.modes.plotter.state", "PlotterDoc"),
+        ("realmspinner.studio.modes.packwright.state", "PackTab"),
+        ("realmspinner.studio.modes.sirens.state", "SongTab"),
+        ("realmspinner.studio.modes.mason.state", "MasonTab"),
     ],
 )
 def test_every_journalled_state_class_declares_all_three_mark_fields(module, cls):
@@ -920,7 +920,7 @@ def test_a_pose_slots_journal_bookkeeping_fields_are_declared_somewhere_a_test_c
     storage (which has to keep living on the viewer, whose lifetime the slot
     itself does not share) to be a dataclass.
     """
-    import warlock.studio.modes.poser.mode as poser_mode_module
+    import realmspinner.studio.modes.poser.mode as poser_mode_module
 
     names = set(getattr(poser_mode_module._PoseSlot, "__annotations__", {}))
     assert {"journal_name", "journal_head", "journal_at"} <= names, sorted(names)
@@ -936,12 +936,12 @@ def test_no_two_kinds_share_a_name_or_an_extension():
 
 
 @pytest.mark.parametrize(
-    "suffix", [".ora", ".wblk", ".wmap", ".wpack", ".wsng", ".pose.json", ".wscn"]
+    "suffix", [".ora", ".rblk", ".rmap", ".rpack", ".rsng", ".pose.json", ".rscn"]
 )
 def test_each_document_kind_writes_its_own_format(suffix: str):
     """A recovered file is openable by hand and by the mode's ordinary reader,
     which is what makes a crash copy inspectable rather than opaque. The list
-    above is exact -- Sirens' ``.wsng`` and Poser's ``.pose.json`` were absent
+    above is exact -- Sirens' ``.rsng`` and Poser's ``.pose.json`` were absent
     from it and from ``test_every_real_provider_is_registered_by_ensure``'s
     ``>=`` check alike, so a deleted format (the 2026-09-11 audit's shell-10:
     ``.profile.json``, gone since commit 39f1bf97) could drop out of either
@@ -953,7 +953,7 @@ def test_each_document_kind_writes_its_own_format(suffix: str):
 
 
 def test_a_map_with_a_layer_tree_journals_and_comes_back():
-    """The plotter provider encodes through ``wmap.wmap_bytes``, so what the
+    """The plotter provider encodes through ``rmap.rmap_bytes``, so what the
     journal can save is exactly what that format can store -- and until version
     3 that excluded a group, an image layer and every per-layer decoration.
     A crash while the user had a nested map open wrote *nothing at all* for
@@ -964,9 +964,9 @@ def test_a_map_with_a_layer_tree_journals_and_comes_back():
     scope."""
     import numpy as np
 
-    from warlock.studio.modes.plotter import mode as plotter_mode
-    from warlock.studio.modes.plotter.engine import wmap
-    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+    from realmspinner.studio.modes.plotter import mode as plotter_mode
+    from realmspinner.studio.modes.plotter.engine import rmap
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(4, 4, 16, 16)
     group = doc.add_group_layer("G")
@@ -977,7 +977,7 @@ def test_a_map_with_a_layer_tree_journals_and_comes_back():
     doc.set_layer_props(group.uid, tint=(255, 0, 0, 255), offset_x=4.0, class_name="Deco")
 
     payload = plotter_mode._journal_encode(SimpleNamespace(doc=doc))
-    back = wmap.read_wmap(payload)
+    back = rmap.read_rmap(payload)
     recovered = back.layers[0]
     assert (recovered.name, recovered.class_name, recovered.offset_x) == ("G", "Deco", 4.0)
     assert [child.name for child in recovered.children] == ["Ground", "Sky"]
@@ -1107,11 +1107,11 @@ def test_journal_docstring_and_kind_modes_comment_name_no_deleted_profile_kind()
     """
     import inspect
 
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     journal.ensure_providers()
     exts = {p.ext for p in journal.providers()}
-    assert exts == {".ora", ".wblk", ".wmap", ".wpack", ".wsng", ".pose.json", ".wscn"}
+    assert exts == {".ora", ".rblk", ".rmap", ".rpack", ".rsng", ".pose.json", ".rscn"}
 
     module_doc = journal.__doc__ or ""
     provider_doc = journal.Provider.__doc__ or ""

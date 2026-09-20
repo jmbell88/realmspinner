@@ -17,15 +17,15 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock import guidance, models, vectors
-from warlock.guidance import GuidanceError
-from warlock.kernels.pixel import inpaint
-from warlock.pipelines import seam
-from warlock.pipelines.conditioning import Conditioning
-from warlock.pipelines.t2i_client import _conditioning_payload
-from warlock.pipelines.text2image_worker import _conditioning as rebuild
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Invalid
+from realmspinner import guidance, models, vectors
+from realmspinner.guidance import GuidanceError
+from realmspinner.kernels.pixel import inpaint
+from realmspinner.pipelines import seam
+from realmspinner.pipelines.conditioning import Conditioning
+from realmspinner.pipelines.t2i_client import _conditioning_payload
+from realmspinner.pipelines.text2image_worker import _conditioning as rebuild
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Invalid
 
 
 def _png(size=(16, 16), colour=(120, 60, 30)) -> bytes:
@@ -110,9 +110,9 @@ def test_the_mask_survives_the_wire(tmp_path):
 
 
 async def test_the_worker_hands_the_pipeline_the_start_image_and_mask(tmp_path, fake_pipelines):
-    from warlock.config import Config
-    from warlock.db import JobStore
-    from warlock.queue import Worker
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
+    from realmspinner.queue import Worker
 
     config = Config(
         data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
@@ -158,7 +158,7 @@ def test_the_crop_grows_by_the_margin_and_sends_a_stride_aligned_size():
 
 
 def test_apply_pixels_lands_by_uid_as_one_undo_step():
-    from warlock.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel.document import Document
 
     doc = Document.blank(32, 32)
     layer = doc.stack.active
@@ -175,7 +175,7 @@ def test_apply_pixels_lands_by_uid_as_one_undo_step():
 
 
 def test_the_op_is_registered_on_the_edit_menu():
-    from warlock.studio.modes.inker import ops as inker_ops
+    from realmspinner.studio.modes.inker import ops as inker_ops
 
     op = inker_ops.get("regenerate_selection")
     assert op.menu == "Edit"
@@ -196,7 +196,7 @@ def test_roll_half_is_its_own_inverse_and_the_cross_is_where_the_seam_is():
 
 
 def test_seam_erase_is_carried_by_the_tile_door(svc, monkeypatch):
-    from warlock.service import tilesheets
+    from realmspinner.service import tilesheets
 
     monkeypatch.setattr(tilesheets, "_check_weights", lambda *a, **k: None)
     monkeypatch.setattr(tilesheets, "check_vram", lambda *a, **k: None, raising=False)

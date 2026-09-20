@@ -24,12 +24,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import analyze as clay_analyze
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import modifiers as mod
-from warlock.kernels.mesh import objexport, readiness
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+from realmspinner.kernels.mesh import analyze as clay_analyze
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import modifiers as mod
+from realmspinner.kernels.mesh import objexport, readiness
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
 
 # Reused rather than a second copy, the way ``test_clay_view_cache.py`` already
 # reuses this file's GL-backed ``view`` fixture (its own docstring states why).

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.mesh import diagnose
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh import diagnose
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as prim
 
 
 def _one_quad() -> bm.Mesh:
@@ -59,7 +59,7 @@ def test_two_separate_holes_are_counted_separately() -> None:
 
 
 def _keep_faces(mesh: bm.Mesh, faces: np.ndarray) -> tuple[bm.Mesh, None]:
-    from warlock.kernels.mesh import ops_topo
+    from realmspinner.kernels.mesh import ops_topo
 
     drop = np.setdiff1d(np.arange(bm.face_count(mesh)), faces).astype("i4")
     out, _ = ops_topo.delete_faces(mesh, el.ElementSel(faces=drop))
@@ -137,7 +137,7 @@ def test_duplicate_faces_are_reported_in_face_mode() -> None:
 
 def test_rows_for_does_not_measure_twice() -> None:
     """A caller with a report in hand gets the same rows without re-checking."""
-    from warlock.kernels.mesh import adjacency as adj
+    from realmspinner.kernels.mesh import adjacency as adj
 
     mesh = _one_quad()
     report = adj.check_manifold(mesh)

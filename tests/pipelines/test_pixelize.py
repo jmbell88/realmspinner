@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.pipelines import pixelize
+from realmspinner.pipelines import pixelize
 
 RAMP = ((16, 16, 24), (72, 56, 48), (168, 120, 88), (232, 216, 184))
 
@@ -290,7 +290,7 @@ def test_an_atlas_is_byte_identical_run_to_run():
 
 def _old_troupe_palette(atlas, palette, colors):
     """``_q_troupe._quantise``'s palette branch as it stood before 2026-08-29."""
-    from warlock.pipelines import pixelsheet
+    from realmspinner.pipelines import pixelsheet
 
     if palette:
         return (palette, "designed")
@@ -303,7 +303,7 @@ def _old_troupe_palette(atlas, palette, colors):
 
 @pytest.mark.parametrize("palette", [None, RAMP])
 def test_the_troupe_collapse_is_byte_identical(palette):
-    from warlock.pipelines import pixelsheet
+    from realmspinner.pipelines import pixelsheet
 
     atlas = _atlas(columns=2, rows=2, cell=32)
     old_entries, old_source = _old_troupe_palette(atlas, palette, 8)
@@ -342,7 +342,7 @@ def test_a_reduced_frame_set_packs_into_an_atlas_the_ceiling_allows(tmp_path):
     """Why this exists at all: a 256-cell Troupe sheet at the 512px render the
     program supersamples from would pack to 4096x16384, and ``check_atlas_size``
     refuses it at 8192. The atlas can only ever exist at the logical size."""
-    from warlock.kernels import sheet
+    from realmspinner.kernels import sheet
 
     with pytest.raises(ValueError, match="the limit is 8192"):
         sheet.check_atlas_size(8 * 512, 32 * 512)

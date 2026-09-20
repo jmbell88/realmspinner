@@ -18,8 +18,8 @@ import numpy as np
 import pytest
 from _figure import SIZE, figure
 
-from warlock.kernels.pixel.walk import bake, gait, render
-from warlock.kernels.pixel.walk import rig as R
+from realmspinner.kernels.pixel.walk import bake, gait, render
+from realmspinner.kernels.pixel.walk import rig as R
 
 DIGESTS = Path(__file__).with_name("digests.json")
 

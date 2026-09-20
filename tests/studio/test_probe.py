@@ -13,7 +13,7 @@ import importlib
 import inspect
 from pathlib import Path
 
-from warlock.studio import controls, probe
+from realmspinner.studio import controls, probe
 
 #: Every raw imgui widget call outside ``controls.py`` **that the census does
 #: not see**. Pinned rather than chased: each one is a control the probe cannot
@@ -103,7 +103,7 @@ def _raw_calls() -> list[str]:
 
 
 def test_record_is_a_no_op_when_the_probe_is_not_enabled():
-    assert probe.ENABLED is False, "the suite must never run with WARLOCK_UI_PROBE=1"
+    assert probe.ENABLED is False, "the suite must never run with REALMSPINNER_UI_PROBE=1"
     probe.begin_frame()
     probe.record(label="Generate", kind="button")
     assert probe.FRAME_CONTROLS == []
@@ -228,7 +228,7 @@ def test_the_pane_is_resolved_by_census_not_by_record(monkeypatch):
     Attributing at submission time put every control in a pane that had not
     finished drawing yet -- which is to say, in no pane at all.
     """
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     class _Vec:
         def __init__(self, x, y):
@@ -285,7 +285,7 @@ def test_the_frame_clears_the_census_where_it_clears_the_others():
     P4 restructure (``dev/RESTRUCTURE.md``), into ``studio/shell/frame.py``.
     """
 
-    source = Path(inspect.getfile(importlib.import_module("warlock.studio.shell.frame")))
+    source = Path(inspect.getfile(importlib.import_module("realmspinner.studio.shell.frame")))
     text = source.read_text(encoding="utf-8")
     assert "probe.begin_frame()" in text
     assert text.index("anchors.begin_frame()") < text.index("probe.begin_frame()")
@@ -489,7 +489,7 @@ def test_a_disabled_button_reaches_the_census(monkeypatch):
     verdict could not fire anywhere in the app, because every control able to
     be greyed *with* a reason was invisible to the thing checking for one.
     """
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     stub = _ButtonImgui()
     monkeypatch.setattr(widgets, "imgui", stub)
@@ -513,7 +513,7 @@ def test_a_disabled_buttons_rect_is_read_before_its_tooltip(monkeypatch):
     hover it captured -- and the census has to be taken on the same side of the
     same line, or every greyed control reports the tooltip's rect as its own.
     """
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     seen: list[str] = []
 
@@ -537,7 +537,7 @@ def test_the_raw_count_excludes_a_button_that_records_itself():
     helpers -- are *not* excluded and still count: they record nothing, so the
     driver still cannot press them, and the number has to keep saying so.
     """
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     tree = ast.parse(Path(inspect.getfile(widgets)).read_text(encoding="utf-8"))
     body = next(

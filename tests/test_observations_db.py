@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.db import JobStore
+from realmspinner.db import JobStore
 
 
 @pytest.fixture

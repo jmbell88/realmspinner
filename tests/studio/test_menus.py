@@ -39,7 +39,7 @@ def test_reroll_is_reachable_from_the_menu_bar_in_the_library():
     turning up in the contextual menu of nine unrelated workspace modes.
     Chapter 38 states the palette and the menu bar carry the same commands.
     """
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     for mode in ("home", "library"):
         rows = menus.specs(_ctx(mode))
@@ -57,8 +57,8 @@ def test_specs_builds_the_command_list_once_per_call(monkeypatch):
     rebuilt the list up to four times. ``specs`` now builds it once and hands
     it down to both.
     """
-    from warlock.studio import menus, palette
-    from warlock.studio.modes.inker import state as inker_state
+    from realmspinner.studio import menus, palette
+    from realmspinner.studio.modes.inker import state as inker_state
 
     ctx = _ctx("inker")
     ctx.state.inker = inker_state.InkerState()
@@ -87,7 +87,7 @@ def test_status_items_drop_lowest_priority_first_when_the_menus_need_the_room():
     of the five droppable rows are gone, and checking it is exactly those
     three, in that order, rather than merely a count.
     """
-    from warlock.studio import menus, status_bar
+    from realmspinner.studio import menus, status_bar
 
     rows = [
         status_bar.StatusItem("workspace", "Inker"),
@@ -114,7 +114,7 @@ def test_health_is_never_dropped_from_the_menu_bar():
     that removes keys off it cannot touch them even once every droppable key
     is gone.
     """
-    from warlock.studio import menus, status_bar
+    from realmspinner.studio import menus, status_bar
 
     rows = [
         status_bar.StatusItem("workspace", "Inker"),
@@ -143,7 +143,7 @@ def test_status_items_render_right_aligned_in_the_menu_bar(monkeypatch):
     """
     from _ui_context import imgui_context
 
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     ctx = _ctx("home")
     ctx.state.errors = ["boom"]  # forces a "health" row to exist
@@ -175,7 +175,7 @@ def test_status_group_items_do_not_overlap(monkeypatch):
     """
     from _ui_context import imgui_context
 
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     ctx = _ctx("home")
     ctx.state.errors = ["boom"]  # forces a "health" row to exist
@@ -222,8 +222,8 @@ def test_the_status_group_never_runs_past_the_menu_bar_edge(monkeypatch):
     """
     from _ui_context import imgui_context
 
-    from warlock.studio import menus
-    from warlock.studio.modes.inker import state as inker_state
+    from realmspinner.studio import menus
+    from realmspinner.studio.modes.inker import state as inker_state
 
     ctx = _ctx("inker")
     ctx.state.inker = inker_state.InkerState()
@@ -266,7 +266,7 @@ def test_the_generate_command_does_not_spawn_a_stray_menu_root_outside_create():
     no ``_COMMAND_PATHS`` entry, so ``_command_specs``' contextual branch
     caught it in every other mode that branch reaches and spawned a stray
     one-item disabled menu root named after that mode."""
-    from warlock.studio import menus
+    from realmspinner.studio import menus
 
     modes_outside_create = (
         "clay", "mason", "poser", "troupe", "plotter", "packwright", "muse", "sirens", "review",

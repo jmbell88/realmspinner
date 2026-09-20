@@ -10,15 +10,15 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.core.safeio import pixelguard
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel.flourish import bake as B
-from warlock.kernels.pixel.flourish import keyframes, presets
-from warlock.studio.modes.inker import flourish as inker_flourish
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import ops as inker_ops
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.tasks import Done
+from realmspinner.core.safeio import pixelguard
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel.flourish import bake as B
+from realmspinner.kernels.pixel.flourish import keyframes, presets
+from realmspinner.studio.modes.inker import flourish as inker_flourish
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import ops as inker_ops
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.tasks import Done
 
 # -- the interpolator -------------------------------------------------------------------------
 
@@ -216,7 +216,7 @@ def test_the_restyle_door_queues_polls_interpolates_and_lands(tmp_path, monkeypa
         calls.append(kwargs)
         return {"id": f"job{len(calls)}"}
 
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(svc_jobs, "create_job", fake_create_job)
     assert inker_ops.run(ctx, inker_ops.get("flourish_restyle"))
@@ -305,7 +305,7 @@ def test_submit_restyle_does_not_encode_png_on_the_frame_thread(tmp_path, monkey
 
     monkeypatch.setattr(inker_flourish, "_png_bytes", fake_png_bytes)
 
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(
         svc_jobs, "create_job", lambda svc, **kwargs: {"id": f"job{len(calls)}"}

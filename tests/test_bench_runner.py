@@ -11,11 +11,11 @@ import json
 
 import pytest
 
-from warlock.bench import manifest as manifest_mod
-from warlock.bench import recipe as recipe_mod
-from warlock.bench import runner as runner_mod
-from warlock.bench import suite as suite_mod
-from warlock.config import Config
+from realmspinner.bench import manifest as manifest_mod
+from realmspinner.bench import recipe as recipe_mod
+from realmspinner.bench import runner as runner_mod
+from realmspinner.bench import suite as suite_mod
+from realmspinner.config import Config
 
 
 @pytest.fixture
@@ -108,8 +108,8 @@ def test_a_run_writes_a_manifest_a_jsonl_and_one_dir_per_unit(config, fake_pipel
 
 
 def test_artifacts_are_copied_so_a_run_survives_a_prune(config, fake_pipelines):
-    from warlock.service import jobs as svc_jobs
-    from warlock.studio.runtime import Runtime
+    from realmspinner.service import jobs as svc_jobs
+    from realmspinner.studio.runtime import Runtime
 
     run_dir = _run(config)
     copied = run_dir / "items" / "prop-01--s42" / "input.png"

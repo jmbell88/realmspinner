@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from warlock.pipelines import retexture
+from realmspinner.pipelines import retexture
 
 
 def _write(path, arr, mode="RGB"):

@@ -29,15 +29,15 @@ from pathlib import Path
 
 from _pure_packages import KERNELS, STUDIO, dotted_root, pure_packages
 
-from warlock.studio.modes import MODES
+from realmspinner.studio.modes import MODES
 
 ROOT = Path(__file__).resolve().parents[1]
-PIPELINES = ROOT / "src" / "warlock" / "pipelines"
+PIPELINES = ROOT / "src" / "realmspinner" / "pipelines"
 
 
 #: 2026-09-17, P3 of ``dev/RESTRUCTURE.md``: Clay's and Inker's own engines
 #: moved out of ``studio/clay/`` and ``studio/inker/`` into
-#: ``warlock/kernels/mesh/`` and ``warlock/kernels/pixel/`` -- named for the
+#: ``realmspinner/kernels/mesh/`` and ``realmspinner/kernels/pixel/`` -- named for the
 #: domain they model, the way a shared kernel is, rather than for the one mode
 #: that happens to be their only caller today. ``pure_packages()`` correctly
 #: reports ``mesh`` and ``pixel`` now, not ``clay``/``inker``, which is right
@@ -94,13 +94,13 @@ def _module_scope_targets(path: Path, package_dotted: str) -> set[str]:
 
 
 def _imports_service(name: str) -> bool:
-    """Whether any module of pure package *name* imports ``warlock.service``
+    """Whether any module of pure package *name* imports ``realmspinner.service``
     at module scope.
 
     2026-09-18 restructure, P5: ``pure_packages()`` started finding ``create``
     the day its engine (``modes/create/engine/``) landed, because that
     function's whole test is "no window at module scope" -- and Create's
-    engine is deliberately layer 5, built to import ``warlock.service``
+    engine is deliberately layer 5, built to import ``realmspinner.service``
     (``recipe.py``/``mesh.py``/``character.py`` all do). CLAUDE.md's and
     CONTRIBUTING.md's "headless editor package" claim is narrower than
     "no window": both documents say, in as many words, a package that
@@ -113,7 +113,10 @@ def _imports_service(name: str) -> bool:
     package_dotted = dotted_root(name)
     for path in _package_dir(name).rglob("*.py"):
         targets = _module_scope_targets(path, package_dotted)
-        if any(t == "warlock.service" or t.startswith("warlock.service.") for t in targets):
+        if any(
+            t == "realmspinner.service" or t.startswith("realmspinner.service.")
+            for t in targets
+        ):
             return True
     return False
 
@@ -205,7 +208,7 @@ def test_editor_packages_are_the_eight_this_test_was_written_for():
     ``troupe`` and started finding ``poser`` the moment the file landed, the
     same way P5 made it start finding ``create``. ``_ENGINE_TO_MODE`` exists
     so that Clay's and Inker's engines changing address (and name) inside
-    ``warlock/kernels/`` does not also change what a contributor reads in a
+    ``realmspinner/kernels/`` does not also change what a contributor reads in a
     doc; this rename needed no entry there because ``poser`` already matches
     a mode key directly. If this count ever does move, say so in this test's
     name and docstring rather than just editing the tuple below -- that was

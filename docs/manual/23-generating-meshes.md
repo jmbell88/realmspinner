@@ -50,13 +50,13 @@ before the spend rather than after.
 
 **The picture in the panel is the picture the engine rebuilds from.** Accepting it saves that cutout
 and hands it to the reconstruction with the engine told to keep the alpha rather than cut its own.
-That is worth stating because it was not always true: the panel used to show you Warlock's cutout and
+That is worth stating because it was not always true: the panel used to show you Realmspinner's cutout and
 then send the engine the untouched reference, which the engine cut again with a *different* copy of
 the background-removal model. If you ask for several candidates, all of them get the same approved
 pixels, so a difference between two candidates is the reconstruction seed and nothing else.
 
 If you edit the reference after opening the panel — through **Fix matte**, or by saving in Inker in
-another tab — the cutout on screen stops describing the file, and Warlock cuts it again rather than
+another tab — the cutout on screen stops describing the file, and Realmspinner cuts it again rather than
 building from pixels that are gone.
 
 Three buttons:
@@ -146,7 +146,7 @@ The **Mesh** section holds the reconstruction settings.
 
 The question the select is asking is what the asset is *for*: a 2D asset is going to be seen flat
 and small, a 3D one in a scene. Higher resolutions cost more VRAM and more time, and on a card that cannot
-hold both models at once they may need the exclusive VRAM mode (`WARLOCK_VRAM_EXCLUSIVE=1`), which
+hold both models at once they may need the exclusive VRAM mode (`REALMSPINNER_VRAM_EXCLUSIVE=1`), which
 stops the reconstruction engine while the image model runs.
 
 There is deliberately no **Budget** control here. Only "Raw (as reconstructed, ~300k faces)" has been qualified, so
@@ -229,12 +229,12 @@ The control is in the inspector at the **Rig** stage, under the collapsed **Tria
 header. It appears only on jobs that have a `source.glb` — older jobs and rig jobs do not.
 
 Five tiers exist in the code: Raw (as reconstructed — the engine has already simplified it to about
-300k faces at resolution 1024, 150k at 512, unless `WARLOCK_TRELLIS_DECIM=0` is set), Draft (20k),
+300k faces at resolution 1024, 150k at 512, unless `REALMSPINNER_TRELLIS_DECIM=0` is set), Draft (20k),
 Standard (50k), Detailed (100k) and
 Custom. `gltfpack` — the binary every decimating tier runs through — is a one-time manual drop into
 `vendor/gltfpack/` like the reconstruction engine, not something the checkout brings with it; see
 [Installation](40-installation.md#gltfpack). When it is there this panel offers the whole list, and
-Custom gains a triangle-count field with its own valid range. When it is not, `warlock doctor` says
+Custom gains a triangle-count field with its own valid range. When it is not, `realmspinner doctor` says
 so and every tier ships the engine's own output instead of failing.
 **The generate form still offers Raw alone**, because none of the decimating tiers has been
 qualified yet: a tier is only exposed there once it has been run against a chest, a sword and a rock
@@ -422,7 +422,7 @@ The inspector's **Export** tab lists everything you can take away, as a two-colu
 | Button | File | Notes |
 | --- | --- | --- |
 | GLB | `model.glb` | The finished asset: optimised, grounded, textured. |
-| Source GLB | `source.glb` | The reconstruction as the engine returned it — already simplified to about 300k faces by the engine unless `WARLOCK_TRELLIS_DECIM=0` — before optimisation and grounding. |
+| Source GLB | `source.glb` | The reconstruction as the engine returned it — already simplified to about 300k faces by the engine unless `REALMSPINNER_TRELLIS_DECIM=0` — before optimisation and grounding. |
 | STL | `model.stl` | Geometry only. |
 | OBJ (zip) | `model_obj.zip` | OBJ plus its material and texture files. |
 | FBX | `model.fbx` | Needs Blender; the button says so when it is missing. |
@@ -435,7 +435,7 @@ The inspector's **Export** tab lists everything you can take away, as a two-colu
 Only `model.glb` and `source.glb` come out of the job itself. Everything else is produced the first
 time you ask for it, then cached — a pure function of `model.glb`, except **Animated GLB**, which is
 made from `rig.glb`: it is the only export that carries motion, and the only way the clips leave
-Warlock as something an engine can play rather than as a 2D character sheet. Godot, Unity, Unreal and
+Realmspinner as something an engine can play rather than as a 2D character sheet. Godot, Unity, Unreal and
 three.js all read named glTF animations directly. Retargeting the mesh lists it as stale beside the
 rig, for the same reason the rig is listed: both describe geometry that no longer exists — which is why the first STL
 of a large mesh takes a moment and the second is instant. Rebuilding the mesh at a new triangle

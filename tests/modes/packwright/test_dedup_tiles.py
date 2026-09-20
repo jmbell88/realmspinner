@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.modes.packwright.engine.sources import (
+from realmspinner.studio.modes.packwright.engine.sources import (
     dedup_tiles,
     sprites_from_tileset,
     tile_key,

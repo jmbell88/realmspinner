@@ -30,7 +30,7 @@ def test_your_first_asset_names_the_actual_generate_button_label_for_3d_model():
     label for asset type "image", not "3d_model". The real label is
     ``spec.create_label`` for the "3d_model" entry, drawn at
     ``create_brief.py:233`` as ``spec.create_label``."""
-    from warlock.studio.modes.create.engine.assets import ASSET_TYPES
+    from realmspinner.studio.modes.create.engine.assets import ASSET_TYPES
 
     label = ASSET_TYPES["3d_model"].create_label
     assert label == "Generate reference"
@@ -59,7 +59,7 @@ def test_home_new_menu_manual_lists_every_item_including_the_scene():
     more, when Mason's "New scene" made it nine, and a hand-typed number would
     have had to be found again instead of the chapter simply failing here.
     """
-    from warlock.studio.modes.home.ui.panes.landing import NEW_ITEMS
+    from realmspinner.studio.modes.home.ui.panes.landing import NEW_ITEMS
 
     words = {8: "eight", 9: "nine", 10: "ten"}
     counted = words[len(NEW_ITEMS)]
@@ -87,7 +87,7 @@ def test_manual_ch10_matches_the_add_to_packwright_label():
     context-menu item as "Add to a Packwright atlas"; the real label is built
     by ``verbs.add_to`` and read at ``library.py:1029`` (via
     ``verbs.add_to("packwright", "as an atlas source")``)."""
-    from warlock.studio import verbs
+    from realmspinner.studio import verbs
 
     label = verbs.add_to("packwright", "as an atlas source")
     assert label == "Add to Packwright as an atlas source"

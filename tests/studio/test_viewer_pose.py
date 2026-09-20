@@ -14,12 +14,12 @@ import math
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.rig import poses
-from warlock.studio.viewer import gizmo as gizmolib
-from warlock.studio.viewer import markers, picking
-from warlock.studio.viewer.camera import Camera, screen_ray
-from warlock.studio.viewer.pose import PoseEditor, mirror_quaternion
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.rig import poses
+from realmspinner.studio.viewer import gizmo as gizmolib
+from realmspinner.studio.viewer import markers, picking
+from realmspinner.studio.viewer.camera import Camera, screen_ray
+from realmspinner.studio.viewer.pose import PoseEditor, mirror_quaternion
 
 
 class FakeNode:

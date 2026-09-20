@@ -19,9 +19,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import layout as layout_mod
-from warlock.studio import layout_skeleton as skeleton
-from warlock.studio import layouts
+from realmspinner.studio import layout as layout_mod
+from realmspinner.studio import layout_skeleton as skeleton
+from realmspinner.studio import layouts
 
 
 class _Settings:
@@ -259,7 +259,7 @@ def test_v1_uses_legacy_seeds_without_writing_until_an_edit():
 
 
 def test_independent_width_fit_compresses_without_losing_the_centre_floor():
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     left, right, centre = layout.fit_widths(1100.0, 300.0, 420.0, 8.0, scale=1.5)
     assert left < right
@@ -270,7 +270,7 @@ def test_independent_width_fit_compresses_without_losing_the_centre_floor():
 def test_right_boundary_drag_has_the_opposite_sign_to_the_left():
     settings = _Settings()
     library = layouts.Library(settings)
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     assert layout.resize_side(library, "clay", "left", 20.0)
     assert layout.resize_side(library, "clay", "right", -20.0)
@@ -390,7 +390,7 @@ def _rect(y, h=100.0):
 
 
 def test_a_drop_above_a_panes_middle_lands_before_it():
-    from warlock.studio import layout_edit
+    from realmspinner.studio import layout_edit
 
     rects = [("a", _rect(0.0)), ("b", _rect(100.0)), ("c", _rect(200.0))]
     assert layout_edit.drop_index(rects, 10.0) == 0
@@ -399,7 +399,7 @@ def test_a_drop_above_a_panes_middle_lands_before_it():
 
 
 def test_a_drop_into_an_empty_column_is_the_first_place():
-    from warlock.studio import layout_edit
+    from realmspinner.studio import layout_edit
 
     assert layout_edit.drop_index([], 400.0) == 0
 
@@ -408,7 +408,7 @@ def test_moving_a_pane_onto_its_own_place_changes_nothing():
     """The index came from a list that still contained it, which is what makes
     remove-then-insert the whole rule rather than a special case."""
 
-    from warlock.studio import layout_edit
+    from realmspinner.studio import layout_edit
 
     order = ["a", "b", "c"]
     assert layout_edit.moved(order, "b", 1) == order
@@ -416,14 +416,14 @@ def test_moving_a_pane_onto_its_own_place_changes_nothing():
 
 
 def test_moving_a_pane_up_and_down():
-    from warlock.studio import layout_edit
+    from realmspinner.studio import layout_edit
 
     assert layout_edit.moved(["a", "b", "c"], "c", 0) == ["c", "a", "b"]
     assert layout_edit.moved(["a", "b", "c"], "a", 3) == ["b", "c", "a"]
 
 
 def test_a_pane_arriving_from_another_column_is_inserted():
-    from warlock.studio import layout_edit
+    from realmspinner.studio import layout_edit
 
     assert layout_edit.moved(["a", "b"], "x", 1) == ["a", "x", "b"]
 
@@ -431,7 +431,7 @@ def test_a_pane_arriving_from_another_column_is_inserted():
 def test_the_editor_is_a_toggle_that_drops_what_it_was_holding():
     from types import SimpleNamespace
 
-    from warlock.studio import layout_edit
+    from realmspinner.studio import layout_edit
 
     state = SimpleNamespace()
     layout_edit.toggle(state)
@@ -455,8 +455,8 @@ def test_layout_editor_can_actually_hide_a_hideable_slot(monkeypatch):
     """
     from _ui_context import imgui_context
 
-    from warlock.studio import layout as layout_mod
-    from warlock.studio import layout_edit, skeletons
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio import layout_edit, skeletons
 
     slot = skeleton.Slot(id="swatches", label="Swatches", draw=lambda ctx: None)
     column = skeleton.Column("left", (slot,))
@@ -487,7 +487,7 @@ def test_layout_editor_can_actually_hide_a_hideable_slot(monkeypatch):
         # pixel, so this does not fall out of step with it.
         side = imgui.get_frame_height()
         x, y, w, _h = layout_mod.FRAME_PANES["swatches"]
-        from warlock.studio.tokens import sp
+        from realmspinner.studio.tokens import sp
 
         centre = (x + w - sp(6) - side / 2.0, y + sp(6) + side / 2.0)
         _frame(centre, True)
@@ -519,7 +519,7 @@ def test_the_splitters_are_suppressed_while_editing():
     """A resize handle and a drag target on the same two pixels is a gesture
     nobody can aim."""
 
-    from warlock.studio import layout
+    from realmspinner.studio import layout
 
     layout.begin_frame(True)
     try:
@@ -529,7 +529,7 @@ def test_the_splitters_are_suppressed_while_editing():
 
 
 def test_the_skeleton_declares_every_inker_pane():
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     columns = skeletons.inker(None)
     ids = {slot.id for column in columns.values() for slot in column.slots}
@@ -557,7 +557,7 @@ def test_the_toolbox_is_an_ordinary_movable_pane():
     menu.
     """
 
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     slots = {slot.id: slot for slot in skeletons.inker(None)["right"].slots}
     tools = slots["inker-tools"]
@@ -626,7 +626,7 @@ def test_a_saved_layout_follows_the_map_file_panel_to_the_right_column():
     matters as much as the placement is the last one: nothing is orphaned.
     """
 
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     built = skeletons.plotter(None)
     builtin = {name: [slot.id for slot in col.slots] for name, col in built.items()}
@@ -775,7 +775,7 @@ def test_no_pane_of_any_workspace_is_allocated_nothing(workspace):
     """
     from types import SimpleNamespace
 
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     ctx = SimpleNamespace(
         state=SimpleNamespace(clay=None, inker=None, mason=None, plotter=None, sirens=None)
@@ -808,7 +808,7 @@ def test_sirens_right_column_gives_every_pane_room_at_a_realistic_width():
     """
     from types import SimpleNamespace
 
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     ctx = SimpleNamespace(
         state=SimpleNamespace(clay=None, inker=None, plotter=None, sirens=None)
@@ -832,7 +832,7 @@ def test_sirens_right_column_gives_every_pane_room_at_a_short_window():
     """
     from types import SimpleNamespace
 
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     ctx = SimpleNamespace(
         state=SimpleNamespace(clay=None, inker=None, plotter=None, sirens=None)
@@ -893,7 +893,7 @@ def _bound(workspace="inker"):
     between them, and a test that builds only the ``Layout`` reproduces the
     *old* passing behaviour.
     """
-    from warlock.studio import layout as layout_mod
+    from realmspinner.studio import layout as layout_mod
 
     settings = _Settings()
     library = layouts.Library(settings)
@@ -926,7 +926,7 @@ def test_a_sidebar_width_after_a_splitter_drag_is_still_saved():
 def test_a_clamped_drag_does_not_swallow_the_next_save():
     """The latch was armed by *any* call, including one clamped to the rail --
     so a drag that moved nothing still cost the following preference."""
-    from warlock.studio import layout as layout_mod
+    from realmspinner.studio import layout as layout_mod
 
     settings, _library, lay = _bound()
 
@@ -940,7 +940,7 @@ def test_choosing_a_named_sidebar_width_reaches_a_workspace_already_dragged():
     """Settings' "Sidebar width" moved ``SIDEBAR_W``, which nothing in the
     running app reads: ``measure`` fills ``SIDE_FIT`` from
     ``Library.width``. The control was inert on every workspace."""
-    from warlock.studio import layout as layout_mod
+    from realmspinner.studio import layout as layout_mod
 
     _settings, library, lay = _bound()
     library.set_width("inker", "left", 460.0)
@@ -1010,7 +1010,7 @@ def test_an_untouched_splitter_starts_its_drag_where_the_pane_is_drawn():
     """
     from types import SimpleNamespace
 
-    from warlock.studio import skeletons
+    from realmspinner.studio import skeletons
 
     ctx = SimpleNamespace(
         state=SimpleNamespace(clay=None, inker=None, plotter=None, sirens=None)
@@ -1136,7 +1136,7 @@ def test_choosing_an_unreadable_layout_in_settings_explains_why_it_did_not_switc
     ``review_panes._launch_sweep_reason`` -- so this is tested without an
     imgui context.
     """
-    from warlock.studio.modes.settings.ui.panes.app_settings import _layout_pick_reason
+    from realmspinner.studio.modes.settings.ui.panes.app_settings import _layout_pick_reason
 
     reason = _layout_pick_reason("future", "default", False)
     assert reason != "", "no reason at all: the pick would be silently discarded"
@@ -1155,7 +1155,7 @@ def test_layouts_pane_toasts_rather_than_silently_discards_an_unreadable_pick(mo
     ``ctx.toast`` and never calls ``set_active`` with an unreadable name."""
     from _ui_context import imgui_context
 
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     settings = _Settings({layouts.LAYOUTS_KEY: {"future": {"v": 999, "workspaces": {}}}})
     library = layouts.Library(settings)
@@ -1207,8 +1207,8 @@ def test_layouts_share_clamp_matches_layout_share_min_and_max(monkeypatch):
     ``SHARE_MAX``, and ``layouts.Library`` clamps through
     ``tokens.clamp_share``.
     """
-    from warlock.studio import layout as layout_mod
-    from warlock.studio import tokens
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio import tokens
 
     assert tokens.SHARE_MIN == layout_mod.SHARE_MIN
     assert tokens.SHARE_MAX == layout_mod.SHARE_MAX

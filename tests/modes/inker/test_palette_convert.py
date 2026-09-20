@@ -12,9 +12,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import dither
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.selection import SelectionMask
+from realmspinner.kernels.pixel import dither
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.selection import SelectionMask
 
 BLACK = (0, 0, 0, 255)
 WHITE = (255, 255, 255, 255)
@@ -251,7 +251,7 @@ def test_redoing_a_grouped_conversion_lands_on_the_same_pixels():
 def test_a_grouped_conversion_leaves_the_document_snapped():
     """Final pixels are exact palette members, so ``indexed.snap`` cannot move
     them -- the hard constraint every method here is held to."""
-    from warlock.kernels.pixel import indexed as ix
+    from realmspinner.kernels.pixel import indexed as ix
 
     doc = _ramp_doc()
     palette = [(0, 0, 0, 255), (120, 120, 120, 255), (255, 255, 255, 255)]
@@ -281,7 +281,7 @@ def test_convert_to_palette_refuses_a_table_past_the_colour_ceiling():
     ran ``dither.convert(..., "grouped")`` against the whole table on the
     frame thread with nothing to stop it -- 12.6s for one 512x512 layer
     against a 2,000-entry palette, measured on the unfixed code."""
-    from warlock.kernels.pixel import index_plane as ixp
+    from realmspinner.kernels.pixel import index_plane as ixp
 
     doc = _ramp_doc()
     huge = [(i % 256, (i // 256) % 256, 0, 255) for i in range(ixp.MAX_COLOURS + 1)]
@@ -292,7 +292,7 @@ def test_convert_to_palette_refuses_a_table_past_the_colour_ceiling():
 def test_set_palette_refuses_a_table_past_the_colour_ceiling():
     """The same missing ceiling on ``set_palette``, the ``method="nearest"``
     door onto the same op."""
-    from warlock.kernels.pixel import index_plane as ixp
+    from realmspinner.kernels.pixel import index_plane as ixp
 
     doc = _ramp_doc()
     huge = [(i % 256, (i // 256) % 256, 0, 255) for i in range(ixp.MAX_COLOURS + 1)]

@@ -23,8 +23,8 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
 
 @pytest.fixture

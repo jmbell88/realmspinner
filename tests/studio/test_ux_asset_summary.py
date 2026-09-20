@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio import widgets
-from warlock.studio.modes.home.ui.panes import landing
-from warlock.studio.panes import inspector
+from realmspinner.studio import widgets
+from realmspinner.studio.modes.home.ui.panes import landing
+from realmspinner.studio.panes import inspector
 
 JOB = {
     "id": "15009c54aa81",

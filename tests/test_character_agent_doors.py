@@ -4,7 +4,7 @@ job-status door for any link in the chain, and a cropped sheet preview that
 fits one RPC frame.
 
 Every one of these is new in this tranche, so a test failing with
-``AttributeError: module 'warlock...' has no attribute '...'`` against
+``AttributeError: module 'realmspinner...' has no attribute '...'`` against
 ``git show HEAD:<path>`` *is* the red half of red-green here -- there is no
 old behaviour to regress against, only a door that did not exist yet.
 """
@@ -17,12 +17,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.characters import family as family_mod
-from warlock.kernels.rig import cliplib, store
-from warlock.service import characters as svc_characters
-from warlock.service import rig as svc_rig
-from warlock.service import troupe as svc_troupe
-from warlock.service.errors import Conflict, Invalid
+from realmspinner.characters import family as family_mod
+from realmspinner.kernels.rig import cliplib, store
+from realmspinner.service import characters as svc_characters
+from realmspinner.service import rig as svc_rig
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.service.errors import Conflict, Invalid
 
 # --- fixtures the door tests share --------------------------------------------
 
@@ -166,7 +166,7 @@ def test_an_explicit_theme_the_species_lacks_is_refused_on_theme(svc):
 
 
 def test_a_prompt_naming_no_species_is_refused_in_offer_sentences_words(svc):
-    from warlock.characters import resolve as resolve_mod
+    from realmspinner.characters import resolve as resolve_mod
 
     expected = resolve_mod.offer_sentence(resolve_mod.resolve("a manticore"))
     assert expected is not None
@@ -187,8 +187,8 @@ def test_a_prompt_naming_no_species_is_refused_in_offer_sentences_words(svc):
 
 
 def test_omitted_frames_follow_the_clip_library_at_the_requested_fps(svc):
-    from warlock.clips import clip_timing
-    from warlock.kernels import charsheet
+    from realmspinner.clips import clip_timing
+    from realmspinner.kernels import charsheet
 
     result = svc_characters.recipe_from_prompt(
         svc,
@@ -222,7 +222,7 @@ def test_recipe_from_prompt_mints_no_row_and_starts_no_process(svc, monkeypatch)
     def _boom():
         raise AssertionError("doctor.blender_check must not run for a dry-run recipe")
 
-    monkeypatch.setattr("warlock.doctor.blender_check", _boom)
+    monkeypatch.setattr("realmspinner.doctor.blender_check", _boom)
     before = svc.store.list(1000)
     result = svc_characters.recipe_from_prompt(svc, "a fire ogre")
     after = svc.store.list(1000)
@@ -331,7 +331,7 @@ def test_rig_in_flight_names_the_active_rig_row(svc):
 
 def test_sending_to_troupe_while_a_rig_is_running_queues_no_second_rig(svc, monkeypatch):
     monkeypatch.setattr(
-        "warlock.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
+        "realmspinner.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
     )
     mesh_id = _mesh(svc)
     rig_id = _rig_row(svc, mesh_id, troupe_sheet={"template": "humanoid"})
@@ -477,7 +477,7 @@ def test_sheet_preview_crops_one_run_and_stays_under_max_bytes(svc):
 
 
 def charsheet_compass(direction_key: str) -> str:
-    from warlock.kernels import charsheet
+    from realmspinner.kernels import charsheet
 
     return charsheet.COMPASS_16[direction_key]
 
@@ -486,7 +486,7 @@ def charsheet_compass(direction_key: str) -> str:
 
 
 def test_shipped_clip_names_ignore_a_user_edited_library(svc):
-    from warlock import poselib
+    from realmspinner import poselib
 
     shipped = cliplib.shipped_clip_names("humanoid")
     assert "walk" in shipped

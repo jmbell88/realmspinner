@@ -15,8 +15,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from warlock import _q_troupe as q
-from warlock.kernels import charsheet
+from realmspinner import _q_troupe as q
+from realmspinner.kernels import charsheet
 
 # --- _socket_specs -----------------------------------------------------------
 
@@ -126,7 +126,7 @@ def test_composite_effects_is_empty_for_an_unknown_family():
 
 
 def test_composite_effects_is_empty_when_the_theme_has_no_effects():
-    from warlock.characters import family
+    from realmspinner.characters import family
 
     fam = next(iter(family._FAMILIES.values()))
     theme = fam.themes[0]

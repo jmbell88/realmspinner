@@ -127,7 +127,7 @@ measured — carries a **`sockets`** map beside its `pivot_x`/`pivot_y` — one 
 body plan places (`crown`, `core`, `weapon_main` and so on), each with `x`, `y` in that cell's own
 pixels, a `depth`, and `behind`, which says whether the socket was on the far side of the body in
 that direction. That
-is what lets an engine hang its own effect where Warlock hung its flame, and draw it behind the
+is what lets an engine hang its own effect where Realmspinner hung its flame, and draw it behind the
 sprite when the character has turned away.
 
 Rendered sheets are listed under **Rendered sheets** with their cell count and frame size. Each

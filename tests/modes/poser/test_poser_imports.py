@@ -3,14 +3,14 @@
 The ``tests/modes/inker/test_sheetout.py`` pin, fifth instance -- with one structural
 departure the others do not need. Clay, Inker, Plotter and Packwright each own a
 *package*, so their pins glob a directory. Poser owns no package: its pure half
-is three modules at the root of ``warlock`` (``poselib``, ``clipmaps``,
+is three modules at the root of ``realmspinner`` (``poselib``, ``clipmaps``,
 ``cliptransfer``) and two inside the viewer (``pose``, ``bonelines``), and the
 rest of it is panes. So the five are named, and a tripwire below fails if one
 of them ever moves.
 
 **``rigging.py`` is gone from this list, and deliberately not replaced
 one-for-one.** P4 of ``dev/RESTRUCTURE.md`` (2026-09-17) split it into
-``warlock.kernels.rig`` -- a shared Layer-1 kernel Troupe and the character
+``realmspinner.kernels.rig`` -- a shared Layer-1 kernel Troupe and the character
 pipeline read exactly as much as Poser does, not a module Poser owns the way
 it owned the single file. Pinning it here the way ``poselib``/``clipmaps``/
 ``cliptransfer`` are pinned would mean re-deciding, in a Poser-named file,
@@ -22,10 +22,10 @@ own ``OUTWARD_IMPORTS`` row, exactly like any other outward dependency.
 They are pinned for the same reason the packages are, plus one of their own:
 ``poselib`` is what a service module reads a stored pose through. ``clipmaps``
 is "Import clip"'s bone-name tables -- the mapping side of converting an
-external animation (Mixamo, Rigify) onto a Warlock template rig -- and it
+external animation (Mixamo, Rigify) onto a Realmspinner template rig -- and it
 exists specifically so that conversion is decidable with no Blender, the same
 argument ``kernels.rig`` already makes for its own half. ``cliptransfer``
-imports ``warlock.kernels.sheet`` outright since the 2026-09-17 restructure
+imports ``realmspinner.kernels.sheet`` outright since the 2026-09-17 restructure
 moved ``sheet.py`` out of ``pipelines/`` -- it was always a kernel wearing a
 pipelines name, and the ban this file enforces
 (``test_none_of_them_imports_the_queue_or_the_pipelines``) was never about
@@ -44,20 +44,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-import warlock
+import realmspinner
 
-ROOT = Path(warlock.__file__).parent
+ROOT = Path(realmspinner.__file__).parent
 
 #: ``relative path -> the package a relative import inside it resolves against``.
 MODULES = {
-    "poselib.py": "warlock",
-    "clipmaps.py": "warlock",
-    "cliptransfer.py": "warlock",
-    "studio/viewer/pose.py": "warlock.studio.viewer",
-    "studio/viewer/bonelines.py": "warlock.studio.viewer",
+    "poselib.py": "realmspinner",
+    "clipmaps.py": "realmspinner",
+    "cliptransfer.py": "realmspinner",
+    "studio/viewer/pose.py": "realmspinner.studio.viewer",
+    "studio/viewer/bonelines.py": "realmspinner.studio.viewer",
 }
 
-#: Every import that names something under ``warlock``, per module. Viewer
+#: Every import that names something under ``realmspinner``, per module. Viewer
 #: siblings are listed too -- unlike the package pins there is no "inside the
 #: package" to be exempt, and the point of naming ``gltf`` and ``math3d`` here
 #: is that the list is the whole dependency, not the part that left a directory.
@@ -68,15 +68,15 @@ OUTWARD_IMPORTS = {
     # modules, because :func:`_outward` resolves ``from .kernels.rig import
     # a, b, c`` to the package itself (a dotted ``node.module`` always wins
     # over the imported names; see the function), the same coarseness
-    # ``warlock.rigging`` had as a single file. Nothing else: a stored pose is
+    # ``realmspinner.rigging`` had as a single file. Nothing else: a stored pose is
     # decidable with no service, no studio and no Blender, which is what
     # test_poselib.py stands on.
-    "poselib.py": {"warlock.kernels.rig"},
+    "poselib.py": {"realmspinner.kernels.rig"},
     # The bone-name tables: which template a map targets, and validating a
     # map's bones against that template's own registry -- the rig kernel's
     # template registry (``templates``), reached the same package-granular
     # way :data:`poselib.py`'s row above is.
-    "clipmaps.py": {"warlock.kernels.rig"},
+    "clipmaps.py": {"realmspinner.kernels.rig"},
     # The pure host math for "Import clip": which bone maps where
     # (``clipmaps``), the target template's own rest pose, duration bounds
     # and clip-name rules (the rig kernel's ``templates``/``cliplib``), and
@@ -88,28 +88,32 @@ OUTWARD_IMPORTS = {
     # is a sibling in this same pinned set, not something outside it --
     # pinned back to its source of truth by a test in
     # ``tests/test_cliptransfer.py``.
-    "cliptransfer.py": {"warlock.kernels.rig", "warlock.kernels", "warlock.clipmaps"},
+    "cliptransfer.py": {
+            "realmspinner.kernels.rig",
+            "realmspinner.kernels",
+            "realmspinner.clipmaps",
+    },
     # The editor: rotations and mirroring, skeleton structure edits and
     # ``RigError``, all from the rig kernel now, plus matrices and the node
     # graph from the viewer's own.
     "studio/viewer/pose.py": {
-        "warlock.poselib",
-        "warlock.kernels.rig",
+        "realmspinner.poselib",
+        "realmspinner.kernels.rig",
         # The shared undo engine, which is stdlib-only and has no opinion about
         # what an edit edits -- Clay borrows it for the same reason. Adding it
         # keeps the pose stack in the editor, where both entry points into pose
         # editing can reach one history, rather than in a pane that owns it
         # twice. It brings nothing imgui-shaped with it, which the headless
         # import assertion below is what actually guarantees.
-        "warlock.core.undo",
-        "warlock.kernels.geom3d.gltf",
-        "warlock.kernels.geom3d",
+        "realmspinner.core.undo",
+        "realmspinner.kernels.geom3d.gltf",
+        "realmspinner.kernels.geom3d",
     },
     # The GPU half, so it reaches only for viewer siblings.
     "studio/viewer/bonelines.py": {
-        "warlock.studio.viewer.markers",
-        "warlock.kernels.geom3d",
-        "warlock.studio.viewer.render",
+        "realmspinner.studio.viewer.markers",
+        "realmspinner.kernels.geom3d",
+        "realmspinner.studio.viewer.render",
     },
 }
 
@@ -189,24 +193,24 @@ def test_none_of_them_imports_the_service_layer():
     a store-wide lock behind a function that is documented as pure."""
     for rel in MODULES:
         for name in _outward(rel):
-            assert "warlock.service" not in name, f"{rel} imports {name}"
+            assert "realmspinner.service" not in name, f"{rel} imports {name}"
 
 
 def test_none_of_them_imports_the_queue_or_the_pipelines():
     for rel in MODULES:
         for name in _outward(rel):
-            assert not name.startswith("warlock.queue"), f"{rel} imports {name}"
-            assert not name.startswith("warlock.pipelines"), f"{rel} imports {name}"
-            # ``warlock._q_*`` too: the queue's worker halves are the same
+            assert not name.startswith("realmspinner.queue"), f"{rel} imports {name}"
+            assert not name.startswith("realmspinner.pipelines"), f"{rel} imports {name}"
+            # ``realmspinner._q_*`` too: the queue's worker halves are the same
             # dependency wearing a different name, and importing one of those
             # would drag torch behind a headless test as surely as importing
             # ``queue`` itself.
-            assert not name.startswith("warlock._q"), f"{rel} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{rel} imports {name}"
 
 
-def test_the_only_warlock_imports_are_the_ones_written_down():
+def test_the_only_realmspinner_imports_are_the_ones_written_down():
     for rel in MODULES:
-        found = {name for name in _outward(rel) if name.split(".")[0] == "warlock"}
+        found = {name for name in _outward(rel) if name.split(".")[0] == "realmspinner"}
         assert found == OUTWARD_IMPORTS[rel], rel
 
 
@@ -224,8 +228,8 @@ def test_the_storage_half_imports_with_no_studio_at_all():
     submodule each of them needs, so there is no separate module to name
     here for it."""
     proc = _run(
-        ("imgui", "imgui_bundle", "moderngl", "pygame", "warlock.studio"),
-        "warlock.poselib, warlock.clipmaps, warlock.cliptransfer",
+        ("imgui", "imgui_bundle", "moderngl", "pygame", "realmspinner.studio"),
+        "realmspinner.poselib, realmspinner.clipmaps, realmspinner.cliptransfer",
     )
     assert proc.returncode == 0, proc.stderr
 
@@ -235,8 +239,8 @@ def test_the_viewer_half_imports_with_no_imgui_and_no_service():
     measured is that the renderer still knows nothing about panels or the
     business layer, which is the split ``viewer/__init__`` claims."""
     proc = _run(
-        ("imgui", "imgui_bundle", "pygame", "warlock.service"),
-        "warlock.studio.viewer.pose, warlock.studio.viewer.bonelines",
+        ("imgui", "imgui_bundle", "pygame", "realmspinner.service"),
+        "realmspinner.studio.viewer.pose, realmspinner.studio.viewer.bonelines",
     )
     assert proc.returncode == 0, proc.stderr
 
@@ -248,7 +252,7 @@ def test_no_module_but_blender_worker_imports_bpy():
     else ever importing it, and until the 2026-09-08 audit (poser-05) that
     rested on convention: this file's own pin above checks three named
     modules, and ``test_rigging.py`` checks the ``kernels.rig`` package
-    specifically, but nothing scanned the rest of ``src/warlock`` for a
+    specifically, but nothing scanned the rest of ``src/realmspinner`` for a
     stray ``import bpy``.
     """
     exempt = ROOT / "pipelines" / "blender_worker.py"

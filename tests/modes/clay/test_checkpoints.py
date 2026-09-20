@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.core.undo import UNDO_MAX_DEPTH
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import serialize as ser
+from realmspinner.core.undo import UNDO_MAX_DEPTH
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import serialize as ser
 
 
 def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
@@ -210,6 +210,6 @@ def test_checkpoints_are_not_serialized() -> None:
     doc.set_checkpoint("cp")
     assert doc.checkpoints  # sanity: it really was set
 
-    reloaded = ser.read_wblk(ser.wblk_bytes(doc))
+    reloaded = ser.read_rblk(ser.rblk_bytes(doc))
     assert reloaded.checkpoints == {}
     assert reloaded.checkpoint_status("cp") == "unknown"

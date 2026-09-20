@@ -1,13 +1,13 @@
-"""`python -m warlock mcp` as a real subprocess, against a real `AgentHost`
+"""`python -m realmspinner mcp` as a real subprocess, against a real `AgentHost`
 pumped in-test -- the one place this tranche proves the whole chain (a real
-MCP client's stdio, through `bridge.py`'s RPC v1 client, to Studio's RPC v1
+MCP client's stdio, through `bridge.py`'s RPC v1 client, to Realmspinner's RPC v1
 server, to `agent_clay.call`) rather than each half on its own.
 
 Modelled on `tests/studio/test_agent_host.py`'s and `tests/mcp/test_agent_perf.py`'s own
 harness shape: an `AgentHost` started against a throwaway home, a background
 thread draining `pump()` the way `main.py:App.frame` would, and a real pipe
-connection -- except the peer here is a real `warlock mcp` child process
-rather than this test driving the pipe directly, so `WARLOCK_HOME` has to
+connection -- except the peer here is a real `realmspinner mcp` child process
+rather than this test driving the pipe directly, so `REALMSPINNER_HOME` has to
 reach the child through its environment, not just this process's own.
 """
 
@@ -25,8 +25,8 @@ from typing import Any
 
 import pytest
 
-from warlock.mcp import pipe, protocol, rpc
-from warlock.studio import agent_host
+from realmspinner.mcp import pipe, protocol, rpc
+from realmspinner.studio import agent_host
 
 WAIT = 20.0
 
@@ -72,9 +72,9 @@ def host(tmp_path):
 
 def _spawn(home) -> subprocess.Popen:
     env = dict(os.environ)
-    env["WARLOCK_HOME"] = str(home)
+    env["REALMSPINNER_HOME"] = str(home)
     return subprocess.Popen(
-        [sys.executable, "-m", "warlock", "mcp"],
+        [sys.executable, "-m", "realmspinner", "mcp"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -115,7 +115,7 @@ def test_legacy_initialize_tools_list_and_tools_call_over_a_real_subprocess(host
         reply = _readline(proc)
         names = {t["name"] for t in reply["result"]["tools"]}
         assert "clay_add_primitive" in names
-        assert "warlock_status" in names
+        assert "realmspinner_status" in names
 
         _send(
             proc,
@@ -156,7 +156,7 @@ def test_two_ordinary_calls_over_a_real_subprocess_emit_no_spurious_list_changed
                     "jsonrpc": "2.0",
                     "id": msg_id,
                     "method": "tools/call",
-                    "params": {"name": "warlock_status", "arguments": {}},
+                    "params": {"name": "realmspinner_status", "arguments": {}},
                 },
             )
             reply = _readline(proc)
@@ -207,7 +207,7 @@ def test_modern_discover_and_tools_call_over_a_real_subprocess(host) -> None:
 
 
 def test_a_stdin_line_over_max_frame_is_refused_without_killing_the_connection(host) -> None:
-    from warlock.mcp import protocol
+    from realmspinner.mcp import protocol
 
     _host, home = host
     proc = _spawn(home)
@@ -243,9 +243,9 @@ def _snapshot(home, *, instructions: str = "Clay measures in metres.") -> dict:
     """Write `<home>/mcp.catalogue.json`, the same shape
     `agent_host._write_catalogue_snapshot` writes, and return it."""
     payload = rpc.catalogue_payload(
-        [rpc.Tool(name="warlock_status", title="Status", description="d", schema={})],
+        [rpc.Tool(name="realmspinner_status", title="Status", description="d", schema={})],
         instructions=instructions,
-        server_name="warlock-studio",
+        server_name="realmspinner",
         server_version="9.9.9",
     )
     home.joinpath("mcp.catalogue.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -282,9 +282,9 @@ class _FakeStudio:
 
     def _catalogue(self) -> dict:
         return rpc.catalogue_payload(
-            [rpc.Tool(name="warlock_status", title="Status", description="d", schema={})],
+            [rpc.Tool(name="realmspinner_status", title="Status", description="d", schema={})],
             instructions=self._instructions,
-            server_name="warlock-studio",
+            server_name="realmspinner",
             server_version="9.9.9",
         )
 
@@ -357,7 +357,7 @@ def test_bridge_subprocess_exits_1_with_no_snapshot_and_no_app_listening(tmp_pat
     assert "not accepting agent connections" in text
     assert "Settings" in text
     assert "Advanced" in text
-    assert "Allow AI agents to drive the Studio" in text
+    assert "Allow AI agents to drive Realmspinner" in text
 
 
 def test_bridge_subprocess_serves_from_snapshot_when_the_app_is_not_running(tmp_path) -> None:
@@ -374,7 +374,7 @@ def test_bridge_subprocess_serves_from_snapshot_when_the_app_is_not_running(tmp_
 
         _send(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         reply = _readline(proc)
-        assert reply["result"]["tools"][0]["name"] == "warlock_status"
+        assert reply["result"]["tools"][0]["name"] == "realmspinner_status"
 
         _send(
             proc,
@@ -382,7 +382,7 @@ def test_bridge_subprocess_serves_from_snapshot_when_the_app_is_not_running(tmp_
                 "jsonrpc": "2.0",
                 "id": 3,
                 "method": "tools/call",
-                "params": {"name": "warlock_status", "arguments": {}},
+                "params": {"name": "realmspinner_status", "arguments": {}},
             },
         )
         reply = _readline(proc)
@@ -405,9 +405,9 @@ def test_bridge_subprocess_serves_from_snapshot_when_the_app_is_not_running(tmp_
 def test_bridge_subprocess_reconnects_once_the_app_starts_after_snapshot_serving(
     tmp_path,
 ) -> None:
-    """Snapshot-served at start-up, then Studio comes up: the next
+    """Snapshot-served at start-up, then Realmspinner comes up: the next
     `tools/call` after that succeeds for real, against the real fake
-    Studio, rather than the stale refusal."""
+    Realmspinner, rather than the stale refusal."""
     _snapshot(tmp_path)
     proc = _spawn(tmp_path)
     studio = None
@@ -421,7 +421,7 @@ def test_bridge_subprocess_reconnects_once_the_app_starts_after_snapshot_serving
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "warlock_status", "arguments": {}},
+                "params": {"name": "realmspinner_status", "arguments": {}},
             },
         )
         reply = _readline(proc)
@@ -436,13 +436,13 @@ def test_bridge_subprocess_reconnects_once_the_app_starts_after_snapshot_serving
                 "jsonrpc": "2.0",
                 "id": 3,
                 "method": "tools/call",
-                "params": {"name": "warlock_status", "arguments": {}},
+                "params": {"name": "realmspinner_status", "arguments": {}},
             },
         )
         reply = _readline(proc)
         assert reply["result"]["isError"] is False
         assert reply["result"]["content"] == [{"type": "text", "text": "done"}]
-        assert studio.calls == [("warlock_status", {})]
+        assert studio.calls == [("realmspinner_status", {})]
     finally:
         proc.stdin.close()
         proc.wait(timeout=WAIT)
@@ -454,7 +454,7 @@ def test_bridge_subprocess_reconnects_once_the_app_starts_after_snapshot_serving
 def test_bridge_subprocess_notifies_legacy_clients_when_catalogue_hash_changes_on_reconnect(
     tmp_path,
 ) -> None:
-    """The snapshot's instructions differ from the live Studio's -- a
+    """The snapshot's instructions differ from the live Realmspinner's -- a
     different `catalogue_hash` at reconnect -- so the legacy-era client
     gets `notifications/tools/list_changed` once the bridge notices."""
     _snapshot(tmp_path, instructions="Clay measures in metres.")
@@ -473,7 +473,7 @@ def test_bridge_subprocess_notifies_legacy_clients_when_catalogue_hash_changes_o
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "warlock_status", "arguments": {}},
+                "params": {"name": "realmspinner_status", "arguments": {}},
             },
         )
         reply = _readline(proc)
@@ -492,7 +492,7 @@ def test_bridge_subprocess_notifies_legacy_clients_when_catalogue_hash_changes_o
 def test_bridge_subprocess_survives_studio_dying_mid_call_and_reconnects_next_call(
     tmp_path,
 ) -> None:
-    """Studio accepts the `call` request and then the pipe dies before any
+    """Realmspinner accepts the `call` request and then the pipe dies before any
     reply arrives -- an `EOFError` on the bridge's read. The bridge answers
     with an `isError` saying the call may or may not have happened, stays
     alive, and the *next* `tools/call` opens a fresh connection and
@@ -511,7 +511,7 @@ def test_bridge_subprocess_survives_studio_dying_mid_call_and_reconnects_next_ca
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "warlock_status", "arguments": {}},
+                "params": {"name": "realmspinner_status", "arguments": {}},
             },
         )
         reply = _readline(proc)
@@ -531,12 +531,12 @@ def test_bridge_subprocess_survives_studio_dying_mid_call_and_reconnects_next_ca
                 "jsonrpc": "2.0",
                 "id": 3,
                 "method": "tools/call",
-                "params": {"name": "warlock_status", "arguments": {}},
+                "params": {"name": "realmspinner_status", "arguments": {}},
             },
         )
         reply = _readline(proc)
         assert reply["result"]["isError"] is False
-        assert healthy.calls == [("warlock_status", {})]
+        assert healthy.calls == [("realmspinner_status", {})]
         assert proc.poll() is None
     finally:
         proc.stdin.close()
@@ -549,7 +549,7 @@ def test_bridge_subprocess_survives_studio_dying_mid_call_and_reconnects_next_ca
 def test_bridge_subprocess_survives_a_call_timeout_backstop_and_reconnects_next_call(
     tmp_path,
 ) -> None:
-    """Studio accepts the `call` request and then never answers at all --
+    """Realmspinner accepts the `call` request and then never answers at all --
     the `conn.poll(call_timeout + 5s)` backstop is what has to give up.
     Same `isError`/"may or may not have happened" shape, the bridge process
     stays alive, and the following `tools/call` reconnects and succeeds."""
@@ -567,7 +567,7 @@ def test_bridge_subprocess_survives_a_call_timeout_backstop_and_reconnects_next_
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "warlock_status", "arguments": {}},
+                "params": {"name": "realmspinner_status", "arguments": {}},
             },
         )
         # The backstop is call_timeout (0.2s) + 5s, so give this a real
@@ -588,12 +588,12 @@ def test_bridge_subprocess_survives_a_call_timeout_backstop_and_reconnects_next_
                 "jsonrpc": "2.0",
                 "id": 3,
                 "method": "tools/call",
-                "params": {"name": "warlock_status", "arguments": {}},
+                "params": {"name": "realmspinner_status", "arguments": {}},
             },
         )
         reply = _readline(proc)
         assert reply["result"]["isError"] is False
-        assert healthy.calls == [("warlock_status", {})]
+        assert healthy.calls == [("realmspinner_status", {})]
         assert proc.poll() is None
     finally:
         proc.stdin.close()
@@ -605,7 +605,7 @@ def test_bridge_subprocess_survives_a_call_timeout_backstop_and_reconnects_next_
 
 def test_legacy_client_lists_and_reads_resources_and_prompts_over_a_real_subprocess(host) -> None:
     """The whole chain this tranche adds: a real MCP client's stdio, through
-    `warlock mcp`'s RPC v1 client, to a real `AgentHost`'s RPC v1 server, and
+    `realmspinner mcp`'s RPC v1 client, to a real `AgentHost`'s RPC v1 server, and
     back -- for `resources/list`, `resources/read` and `prompts/list`/`get`,
     not just `tools/call` (already proven above)."""
     _host, home = host
@@ -617,8 +617,8 @@ def test_legacy_client_lists_and_reads_resources_and_prompts_over_a_real_subproc
         _send(proc, {"jsonrpc": "2.0", "id": 2, "method": "resources/list"})
         reply = _readline(proc)
         uris = {r["uri"] for r in reply["result"]["resources"]}
-        assert "warlock://clay/conventions" in uris
-        assert "warlock://clay/scene" in uris
+        assert "realmspinner://clay/conventions" in uris
+        assert "realmspinner://clay/scene" in uris
 
         _send(
             proc,
@@ -626,7 +626,7 @@ def test_legacy_client_lists_and_reads_resources_and_prompts_over_a_real_subproc
                 "jsonrpc": "2.0",
                 "id": 3,
                 "method": "resources/read",
-                "params": {"uri": "warlock://clay/conventions"},
+                "params": {"uri": "realmspinner://clay/conventions"},
             },
         )
         reply = _readline(proc)
@@ -672,7 +672,7 @@ def test_a_modern_client_polls_a_task_augmented_call_to_completion(host) -> None
     `io.modelcontextprotocol/tasks`, gets a `CreateTaskResult` back for a
     `tools/call` instead of blocking, and polls `tasks/get` (through the
     real subprocess, through RPC v1's `status` op, against a real
-    `AgentHost`) until the task Studio actually ran reaches `completed`."""
+    `AgentHost`) until the task Realmspinner actually ran reaches `completed`."""
     _host, home = host
     proc = _spawn(home)
     try:

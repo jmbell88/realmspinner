@@ -21,10 +21,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.kernels.grid2d import gid
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter.engine import tmx, tsx
-from warlock.studio.modes.plotter.engine.tilemap import (
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter.engine import tmx, tsx
+from realmspinner.studio.modes.plotter.engine.tilemap import (
     MapDoc,
     MapObject,
     ObjectLayer,
@@ -454,7 +454,7 @@ def test_export_writes_the_docs_own_persistent_ids():
 
 def test_export_assigns_but_does_not_persist_ids_for_hand_built_zero_id_docs():
     """A document built by direct construction, bypassing the ops that assign
-    ids at creation -- the same shape a ``.wmap``-loaded document has, since
+    ids at creation -- the same shape a ``.rmap``-loaded document has, since
     ids are out of scope there this milestone -- still exports something
     valid, and exporting it twice changes nothing about the document itself."""
     layer = TileLayer(uid=new_uid(), name="l", data=gid.empty_layer(2, 2))
@@ -541,8 +541,8 @@ def test_an_embedded_tileset_keeps_the_terrains_its_wangset_declares():
     """The XML side recognised a wangset and then dropped it, which left the
     Terrain tool greyed out on a map whose own atlas declares one. Read-side
     parity with the ``.tmj`` case in ``test_tmx_refusals``."""
-    from warlock.kernels.grid2d import blob
-    from warlock.studio.modes.plotter.engine import terrain as terrainlib
+    from realmspinner.kernels.grid2d import blob
+    from realmspinner.studio.modes.plotter.engine import terrain as terrainlib
 
     from ._terrainset import terrain_tileset
 
@@ -711,7 +711,7 @@ def test_an_image_layer_name_collision_never_clobbers_the_other_layers_bytes():
     """Layer B's fallback name is exactly layer A's declared safe source, so
     the collision branch used to recompute the *same* string and overwrite A's
     bytes -- the export showed one layer's picture on both."""
-    from warlock.studio.modes.plotter.engine.pngio import png_bytes
+    from realmspinner.studio.modes.plotter.engine.pngio import png_bytes
 
     doc = MapDoc(4, 4, 16, 16)
     a_pixels = _pixels(8, 8)
@@ -750,10 +750,15 @@ def test_import_warnings_reach_the_pane_not_only_the_log(caplog):
     changed something opened looking wrong with nothing on screen saying why.
     Now the same sentences come back as data on the read, and the Map file
     pane groups them by layer under the import row."""
-    from warlock.kernels.grid2d.tileset import Tileset
-    from warlock.studio.modes.plotter.engine.tilemap import MapDoc, MapObject, TileShape, new_uid
-    from warlock.studio.modes.plotter.state import PlotterDoc
-    from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
+    from realmspinner.kernels.grid2d.tileset import Tileset
+    from realmspinner.studio.modes.plotter.engine.tilemap import (
+        MapDoc,
+        MapObject,
+        TileShape,
+        new_uid,
+    )
+    from realmspinner.studio.modes.plotter.state import PlotterDoc
+    from realmspinner.studio.modes.plotter.ui.panes import bridge as plotter_bridge
 
     # The stagger fallback, through the real read path: map-level, so no
     # layer name attaches to it.

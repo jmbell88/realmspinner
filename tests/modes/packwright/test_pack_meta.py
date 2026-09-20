@@ -13,7 +13,7 @@ by field, which is the one place a carried-through field can silently stop being
 carried through.
 
 **Additive means byte-identical**: an atlas of sprites with no metadata, and a
-``.wpack`` of the same, are exactly what they were.
+``.rpack`` of the same, are exactly what they were.
 """
 
 from __future__ import annotations
@@ -23,10 +23,10 @@ import json
 import numpy as np
 import pytest
 
-from warlock.studio.modes.packwright.engine import texturepacker, wpack
-from warlock.studio.modes.packwright.engine.document import PackDoc
-from warlock.studio.modes.packwright.engine.layout import PackSettings, layout
-from warlock.studio.modes.packwright.engine.sources import (
+from realmspinner.studio.modes.packwright.engine import rpack, texturepacker
+from realmspinner.studio.modes.packwright.engine.document import PackDoc
+from realmspinner.studio.modes.packwright.engine.layout import PackSettings, layout
+from realmspinner.studio.modes.packwright.engine.sources import (
     EMPTY_META,
     SliceSpec,
     Sprite,
@@ -71,7 +71,7 @@ def test_plain_data_is_coerced_into_the_frozen_types():
 
 
 def test_a_slice_that_will_not_parse_costs_the_slice_and_not_the_sprite():
-    """This is a read of somebody else's data, so it is tolerant -- ``.wpack``'s
+    """This is a read of somebody else's data, so it is tolerant -- ``.rpack``'s
     reader is the one that refuses, because there a malformed field means a file
     that is wrong about itself."""
     meta = sprite_meta({"slices": [{"name": "bad"}, {"name": "ok", "x": 0, "y": 0,
@@ -134,8 +134,8 @@ def test_a_document_with_nothing_to_say_is_not_an_error():
 def test_an_inker_document_hands_its_slices_over_per_frame():
     """The real seam, end to end: the resolving happens on the editor's side and
     what crosses is plain data."""
-    from warlock.kernels.pixel.document import Document
-    from warlock.kernels.pixel.slices import SliceKey
+    from realmspinner.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel.slices import SliceKey
 
     doc = Document.blank(16, 12)
     doc.add_frame()
@@ -284,8 +284,8 @@ def test_the_coverage_line_is_not_recomputed_between_packs():
     for the same shape by the 2026-09-07 audit's packwright-07. Proven by
     counting how many times the underlying sequence is actually iterated:
     each helper must touch it once per pack, not once per frame drawn."""
-    from warlock.studio.modes.packwright.ui.panes import items as packwright_items
-    from warlock.studio.modes.packwright.ui.panes import preview as packwright_preview
+    from realmspinner.studio.modes.packwright.ui.panes import items as packwright_items
+    from realmspinner.studio.modes.packwright.ui.panes import preview as packwright_preview
 
     class _CountingList(list):
         def __init__(self, *args) -> None:
@@ -394,7 +394,7 @@ def test_an_atlas_of_plain_sprites_serializes_to_what_it_always_did():
     assert b"slices" not in first
 
 
-# --- .wpack -------------------------------------------------------------------
+# --- .rpack -------------------------------------------------------------------
 
 
 def _packed(meta: SpriteMeta = EMPTY_META) -> PackDoc:
@@ -405,32 +405,32 @@ def _packed(meta: SpriteMeta = EMPTY_META) -> PackDoc:
 
 
 def test_a_document_with_no_metadata_writes_the_manifest_it_always_wrote():
-    entry = json.loads(wpack.manifest_json(_packed()))["sources"][0]
+    entry = json.loads(rpack.manifest_json(_packed()))["sources"][0]
     assert set(entry) == {"key", "name", "name_override", "image"}
 
 
 def test_metadata_round_trips_through_the_file():
     meta = SpriteMeta(pivot=(6.0, 9.0), slices=(PANEL,))
-    back = wpack.read_wpack(wpack.wpack_bytes(_packed(meta)))
+    back = rpack.read_rpack(rpack.rpack_bytes(_packed(meta)))
     assert back.sources[0].sprite.meta == meta
 
 
 def test_a_slice_with_no_pivot_or_centre_round_trips_as_none():
     meta = SpriteMeta(slices=(SliceSpec(name="hit", x=1, y=2, w=3, h=4),))
-    back = wpack.read_wpack(wpack.wpack_bytes(_packed(meta)))
+    back = rpack.read_rpack(rpack.rpack_bytes(_packed(meta)))
     assert back.sources[0].sprite.meta == meta
 
 
 def test_two_saves_of_a_document_with_metadata_are_byte_identical():
     doc = _packed(SpriteMeta(pivot=(6.0, 9.0), slices=(PANEL,)))
-    assert wpack.wpack_bytes(doc) == wpack.wpack_bytes(doc)
-    back = wpack.read_wpack(wpack.wpack_bytes(doc))
-    assert wpack.wpack_bytes(back) == wpack.wpack_bytes(doc)
+    assert rpack.rpack_bytes(doc) == rpack.rpack_bytes(doc)
+    back = rpack.read_rpack(rpack.rpack_bytes(doc))
+    assert rpack.rpack_bytes(back) == rpack.rpack_bytes(doc)
 
 
 def test_a_manifest_from_before_the_keys_reads_clean():
-    raw = wpack.wpack_bytes(_packed())
-    assert wpack.read_wpack(raw).sources[0].sprite.meta == EMPTY_META
+    raw = rpack.rpack_bytes(_packed())
+    assert rpack.read_rpack(raw).sources[0].sprite.meta == EMPTY_META
 
 
 @pytest.mark.parametrize(
@@ -444,19 +444,19 @@ def test_a_manifest_from_before_the_keys_reads_clean():
     ],
 )
 def test_a_malformed_metadata_field_is_refused_by_name(meta: dict):
-    """``.wpack`` is ours and versioned, so it recognises or refuses -- and the
+    """``.rpack`` is ours and versioned, so it recognises or refuses -- and the
     refusal names the source, because "malformed" alone cannot be acted on in a
     manifest with forty sprites in it."""
     with pytest.raises(ValueError, match="metadata for 'a'"):
-        wpack._meta_from({"key": "a", **meta}, "a")
+        rpack._meta_from({"key": "a", **meta}, "a")
 
 
 def test_a_refusal_reaches_the_reader_rather_than_being_swallowed():
     doc = _packed(SpriteMeta(pivot=(6.0, 9.0)))
-    raw = wpack.wpack_bytes(doc)
+    raw = rpack.rpack_bytes(doc)
     broken = _rewrite(raw, lambda m: _break_pivot(m))
     with pytest.raises(ValueError, match="metadata for 'a'"):
-        wpack.read_wpack(broken)
+        rpack.read_rpack(broken)
 
 
 def _break_pivot(manifest: dict) -> dict:
@@ -472,7 +472,7 @@ def _rewrite(raw: bytes, edit) -> bytes:
     with zipfile.ZipFile(io.BytesIO(raw)) as src, zipfile.ZipFile(out, "w") as dst:
         for info in src.infolist():
             data = src.read(info.filename)
-            if info.filename == wpack.MANIFEST:
+            if info.filename == rpack.MANIFEST:
                 data = json.dumps(edit(json.loads(data))).encode()
             dst.writestr(info, data, info.compress_type)
     return out.getvalue()

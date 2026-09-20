@@ -26,16 +26,16 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.modes.sirens import mode as sirens_mode
-from warlock.studio.modes.sirens.engine import document as D
-from warlock.studio.modes.sirens.engine import instruments as inst
-from warlock.studio.modes.sirens.ui.panes import bridge as sirens_bridge
-from warlock.studio.modes.sirens.ui.panes import effects as sirens_effects
-from warlock.studio.modes.sirens.ui.panes import envelopes as sirens_envelopes
-from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
-from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
-from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
-from warlock.studio.modes.sirens.ui.panes import transport as sirens_transport
+from realmspinner.studio.modes.sirens import mode as sirens_mode
+from realmspinner.studio.modes.sirens.engine import document as D
+from realmspinner.studio.modes.sirens.engine import instruments as inst
+from realmspinner.studio.modes.sirens.ui.panes import bridge as sirens_bridge
+from realmspinner.studio.modes.sirens.ui.panes import effects as sirens_effects
+from realmspinner.studio.modes.sirens.ui.panes import envelopes as sirens_envelopes
+from realmspinner.studio.modes.sirens.ui.panes import instruments as sirens_instruments
+from realmspinner.studio.modes.sirens.ui.panes import orders as sirens_orders
+from realmspinner.studio.modes.sirens.ui.panes import patterns as sirens_patterns
+from realmspinner.studio.modes.sirens.ui.panes import transport as sirens_transport
 
 from .test_sirens_mode import FakeCtx, _tab
 
@@ -71,7 +71,7 @@ def frames():
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import theme
+    from realmspinner.studio import theme
 
     previous = imgui.get_current_context()
     ctx = imgui.create_context()
@@ -104,7 +104,7 @@ def frames():
 def _no_device(monkeypatch):
     """No pane in this file may reach the mixer. CI has no card and a box that
     has one is not something a drawing test should depend on."""
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: False)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)
@@ -184,7 +184,7 @@ def test_every_pane_draws_at_a_larger_ui_scale(name, pane, frames):
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import theme, tokens
+    from realmspinner.studio import theme, tokens
 
     ctx = FakeCtx()
     _loaded(ctx)
@@ -267,7 +267,7 @@ def test_the_envelope_editor_draws_a_sequence_at_the_engines_ceiling(frames):
 
 def test_the_effects_pane_draws_an_effect_whose_pattern_is_gone(frames):
     """Unreachable through the app -- ``add_oneshot`` mints the pattern and the
-    pair is one undo step -- but a hand-edited ``.wsng`` can carry it, and a row
+    pair is one undo step -- but a hand-edited ``.rsng`` can carry it, and a row
     that renders as an exception is worse than one that says what is wrong."""
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -284,7 +284,7 @@ def test_the_effects_pane_draws_an_effect_whose_pattern_is_gone(frames):
 
 
 def test_a_click_inside_a_column_picks_that_column():
-    from warlock.studio.modes.sirens.ui.panes.patterns import column_at
+    from realmspinner.studio.modes.sirens.ui.panes.patterns import column_at
 
     widths = [30.0, 20.0, 20.0, 10.0, 20.0]
     gap = 6.0
@@ -299,7 +299,7 @@ def test_a_click_inside_a_column_picks_that_column():
 def test_the_gap_after_a_column_belongs_to_it():
     """A caret that refused to move because the press landed one pixel wide of
     a glyph is a control that works most of the time."""
-    from warlock.studio.modes.sirens.ui.panes.patterns import column_at
+    from realmspinner.studio.modes.sirens.ui.panes.patterns import column_at
 
     widths = [30.0, 20.0, 20.0, 10.0, 20.0]
     assert column_at(33.0, widths, 6.0) == 0
@@ -308,7 +308,7 @@ def test_the_gap_after_a_column_belongs_to_it():
 
 
 def test_a_click_past_the_last_column_clamps_rather_than_refusing():
-    from warlock.studio.modes.sirens.ui.panes.patterns import column_at
+    from realmspinner.studio.modes.sirens.ui.panes.patterns import column_at
 
     widths = [30.0, 20.0, 20.0, 10.0, 20.0]
     assert column_at(10_000.0, widths, 6.0) == 4
@@ -329,7 +329,7 @@ def test_retarget_popup_refuses_a_selection_while_the_song_is_busy(frames, monke
     """
     from imgui_bundle import imgui
 
-    from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
+    from realmspinner.studio.modes.sirens.ui.panes import orders as sirens_orders
 
     ctx = FakeCtx()
     tab = _tab(ctx)

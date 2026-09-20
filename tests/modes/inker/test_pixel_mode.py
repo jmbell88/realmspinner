@@ -11,9 +11,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import brush, transform
-from warlock.studio.modes.inker import state as inker_state
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import brush, transform
+from realmspinner.studio.modes.inker import state as inker_state
 
 # --- the stamp --------------------------------------------------------------
 

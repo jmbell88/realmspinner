@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from _figure import BLOCKS, JOINTS, SIZE, figure, plane
 
-from warlock.kernels.pixel.walk import rig as R
+from realmspinner.kernels.pixel.walk import rig as R
 
 
 def test_a_blank_rig_has_a_part_slot_for_every_spec():

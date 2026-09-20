@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.document import Document
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)

@@ -14,7 +14,7 @@ this file -- part of why the gap survived undetected.
 
 from __future__ import annotations
 
-from warlock import generation
+from realmspinner import generation
 
 
 def test_from_dict_coerces_string_typed_tile_and_sprite_numerics():
@@ -181,7 +181,7 @@ def test_validate_request_refuses_a_count_above_the_doors_own_ceiling():
     ``MAX_REFERENCE_COUNT`` -- so a request could clear this door and still
     be refused two steps later with no field pointed at until it did.
     """
-    from warlock.service.validation import MAX_REFERENCE_COUNT
+    from realmspinner.service.validation import MAX_REFERENCE_COUNT
 
     req = generation.GenerationRequest(
         generation_type="3d_model", prompt="a knight", count=MAX_REFERENCE_COUNT + 1

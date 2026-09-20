@@ -27,7 +27,7 @@ def test_map_settings_popup_field_typing_is_one_undo_step():
     the popup draws, rather than "a fold exists somewhere before the write" --
     which a neighbouring field's own fold would satisfy for free and prove
     nothing about the field actually being checked."""
-    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
+    from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     popup = inspect.getsource(plotter_tools.map_settings_popup)
 

@@ -24,11 +24,11 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import journal
-from warlock.studio import settings as settings_mod
-from warlock.studio.settings import Settings
+from realmspinner.studio import journal
+from realmspinner.studio import settings as settings_mod
+from realmspinner.studio.settings import Settings
 
-STUDIO = Path(__file__).resolve().parents[2] / "src" / "warlock" / "studio"
+STUDIO = Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "studio"
 
 
 def _write(path: Path, data: Any, version: int = settings_mod.VERSION) -> None:
@@ -101,7 +101,7 @@ def test_the_frame_drawing_section_reader_survives_a_wrong_type(monkeypatch):
     """``widgets.section`` is the sharpest of the seven, because it is drawn
     every frame in most panes: one wrong byte was a crash on the first frame of
     whichever mode read it, every launch."""
-    from warlock.studio import widgets
+    from realmspinner.studio import widgets
 
     class _Bad:
         def get(self, key, default=None):
@@ -112,7 +112,7 @@ def test_the_frame_drawing_section_reader_survives_a_wrong_type(monkeypatch):
 
 
 def test_the_layout_reader_survives_a_wrong_type():
-    from warlock.studio.layout import Layout
+    from realmspinner.studio.layout import Layout
 
     class _Bad:
         def get(self, key, default=None):
@@ -128,7 +128,7 @@ def test_a_layout_profile_survives_wrongly_typed_blobs():
     """``Arrangement.from_json`` asked the same non-question four times over
     values *inside* a stored blob, which is why the guard is a free function
     rather than a ``Settings`` method."""
-    from warlock.studio.layouts import Arrangement
+    from realmspinner.studio.layouts import Arrangement
 
     got = Arrangement.from_json(
         {"columns": "left", "hidden": "abc", "widths": 3, "shares": "half"}
@@ -223,7 +223,7 @@ def test_a_filter_of_the_wrong_type_does_not_reach_the_ui():
     ``{"text": 5}`` built a ``Filters`` whose ``text`` is an int -- which then
     reached ``parse_query`` and imgui's ``input_text``, where it is the frame
     loop's problem rather than a bad byte in a file."""
-    from warlock.studio.state import Filters, filters_from_stored
+    from realmspinner.studio.state import Filters, filters_from_stored
 
     got = filters_from_stored(
         {"text": 5, "status": None, "favorites_only": "yes", "kind": "model"}
@@ -235,7 +235,7 @@ def test_a_filter_of_the_wrong_type_does_not_reach_the_ui():
 
 
 def test_a_filter_bar_that_is_not_a_dict_is_the_default():
-    from warlock.studio.state import Filters, filters_from_stored
+    from realmspinner.studio.state import Filters, filters_from_stored
 
     assert filters_from_stored("newest") == Filters()
 
@@ -272,7 +272,7 @@ def test_a_malformed_database_is_a_named_refusal(tmp_path):
     malformed image raised a bare ``DatabaseError`` out of ``Runtime._start``
     and arrived as the generic "ran into a problem while starting" box -- on
     every launch, with no way in and nothing naming the file."""
-    from warlock.db import JobStore, StoreUnreadable
+    from realmspinner.db import JobStore, StoreUnreadable
 
     path = tmp_path / "jobs.sqlite"
     path.write_bytes(b"SQLite format 3\x00" + b"\xff" * 4096)
@@ -286,7 +286,7 @@ def test_setting_a_broken_database_aside_keeps_every_part_of_it(tmp_path):
     file ``.recover`` or a newer sqlite might. All three WAL parts move
     together, because a fresh database beside a stale ``-wal`` is a database
     whose first read has to decide whether that journal is its own."""
-    from warlock import db
+    from realmspinner import db
 
     path = tmp_path / "jobs.sqlite"
     path.write_bytes(b"not a database")
@@ -315,7 +315,7 @@ def test_set_aside_rolls_back_if_the_wal_file_cannot_be_renamed(tmp_path, monkey
     prevent. All-or-nothing, with rollback: a failure partway through must
     put every already-moved part back rather than leave a half set-aside
     store behind."""
-    from warlock import db
+    from realmspinner import db
 
     path = tmp_path / "jobs.sqlite"
     path.write_bytes(b"not a database")
@@ -346,8 +346,8 @@ def test_set_aside_rolls_back_if_the_wal_file_cannot_be_renamed(tmp_path, monkey
 def test_a_broken_database_shows_up_in_the_doctor(tmp_path):
     """The row that lets a database which has *started* to go be found while
     the app is still up, when a backup is still possible."""
-    from warlock import doctor
-    from warlock.config import Config
+    from realmspinner import doctor
+    from realmspinner.config import Config
 
     config = Config(data_dir=tmp_path / "assets", db_path=tmp_path / "jobs.sqlite")
     config.db_path.write_bytes(b"SQLite format 3\x00" + b"\xff" * 4096)
@@ -358,7 +358,7 @@ def test_a_broken_database_shows_up_in_the_doctor(tmp_path):
     assert doctor._store_check(config).ok, "a first run has no database and no fault"
 
     sqlite3.connect(config.db_path).close()
-    store = __import__("warlock.db", fromlist=["JobStore"]).JobStore(config.db_path)
+    store = __import__("realmspinner.db", fromlist=["JobStore"]).JobStore(config.db_path)
     store.close()
     assert doctor._store_check(config).ok
 
@@ -372,15 +372,15 @@ def test_a_home_directory_that_cannot_be_prepared_is_said_out_loud(monkeypatch, 
     four directories, so a disconnected share or a read-only drive raised
     ``OSError`` before the window, before GL, before imgui and -- under
     ``pythonw`` -- with stderr pointed at the null device."""
-    from warlock import instance
-    from warlock.studio import main
+    from realmspinner import instance
+    from realmspinner.studio import main
 
     said: list[tuple[str, str]] = []
     monkeypatch.setattr(instance, "alert", lambda title, body: said.append((title, body)))
     monkeypatch.setattr(instance, "ask", lambda title, body: False)
     monkeypatch.setattr(main, "_setup_logging", lambda: None)
     monkeypatch.setattr(main, "_install_excepthooks", lambda: None)
-    import warlock.config as config_mod
+    import realmspinner.config as config_mod
 
     def boom() -> Any:
         raise OSError(13, "Access is denied")
@@ -394,8 +394,8 @@ def test_a_failure_before_the_window_is_a_dialog_rather_than_an_exit_code(monkey
     """``_run_locked``'s ``except`` logged and returned 1 with no dialog, which
     under ``pythonw`` is a process that starts, writes to a devnull stderr and
     vanishes."""
-    from warlock import instance
-    from warlock.studio import main
+    from realmspinner import instance
+    from realmspinner.studio import main
 
     said: list[tuple[str, str]] = []
     monkeypatch.setattr(instance, "alert", lambda title, body: said.append((title, body)))
@@ -403,7 +403,7 @@ def test_a_failure_before_the_window_is_a_dialog_rather_than_an_exit_code(monkey
     monkeypatch.setattr(main, "_write_session_marker", lambda: None)
     monkeypatch.setattr(main, "_clear_session_marker", lambda: None)
     monkeypatch.setattr(main, "App", lambda runtime: (_ for _ in ()).throw(RuntimeError("no")))
-    monkeypatch.setattr("warlock.studio.runtime.Runtime", lambda: object())
+    monkeypatch.setattr("realmspinner.studio.runtime.Runtime", lambda: object())
     assert main._run_locked() == 1
     assert said and "could not start" in said[0][0]
 
@@ -413,19 +413,19 @@ def test_a_refusal_with_words_of_its_own_says_them(monkeypatch):
     is in use" from "the database is malformed" without opening the log -- but
     for the failures that have a *remedy*, the remedy is what should be on
     screen."""
-    from warlock import instance
-    from warlock.studio import main
+    from realmspinner import instance
+    from realmspinner.studio import main
 
     said: list[tuple[str, str]] = []
     monkeypatch.setattr(instance, "alert", lambda title, body: said.append((title, body)))
     monkeypatch.setattr(main, "_note_previous_session", lambda: None)
     monkeypatch.setattr(main, "_write_session_marker", lambda: None)
     monkeypatch.setattr(main, "_clear_session_marker", lambda: None)
-    refusal = main.StartupRefused("Warlock Studio needs OpenGL 3.3", "update your driver")
+    refusal = main.StartupRefused("Realmspinner needs OpenGL 3.3", "update your driver")
     monkeypatch.setattr(main, "App", lambda runtime: (_ for _ in ()).throw(refusal))
-    monkeypatch.setattr("warlock.studio.runtime.Runtime", lambda: object())
+    monkeypatch.setattr("realmspinner.studio.runtime.Runtime", lambda: object())
     assert main._run_locked() == 1
-    assert said == [("Warlock Studio needs OpenGL 3.3", "update your driver")]
+    assert said == [("Realmspinner needs OpenGL 3.3", "update your driver")]
 
 
 def test_a_missing_font_is_named_rather_than_asserted(monkeypatch, tmp_path):
@@ -433,7 +433,7 @@ def test_a_missing_font_is_named_rather_than_asserted(monkeypatch, tmp_path):
     an ``IM_ASSERT`` in imgui's own wording. It is also reachable *mid-session*
     -- the UI-scale slider re-bakes the atlas -- which is why the file check
     runs before ``clear_fonts`` rather than after it."""
-    from warlock.studio import fonts
+    from realmspinner.studio import fonts
 
     monkeypatch.setattr(fonts, "FONT_DIR", tmp_path)
     with pytest.raises(fonts.FontsUnavailable) as caught:

@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio import toolbar
-from warlock.studio.modes.clay import ops as clay_ops
-from warlock.studio.modes.clay import state as clay_state
-from warlock.studio.modes.clay.ui.panes import header as clay_header
-from warlock.studio.modes.clay.ui.panes import tools as clay_tools
+from realmspinner.studio import toolbar
+from realmspinner.studio.modes.clay import ops as clay_ops
+from realmspinner.studio.modes.clay import state as clay_state
+from realmspinner.studio.modes.clay.ui.panes import header as clay_header
+from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
 # --- the tables ---------------------------------------------------------------
 
@@ -89,7 +89,7 @@ def test_the_grid_tooltip_says_1m_cells_not_the_snap_size():
 
 
 def test_every_axis_row_names_a_view_the_camera_has():
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.viewer.camera import Camera
 
     for name, label, chord in clay_header.AXIS_ROWS:
         assert name in Camera.AXIS_VIEWS, name

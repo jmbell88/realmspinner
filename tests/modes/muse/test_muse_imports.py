@@ -24,10 +24,10 @@ from pathlib import Path
 
 from _pure_packages import dotted_root, siblings_of
 
-from warlock.studio.modes.muse import engine as muse
+from realmspinner.studio.modes.muse import engine as muse
 
 ENGINE = Path(muse.__file__).parent
-PACKAGE = "warlock.studio.modes.muse.engine"
+PACKAGE = "realmspinner.studio.modes.muse.engine"
 
 #: Empty, and that is the claim. See the module docstring.
 OUTWARD_IMPORTS: set[tuple[str, str]] = set()
@@ -92,14 +92,14 @@ def test_the_crossfade_is_not_borrowed_from_scipy():
 def test_the_engine_never_imports_the_service_layer():
     for path in _modules():
         for name in _outward(path):
-            assert "warlock.service" not in name, f"{path.name} imports {name}"
+            assert "realmspinner.service" not in name, f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_the_queue():
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.queue"), f"{path.name} imports {name}"
-            assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner.queue"), f"{path.name} imports {name}"
+            assert not name.startswith("realmspinner._q"), f"{path.name} imports {name}"
 
 
 def test_the_engine_never_imports_another_editor():
@@ -116,8 +116,8 @@ def test_the_engine_never_imports_another_editor():
     Derived over :func:`_pure_packages.siblings_of` rather than the
     ``("inker", "clay", "plotter", "packwright", "sirens", "tilegrid")`` this
     used to hard-code -- three of those renamed or moved to
-    ``warlock.kernels.*`` in the same restructure, and a literal
-    ``"warlock.studio.inker"`` check bans an import string nothing in the
+    ``realmspinner.kernels.*`` in the same restructure, and a literal
+    ``"realmspinner.studio.inker"`` check bans an import string nothing in the
     tree has written since.
     """
     for other in siblings_of("muse"):
@@ -134,6 +134,6 @@ def test_the_only_outward_imports_are_the_ones_written_down():
         (path.name, name)
         for path in _modules()
         for name in _outward(path)
-        if name.split(".")[0] == "warlock"
+        if name.split(".")[0] == "realmspinner"
     }
     assert found == OUTWARD_IMPORTS

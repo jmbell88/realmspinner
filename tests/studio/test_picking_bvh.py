@@ -11,9 +11,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives
-from warlock.studio.viewer import picking as pk
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives
+from realmspinner.studio.viewer import picking as pk
 
 
 def _sphere(segments: int = 64, rings: int = 48):

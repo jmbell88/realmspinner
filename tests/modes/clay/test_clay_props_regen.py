@@ -26,10 +26,10 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
 
 @pytest.fixture
@@ -104,8 +104,8 @@ def test_both_generator_rebuild_doors_go_through_clay_regen() -> None:
     object being placed, not an existing one being rebuilt) are untouched by
     this rule and deliberately outside the two functions this test inspects.
     """
-    import warlock.studio.modes.clay.agent.tools as agent_clay_tools_mod
-    import warlock.studio.modes.clay.ui.panes.props as clay_props_mod
+    import realmspinner.studio.modes.clay.agent.tools as agent_clay_tools_mod
+    import realmspinner.studio.modes.clay.ui.panes.props as clay_props_mod
 
     # ``_h_set_params`` lives in ``studio/modes/clay/agent/tools.py`` since the P4
     # restructure split it out of ``studio/modes/clay/agent/dispatch.py`` (dev/RESTRUCTURE.md) --

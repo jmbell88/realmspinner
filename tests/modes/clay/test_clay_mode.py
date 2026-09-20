@@ -15,11 +15,11 @@ from typing import Any
 
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay import state as clay_state
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay import state as clay_state
 
 
 class FakeCtx:
@@ -148,10 +148,10 @@ def test_a_completed_save_clears_it_and_marks_the_tab_saved(svc, tmp_path) -> No
     tab = _tab(ctx, dirty=True)
     assert tab.dirty is True
 
-    _save(ctx, tab, tmp_path / "scene.wblk")
+    _save(ctx, tab, tmp_path / "scene.rblk")
     assert tab.saving is False
     assert tab.dirty is False
-    assert (tmp_path / "scene.wblk").exists()
+    assert (tmp_path / "scene.rblk").exists()
 
 
 def test_a_save_records_the_head_after_the_document_settles(svc, tmp_path) -> None:
@@ -162,7 +162,7 @@ def test_a_save_records_the_head_after_the_document_settles(svc, tmp_path) -> No
     ctx = FakeCtx(svc)
     tab = _tab(ctx, dirty=True)
 
-    _save(ctx, tab, tmp_path / "scene.wblk")
+    _save(ctx, tab, tmp_path / "scene.rblk")
     assert tab.saved_head == tab.doc.history.head
     assert tab.dirty is False
 
@@ -174,7 +174,7 @@ def test_an_edit_during_a_save_leaves_the_tab_dirty(svc, tmp_path) -> None:
     ctx = FakeCtx(svc)
     tab = _tab(ctx, dirty=True)
 
-    clay_mode.save_to(ctx, tab, tmp_path / "scene.wblk")
+    clay_mode.save_to(ctx, tab, tmp_path / "scene.rblk")
     # The edit lands between the encode starting and the result coming back.
     tab.doc.add_object(bd.Obj(uid=bd.new_uid(), name="Late", mesh=bp.box()))
     clay_mode.on_task_done(ctx, _Done(f"clay-save:{tab.uid}", ctx.result))
@@ -385,9 +385,9 @@ def no_dialogs(monkeypatch, tmp_path):
     makes the task-thread half assertable -- and a picker on that path is
     modal to the OS, so it hangs the suite rather than failing it.
     """
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
-    monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: tmp_path / "picked.wblk")
+    monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: tmp_path / "picked.rblk")
     monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: None)
     return tmp_path
 
@@ -398,7 +398,7 @@ def test_every_task_key_carries_the_clay_prefix(svc, tmp_path, no_dialogs) -> No
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
 
-    clay_mode.save_to(ctx, tab, tmp_path / "a.wblk")
+    clay_mode.save_to(ctx, tab, tmp_path / "a.rblk")
     clay_mode.save_as(ctx, tab)
     clay_mode.export_asset(ctx, tab)
     clay_mode.ask_open(ctx)
@@ -410,7 +410,7 @@ def test_every_task_key_carries_the_clay_prefix(svc, tmp_path, no_dialogs) -> No
 def test_a_cancelled_picker_leaves_the_tab_editable(svc, monkeypatch) -> None:
     """A dismissed dialog returns None, which is not a failure -- but it does
     have to clear ``saving``, or cancelling a Save As locks the tab."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: None)
     ctx = FakeCtx(svc)
@@ -427,7 +427,7 @@ def test_save_as_writes_through_the_picked_path(svc, no_dialogs) -> None:
 
     clay_mode.save_as(ctx, tab)
     clay_mode.on_task_done(ctx, _Done(f"clay-saveas:{tab.uid}", ctx.result))
-    assert (no_dialogs / "picked.wblk").exists()
+    assert (no_dialogs / "picked.rblk").exists()
     assert tab.title == "picked"
     assert tab.dirty is False
 
@@ -437,7 +437,7 @@ def test_save_as_leaves_a_readable_document_and_no_temporary_behind(
 ) -> None:
     """Staged like ``save_to``: the ``.tmp`` is an implementation detail that
     must not survive the write, and what lands is a document that reopens."""
-    from warlock.kernels.mesh import serialize
+    from realmspinner.kernels.mesh import serialize
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx, dirty=True)
@@ -445,8 +445,8 @@ def test_save_as_leaves_a_readable_document_and_no_temporary_behind(
     clay_mode.save_as(ctx, tab)
     clay_mode.on_task_done(ctx, _Done(f"clay-saveas:{tab.uid}", ctx.result))
 
-    written = no_dialogs / "picked.wblk"
-    doc = serialize.read_wblk(written.read_bytes())
+    written = no_dialogs / "picked.rblk"
+    doc = serialize.read_rblk(written.read_bytes())
     assert [obj.name for obj in doc.objects] == [obj.name for obj in tab.doc.objects]
     assert list(no_dialogs.glob("*.tmp")) == []
 
@@ -456,7 +456,7 @@ def test_a_save_as_that_dies_partway_leaves_the_old_file_intact(
 ) -> None:
     """The reason for staging: a picker aimed at an existing document is the
     ordinary way to overwrite one, and an unstaged failure truncates it."""
-    existing = no_dialogs / "picked.wblk"
+    existing = no_dialogs / "picked.rblk"
     existing.write_bytes(b"the document that was already there")
 
     def boom(_self: Path, _data: bytes) -> int:
@@ -477,7 +477,7 @@ def test_a_save_as_that_dies_partway_leaves_the_old_file_intact(
 def test_a_save_key_carries_the_tab_uid_so_the_result_finds_its_tab(svc, tmp_path) -> None:
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
-    clay_mode.save_to(ctx, tab, tmp_path / "a.wblk")
+    clay_mode.save_to(ctx, tab, tmp_path / "a.rblk")
     assert ctx.submitted[-1] == f"clay-save:{tab.uid}"
 
 
@@ -494,7 +494,7 @@ def test_a_result_for_an_unknown_tab_is_dropped_without_raising(svc) -> None:
 def test_exporting_mints_a_built_asset_and_stores_the_document_beside_it(svc) -> None:
     """The whole point of Clay: what comes out is an ordinary asset, so
     rigging, posing, sheets and every mesh export work on it unchanged."""
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
@@ -510,8 +510,8 @@ def test_exporting_mints_a_built_asset_and_stores_the_document_beside_it(svc) ->
 def test_the_mesh_is_written_before_the_document(svc, monkeypatch) -> None:
     """A crash between the two must leave the sidecar absent rather than lying
     about a mesh it did not produce."""
-    from warlock.service import files as svc_files
-    from warlock.service import jobs as svc_jobs
+    from realmspinner.service import files as svc_files
+    from realmspinner.service import jobs as svc_jobs
 
     order: list[str] = []
     real_import = svc_jobs.import_mesh
@@ -522,7 +522,7 @@ def test_the_mesh_is_written_before_the_document(svc, monkeypatch) -> None:
         return real_import(*args, **kwargs)
 
     def source(*args: Any, **kwargs: Any) -> Any:
-        order.append("build.wblk")
+        order.append("build.rblk")
         return real_source(*args, **kwargs)
 
     monkeypatch.setattr(svc_jobs, "import_mesh", mesh)
@@ -530,7 +530,7 @@ def test_the_mesh_is_written_before_the_document(svc, monkeypatch) -> None:
 
     ctx = FakeCtx(svc)
     clay_mode.export_asset(ctx, _tab(ctx))
-    assert order == ["model.glb", "build.wblk"]
+    assert order == ["model.glb", "build.rblk"]
 
 
 def test_exporting_an_empty_document_is_refused_before_a_job_exists(svc) -> None:
@@ -562,7 +562,7 @@ def test_export_to_library_button_names_why_it_is_disabled() -> None:
     document and a bool, so it is assertable without imgui -- panes cannot be
     driven headlessly, but the reason a button greys with now can be.
     """
-    from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -582,7 +582,7 @@ def test_export_to_library_button_names_why_it_is_disabled() -> None:
 def test_opening_a_saved_document_brings_its_objects_back(svc, tmp_path) -> None:
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
-    path = tmp_path / "scene.wblk"
+    path = tmp_path / "scene.rblk"
     _save(ctx, tab, path)
 
     fresh = FakeCtx(svc)
@@ -600,7 +600,7 @@ def test_opening_a_file_that_is_already_open_focuses_it(svc, tmp_path) -> None:
     """Two tabs over one path would race on save."""
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
-    path = tmp_path / "scene.wblk"
+    path = tmp_path / "scene.rblk"
     _save(ctx, tab, path)
 
     # Saving associates the tab with the path, so the tab that wrote the file
@@ -625,11 +625,11 @@ def test_opening_the_same_file_twice_through_the_file_picker_focuses_the_existin
     would race on save, and whichever saved last would silently overwrite
     the other's edits with no warning anything was lost (2026-09-12 audit,
     finding clay-02)."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
-    path = tmp_path / "scene.wblk"
+    path = tmp_path / "scene.rblk"
     _save(ctx, tab, path)
 
     other = _tab(ctx)
@@ -644,8 +644,8 @@ def test_opening_the_same_file_twice_through_the_file_picker_focuses_the_existin
 
 
 def test_a_file_that_will_not_open_is_reported_and_forgotten(svc, tmp_path) -> None:
-    bad = tmp_path / "broken.wblk"
-    bad.write_bytes(b"not a wblk")
+    bad = tmp_path / "broken.rblk"
+    bad.write_bytes(b"not a rblk")
     ctx = FakeCtx(svc)
     clay_mode.ensure(ctx)
     clay_mode.remember_path(ctx, bad)
@@ -668,11 +668,11 @@ def test_the_mode_state_is_built_lazily(svc) -> None:
 def test_recent_files_persist_through_the_settings_store(svc, tmp_path) -> None:
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
-    _save(ctx, tab, tmp_path / "scene.wblk")
+    _save(ctx, tab, tmp_path / "scene.rblk")
 
     # Through ``recents``, the one merged list, rather than a per-mode key:
     # four independent lists could not be merged into Home's Resume list at all.
-    assert str(tmp_path / "scene.wblk") in clay_mode.recent_paths(ctx)
+    assert str(tmp_path / "scene.rblk") in clay_mode.recent_paths(ctx)
 
 
 def test_tool_settings_belong_to_the_app_and_the_view_to_the_document(svc) -> None:
@@ -720,7 +720,7 @@ def test_closing_a_tab_activates_its_neighbour(svc) -> None:
 def test_paths_are_pathlib_objects_not_strings(svc, tmp_path) -> None:
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
-    _save(ctx, tab, tmp_path / "scene.wblk")
+    _save(ctx, tab, tmp_path / "scene.rblk")
     assert isinstance(tab.path, Path)
 
 
@@ -728,7 +728,7 @@ def test_paths_are_pathlib_objects_not_strings(svc, tmp_path) -> None:
 
 
 def _glb_bytes() -> bytes:
-    from warlock.kernels.geom3d import glbwrite
+    from realmspinner.kernels.geom3d import glbwrite
 
     doc = bd.ClayDoc()
     doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
@@ -757,8 +757,8 @@ def test_the_task_key_does_not_come_from_salted_hash(tmp_path: Path) -> None:
     """``hash(str(path))`` is salted per process and only 64 bits wide -- two
     different paths in one session could collide on ``abs()`` and drop the
     second open. sha1 is deterministic and the same across processes."""
-    a = tmp_path / "one.wblk"
-    b = tmp_path / "two.wblk"
+    a = tmp_path / "one.rblk"
+    b = tmp_path / "two.rblk"
 
     key_a = clay_mode._path_key(a)
     key_b = clay_mode._path_key(b)
@@ -813,13 +813,13 @@ def test_a_big_import_asks_before_adopting(tmp_path: Path) -> None:
 def test_editing_an_asset_prefers_the_authored_document_over_the_mesh(
     tmp_path: Path,
 ) -> None:
-    """The ``build.wblk`` sidecar was written and never read back until now.
+    """The ``build.rblk`` sidecar was written and never read back until now.
 
     It is the document the user authored -- objects, names, generator
     parameters -- and importing the GLB instead would hand them back a single
     frozen triangle soup of their own work.
     """
-    from warlock.kernels.mesh import serialize
+    from realmspinner.kernels.mesh import serialize
 
     job_dir = tmp_path / "0123456789ab"
     job_dir.mkdir(parents=True)
@@ -828,7 +828,7 @@ def test_editing_an_asset_prefers_the_authored_document_over_the_mesh(
     authored.objects.append(
         bd.Obj(uid=bd.new_uid(), name="Authored", mesh=bp.cone(), generator="cone")
     )
-    (job_dir / "build.wblk").write_bytes(serialize.wblk_bytes(authored))
+    (job_dir / "build.rblk").write_bytes(serialize.rblk_bytes(authored))
 
     ctx = FakeCtx(_ImportSvc(tmp_path))
     clay_mode.edit_asset_in_clay(ctx, {"id": "0123456789ab", "name": "Job One"})
@@ -870,7 +870,7 @@ def test_editing_an_asset_with_no_mesh_raises_rather_than_opening_nothing(
 def test_opening_a_document_records_where_clay_was_entered_from(svc, tmp_path) -> None:
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
-    path = tmp_path / "scene.wblk"
+    path = tmp_path / "scene.rblk"
     _save(ctx, tab, path)
 
     fresh = FakeCtx(svc)
@@ -932,7 +932,7 @@ def test_adopting_while_already_in_clay_keeps_the_escape_history(tmp_path: Path)
 def test_the_home_tile_mints_a_document_when_clay_is_empty() -> None:
     """The tile says "model something", so arriving with nothing open and no
     obvious way to begin is a dead end."""
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     ctx = FakeCtx()
     landing.start_clay(ctx)
@@ -946,7 +946,7 @@ def test_the_home_tile_mints_a_document_when_clay_is_empty() -> None:
 def test_the_home_tile_opens_nothing_over_work_already_there() -> None:
     """The other half of the contract Inker and Clay share: the documents *are*
     the work, so entering the mode must leave them exactly as they were."""
-    from warlock.studio.modes.home.ui.panes import landing
+    from realmspinner.studio.modes.home.ui.panes import landing
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -1005,7 +1005,7 @@ def _stray_vertex_box() -> Any:
     """A box plus a vertex no face uses: one finding, in vertex mode."""
     import numpy as np
 
-    from warlock.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh import mesh as bm
 
     box = bp.box()
     return bm.Mesh(
@@ -1018,7 +1018,7 @@ def _stray_vertex_box() -> Any:
 
 
 def test_a_stored_check_is_stale_the_moment_the_mesh_is_replaced() -> None:
-    from warlock.kernels.mesh import diagnose
+    from realmspinner.kernels.mesh import diagnose
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=_stray_vertex_box()))
@@ -1035,8 +1035,8 @@ def test_a_stored_check_is_stale_the_moment_the_mesh_is_replaced() -> None:
 
 
 def test_clicking_a_finding_selects_exactly_its_elements_in_its_own_mode() -> None:
-    from warlock.kernels.mesh import diagnose
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.kernels.mesh import diagnose
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=_stray_vertex_box()))
@@ -1061,8 +1061,8 @@ def test_a_finding_click_pushes_no_undo_step() -> None:
     A step here would move ``history.head`` and make a document ask to be saved
     because the user looked at a hole.
     """
-    from warlock.kernels.mesh import diagnose
-    from warlock.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.kernels.mesh import diagnose
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=_stray_vertex_box()))
@@ -1079,8 +1079,8 @@ def test_deleting_a_checked_object_drops_its_manifold_cache_entry() -> None:
     the whole ``Mesh`` (positions/loops/starts arrays) it measured alive,
     unreachable, for the rest of the tab's life.
     """
-    from warlock.kernels.mesh import diagnose
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.kernels.mesh import diagnose
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     keep = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -1101,8 +1101,8 @@ def test_merging_an_absorbed_object_drops_its_manifold_cache_entry() -> None:
     """clay-08's other two sites: ``join_objects`` also drops an object from
     ``doc.objects`` (the ones a merge or a union absorbs), outside a tab
     close, and the same cache leak applies."""
-    from warlock.kernels.mesh import diagnose
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.kernels.mesh import diagnose
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     doc = bd.ClayDoc()
     target = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -1132,9 +1132,9 @@ def test_outliner_trash_button_drops_the_deleted_objects_manifold_cache_entry() 
     menu's Delete item now call; this exercises it the way each of them does,
     with one object rather than the whole selection.
     """
-    from warlock.kernels.mesh import diagnose
-    from warlock.studio.modes.clay import mode as clay_mode
-    from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.kernels.mesh import diagnose
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 
     doc = bd.ClayDoc()
     keep = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -1159,7 +1159,7 @@ def test_outliner_trash_button_drops_the_deleted_objects_manifold_cache_entry() 
 
 
 def test_every_axis_view_key_names_a_view_the_camera_knows() -> None:
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.viewer.camera import Camera
 
     for name in clay_mode.AXIS_VIEW_KEYS.values():
         assert name in Camera.AXIS_VIEWS
@@ -1168,7 +1168,7 @@ def test_every_axis_view_key_names_a_view_the_camera_knows() -> None:
 def test_the_axis_views_point_along_the_axes_they_name() -> None:
     import numpy as np
 
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.viewer.camera import Camera
 
     camera = Camera()
     camera.set_target(np.zeros(3))
@@ -1186,7 +1186,7 @@ def test_an_axis_view_keeps_the_target_and_the_distance() -> None:
     model the user was about to line up."""
     import numpy as np
 
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.viewer.camera import Camera
 
     camera = Camera()
     camera.set_target(np.array([1.0, 2.0, 3.0]))
@@ -1197,7 +1197,7 @@ def test_an_axis_view_keeps_the_target_and_the_distance() -> None:
 
 
 def test_an_unknown_view_name_changes_nothing() -> None:
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.viewer.camera import Camera
 
     camera = Camera()
     before = (camera.theta, camera.phi)
@@ -1209,7 +1209,7 @@ def test_the_orthographic_projection_matches_the_perspective_one_at_the_target()
     """What makes the toggle a change of projection rather than a jump cut."""
     import numpy as np
 
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.viewer.camera import Camera
 
     camera = Camera(aspect=1.6)
     camera.distance = 5.0
@@ -1230,7 +1230,7 @@ def test_the_orthographic_projection_matches_the_perspective_one_at_the_target()
 def test_the_camera_is_perspective_unless_something_asks_otherwise() -> None:
     """The asset viewer shows what an engine will show, and an engine uses a
     perspective camera."""
-    from warlock.studio.viewer.camera import Camera
+    from realmspinner.studio.viewer.camera import Camera
 
     assert Camera().orthographic is False
 
@@ -1381,7 +1381,7 @@ def test_g_and_s_start_a_keyboard_drag(svc) -> None:
 
     import pygame
 
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     started: list[str] = []
     ctx = FakeCtx(svc)
@@ -1402,7 +1402,7 @@ def test_a_keyboard_drag_is_refused_while_the_document_is_saving(svc) -> None:
 
     import pygame
 
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     started: list[str] = []
     ctx = FakeCtx(svc)
@@ -1425,7 +1425,7 @@ def test_the_registry_keeps_a_letter_a_drag_would_otherwise_take(svc) -> None:
     rather than starting a drag."""
     import inspect
 
-    from warlock.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     source = inspect.getsource(clay_mode.handle_key)
     assert source.index("_registry_key(") < source.index("_keyboard_drag(")
@@ -1448,7 +1448,7 @@ def test_a_bare_1_typed_during_a_camera_orbit_still_switches_element_mode(
     """
     import pygame
 
-    from warlock.studio.modes.clay.ui import view as clay_view
+    from realmspinner.studio.modes.clay.ui import view as clay_view
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
@@ -1469,7 +1469,7 @@ def test_ctrl_z_is_not_blocked_during_a_camera_orbit(svc, gl) -> None:
     a live drag" for as long as the user was merely orbiting the camera."""
     import pygame
 
-    from warlock.studio.modes.clay.ui import view as clay_view
+    from realmspinner.studio.modes.clay.ui import view as clay_view
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
@@ -1549,9 +1549,9 @@ def test_framing_a_small_document_does_not_shrink_the_grid(gl) -> None:
     """The bug ``grid_size`` exists to fix: before Task A, ``F`` re-fit the
     grid to whatever was just framed, so a 100 m grid vanished into a 1 m
     prop's footprint the moment you pressed it."""
-    from warlock.kernels.mesh import document as bd
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.modes.clay.ui import view as clay_view
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.modes.clay.ui import view as clay_view
 
     view = clay_view.ClayView(gl, None)
     try:

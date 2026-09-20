@@ -12,10 +12,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.geom3d.gltf import Material
-from warlock.studio.modes.mason.engine import ops
-from warlock.studio.modes.mason.engine import terrain as T
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.geom3d.gltf import Material
+from realmspinner.studio.modes.mason.engine import ops
+from realmspinner.studio.modes.mason.engine import terrain as T
 
 
 def _base(translation=(0.0, 0.0, 0.0), rotation=None, scale=(1.0, 1.0, 1.0)) -> ops.TRS:

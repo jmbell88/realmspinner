@@ -23,12 +23,12 @@ import json
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.modes.mason.engine import document as doc
-from warlock.studio.modes.mason.engine import gltfout, manifest, refs, scene
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import terrain as tr
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.studio.modes.mason.engine import document as doc
+from realmspinner.studio.modes.mason.engine import gltfout, manifest, refs, scene
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import terrain as tr
 
 
 def _prim() -> gltf.Primitive:
@@ -146,7 +146,7 @@ def test_the_file_says_what_format_it_is_and_which_geometry_it_describes():
     """A sidecar with no name in it can only be identified by guessing, and one
     that does not name its GLB is one an import script has to be told about."""
     entry = _manifest(doc.MasonDoc())
-    assert entry["format"] == "warlock-mason-scene"
+    assert entry["format"] == "realmspinner-mason-scene"
     assert entry["format_version"] == manifest.VERSION
     assert entry["geometry"] == "scene.glb"
 

@@ -14,13 +14,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock import poselib
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.geom3d.gltf import Model, Node
-from warlock.studio.viewer import bonelines
-from warlock.studio.viewer.camera import Camera
-from warlock.studio.viewer.pose import PoseEditor
-from warlock.studio.viewer_embed import Viewer
+from realmspinner import poselib
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.geom3d.gltf import Model, Node
+from realmspinner.studio.viewer import bonelines
+from realmspinner.studio.viewer.camera import Camera
+from realmspinner.studio.viewer.pose import PoseEditor
+from realmspinner.studio.viewer_embed import Viewer
 
 BONES = ["hips", "spine", "arm.L", "arm.R"]
 
@@ -107,7 +107,7 @@ def test_the_token_can_never_be_a_job_id():
     """pose_job_id carries 'poser:<template>' in the authoring session --
     belt-and-braces under the separate Viewer instance, because a 12-hex job
     id can never contain a colon."""
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     assert not store.is_valid_id("poser:humanoid")
 
@@ -330,7 +330,7 @@ def test_ghost_handles_never_move_the_live_model():
     """The whole reason it is a pure walk: this runs every frame of a gizmo
     drag, and posing the model to read it would drag the live markers to the
     ghost's positions and back between the read and the draw."""
-    from warlock.studio.viewer.pose import ghost_handles
+    from realmspinner.studio.viewer.pose import ghost_handles
 
     model = _armature_model()
     editor = PoseEditor()
@@ -397,7 +397,7 @@ def test_a_ghost_puts_unnamed_bones_at_rest_not_at_the_live_pose():
     ``apply_preset`` would show -- everything else back at rest. Reading the
     live pose for the rest would make the ghost a blend of two poses that
     exists nowhere in the clip."""
-    from warlock.studio.viewer.pose import ghost_handles
+    from realmspinner.studio.viewer.pose import ghost_handles
 
     model = _armature_model()
     editor = PoseEditor()

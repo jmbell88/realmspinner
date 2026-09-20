@@ -7,7 +7,7 @@ restating rules the flat stack already had.
 group; a group is a *state* its descendants inherit, so the same six numbers --
 offset, parallax, opacity, visibility, tint, lock -- have to combine the same
 way for every consumer or the canvas and an export start disagreeing about what
-a nested layer looks like. :mod:`warlock.studio.modes.plotter.engine.scene` is that one
+a nested layer looks like. :mod:`realmspinner.studio.modes.plotter.engine.scene` is that one
 answer and both renderers iterate it.
 
 **A uid still addresses.** The whole point of never recording an index is that
@@ -27,10 +27,10 @@ import dataclasses
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter.engine import scene
-from warlock.studio.modes.plotter.engine.tilemap import (
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter.engine import scene
+from realmspinner.studio.modes.plotter.engine.tilemap import (
     GroupLayer,
     ImageLayer,
     MapDoc,
@@ -373,7 +373,7 @@ def test_a_resolved_state_is_frozen():
 
 
 def test_a_group_opacity_reaches_the_flat_render():
-    from warlock.studio.modes.plotter.engine import render as plotter_render
+    from realmspinner.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     group = doc.add_group_layer("G")
@@ -387,7 +387,7 @@ def test_a_group_opacity_reaches_the_flat_render():
 
 
 def test_a_hidden_group_hides_its_children_from_the_export_and_the_minimap():
-    from warlock.studio.modes.plotter.engine import render as plotter_render
+    from realmspinner.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     group = doc.add_group_layer("G")
@@ -401,7 +401,7 @@ def test_a_hidden_group_hides_its_children_from_the_export_and_the_minimap():
 
 
 def test_a_layer_offset_moves_what_the_flat_render_draws():
-    from warlock.studio.modes.plotter.engine import render as plotter_render
+    from realmspinner.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     layer = doc.add_tile_layer("t")
@@ -413,7 +413,7 @@ def test_a_layer_offset_moves_what_the_flat_render_draws():
 
 
 def test_an_image_layer_composites_into_the_flat_render():
-    from warlock.studio.modes.plotter.engine import render as plotter_render
+    from realmspinner.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     doc.add_image_layer("sky", pixels=_picture(8, 8))
@@ -424,7 +424,7 @@ def test_an_image_layer_composites_into_the_flat_render():
 
 
 def test_a_repeating_image_layer_fills_the_map():
-    from warlock.studio.modes.plotter.engine import render as plotter_render
+    from realmspinner.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     doc.add_image_layer("sky", pixels=_picture(8, 8), repeat_x=True, repeat_y=True)
@@ -433,7 +433,7 @@ def test_a_repeating_image_layer_fills_the_map():
 
 
 def test_a_layer_tint_multiplies_the_flat_render():
-    from warlock.studio.modes.plotter.engine import render as plotter_render
+    from realmspinner.studio.modes.plotter.engine import render as plotter_render
 
     doc = _doc()
     doc.add_image_layer("sky", pixels=_picture(4, 4), tint=(128, 255, 255, 255))
@@ -444,32 +444,32 @@ def test_a_layer_tint_multiplies_the_flat_render():
 # --- the writer doors ---------------------------------------------------------
 
 
-def test_a_wmap_of_a_document_holding_a_group_stores_the_tree():
-    """Flipped. This was a ``WmapUnstorable`` while the manifest's ``layers``
+def test_a_rmap_of_a_document_holding_a_group_stores_the_tree():
+    """Flipped. This was a ``RmapUnstorable`` while the manifest's ``layers``
     was a flat list; version 3's entries are recursive, so the refusal moved
     for the only reason a refusal here is ever allowed to move -- the format
     learned to hold the thing."""
-    from warlock.studio.modes.plotter.engine import wmap
+    from realmspinner.studio.modes.plotter.engine import rmap
 
     doc = _doc()
     group = doc.add_group_layer("G")
     doc.add_tile_layer("t", parent_uid=group.uid)
-    back = wmap.read_wmap(wmap.wmap_bytes(doc))
+    back = rmap.read_rmap(rmap.rmap_bytes(doc))
     outer = back.layers[-1]
     assert outer.name == "G"
     assert [child.name for child in outer.children] == ["t"]
 
 
-def test_a_wmap_of_a_document_holding_an_image_layer_stores_the_picture():
+def test_a_rmap_of_a_document_holding_an_image_layer_stores_the_picture():
     """Flipped, with the group case above: the pixels are an ``images/N.png``
     member now, embedded the way a tileset's atlas already was."""
     import numpy as np
 
-    from warlock.studio.modes.plotter.engine import wmap
+    from realmspinner.studio.modes.plotter.engine import rmap
 
     doc = _doc()
     doc.add_image_layer("sky", pixels=_picture(), source="art/sky.png", repeat_x=True)
-    back = wmap.read_wmap(wmap.wmap_bytes(doc))
+    back = rmap.read_rmap(rmap.rmap_bytes(doc))
     sky = back.layers[-1]
     assert (sky.name, sky.source, sky.repeat_x, sky.repeat_y) == (
         "sky", "art/sky.png", True, False
@@ -477,7 +477,7 @@ def test_a_wmap_of_a_document_holding_an_image_layer_stores_the_picture():
     assert np.array_equal(sky.pixels, _picture())
 
 
-def test_the_wmap_writer_door_has_a_name_of_its_own():
+def test_the_rmap_writer_door_has_a_name_of_its_own():
     """The door outlives the four refusals it was built for. Version 3 stores
     the tree, the pictures and the decorations, so nothing in an ordinary
     document reaches this any more -- but a refusal the save path can catch *by
@@ -488,54 +488,54 @@ def test_the_wmap_writer_door_has_a_name_of_its_own():
     future layer type can reach -- so it is provoked with one, and a bare
     object is enough precisely because the writer decides the kind *before* it
     asks a layer for anything."""
-    from warlock.studio.modes.plotter.engine import wmap
+    from realmspinner.studio.modes.plotter.engine import rmap
 
-    assert issubclass(wmap.WmapUnstorable, ValueError)
+    assert issubclass(rmap.RmapUnstorable, ValueError)
 
     class FutureLayer:
         """A fifth layer kind, arriving before the container can hold it."""
 
     doc = _doc()
     doc.layers.append(FutureLayer())
-    with pytest.raises(wmap.WmapUnstorable, match="no entry for"):
-        wmap.wmap_bytes(doc)
+    with pytest.raises(rmap.RmapUnstorable, match="no entry for"):
+        rmap.rmap_bytes(doc)
 
 
-def test_the_wmap_door_is_the_encoder_rather_than_the_json_formatter():
+def test_the_rmap_door_is_the_encoder_rather_than_the_json_formatter():
     """Flipped from "the refusal came before the manifest was built" to its
     other half: with nothing left to refuse for a document like this, the
     encoder now reaches the formatter -- and the formatter is where the one
-    remaining refusal lives, which is why ``wmap_bytes`` still builds the whole
+    remaining refusal lives, which is why ``rmap_bytes`` still builds the whole
     manifest *before* it opens the archive. A refusal raised inside the ``with``
     would leave a half-written zip behind it."""
-    import warlock.studio.modes.plotter.engine.wmap as wmap
+    import realmspinner.studio.modes.plotter.engine.rmap as rmap
 
     doc = _doc()
     doc.add_group_layer("G")
     called: list[int] = []
-    original = wmap.manifest_json
+    original = rmap.manifest_json
     try:
-        wmap.manifest_json = lambda d: called.append(1) or original(d)  # type: ignore[assignment]
-        assert wmap.wmap_bytes(doc)
+        rmap.manifest_json = lambda d: called.append(1) or original(d)  # type: ignore[assignment]
+        assert rmap.rmap_bytes(doc)
     finally:
-        wmap.manifest_json = original
+        rmap.manifest_json = original
     assert called == [1], "the encoder formats through the one manifest writer"
 
 
-def test_a_flat_document_still_writes_a_wmap():
-    from warlock.studio.modes.plotter.engine import wmap
+def test_a_flat_document_still_writes_a_rmap():
+    from realmspinner.studio.modes.plotter.engine import rmap
 
     doc = _doc()
     doc.add_tile_layer("t")
     doc.add_object_layer("o")
-    assert wmap.read_wmap(wmap.wmap_bytes(doc)).width == doc.width
+    assert rmap.read_rmap(rmap.rmap_bytes(doc)).width == doc.width
 
 
 def test_groups_and_image_layers_are_written_to_both_tiled_formats():
     import json
     import xml.etree.ElementTree as ET
 
-    from warlock.studio.modes.plotter.engine import tmx
+    from realmspinner.studio.modes.plotter.engine import tmx
 
     doc = _doc()
     group = doc.add_group_layer("G")
@@ -565,7 +565,7 @@ def test_decorated_layers_are_written_to_both_tiled_formats(values, xml_attr, js
     import json
     import xml.etree.ElementTree as ET
 
-    from warlock.studio.modes.plotter.engine import tmx
+    from realmspinner.studio.modes.plotter.engine import tmx
 
     doc = _doc()
     layer = doc.add_tile_layer("t")
@@ -585,17 +585,17 @@ def test_decorated_layers_are_written_to_both_tiled_formats(values, xml_attr, js
         {"class_name": "Ground"},
     ],
 )
-def test_a_wmap_of_a_decorated_layer_round_trips_since_v3(values):
+def test_a_rmap_of_a_decorated_layer_round_trips_since_v3(values):
     """Flipped from ``..._is_refused_until_v3``. Version 3 is the "until", and
     the four decorations the ``.tmx`` door still refuses by name are stored
     here field for field -- which is what makes the *other* door's message
-    honest, since ".wmap holds it, Tiled cannot" is now a true sentence."""
-    from warlock.studio.modes.plotter.engine import wmap
+    honest, since ".rmap holds it, Tiled cannot" is now a true sentence."""
+    from realmspinner.studio.modes.plotter.engine import rmap
 
     doc = _doc()
     layer = doc.add_tile_layer("t")
     doc.set_layer_props(layer.uid, **values)
-    back = wmap.read_wmap(wmap.wmap_bytes(doc))
+    back = rmap.read_rmap(rmap.rmap_bytes(doc))
     stored = back.layers[-1]
     for name, value in values.items():
         assert getattr(stored, name) == value
@@ -604,12 +604,12 @@ def test_a_wmap_of_a_decorated_layer_round_trips_since_v3(values):
 def test_an_undecorated_document_is_not_caught_by_either_door():
     """The guard that keeps the four refusals above from being a size limit on
     every map: identity values are not decorations."""
-    from warlock.studio.modes.plotter.engine import tmx, wmap
+    from realmspinner.studio.modes.plotter.engine import rmap, tmx
 
     doc = _doc()
     doc.add_tile_layer("t")
     doc.add_object_layer("o")
-    assert wmap.wmap_bytes(doc)
+    assert rmap.rmap_bytes(doc)
     assert tmx.tmx_export(doc)
     assert tmx.tmj_export(doc)
 
@@ -635,7 +635,7 @@ def test_a_nested_tile_layer_is_resized_with_the_rest():
 
 
 def test_the_layer_kinds_are_all_in_the_union():
-    from warlock.studio.modes.plotter.engine import _map_model
+    from realmspinner.studio.modes.plotter.engine import _map_model
 
     assert set(_map_model.LEAF_LAYERS) == {TileLayer, ObjectLayer, ImageLayer}
     assert GroupLayer not in _map_model.LEAF_LAYERS

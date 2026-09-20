@@ -14,8 +14,8 @@ from typing import Any
 
 import pytest
 
-from warlock.studio.modes.sirens import mode as sirens_mode
-from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
+from realmspinner.studio.modes.sirens import mode as sirens_mode
+from realmspinner.studio.modes.sirens.ui.panes import instruments as sirens_instruments
 
 from .test_sirens_mode import FakeCtx, _tab
 
@@ -30,7 +30,7 @@ def frame():
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import theme
+    from realmspinner.studio import theme
 
     previous = imgui.get_current_context()
     ctx = imgui.create_context()
@@ -61,7 +61,7 @@ def frame():
 
 @pytest.fixture(autouse=True)
 def _no_device(monkeypatch):
-    from warlock.studio.modes.sirens import audio as sirens_audio
+    from realmspinner.studio.modes.sirens import audio as sirens_audio
 
     monkeypatch.setattr(sirens_audio, "available", lambda: False)
     monkeypatch.setattr(sirens_audio, "playing", lambda: False)

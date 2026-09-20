@@ -18,17 +18,17 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock import models
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.kernels import sheet as sheetlib
-from warlock.kernels.rig import blender_spec
-from warlock.kernels.rig import store as rig_store
-from warlock.pipelines import blender_run
-from warlock.queue import Worker
-from warlock.service import Conflict, Invalid, NotFound
-from warlock.service import jobs as svc_jobs
-from warlock.service import sheets as svc_sheets
+from realmspinner import models
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.kernels.rig import blender_spec
+from realmspinner.kernels.rig import store as rig_store
+from realmspinner.pipelines import blender_run
+from realmspinner.queue import Worker
+from realmspinner.service import Conflict, Invalid, NotFound
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import sheets as svc_sheets
 
 IDENTITY = [0.0, 0.0, 0.0, 1.0]
 
@@ -825,7 +825,7 @@ async def test_a_sheets_atlas_is_packed_to_a_staging_name(worker, monkeypatch):
     serves the atlas until its own sidecar exists -- which is true of the first
     run and of no other.
     """
-    import warlock._q_rig as q_rig
+    import realmspinner._q_rig as q_rig
 
     _fake_render(monkeypatch)
     source = _source_job(worker, rigged=True)
@@ -908,7 +908,7 @@ async def test_cancelling_a_sheet_stops_before_the_render_it_has_not_started(
     """
     import threading
 
-    from warlock.kernels.rig import store as rig_store
+    from realmspinner.kernels.rig import store as rig_store
 
     hold = threading.Event()
     registered = threading.Event()
@@ -1029,7 +1029,7 @@ async def test_a_clip_whose_pose_was_deleted_fails_the_job(worker, monkeypatch):
 
 
 def test_root_offsets_key_on_pose_and_frame_and_scale_through_the_rig():
-    from warlock.queue import _sheet_root_offsets
+    from realmspinner.queue import _sheet_root_offsets
 
     records = [
         {"id": "a" * 12, "frame": 0, "bones": {}, "root_translation": [0.0, 0.1, 0.5]},
@@ -1051,7 +1051,7 @@ def test_a_rig_that_cannot_scale_an_offset_warns_and_costs_only_the_offset(caplo
     """The sheet path used to drop the offset silently where the pose's own
     bake (service.rig._pose_bake_spec) warned -- same case, same sentence now,
     matched by hand because queue may not import service."""
-    from warlock.queue import _sheet_root_offsets
+    from realmspinner.queue import _sheet_root_offsets
 
     records = [{"id": "c" * 12, "bones": {}, "root_translation": [0.0, 0.0, 0.5]}]
     for rig_meta in (None, {}, {"bounds": {"min": [0] * 3, "max": [1] * 3}}):
@@ -1068,7 +1068,7 @@ def test_a_rig_that_cannot_scale_an_offset_warns_and_costs_only_the_offset(caplo
 def test_records_without_offsets_build_nothing_and_warn_about_nothing(caplog):
     """A zero offset is "no offset" -- pose_spec's rule -- so every
     pre-existing cell dict stays byte-identical and the log stays quiet."""
-    from warlock.queue import _sheet_root_offsets
+    from realmspinner.queue import _sheet_root_offsets
 
     records = [
         {"id": "a" * 12, "bones": {}},
@@ -1214,7 +1214,7 @@ class _FakeBpySheet:
 
 def _fake_sheet_render(monkeypatch, objects):
     """Point ``op_sheet`` at a fake scene. -> ``(bpy, cameras)``."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy = _FakeBpySheet(objects)
     cameras = []
@@ -1274,7 +1274,7 @@ def test_union_framing_never_clips_the_attack_apex(tmp_path, monkeypatch):
     the property an engine placing a sprite by it depends on and the reason the
     union is not simply re-centred on itself.
     """
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     apex = (-0.3, -0.2, 0.0), (0.3, 0.2, 3.2)
     rig = _FakeArmature()
@@ -1316,7 +1316,7 @@ def test_a_rest_only_sheet_frames_exactly_as_before(tmp_path, monkeypatch):
     which is only safe while a sheet with nothing to union comes out exactly as
     it did. This is that arithmetic, spelled the way op_sheet used to spell it.
     """
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     rig = _FakeArmature()
     mesh = _FakeMesh(rig, REST_BOX)
@@ -1335,7 +1335,7 @@ def test_a_rest_only_sheet_frames_exactly_as_before(tmp_path, monkeypatch):
 def test_the_margin_key_is_read_only_when_written(tmp_path, monkeypatch):
     """``margin`` has one writer -- the reframe retry -- so a spec without it
     must take ``sheet.FRAME_MARGIN`` and nothing else."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     cells = [{"index": 0, "yaw": 0.0, "pose": None, "frame": 0, "bones": {}}]
     extents = []
@@ -1352,7 +1352,7 @@ def test_sockets_are_projected_per_cell_with_a_depth_order(tmp_path, monkeypatch
     whether it is in front of or behind the body -- a flame at the far hand is
     drawn under the character and one at the near hand over it. Projected per
     cell because both the pose and the yaw move it."""
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     hand = _FakePoseBone(
         ((1.0, 0.0, 0.0, 0.4), (0.0, 1.0, 0.0, -0.5), (0.0, 0.0, 1.0, 1.2), (0.0, 0.0, 0.0, 1.0)),
@@ -1422,7 +1422,7 @@ def test_a_rendered_sheet_actually_contains_eight_distinct_views(tmp_path, light
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     # Deliberately lopsided, so a camera that failed to turn would show up as
     # eight identical cells rather than eight plausible ones.
@@ -1471,7 +1471,7 @@ def test_a_rigged_subject_is_framed_by_its_own_size(tmp_path):
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)
@@ -1516,7 +1516,7 @@ def test_the_reported_pivot_sits_at_the_subjects_feet_in_every_direction(tmp_pat
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)

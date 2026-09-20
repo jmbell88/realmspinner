@@ -27,11 +27,11 @@ import time
 import pytest
 from PIL import Image
 
-from warlock import models
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.pipelines import tileatlas, tilemask, tilesheet
-from warlock.queue import Worker
+from realmspinner import models
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.pipelines import tileatlas, tilemask, tilesheet
+from realmspinner.queue import Worker
 
 
 @pytest.fixture
@@ -608,8 +608,8 @@ async def test_a_view_that_cannot_tile_costs_no_generation(worker):
 async def test_a_cancel_before_the_third_pass_publishes_nothing(worker, monkeypatch):
     """The cancel check sits before each pass and not only after the last:
     every one is ~20 s of GPU a cancelled job should not spend."""
-    import warlock.pipelines.t2i_client as t2i_client_mod
-    import warlock.pipelines.text2image as text2image_mod
+    import realmspinner.pipelines.t2i_client as t2i_client_mod
+    import realmspinner.pipelines.text2image as text2image_mod
 
     # Read back off the module the ``fake_pipelines`` fixture already patched,
     # rather than imported from ``tests.conftest`` -- conftest is loaded as a
@@ -728,7 +728,7 @@ def _reduced_materials(worker, job_id, geom):
 async def test_a_default_materials_atlas_is_the_median_cut_it_always_was(worker):
     import numpy as np
 
-    from warlock.pipelines.pixelsheet import quantize_shared
+    from realmspinner.pipelines.pixelsheet import quantize_shared
 
     job_id = _materials_job(worker, tile_w=32, colors=16)
     await _run(worker, job_id)
@@ -743,7 +743,7 @@ async def test_a_default_materials_atlas_is_the_median_cut_it_always_was(worker)
 async def test_a_default_terrain_set_is_the_median_cut_it_always_was(worker):
     import numpy as np
 
-    from warlock.pipelines.pixelsheet import quantize_shared
+    from realmspinner.pipelines.pixelsheet import quantize_shared
 
     job_id = _terrain_job(worker, tile_w=32, colors=16)
     await _run(worker, job_id)
@@ -815,7 +815,7 @@ async def test_a_designed_palette_covers_all_forty_seven_terrain_cells(worker, p
 async def test_the_recipe_names_the_palette_file_and_a_digest_of_its_colours(
     worker, paldir
 ):
-    from warlock.pipelines import pixel
+    from realmspinner.pipelines import pixel
 
     _write_quad(paldir)
     job_id = _materials_job(worker, palette="quad", dither=True)

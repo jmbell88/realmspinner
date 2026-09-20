@@ -30,12 +30,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Run inside the clean venv, from a directory that is not the checkout, so
-# `import warlock` cannot resolve to `src/` by accident.
+# `import realmspinner` cannot resolve to `src/` by accident.
 SMOKE = """
-import warlock, warlock.models, warlock.doctor, warlock.changelog
-from warlock.studio import modes
+import realmspinner, realmspinner.models, realmspinner.doctor, realmspinner.changelog
+from realmspinner.studio import modes
 
-assert warlock.models.BASE_MODELS, 'the registry is empty'
+assert realmspinner.models.BASE_MODELS, 'the registry is empty'
 # ``modes`` is imported to prove it *loads* from a wheel, not to count it. A
 # literal here is a number no test can keep in sync: it said 11 against a
 # twelve-mode tree, so this step could only ever fail once anything reached
@@ -45,8 +45,8 @@ assert modes.KEYS, 'the rail is empty'
 # The two force-includes, which are exactly what a wheel drops silently: the
 # manual tree and the changelog.
 from importlib.resources import files
-assert files('warlock').joinpath('CHANGELOG.md').is_file()
-assert files('warlock').joinpath('manual/00-index.md').is_file()
+assert files('realmspinner').joinpath('CHANGELOG.md').is_file()
+assert files('realmspinner').joinpath('manual/00-index.md').is_file()
 print('wheel import smoke test passed')
 """
 
@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
 
     venv = args.venv
     # A venv carrying a previous release is not a clean venv: `uv pip install`
-    # would leave the older warlock's files behind wherever the new wheel does
+    # would leave the older realmspinner's files behind wherever the new wheel does
     # not overwrite them, which is precisely the missing-file case this tests.
     if venv.exists():
         shutil.rmtree(venv)

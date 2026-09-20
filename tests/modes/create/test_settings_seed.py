@@ -29,8 +29,8 @@ from pathlib import Path
 import pytest
 from _panes import pane_files
 
-from warlock.service.errors import Invalid
-from warlock.service.validation import MAX_SEED, check_seed
+from realmspinner.service.errors import Invalid
+from realmspinner.service.validation import MAX_SEED, check_seed
 
 
 def _source(rel: str) -> str:
@@ -41,7 +41,7 @@ def _source(rel: str) -> str:
     name = Path(rel).name
     if name in pane_files():
         return pane_files()[name].read_text(encoding="utf-8")
-    from warlock import studio
+    from realmspinner import studio
 
     return (Path(studio.__file__).parent / rel).read_text(encoding="utf-8")
 
@@ -72,7 +72,7 @@ def test_a_malformed_seed_from_a_settings_file_still_rings_the_seed_control():
     seed row must ring their own control and clear the ring on edit, the same
     contract every other refusable control on these panes already keeps
     (``tests/test_field_error_wiring.py``)."""
-    from warlock.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
 
     seed_row_src = inspect.getsource(settings_2d._seed_row)
     assert 'field_error(ctx.state, "seed")' in seed_row_src, (

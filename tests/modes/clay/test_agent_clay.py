@@ -11,7 +11,7 @@ its way in with nobody touching this file. So each pair is pinned twice: once
 as a set equality (today's registry vs. today's enum) and once as a live gate
 -- monkeypatch a new entry into the registry and assert it shows up in
 ``tools()`` with no code here changed at all. That second half is what makes
-this a gate rather than a snapshot; see ``.claude/skills/warlock-sweep/
+this a gate rather than a snapshot; see ``.claude/skills/realmspinner-sweep/
 references/gate-patterns.md``. ``clay_batch``'s own name enum gets the same
 treatment against ``_HANDLERS`` minus ``BATCH_EXCLUDED``.
 
@@ -23,7 +23,7 @@ every document-scoped tool refuses on a session whose tab is gone (the four
 reference tools are per-session and hold no document, so they are exempt --
 see ``_SESSION_ONLY``), and a uid that belongs to a *different* tab is refused
 rather than acted on, with that other document provably untouched (a
-byte-for-byte comparison of ``serialize.wblk_bytes``, which is deterministic
+byte-for-byte comparison of ``serialize.rblk_bytes``, which is deterministic
 by construction -- see that module's docstring).
 
 **Everyday behaviour**: one tool call is one undo step (with the two
@@ -64,7 +64,7 @@ try next, pinned bidirectionally by
 ``test_every_recovery_a_refusal_names_is_in_the_vocabulary`` the same way the
 derivation gate above is -- every value a refusal actually produces is a
 vocabulary member, and every vocabulary member is findable somewhere in
-``src/warlock/``. A refusal whose recovery is not known carries no
+``src/realmspinner/``. A refusal whose recovery is not known carries no
 ``recovery`` key at all, which is a real, distinct answer rather than an
 omission.
 
@@ -116,16 +116,16 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import modifiers as clay_modifiers
-from warlock.kernels.mesh import presets, serialize
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay import ops as clay_ops
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
-from warlock.studio.modes.clay.agent import schema as agent_clay_schema
-from warlock.studio.modes.clay.ui.panes import tools as pane_clay_tools
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import modifiers as clay_modifiers
+from realmspinner.kernels.mesh import presets, serialize
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay import ops as clay_ops
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.studio.modes.clay.agent import schema as agent_clay_schema
+from realmspinner.studio.modes.clay.ui.panes import tools as pane_clay_tools
 
 # --- a ctx double, no imgui, no GL, no pygame --------------------------------
 
@@ -465,7 +465,7 @@ def test_an_array_of_arrays_param_survives_the_agent_door_for_any_generator(
 
 
 def test_every_element_mode_is_a_clay_element_mode_enum_option_and_vice_versa() -> None:
-    from warlock.kernels.mesh import elements as clay_elements
+    from realmspinner.kernels.mesh import elements as clay_elements
 
     tools = {t.name: t for t in agent_clay.tools()}
     enum = set(tools["clay_element_mode"].schema["properties"]["mode"]["enum"])
@@ -473,7 +473,7 @@ def test_every_element_mode_is_a_clay_element_mode_enum_option_and_vice_versa() 
 
 
 def test_every_query_name_is_a_clay_select_by_enum_option_and_vice_versa() -> None:
-    from warlock.kernels.mesh import select as clay_select_mod
+    from realmspinner.kernels.mesh import select as clay_select_mod
 
     tools = {t.name: t for t in agent_clay.tools()}
     enum = set(tools["clay_select_by"].schema["properties"]["query"]["enum"])
@@ -487,8 +487,8 @@ def test_a_seventh_query_reaches_the_agent_surface_with_no_edit_here(
     tests above, for the fourth derived registry: monkeypatch a new entry
     into ``select.QUERIES``, restored automatically, and assert it shows up
     in ``clay_select_by``'s own enum with no code here touched at all."""
-    from warlock.kernels.mesh import elements as clay_elements
-    from warlock.kernels.mesh import select as clay_select_mod
+    from realmspinner.kernels.mesh import elements as clay_elements
+    from realmspinner.kernels.mesh import select as clay_select_mod
 
     fake = clay_select_mod.Query(
         name="seventh",
@@ -508,7 +508,7 @@ def test_every_query_argument_name_has_a_schema_fragment_and_vice_versa() -> Non
     place that vocabulary is spelled out, and this gate is what stops a query
     growing an argument nobody here can express, or an entry here nothing
     asks for any more."""
-    from warlock.kernels.mesh import select as clay_select_mod
+    from realmspinner.kernels.mesh import select as clay_select_mod
 
     all_args = {a for q in clay_select_mod.QUERIES.values() for a in q.args}
     assert all_args == set(agent_clay._QUERY_ARG_SCHEMAS)
@@ -934,7 +934,7 @@ def test_an_object_uid_in_the_users_tab_is_refused_and_that_document_is_untouche
     ctx = _Ctx()
     user_tab = clay_mode.new_document(ctx)
     user_obj = pane_clay_tools.add_primitive(ctx, user_tab.doc, "box")
-    before = serialize.wblk_bytes(user_tab.doc)
+    before = serialize.rblk_bytes(user_tab.doc)
 
     session = agent_clay.Session()
     _new_agent_tab(ctx, session)
@@ -945,7 +945,7 @@ def test_an_object_uid_in_the_users_tab_is_refused_and_that_document_is_untouche
     )
     assert result["isError"] is True
 
-    after = serialize.wblk_bytes(user_tab.doc)
+    after = serialize.rblk_bytes(user_tab.doc)
     assert after == before
 
 
@@ -1616,7 +1616,7 @@ def test_call_never_raises_on_a_non_dict_arguments(arguments: object) -> None:
 
 def test_clay_export_end_to_end_mints_a_finished_model_row_with_its_source_sidecar(svc) -> None:
     """Mirrors ``tests/modes/clay/test_clay_service.py``'s own shape for ``import_mesh``."""
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     ctx = _Ctx(svc=svc)
     session = agent_clay.Session()
@@ -1744,7 +1744,7 @@ def test_clay_scene_is_refused_rather_than_oversized_past_max_frame(
     already uses). Fails against the unfixed ``_h_scene``, which never checks
     ``MAX_FRAME`` at all and would answer ``isError: False`` here.
     """
-    from warlock.mcp import rpc
+    from realmspinner.mcp import rpc
 
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -1763,7 +1763,7 @@ def test_clay_diagnose_whole_document_is_refused_rather_than_oversized_past_max_
     whose reply also grows with the document's own object count. Fails
     against the unfixed ``_h_diagnose``, which never checks ``MAX_FRAME`` at
     all and would answer ``isError: False`` here."""
-    from warlock.mcp import rpc
+    from realmspinner.mcp import rpc
 
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -2310,7 +2310,7 @@ def test_clay_batch_that_starts_with_an_add_mints_the_sessions_first_document() 
 # an agent that would rather the partial work never existed. Because the
 # whole run already folds into one undo step, reversing it is one
 # ``history.undo(doc, redoable=False)`` -- see that method's own docstring
-# (``src/warlock/core/undo.py``) for the cancelled-lift incident that
+# (``src/realmspinner/core/undo.py``) for the cancelled-lift incident that
 # argument exists for.
 
 
@@ -2898,7 +2898,7 @@ def test_the_compiler_never_emits_a_batch_excluded_tool() -> None:
     being nested is moot if the compiler could still emit one of the other
     excluded names -- it cannot: every kind it compiles maps to a fixed,
     small set of tools, none of them in that set."""
-    from warlock.studio.modes.clay.agent import program as ap
+    from realmspinner.studio.modes.clay.agent import program as ap
 
     compiled = ap.compile_program(
         {
@@ -3066,7 +3066,7 @@ def test_a_dry_run_with_live_steps_still_leaves_the_scene_unchanged() -> None:
 
 
 def test_an_unknown_fact_inside_assert_is_refused_at_compile_time_with_a_path() -> None:
-    from warlock.studio.modes.clay.agent import program as ap
+    from realmspinner.studio.modes.clay.agent import program as ap
 
     err = None
     try:
@@ -3118,7 +3118,7 @@ def test_facts_read_lo_hi_size_center_count_and_exists_off_known_boxes() -> None
 
 
 def test_an_unknown_id_inside_assert_is_refused_at_compile_time_with_a_path() -> None:
-    from warlock.studio.modes.clay.agent import program as ap
+    from realmspinner.studio.modes.clay.agent import program as ap
 
     err = None
     try:
@@ -3516,7 +3516,7 @@ def test_clay_render_compare_is_refused_when_the_sheet_would_not_fit_one_frame(
     this file uses is still over budget, rather than needing a real
     multi-megapixel sheet to prove the same point. Fails against the
     unfixed handler, which never reaches the check on this path at all."""
-    from warlock.mcp import rpc
+    from realmspinner.mcp import rpc
 
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -3828,7 +3828,7 @@ def test_clay_render_compare_returns_the_picture_even_if_silhouette_measurement_
     _add_inline_reference(ctx, session, "ref1")
     _install_fake_view(monkeypatch)
 
-    from warlock.bench import metrics as bench_metrics
+    from realmspinner.bench import metrics as bench_metrics
 
     def _boom(*_a: Any, **_k: Any) -> Any:
         raise RuntimeError("boom")
@@ -3964,7 +3964,7 @@ def test_clay_select_elements_refuses_a_vertex_pair_that_is_not_an_edge() -> Non
 def test_clay_select_by_loop_selects_the_ring_of_edges_a_human_alt_click_would() -> None:
     """Assert equality with ``select.edge_loop`` called directly, so the tool
     cannot drift from the verb it wraps."""
-    from warlock.kernels.mesh import select as clay_select_mod
+    from realmspinner.kernels.mesh import select as clay_select_mod
 
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -3986,7 +3986,7 @@ def test_clay_select_by_loop_selects_the_ring_of_edges_a_human_alt_click_would()
 def test_clay_select_by_normal_takes_the_upward_faces_of_a_rotated_object_in_world_space() -> (
     None
 ):
-    from warlock.kernels.mesh import select as clay_select_mod
+    from realmspinner.kernels.mesh import select as clay_select_mod
 
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -4311,7 +4311,7 @@ def test_clay_elements_pages_a_large_selection_and_reports_the_total() -> None:
 
 
 def test_the_instructions_name_the_call_timeout_the_host_actually_uses() -> None:
-    from warlock.studio import agent_host
+    from realmspinner.studio import agent_host
 
     assert str(int(agent_host.CALL_TIMEOUT)) in agent_clay.instructions()
 
@@ -4329,13 +4329,13 @@ def test_the_instructions_tell_an_agent_which_timed_out_calls_are_safe_to_retry(
 
 
 def test_the_instructions_tell_an_agent_a_started_call_can_now_be_recovered() -> None:
-    from warlock.studio import agent_host
+    from realmspinner.studio import agent_host
 
     text = agent_clay.instructions()
 
     # Resending the identical call is a replay, not a second run of it.
     assert "replayed rather than run a second time" in text
-    # warlock_status is the other way to ask, named by the constant it
+    # realmspinner_status is the other way to ask, named by the constant it
     # actually publishes under -- never a hand-typed copy of that string.
     assert agent_host.STATUS_TOOL in text
     # This only recovers a call whose answer never arrived -- stated
@@ -4662,14 +4662,14 @@ def test_every_recovery_a_refusal_names_is_in_the_vocabulary(svc) -> None:
     (see the module docstring): every ``recovery`` value a refusal actually
     produces during the same walk as the test above is a member of
     :data:`agent_clay.RECOVERY`, and every member of that vocabulary is
-    findable somewhere in ``src/warlock/`` -- a source scan is the only way
+    findable somewhere in ``src/realmspinner/`` -- a source scan is the only way
     to reach ``agent_host``'s own transport-level members (``"retry"``,
     ``"wait"``) from this file, which never calls those refusals directly.
     Both directions, or it is half a gate.
     """
     import pathlib
 
-    import warlock
+    import realmspinner
 
     ctx = _Ctx(svc=svc)
     session = agent_clay.Session()
@@ -4691,7 +4691,7 @@ def test_every_recovery_a_refusal_names_is_in_the_vocabulary(svc) -> None:
     assert seen, "the walk produced no recovery value at all -- it proved nothing"
     assert seen <= agent_clay.RECOVERY
 
-    src_root = pathlib.Path(warlock.__file__).resolve().parent
+    src_root = pathlib.Path(realmspinner.__file__).resolve().parent
     all_text = "\n".join(p.read_text(encoding="utf-8") for p in src_root.rglob("*.py"))
     for member in agent_clay.RECOVERY:
         assert f'"{member}"' in all_text or f"'{member}'" in all_text, member
@@ -4818,14 +4818,14 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     agent_host._transport_tools()]`` (see ``agent_host._serve``'s
     ``tools=lambda: ...``) -- rather than ``agent_clay.tools()`` alone, and so
     imports ``agent_host`` the way two tests above already do. Leaving
-    ``warlock_status`` out would undercount what a connecting agent is
+    ``realmspinner_status`` out would undercount what a connecting agent is
     actually billed for by one whole tool; the honest number includes it.
 
     Measured on 2026-09-13, after ``clay_render`` grew a ``shading`` enum
     (six values, plus the description explaining what each one draws and the
     new ``object_id``/``compare``/``grid`` refusals): catalogue JSON 41,861
     chars + instructions 6,499 chars = 48,360 chars total (still 27 Clay
-    tools plus ``warlock_status`` -- ``shading`` is a property on an
+    tools plus ``realmspinner_status`` -- ``shading`` is a property on an
     existing tool, not a 28th one -- at ``rpc.tool_dict`` encoding).
     ``clay_render`` itself is now 2,883 chars, the previous measurement's
     entire 636-char headroom plus more, so the ceiling below is raised to
@@ -4997,8 +4997,8 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     this ceiling and say why, the same rule every entry above already
     follows.
     """
-    from warlock.mcp import rpc
-    from warlock.studio import agent_host
+    from realmspinner.mcp import rpc
+    from realmspinner.studio import agent_host
 
     CEILING = 78_000
 

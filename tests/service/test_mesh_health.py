@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import _q_mesh
-from warlock.service import export as svc_export
-from warlock.service.validation import ARTIFACT_HEALTH, DERIVED_PARAMS, note_degraded
+from realmspinner import _q_mesh
+from realmspinner.service import export as svc_export
+from realmspinner.service.validation import ARTIFACT_HEALTH, DERIVED_PARAMS, note_degraded
 
 
 def test_the_two_spellings_of_the_health_key_agree():
@@ -82,7 +82,7 @@ def test_an_export_names_the_degraded_assets_it_shipped(svc, tmp_path, monkeypat
 
 
 def test_an_export_never_truncates_the_file_it_is_replacing(svc, tmp_path, monkeypatch):
-    """SVC-06: ``WARLOCK_EXPORT_DIR`` exists to be *watched* -- it is a game
+    """SVC-06: ``REALMSPINNER_EXPORT_DIR`` exists to be *watched* -- it is a game
     project's assets folder -- and ``copyfile`` truncates its target before
     writing a byte, so a hot-reloading engine could read a torn GLB."""
     job_id = svc.store.create("image", "a crate", {}, "cccccccccccc", stage="model")
@@ -121,12 +121,12 @@ def test_a_health_note_rebinds_rather_than_mutating_in_place():
     also names the hazard -- "a callee that grew an in-place nested mutation
     would defeat it".
 
-    ``note_degraded`` was that callee. With ``WARLOCK_MESH_RETRIES`` set,
+    ``note_degraded`` was that callee. With ``REALMSPINNER_MESH_RETRIES`` set,
     attempt 2's failures wrote through the shared dict into
     ``best["params"]["degraded"]``, so a job that shipped attempt 1's mesh
     carried a health record describing attempt 2.
     """
-    from warlock._q_mesh import _note_degraded
+    from realmspinner._q_mesh import _note_degraded
 
     params: dict = {}
     _note_degraded(params, "normalize", "attempt one")
@@ -140,7 +140,7 @@ def test_a_health_note_rebinds_rather_than_mutating_in_place():
 def test_the_service_half_rebinds_too():
     """Two copies on purpose (the worker may not import ``service``), so the
     property has to be asserted of both or they drift."""
-    from warlock.service.validation import note_degraded
+    from realmspinner.service.validation import note_degraded
 
     params: dict = {}
     note_degraded(params, "normalize", "attempt one")
@@ -155,7 +155,7 @@ def test_steps_still_accumulate():
     """The rebinding must not have turned accumulation into replacement: a mesh
     can fail more than one step, and the second is not a correction of the
     first."""
-    from warlock._q_mesh import _note_degraded
+    from realmspinner._q_mesh import _note_degraded
 
     params: dict = {}
     _note_degraded(params, "normalize", "a")

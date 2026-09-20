@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.modes.plotter.engine import tilemap
-from warlock.studio.modes.plotter.ui.panes import canvas as canvas
+from realmspinner.studio.modes.plotter.engine import tilemap
+from realmspinner.studio.modes.plotter.ui.panes import canvas as canvas
 
 from ._drive import Scene
 
@@ -389,7 +389,7 @@ def test_switching_documents_forgets_the_whole_set(scene):
     """``_forget_document_state``'s rule reaching the set rather than a scalar:
     half a selection carried into another map would name objects it does not
     have."""
-    from warlock.studio.modes.plotter import state as plotter_state
+    from realmspinner.studio.modes.plotter import state as plotter_state
 
     a, b, _c = _three(scene)
     scene.state.select_objects([a.uid, b.uid])

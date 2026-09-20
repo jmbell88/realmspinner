@@ -24,7 +24,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import drag as bd
+from realmspinner.kernels.mesh import drag as bd
 
 
 def _reference(

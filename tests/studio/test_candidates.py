@@ -15,11 +15,11 @@ import sqlite3
 
 import pytest
 
-from warlock.db import _SCHEMA, MIGRATIONS, JobStore
-from warlock.service import jobs as svc_jobs
-from warlock.service.errors import Conflict, Invalid, NotFound
-from warlock.studio import candidates as candidates_mod
-from warlock.studio.state import Filters
+from realmspinner.db import _SCHEMA, MIGRATIONS, JobStore
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service.errors import Conflict, Invalid, NotFound
+from realmspinner.studio import candidates as candidates_mod
+from realmspinner.studio.state import Filters
 
 # --- the migration -----------------------------------------------------------
 
@@ -334,7 +334,7 @@ class _Ctx:
     """Enough of ``Ctx`` for the frame-thread half of the picker."""
 
     def __init__(self, svc) -> None:
-        from warlock.studio.state import AppState
+        from realmspinner.studio.state import AppState
 
         self.svc = svc
         self.state = AppState()
@@ -370,7 +370,7 @@ class _Ctx:
 
 
 def test_keeping_from_the_picker_settles_the_group_and_only_then_asks(svc):
-    from warlock.studio.panes import candidates_panel
+    from realmspinner.studio.panes import candidates_panel
 
     source = _reference(svc)
     result = svc_jobs.promote_candidates(svc, source, count=3)
@@ -414,7 +414,7 @@ def test_a_candidate_group_whose_every_member_fails_can_be_dismissed(svc):
     is submitted for deletion until the confirm's ``on_confirm`` actually
     runs, and declining it must be possible (the rows stay ordinary assets).
     """
-    from warlock.studio.panes import candidates_panel
+    from realmspinner.studio.panes import candidates_panel
 
     source = _reference(svc)
     result = svc_jobs.promote_candidates(svc, source, count=3)
@@ -444,7 +444,7 @@ def test_a_candidate_group_whose_every_member_fails_can_be_dismissed(svc):
 def test_selecting_a_candidate_moves_the_selection_and_nothing_else(svc):
     """The viewer is _sync_viewer's business -- including the pose guard and
     the ``pending`` drop rule -- so the picker must not reach for it."""
-    from warlock.studio.panes import candidates_panel
+    from realmspinner.studio.panes import candidates_panel
 
     ctx = _Ctx(svc)
     candidates_panel.select(ctx, "abcdef012345")
@@ -460,8 +460,8 @@ def test_a_graded_candidate_shows_its_grade_and_an_ungraded_one_the_nudge(svc):
     today it never does, because nothing there ever reads a verdict. The
     nudge is the whole intervention: no ordering, no pre-selection, just a
     sentence while a finished attempt is still ungraded."""
-    from warlock.service import verdicts as verdicts_mod
-    from warlock.studio.panes import candidates_panel
+    from realmspinner.service import verdicts as verdicts_mod
+    from realmspinner.studio.panes import candidates_panel
 
     source = _reference(svc)
     result = svc_jobs.promote_candidates(svc, source, count=2)
@@ -507,8 +507,8 @@ def test_the_picker_reads_grades_once_per_group_not_per_frame(svc):
     """
     from types import SimpleNamespace
 
-    from warlock.studio.jobs_cache import JobsCache
-    from warlock.studio.panes import candidates_panel
+    from realmspinner.studio.jobs_cache import JobsCache
+    from realmspinner.studio.panes import candidates_panel
 
     source = _reference(svc)
     result = svc_jobs.promote_candidates(svc, source, count=3)
@@ -551,7 +551,7 @@ def test_pending_group_lookup_is_not_recomputed_per_frame_for_an_unchanged_job_l
     cache generation from a single scan, the way ``candidates_panel._grades``
     already does against the identical generation counter.
     """
-    from warlock.studio.jobs_cache import JobsCache
+    from realmspinner.studio.jobs_cache import JobsCache
 
     source = _reference(svc)
     result = svc_jobs.promote_candidates(svc, source, count=3)
@@ -586,8 +586,8 @@ def test_pending_group_lookup_is_not_recomputed_per_frame_for_an_unchanged_job_l
 def test_an_engine_axis_set_on_the_mesh_form_reaches_the_promoted_jobs_params(svc):
     """The pane's own kwargs builder, through the service door, into the
     stored row -- the whole path a press of Make 3D actually takes."""
-    from warlock.studio.modes.create.engine import mesh as create_mesh
-    from warlock.studio.state import DEFAULT_FORM_3D
+    from realmspinner.studio.modes.create.engine import mesh as create_mesh
+    from realmspinner.studio.state import DEFAULT_FORM_3D
 
     source = _reference(svc)
     form = {
@@ -652,8 +652,8 @@ def test_an_unset_engine_axis_writes_no_param_so_the_exe_default_runs(svc):
 
     # The pane's own path to the same thing: a form left at its sentinels
     # sends no engine kwarg at all, so an ordinary promotion is unaffected.
-    from warlock.studio.modes.create.engine import mesh as create_mesh
-    from warlock.studio.state import DEFAULT_FORM_3D
+    from realmspinner.studio.modes.create.engine import mesh as create_mesh
+    from realmspinner.studio.state import DEFAULT_FORM_3D
 
     kwargs = create_mesh.promote_kwargs(dict(DEFAULT_FORM_3D))
     assert not any(k.startswith("trellis_") for k in kwargs)
@@ -687,8 +687,8 @@ def test_a_bad_engine_value_is_refused_at_promotion_with_its_field(svc):
 
 
 def test_the_candidate_count_is_clamped_to_what_the_service_admits():
-    from warlock.service.validation import MAX_MESH_CANDIDATES
-    from warlock.studio.modes.create.engine import mesh as create_mesh
+    from realmspinner.service.validation import MAX_MESH_CANDIDATES
+    from realmspinner.studio.modes.create.engine import mesh as create_mesh
 
     assert create_mesh.candidate_count({"candidates": 1}) == 1
     assert create_mesh.candidate_count({"candidates": 3}) == 3
@@ -704,9 +704,9 @@ def test_the_count_rides_the_matte_preview_into_the_promotion(svc):
     """Phase 1 put the cutout preview between Make 3D and the queue, and it
     captures the form as it stood at the press. The count is part of that
     capture, or Accept would submit a number the user has since changed."""
-    from warlock.studio import matte_preview
-    from warlock.studio.modes.create.ui.panes import settings_3d
-    from warlock.studio.state import DEFAULT_FORM_3D
+    from realmspinner.studio import matte_preview
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
+    from realmspinner.studio.state import DEFAULT_FORM_3D
 
     source = _reference(svc)
     ctx = _Ctx(svc)

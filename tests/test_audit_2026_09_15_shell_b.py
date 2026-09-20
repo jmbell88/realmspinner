@@ -19,8 +19,8 @@ def test_masons_empty_scene_placeholder_has_a_working_action(monkeypatch):
     ``ACTIONS`` had no ``"mason"`` key, so ``action_for`` returned ``None``
     and the placeholder drew with no button at all.
     """
-    from warlock.studio.modes.mason import mode as mason_mode
-    from warlock.studio.panes import overlay
+    from realmspinner.studio.modes.mason import mode as mason_mode
+    from realmspinner.studio.panes import overlay
 
     assert "mason" in overlay.ACTIONS
 
@@ -43,8 +43,8 @@ def test_the_mason_button_never_names_a_generator():
     rather than being spelled in the pane, so a rename in
     ``primitives.GENERATORS`` cannot leave this button pointing at nothing.
     """
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.panes import overlay
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.panes import overlay
 
     source = inspect.getsource(overlay._mason_box)
     for name in bp.GENERATORS:
@@ -68,9 +68,9 @@ def test_the_mason_placeholder_entry_matches_what_mason_viewport_draws():
     two cannot silently drift back apart the way "Stage A" did once Mason grew
     a real document.
     """
-    from warlock.studio import icons
-    from warlock.studio.modes.mason.ui import viewport as mason_viewport
-    from warlock.studio.panes import overlay
+    from realmspinner.studio import icons
+    from realmspinner.studio.modes.mason.ui import viewport as mason_viewport
+    from realmspinner.studio.panes import overlay
 
     assert overlay.PLACEHOLDERS["mason"] == (
         icons.BLOCKS,
@@ -115,7 +115,7 @@ def test_the_lora_import_form_does_not_claim_to_be_importing_before_add_style_is
     unconditionally, at the top of the function. It must now be gated on
     ``ctx.busy("lora:import")``, the key "Add style" itself submits under.
     """
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     assert _top_level_busy_calls(app_settings._lora_import_form) == [], (
         "widgets.busy(...) is drawn unconditionally in _lora_import_form, "
@@ -129,7 +129,7 @@ def test_the_lora_import_form_does_not_claim_to_be_importing_before_add_style_is
 def test_launch_sweep_button_greys_with_a_reason_while_a_scan_or_submit_is_in_flight():
     """shell-07: "Launch sweep" used to grey during a scan or a submit with
     no ``reason=`` at all, unlike Rescan and Remove on the same pane."""
-    from warlock.studio.modes.review.ui.workspace import _launch_sweep_reason
+    from realmspinner.studio.modes.review.ui.workspace import _launch_sweep_reason
 
     assert _launch_sweep_reason(3, submitting=False, scanning=True) != ""
     assert _launch_sweep_reason(3, submitting=True, scanning=False) != ""

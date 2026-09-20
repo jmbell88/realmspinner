@@ -8,7 +8,7 @@ original nine plus ``track.wav``, the four ``STEM_FILES`` entries and
 count again without this test noticing.
 """
 
-from warlock.service import files
+from realmspinner.service import files
 
 _NUMBER_WORDS = {
     0: "zero",

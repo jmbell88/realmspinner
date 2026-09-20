@@ -16,12 +16,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops_boolean
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.elements import OpError
-from warlock.studio.modes.clay import ops as clay_ops
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops_boolean
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.elements import OpError
+from realmspinner.studio.modes.clay import ops as clay_ops
 
 from .topo_asserts import assert_closed
 
@@ -305,7 +305,7 @@ def test_union_still_means_what_it_did():
 
 
 def test_an_unknown_kind_is_refused_by_name():
-    from warlock.kernels.mesh.elements import OpError
+    from realmspinner.kernels.mesh.elements import OpError
 
     first = bd.Obj(uid=bd.new_uid(), name="a", mesh=bp.box())
     second = bd.Obj(uid=bd.new_uid(), name="b", mesh=bp.box())
@@ -316,7 +316,7 @@ def test_an_unknown_kind_is_refused_by_name():
 
 @pytest.mark.parametrize("kind", list(ops_boolean.KINDS))
 def test_every_kind_refuses_a_single_object_with_its_own_verb(kind):
-    from warlock.kernels.mesh.elements import OpError
+    from realmspinner.kernels.mesh.elements import OpError
 
     only = bd.Obj(uid=bd.new_uid(), name="a", mesh=bp.box())
 
@@ -332,7 +332,7 @@ def test_the_kernel_never_runs_past_the_triangle_budget(monkeypatch):
     lowering it is what stands in for the import-sized inputs it exists to
     catch -- and the point is that the refusal fires before ``manifold3d``
     ever sees the meshes, not after it runs out of memory computing them."""
-    from warlock.kernels.mesh.elements import OpError
+    from realmspinner.kernels.mesh.elements import OpError
 
     first = bd.Obj(uid=bd.new_uid(), name="a", mesh=bp.box())
     second = bd.Obj(
@@ -374,8 +374,8 @@ def test_a_refused_boolean_never_transforms_any_mesh(monkeypatch):
 def test_the_budget_is_the_sum_of_every_input_not_the_largest(monkeypatch):
     """A budget read off one mesh would pass three boxes that together exceed
     it, since no single input does."""
-    from warlock.kernels.mesh import mesh as bm
-    from warlock.kernels.mesh.elements import OpError
+    from realmspinner.kernels.mesh import mesh as bm
+    from realmspinner.kernels.mesh.elements import OpError
 
     box = bp.box()
     one_box_triangles = len(box.loops) - 2 * bm.face_count(box)

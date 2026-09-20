@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 MANUAL = Path(__file__).resolve().parents[2] / "docs" / "manual"
-STUDIO = Path(__file__).resolve().parents[2] / "src" / "warlock" / "studio"
+STUDIO = Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "studio"
 
 
 def _chapter(name: str) -> str:
@@ -167,7 +167,7 @@ def _modes_sharing_axis_view_key() -> set[str]:
     ``axis_view_key`` (directly, or -- like Poser -- via another mode's
     re-exported handle onto the same ``_view_frame`` function).
     """
-    from warlock.studio import modes as modes_module
+    from realmspinner.studio import modes as modes_module
 
     labels = {key: label for key, label, *_rest in modes_module.MODES}
     # Both shapes: ``studio/<mode>_mode.py`` for a mode not yet folded, and

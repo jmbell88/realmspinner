@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.service import tilesheets as svc_tilesheets
-from warlock.studio import settings as settings_mod
-from warlock.studio.settings import Settings, restore_form, sanitise_form
-from warlock.studio.state import DEFAULT_FORM_3D, AppState, default_form_2d
+from realmspinner.service import tilesheets as svc_tilesheets
+from realmspinner.studio import settings as settings_mod
+from realmspinner.studio.settings import Settings, restore_form, sanitise_form
+from realmspinner.studio.state import DEFAULT_FORM_3D, AppState, default_form_2d
 
 
 def _write(tmp_path, data):
@@ -20,7 +20,7 @@ def test_a_corrupt_file_is_preserved_and_reported(tmp_path):
     """UX-10: it used to reset to defaults with only a log line -- and the
     first successful save then overwrote the file the user might have wanted
     back. Every preference reverted with nothing on screen saying why."""
-    from warlock.studio.settings import FILENAME, Settings
+    from realmspinner.studio.settings import FILENAME, Settings
 
     path = tmp_path / FILENAME
     path.write_text("{not json at all", encoding="utf-8")
@@ -42,8 +42,8 @@ def test_a_corrupt_file_is_preserved_and_reported(tmp_path):
 def test_a_save_that_cannot_be_written_says_so_once(tmp_path, monkeypatch):
     """A read-only or full data directory meant preferences silently stopped
     persisting for the whole session."""
-    from warlock.studio import settings as settings_mod
-    from warlock.studio.settings import Settings
+    from realmspinner.studio import settings as settings_mod
+    from realmspinner.studio.settings import Settings
 
     settings = Settings.load(tmp_path)
     settings.set("theme", "light")
@@ -67,8 +67,8 @@ def test_a_failed_save_leaves_no_staging_file_behind(tmp_path, monkeypatch):
     that raised left the temporary where it was -- with ``_dirty`` still set,
     ``tick`` then retried once a second, one orphaned ``.settings.*.json``
     per second for as long as the directory stayed unwritable."""
-    from warlock.studio import settings as settings_mod
-    from warlock.studio.settings import Settings
+    from realmspinner.studio import settings as settings_mod
+    from realmspinner.studio.settings import Settings
 
     settings = Settings.load(tmp_path)
     settings.set("theme", "light")
@@ -148,7 +148,7 @@ def test_migrate_makes_the_two_asset_type_fields_agree_on_a_pre_asset_type_file(
         "the migrated file must not disagree with itself about which asset "
         "type was chosen"
     )
-    from warlock.studio.modes.create.engine import assets as create_assets
+    from realmspinner.studio.modes.create.engine import assets as create_assets
 
     assert form["asset_type"] == create_assets.DEFAULT_ASSET_TYPE
     # _migrate must stay a silent repair: no notice, and nothing marked dirty.
@@ -232,7 +232,7 @@ def test_an_old_settings_file_still_restores_into_state_form_2d_and_form_3d(tmp_
     ``AppState`` itself (``state.py``'s own comment on the ``create`` field
     says why: ``review_mode.capture_base`` reads them live without leaving
     Review, and ``panes/library.py`` writes them as a side effect of selecting
-    or copying *any* card). A file saved by a pre-split Warlock has no
+    or copying *any* card). A file saved by a pre-split Realmspinner has no
     ``create`` block at all -- its ``form_2d``/``form_3d`` are top-level, the
     same shape ``shell/app.py``'s ``setup_context`` still reads them with, and
     this is that exact call, not a reimplementation of it.
@@ -253,19 +253,19 @@ def test_an_old_settings_file_still_restores_into_state_form_2d_and_form_3d(tmp_
     # volatile by design and a restore that reached into it (say, by reading
     # a stray "stage" key some file happened to hold) would be exactly the
     # seam this test exists to catch.
-    from warlock.studio.modes.create.engine.state import CreateState
+    from realmspinner.studio.modes.create.engine.state import CreateState
 
     assert state.create == CreateState()
 
 
 def test_saving_still_writes_the_same_top_level_keys_no_nested_create_block(tmp_path):
     """The other half: a fresh session's save must produce the same flat file
-    a pre-split Warlock would have, not a ``"create": {...}`` block -- proven
+    a pre-split Realmspinner would have, not a ``"create": {...}`` block -- proven
     against ``QuitMixin._persist`` itself (it reads no ``self``, so a
     placeholder stands in for the ``App`` it is normally bound to), the one
     function that ever writes these keys.
     """
-    from warlock.studio.shell import quit as quit_mod
+    from realmspinner.studio.shell import quit as quit_mod
 
     state = AppState()
     state.form_2d["prompt"] = "a torch"

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from warlock import fetch, models
-from warlock.config import Config
-from warlock.service import downloads
+from realmspinner import fetch, models
+from realmspinner.config import Config
+from realmspinner.service import downloads
 
 
 def _config(tmp_path):
@@ -45,7 +45,7 @@ def test_engine_presence_requires_the_exact_pipeline(tmp_path) -> None:
 
 
 def test_engine_uninstall_stages_on_the_engine_volume(svc, monkeypatch) -> None:
-    """WARLOCK_TRELLIS_MODELS may point at a drive unlike image models."""
+    """REALMSPINNER_TRELLIS_MODELS may point at a drive unlike image models."""
     spec = models.ENGINE_MODELS["trellis_gguf"]
     svc.config.trellis_models_dir.mkdir(parents=True, exist_ok=True)
     for name in spec.probe:
@@ -76,7 +76,7 @@ def _runtime_config(tmp_path, *, exe):
 
     Both have to be pinned by hand. ``Config(home=...)`` does **not** move
     ``trellis_runtime_dir``: every root resolves ``_home()`` independently so
-    that ``WARLOCK_HOME`` moves all of them at once while a per-root variable
+    that ``REALMSPINNER_HOME`` moves all of them at once while a per-root variable
     still wins, which means a ``home=`` keyword moves none of them. Without
     this, these tests read the *developer's* ``vendor/trellis/`` through the
     resolver's third fallback and pass or fail depending on whose machine they
@@ -96,7 +96,7 @@ def _runtime_config(tmp_path, *, exe):
 def test_an_engine_the_resolver_finds_reads_as_present_wherever_it_is(tmp_path) -> None:
     """Doctor and the Models pane must not disagree about the same engine.
 
-    The engine has three possible homes -- ``WARLOCK_TRELLIS_EXE``, the
+    The engine has three possible homes -- ``REALMSPINNER_TRELLIS_EXE``, the
     downloaded runtime directory, and the checkout's ``vendor/trellis/`` -- and
     a download can only ever go to the second. A presence probe that asked only
     about the second called the engine missing on a machine that was running
@@ -145,7 +145,7 @@ def test_a_vendored_engine_offers_no_delete_it_cannot_perform(tmp_path) -> None:
     """Present-but-not-downloaded must not offer to free 0.7 GB it will not free.
 
     The engine's binaries are the only row that can read present from a place
-    Warlock may not delete from: presence resolves through
+    Realmspinner may not delete from: presence resolves through
     ``resolve_trellis_exe`` (on a source checkout, ``vendor/trellis/``) while
     the claim is the download location, because that is the only place a Remove
     may act. Before this, a checkout offered Delete on its vendored engine,
@@ -169,7 +169,7 @@ def test_a_vendored_engine_offers_no_delete_it_cannot_perform(tmp_path) -> None:
     assert row["removable"] is False
     assert row["freed_gib"] == 0.0
 
-    # And once it really is downloaded, Remove works on the copy Warlock owns.
+    # And once it really is downloaded, Remove works on the copy Realmspinner owns.
     config.trellis_runtime_dir.mkdir(parents=True)
     for name in spec.probe:
         (config.trellis_runtime_dir / name).write_bytes(b"engine")

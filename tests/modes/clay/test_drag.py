@@ -10,8 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.geom3d import math3d as m3
-from warlock.kernels.mesh import drag as bd
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.kernels.mesh import drag as bd
 
 
 def _typed(axis: str = "", typed: str = "") -> bd.DragInput:
@@ -249,7 +249,7 @@ def test_the_screen_angle_is_signed_rather_than_absolute():
     so a rotate drag turned the same way whichever way the mouse went round."""
     import math
 
-    from warlock.kernels.mesh import drag as bdrag
+    from realmspinner.kernels.mesh import drag as bdrag
 
     pivot = np.zeros(3)
     axis = np.array([0.0, 0.0, 1.0])
@@ -263,7 +263,7 @@ def test_the_screen_angle_is_signed_rather_than_absolute():
 def test_the_screen_angle_ignores_the_component_along_the_axis():
     """Every ray hit is a hair off the plane at float precision, and a tilt
     that leaked in would make the same drag report a different angle."""
-    from warlock.kernels.mesh import drag as bdrag
+    from realmspinner.kernels.mesh import drag as bdrag
 
     pivot = np.zeros(3)
     axis = np.array([0.0, 0.0, 1.0])
@@ -278,7 +278,7 @@ def test_the_screen_angle_ignores_the_component_along_the_axis():
 
 def test_a_degenerate_pair_reports_no_angle_rather_than_refusing():
     """The caller is a live drag that must go on drawing."""
-    from warlock.kernels.mesh import drag as bdrag
+    from realmspinner.kernels.mesh import drag as bdrag
 
     pivot = np.zeros(3)
     axis = np.array([0.0, 0.0, 1.0])
@@ -290,7 +290,7 @@ def test_a_full_turn_wraps_rather_than_accumulating():
     per frame, and a drag that passes the half turn must not jump."""
     import math
 
-    from warlock.kernels.mesh import drag as bdrag
+    from realmspinner.kernels.mesh import drag as bdrag
 
     pivot = np.zeros(3)
     axis = np.array([0.0, 0.0, 1.0])

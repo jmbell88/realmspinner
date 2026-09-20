@@ -16,11 +16,11 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from warlock.kernels import pixel as inker
-from warlock.service import files as svc_files
-from warlock.service import jobs as svc_jobs
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker.state import InkerDoc
+from realmspinner.kernels import pixel as inker
+from realmspinner.service import files as svc_files
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker.state import InkerDoc
 
 
 def _png(size=(32, 32), colour=(200, 30, 30, 255)) -> bytes:
@@ -189,7 +189,7 @@ def test_a_linked_save_is_not_dirty_the_instant_it_finishes(svc):
     send_to_3d refused with "Save first" no matter how often it was saved."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.inker.state import InkerState
+    from realmspinner.studio.modes.inker.state import InkerState
 
     job_id = _reference(svc)
     tab = _tab(job_id)
@@ -234,7 +234,7 @@ def _wired(svc, tab) -> Any:
     """A ctx with the pieces ``on_task_done`` reaches for."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.inker.state import InkerState
+    from realmspinner.studio.modes.inker.state import InkerState
 
     ctx = FakeCtx(svc)
     state = InkerState()
@@ -324,7 +324,7 @@ def test_the_mutating_shortcuts_do_nothing_while_a_save_is_running():
 
     import pygame
 
-    from warlock.studio.modes.inker.state import InkerState
+    from realmspinner.studio.modes.inker.state import InkerState
 
     tab = _tab("")
     doc = tab.doc
@@ -380,10 +380,10 @@ def test_every_document_mutating_panel_is_gated_on_the_saving_flag():
     import ast
     import inspect
 
-    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
-    from warlock.studio.modes.inker.ui.panes import menu as inker_menu
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
-    from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+    from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from realmspinner.studio.modes.inker.ui.panes import menu as inker_menu
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
 
     targets = (
         # ``_canvas_ops`` was the bridge panel's row of flips and rotates; the
@@ -433,7 +433,7 @@ def test_the_two_reorder_gestures_refuse_outright_rather_than_grey_out():
     check ``tab.busy`` themselves."""
     import inspect
 
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     for func in (inker_timeline._reorder, inker_timeline._drag_toggle):
         source = inspect.getsource(func)
@@ -458,7 +458,7 @@ def test_a_failed_save_clears_the_saving_flag():
     this flag, so a stuck one disables the whole editor."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.inker.state import InkerState
+    from realmspinner.studio.modes.inker.state import InkerState
 
     tab = _tab("")
     tab.saving = True
@@ -478,7 +478,7 @@ class _SaveCtx:
     carrying a real ``InkerState`` so ``_settle`` and the save lock behave."""
 
     def __init__(self) -> None:
-        from warlock.studio.modes.inker.state import InkerState
+        from realmspinner.studio.modes.inker.state import InkerState
 
         self.state = SimpleNamespace(inker=InkerState())
         self.submitted: list[str] = []
@@ -533,7 +533,7 @@ def test_every_openable_non_writable_suffix_is_gated(tmp_path, monkeypatch):
     format ``filetypes`` advertises as openable but the app cannot write back
     is covered by construction. WebP is skipped where Pillow lacks the codec.
     """
-    from warlock.studio import filetypes
+    from realmspinner.studio import filetypes
 
     # GIF is here rather than in ``WRITABLE_SUFFIXES`` on purpose: Inker reads a
     # clip back (``gifin``) and writes one from Export, but a Ctrl+S that
@@ -603,7 +603,7 @@ def test_save_as_writes_an_aseprite_file_asein_can_read_back(tmp_path, monkeypat
     """The round trip the retirement is for: Save As can now put an edited
     drawing into ``.aseprite``, and what it writes must be the real format --
     readable by the same parser an import uses, not a renamed ORA."""
-    from warlock.kernels.pixel import asein
+    from realmspinner.kernels.pixel import asein
 
     ctx = _SaveCtx()
     tab = _untitled_tab()
@@ -631,7 +631,7 @@ def test_save_as_writes_an_aseprite_file_asein_can_read_back(tmp_path, monkeypat
 def test_an_ase_suffix_also_routes_to_aseprite(tmp_path, monkeypatch):
     """Aseprite's older releases wrote ``.ase``; both suffixes name the one
     format, so both must route the same way."""
-    from warlock.kernels.pixel import asein
+    from realmspinner.kernels.pixel import asein
 
     ctx = _SaveCtx()
     tab = _untitled_tab()
@@ -667,9 +667,9 @@ def test_a_reachable_writer_refusal_names_itself_not_the_generic_toast(
     """
     import numpy as np
 
-    from warlock.kernels.pixel.document import Document
-    from warlock.kernels.pixel.tiles import strip
-    from warlock.service.errors import Invalid
+    from realmspinner.kernels.pixel.document import Document
+    from realmspinner.kernels.pixel.tiles import strip
+    from realmspinner.service.errors import Invalid
 
     def _tile(colour: tuple[int, int, int, int]) -> np.ndarray:
         return np.full((4, 4, 4), colour, dtype=np.uint8)
@@ -781,7 +781,7 @@ def test_a_dirty_aseprite_tabs_journal_payload_is_still_ora(tmp_path):
     ``inker_mode._journal_encode``): a tab whose ``file_format`` is
     ``"aseprite"`` must still hand the crash-recovery loop bytes that
     ``ora.read_ora`` can open, not an Aseprite encode."""
-    from warlock.kernels.pixel import ora
+    from realmspinner.kernels.pixel import ora
 
     src = tmp_path / "sprite.aseprite"
     doc = inker.Document.blank(8, 8)

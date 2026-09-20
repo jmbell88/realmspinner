@@ -2,17 +2,17 @@
 __pycache__/
 *.pyc
 # Legacy locations, all four of them. Everything the app generates lives under
-# ~/.warlock now, and a checkout carrying these has them moved there on the next
-# start (warlock/migrate.py) -- but the entries stay, because they are here
-# until that has run and because WARLOCK_HOME can still point back at the
+# ~/.realmspinner now, and a checkout carrying these has them moved there on the next
+# start (realmspinner/migrate.py) -- but the entries stay, because they are here
+# until that has run and because REALMSPINNER_HOME can still point back at the
 # checkout deliberately.
 #
 # Root-anchored, as /bench/ and /vendor/ are: unanchored, any future package
-# directory with one of these names (say src/warlock/studio/assets/) would
+# directory with one of these names (say src/realmspinner/studio/assets/) would
 # silently vanish from the index.
 /assets/
 # Benchmark runs: generated artifacts, copied rather than referenced, and
-# reclaimed with `python -m warlock.bench prune`. The suites and recipes that
+# reclaimed with `python -m realmspinner.bench prune`. The suites and recipes that
 # define a run live in src/ and are tracked.
 /bench/
 /models/
@@ -26,7 +26,7 @@ __pycache__/
 # /vendor/ with the other native binaries; this is just the scratch beside it.
 /native/obj/
 /scratch/
-# `warlock sweep` output: measurement GLBs and logs, regenerable and large.
+# `realmspinner sweep` output: measurement GLBs and logs, regenerable and large.
 /sweep/
 # Synergy MCP's code-knowledge-graph index for this repo: regenerable from a
 # scan, rebuilt continuously by its own file watcher, and machine-local.
@@ -38,7 +38,7 @@ dist/
 /build/
 *.egg-info/
 # Claude Code's per-machine state stays out, but the skills are project
-# knowledge (/exercise-mode, /warlock-audit) and travel with the tree. Git
+# knowledge (/exercise-mode, /realmspinner-audit) and travel with the tree. Git
 # cannot re-include a file under an excluded directory, so the parent is
 # matched with a glob and the one subdirectory negated.
 .claude/*
@@ -48,7 +48,7 @@ dist/
 # file that is per-machine by definition.
 imgui.ini
 # Screenshot-harness output (`dev/scripts/screenshot_modes.py --out`), and the
-# `WARLOCK_HOME` each run is pointed at. Per-run, regenerable, photographed for
+# `REALMSPINNER_HOME` each run is pointed at. Per-run, regenerable, photographed for
 # one review -- never an input to anything, and tens of MB of PNGs a pass.
 #
 # **One pattern, not one line per review.** This had grown a fourth entry
@@ -96,7 +96,7 @@ imgui.ini
 /.claude/
 
 # Unsloth writes its torch.compile cache into the current directory when a training
-# script runs from the repo root (dev/training/clay-assistant/train/*.py under Studio's
+# script runs from the repo root (dev/training/clay-assistant/train/*.py under Realmspinner's
 # Python); machine-local, regenerable, and a ruff failure the moment it appears.
 /unsloth_compiled_cache/
 

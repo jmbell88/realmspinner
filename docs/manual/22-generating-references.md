@@ -20,7 +20,7 @@ characters, because past the cap the box simply stops taking text.
 Further down the recipe column, under the seed row, a **Recent prompts…** button opens your last
 twenty prompts, most recent first and deduplicated — it appears once you have generated at least one
 reference, so there is history to show. Picking one replaces what is in the box. The history outlives
-the session (it is saved with your other Studio preferences and is there again after a restart), and
+the session (it is saved with your other Realmspinner preferences and is there again after a restart), and
 it is per prompt text only — if you want a whole recipe back, use **Copy settings to form** from a
 job's overflow menu instead, which is described in [Rerun and
 promotion](36-library-and-jobs.md#rerun-and-promotion).
@@ -191,7 +191,7 @@ several seconds. FLUX.2 is the exception to *how* it is held: it is large enough
 onto the card one piece at a time rather than kept there whole, which makes each job slower but means
 it still does not displace the reconstruction engine. Any model whose weights are not on disk is
 still listed, with "— weights missing" appended to its name, so you learn at pick time rather than at
-job-failure time. Run `warlock doctor` for the exact download command.
+job-failure time. Run `realmspinner doctor` for the exact download command.
 
 **Style LoRAs** are the opposite: they are adapters on whatever pipeline is already resident and
 switch for free, with no reload. Five ship:
@@ -272,7 +272,7 @@ leaves the score exactly what it would have been without it:
 
 **Nothing here rejects anything.** The score sorts, and that is all it does — a low-scoring
 candidate is still generated, still kept, and still promotable to a mesh. Turn the whole thing off
-with `WARLOCK_RANK=off` (see [Configuration](41-configuration.md#environment-variables)) and the
+with `REALMSPINNER_RANK=off` (see [Configuration](41-configuration.md#environment-variables)) and the
 gallery falls back to submission order.
 
 ## Conditioning on an image
@@ -372,7 +372,7 @@ palette to 8, 16, 32 or 64, or leaves it off; **Palette** maps the export onto a
 supplied, and **Dither** (offered only with one) mixes two nearby entries where a flat map would
 pick one.
 
-A palette is a file you drop into the palette directory (`~/.warlock/palettes/` by default — see
+A palette is a file you drop into the palette directory (`~/.realmspinner/palettes/` by default — see
 [Configuration](41-configuration.md)), in any of the four formats palette sites and editors publish:
 Lospec's `.hex`, one `rrggbb` per line, GIMP's `.gpl`, Paint Shop Pro's `.pal` or Paint.NET's
 `.txt`. Nothing ships with the app, because a palette is
@@ -633,7 +633,7 @@ all, this type still works.
 
 Type a brief the way you would for anything else. The Character column reads it and fills itself in:
 the species, the look, the camera and the actions all move to what the words said. Everything the
-brief did not mention keeps its default, and anything it said that Warlock did not understand is
+brief did not mention keeps its default, and anything it said that Realmspinner did not understand is
 listed under **Not interpreted** so you can see what was ignored rather than wonder.
 
 Change a control and it becomes yours. From then on editing the prompt leaves that control alone —
@@ -642,9 +642,9 @@ choices and reads the brief again.
 
 ### When it does not make that creature
 
-Warlock never substitutes. If you ask for a phoenix, the prompt resolver does not quietly hand you a
+Realmspinner never substitutes. If you ask for a phoenix, the prompt resolver does not quietly hand you a
 dragon: the species stays empty, Generate is refused, and the refusal says exactly what happened —
-*Warlock has no phoenix yet. The closest it makes is a dragon.* Under that sentence are the three
+*Realmspinner has no phoenix yet. The closest it makes is a dragon.* Under that sentence are the three
 ways forward, and each of them is a press you make:
 
 - **Make it a dragon** applies the offer. This is the only place in the program where a species you
@@ -669,7 +669,7 @@ when you are matching sprites to a map.
 
 **Idle**, **Walk** and **Attack** are switches, each carrying the frames it costs; the muted total
 under them is the cell count the render will produce. **Sprite size** and **Colours** are the same
-two ladders every other pixel surface in Warlock offers. Below them is one slider per appearance
+two ladders every other pixel surface in Realmspinner offers. Below them is one slider per appearance
 channel the species' body plan declares — an ogre and a wolf do not have the same ones — and a
 **Name**, which is what the library will call it.
 

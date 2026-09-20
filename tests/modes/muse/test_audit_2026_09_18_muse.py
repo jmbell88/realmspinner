@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock import _q_music as q
+from realmspinner import _q_music as q
 
 # --- muse-03: cancel during a loop take's roll-back --------------------------
 
@@ -98,7 +98,7 @@ async def test_a_cancel_during_the_loop_roll_is_not_committed(tmp_path, monkeypa
     because the old ``_music`` called ``self._cancel.commit()`` right after
     the roll with no check of the event in between.
     """
-    from warlock.pipelines.music_client import MusicCancelled
+    from realmspinner.pipelines.music_client import MusicCancelled
 
     cancel = _FakeCancel()
     client = _OrdinaryLoopClient()
@@ -219,9 +219,9 @@ def test_derive_count_refusal_does_not_ring_the_brief_takes_control(svc, monkeyp
 
     Fails against the unfixed code: ``caught.value.field == "count"``.
     """
-    from warlock import fetch
-    from warlock.service import _jobs_music as door
-    from warlock.service.errors import Invalid
+    from realmspinner import fetch
+    from realmspinner.service import _jobs_music as door
+    from realmspinner.service.errors import Invalid
 
     monkeypatch.setattr(door, "check_weights", lambda svc, kind, params: None)
     monkeypatch.setattr(door, "check_vram", lambda svc, kind, stage, params: None)

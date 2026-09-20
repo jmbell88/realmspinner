@@ -1,6 +1,6 @@
 """Regression tests for the 2026-09-15 audit's Plotter/Packwright findings.
 
-- plotter-04 (`src/warlock/studio/modes/plotter/tilesets.py`): ``land_tileset``
+- plotter-04 (`src/realmspinner/studio/modes/plotter/tilesets.py`): ``land_tileset``
   applied a sheet's recorded projection onto the map unconditionally once
   ``use_as_tileset`` had decided, at *submit* time, that the map was
   unpainted. The decode is a task round trip; a paint stroke landing in that
@@ -8,12 +8,12 @@
   stale answer silently reprojected it. Fixed by re-checking paint state at
   landing and falling back to the same parked ``SheetLattice`` confirmation a
   painted map gets at submit time.
-- plotter-05 (`src/warlock/studio/modes/plotter/engine/_map_layers.py`): the source-only
+- plotter-05 (`src/realmspinner/studio/modes/plotter/engine/_map_layers.py`): the source-only
   branch of ``set_image_pixels`` returned ``False`` ("nothing changed") even
   when ``set_layer_props`` had just pushed a real undo step for the changed
   source, contradicting the function's own "one compound step" docstring for
   a caller that gates a toast or a re-render on the return value.
-- packwright-02 (`src/warlock/studio/modes/packwright/mode.py`): the second-landing
+- packwright-02 (`src/realmspinner/studio/modes/packwright/mode.py`): the second-landing
   refusal for a tile-sheet import checked ``tileset_import_open``, which only
   the pane's own draw sets. Two landings inside one poll batch -- both
   processed before a frame is ever drawn -- both saw it ``False`` and the
@@ -30,11 +30,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.grid2d import gid as gidlib
-from warlock.kernels.grid2d.tileset import Tileset
-from warlock.studio.modes.plotter import mode as plotter_mode
-from warlock.studio.modes.plotter import tilesets as plotter_tilesets
-from warlock.studio.modes.plotter.engine import project
+from realmspinner.kernels.grid2d import gid as gidlib
+from realmspinner.kernels.grid2d.tileset import Tileset
+from realmspinner.studio.modes.plotter import mode as plotter_mode
+from realmspinner.studio.modes.plotter import tilesets as plotter_tilesets
+from realmspinner.studio.modes.plotter.engine import project
 
 # --- plotter-04 -----------------------------------------------------------
 
@@ -125,7 +125,7 @@ def test_set_image_pixels_reports_true_when_only_the_source_changes():
     ``set_layer_props`` just pushed a real ``LayerPropsEdit`` for the new
     source -- a caller reading the return value as "nothing changed" while
     an undo step landed behind its back."""
-    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(4, 4, 16, 16)
     doc.add_tile_layer("Tiles")
@@ -144,7 +144,7 @@ def test_set_image_pixels_reports_true_when_only_the_source_changes():
 def test_set_image_pixels_still_reports_false_when_truly_nothing_changed():
     """The sibling case, unaffected by the fix: identical pixels and an
     identical source push nothing and must go on reporting ``False``."""
-    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
     doc = MapDoc(4, 4, 16, 16)
     doc.add_tile_layer("Tiles")
@@ -169,7 +169,7 @@ def test_two_tileset_landings_in_the_same_poll_batch_do_not_silently_swap_the_pa
     landing silently overwrites the first's parked pixels with no toast.
     """
     from modes.packwright.test_packwright_mode import FakeCtx, _Done
-    from warlock.studio.modes.packwright import mode as packwright_mode
+    from realmspinner.studio.modes.packwright import mode as packwright_mode
 
     ctx = FakeCtx()
     tab = packwright_mode.new_document(ctx)

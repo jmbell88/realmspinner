@@ -18,6 +18,49 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## 0.0.52 — 2026-09-19
+
+**Warlock Studio is now Realmspinner.** The old name was already taken as a
+product name, so the whole app has been renamed: the window, the installer, the
+Manual, the `realmspinner` command, the `REALMSPINNER_*` environment variables,
+the data directory, the document files and the name written into every mesh it
+exports. Nothing about what the app *does* changed in this release; it is the
+same program under a name it can keep.
+
+Two things move on your disk, and both are worth knowing about before you
+upgrade:
+
+- **Your library moves itself, once.** Everything under `%USERPROFILE%\.warlock`
+  — assets, the job history, downloaded models, palettes, the engines — moves to
+  `%USERPROFILE%\.realmspinner` the first time you run Realmspinner. It is a
+  rename on the same drive, so it is instant no matter how large the library is,
+  and it happens before the app opens a window. If you had pointed
+  `WARLOCK_HOME` (or any of the other `WARLOCK_*` path variables) somewhere of
+  your own, nothing is moved and nothing is assumed: set the matching
+  `REALMSPINNER_*` variable instead, and the app says on startup why it left
+  your data where it is. A `MIGRATED.txt` in the new folder records what moved.
+- **Documents get new extensions, and the old ones no longer open.** A Mason
+  scene is now `.rscn`, a Clay document `.rblk`, a Packwright atlas `.rpack`, a
+  Plotter map `.rmap` and a Sirens song `.rsng` — the leading `w` stood for
+  Warlock. **Documents saved inside your library are renamed for you** by the
+  same one-time move. Documents you saved anywhere else are not: rename the file
+  by hand — the contents are unchanged, so an `.rblk` that used to be a `.wblk`
+  opens exactly as it did. Inker is unaffected: it writes ordinary `.ora` files,
+  and one saved under the old name still opens with its layers, slices and
+  timeline intact.
+
+Everything else is a change of wording. Every `WARLOCK_*` environment variable
+is now `REALMSPINNER_*`; any script or shortcut that set one needs updating, as
+the old names are not read. The log file is `realmspinner.log`. An agent driving
+the app over MCP connects to a server now called `realmspinner`, so an MCP
+client configured against the old name needs its entry renamed. Exported meshes
+record `Realmspinner` as their generator rather than `Warlock Studio`; files you
+exported before this release are unaffected and keep the old string.
+
+Releases before this one were published as Warlock Studio. The entries below
+are left exactly as they were written — they are the record of what shipped
+under that name.
+
 ## 0.0.51 — 2026-09-18
 
 Two audit passes over the whole app in one day, 130 findings closed, every one

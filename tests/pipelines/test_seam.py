@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.pipelines import seam
+from realmspinner.pipelines import seam
 
 
 def test_the_threshold_stays_inside_the_band_that_was_measured():

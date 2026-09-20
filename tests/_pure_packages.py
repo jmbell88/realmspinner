@@ -18,7 +18,7 @@ Mason would have produced a seventh disagreement and left the six holes where
 they were.
 
 So the set is derived from what is actually in the tree: a directory under
-``src/warlock/studio/`` is a headless package when it is a package and no
+``src/realmspinner/studio/`` is a headless package when it is a package and no
 module in it imports a window at module scope. The property that buys is the
 one a hand list cannot have -- **the package added after Mason enrols itself**,
 in every pin that asks this helper, on the day it lands.
@@ -68,11 +68,11 @@ landed before P5 did: ``studio/clay/``, ``studio/inker/`` (incl.
 ``studio/viewer/`` (``math3d``/``gltf``/``glbwrite`` plus the top-level
 ``glbio``), ``studio/manual/{loader,parser,targets}`` and
 ``studio/sirens/wavout.py`` all moved out of ``studio/`` entirely, straight
-into ``warlock/kernels/*`` -- not into a mode's future ``engine/``, because
+into ``realmspinner/kernels/*`` -- not into a mode's future ``engine/``, because
 they are shared domain kernels, not one mode's private engine (``grid2d``
 was already the shared-leaf case this file's own docstring names above; P3
 just gave that shape a real package to live in and put four more engines
-next to it). ``dev/RESTRUCTURE.md``'s own layer table calls ``warlock/kernels/``
+next to it). ``dev/RESTRUCTURE.md``'s own layer table calls ``realmspinner/kernels/``
 pure by definition (``tests/test_layering.py`` is the pin that makes an
 import out of it a build-time failure, not a maybe), so a directory under it
 never needs the window-root walk to prove itself -- but this function runs
@@ -87,11 +87,11 @@ what used to be ``clay`` and ``inker`` are ``mesh`` and ``pixel`` now -- the
 directory name, not a mode's name, because a kernel is named for the domain
 it models rather than for the workspace that happens to be its only caller
 today (``tests/modes/mason/test_mason_imports.py`` still bans one sibling engine
-from reaching Clay's primitives; it now bans ``warlock.kernels.mesh``, the
+from reaching Clay's primitives; it now bans ``realmspinner.kernels.mesh``, the
 same rule wearing its new name). What remains directly under ``studio/`` is
 the mode-owned set with no kernel of its own yet: ``mason``, ``muse``,
 ``packwright``, ``plotter``, ``sirens``, ``tour``, ``troupe``. ``familiar``
-left both roots on the same day, straight to ``warlock/familiar/`` -- L3 in
+left both roots on the same day, straight to ``realmspinner/familiar/`` -- L3 in
 the layer table, not L1 -- so it is not a headless *engine* in this
 function's sense at all any more, and does not appear in
 :func:`pure_packages`'s answer; its own purity is pinned directly in
@@ -104,11 +104,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import warlock.kernels
-import warlock.studio
+import realmspinner.kernels
+import realmspinner.studio
 
-STUDIO = Path(warlock.studio.__file__).parent
-KERNELS = Path(warlock.kernels.__file__).parent
+STUDIO = Path(realmspinner.studio.__file__).parent
+KERNELS = Path(realmspinner.kernels.__file__).parent
 
 #: A module importing one of these at module scope is not headless. The same
 #: set every pin's own banned-roots test uses, stated once here because this
@@ -230,7 +230,7 @@ def pure_packages() -> tuple[str, ...]:
     """Every headless package this tree currently has, sorted.
 
     Looks in three places, because the restructure (``dev/RESTRUCTURE.md``) is
-    mid-move: directly under ``warlock/kernels/`` -- the shared domain kernels
+    mid-move: directly under ``realmspinner/kernels/`` -- the shared domain kernels
     P3 already moved out of ``studio/`` (``mesh``, ``pixel``, ``grid2d``,
     ``geom3d``, ``audio``, ``manual``), pure by construction
     (``tests/test_layering.py`` enforces it) but walked by the same
@@ -280,12 +280,12 @@ def dotted_root(name: str) -> str:
     it) is actually reached through.
 
     A pin's sibling-ban test used to be able to assume every name in
-    :func:`siblings_of`'s answer hung off ``warlock.studio.<name>`` -- true
+    :func:`siblings_of`'s answer hung off ``realmspinner.studio.<name>`` -- true
     while every headless package lived directly under ``studio/``. It is
     silently false for half of them since P3 of ``dev/RESTRUCTURE.md``:
-    checking a module's imports for ``"warlock.studio.mesh"`` bans nothing at
+    checking a module's imports for ``"realmspinner.studio.mesh"`` bans nothing at
     all, because the mesh engine has always been imported as
-    ``warlock.kernels.mesh`` -- Clay's own name for it never appeared in an
+    ``realmspinner.kernels.mesh`` -- Clay's own name for it never appeared in an
     import statement anywhere, it is only what :func:`pure_packages` calls the
     directory. This looks the prefix up against the tree itself, the same way
     :func:`pure_packages` found *name* there in the first place, rather than
@@ -295,7 +295,7 @@ def dotted_root(name: str) -> str:
     import path had moved out from under it.
     """
     if (KERNELS / name / "__init__.py").exists():
-        return f"warlock.kernels.{name}"
+        return f"realmspinner.kernels.{name}"
     if (STUDIO / "modes" / name / "engine" / "__init__.py").exists():
-        return f"warlock.studio.modes.{name}.engine"
-    return f"warlock.studio.{name}"
+        return f"realmspinner.studio.modes.{name}.engine"
+    return f"realmspinner.studio.{name}"

@@ -32,17 +32,17 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.kernels.pixel import asein, aseout, ora
-from warlock.kernels.pixel import composite as cp
-from warlock.kernels.pixel.brush import STAMP_ALIGN, Stamp
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.selection import SelectionMask
-from warlock.studio import probe, widgets
-from warlock.studio.modes.inker import mode as inker_mode
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-from warlock.studio.modes.inker.ui.panes import context as inker_context
-from warlock.studio.modes.inker.ui.panes import tools as inker_tools
+from realmspinner.kernels.pixel import asein, aseout, ora
+from realmspinner.kernels.pixel import composite as cp
+from realmspinner.kernels.pixel.brush import STAMP_ALIGN, Stamp
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.selection import SelectionMask
+from realmspinner.studio import probe, widgets
+from realmspinner.studio.modes.inker import mode as inker_mode
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+from realmspinner.studio.modes.inker.ui.panes import context as inker_context
+from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
 
 RED = (255, 0, 0, 255)
 GREEN = (0, 255, 0, 255)
@@ -430,7 +430,7 @@ def ui(monkeypatch):
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import theme
+    from realmspinner.studio import theme
 
     previous = imgui.get_current_context()
     ctx = imgui.create_context()

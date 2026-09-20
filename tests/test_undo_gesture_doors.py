@@ -30,24 +30,24 @@ from modes.sirens.test_sirens_mode import FakeCtx
 from modes.sirens.test_sirens_panes_smoke import _loaded, _no_device  # noqa: F401
 from modes.sirens.test_sirens_panes_smoke import frames as frames  # noqa: F401, PLC0414
 
-from warlock.core import undo
-from warlock.studio import controls, widgets
-from warlock.studio.modes.clay.ui.panes import outliner as clay_outliner
-from warlock.studio.modes.clay.ui.panes import props as clay_props
-from warlock.studio.modes.inker.ui.panes import colors as inker_colors
-from warlock.studio.modes.inker.ui.panes import picker as inker_picker
-from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
-from warlock.studio.modes.mason.ui.panes import props as mason_props
-from warlock.studio.modes.packwright.ui.panes import settings as packwright_settings
-from warlock.studio.modes.packwright.ui.panes import sources as packwright_sources
-from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
-from warlock.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
-from warlock.studio.modes.sirens import mode as sirens_mode
-from warlock.studio.modes.sirens.ui.panes import effects as sirens_effects
-from warlock.studio.modes.sirens.ui.panes import instruments as sirens_instruments
-from warlock.studio.modes.sirens.ui.panes import orders as sirens_orders
-from warlock.studio.modes.sirens.ui.panes import patterns as sirens_patterns
-from warlock.studio.modes.sirens.ui.panes import transport as sirens_transport
+from realmspinner.core import undo
+from realmspinner.studio import controls, widgets
+from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
+from realmspinner.studio.modes.inker.ui.panes import picker as inker_picker
+from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
+from realmspinner.studio.modes.mason.ui.panes import props as mason_props
+from realmspinner.studio.modes.packwright.ui.panes import settings as packwright_settings
+from realmspinner.studio.modes.packwright.ui.panes import sources as packwright_sources
+from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
+from realmspinner.studio.modes.plotter.ui.panes import tileset_editor as plotter_tileset_editor
+from realmspinner.studio.modes.sirens import mode as sirens_mode
+from realmspinner.studio.modes.sirens.ui.panes import effects as sirens_effects
+from realmspinner.studio.modes.sirens.ui.panes import instruments as sirens_instruments
+from realmspinner.studio.modes.sirens.ui.panes import orders as sirens_orders
+from realmspinner.studio.modes.sirens.ui.panes import patterns as sirens_patterns
+from realmspinner.studio.modes.sirens.ui.panes import transport as sirens_transport
 
 
 @dataclass
@@ -450,8 +450,8 @@ def test_an_interrupted_opacity_drag_still_leaves_one_undo_step(monkeypatch, fra
     """
     import numpy as np
 
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker.ui.panes import menu as inker_menu
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker.ui.panes import menu as inker_menu
 
     doc = inker.Document.from_pixels(np.full((4, 4, 4), 255, dtype=np.uint8))
     before = len(doc.history)
@@ -493,7 +493,7 @@ def test_the_plotter_layer_list_opacity_row_drag_is_one_step(monkeypatch, frames
     from modes.plotter.test_plotter_mode import FakeCtx as PlotterFakeCtx
     from modes.plotter.test_plotter_mode import _tab as _plotter_tab
 
-    from warlock.studio.modes.plotter.ui.panes import layers as plotter_layers
+    from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
 
     ctx = PlotterFakeCtx()
     tab = _plotter_tab(ctx)
@@ -572,8 +572,8 @@ def test_light_intensity_typed_digit_by_digit_is_one_undo_step(monkeypatch, fram
     so typing "2000" into intensity digit by digit pushed four undo steps and
     one Ctrl+Z left ``200.0`` rather than the pre-edit value.
     """
-    from warlock.studio.modes.mason.engine import document as md
-    from warlock.studio.modes.mason.engine import nodes as nd
+    from realmspinner.studio.modes.mason.engine import document as md
+    from realmspinner.studio.modes.mason.engine import nodes as nd
 
     node = nd.LightNode(uid=nd.new_uid(), name="Lamp", kind="point")
     doc = md.MasonDoc(roots=[node])
@@ -647,7 +647,7 @@ def test_form_slider_used_for_an_undoable_field_folds_a_multi_frame_drag_into_on
     ``with`` block, immediately after the caller's control and before the
     trailing note/dummy, so the "last item" is still the real field.
     """
-    from warlock.studio import forms
+    from realmspinner.studio import forms
 
     history = undo.UndoStack()
     before = len(history)

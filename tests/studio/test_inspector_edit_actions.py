@@ -26,8 +26,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from warlock.studio.panes import inspector
-from warlock.studio.state import AppState
+from realmspinner.studio.panes import inspector
+from realmspinner.studio.state import AppState
 
 
 class FakeCtx:
@@ -54,7 +54,7 @@ def _reference(svc):
 
 def test_the_viewport_toolbar_owns_the_inker_button_at_the_reference_stage(svc):
     """Where the reference is the thing on screen."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     ctx = FakeCtx(svc, "create", "reference")
     job = _reference(svc)
@@ -115,9 +115,9 @@ def test_the_toolbar_and_the_inspector_agree_about_which_of_them_it_is(svc):
     every mode, *exactly* one of them offers an editable reference. The
     inspector's gate is written as the complement of the toolbar's rather than
     as a second reading of the mode, which is what makes both halves true."""
-    from warlock.studio import modes
-    from warlock.studio.modes.create.ui import stages as create_stages
-    from warlock.studio.panes import overlay
+    from realmspinner.studio import modes
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.panes import overlay
 
     job = _reference(svc)
     for mode in modes.KEYS:

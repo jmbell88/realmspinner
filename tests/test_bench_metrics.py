@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from PIL import Image, ImageDraw
 
-from warlock.bench import calibrate as calibrate_mod
-from warlock.bench import imageprep, metrics
+from realmspinner.bench import calibrate as calibrate_mod
+from realmspinner.bench import imageprep, metrics
 
 BG = (200, 200, 200)
 

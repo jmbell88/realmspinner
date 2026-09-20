@@ -21,9 +21,9 @@
  * the same function.
  */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
-void warlockc_blit_cells_u8(uint8_t *out, int64_t out_h, int64_t out_w,
+void realmspinnerc_blit_cells_u8(uint8_t *out, int64_t out_h, int64_t out_w,
                             int64_t out_stride, const uint8_t *atlas,
                             int64_t tile_h, int64_t tile_w,
                             const int32_t *tile_index, const int64_t *xs,

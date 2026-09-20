@@ -17,8 +17,8 @@ import wave
 import numpy as np
 import pytest
 
-from warlock.service import _jobs_music as door
-from warlock.service.errors import Invalid
+from realmspinner.service import _jobs_music as door
+from realmspinner.service.errors import Invalid
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +28,7 @@ def _admitted(monkeypatch):
 
 
 def _wav(seconds: float, rate: int = 44100) -> bytes:
-    """A silent 16-bit stereo take -- the format ``WARLOCK 5/6`` writes."""
+    """A silent 16-bit stereo take -- the format ``REALMSPINNER 5/6`` writes."""
     frames = np.zeros((int(seconds * rate), 2), dtype="<i2")
     out = io.BytesIO()
     with wave.open(out, "wb") as handle:
@@ -174,7 +174,7 @@ def test_an_extend_landing_inside_the_frame_truncation_gap_is_refused(svc, bound
     the vendored sampler truncates to frames first
     (``max_infer_fame_length = int(240 * 44100 / 512 / 8)``, ~239.907s once
     converted back) -- a ~0.09s gap in which a request cleared this door and
-    still landed inside the vendored trim path (WARLOCK 6/6) at generation
+    still landed inside the vendored trim path (REALMSPINNER 6/6) at generation
     time, contradicting the door's own comment that the sampler's extend path
     is refused here rather than reached at all.
 
@@ -296,7 +296,7 @@ def test_a_refused_derivation_leaves_nothing_on_disk(svc, parent):
 
 def test_extend_near_the_240s_ceiling_reattaches_the_correct_pad_tensor_on_the_time_axis():
     """``pipeline_ace_step.py``'s vendored post-loop ``if is_extend:`` reattach
-    (WARLOCK 6/6) had its ``to_left_pad_gt_latents`` arm concatenate the
+    (REALMSPINNER 6/6) had its ``to_left_pad_gt_latents`` arm concatenate the
     *other* arm's variable -- ``to_right_pad_gt_latents``, ``None`` unless a
     right-extend trim *also* ran in the same call -- on ``dim=0``, the batch
     axis, instead of its own variable on ``dim=-1``, the time axis its
@@ -326,7 +326,7 @@ def test_extend_near_the_240s_ceiling_reattaches_the_correct_pad_tensor_on_the_t
     pipeline_path = (
         Path(__file__).resolve().parents[2]
         / "src"
-        / "warlock"
+        / "realmspinner"
         / "pipelines"
         / "acestep"
         / "pipeline_ace_step.py"

@@ -1,7 +1,7 @@
 """Tranche 3: locking -- "cannot be changed", not "cannot be seen".
 
 Every door the module docstring names is exercised here, refusing before
-anything is pushed; :meth:`~warlock.kernels.mesh.document.ClayDoc.set_props`
+anything is pushed; :meth:`~realmspinner.kernels.mesh.document.ClayDoc.set_props`
 is exercised for the opposite reason -- it is *not* a locking door, and the
 fields the spec says still get through it while locked (name, visibility,
 tags, locked itself, material) are pinned one by one. Undo/redo apply
@@ -14,11 +14,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import modifiers as mod
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import modifiers as mod
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.elements import OpError
 
 
 def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
@@ -215,7 +215,7 @@ def test_set_origin_is_not_gated_by_a_lock() -> None:
 
 
 def test_separate_refuses_a_locked_object() -> None:
-    from warlock.kernels.mesh import separate
+    from realmspinner.kernels.mesh import separate
 
     doc = bd.ClayDoc()
     two_boxes = bm.Mesh(

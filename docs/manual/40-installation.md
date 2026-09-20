@@ -1,6 +1,6 @@
 # Installation
 
-Warlock Studio is a local desktop app with two heavy dependencies it does not ship: a vendored
+Realmspinner is a local desktop app with two heavy dependencies it does not ship: a vendored
 native binary and several gigabytes of model weights. Everything below is done once, by hand, and
 after it the app never touches the network again.
 
@@ -29,7 +29,7 @@ different capability:
 
 | Extra | What it adds | Skipping it costs |
 | --- | --- | --- |
-| `studio` | moderngl, pygame-ce, imgui-bundle, zstandard | The window itself. Without it only `warlock doctor` and `warlock sweep` run. |
+| `studio` | moderngl, pygame-ce, imgui-bundle, zstandard | The window itself. Without it only `realmspinner doctor` and `realmspinner sweep` run. |
 | `text2image` | torch cu128, torchvision, diffusers, transformers, accelerate, peft, sentencepiece, protobuf, and BiRefNet's own einops/kornia/timm | Text-to-3D. Image-to-3D from an upload still works. |
 | `rig` | bpy | Rigging, posing and sprite sheets. |
 | `music` | ACE-Step's own stack, pinned separately from `text2image`: torch cu128, torchaudio (pinned `<2.9`), diffusers, transformers, accelerate, peft, librosa, loguru, spacy, and the lyric-language stack (py3langid, pypinyin, num2words, hangul-romanize, cutlet, fugashi). `pyproject.toml`'s `[project.optional-dependencies].music` is the list that decides, and it carries a comment for every pin. | Muse's text-to-music generation and its Hybrid Demucs stem separation. |
@@ -38,19 +38,19 @@ different capability:
 by anything else. BiRefNet — the learned matting model — is loaded with `trust_remote_code`, so the
 modelling code that builds it is the checkpoint's own and no resolver can see its imports: `einops`,
 `kornia` and `timm` are what that code reaches for, and without them the matting silently fell back
-to a corner fill on a machine where `warlock doctor` could see every weight on disk. `torchvision` is
+to a corner fill on a machine where `realmspinner doctor` could see every weight on disk. `torchvision` is
 the other: `transformers` builds its fast image processors on it, and the DINOv2 embedding behind
 candidate ranking needs it, so leaving it undeclared meant any `uv sync` removed it and candidate
 ranking quietly degraded to composition alone.
 
-`studio` is an extra rather than a core dependency because `warlock doctor` and `warlock sweep` have
+`studio` is an extra rather than a core dependency because `realmspinner doctor` and `realmspinner sweep` have
 to run on a machine with no display — the command line only imports the window on the path that
 opens one.
 
 `rig` carries one constraint worth knowing before you install it. `bpy` ships **CPython 3.13 wheels
 only**, so the requirement is marked `python_version >= '3.13' and python_version < '3.14'`. On any
 other version the extra installs
-nothing at all: `warlock doctor` reports rigging as unavailable, the app hides the rig controls, and
+nothing at all: `realmspinner doctor` reports rigging as unavailable, the app hides the rig controls, and
 everything else works unchanged. The marker is not decoration — without it, `bpy`'s own
 `Requires-Python` would make the whole project unresolvable on 3.14 rather than merely leaving
 rigging out.
@@ -87,8 +87,8 @@ that `vendor/trellis/trellis-server.exe` exists.
 
 The pinned build is **v0.6.0** (2026-08-19). Unpacking it by hand is a **source-checkout step
 only**: since 2026-09-10 the installed app downloads that same archive itself, from **Settings →
-Models**, and unpacks it under `~/.warlock/engine/trellis`. A downloaded copy wins over a vendored
-one, and `WARLOCK_TRELLIS_EXE` beats both — see
+Models**, and unpacks it under `~/.realmspinner/engine/trellis`. A downloaded copy wins over a vendored
+one, and `REALMSPINNER_TRELLIS_EXE` beats both — see
 [Environment variables](41-configuration.md#environment-variables). That variable is also the way to
 install the engine on a machine that cannot reach GitHub: unpack the archive anywhere and point the
 variable at the executable.
@@ -97,12 +97,12 @@ variable at the executable.
 2026-09-10.** It used to be, on the grounds that the installer staged it — so its absence could only
 mean a broken install. That reasoning ended when it became a download: a machine that has not
 fetched it yet is an ordinary fresh machine, not a broken one, so both rows are reported as **setup**
-rows rather than red ones and `warlock doctor` exits 0. The weights made the same move on
+rows rather than red ones and `realmspinner doctor` exits 0. The weights made the same move on
 2026-09-04, for the same reason.
 
 The only fatal row left is the VRAM budget, and that one fires only when the budget cannot hold a
 lone reconstruction — so on a card large enough it never does. **A correct, freshly installed
-Warlock now has no fatal rows at all.** See [Checking the install](#checking-the-install) below.
+Realmspinner now has no fatal rows at all.** See [Checking the install](#checking-the-install) below.
 
 ## gltfpack
 
@@ -112,7 +112,7 @@ git-ignored in its entirety, so a fresh clone has neither binary and the manual 
 as saying otherwise.
 
 Get `gltfpack.exe` from [meshoptimizer](https://github.com/zeux/meshoptimizer/releases) and put it
-at `vendor/gltfpack/gltfpack.exe`, or point `WARLOCK_GLTFPACK` at a copy you keep elsewhere.
+at `vendor/gltfpack/gltfpack.exe`, or point `REALMSPINNER_GLTFPACK` at a copy you keep elsewhere.
 
 The build this project is qualified against reports **gltfpack 1.2**; the exact file measured is
 2,966,528 bytes with SHA-256
@@ -121,7 +121,7 @@ fine — the checksum is here so a stale or mismatched copy can be *identified*,
 enforced.
 
 Unlike the trellis binary, a missing `gltfpack` is not fatal and not even a warning about a broken
-install: `warlock doctor` reports it, the generate form is unaffected, and every job simply ships
+install: `realmspinner doctor` reports it, the generate form is unaffected, and every job simply ships
 the raw reconstruction at full density instead of decimating it.
 
 ## Model weights
@@ -129,14 +129,14 @@ the raw reconstruction at full density instead of decimating it.
 Two downloads are enough to make the app work end to end. Both are one-time.
 
 ```powershell
-# TRELLIS.2 GGUF weights -> ~/.warlock/models/trellis2-gguf/
+# TRELLIS.2 GGUF weights -> ~/.realmspinner/models/trellis2-gguf/
 uvx hf download ilintar/trellis2-gguf --revision a57397bd3d351599d9729fc144b3f87c3f87d65b --include "*.gguf" --exclude "q4/*" --exclude "q8/*" `
-  --local-dir $HOME/.warlock/models/trellis2-gguf
+  --local-dir $HOME/.realmspinner/models/trellis2-gguf
 
-# SDXL 1.0 weights (fp16 variant, ~7 GB) -> ~/.warlock/models/sdxl-base-1.0/  (text-to-3D only,
+# SDXL 1.0 weights (fp16 variant, ~7 GB) -> ~/.realmspinner/models/sdxl-base-1.0/  (text-to-3D only,
 # needs `uv sync --extra studio --extra text2image` to pull torch cu128)
 uvx hf download stabilityai/stable-diffusion-xl-base-1.0 --revision 462165984030d82259a11f4367a4eed129e94a7b `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.warlock/models/sdxl-base-1.0
+  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/sdxl-base-1.0
 ```
 
 That second download is the default image model, and it is also three others: the Hyper-SD, LCM
@@ -158,11 +158,11 @@ it the engine falls back to a threshold cutout, which is worse on anything with 
 The reference image is the single biggest lever on final mesh quality — the reconstruction engine
 can only be as good as the picture it is handed — so the image model and an optional style LoRA are
 per-job choices in the settings pane. Everything below is optional and independently skippable, and
-`warlock doctor` lists each one with the exact command to fetch it.
+`realmspinner doctor` lists each one with the exact command to fetch it.
 
 **Only the models listed here can be selected, and that is deliberate.** Dropping a
-`.safetensors` into `loras/` does *not* add a style: Warlock's picker is driven by a registry in
-`src/warlock/models.py`, not by a directory listing. Every entry there declares the architecture it
+`.safetensors` into `loras/` does *not* add a style: Realmspinner's picker is driven by a registry in
+`src/realmspinner/models.py`, not by a directory listing. Every entry there declares the architecture it
 was fitted to, the weight it was *measured* at, and its trigger words — none of which a bare file
 carries, and each of which is wrong-by-default rather than merely missing. A LoRA trained with
 `use_rslora` needs a default weight an order of magnitude smaller than an ordinary one; an adapter
@@ -177,21 +177,21 @@ opposite — adapters on the resident pipeline, switched for free.
 # SDXL-Turbo (~7 GB): the 4-step fast option, at 512 px and guidance 0. Its own
 # checkpoint rather than a recipe over the base weights, so it is a full second
 # download -- worth it when iteration speed matters more than fidelity. This is
-# also the entry WARLOCK_T2I_DIR redirects.
+# also the entry REALMSPINNER_T2I_DIR redirects.
 uvx hf download stabilityai/sdxl-turbo --revision 71153311d3dbb46851df1931d3ca6e939de83304 `
   --include "*.json" --include "*.txt" --include "*fp16.safetensors" `
-  --exclude "sd_xl_turbo_1.0*" --local-dir $HOME/.warlock/models/sdxl-turbo
+  --exclude "sd_xl_turbo_1.0*" --local-dir $HOME/.realmspinner/models/sdxl-turbo
 
 # SDXL 1.0 + Hyper-SD (~7 GB + 787 MB). Style LoRAs are trained against full
 # SDXL at 20-25 steps with CFG, so they land noticeably stronger here than on
 # Turbo's 4 steps at guidance 0. Hyper-SD buys the step count back.
 uvx hf download stabilityai/stable-diffusion-xl-base-1.0 --revision 462165984030d82259a11f4367a4eed129e94a7b `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.warlock/models/sdxl-base-1.0
-uvx hf download ByteDance/Hyper-SD --revision bc08d970a87c74c71209491d64e3525845698863 Hyper-SDXL-4steps-lora.safetensors --local-dir $HOME/.warlock/models/loras
+  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/sdxl-base-1.0
+uvx hf download ByteDance/Hyper-SD --revision bc08d970a87c74c71209491d64e3525845698863 Hyper-SDXL-4steps-lora.safetensors --local-dir $HOME/.realmspinner/models/loras
 
 # Playground v2.5 (~7 GB): highest fidelity, ~25 steps with CFG, correspondingly slower.
 uvx hf download playgroundai/playground-v2.5-1024px-aesthetic --revision 1e032f13f2fe6db2dc49947dbdbd196e753de573 `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.warlock/models/playground-v2.5
+  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/playground-v2.5
 
 # FLUX.2 klein-base 4B (~16 GB): a different architecture entirely -- one Qwen3
 # text encoder at 512 tokens instead of two CLIPs at 77, and a DiT instead of a
@@ -199,7 +199,7 @@ uvx hf download playgroundai/playground-v2.5-1024px-aesthetic --revision 1e032f1
 # resident: ~16 GB stays in host memory and about 10 GB is on the card at peak.
 uvx hf download black-forest-labs/FLUX.2-klein-base-4B --revision a3b4f4849157f664bdbc776fd7453c2783562f4d `
   --include "*.json" --include "*.txt" --include "*.jinja" --include "*.safetensors" `
-  --exclude "flux-2-klein-base-4b.safetensors" --local-dir $HOME/.warlock/models/flux2-klein-base-4b
+  --exclude "flux-2-klein-base-4b.safetensors" --local-dir $HOME/.realmspinner/models/flux2-klein-base-4b
 
 # FLUX.2 klein 4B distilled (~16 GB): the 4-step sibling, at guidance 1.0. It
 # registers as distilled, so the negative prompt is inert on it -- pick
@@ -207,46 +207,46 @@ uvx hf download black-forest-labs/FLUX.2-klein-base-4B --revision a3b4f4849157f6
 # run at the recipe it was trained on.
 uvx hf download black-forest-labs/FLUX.2-klein-4B --revision e7b7dc27f91deacad38e78976d1f2b499d76a294 `
   --include "*.json" --include "*.txt" --include "*.jinja" --include "*.safetensors" `
-  --exclude "flux-2-klein-4b.safetensors" --local-dir $HOME/.warlock/models/flux2-klein-4b
+  --exclude "flux-2-klein-4b.safetensors" --local-dir $HOME/.realmspinner/models/flux2-klein-4b
 
 # SDXL 1.0 + LCM (pixel art): the same base weights again, run at 8 steps with
 # guidance 1.0 -- the recipe the pixel-art LoRA below was trained against. The
 # LCM LoRA has to be renamed: loras/ is flat, and the upstream filename is
 # generic enough that any other repo's default-named adapter would overwrite it.
 uvx hf download latent-consistency/lcm-lora-sdxl --revision a18548dd4956b174ec5b0d78d340c8dae0a129cd `
-  pytorch_lora_weights.safetensors --local-dir $HOME/.warlock/models/loras
-Rename-Item $HOME/.warlock/models/loras/pytorch_lora_weights.safetensors lcm-lora-sdxl.safetensors
+  pytorch_lora_weights.safetensors --local-dir $HOME/.realmspinner/models/loras
+Rename-Item $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors lcm-lora-sdxl.safetensors
 
 # SDXL 1.0 + Lightning (394 MB on top of the base weights): a second 4-step
 # distillation, adversarial where Hyper-SD is trajectory-consistency -- so the
 # two are directly comparable with everything else held fixed.
 uvx hf download ByteDance/SDXL-Lightning --revision c9a24f48e1c025556787b0c58dd67a091ece2e44 `
-  sdxl_lightning_4step_lora.safetensors --local-dir $HOME/.warlock/models/loras
+  sdxl_lightning_4step_lora.safetensors --local-dir $HOME/.realmspinner/models/loras
 
 # Juggernaut XL v9 (~6.9 GB): a photoreal SDXL finetune, DPM++ 2M Karras at 35
 # steps with CFG 4.0. Materials and lighting read as photographed rather than
 # illustrated, which suits a prop that will be reconstructed and then lit.
 uvx hf download RunDiffusion/Juggernaut-XL-v9 --revision cf419233522daa0b9ea36c3aff98fa2cab1fb0fb `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.warlock/models/juggernaut-xl-v9
+  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/juggernaut-xl-v9
 
 # DreamShaper XL (~6.9 GB): the stylised counterpart, DEIS at 25 steps per its card.
 uvx hf download Lykon/dreamshaper-xl-1-0 --revision 41e6644752a8c9aa63930e6043c4fd83c7708420 `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.warlock/models/dreamshaper-xl
+  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/dreamshaper-xl
 
-# Style LoRAs -> ~/.warlock/models/loras/
-uvx hf download goofyai/3d_render_style_xl --revision 5ec74a57db5e244a2157173781a7b29045f88237 3d_render_style_xl.safetensors --local-dir $HOME/.warlock/models/loras
+# Style LoRAs -> ~/.realmspinner/models/loras/
+uvx hf download goofyai/3d_render_style_xl --revision 5ec74a57db5e244a2157173781a7b29045f88237 3d_render_style_xl.safetensors --local-dir $HOME/.realmspinner/models/loras
 uvx hf download artificialguybr/3DRedmond-V1 --revision f4b4b980972566aea7c71af9d4e170d7fcb6c404 `
-  3DRedmond-3DRenderStyle-3DRenderAF.safetensors --local-dir $HOME/.warlock/models/loras
+  3DRedmond-3DRenderStyle-3DRenderAF.safetensors --local-dir $HOME/.realmspinner/models/loras
 uvx hf download artificialguybr/ps1redmond-ps1-game-graphics-lora-for-sdxl --revision 74bb3a6e2efd47ead698ff3ac2695ab63bbd2d5c `
-  PS1Redmond-PS1Game-Playstation1Graphics.safetensors --local-dir $HOME/.warlock/models/loras
+  PS1Redmond-PS1Game-Playstation1Graphics.safetensors --local-dir $HOME/.realmspinner/models/loras
 # Pixel art: generates on a pixel grid rather than being downscaled into one.
-uvx hf download nerijs/pixel-art-xl --revision 8bf4a4d9ea283e00a51fafda8e0539f8248ea037 pixel-art-xl.safetensors --local-dir $HOME/.warlock/models/loras
+uvx hf download nerijs/pixel-art-xl --revision 8bf4a4d9ea283e00a51fafda8e0539f8248ea037 pixel-art-xl.safetensors --local-dir $HOME/.realmspinner/models/loras
 # Pixel art for FLUX.2 klein. Renamed for the same reason the LCM LoRA above is:
 # loras/ is flat and shared across architectures, and this repo ships the same
 # generic filename. It is offered only on the two klein entries.
 uvx hf download Limbicnation/pixel-art-lora --revision 0ac8e5c3400af68228811edc324721e25fc26777 `
-  pytorch_lora_weights.safetensors --local-dir $HOME/.warlock/models/loras
-Rename-Item $HOME/.warlock/models/loras/pytorch_lora_weights.safetensors pixel-art-klein.safetensors
+  pytorch_lora_weights.safetensors --local-dir $HOME/.realmspinner/models/loras
+Rename-Item $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors pixel-art-klein.safetensors
 ```
 
 The SDXL 1.0 weights serve five entries in the model list — the Hyper-SD one above, a full-CFG
@@ -264,19 +264,19 @@ makes its control unavailable until it is present.
 # IP-Adapter Plus: condition on an image's appearance. Both halves are needed --
 # the weights alone load fine and then fail at the first call.
 uvx hf download h94/IP-Adapter --revision 018e402774aeeddd60609b4ecdb7e298259dc729 sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors `
-  --local-dir $HOME/.warlock/models/ip-adapter
-uvx hf download h94/IP-Adapter --revision 018e402774aeeddd60609b4ecdb7e298259dc729 --include "models/image_encoder/*" --local-dir $HOME/.warlock/models/ip-adapter
+  --local-dir $HOME/.realmspinner/models/ip-adapter
+uvx hf download h94/IP-Adapter --revision 018e402774aeeddd60609b4ecdb7e298259dc729 --include "models/image_encoder/*" --local-dir $HOME/.realmspinner/models/ip-adapter
 
 # ControlNet (Canny): lock the silhouette to an image's edges.
 uvx hf download diffusers/controlnet-canny-sdxl-1.0 --revision eb115a19a10d14909256db740ed109532ab1483c `
-  --include "*.json" --include "*fp16.safetensors" --local-dir $HOME/.warlock/models/controlnet-canny-sdxl
+  --include "*.json" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/controlnet-canny-sdxl
 
 # ControlNet (Depth): anchors a re-texture's restyle passes to the mesh's own
 # geometry. The hint is rendered by Blender from the mesh rather than estimated
 # from a photo, which is why this one belongs to the re-texture stage alone and
 # never appears in the reference stage's conditioning pickers.
 uvx hf download diffusers/controlnet-depth-sdxl-1.0 --revision 17bb97973f29801224cd66f192c5ffacf82648b4 `
-  --include "*.json" --include "*fp16.safetensors" --local-dir $HOME/.warlock/models/controlnet-depth-sdxl
+  --include "*.json" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/controlnet-depth-sdxl
 ```
 
 See [Conditioning on an image](22-generating-references.md#conditioning-on-an-image) for what these
@@ -292,7 +292,7 @@ falls back to what the app did before it existed, rather than failing.
 # DINOv2 base (~0.4 GB): the identity embedding behind style-anchor similarity
 # and the Review judge's probes.
 uvx hf download facebook/dinov2-base --revision f9e44c814b77203eaa57a6bdbbd535f21ede1415 `
-  --include "*.json" --include "*.safetensors" --local-dir $HOME/.warlock/models/dinov2-base
+  --include "*.json" --include "*.safetensors" --local-dir $HOME/.realmspinner/models/dinov2-base
 
 # PickScore v1 (~3.8 GB): a CLIP-H fine-tuned on 500k human A/B preferences,
 # which scores an image *for its prompt*. It is the "would a person pick this"
@@ -301,16 +301,16 @@ uvx hf download facebook/dinov2-base --revision f9e44c814b77203eaa57a6bdbbd535f2
 # is given too, so a single merged command fetches the weights without the
 # processor and the model then cannot load.
 uvx hf download yuvalkirstain/PickScore_v1 --revision a4e4367c6dfa7288a00c550414478f865b875800 model.safetensors `
-  --local-dir $HOME/.warlock/models/pickscore-v1
+  --local-dir $HOME/.realmspinner/models/pickscore-v1
 uvx hf download yuvalkirstain/PickScore_v1 --revision a4e4367c6dfa7288a00c550414478f865b875800 `
-  --include "*.json" --include "*.txt" --local-dir $HOME/.warlock/models/pickscore-v1
+  --include "*.json" --include "*.txt" --local-dir $HOME/.realmspinner/models/pickscore-v1
 
 
 # ViTPose base (~0.4 GB): measures a humanoid subject's joints off the reference
 # image, so a rig starts from where the limbs actually are rather than from the
 # template's proportions.
 uvx hf download usyd-community/vitpose-base-simple --revision a93ac0c67e0b7e2c55287d21d4c460c8f3c54d45 `
-  --include "*.json" --include "*.safetensors" --local-dir $HOME/.warlock/models/vitpose-base
+  --include "*.json" --include "*.safetensors" --local-dir $HOME/.realmspinner/models/vitpose-base
 
 # BiRefNet (~1 GB): host-side background matting for 2D exports. Without it the
 # alpha comes from a corner flood fill, with visibly rougher edges around hair,
@@ -319,7 +319,7 @@ uvx hf download usyd-community/vitpose-base-simple --revision a93ac0c67e0b7e2c55
 # That vendored code imports einops, kornia, timm and torchvision, so this one
 # also wants `uv sync --extra text2image`.
 uvx hf download ZhengPeng7/BiRefNet --revision e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4 `
-  --include "*.json" --include "*.safetensors" --local-dir $HOME/.warlock/models/birefnet
+  --include "*.json" --include "*.safetensors" --local-dir $HOME/.realmspinner/models/birefnet
 ```
 
 All five run on the **CPU**, deliberately: a measurement must not take VRAM from the models making
@@ -355,19 +355,19 @@ other model in the model root, so nothing new has to be configured to hold it.
 # 44.1 kHz WAV out. Runs in its own subprocess on the same card as the image
 # model, and needs `uv sync --extra music` -- its own extra, not `text2image`.
 uvx hf download ACE-Step/ACE-Step-v1-3.5B --revision 82cd0d7b6322bd28cd4e830fe675ddb6180ce36c `
-  --local-dir $HOME/.warlock/models/ace-step-v1-3.5b
+  --local-dir $HOME/.realmspinner/models/ace-step-v1-3.5b
 ```
 
 Unlike the measuring models above there is no fallback: Muse refuses at the door and names this
 download, rather than generating something worse. The pipeline code is vendored in this
-application (`src/warlock/pipelines/acestep/`) with its modifications documented beside it, so
+application (`src/realmspinner/pipelines/acestep/`) with its modifications documented beside it, so
 nothing is executed out of the downloaded directory — the same arrangement BiRefNet has.
 
 ## Checking the install
 
 ```powershell
-uv run warlock doctor   # checks dependencies, weights and configuration
-uv run warlock          # opens the desktop app
+uv run realmspinner doctor   # checks dependencies, weights and configuration
+uv run realmspinner          # opens the desktop app
 ```
 
 `doctor` prints one row per check, and the split between **fatal** and non-fatal is the whole point
@@ -375,7 +375,7 @@ of reading it:
 
 - **`[FATAL]`** — this install is broken and nothing you can do in the app will fix it. One row can
   say this: a VRAM budget too small for a lone reconstruction, because there is nothing to degrade
-  to. A fatal row is the only thing that makes `warlock doctor` exit non-zero. A missing
+  to. A fatal row is the only thing that makes `realmspinner doctor` exit non-zero. A missing
   `trellis-server.exe` is **not** fatal — the engine is a download now, so its absence is a setup
   row like any other weight.
 - **`[SETUP]`** — you have not downloaded this yet, which is the ordinary state of a fresh

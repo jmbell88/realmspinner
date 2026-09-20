@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.characters import effects, family
+from realmspinner.characters import effects, family
 
 
 def _theme(key: str = "fire", family_key: str = "elemental"):
@@ -106,7 +106,7 @@ def test_the_socket_is_the_first_preference_the_archetype_actually_declares(
 
 
 def test_nothing_hangs_on_an_archetype_that_declares_no_preferred_socket():
-    from warlock.characters.family import Socket
+    from realmspinner.characters.family import Socket
 
     assert effects.pick_socket("embers", (Socket("tail", "tail.001"),)) is None
 
@@ -140,7 +140,7 @@ def test_the_seed_survives_the_recipe_codecs_own_masking():
     """``recipe.clamp`` masks a seed to 31 bits. A value that did not already
     fit would come back as a *different* flame from the one this function
     named, silently."""
-    from warlock.kernels.pixel.flourish import recipe as flourish_recipe
+    from realmspinner.kernels.pixel.flourish import recipe as flourish_recipe
 
     seed = effects.effect_seed(2**31 - 1, 5)
     assert 0 <= seed <= 0x7FFFFFFF
@@ -193,7 +193,7 @@ def test_a_theme_with_neither_region_falls_back_to_the_primitives_own_flame():
     that vanishes because a palette had no ``accent`` is a bug nobody can see."""
     from dataclasses import replace
 
-    from warlock.kernels.pixel.flourish import prims
+    from realmspinner.kernels.pixel.flourish import prims
 
     theme = replace(_theme(), materials={}, effect_params={})
     base, tip = effects.effect_colors(theme)
@@ -256,7 +256,7 @@ def test_the_reach_is_the_effects_size_budget():
     body, which is exactly what an effect should be allowed to spend: a flame
     the size of the thing it is allowed to hang there does not swallow the
     character."""
-    from warlock.characters.family import Socket
+    from realmspinner.characters.family import Socket
 
     theme = _theme()
     small = effects.effect_height_px(Socket("a", "b", reach=1.0), theme, logical=32)
@@ -269,7 +269,7 @@ def test_the_species_scales_the_budget_and_the_archetype_sets_it():
     much room is there" stays the archetype's (``Socket.reach``)."""
     from dataclasses import replace
 
-    from warlock.characters.family import Socket
+    from realmspinner.characters.family import Socket
 
     socket = Socket("a", "b", reach=1.0)
     quiet = replace(_theme(), effect_params={"rise": 0.1})
@@ -287,7 +287,7 @@ def test_an_explicit_zero_rise_is_not_replaced_by_the_default():
     the effect to its 2px floor."""
     from dataclasses import replace
 
-    from warlock.characters.family import Socket
+    from realmspinner.characters.family import Socket
 
     socket = Socket("a", "b", reach=10.0)
     theme = replace(_theme(), effect_params={"rise": 0.0})
@@ -295,7 +295,7 @@ def test_an_explicit_zero_rise_is_not_replaced_by_the_default():
 
 
 def test_a_flame_is_never_zero_pixels_tall():
-    from warlock.characters.family import Socket
+    from realmspinner.characters.family import Socket
 
     tiny = effects.effect_height_px(Socket("a", "b", reach=0.01), _theme(), logical=16)
     assert tiny >= 2
@@ -397,7 +397,7 @@ def test_a_half_transparent_flame_mixes_rather_than_replaces():
 
 def test_the_flame_actually_draws_something():
     """A recipe that clamps to nothing visible would pass every test above."""
-    from warlock.kernels.pixel.flourish import render as flourish_render
+    from realmspinner.kernels.pixel.flourish import render as flourish_render
 
     recipe = _flame(cell_px=64, height_px=24, frames=4)
     plane = flourish_render.render_frame(recipe, 0)
@@ -410,7 +410,7 @@ def test_the_flames_base_sits_at_the_canvas_centre_and_it_rises_from_there():
     """``rise = -90`` in screen degrees is straight up. If it were +90 the
     flame would hang below the socket, which on a crown is the character's face.
     """
-    from warlock.kernels.pixel.flourish import render as flourish_render
+    from realmspinner.kernels.pixel.flourish import render as flourish_render
 
     recipe = _flame(cell_px=64, height_px=24, frames=4)
     alpha = flourish_render.to_uint8(
@@ -422,7 +422,7 @@ def test_the_flames_base_sits_at_the_canvas_centre_and_it_rises_from_there():
 
 
 def test_two_frames_of_one_movement_are_two_different_flames():
-    from warlock.kernels.pixel.flourish import render as flourish_render
+    from realmspinner.kernels.pixel.flourish import render as flourish_render
 
     recipe = _flame(cell_px=64, height_px=24, frames=4)
     first, second = (
@@ -433,7 +433,7 @@ def test_two_frames_of_one_movement_are_two_different_flames():
 
 
 def test_two_runs_of_one_recipe_are_the_same_bytes():
-    from warlock.kernels.pixel.flourish import render as flourish_render
+    from realmspinner.kernels.pixel.flourish import render as flourish_render
 
     a = flourish_render.render_frame(_flame(cell_px=64, height_px=24), 1)
     b = flourish_render.render_frame(_flame(cell_px=64, height_px=24), 1)

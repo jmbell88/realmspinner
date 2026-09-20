@@ -24,7 +24,7 @@ is about that seam holding, with no real GL and no real app:
 * A real round trip over a real pipe: ``pipe.connect`` against a started
   host, a ``hello``/``catalogue``/``call`` sequence answered while a
   background thread drives ``pump()`` the way ``main.py:App.frame`` would --
-  RPC v1 is the only wire format Studio's pipe answers now (see ``tests/mcp/
+  RPC v1 is the only wire format Realmspinner's pipe answers now (see ``tests/mcp/
   test_rpc_studio.py`` for the fuller surface of that).
 * ``_catalogue_payload`` hands ``agent_clay.instructions()`` straight
   through -- a thread-boundary claim like every other bullet here, proven
@@ -60,7 +60,7 @@ is about that seam holding, with no real GL and no real app:
   than replayed or run again; one dropped before it ever started is simply
   run for real; and a remembered render is re-run rather than handed back
   stale, because a picture costs nothing to retake and everything to keep.
-* ``warlock_status`` answers what became of a call -- including one still
+* ``realmspinner_status`` answers what became of a call -- including one still
   running -- on the listener thread, without ever being queued, which is
   the one claim above that a busy frame thread cannot get in the way of.
   Both timeout refusals now name the operation to ask about, it is never
@@ -69,7 +69,7 @@ is about that seam holding, with no real GL and no real app:
   Its own reply carries the same ``structuredContent`` duplication every
   Clay tool's does (``ok(text(...), structured=payload)``), so it is not the
   one inconsistent result shape on the bridge.
-* ``WARLOCK_AGENT_TRANSCRIPT`` gates tier two's recorder (see
+* ``REALMSPINNER_AGENT_TRANSCRIPT`` gates tier two's recorder (see
   ``agent_host._record_completed_call``): unset, a completed call writes
   nothing anywhere; set, it is appended in ``agent_transcript``'s own format;
   and a path that cannot be written is logged and never reaches the caller of
@@ -103,11 +103,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.mcp import pipe, rpc
-from warlock.studio import agent_character, agent_host
-from warlock.studio import tasks as tasks_mod
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
-from warlock.studio.modes.clay.agent import transcript as agent_transcript
+from realmspinner.mcp import pipe, rpc
+from realmspinner.studio import agent_character, agent_host
+from realmspinner.studio import tasks as tasks_mod
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.studio.modes.clay.agent import transcript as agent_transcript
 
 #: A generous but bounded ceiling for anything that talks over the real pipe
 #: in this file -- comfortably under pytest's 120 s default and comfortably
@@ -305,7 +305,7 @@ def test_starting_the_agent_server_never_writes_the_catalogue_snapshot_on_the_fr
     called ``start()``. Both of that method's real callers run on the frame
     thread (``app_settings._agents``'s Settings switch and
     ``shell/app.py``'s ``setup_context``), so flipping "Allow AI agents to
-    drive the Studio" on stalled that frame for the write. It is now queued
+    drive Realmspinner" on stalled that frame for the write. It is now queued
     onto the service lane (``_queue_service_job_nowait``, the same lane
     every character-pipeline door already runs disk/subprocess/sqlite work
     on) -- proven here by comparing the thread the write actually ran on
@@ -404,14 +404,14 @@ def test_a_pipe_that_will_not_open_switches_the_feature_off_rather_than_raising(
     callers were bare. The Settings switch stores the setting *before* calling
     it, so one failed toggle persisted ``agent_server=True``; the next launch
     then hit the same failure inside ``main.setup_context``, which sits in the
-    try whose message is "Warlock Studio could not start". A pipe another
+    try whose message is "Realmspinner could not start". A pipe another
     program was holding therefore cost the whole app, every run, with no way
     back that did not involve hand-editing settings.
 
     The reason is kept rather than swallowed: the Settings pane reads
     ``failure`` to say why the switch will not stay on.
     """
-    from warlock.mcp import pipe as pipe_mod
+    from realmspinner.mcp import pipe as pipe_mod
 
     def refuse(self) -> None:
         raise PermissionError("[WinError 5] Access is denied")
@@ -429,7 +429,7 @@ def test_a_pipe_that_will_not_open_switches_the_feature_off_rather_than_raising(
 def test_a_start_that_succeeds_clears_an_earlier_failure(tmp_path, monkeypatch) -> None:
     """``failure`` is what the Settings pane prints, so a stale one would
     accuse a listener that is in fact running."""
-    from warlock.mcp import pipe as pipe_mod
+    from realmspinner.mcp import pipe as pipe_mod
 
     def refuse(self) -> None:
         raise PermissionError("nope")
@@ -454,7 +454,7 @@ def test_a_real_round_trip_answers_hello_catalogue_and_call(
 ) -> None:
     """Drives ``host.pump()`` from this thread the way ``App.frame`` would,
     while a real bridge connection (``pipe.connect``) talks RPC v1 at it --
-    the wire format Studio's pipe answers exclusively now (see ``tests/mcp/
+    the wire format Realmspinner's pipe answers exclusively now (see ``tests/mcp/
     test_rpc_studio.py`` for the fuller RPC v1 surface; this file's own
     round trip stays here so ``AgentHost``'s thread claims are proven
     against the same pipe/pump harness every other test in this file
@@ -778,7 +778,7 @@ def test_a_call_that_started_tells_the_agent_to_ask_or_retry_rather_than_assume_
         "content"
     ][0]["text"]
 
-    # The recovery this refusal now points at: ask warlock_status about the
+    # The recovery this refusal now points at: ask realmspinner_status about the
     # named operation, or send the same call again to be handed its result.
     assert agent_host.STATUS_TOOL in started_text
     assert "op-1" in started_text
@@ -1285,11 +1285,11 @@ def test_the_remembered_calls_are_bounded_and_evict_oldest_first() -> None:
     assert calls.get(newest_id) is not None
 
 
-# --- warlock_status: the transport tool answered without a frame thread -----
+# --- realmspinner_status: the transport tool answered without a frame thread -----
 
 
-def test_warlock_status_answers_while_the_frame_thread_is_busy() -> None:
-    """The load-bearing claim: warlock_status is answered on the listener
+def test_realmspinner_status_answers_while_the_frame_thread_is_busy() -> None:
+    """The load-bearing claim: realmspinner_status is answered on the listener
     thread directly, never queued for pump() -- proven by staging a job
     genuinely inside run() and blocked, with a second job queued behind it
     that nothing drains, and confirming the status call answers promptly
@@ -1311,7 +1311,7 @@ def test_warlock_status_answers_while_the_frame_thread_is_busy() -> None:
         assert started.wait(WAIT), "the blocking job never started running"
 
         # Queued behind it, and left untouched below -- proof that the
-        # queue was never drained to answer warlock_status.
+        # queue was never drained to answer realmspinner_status.
         trailing = agent_host._Job(lambda: "never reached")
         host._queue.put(trailing)
 
@@ -1321,7 +1321,7 @@ def test_warlock_status_answers_while_the_frame_thread_is_busy() -> None:
         elapsed = time.monotonic() - began
 
         assert result["isError"] is False
-        assert elapsed < 2.0, "warlock_status waited on the busy frame thread"
+        assert elapsed < 2.0, "realmspinner_status waited on the busy frame thread"
         assert host._queue.qsize() == 1  # the trailing job is still sitting there
         assert not trailing.event.is_set()  # ... and was never run
     finally:
@@ -1329,7 +1329,7 @@ def test_warlock_status_answers_while_the_frame_thread_is_busy() -> None:
         pumper.join(timeout=WAIT)
 
 
-def test_warlock_status_reports_an_operation_that_ran_but_never_delivered(monkeypatch) -> None:
+def test_realmspinner_status_reports_an_operation_that_ran_but_never_delivered(monkeypatch) -> None:
     host = _bare_host()
     calls = agent_host._Calls()
     _shorten_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
@@ -1381,7 +1381,7 @@ def test_warlock_status_reports_an_operation_that_ran_but_never_delivered(monkey
     assert "again" in payload["note"].lower()
 
 
-def test_warlock_status_refuses_an_operation_id_it_never_minted() -> None:
+def test_realmspinner_status_refuses_an_operation_id_it_never_minted() -> None:
     host = _bare_host()
     calls = agent_host._Calls()
 
@@ -1394,7 +1394,7 @@ def test_warlock_status_refuses_an_operation_id_it_never_minted() -> None:
     assert result["structuredContent"]["field"] == "operation_id"
 
 
-def test_warlock_status_is_offered_to_a_bridge_but_is_not_one_of_clays_tools() -> None:
+def test_realmspinner_status_is_offered_to_a_bridge_but_is_not_one_of_clays_tools() -> None:
     transport_names = {t.name for t in agent_host._transport_tools()}
     clay_names = {t.name for t in agent_clay.tools()}
 
@@ -1405,7 +1405,7 @@ def test_warlock_status_is_offered_to_a_bridge_but_is_not_one_of_clays_tools() -
     assert not (transport_names & clay_names)
 
 
-def test_warlock_status_is_never_remembered_as_an_operation() -> None:
+def test_realmspinner_status_is_never_remembered_as_an_operation() -> None:
     host = _bare_host()
     calls = agent_host._Calls()
 
@@ -1506,7 +1506,7 @@ def test_the_transport_refusals_name_their_recovery(tmp_path, monkeypatch) -> No
     assert (in_flight.get("structuredContent") or {}).get("recovery") == "wait"
 
 
-# --- WARLOCK_AGENT_TRANSCRIPT: tier two's recorder ---------------------------
+# --- REALMSPINNER_AGENT_TRANSCRIPT: tier two's recorder ---------------------------
 
 
 def test_no_transcript_is_recorded_when_the_env_var_is_unset(monkeypatch) -> None:
@@ -1557,12 +1557,12 @@ def test_a_completed_call_is_recorded_when_the_env_var_is_set(tmp_path, monkeypa
     ]
 
 
-def test_warlock_status_is_never_recorded(tmp_path, monkeypatch) -> None:
-    """``warlock_status`` answers about the dedup store, not a Clay document
+def test_realmspinner_status_is_never_recorded(tmp_path, monkeypatch) -> None:
+    """``realmspinner_status`` answers about the dedup store, not a Clay document
     -- see :func:`agent_host._transport_tools`'s own docstring for why it is
     not one of ``agent_clay.tools()`` at all -- and tier one's replay only
     knows how to run a tool through ``agent_clay.call``, so a recorded
-    ``warlock_status`` line would be a transcript entry tier one could never
+    ``realmspinner_status`` line would be a transcript entry tier one could never
     meaningfully replay against a corpus subject. It is answered and
     returned before :meth:`AgentHost._call` ever reaches the recording
     point, which this proves by checking that nothing was written at all."""
@@ -1633,17 +1633,17 @@ def test_call_task_mints_an_operation_and_returns_immediately_without_a_result()
     assert host._queue.qsize() == 1  # queued, not run
 
 
-def test_a_task_mode_warlock_status_call_answers_immediately_instead_of_queuing_behind_the_frame_thread() -> (  # noqa: E501
+def test_a_task_mode_realmspinner_status_call_answers_immediately_instead_of_queuing_behind_the_frame_thread() -> (  # noqa: E501
     None
 ):
     """The 2026-09-14 audit (agents-04): a client that negotiated the MCP
     Tasks extension has *every* tools/call routed through `_call_task`
     (`protocol.bridge_dispatch`'s modern-era branch does not special-case
-    any one tool name), `warlock_status` included -- so before this fix,
+    any one tool name), `realmspinner_status` included -- so before this fix,
     `_call_task` queued it as an ordinary `agent_clay` frame job, which does
     not know that name and answers "no such tool", even though `_call`
     already answers it synchronously without ever touching the frame thread
-    (`test_warlock_status_answers_while_the_frame_thread_is_busy` above).
+    (`test_realmspinner_status_answers_while_the_frame_thread_is_busy` above).
     Proven here the same way
     `test_call_task_mints_an_operation_and_returns_immediately_without_a_result`
     proves the ordinary queuing case: never pump() at all, and the answer
@@ -1665,7 +1665,7 @@ def test_a_task_mode_warlock_status_call_answers_immediately_instead_of_queuing_
     assert "no such tool" not in json.dumps(result)
 
 
-def test_a_task_mode_warlock_status_calls_own_arguments_are_dropped_once_answered() -> None:
+def test_a_task_mode_realmspinner_status_calls_own_arguments_are_dropped_once_answered() -> None:
     """The 2026-09-16 audit (agents-05): `_Op.args`'s own docstring promises
     task-mode arguments are "Dropped (set back to None) the moment they are
     used" -- the only code that ever clears it is `_task_status`'s
@@ -1902,8 +1902,8 @@ def test_a_cancelled_tasks_operation_does_not_permanently_saturate_the_connectio
     assert "operation_id" in reply, "a 17th task-mode call must mint, not refuse"
 
 
-def test_a_task_mode_warlock_status_call_is_exempt_from_the_saturation_refusal() -> None:
-    """agents-05's own fix must not block `warlock_status` itself: it exists
+def test_a_task_mode_realmspinner_status_call_is_exempt_from_the_saturation_refusal() -> None:
+    """agents-05's own fix must not block `realmspinner_status` itself: it exists
     precisely to answer while something else is busy or stuck (the 2026-09-14
     audit, agents-04, is the incident that made it reach `_call_task` at
     all), and a saturated task store is exactly that kind of stuck. Refusing
@@ -2108,8 +2108,8 @@ def test_a_blocked_character_call_never_holds_pump(monkeypatch) -> None:
     assert outcome["result"]["isError"] is False
 
 
-def test_warlock_status_reports_a_running_character_call(monkeypatch) -> None:
-    """``warlock_status`` (answered by ``_status``, never queued) reports a
+def test_realmspinner_status_reports_a_running_character_call(monkeypatch) -> None:
+    """``realmspinner_status`` (answered by ``_status``, never queued) reports a
     character call's own progress exactly as it already does for a Clay
     call -- both are the same ``_Job``/``_Op`` shapes, whichever lane ran
     them."""
@@ -2601,7 +2601,7 @@ def test_stop_never_terminates_tracked_child_processes(tmp_path, monkeypatch) ->
     own service-lane workers. Proven by monkeypatching
     ``winjob.terminate_tracked`` itself and checking it is never reached
     while a character call is still stuck mid-run when ``stop()`` runs."""
-    from warlock import winjob
+    from realmspinner import winjob
 
     terminate_calls: list[str] = []
     monkeypatch.setattr(
@@ -2803,7 +2803,7 @@ def test_switching_the_agent_server_off_never_drops_familiar_jobs(tmp_path) -> N
             assert release.wait(WAIT), "release never came"
             return {"content": [], "isError": False}
 
-        import warlock.studio.modes.clay.agent.dispatch as agent_clay_mod
+        import realmspinner.studio.modes.clay.agent.dispatch as agent_clay_mod
 
         original_call = agent_clay_mod.call
         agent_clay_mod.call = slow
@@ -2843,7 +2843,7 @@ def test_stopping_the_last_lane_owner_never_terminates_tracked_children(
     down with ``wait=False`` and never a ``timeout`` -- never reaching
     ``winjob.terminate_tracked()`` -- exactly the constraint ``AgentHost.
     stop()`` already keeps."""
-    from warlock import winjob
+    from realmspinner import winjob
 
     terminate_calls: list[str] = []
     monkeypatch.setattr(

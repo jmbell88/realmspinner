@@ -16,10 +16,10 @@ from typing import Any
 
 import pytest
 
-from warlock import memlog, vram
-from warlock.db import JobStore
-from warlock.models import DEFAULT_LORA_WEIGHT
-from warlock.pipelines.text2image import JobCancelled
+from realmspinner import memlog, vram
+from realmspinner.db import JobStore
+from realmspinner.models import DEFAULT_LORA_WEIGHT
+from realmspinner.pipelines.text2image import JobCancelled
 
 # Captured before anything can patch it, so ``real_system_memory`` can hand the
 # genuine reader back to the one test that is about what it reads.
@@ -31,7 +31,7 @@ _REAL_SYSTEM_MEMORY = memlog.system_memory
 _REAL_DEVICE_MEMORY = vram.device_memory
 
 # Set by ``pytest_configure`` when the gpu lane is the one selected. That lane is
-# the single exception to the WARLOCK_HOME pin below -- see ``_no_migration``.
+# the single exception to the REALMSPINNER_HOME pin below -- see ``_no_migration``.
 _GPU_LANE = False
 
 
@@ -81,11 +81,11 @@ def pytest_configure(config):
     every ordinary run -- which it duly did the first time it was written.
     """
     # ``guard.STRICT`` is read at import time, so it has to be in the
-    # environment before the first test imports ``warlock.studio.guard``. A pane
+    # environment before the first test imports ``realmspinner.studio.guard``. A pane
     # that raises must keep failing its test rather than quietly becoming a
     # placeholder -- see ``studio/guard.py``'s note on why that matters to
     # ``dev/scripts/exercise_mode`` too. ``tests/studio/test_pane_guard.py`` opts back out.
-    os.environ["WARLOCK_UI_STRICT"] = "1"
+    os.environ["REALMSPINNER_UI_STRICT"] = "1"
     global _GPU_LANE
 
     if not _selects_gpu(config):
@@ -118,7 +118,7 @@ def _no_imgui_ini():
 def _no_migration(tmp_path_factory):
     """Nothing in the suite may move the developer's real library.
 
-    ``config.get_config()`` runs the one-time ``~/.warlock`` migration, and a
+    ``config.get_config()`` runs the one-time ``~/.realmspinner`` migration, and a
     checkout still carrying a legacy ``models/`` or ``palettes/`` is exactly
     what it is looking for -- so without this, the first test to build a Config
     would start copying 95 GB into the user's home directory. Session-scoped and
@@ -127,12 +127,12 @@ def _no_migration(tmp_path_factory):
     migration to run (``test_home_migration.py`` clears it explicitly and points
     every path at ``tmp_path``).
 
-    And ``WARLOCK_HOME`` is pinned at a throwaway directory for the second half
-    of the same problem. ``WARLOCK_NO_MIGRATE`` stops the suite *moving* the
+    And ``REALMSPINNER_HOME`` is pinned at a throwaway directory for the second half
+    of the same problem. ``REALMSPINNER_NO_MIGRATE`` stops the suite *moving* the
     developer's library; it does nothing about the suite *reading* it, and every
     root resolves under ``_home()`` (config.py:49) unless its own variable is
     set. So any test that built a ``Config`` without naming ``t2i_model_root``
-    got the real ``~/.warlock/models`` -- and with birefnet downloaded there,
+    got the real ``~/.realmspinner/models`` -- and with birefnet downloaded there,
     ``matting.mask`` ran a genuine ~12 s CPU inference. Measured on
     2026-08-16: ``test_sprite_synthesis_worker.py`` alone went 160.8 s -> 4.2 s
     with this pin, and ``test_doctor.py``'s child load probes stopped finding
@@ -142,7 +142,7 @@ def _no_migration(tmp_path_factory):
     *different matte* on a machine with the weights than on one without, which
     is precisely the "a test about the fallback must pin the fallback" rule the
     ``svc`` fixture below states five times over -- stated once here instead,
-    because ``WARLOCK_HOME`` moves every root at once and a per-root pin has to
+    because ``REALMSPINNER_HOME`` moves every root at once and a per-root pin has to
     be remembered by every file that builds its own Config. Thirteen did not.
 
     A test that wants the real home clears the variable, as
@@ -157,21 +157,21 @@ def _no_migration(tmp_path_factory):
     genuinely wants the developer's real library keeps it.
     """
     if _GPU_LANE:
-        # Real home, real weights. WARLOCK_NO_MIGRATE below still applies: the
+        # Real home, real weights. REALMSPINNER_NO_MIGRATE below still applies: the
         # lane may read the library, never move it.
-        previous = os.environ.get("WARLOCK_NO_MIGRATE")
-        os.environ["WARLOCK_NO_MIGRATE"] = "1"
+        previous = os.environ.get("REALMSPINNER_NO_MIGRATE")
+        os.environ["REALMSPINNER_NO_MIGRATE"] = "1"
         yield
         if previous is None:
-            os.environ.pop("WARLOCK_NO_MIGRATE", None)
+            os.environ.pop("REALMSPINNER_NO_MIGRATE", None)
         else:
-            os.environ["WARLOCK_NO_MIGRATE"] = previous
+            os.environ["REALMSPINNER_NO_MIGRATE"] = previous
         return
 
-    home = tmp_path_factory.mktemp("warlock-home")
+    home = tmp_path_factory.mktemp("realmspinner-home")
     # The same directories the mkdir loop at the end of ``get_config()`` makes
     # (config.py: ``for d in (cfg.home, cfg.data_dir, cfg.palette_dir,
-    # cfg.t2i_model_root)``), because a real ``~/.warlock`` has them and the
+    # cfg.t2i_model_root)``), because a real ``~/.realmspinner`` has them and the
     # pin is only supposed to change what is *in* the model root -- not whether
     # the roots exist. Left out, tests that build a bare ``Config``
     # (bypassing ``get_config()`` and its mkdirs) hit
@@ -181,10 +181,10 @@ def _no_migration(tmp_path_factory):
     for name in ("assets", "models", "palettes"):
         (home / name).mkdir(parents=True, exist_ok=True)
     previous = {
-        name: os.environ.get(name) for name in ("WARLOCK_NO_MIGRATE", "WARLOCK_HOME")
+        name: os.environ.get(name) for name in ("REALMSPINNER_NO_MIGRATE", "REALMSPINNER_HOME")
     }
-    os.environ["WARLOCK_NO_MIGRATE"] = "1"
-    os.environ["WARLOCK_HOME"] = str(home)
+    os.environ["REALMSPINNER_NO_MIGRATE"] = "1"
+    os.environ["REALMSPINNER_HOME"] = str(home)
     yield
     for name, was in previous.items():
         if was is None:
@@ -210,13 +210,13 @@ def _the_pane_guard_leaves_no_state_behind():
     ``_reset_app_settings_session_flags``'s reason: an autouse fixture that
     imports a studio module drags imgui into every test process in the suite.
     """
-    guard = sys.modules.get("warlock.studio.guard")
+    guard = sys.modules.get("realmspinner.studio.guard")
     if guard is not None:
         guard.reset()
         guard.HISTORY.clear()
         guard.FRAME_FAILURES.clear()
     yield
-    guard = sys.modules.get("warlock.studio.guard")
+    guard = sys.modules.get("realmspinner.studio.guard")
     if guard is not None:
         guard.reset()
         guard.HISTORY.clear()
@@ -237,7 +237,7 @@ def _no_native_dialogs(monkeypatch):
     accident. A test that wants to assert the dialog's contents can still
     monkeypatch over this with its own recorder.
     """
-    from warlock import instance
+    from realmspinner import instance
 
     shown: list[tuple] = []
     monkeypatch.setattr(instance, "alert", lambda *a, **k: shown.append(a))
@@ -439,37 +439,37 @@ def store(tmp_path):
 
 @pytest.fixture
 def svc(tmp_path, monkeypatch):
-    """A WarlockService over a throwaway data dir, with no worker.
+    """A RealmspinnerService over a throwaway data dir, with no worker.
 
     No worker on purpose: wake_worker becomes a no-op and attach_progress
     reports None, which is exactly the shape the service functions have to
     tolerate anyway (the UI reads jobs before the queue has anything to say
     about them). Tests that need dispatch drive the Worker directly.
     """
-    import warlock.config as config_mod
-    from warlock.config import get_config
-    from warlock.service import WarlockService
+    import realmspinner.config as config_mod
+    from realmspinner.config import get_config
+    from realmspinner.service import RealmspinnerService
 
-    monkeypatch.setenv("WARLOCK_HOME", str(tmp_path / "warlock-home"))
-    monkeypatch.setenv("WARLOCK_DATA_DIR", str(tmp_path / "assets"))
-    monkeypatch.setenv("WARLOCK_DB", str(tmp_path / "assets" / "jobs.sqlite"))
+    monkeypatch.setenv("REALMSPINNER_HOME", str(tmp_path / "realmspinner-home"))
+    monkeypatch.setenv("REALMSPINNER_DATA_DIR", str(tmp_path / "assets"))
+    monkeypatch.setenv("REALMSPINNER_DB", str(tmp_path / "assets" / "jobs.sqlite"))
     # Points at a nonexistent exe; nothing here ever runs a job.
-    monkeypatch.setenv("WARLOCK_TRELLIS_EXE", str(tmp_path / "missing.exe"))
+    monkeypatch.setenv("REALMSPINNER_TRELLIS_EXE", str(tmp_path / "missing.exe"))
     # And gltfpack is pinned *absent* rather than left to the machine. Its
     # default is PROJECT_ROOT/vendor/gltfpack/gltfpack.exe and vendor/ is
     # gitignored, so whether a named triangle tier is refused depended on
     # whether whoever ran the suite happened to have vendored the binary --
     # which is exactly the "a test about the fallback must pin the fallback"
-    # rule dev/INVARIANTS.md states for warlockc.dll. Vendoring gltfpack on
+    # rule dev/INVARIANTS.md states for realmspinnerc.dll. Vendoring gltfpack on
     # 2026-08-07 duly turned two admission tests red without a line of their subject
     # changing. A test that wants the binary *present* writes one.
-    monkeypatch.setenv("WARLOCK_GLTFPACK", str(tmp_path / "no-gltfpack.exe"))
+    monkeypatch.setenv("REALMSPINNER_GLTFPACK", str(tmp_path / "no-gltfpack.exe"))
     # And the trellis weights directory, for the same reason: the bg_removal
     # default is gated on birefnet.gguf being in it (guidance.default_bg_removal),
     # so leaving it pointed at PROJECT_ROOT/models would make every submitted
     # job's matte depend on which weights this machine happens to have
     # downloaded. Empty here; a test that wants the learned matte writes the file.
-    monkeypatch.setenv("WARLOCK_TRELLIS_MODELS", str(tmp_path / "trellis-models"))
+    monkeypatch.setenv("REALMSPINNER_TRELLIS_MODELS", str(tmp_path / "trellis-models"))
     # And the host model root, for the third time and the same reason. This one
     # hid behind a bug: pipelines/matting fed a float32 tensor to an fp16
     # checkpoint, so every "model" matte raised and fell back to the corner
@@ -480,7 +480,7 @@ def svc(tmp_path, monkeypatch):
     # worse, produces a *different matte* there than on one that does not.
     # Empty here; a test that wants the model writes the files or patches
     # matting.available, which tests/studio/test_inspector_exports.py already does.
-    monkeypatch.setenv("WARLOCK_T2I_ROOT", str(tmp_path / "t2i-models"))
+    monkeypatch.setenv("REALMSPINNER_T2I_ROOT", str(tmp_path / "t2i-models"))
     # And the bench directory, for the fourth time -- but this one is not about
     # a test reading the machine's state, it is about a test *writing* over it.
     # bench_dir defaults to PROJECT_ROOT/bench, and service.findings.refresh
@@ -492,17 +492,17 @@ def svc(tmp_path, monkeypatch):
     # rebuilds it from the verdicts table), which is precisely why it went
     # unnoticed: nothing was destroyed that could not be recomputed, and nothing
     # recomputed it.
-    monkeypatch.setenv("WARLOCK_BENCH_DIR", str(tmp_path / "bench"))
+    monkeypatch.setenv("REALMSPINNER_BENCH_DIR", str(tmp_path / "bench"))
     # And the evidence archive, for the same reason and one step earlier: it
     # defaults under the pinned home already, but a developer with
-    # WARLOCK_EVIDENCE_DIR exported would otherwise have the suite archive
+    # REALMSPINNER_EVIDENCE_DIR exported would otherwise have the suite archive
     # invented jobs into a real corpus.
-    monkeypatch.setenv("WARLOCK_EVIDENCE_DIR", str(tmp_path / "evidence"))
+    monkeypatch.setenv("REALMSPINNER_EVIDENCE_DIR", str(tmp_path / "evidence"))
     # And the palette directory, for the fifth and last time. Its default is now
     # under the *user's home* rather than the checkout, so a suite that left it
     # unset would read whatever palettes the developer happens to own -- and
     # tests/studio/test_panes_mtime_guard.py works around precisely that today.
-    monkeypatch.setenv("WARLOCK_PALETTE_DIR", str(tmp_path / "palettes"))
+    monkeypatch.setenv("REALMSPINNER_PALETTE_DIR", str(tmp_path / "palettes"))
     monkeypatch.setattr(config_mod, "_config", None)
     config = get_config()
     config.data_dir.mkdir(parents=True, exist_ok=True)
@@ -522,7 +522,7 @@ def svc(tmp_path, monkeypatch):
     # this exists.
     _materialize_generative_weights(config)
     s = JobStore(config.db_path)
-    yield WarlockService(config, s)
+    yield RealmspinnerService(config, s)
     s.close()
 
 
@@ -550,7 +550,7 @@ def _materialize_generative_weights(config) -> None:
     Driven off the registries rather than a hardcoded list, so adding a model to
     ``models.py`` does not silently start refusing every text job in the suite.
     """
-    from warlock import fetch, models
+    from realmspinner import fetch, models
 
     root = config.t2i_model_root
 
@@ -929,9 +929,9 @@ def fake_pipelines(monkeypatch):
     fake unused: every test that reached this path spawned a real subprocess
     and waited on it. The fixture stands in for *whatever the queue
     constructs*, so it has to cover both sides of that switch."""
-    import warlock.pipelines.t2i_client as t2i_client_mod
-    import warlock.pipelines.text2image as text2image_mod
-    import warlock.queue as queue_mod
+    import realmspinner.pipelines.t2i_client as t2i_client_mod
+    import realmspinner.pipelines.text2image as text2image_mod
+    import realmspinner.queue as queue_mod
 
     monkeypatch.setattr(queue_mod, "TrellisServer", FakeTrellisServer)
     monkeypatch.setattr(text2image_mod, "Text2Image", FakeText2Image)
@@ -961,7 +961,7 @@ def _reset_app_settings_session_flags():
     import sys
 
     def reset() -> None:
-        module = sys.modules.get("warlock.studio.modes.settings.ui.panes.app_settings")
+        module = sys.modules.get("realmspinner.studio.modes.settings.ui.panes.app_settings")
         if module is not None:
             module._reset_measure()
             module._reset_sweep()
@@ -977,7 +977,7 @@ def installed_recipes(monkeypatch):
 
     ``generation.resolve_recipe`` refuses in automatic mode when a recipe's
     downloads are missing. That is right on a real machine and it is true of
-    every test machine: ``WARLOCK_HOME`` is a throwaway directory with no
+    every test machine: ``REALMSPINNER_HOME`` is a throwaway directory with no
     weights under it, so *nothing* resolves and every submit becomes a refusal.
     A test about what a submit carries would then be asserting against the
     refusal instead of against the job.
@@ -985,7 +985,7 @@ def installed_recipes(monkeypatch):
     Patches the download probe rather than ``resolve_recipe`` itself, so the
     recipe the pane sees is the one the registry really would have chosen.
     """
-    from warlock import generation
+    from realmspinner import generation
 
     monkeypatch.setattr(generation, "_present", lambda key, config: True)
 
@@ -1003,10 +1003,10 @@ def installed_recipes(monkeypatch):
 
 def canvas_modules() -> tuple[Any, ...]:
     """The four modules the canvas pane is made of, parent first."""
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-    from warlock.studio.modes.inker.ui.panes import drag as inker_drag
-    from warlock.studio.modes.inker.ui.panes import gestures as inker_gestures
-    from warlock.studio.modes.inker.ui.panes import slices as inker_slices
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import drag as inker_drag
+    from realmspinner.studio.modes.inker.ui.panes import gestures as inker_gestures
+    from realmspinner.studio.modes.inker.ui.panes import slices as inker_slices
 
     return (inker_canvas, inker_drag, inker_gestures, inker_slices)
 

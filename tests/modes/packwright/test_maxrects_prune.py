@@ -17,9 +17,9 @@ from __future__ import annotations
 import random
 from bisect import bisect_right
 
-from warlock.studio.modes.packwright.engine import maxrects
-from warlock.studio.modes.packwright.engine.layout import next_pot
-from warlock.studio.modes.packwright.engine.maxrects import (
+from realmspinner.studio.modes.packwright.engine import maxrects
+from realmspinner.studio.modes.packwright.engine.layout import next_pot
+from realmspinner.studio.modes.packwright.engine.maxrects import (
     Placement,
     Rect,
     _contains,

@@ -13,11 +13,11 @@ import json
 
 import pytest
 
-from warlock.kernels import sheet as sheetlib
-from warlock.kernels.pixel import sheetout
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.slices import SliceKey
-from warlock.pipelines import pixelsheet
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.kernels.pixel import sheetout
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.slices import SliceKey
+from realmspinner.pipelines import pixelsheet
 
 
 def _animated(width: int = 16, height: int = 12, frames: int = 3) -> Document:
@@ -189,7 +189,7 @@ def test_animation_stays_the_last_key_of_the_sidecar():
 def test_a_directional_sheet_keys_its_block_by_timeline_position():
     """``cell.index``, not ``cell.frame``: a directional sheet restarts ``frame``
     per row, so it is the row's own numbering."""
-    from warlock.kernels.pixel.animation import DirectionalLayout
+    from realmspinner.kernels.pixel.animation import DirectionalLayout
 
     doc = _animated(frames=4)
     doc.anim.layout = DirectionalLayout("turnaround")

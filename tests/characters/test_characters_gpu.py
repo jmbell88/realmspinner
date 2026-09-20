@@ -28,7 +28,7 @@ subprocess would never see.
 Measured on 2026-09-05 (Windows desktop, Blender 5.2 via the ``bpy`` wheel): the
 whole file is 66 s for ten tests, of which the 144-cell end-to-end is 25 s and
 the framing test 10 s; the eight parameterised cases are under 1.1 s each. The
-gpu lane's ``WARLOCK_HOME`` exemption is why every test here takes ``svc`` or
+gpu lane's ``REALMSPINNER_HOME`` exemption is why every test here takes ``svc`` or
 ``tmp_path`` and never writes near the developer's real library.
 """
 
@@ -44,14 +44,14 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from warlock import clips
-from warlock.characters import instantiate as instantiate_mod
-from warlock.characters import recipe as recipe_mod
-from warlock.characters.family import get_family
-from warlock.kernels import charsheet
-from warlock.kernels import sheet as sheetlib
-from warlock.kernels.rig import blender_spec, store
-from warlock.pipelines import pixelize, sheetcheck
+from realmspinner import clips
+from realmspinner.characters import instantiate as instantiate_mod
+from realmspinner.characters import recipe as recipe_mod
+from realmspinner.characters.family import get_family
+from realmspinner.kernels import charsheet
+from realmspinner.kernels import sheet as sheetlib
+from realmspinner.kernels.rig import blender_spec, store
+from realmspinner.pipelines import pixelize, sheetcheck
 
 # One species per body plan. The registry has 31 and rigging all of them would
 # be a different test; these four are the four *templates* -- humanoid,
@@ -135,7 +135,7 @@ def _built_and_rigged(bpy: Any, spec: recipe_mod.Recipe, out_dir: Path) -> dict[
     ``service.characters`` does at the real door -- measuring reads joints off a
     reference image a generated character never had.
     """
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     fam = spec.spec
     instance = _quiet(instantiate_mod.instantiate, spec, out_dir)
@@ -198,7 +198,7 @@ async def test_a_character_sheet_end_to_end_is_144_cells_of_32_colours(svc):
     build the mesh, ~5 s to rig, ~18 s for the sheet. Nothing is reduced and
     nothing is claimed that was not rendered.
 
-    ``svc`` pins ``WARLOCK_HOME`` and the data dir under ``tmp_path`` with
+    ``svc`` pins ``REALMSPINNER_HOME`` and the data dir under ``tmp_path`` with
     ``monkeypatch.setenv``, which matters more in this lane than in any other:
     the gpu lane is exempt from the session-wide pin, so a test that built its
     own bare ``Config`` would mint a character row in the developer's real
@@ -206,8 +206,8 @@ async def test_a_character_sheet_end_to_end_is_144_cells_of_32_colours(svc):
     """
     pytest.importorskip("bpy")
 
-    from warlock.queue import Worker
-    from warlock.service.characters import create_character
+    from realmspinner.queue import Worker
+    from realmspinner.service.characters import create_character
 
     made = create_character(svc, recipe_mod.DEFAULT_RECIPE.as_dict(), name="P28 ogre")
     model = svc.store.get(made["id"])
@@ -324,7 +324,7 @@ def test_a_generated_character_imports_into_blender_with_its_material_slots(
     """
     bpy = pytest.importorskip("bpy")
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     spec = _recipe_for(species)
     instance = _quiet(instantiate_mod.instantiate, spec, tmp_path)
@@ -513,7 +513,7 @@ def test_a_character_attack_apex_is_inside_every_frame(tmp_path, monkeypatch):
     pytest.importorskip("bpy")
     import bpy
 
-    from warlock.pipelines import blender_worker
+    from realmspinner.pipelines import blender_worker
 
     # Attack alone at eight directions: 6 frames x 8 = 48 cells. The idle and
     # the walk are the cells that would *not* have clipped, so rendering them

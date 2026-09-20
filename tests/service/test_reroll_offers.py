@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.service._jobs_resubmit import rerollable, rerun_job
-from warlock.service.errors import Invalid
+from realmspinner.service._jobs_resubmit import rerollable, rerun_job
+from realmspinner.service.errors import Invalid
 
 
 def _done(kind: str, **extra) -> dict:

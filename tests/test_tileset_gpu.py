@@ -82,13 +82,13 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock import fetch, guidance, models
-from warlock.config import get_config
-from warlock.kernels.grid2d import blob
-from warlock.pipelines import seam, tileatlas, tilemask, tilesheet
-from warlock.pipelines.pixelsheet import quantize_shared
-from warlock.pipelines.text2image import Text2Image
-from warlock.service import tilesheets as tilesheets_service
+from realmspinner import fetch, guidance, models
+from realmspinner.config import get_config
+from realmspinner.kernels.grid2d import blob
+from realmspinner.pipelines import seam, tileatlas, tilemask, tilesheet
+from realmspinner.pipelines.pixelsheet import quantize_shared
+from realmspinner.pipelines.text2image import Text2Image
+from realmspinner.service import tilesheets as tilesheets_service
 
 #: ``pyproject.toml``'s ``--timeout 120`` is a hang net sized for the default
 #: lane, whose slowest surviving test is ~5 s. It is not survivable here: the
@@ -171,7 +171,7 @@ def materials(pipe, tmp_path_factory):
     composed differently would be a measurement of this file.
 
     Written into ``tmp_path_factory`` and nowhere else. **This lane sees the
-    real ``~/.warlock``** -- it is exempt from the ``WARLOCK_HOME`` pinning in
+    real ``~/.realmspinner``** -- it is exempt from the ``REALMSPINNER_HOME`` pinning in
     ``tests/conftest.py``, because it has to resolve real weights -- so every
     output here is a temporary path and none of it goes near the user's data.
     """

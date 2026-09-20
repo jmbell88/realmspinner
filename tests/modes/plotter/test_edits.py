@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels.grid2d import gid
-from warlock.kernels.grid2d.tileset import Tileset, TilesetRef
-from warlock.studio.modes.plotter.engine.edits import (
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.grid2d.tileset import Tileset, TilesetRef
+from realmspinner.studio.modes.plotter.engine.edits import (
     LayerAddEdit,
     LayerRemoveEdit,
     ObjectPropsEdit,
@@ -20,7 +20,7 @@ from warlock.studio.modes.plotter.engine.edits import (
     TilePatchEdit,
     TilesetAddEdit,
 )
-from warlock.studio.modes.plotter.engine.tilemap import (
+from realmspinner.studio.modes.plotter.engine.tilemap import (
     Ellipse,
     MapDoc,
     MapObject,

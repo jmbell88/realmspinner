@@ -19,12 +19,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.kernels.rig import cliplib, templates
-from warlock.service import troupe as svc_troupe
-from warlock.service.errors import Invalid
-from warlock.studio import asset_exits
-from warlock.studio.modes.poser import mode as poser_mode
-from warlock.studio.modes.poser.ui.panes import send as poser_send
+from realmspinner.kernels.rig import cliplib, templates
+from realmspinner.service import troupe as svc_troupe
+from realmspinner.service.errors import Invalid
+from realmspinner.studio import asset_exits
+from realmspinner.studio.modes.poser import mode as poser_mode
+from realmspinner.studio.modes.poser.ui.panes import send as poser_send
 
 
 class _Ctx:
@@ -184,7 +184,7 @@ def test_an_unrigged_mesh_may_be_rigged_on_any_skeleton_that_has_clips(ctx, svc,
     assert "fish" not in offered  # nothing is authored for it
 
     monkeypatch.setattr(
-        "warlock.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
+        "realmspinner.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
     )
     job = _mesh(svc)
     poser_send.ask(ctx, job)
@@ -233,7 +233,7 @@ def test_a_missing_specific_clip_on_an_otherwise_clip_bearing_template_is_refuse
     and until now with no ``field=`` for the Skeleton control
     (``poser_send._skeleton``) that asked the question.
     """
-    from warlock.kernels.rig import cliplib
+    from realmspinner.kernels.rig import cliplib
 
     library = cliplib.clip_library("quadruped")
     trimmed = {
@@ -247,7 +247,7 @@ def test_a_missing_specific_clip_on_an_otherwise_clip_bearing_template_is_refuse
     assert svc_troupe.has_clips("quadruped")
 
     monkeypatch.setattr(
-        "warlock.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
+        "realmspinner.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
     )
     job = _mesh(svc)
     with pytest.raises(Invalid) as excinfo:
@@ -318,7 +318,7 @@ def test_ask_does_not_touch_disk_when_the_mesh_is_not_rigged(ctx, svc, monkeypat
     synchronously from a button handler on the frame thread, which is
     deliberate for a rigged mesh (see the comment in ``ask``) -- but an
     unrigged mesh must not pay for a disk read it has no rig to make."""
-    from warlock.kernels.rig import store
+    from realmspinner.kernels.rig import store
 
     def _boom(*_a, **_kw):
         raise AssertionError("read_rig must not be called for an unrigged mesh")
@@ -375,7 +375,7 @@ def test_colours_is_hidden_when_a_palette_is_named(ctx, svc):
 
 def test_the_send_dialog_owns_the_keyboard():
     """Every global shortcut leaking through a modal is UX-08."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     source = inspect.getsource(dialogs.modal_open)
     assert "poser_send.is_open(ctx)" in source
@@ -398,7 +398,7 @@ def test_building_another_sheet_with_no_form_yet_uses_the_modes_defaults(ctx, sv
     when ``state.sheet_form`` is empty, so there is no second, private
     fallback left to go stale. This pins that directly instead.
     """
-    from warlock.studio.modes.poser.ui.panes import sheet as poser_sheet
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
 
     assert not hasattr(poser_sheet, "_form"), "a private fallback is a second place to forget"
     state = poser_mode.ensure(ctx)
@@ -410,7 +410,7 @@ def test_building_another_sheet_with_no_form_yet_uses_the_modes_defaults(ctx, sv
 
 def test_a_door_that_asks_first_says_so():
     """The ellipsis convention, on the two labels that gained a dialog."""
-    from warlock.studio import verbs
+    from realmspinner.studio import verbs
 
     source = inspect.getsource(asset_exits._render_sheet)
     assert "verbs.send_to('poser')}..." in source

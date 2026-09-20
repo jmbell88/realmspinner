@@ -1,13 +1,13 @@
-"""Studio speaks only ``warlock.mcp.rpc`` v1 -- there is no MCP path left on
+"""Realmspinner speaks only ``realmspinner.mcp.rpc`` v1 -- there is no MCP path left on
 its own pipe.
 
-Everything here drives a real :class:`~warlock.studio.agent_host.AgentHost`
-over a real pipe (:mod:`warlock.mcp.pipe`), the same fixture shape
+Everything here drives a real :class:`~realmspinner.studio.agent_host.AgentHost`
+over a real pipe (:mod:`realmspinner.mcp.pipe`), the same fixture shape
 ``tests/studio/test_agent_host.py`` already uses: a background thread calls
 ``host.pump()`` the way ``main.py:App.frame`` would, while this thread is
 the "bridge" dialling in with ``pipe.connect``. RPC v1 requests are built by
 hand with ``rpc.encode_request``/``rpc.split_reply`` rather than through
-``warlock.mcp.bridge``, so a failure here is Studio's side of the pipe alone.
+``realmspinner.mcp.bridge``, so a failure here is Realmspinner's side of the pipe alone.
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from warlock.mcp import pipe, protocol, rpc
-from warlock.studio import agent_host
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.mcp import pipe, protocol, rpc
+from realmspinner.studio import agent_host
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
 WAIT = 5.0
 
@@ -169,10 +169,10 @@ def test_the_catalogue_hash_changes_when_the_tool_list_changes(tmp_path, monkeyp
         _stop(host, stop_pumping, pumper)
 
 
-# --- dedup / replay / warlock_status over RPC ---------------------------------
+# --- dedup / replay / realmspinner_status over RPC ---------------------------------
 
 
-def test_calling_warlock_status_over_rpc_answers_without_touching_the_queue(tmp_path) -> None:
+def test_calling_realmspinner_status_over_rpc_answers_without_touching_the_queue(tmp_path) -> None:
     host, stop_pumping, pumper = _started_host(tmp_path)
     try:
         conn = pipe.connect(tmp_path)
@@ -194,7 +194,7 @@ def test_calling_warlock_status_over_rpc_answers_without_touching_the_queue(tmp_
 def test_an_identical_call_over_rpc_can_be_asked_about_by_operation_id(tmp_path) -> None:
     """Not a dedup replay (that path needs a timeout, which this fixture's
     fast pump loop never produces) but the same ``_call`` machinery the MCP
-    path uses: a genuine call mints an operation that ``warlock_status`` can
+    path uses: a genuine call mints an operation that ``realmspinner_status`` can
     later be asked about by id, over the RPC wire exactly as it would be over
     MCP."""
     host, stop_pumping, pumper = _started_host(tmp_path)
@@ -233,14 +233,14 @@ def test_an_identical_call_over_rpc_can_be_asked_about_by_operation_id(tmp_path)
         _stop(host, stop_pumping, pumper)
 
 
-# --- Studio speaks only RPC v1: a non-RPC first frame is refused and closed ---
+# --- Realmspinner speaks only RPC v1: a non-RPC first frame is refused and closed ---
 
 
 def test_a_connection_that_opens_with_jsonrpc_gets_bad_request_and_is_closed(tmp_path) -> None:
-    """Studio's pipe used to sniff a connection's first frame and, if it
+    """Realmspinner's pipe used to sniff a connection's first frame and, if it
     looked like bare MCP JSON-RPC rather than RPC v1, serve that old in-app
     path for the rest of the connection. That path is gone: the only server
-    that speaks MCP at all now is `warlock mcp` (`bridge.py`), and Studio
+    that speaks MCP at all now is `realmspinner mcp` (`bridge.py`), and Realmspinner
     itself answers RPC v1 exclusively (`dev/INVARIANTS.md`'s agent
     paragraph). A first frame that is not RPC v1 gets one `bad_request`
     header reply and the connection is closed -- proven here by a bare MCP
@@ -351,7 +351,7 @@ def test_fingerprint_is_byte_identical_to_the_old_implementation() -> None:
         ("clay_scene", {}),
         ("clay_add_primitive", {"kind": "box", "size": [1.0, 2.0, 3.0]}),
         ("clay_add_primitive", {"size": [1.0, 2.0, 3.0], "kind": "box"}),  # key order
-        ("warlock_status", {"operation_id": "op-4"}),
+        ("realmspinner_status", {"operation_id": "op-4"}),
     ]
     for tool, args in samples:
         assert agent_host._fingerprint(tool, args) == _old_fingerprint(tool, args)
@@ -370,15 +370,15 @@ def test_resources_op_lists_every_resource_uri(tmp_path) -> None:
             assert body == b""
             uris = {r["uri"] for r in header["resources"]}
             assert uris == {
-                "warlock://clay/scene",
-                "warlock://clay/render/last",
-                "warlock://clay/conventions",
-                "warlock://clay/generators",
-                "warlock://clay/operations",
+                "realmspinner://clay/scene",
+                "realmspinner://clay/render/last",
+                "realmspinner://clay/conventions",
+                "realmspinner://clay/generators",
+                "realmspinner://clay/operations",
                 # The character surface's own static resource -- folded into
                 # the same "resources" list Clay's own five already ride on
                 # (see agent_host._serve_rpc_frame's "resources" op).
-                "warlock://character/vocabulary",
+                "realmspinner://character/vocabulary",
             }
             assert header["templates"] == []
             # A listing is metadata only -- the static resources' inline
@@ -405,7 +405,7 @@ def test_every_listed_resource_uri_is_readable(tmp_path) -> None:
             uris = [
                 r["uri"]
                 for r in listed["resources"]
-                if r["uri"] != "warlock://clay/render/last"
+                if r["uri"] != "realmspinner://clay/render/last"
             ]
             for uri in uris:
                 conn.send_bytes(rpc.encode_request("read", uri=uri))
@@ -425,7 +425,7 @@ def test_reading_an_unknown_uri_is_not_found(tmp_path) -> None:
     try:
         conn = pipe.connect(tmp_path)
         try:
-            conn.send_bytes(rpc.encode_request("read", uri="warlock://nonsense"))
+            conn.send_bytes(rpc.encode_request("read", uri="realmspinner://nonsense"))
             header, body = rpc.split_reply(_recv(conn))
             assert body == b""
             assert header["error"]["code"] == "not_found"
@@ -440,7 +440,7 @@ def test_reading_the_last_render_before_any_render_is_not_found(tmp_path) -> Non
     try:
         conn = pipe.connect(tmp_path)
         try:
-            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/render/last"))
+            conn.send_bytes(rpc.encode_request("read", uri="realmspinner://clay/render/last"))
             header, _body = rpc.split_reply(_recv(conn))
             assert header["error"]["code"] == "not_found"
         finally:
@@ -458,7 +458,7 @@ def test_reading_the_scene_of_a_freshly_connected_session_matches_clay_scene(tmp
     try:
         conn = pipe.connect(tmp_path)
         try:
-            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/scene"))
+            conn.send_bytes(rpc.encode_request("read", uri="realmspinner://clay/scene"))
             header, body = rpc.split_reply(_recv(conn))
             assert "error" not in header
             scene = json.loads(body.decode("utf-8"))
@@ -517,7 +517,7 @@ def test_last_render_after_a_clay_render_call_returns_the_same_png_bytes(
             image_block = next(b for b in call_result["content"] if b["type"] == "image")
             rendered_png = base64.b64decode(image_block["data"])
 
-            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/render/last"))
+            conn.send_bytes(rpc.encode_request("read", uri="realmspinner://clay/render/last"))
             header, body = rpc.split_reply(_recv(conn))
             assert "error" not in header
             assert header["mimeType"] == "image/png"
@@ -542,7 +542,7 @@ def test_scene_resource_matches_the_clay_scene_tool_after_adding_a_primitive(tmp
             _call_header, call_body = rpc.split_reply(_recv(conn))
             tool_result = json.loads(call_body.decode("utf-8"))["structuredContent"]
 
-            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/scene"))
+            conn.send_bytes(rpc.encode_request("read", uri="realmspinner://clay/scene"))
             header, body = rpc.split_reply(_recv(conn))
             assert header["mimeType"] == "application/json"
             assert json.loads(body.decode("utf-8")) == tool_result
@@ -553,21 +553,21 @@ def test_scene_resource_matches_the_clay_scene_tool_after_adding_a_primitive(tmp
 
 
 def test_generators_and_operations_resources_derive_from_the_live_registries(tmp_path) -> None:
-    from warlock.kernels.mesh import primitives as bp
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     host, stop_pumping, pumper = _started_host(tmp_path)
     try:
         conn = pipe.connect(tmp_path)
         try:
-            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/generators"))
+            conn.send_bytes(rpc.encode_request("read", uri="realmspinner://clay/generators"))
             _header, body = rpc.split_reply(_recv(conn))
             generators = json.loads(body.decode("utf-8"))
             assert set(generators) == set(bp.GENERATORS)
             for name, (defaults, _fn) in bp.GENERATORS.items():
                 assert set(generators[name]["params"]) == set(defaults)
 
-            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/operations"))
+            conn.send_bytes(rpc.encode_request("read", uri="realmspinner://clay/operations"))
             _header, body = rpc.split_reply(_recv(conn))
             operations = json.loads(body.decode("utf-8"))
             assert set(operations) == {op.name for op in clay_ops.OPS}
@@ -664,15 +664,15 @@ def test_rendered_prompt_carries_description_and_a_text_message(tmp_path) -> Non
 
 def test_every_tool_name_a_prompt_mentions_is_a_real_tool(tmp_path) -> None:
     """Test names are claims: this one scans every prompt's *rendered* text
-    for clay_*/warlock_*/character_* tokens and checks each is a real tool,
+    for clay_*/realmspinner_*/character_* tokens and checks each is a real tool,
     so a rename that forgets to update a prompt's prose fails here rather
     than shipping a prompt that quietly points an agent at a tool that no
     longer exists."""
     import re
 
-    from warlock.studio import agent_character
-    from warlock.studio import agent_host as ah
-    from warlock.studio.modes.clay.agent import dispatch as agent_clay
+    from realmspinner.studio import agent_character
+    from realmspinner.studio import agent_host as ah
+    from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
     real_tools = (
         {t.name for t in agent_clay.tools()}
@@ -695,7 +695,7 @@ def test_every_tool_name_a_prompt_mentions_is_a_real_tool(tmp_path) -> None:
                 header, _body = rpc.split_reply(_recv(conn))
                 assert "error" not in header, (prompt["name"], header)
                 text = header["messages"][0]["content"]["text"]
-                mentioned = set(re.findall(r"\bclay_\w+|\bwarlock_\w+|\bcharacter_\w+", text))
+                mentioned = set(re.findall(r"\bclay_\w+|\brealmspinner_\w+|\bcharacter_\w+", text))
                 unknown = mentioned - real_tools
                 assert not unknown, (prompt["name"], unknown)
                 all_mentioned |= mentioned
@@ -722,8 +722,8 @@ def test_catalogue_op_includes_resources_and_prompts(tmp_path) -> None:
             conn.send_bytes(rpc.encode_request("catalogue"))
             header, _body = rpc.split_reply(_recv(conn))
             assert {r["uri"] for r in header["resources"]} >= {
-                "warlock://clay/scene",
-                "warlock://clay/conventions",
+                "realmspinner://clay/scene",
+                "realmspinner://clay/conventions",
             }
             assert {p["name"] for p in header["prompts"]} >= {"model_from_description"}
         finally:
@@ -742,9 +742,9 @@ def test_catalogue_op_includes_the_character_vocabulary_resource(tmp_path, monke
     monkeypatching the character surface's own catalogue function (its real
     vocabulary resource is ``tests/studio/test_agent_character_resources.py``'s own
     job to prove)."""
-    from warlock.studio import agent_character_resources
+    from realmspinner.studio import agent_character_resources
 
-    vocabulary_uri = "warlock://character/vocabulary"
+    vocabulary_uri = "realmspinner://character/vocabulary"
     monkeypatch.setattr(
         agent_character_resources,
         "catalogue_resources",
@@ -777,16 +777,16 @@ def test_a_character_sheet_resource_is_read_over_the_pipe(tmp_path, monkeypatch)
     the frame queue Clay's own dynamic resources use, and never the
     listener thread answering this very request) -- proven end to end over
     a real pipe against a started host by recording which thread actually
-    calls the monkeypatched ``read_dynamic``: a ``warlock-task*`` thread
+    calls the monkeypatched ``read_dynamic``: a ``realmspinner-task*`` thread
     (``tasks.TaskRunner``'s own ``thread_name_prefix``, see ``tasks.py``) is
     the service lane's worker pool, and neither the pump thread
     (``_started_host``'s own ``pumper``) nor the listener
-    (``"warlock-agent-host"``) may be it. The real charsheet sidecar/atlas
+    (``"realmspinner-agent-host"``) may be it. The real charsheet sidecar/atlas
     format is ``tests/studio/test_agent_character_resources.py``'s own claim to
     prove, so ``read_dynamic`` itself stays monkeypatched here."""
-    from warlock.studio import agent_character_resources
+    from realmspinner.studio import agent_character_resources
 
-    sheet_uri = "warlock://character/sheet/0123456789ab/ba9876543210/atlas.png"
+    sheet_uri = "realmspinner://character/sheet/0123456789ab/ba9876543210/atlas.png"
     fake_png = b"\x89PNG-fake-bytes"
     seen_thread_names: list[str] = []
 
@@ -813,5 +813,5 @@ def test_a_character_sheet_resource_is_read_over_the_pipe(tmp_path, monkeypatch)
         _stop(host, stop_pumping, pumper)
 
     assert seen_thread_names, "read_dynamic never ran"
-    assert seen_thread_names[0] not in ("warlock-agent-host", pumper.name)
-    assert seen_thread_names[0].startswith("warlock-task"), seen_thread_names
+    assert seen_thread_names[0] not in ("realmspinner-agent-host", pumper.name)
+    assert seen_thread_names[0].startswith("realmspinner-task"), seen_thread_names

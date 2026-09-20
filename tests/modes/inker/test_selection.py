@@ -10,9 +10,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import selection as sel
-from warlock.kernels.pixel.selection import SelectionMask
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import selection as sel
+from realmspinner.kernels.pixel.selection import SelectionMask
 
 
 def _rgba(plane: np.ndarray) -> np.ndarray:

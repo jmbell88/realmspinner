@@ -1,6 +1,6 @@
 # Putting it in a game
 
-The last tutorial chapter, and the one about leaving. Everything Warlock makes is meant to be
+The last tutorial chapter, and the one about leaving. Everything Realmspinner makes is meant to be
 imported somewhere else, and this covers what the formats are, what has already been done to make
 them import cleanly, and — honestly — which of the interoperability claims have actually been
 checked.
@@ -33,7 +33,7 @@ set.
 **From the workspaces:** sprite sheets as PNG plus a JSON sidecar; Inker's ORA, PNG, GIF and sheets;
 Plotter's TMX and TMJ; Packwright's atlases and sidecars.
 
-**In bulk:** zip a named artifact across many jobs at once, or set `WARLOCK_EXPORT_DIR` and have
+**In bulk:** zip a named artifact across many jobs at once, or set `REALMSPINNER_EXPORT_DIR` and have
 exports mirrored into it — a game project's `assets/` folder, for instance.
 
 ## Two things already done for you
@@ -51,7 +51,7 @@ what the engine actually produced — it is not the one to ship.
 glTF is the target format and every major engine reads it.
 
 **Godot** imports `.glb` directly — drop it in the project and it is an importable scene. This is the
-smoothest path, and `WARLOCK_EXPORT_DIR` pointed at a Godot project makes it smoother still.
+smoothest path, and `REALMSPINNER_EXPORT_DIR` pointed at a Godot project makes it smoother still.
 
 **Unity** and **Unreal** both read glTF, Unity via a package and Unreal natively. FBX is there if
 your pipeline is built around it.
@@ -92,21 +92,21 @@ A Poser character sheet has a third way out: **Export frames...** writes a folde
 character, one subfolder per movement inside it, one subfolder per compass direction inside that
 (`N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW`; `S` is the character facing you, `W` its left profile),
 and `000.png`, `001.png` and so on inside that — plus a
-`manifest.json` (format `warlock-frames`, version 1) stating the frame size, whether the sheet is
+`manifest.json` (format `realmspinner-frames`, version 1) stating the frame size, whether the sheet is
 pixel art or HD, and each clip's own `loop`, `frames`, `duration_ms`, `fps` and `directions`. It is
 for an engine that wants `AnimatedSprite2D`-style frame folders rather than one atlas plus one
 sidecar, and a re-export replaces the folder whole.
 
 ## Tiled and Aseprite: read this before relying on it
 
-Warlock reads and writes Tiled's `.tmx`/`.tmj`/`.tsx` and Aseprite's `.aseprite`, and both are
+Realmspinner reads and writes Tiled's `.tmx`/`.tmj`/`.tsx` and Aseprite's `.aseprite`, and both are
 modelled carefully — the divergences are enumerated individually in the reference chapters rather
 than discovered by accident.
 
 There is one caveat, and it is important enough to state plainly rather than bury.
 
-**Every test fixture for both formats was written by Warlock itself.** A green test proves that
-Warlock's reader and Warlock's writer agree with each other. It does not prove that either real
+**Every test fixture for both formats was written by Realmspinner itself.** A green test proves that
+Realmspinner's reader and Realmspinner's writer agree with each other. It does not prove that either real
 application agrees with them.
 
 For Tiled that has now been checked once, by hand, in both directions: on 2026-08-29 a Plotter map
@@ -119,9 +119,9 @@ So: the exports are believed correct, and past plain tile layers that belief has
 against the applications themselves. Try one before building a workflow on it, and expect it to
 work — but check.
 
-One specific thing to know if the file is going to Tiled: several constructs are Warlock's own
+One specific thing to know if the file is going to Tiled: several constructs are Realmspinner's own
 extensions rather than Tiled features — oblique projection, per-layer blend modes, the capsule shape,
-per-object opacity, list properties. Round trips fine through Warlock; invisible to Tiled.
+per-object opacity, list properties. Round trips fine through Realmspinner; invisible to Tiled.
 
 For Aseprite, the notable losses on write are per-frame palettes and colour profiles. Cel opacity,
 a cel's z-index and the colours and notes on layers, cels and tags are written and read back; what is
@@ -155,4 +155,4 @@ The reference chapters go deeper on everything touched here, whenever you want t
 [Overview](20-overview.md) is the front door to them, and each workspace has its own.
 
 If something is not behaving, [Troubleshooting](43-troubleshooting.md) is organised by symptom, and
-`uv run warlock doctor` answers the same questions from a terminal.
+`uv run realmspinner doctor` answers the same questions from a terminal.

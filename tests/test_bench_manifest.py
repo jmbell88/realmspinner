@@ -7,10 +7,10 @@ import json
 
 import pytest
 
-from warlock.bench import manifest as manifest_mod
-from warlock.bench import recipe as recipe_mod
-from warlock.bench import suite as suite_mod
-from warlock.config import Config
+from realmspinner.bench import manifest as manifest_mod
+from realmspinner.bench import recipe as recipe_mod
+from realmspinner.bench import suite as suite_mod
+from realmspinner.config import Config
 
 
 def _doc(tmp_path, **overrides):

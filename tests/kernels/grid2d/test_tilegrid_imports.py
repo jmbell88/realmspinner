@@ -1,11 +1,11 @@
-"""``kernels/grid2d/`` imports nothing under ``warlock``, by construction.
+"""``kernels/grid2d/`` imports nothing under ``realmspinner``, by construction.
 
 The second shared leaf after ``core/undo.py``: plotter, packwright and inker
 all import it, none owns it. A leaf that reached back into any of them would
 turn "shared vocabulary" into a dependency cycle waiting for an import order to
 expose it, so this is a property pin in the ``tests/modes/clay/test_undo_move.py``
 style -- it asserts *no relative import climbs out of the package and no
-absolute import starts with* ``warlock``, rather than pinning today's exact
+absolute import starts with* ``realmspinner``, rather than pinning today's exact
 import list the way the other three packages' pins do. A new stdlib or
 third-party import here is legitimate and must not fail this test.
 """
@@ -15,10 +15,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.kernels import grid2d
+from realmspinner.kernels import grid2d
 
 ENGINE = Path(grid2d.__file__).parent
-PACKAGE = "warlock.kernels.grid2d"
+PACKAGE = "realmspinner.kernels.grid2d"
 
 
 def _modules() -> list[Path]:
@@ -29,13 +29,13 @@ def test_there_are_modules_to_check() -> None:
     assert len(_modules()) >= 4  # __init__, blob, gid, tileset
 
 
-def test_the_leaf_imports_nothing_under_warlock() -> None:
+def test_the_leaf_imports_nothing_under_realmspinner() -> None:
     for path in _modules():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    assert not alias.name.startswith("warlock"), (
+                    assert not alias.name.startswith("realmspinner"), (
                         f"{path.name} imports {alias.name}"
                     )
             elif isinstance(node, ast.ImportFrom):
@@ -49,13 +49,13 @@ def test_the_leaf_imports_nothing_under_warlock() -> None:
                     f"{'.' * node.level}{node.module or ''}"
                 )
                 if node.level == 0:
-                    assert not (node.module or "").startswith("warlock"), (
+                    assert not (node.module or "").startswith("realmspinner"), (
                         f"{path.name} imports {node.module}"
                     )
 
 
 def test_the_leaf_lives_at_its_new_home() -> None:
-    assert grid2d.__name__ == "warlock.kernels.grid2d"
+    assert grid2d.__name__ == "realmspinner.kernels.grid2d"
 
 
 def test_the_public_names_are_present() -> None:

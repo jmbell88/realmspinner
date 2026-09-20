@@ -1,6 +1,6 @@
 # Architecture
 
-Warlock Studio is one window, one OpenGL context and one interactive process. There is no server,
+Realmspinner is one window, one OpenGL context and one interactive process. There is no server,
 no browser and no local HTTP API — the one exception is the reconstruction engine, which is a
 vendored binary that happens to speak HTTP on a loopback port, and nothing else in the app does.
 Around that one process is a small family of short-lived and long-lived children, each of which
@@ -17,14 +17,14 @@ design.
 | Thread | Runs | May block |
 | --- | --- | --- |
 | main (pygame) | events, imgui, the viewport, job-store reads | no |
-| `warlock-loop` | the asyncio loop hosting the GPU worker | asyncio only |
+| `realmspinner-loop` | the asyncio loop hosting the GPU worker | asyncio only |
 | `TaskRunner` pool | service calls: exports, bakes, prune | yes |
 
 **The frame loop** owns the window, the OpenGL context and every pixel. It reads the job store
 directly, because that is a fast local SQLite query behind a lock and going through another thread
 to get it would buy nothing. It never waits on anything else.
 
-**The loop thread**, named `warlock-loop`, hosts an asyncio event loop, and the GPU worker lives on
+**The loop thread**, named `realmspinner-loop`, hosts an asyncio event loop, and the GPU worker lives on
 it. That is
 not decoration: the worker's `wake` is loop-affine and its cancellation path is a coroutine, so
 moving the worker onto a plain thread would mean rewriting the queue rather than moving it.
@@ -84,7 +84,7 @@ has never required a call site to change.
 ## The service layer
 
 Everything that used to live in an HTTP route body now lives in `service/`, as plain synchronous
-functions that take a `WarlockService` as their first argument and raise the exceptions in
+functions that take a `RealmspinnerService` as their first argument and raise the exceptions in
 `service/errors.py` — `Invalid`, `NotFound`, `Conflict`, `NotReady`, `Failed` and friends — instead
 of returning status codes.
 
@@ -96,7 +96,7 @@ The functions are free functions rather than methods on a god object on purpose.
 modules is by subject — `jobs`, `rig`, `sheets`, `export`, `files`, `derive`, `system` — and folding
 them into a single class would only put that structure back inside one file.
 
-`WarlockService` itself holds the small amount of state the functions share: the config, the store,
+`RealmspinnerService` itself holds the small amount of state the functions share: the config, the store,
 the worker handle, the loop reference, the doctor-check cache, and the table of per-artifact
 conversion locks described under [Derived artifacts](45-pipelines.md#derived-artifacts).
 
@@ -135,7 +135,7 @@ The app never touches the network at runtime, and that is enforced in two indepe
 because one of them would be a promise rather than a mechanism.
 
 Every model load uses a local filesystem path with `local_files_only=True`. That is the real
-guarantee. On top of it, `src/warlock/__init__.py` sets `HF_HUB_OFFLINE=1` and
+guarantee. On top of it, `src/realmspinner/__init__.py` sets `HF_HUB_OFFLINE=1` and
 `HF_HUB_DISABLE_TELEMETRY=1` as the very first thing the package does, before any import that could
 pull in `huggingface_hub` — which reads those variables once, at its own import time. Because the
 hub library is only ever imported lazily from modules inside the package, setting them in the

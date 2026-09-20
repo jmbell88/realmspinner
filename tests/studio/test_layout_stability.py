@@ -13,7 +13,7 @@ way, against the Rig stage's deformation-review thumbnail (already guarded)
 no test drew two consecutive frames and compared their geometry.
 
 ``layout.pane``'s oscillation detector (module constant ``layout.
-TRACE_ENABLED``, gated on ``WARLOCK_LAYOUT_TRACE=1`` in the running app) is
+TRACE_ENABLED``, gated on ``REALMSPINNER_LAYOUT_TRACE=1`` in the running app) is
 what makes this assertable. The sweep below drives Create's real inspector
 through a real ``layout.pane`` across the four variables that decide whether a
 site lands on the scroll threshold -- pane width, UI scale, pane height, and
@@ -30,14 +30,14 @@ import pytest
 from imgui_bundle import imgui
 from PIL import Image
 
-from warlock.service import matte as svc_matte
-from warlock.studio import layout, theme, tokens
-from warlock.studio import textures as textures_mod
-from warlock.studio.app_ctx import Ctx
-from warlock.studio.modes.create.ui import stages as create_stages
-from warlock.studio.modes.create.ui.panes import settings_3d
-from warlock.studio.panes import inspector
-from warlock.studio.state import AppState
+from realmspinner.service import matte as svc_matte
+from realmspinner.studio import layout, theme, tokens
+from realmspinner.studio import textures as textures_mod
+from realmspinner.studio.app_ctx import Ctx
+from realmspinner.studio.modes.create.ui import stages as create_stages
+from realmspinner.studio.modes.create.ui.panes import settings_3d
+from realmspinner.studio.panes import inspector
+from realmspinner.studio.state import AppState
 
 # --- harness ------------------------------------------------------------
 #
@@ -426,7 +426,7 @@ def test_the_library_footer_reservation_only_grows_within_one_regime(frames, mon
     larger value and stays there, rather than tracking the smaller one back
     down and feeding the loop again.
     """
-    from warlock.studio.modes.library.ui.panes import library
+    from realmspinner.studio.modes.library.ui.panes import library
 
     monkeypatch.setattr(library, "_footer_px", [36.0])
     monkeypatch.setattr(library, "_footer_regime", [None])

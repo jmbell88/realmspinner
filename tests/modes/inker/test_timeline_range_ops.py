@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.kernels import pixel as inker
+from realmspinner.kernels import pixel as inker
 
 
 def _doc(count=5):
@@ -53,7 +53,7 @@ def test_a_gesture_that_changed_nothing_pushes_nothing():
 def test_a_gesture_with_one_step_in_it_stays_that_step():
     """A lone ``CompoundEdit`` around one edit reads as "compound" in the
     history panel where the edit itself reads as what it did."""
-    from warlock.core.undo import CompoundEdit
+    from realmspinner.core.undo import CompoundEdit
 
     doc = _doc(2)
     with doc.one_gesture():
@@ -117,14 +117,14 @@ class _Tab:
 
 
 def test_a_verb_acts_on_one_row_when_there_is_no_range():
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = _doc(4)
     assert inker_timeline.row_targets(_Tab(doc), doc, 2) == [2]
 
 
 def test_a_verb_acts_on_the_whole_block_when_the_click_is_inside_it():
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = _doc(5)
     doc.ensure_animation()
@@ -133,7 +133,7 @@ def test_a_verb_acts_on_the_whole_block_when_the_click_is_inside_it():
 
 
 def test_a_click_outside_the_block_acts_on_that_row_alone():
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = _doc(5)
     doc.ensure_animation()

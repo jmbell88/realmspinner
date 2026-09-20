@@ -25,7 +25,7 @@ import struct
 
 import pytest
 
-from warlock import tiercheck
+from realmspinner import tiercheck
 
 # --- fixtures ----------------------------------------------------------------
 

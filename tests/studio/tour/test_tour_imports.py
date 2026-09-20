@@ -19,10 +19,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import tour
+from realmspinner.studio import tour
 
 ENGINE = Path(tour.__file__).parent
-PACKAGE = "warlock.studio.tour"
+PACKAGE = "realmspinner.studio.tour"
 
 #: Every module outside the package that any file in it may name. Empty, and
 #: that is the assertion rather than an oversight.
@@ -72,7 +72,7 @@ def test_nothing_here_reaches_outside_the_package():
         (path.name, name)
         for path in _modules()
         for name in _imports(path)
-        if name.startswith("warlock") and not name.startswith(PACKAGE)
+        if name.startswith("realmspinner") and not name.startswith(PACKAGE)
     }
     assert found == OUTWARD_IMPORTS, (
         "studio/tour's outward imports changed. A tour is data: if a step now "
@@ -91,7 +91,7 @@ def test_the_package_imports_with_nothing_else_loaded():
     import sys
 
     result = subprocess.run(
-        [sys.executable, "-c", "import warlock.studio.tour as t; print(len(t.TOURS))"],
+        [sys.executable, "-c", "import realmspinner.studio.tour as t; print(len(t.TOURS))"],
         capture_output=True,
         text=True,
     )

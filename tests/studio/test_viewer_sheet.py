@@ -13,12 +13,12 @@ import numpy as np
 import pytest
 import trimesh
 
-from warlock.kernels.geom3d import gltf
-from warlock.kernels.geom3d import math3d as m3
-from warlock.studio.viewer import capture, glctx
-from warlock.studio.viewer import scene as scenelib
-from warlock.studio.viewer import sheet as sheetlib
-from warlock.studio.viewer.render import Renderer
+from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.geom3d import math3d as m3
+from realmspinner.studio.viewer import capture, glctx
+from realmspinner.studio.viewer import scene as scenelib
+from realmspinner.studio.viewer import sheet as sheetlib
+from realmspinner.studio.viewer.render import Renderer
 
 
 def test_yaw_zero_looks_along_plus_z():

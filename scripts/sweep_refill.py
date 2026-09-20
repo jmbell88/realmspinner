@@ -48,12 +48,12 @@ if str(_HERE) not in sys.path:
 
 import _campaign  # noqa: E402
 
-from warlock.config import Config  # noqa: E402
-from warlock.db import JobStore  # noqa: E402
-from warlock.service import jobs as jobs_mod  # noqa: E402
-from warlock.service import sweeps as sweeps_mod  # noqa: E402
-from warlock.service.core import WarlockService  # noqa: E402
-from warlock.service.errors import ServiceError  # noqa: E402
+from realmspinner.config import Config  # noqa: E402
+from realmspinner.db import JobStore  # noqa: E402
+from realmspinner.service import jobs as jobs_mod  # noqa: E402
+from realmspinner.service import sweeps as sweeps_mod  # noqa: E402
+from realmspinner.service.core import RealmspinnerService  # noqa: E402
+from realmspinner.service.errors import ServiceError  # noqa: E402
 
 # What marks a row as lost rather than measured. A shutdown is matched on the
 # message the worker writes when the loop is torn down mid-job; anything else
@@ -77,7 +77,7 @@ def plan_from_spec(sweep: dict) -> sweeps_mod.SweepPlan:
     )
 
 
-def lost_units(svc: WarlockService, sweep_id: str) -> tuple[list[str], list[str]]:
+def lost_units(svc: RealmspinnerService, sweep_id: str) -> tuple[list[str], list[str]]:
     """-> (unit labels with no measurement, unit labels genuinely refused)."""
     lost: list[str] = []
     refused: list[str] = []
@@ -102,7 +102,7 @@ def main() -> int:
     _campaign.require_no_live_writer(db_path)
 
     store = JobStore(db_path)
-    svc = WarlockService(config, store)
+    svc = RealmspinnerService(config, store)
     try:
         sweep = store.get_sweep(args.sweep_id)
         if sweep is None:

@@ -10,10 +10,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as prim
-from warlock.kernels.mesh import uvtools as ut
-from warlock.kernels.mesh.elements import OpError
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh import uvtools as ut
+from realmspinner.kernels.mesh.elements import OpError
 
 
 def _quad(uv: list[tuple[float, float]], *, y: float = 0.0) -> bm.Mesh:

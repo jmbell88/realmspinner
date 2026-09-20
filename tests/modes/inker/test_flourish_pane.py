@@ -14,13 +14,13 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel.flourish import bake as B
-from warlock.kernels.pixel.flourish import presets
-from warlock.studio import probe
-from warlock.studio.modes.inker import flourish as inker_flourish
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import flourish as pane
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel.flourish import bake as B
+from realmspinner.kernels.pixel.flourish import presets
+from realmspinner.studio import probe
+from realmspinner.studio.modes.inker import flourish as inker_flourish
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import flourish as pane
 
 
 @pytest.fixture
@@ -170,7 +170,7 @@ def test_flourish_insert_refuses_a_preset_the_manual_says_works_at_more_directio
     audit's inker-10) refuses ``fireball`` at both -- the manual's own example
     cannot be completed as written.
     """
-    from warlock.kernels.pixel.flourish import recipe as R
+    from realmspinner.kernels.pixel.flourish import recipe as R
 
     fireball = presets.load("fireball")
     with pytest.raises(ValueError):

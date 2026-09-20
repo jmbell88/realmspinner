@@ -25,11 +25,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.kernels.grid2d import gid
-from warlock.kernels.pixel import asein, aseout, ora
-from warlock.kernels.pixel.document import Document
-from warlock.kernels.pixel.layers import Layer
-from warlock.kernels.pixel.tiles import TilemapCel, materialize, strip
+from realmspinner.kernels.grid2d import gid
+from realmspinner.kernels.pixel import asein, aseout, ora
+from realmspinner.kernels.pixel.document import Document
+from realmspinner.kernels.pixel.layers import Layer
+from realmspinner.kernels.pixel.tiles import TilemapCel, materialize, strip
 
 RED = (255, 0, 0, 255)
 GREEN = (0, 255, 0, 255)
@@ -108,7 +108,7 @@ def _animated_doc() -> Document:
     doc.stack[0].pixels[1:3, 1:3] = WHITE
 
     layer_a = doc.add_tilemap_layer(ts_a.uid, name="Tiles A")
-    from warlock.kernels.grid2d import gid
+    from realmspinner.kernels.grid2d import gid
 
     doc.place_tiles(layer_a.uid, (0, 0), np.array([[gid.compose(2, flip_h=True)]], dtype=np.uint32))
 
@@ -532,7 +532,7 @@ def test_an_imported_tilemap_document_round_trips_through_ora_bit_exact(tmp_path
 def test_the_import_edit_export_chain_comes_back_through_aseout(tmp_path: Path):
     """Wave 5's extension of the chain above, all the way round: the same
     ``.aseprite`` opened, saved to ``.ora``, reopened, written back **out** as
-    an ``.aseprite`` by :mod:`~warlock.kernels.pixel.aseout` and imported once
+    an ``.aseprite`` by :mod:`~realmspinner.kernels.pixel.aseout` and imported once
     more. Refs, flag bits, strip pixels and the track binding are identical at
     every stop, and the linked cel is still one object at the end of it.
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import trimesh
 
-from warlock import meshreport
+from realmspinner import meshreport
 
 
 def _write(tmp_path, mesh, name="m.glb"):

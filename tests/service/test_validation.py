@@ -19,10 +19,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import packs as packs_mod
-from warlock.service import jobs as svc_jobs
-from warlock.service import validation
-from warlock.service.errors import Invalid
+from realmspinner import packs as packs_mod
+from realmspinner.service import jobs as svc_jobs
+from realmspinner.service import validation
+from realmspinner.service.errors import Invalid
 
 
 @pytest.fixture

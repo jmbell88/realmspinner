@@ -19,7 +19,7 @@ def test_the_node_delta_conversion_is_one_function():
     """It was written twice -- once against the viewer's rest quaternions and
     once against Blender's -- and neither knew about the other. The multiply is
     one line; the order and which side is conjugated are what drift."""
-    from warlock.kernels.rig import poses
+    from realmspinner.kernels.rig import poses
 
     rest = [0.0, 0.0, 0.3826834, 0.9238795]  # 45 degrees about Z
     delta = [0.0, 0.0, 0.3826834, 0.9238795]
@@ -34,8 +34,8 @@ def test_the_node_delta_conversion_is_one_function():
 def test_both_ends_of_the_conversion_call_it():
     import inspect
 
-    from warlock.pipelines import blender_worker
-    from warlock.studio.modes.poser import mode as poser_mode
+    from realmspinner.pipelines import blender_worker
+    from realmspinner.studio.modes.poser import mode as poser_mode
 
     assert "poses.delta_from_node" in inspect.getsource(blender_worker)
     assert "poses.node_from_delta" in inspect.getsource(poser_mode)
@@ -49,7 +49,7 @@ def test_a_clip_librarys_quaternions_are_checked():
     """They were taken verbatim: a 3-element list raised out of the middle of
     ``sheet._blend`` naming neither the file nor the bone, and a NaN was
     interpolated into a clip and written to disk."""
-    from warlock.kernels.rig import cliplib
+    from realmspinner.kernels.rig import cliplib
 
     raw = {
         "space": "delta",
@@ -68,7 +68,7 @@ def test_a_clips_rest_key_may_hold_no_bones_at_all():
     """Which is why ``validate_bones`` is split out rather than being a flag on
     ``validate_pose``: a *saved pose* with no bones is a mistake and a clip's
     rest key is exactly that map."""
-    from warlock.kernels.rig import poses
+    from realmspinner.kernels.rig import poses
 
     assert poses.validate_bones({}) == {}
     with pytest.raises(ValueError):
@@ -76,7 +76,7 @@ def test_a_clips_rest_key_may_hold_no_bones_at_all():
 
 
 def test_a_drifted_quaternion_is_renormalised_rather_than_refused():
-    from warlock.kernels.rig import poses
+    from realmspinner.kernels.rig import poses
 
     out = poses.validate_bones({"spine": [0.0, 0.0, 0.0, 1.0000001]})
     assert sum(v * v for v in out["spine"]) == pytest.approx(1.0)
@@ -89,7 +89,7 @@ def test_skin_weights_are_renormalised_and_a_dead_vertex_is_pinned():
     """The shader sums ``joint * weight`` with no division, so a vertex whose
     weights sum to 0 collapsed onto the origin and the mesh grew a spike to the
     world centre."""
-    from warlock.kernels.geom3d import gltf
+    from realmspinner.kernels.geom3d import gltf
 
     raw = np.array([[0.5, 0.25, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]], dtype="f4")
     weights = raw.copy()
@@ -114,7 +114,7 @@ def test_shade_auto_can_actually_reach_its_whole_document_branch():
     fallback its own comment describes could never be taken."""
     from types import SimpleNamespace
 
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     empty = SimpleNamespace(selection=set(), objects=[])
     unselected = SimpleNamespace(selection=set(), objects=[SimpleNamespace(uid=1)])
@@ -138,7 +138,7 @@ def test_select_more_uses_the_one_definition_of_a_selected_face():
     """
     import inspect
 
-    from warlock.kernels.mesh import select
+    from realmspinner.kernels.mesh import select
 
     body = inspect.getsource(select.sel_from_verts)
     assert "_face_corner_mask" in body
@@ -148,7 +148,7 @@ def test_select_more_uses_the_one_definition_of_a_selected_face():
 def test_dissolve_edges_does_not_rescan_the_mesh_per_edge():
     import inspect
 
-    from warlock.kernels.mesh import ops_dissolve
+    from realmspinner.kernels.mesh import ops_dissolve
 
     body = inspect.getsource(ops_dissolve.dissolve_edges)
     assert "a.corner_edge == e" not in body
@@ -158,7 +158,7 @@ def test_dissolve_edges_does_not_rescan_the_mesh_per_edge():
 def test_a_bevel_copies_the_faces_it_does_not_touch():
     import inspect
 
-    from warlock.kernels.mesh import ops_bevel
+    from realmspinner.kernels.mesh import ops_bevel
 
     body = inspect.getsource(ops_bevel)
     assert "if not per_face[face]:" in body
@@ -174,7 +174,7 @@ def test_the_viewer_orbits_on_alt_drag_like_clay():
     and the pan is the middle button's."""
     import inspect
 
-    from warlock.studio import viewer_embed
+    from realmspinner.studio import viewer_embed
 
     body = inspect.getsource(viewer_embed.Viewer._press)
     assert 'self._grab = "pan" if button == 2 else "orbit"' in body
@@ -186,7 +186,7 @@ def test_a_bare_hover_does_not_redraw_the_scene():
     pane re-rendered a picture nothing in had changed."""
     import inspect
 
-    from warlock.studio import viewer_embed
+    from realmspinner.studio import viewer_embed
 
     handler = inspect.getsource(viewer_embed.Viewer.handle_event)
     assert handler.count("self._render_dirty = True") == 3  # press, release, wheel

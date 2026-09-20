@@ -34,11 +34,11 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import modifiers as mods
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio import widgets as widgets_mod
-from warlock.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import modifiers as mods
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio import widgets as widgets_mod
+from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
 
 @pytest.fixture
@@ -264,7 +264,7 @@ def test_the_add_modifier_combo_appends_a_new_modifier_with_default_params(
 def test_the_dimensions_row_measures_off_the_evaluated_mesh(
     monkeypatch: pytest.MonkeyPatch, ui
 ) -> None:
-    from warlock.kernels.mesh import ops as bops
+    from realmspinner.kernels.mesh import ops as bops
 
     doc, obj = _doc_with_one_modifier()
     captured: list[object] = []

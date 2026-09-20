@@ -8,7 +8,7 @@ stops that coming back, and it is deliberately three cheap tests rather than one
 expensive one: none of them needs weights, a card, or the ``music`` extra for
 the scan.
 
-The vendored change they pin is ``WARLOCK 5/6``; see
+The vendored change they pin is ``REALMSPINNER 5/6``; see
 ``pipelines/acestep/ATTRIBUTION.md`` for the argument, including why 16-bit
 rather than a float branch in the tracker's reader.
 """
@@ -23,9 +23,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.kernels.audio import wavout
+from realmspinner.kernels.audio import wavout
 
-_ACESTEP = Path(__file__).resolve().parents[2] / "src" / "warlock" / "pipelines" / "acestep"
+_ACESTEP = Path(__file__).resolve().parents[2] / "src" / "realmspinner" / "pipelines" / "acestep"
 _PIPELINE = _ACESTEP / "pipeline_ace_step.py"
 _ATTRIBUTION = _ACESTEP / "ATTRIBUTION.md"
 
@@ -52,9 +52,9 @@ def test_the_two_call_sites_carry_the_format_kwargs():
 
 
 def test_the_marker_count_matches_the_attribution_document():
-    """``WARLOCK n/N`` and the document's numbered list must agree.
+    """``REALMSPINNER n/N`` and the document's numbered list must agree.
 
-    They did not: the document said "Four ... `WARLOCK n/4`" while the source
+    They did not: the document said "Four ... `REALMSPINNER n/4`" while the source
     comments said ``n/3``, and the "Updating" section said "the three
     modifications". Drift in a file whose entire job is telling a future
     re-vendorer what to re-apply is the drift that costs a feature, so it is
@@ -65,7 +65,7 @@ def test_the_marker_count_matches_the_attribution_document():
     markers = set()
     total = set()
     for text in sources:
-        for n, of in re.findall(r"WARLOCK (\d+)/(\d+):", text):
+        for n, of in re.findall(r"REALMSPINNER (\d+)/(\d+):", text):
             markers.add(int(n))
             total.add(int(of))
 
@@ -77,7 +77,7 @@ def test_the_marker_count_matches_the_attribution_document():
     )
 
     doc = _ATTRIBUTION.read_text(encoding="utf-8")
-    assert f"`WARLOCK n/{count}:`" in doc
+    assert f"`REALMSPINNER n/{count}:`" in doc
     entries = re.findall(r"^(\d+)\. \*\*", doc, re.M)
     assert [int(e) for e in entries] == list(range(1, count + 1)), (
         f"ATTRIBUTION.md lists {entries} modifications but the source carries {count}"
@@ -87,7 +87,7 @@ def test_the_marker_count_matches_the_attribution_document():
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: Every non-vendored file the 2026-09-13 audit found citing an ACE-Step
-#: ``WARLOCK n/N`` marker in prose. Not a repo-wide sweep: the marker string
+#: ``REALMSPINNER n/N`` marker in prose. Not a repo-wide sweep: the marker string
 #: is reused, with its own independent numbering, by other vendored packages
 #: (BiRefNet's ``ATTRIBUTION.md``, ``pipelines/_workerio.py``'s own note) that
 #: this finding never touched and this module does not own, so a blind
@@ -96,12 +96,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 #: files plus the two the orchestrator also saw), kept beside the finding
 #: rather than discovered fresh each run.
 _MUSE_PROSE_FILES = (
-    "src/warlock/_q_music.py",
-    "src/warlock/pipelines/audioout.py",
-    "src/warlock/pipelines/separation_worker.py",
-    "src/warlock/pipelines/_workerio.py",
-    "src/warlock/studio/modes/muse/fileio.py",
-    "src/warlock/studio/modes/muse/mode.py",
+    "src/realmspinner/_q_music.py",
+    "src/realmspinner/pipelines/audioout.py",
+    "src/realmspinner/pipelines/separation_worker.py",
+    "src/realmspinner/pipelines/_workerio.py",
+    "src/realmspinner/studio/modes/muse/fileio.py",
+    "src/realmspinner/studio/modes/muse/mode.py",
     "tests/pipelines/test_music_format.py",
     "tests/modes/muse/test_muse_bridge.py",
     "tests/test_q_music_tasks.py",
@@ -109,7 +109,7 @@ _MUSE_PROSE_FILES = (
 )
 
 
-def test_warlock_marker_prose_outside_acestep_matches_attribution_count():
+def test_realmspinner_marker_prose_outside_acestep_matches_attribution_count():
     """The 2026-09-13 audit, finding muse-04.
 
     ``test_the_marker_count_matches_the_attribution_document`` above only
@@ -118,7 +118,7 @@ def test_warlock_marker_prose_outside_acestep_matches_attribution_count():
     modifications to six, ``_MUSE_PROSE_FILES`` kept naming the fifth and
     fourth markers by their old five-of-five denominator in prose and
     nothing caught it. This pins every
-    ``WARLOCK n/N`` mention in those files to the document's real
+    ``REALMSPINNER n/N`` mention in those files to the document's real
     modification count, so the next renumbering fails here instead of
     shipping stale prose again.
     """
@@ -131,9 +131,9 @@ def test_warlock_marker_prose_outside_acestep_matches_attribution_count():
     for rel in _MUSE_PROSE_FILES:
         path = _REPO_ROOT / rel
         text = path.read_text(encoding="utf-8")
-        for n, of in re.findall(r"WARLOCK (\d+)/(\d+)", text):
+        for n, of in re.findall(r"REALMSPINNER (\d+)/(\d+)", text):
             if int(of) != count:
-                stale.append(f"{rel}: WARLOCK {n}/{of}")
+                stale.append(f"{rel}: REALMSPINNER {n}/{of}")
 
     assert not stale, (
         "prose references a stale modification count -- ATTRIBUTION.md now "
@@ -150,7 +150,7 @@ def _saved_bytes(tmp_path: Path) -> bytes:
     """
     torch = pytest.importorskip("torch")
     pytest.importorskip("torchaudio")
-    module = pytest.importorskip("warlock.pipelines.acestep.pipeline_ace_step")
+    module = pytest.importorskip("realmspinner.pipelines.acestep.pipeline_ace_step")
 
     t = torch.linspace(0.0, 0.1, 4410)
     wave_ = torch.stack([torch.sin(t * 440.0), torch.sin(t * 660.0)]) * 0.5
@@ -202,7 +202,7 @@ def test_track_wav_is_a_byte_identical_copy_not_a_re_encode(tmp_path, monkeypatc
     # that soundfile is never reached, because that is the one the name claims.
     import soundfile as sf
 
-    from warlock.pipelines import audioout
+    from realmspinner.pipelines import audioout
 
     source = _silent_wav(tmp_path)
     out = tmp_path / "out.wav"
@@ -217,7 +217,7 @@ def test_track_wav_is_a_byte_identical_copy_not_a_re_encode(tmp_path, monkeypatc
 
 def test_track_aiff_decodes_back_to_the_same_samples(tmp_path):
     sf = pytest.importorskip("soundfile")
-    from warlock.pipelines import audioout
+    from realmspinner.pipelines import audioout
 
     source = _silent_wav(tmp_path)
     out = tmp_path / "track.aiff"
@@ -230,7 +230,7 @@ def test_track_aiff_decodes_back_to_the_same_samples(tmp_path):
 
 
 def test_convert_refuses_a_name_outside_its_format_table(tmp_path):
-    from warlock.pipelines import audioout
+    from realmspinner.pipelines import audioout
 
     source = _silent_wav(tmp_path)
     with pytest.raises(ValueError):

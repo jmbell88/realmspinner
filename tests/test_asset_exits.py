@@ -1,6 +1,6 @@
 """Everywhere one asset can go, answered once and drawn twice.
 
-Before :mod:`warlock.studio.asset_exits` existed, the library's overflow menu
+Before :mod:`realmspinner.studio.asset_exits` existed, the library's overflow menu
 and the inspector's "Take it somewhere" section each grew their own list of
 destinations, one bridge at a time, and stopped agreeing about what was on it
 -- the library offered Poser and the two reopen doors, the inspector did not.
@@ -14,10 +14,10 @@ import inspect
 from pathlib import Path
 from typing import Any
 
-from warlock.studio import asset_exits, modes, verbs
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.panes import inspector
-from warlock.studio.state import AppState
+from realmspinner.studio import asset_exits, modes, verbs
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.panes import inspector
+from realmspinner.studio.state import AppState
 
 
 class FakeCache:
@@ -106,7 +106,7 @@ def _authored(svc, authored: str) -> dict:
 def _mason_row(svc, *, status: str = "done", ready: bool = True) -> dict:
     """What ``mason_mode.export_library`` mints: an ordinary ``model`` row --
     ``import_mesh``'s own -- carrying ``params["authored"] == "mason"`` and a
-    ``scene.wscn`` beside it that nothing in ``job["files"]`` ever mentions."""
+    ``scene.rscn`` beside it that nothing in ``job["files"]`` ever mentions."""
     job = _job(svc, "image", stage="model", status=status, params={"authored": "mason"})
     job["files"] = ["model.glb"] if ready else []
     return job
@@ -148,7 +148,7 @@ def test_a_mesh_can_be_added_to_a_scene_and_the_door_opens_the_mesh(svc, monkeyp
     its own ``job`` argument would place a reference to a job id with no
     ``model.glb`` behind it -- the exact trap ``_clay``'s and ``_poser``'s
     closures already name."""
-    from warlock.studio.modes.mason import mode as mason_mode
+    from realmspinner.studio.modes.mason import mode as mason_mode
 
     mesh = _mesh(svc, rigged=True)
     rig_row = _rig_followup(svc, mesh["id"])
@@ -169,7 +169,7 @@ def test_an_unfinished_mesh_dims_the_scene_door_with_the_row_s_own_reason(svc):
     from a scene, so the button is drawn with a reason rather than left off
     the list -- and the reason is the service's own sentence, not a second
     spelling of it."""
-    from warlock.service.validation import not_done_message
+    from realmspinner.service.validation import not_done_message
 
     ctx = FakeCtx(svc)
     exits = asset_exits.exits_for(ctx, _mesh(svc, status="running"))
@@ -182,7 +182,7 @@ def test_a_mason_authored_row_offers_the_way_back_into_the_scene(svc, monkeypatc
     ``stat``, no service call -- because a reopen has no fallback: a merged
     scene GLB is not a lesser scene, and ``edit_asset_in_mason`` refuses to
     substitute it."""
-    from warlock.studio.modes.mason import mode as mason_mode
+    from realmspinner.studio.modes.mason import mode as mason_mode
 
     row = _mason_row(svc)
     ctx = FakeCtx(svc)
@@ -205,7 +205,7 @@ def test_a_mason_authored_row_offers_the_way_back_into_the_scene(svc, monkeypatc
 def test_an_ordinary_mesh_does_not_offer_to_reopen_a_scene_it_never_was(svc):
     """The marker is absent rather than empty on every other row, and the
     reopen door must be gated on that and nothing looser -- offering it for a
-    row with no ``scene.wscn`` is a button that can only fail."""
+    row with no ``scene.rscn`` is a button that can only fail."""
     ctx = FakeCtx(svc)
     labels = [e.label for e in asset_exits.exits_for(ctx, _mesh(svc)) if e.mode == "mason"]
     assert labels == [verbs.add_to("mason", "as a scene item")]
@@ -322,7 +322,7 @@ def test_a_rig_row_offers_its_mesh_destinations_and_poser_opens_the_source(svc, 
     Poser must open the mesh the rig belongs to, never the rig row itself
     (the door is invoked with the selected row, ``exit_.open(ctx, job)``, so
     a door that read its own ``job`` argument would get this wrong)."""
-    from warlock.studio.panes import pose_panel
+    from realmspinner.studio.panes import pose_panel
 
     mesh = _mesh(svc, rigged=True)
     rig_row = _rig_followup(svc, mesh["id"])
@@ -505,8 +505,8 @@ def test_no_gate_touches_the_filesystem(svc, monkeypatch):
     patch below, so this only catches a stat made by a gate itself and not
     one made by some unrelated module's own import machinery.
     """
-    from warlock.studio.modes.poser.ui.panes import send as poser_send  # noqa: F401
-    from warlock.studio.panes import pose_panel  # noqa: F401
+    from realmspinner.studio.modes.poser.ui.panes import send as poser_send  # noqa: F401
+    from realmspinner.studio.panes import pose_panel  # noqa: F401
 
     def _raise(self, *_a, **_k):
         raise AssertionError(f"a gate touched the filesystem: {self}")
@@ -534,7 +534,7 @@ def test_asset_exits_status_reason_reuses_the_services_status_sentences(svc):
     rather than by calling the private helper directly, so the check follows
     what a reader actually sees.
     """
-    from warlock.service.validation import not_done_message
+    from realmspinner.service.validation import not_done_message
 
     ctx = FakeCtx(svc)
     for status in ("queued", "running", "error", "cancelled"):

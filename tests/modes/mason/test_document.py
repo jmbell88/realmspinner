@@ -14,13 +14,13 @@ import inspect
 import numpy as np
 import pytest
 
-from warlock.core.undo import Edit
-from warlock.kernels.geom3d.gltf import Material
-from warlock.studio.modes.mason.engine import document as doc
-from warlock.studio.modes.mason.engine import edits as ed
-from warlock.studio.modes.mason.engine import nodes as nd
-from warlock.studio.modes.mason.engine import refs
-from warlock.studio.modes.mason.engine import terrain as tr
+from realmspinner.core.undo import Edit
+from realmspinner.kernels.geom3d.gltf import Material
+from realmspinner.studio.modes.mason.engine import document as doc
+from realmspinner.studio.modes.mason.engine import edits as ed
+from realmspinner.studio.modes.mason.engine import nodes as nd
+from realmspinner.studio.modes.mason.engine import refs
+from realmspinner.studio.modes.mason.engine import terrain as tr
 
 
 def _terrain(side: int = 4, size: float = 8.0) -> tr.Terrain:
@@ -181,7 +181,7 @@ def test_add_nodes_refuses_before_building_past_max_placed_rather_than_after(mon
     must fail against a version of ``add_nodes`` with no such check: nothing
     would raise, and both the roots list and the history would grow.
     """
-    from warlock.studio.modes.mason.engine import scene as sc
+    from realmspinner.studio.modes.mason.engine import scene as sc
 
     monkeypatch.setattr(sc, "MAX_PLACED", 5)
     d = doc.MasonDoc()
@@ -207,7 +207,7 @@ def test_add_nodes_counts_each_added_nodes_whole_subtree_not_just_the_top_level_
     is 4 nodes against a ceiling of 3, but ``len(added) == 1`` would pass it
     straight through.
     """
-    from warlock.studio.modes.mason.engine import scene as sc
+    from realmspinner.studio.modes.mason.engine import scene as sc
 
     monkeypatch.setattr(sc, "MAX_PLACED", 3)
     d = doc.MasonDoc()

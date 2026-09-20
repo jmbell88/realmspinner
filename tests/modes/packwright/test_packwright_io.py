@@ -14,18 +14,18 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio import docmodes
-from warlock.studio.modes.packwright import fileio as packwright_io
-from warlock.studio.modes.packwright import mode as packwright_mode
-from warlock.studio.modes.packwright import state as packwright_state
-from warlock.studio.modes.packwright.engine import wpack
+from realmspinner.studio import docmodes
+from realmspinner.studio.modes.packwright import fileio as packwright_io
+from realmspinner.studio.modes.packwright import mode as packwright_mode
+from realmspinner.studio.modes.packwright import state as packwright_state
+from realmspinner.studio.modes.packwright.engine import rpack
 
 from .test_packwright_mode import FakeCtx, _Done, _pack, _tab
 
 
 def test_the_mode_re_exports_the_io_layer():
     for name in (
-        "WPACK_FILTER",
+        "RPACK_FILTER",
         "PNG_FILTER",
         "IMAGE_FILTER",
         "_load",
@@ -65,11 +65,11 @@ def _temps(directory: Path) -> list[str]:
 
 def test_a_save_leaves_no_temporary_behind(tmp_path):
     """The staging name is a dotfile *and* the cleanup is a ``finally``: the
-    temporary used to be ``atlas.wpack.tmp``, sorted right beside the file it is
+    temporary used to be ``atlas.rpack.tmp``, sorted right beside the file it is
     a fragment of, and abandoned there by any failing write."""
     ctx = FakeCtx()
     tab = _tab(ctx)
-    path = tmp_path / "atlas.wpack"
+    path = tmp_path / "atlas.rpack"
     packwright_mode.save_to(ctx, tab, path)
     assert path.exists()
     assert _temps(tmp_path) == []
@@ -78,7 +78,7 @@ def test_a_save_leaves_no_temporary_behind(tmp_path):
 def test_a_failed_replace_leaves_the_previous_file_intact(tmp_path, monkeypatch):
     ctx = FakeCtx()
     tab = _tab(ctx)
-    path = tmp_path / "atlas.wpack"
+    path = tmp_path / "atlas.rpack"
     path.write_bytes(b"the previous save")
 
     def refuse(src, dst):
@@ -95,8 +95,8 @@ def test_an_export_that_cannot_encode_writes_nothing(tmp_path, monkeypatch):
     """Every file is staged before any is replaced, which is the whole reason
     this passes: the PNG used to be on disk on top of the previous export by the
     time the sidecar raised."""
-    from warlock.studio import dialogs
-    from warlock.studio.modes.packwright.engine import texturepacker
+    from realmspinner.studio import dialogs
+    from realmspinner.studio.modes.packwright.engine import texturepacker
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -112,7 +112,7 @@ def test_an_export_that_cannot_encode_writes_nothing(tmp_path, monkeypatch):
     # Framed as a service refusal since 2026-09-04, so the *reason* reaches the
     # user rather than "see the log for details": only a ``ServiceError``'s
     # text survives the task classifier. See ``export_files``.
-    from warlock.service.errors import Invalid
+    from realmspinner.service.errors import Invalid
 
     with pytest.raises(Invalid, match="no sidecar"):
         packwright_mode.export_files(ctx, tab)
@@ -126,7 +126,7 @@ def test_a_renamed_sprite_reaches_the_exported_sidecar(tmp_path, monkeypatch):
     the layout the TexturePacker ``filename`` is written from."""
     import json
 
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -145,7 +145,7 @@ def test_the_json_schema_setting_reaches_the_exported_sidecar(tmp_path, monkeypa
     export-time argument to forget."""
     import json
 
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -164,7 +164,7 @@ def test_a_tsx_mismatch_still_exports_the_png_and_json(tmp_path, monkeypatch):
     would derive (see ``tsxout.grid_tileset``) -- and dropping it must not
     take the PNG and JSON down with it: those describe exactly what was
     packed, refusal or not."""
-    from warlock.studio import dialogs
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _tab(ctx, sources=3)
@@ -195,8 +195,8 @@ def test_a_grid_export_then_a_maxrects_export_refuses_to_leave_the_old_tsx(
     that used to be there, over a PNG that no longer is one. The export must
     refuse rather than publish a PNG+JSON pair with a stale tileset beside
     them."""
-    from warlock.service.errors import Invalid
-    from warlock.studio import dialogs
+    from realmspinner.service.errors import Invalid
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _tab(ctx, sources=3)
@@ -232,8 +232,8 @@ def test_a_grid_export_then_a_refused_columns_re_export_refuses_to_leave_the_old
     only safe when there was no ``.tsx`` to begin with; here one already
     describes the *first* export's geometry, and publishing a new PNG beside
     it without touching it would leave that description wrong."""
-    from warlock.service.errors import Invalid
-    from warlock.studio import dialogs
+    from realmspinner.service.errors import Invalid
+    from realmspinner.studio import dialogs
 
     ctx = FakeCtx()
     tab = _tab(ctx, sources=3)
@@ -275,23 +275,23 @@ def test_a_staged_write_uses_a_dotfile(tmp_path, monkeypatch):
         real(src, dst)
 
     monkeypatch.setattr(packwright_io.atomic.os, "replace", note)
-    packwright_io._write({tmp_path / "atlas.wpack": b"x"})
+    packwright_io._write({tmp_path / "atlas.rpack": b"x"})
     # A token per call (M03), not a fixed name: two overlapping exports of one
     # destination must not stage into the same file. See
     # ``tests/test_atomic_writes.py``.
     assert len(seen) == 1
-    assert re.fullmatch(r"\.atlas\.wpack\.[0-9a-f]{8}\.tmp", seen[0])
+    assert re.fullmatch(r"\.atlas\.rpack\.[0-9a-f]{8}\.tmp", seen[0])
 
 
 # --- opening ------------------------------------------------------------------
 
 
 def test_a_file_past_the_read_ceiling_is_refused_before_it_is_read(tmp_path, monkeypatch):
-    from warlock.service import files as svc_files
-    from warlock.service.errors import TooLarge
+    from realmspinner.service import files as svc_files
+    from realmspinner.service.errors import TooLarge
 
-    path = tmp_path / "atlas.wpack"
-    path.write_bytes(wpack.wpack_bytes(_tab(FakeCtx()).doc))
+    path = tmp_path / "atlas.rpack"
+    path.write_bytes(rpack.rpack_bytes(_tab(FakeCtx()).doc))
     monkeypatch.setattr(svc_files, "MAX_PACK_SOURCE_BYTES", 8)
     with pytest.raises(TooLarge) as caught:
         packwright_io._load(path)
@@ -302,14 +302,14 @@ def test_a_corrupt_file_is_refused_with_the_reason_rather_than_the_log(tmp_path)
     """Only a ``ServiceError``'s text passes the task classifier, so a bare
     ``ValueError`` here reached the user as "see the log for details" -- which
     names neither the file nor what is wrong with it."""
-    from warlock.service.errors import ServiceError
+    from realmspinner.service.errors import ServiceError
 
-    path = tmp_path / "atlas.wpack"
+    path = tmp_path / "atlas.rpack"
     path.write_bytes(b"not a zip at all")
     with pytest.raises(ServiceError) as caught:
         packwright_io._load(path)
     assert caught.value.message.startswith("This atlas could not be opened")
-    assert "not a Warlock atlas" in caught.value.message
+    assert "not a Realmspinner atlas" in caught.value.message
 
 
 def test_an_open_that_fails_drops_the_file_off_the_resume_list(tmp_path):
@@ -318,7 +318,7 @@ def test_an_open_that_fails_drops_the_file_off_the_resume_list(tmp_path):
     precisely so this can be done."""
     ctx = FakeCtx()
     packwright_mode.ensure(ctx)
-    path = tmp_path / "gone.wpack"
+    path = tmp_path / "gone.rpack"
     packwright_mode.remember_path(ctx, path)
     assert packwright_mode.recent_paths(ctx) == [str(path)]
 
@@ -327,28 +327,28 @@ def test_an_open_that_fails_drops_the_file_off_the_resume_list(tmp_path):
 
 
 def test_an_open_key_keeps_a_drive_letter_intact():
-    """Split on the first colon only: ``packwright-open:D:/atlases/one.wpack``
+    """Split on the first colon only: ``packwright-open:D:/atlases/one.rpack``
     is one key naming one path, not a prefix and a drive."""
     ctx = FakeCtx(accept=False)
     packwright_mode.ensure(ctx)
-    packwright_io.open_path(ctx, Path("D:/atlases/one.wpack"))
+    packwright_io.open_path(ctx, Path("D:/atlases/one.rpack"))
     key = ctx.submitted[-1]
     assert key.startswith(packwright_io.OPEN_PREFIX)
-    assert Path(key.split(":", 1)[1]) == Path("D:/atlases/one.wpack")
+    assert Path(key.split(":", 1)[1]) == Path("D:/atlases/one.rpack")
 
 
 def test_an_asset_with_no_atlas_beside_it_says_so(tmp_path):
-    from warlock.service.errors import ServiceError
+    from realmspinner.service.errors import ServiceError
 
     class _Svc:
         pass
 
     ctx = FakeCtx(svc=_Svc())
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     original = svc_files.packwright_source_path
     try:
-        svc_files.packwright_source_path = lambda svc, job_id: tmp_path / "nothing.wpack"
+        svc_files.packwright_source_path = lambda svc, job_id: tmp_path / "nothing.rpack"
         with pytest.raises(ServiceError, match="no atlas document"):
             packwright_io.edit_asset_in_packwright(ctx, {"id": "j1"})
     finally:
@@ -361,18 +361,18 @@ def test_reopening_a_library_asset_titles_the_tab_after_the_job_not_a_fixed_stri
     Mason's ``edit_asset_in_mason``, which titles the reopened tab after
     ``job["name"]``. Two different atlases reopened from the Library both
     read "Atlas" in every tab and title bar that shows one."""
-    from warlock.studio.modes.packwright.engine.document import PackDoc
+    from realmspinner.studio.modes.packwright.engine.document import PackDoc
 
     class _Svc:
         pass
 
     doc = PackDoc()
     doc.mark_saved()
-    path = tmp_path / "source.wpack"
-    path.write_bytes(wpack.snapshot_bytes(wpack.snapshot(doc)))
+    path = tmp_path / "source.rpack"
+    path.write_bytes(rpack.snapshot_bytes(rpack.snapshot(doc)))
 
     ctx = FakeCtx(svc=_Svc())
-    from warlock.service import files as svc_files
+    from realmspinner.service import files as svc_files
 
     original = svc_files.packwright_source_path
     try:

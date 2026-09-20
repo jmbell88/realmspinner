@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.pipelines import prompt
+from realmspinner.pipelines import prompt
 
 MODEL_DIR = Path(__file__).resolve().parents[1] / "models" / "sdxl-turbo"
 
@@ -231,7 +231,7 @@ def test_a_stale_framing_is_inert_on_a_tile_too():
 def test_the_prompt_field_list_is_empty():
     """No stored field composes into the prompt any more; a future entry here
     is a deliberate re-opening, not an accident."""
-    from warlock import guidance
+    from realmspinner import guidance
 
     assert guidance._PROMPT_FIELDS == ()
 
@@ -281,7 +281,7 @@ def test_max_prompt_docstring_does_not_claim_truncation_the_encoder_no_longer_do
     """
     import inspect
 
-    from warlock.service import validation
+    from realmspinner.service import validation
 
     lines = inspect.getsource(validation).splitlines()
     target = next(

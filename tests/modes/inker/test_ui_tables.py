@@ -16,13 +16,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.kernels import pixel as inker
-from warlock.kernels.pixel import animation, brush, selection, transform
-from warlock.studio.modes.inker import state as inker_state
-from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
-from warlock.studio.modes.inker.ui.panes import tools as inker_tools
-from warlock.studio.shell import paintview
+from realmspinner.kernels import pixel as inker
+from realmspinner.kernels.pixel import animation, brush, selection, transform
+from realmspinner.studio.modes.inker import state as inker_state
+from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
+from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
+from realmspinner.studio.shell import paintview
 
 
 def test_every_symmetry_the_engine_composes_has_a_control():
@@ -38,7 +38,7 @@ def test_every_symmetry_the_engine_composes_has_a_control():
     Sourced from ``inker_context`` throughout since 2026-08-31, when the radial
     followed the mirrors out of the toolbox.
     """
-    from warlock.studio.modes.inker.ui.panes import context as inker_context
+    from realmspinner.studio.modes.inker.ui.panes import context as inker_context
 
     mirrors = tuple(axis for axis, _label, _tip in inker_context.SYMMETRY_TOGGLES)
     assert mirrors + (inker_context.RADIAL_AXIS,) == brush.SYMMETRY_AXES
@@ -52,7 +52,7 @@ def test_every_symmetry_the_engine_composes_has_a_control():
 
 def test_the_legacy_symmetry_names_all_still_read():
     """``brush.SYMMETRY`` is a stored value in every settings file that has
-    ever run Warlock, so every one of its members has to keep meaning what it
+    ever run Realmspinner, so every one of its members has to keep meaning what it
     meant -- which is what makes the composed model an addition rather than a
     migration."""
     assert brush.axes_of("none") == ()
@@ -179,7 +179,7 @@ def test_the_nib_combo_offers_every_nib_the_brush_implements():
     """The nib picker is the context bar's now (W2.4) and it gained the line
     nib in 6.1's sibling wave; a nib the engine has and no control offers is a
     feature that exists only in the source."""
-    from warlock.studio.modes.inker.ui.panes import context as inker_context
+    from realmspinner.studio.modes.inker.ui.panes import context as inker_context
 
     assert tuple(key for key, _label in inker_context.NIB_LABELS) == brush.NIBS
 
@@ -239,15 +239,15 @@ def test_the_palette_sort_combo_offers_every_key_the_engine_implements():
     """Both directions, which is the whole point: a key the pane offers and the
     engine does not fails on the first click, and one the engine has and the
     pane does not is a feature no user can reach."""
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
 
     keys = tuple(key for key, _label in inker_colors.SORT_LABELS)
     assert keys == inker.PALETTE_SORT_KEYS
 
 
 def test_every_sort_key_is_labelled_and_no_label_is_repeated():
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
 
     labels = [label for _key, label in inker_colors.SORT_LABELS]
     assert all(labels)
@@ -258,8 +258,8 @@ def test_the_convert_popup_offers_every_method_the_engine_implements():
     """The dither combo is built from ``dither.METHODS`` at the call site rather
     than written out, so this asserts the tuple is the one thing there is to
     offer -- and that the default is one of them."""
-    from warlock.kernels import pixel as inker
-    from warlock.kernels.pixel import dither
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.kernels.pixel import dither
 
     assert inker.DITHER_METHODS == dither.METHODS
     assert dither.METHODS[0] == "nearest"
@@ -267,7 +267,7 @@ def test_the_convert_popup_offers_every_method_the_engine_implements():
 
 
 def test_the_gradient_dither_option_defaults_to_off_and_names_a_real_matrix():
-    from warlock.kernels.pixel import dither
+    from realmspinner.kernels.pixel import dither
 
     assert inker_state.TOOL_OPTION_DEFAULTS["gradient_dither"] == "none"
     assert set(dither.ORDERED) <= set(dither.METHODS)
@@ -413,7 +413,7 @@ def test_the_edge_handles_sit_on_the_edge_midpoints():
 def test_the_resample_combo_offers_every_mode_the_engine_implements():
     """Same pin as the symmetry combo above, for the setting that decides what
     a rotate and a scale do to a pixel-art drawing."""
-    from warlock.studio.modes.inker.ui.panes import bridge as inker_bridge
+    from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
 
     assert inker_bridge.transform.RESAMPLES == transform.RESAMPLES
 
@@ -502,7 +502,7 @@ def _range_tab(doc, rect=None):
 
 
 def test_the_timeline_reads_the_range_track_span():
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = inker.Document.blank(4, 4)
     doc.add_layer()
@@ -512,7 +512,7 @@ def test_the_timeline_reads_the_range_track_span():
 
 
 def test_the_track_span_is_clamped_at_use_like_every_other_reader():
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = inker.Document.blank(4, 4)
     doc.add_frame()
@@ -521,14 +521,14 @@ def test_the_track_span_is_clamped_at_use_like_every_other_reader():
 
 
 def test_a_still_document_has_no_track_span_to_read():
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = inker.Document.blank(4, 4)
     assert inker_timeline.track_range(_range_tab(doc, (0, 0, 0, 0)), doc) is None
 
 
 def test_shift_clicking_a_layer_row_extends_the_range_over_the_whole_clip(monkeypatch):
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = inker.Document.blank(4, 4)
     doc.add_layer()
@@ -545,7 +545,7 @@ def test_shift_clicking_a_layer_row_extends_the_range_over_the_whole_clip(monkey
 
 
 def test_shift_clicking_keeps_the_frame_span_a_range_already_has(monkeypatch):
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = inker.Document.blank(4, 4)
     doc.add_layer()
@@ -560,7 +560,7 @@ def test_shift_clicking_keeps_the_frame_span_a_range_already_has(monkeypatch):
 
 
 def test_an_unmodified_click_does_not_extend_the_range(monkeypatch):
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = inker.Document.blank(4, 4)
     doc.add_layer()
@@ -580,7 +580,7 @@ def test_the_timeline_builds_its_two_lists_once_per_draw():
     scratch the rows are already handed."""
     import inspect
 
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     grid = inspect.getsource(inker_timeline._grid)
     row = inspect.getsource(inker_timeline._track_row)
@@ -593,8 +593,8 @@ def test_the_timeline_builds_its_two_lists_once_per_draw():
 
 def test_depth_still_answers_without_a_hoisted_order():
     """The callers outside the grid pass nothing and must still work."""
-    from warlock.kernels import pixel as inker
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     doc = inker.Document.blank(4, 4)
     assert inker_timeline._depth(doc, 0) == 0
@@ -611,8 +611,8 @@ def test_the_two_u32_helpers_are_deliberately_different():
     one or the other, so this is the guard against a tidy-up."""
     import inspect
 
-    from warlock.studio.modes.inker.ui.panes import canvas as inker_canvas
-    from warlock.studio.modes.inker.ui.panes import timeline as inker_timeline
+    from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
+    from realmspinner.studio.modes.inker.ui.panes import timeline as inker_timeline
 
     canvas = inspect.getsource(inker_canvas._u32)
     timeline = inspect.getsource(inker_timeline._u32)

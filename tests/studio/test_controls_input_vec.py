@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import controls
+from realmspinner.studio import controls
 
 
 @pytest.fixture

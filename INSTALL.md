@@ -1,8 +1,8 @@
-# Installing Warlock Studio
+# Installing Realmspinner
 
-This guide walks you through downloading, installing, and confirming that Warlock Studio works on your PC. No coding experience or developer tools are required — just follow the steps in order.
+This guide walks you through downloading, installing, and confirming that Realmspinner works on your PC. No coding experience or developer tools are required — just follow the steps in order.
 
-This covers the packaged Windows installer only. If you want to run Warlock Studio from source or contribute to it, see `README.md` instead.
+This covers the packaged Windows installer only. If you want to run Realmspinner from source or contribute to it, see `README.md` instead.
 
 **The installer changed on 2026-09-04, and again on 2026-09-10.** It used to stage every heavy dependency (image generation, rigging, music) up front; it now ships a slim **base runtime** — the app, the window, and nothing that needs a GPU-sized Python stack — and you add the pieces you actually want afterward from **Settings → Packs**, in-app. The second change took the **3D reconstruction engine** out of it too: `trellis-server.exe` and the CUDA libraries it runs on were 838 MB of every download, more than half the installed application, in a program whose drawing, tile-map, atlas and tracker workspaces never start it. It is a row in **Settings → Models** now, like the model weights beside it. This guide describes that flow.
 
@@ -19,23 +19,23 @@ This covers the packaged Windows installer only. If you want to run Warlock Stud
 - **A 1920×1080 or larger display** at 100% scaling. The app window opens at 1600×950.
 - You do **not** need to install Python, `uv`, or any other developer tools — the installer bundles its own Python runtime and everything else the base app needs to run.
 
-## Step 1: Download Warlock Studio
+## Step 1: Download Realmspinner
 
-1. Go to the **Releases** page of the [Warlock Studio GitHub repository](https://github.com/jmbell88/warlock-studio) and open the latest release.
-2. Under **Assets**, download `WarlockSetup-v0.0.51.exe` (version numbers change between releases) — a single file, the same **about 170 MB** sized above under [What you'll need](#what-youll-need). There is nothing to unzip and no other file to fetch alongside it. The release page lists that build's SHA-256; check it against the file you downloaded if you want to be certain it arrived intact.
+1. Go to the **Releases** page of the [Realmspinner GitHub repository](https://github.com/jmbell88/realmspinner) and open the latest release.
+2. Under **Assets**, download `RealmspinnerSetup-v0.0.52.exe` (version numbers change between releases) — a single file, the same **about 170 MB** sized above under [What you'll need](#what-youll-need). There is nothing to unzip and no other file to fetch alongside it. The release page lists that build's SHA-256; check it against the file you downloaded if you want to be certain it arrived intact.
 3. Wait for the download to finish before opening it.
 
-## Step 2: Install Warlock Studio
+## Step 2: Install Realmspinner
 
 1. Double-click the downloaded `.exe`.
 2. **Windows will very likely show a blue "Windows protected your PC" screen. This is expected — it is not a virus warning.** Windows SmartScreen flags installers from publishers who haven't paid for code-signing, regardless of whether the software is safe. Click **More info**, then click **Run anyway** to continue.
 3. The first wizard page is the **license agreement** (GPL-3.0-or-later). Read it if you like, then accept and continue.
 4. Optional: tick **Create a desktop shortcut** if you'd like one. It's unchecked by default — a Start Menu shortcut is created either way.
-5. You won't be asked for an administrator password. Warlock Studio installs just for your Windows user account, into `%LOCALAPPDATA%\Programs\Warlock Studio`.
+5. You won't be asked for an administrator password. Realmspinner installs just for your Windows user account, into `%LOCALAPPDATA%\Programs\Realmspinner`.
 6. Click **Install** and wait — it's unpacking the base runtime, which takes a few minutes depending on your disk speed.
 7. Click **Finish**. Two new Start Menu shortcuts now exist:
-   - **Warlock Studio** — the app itself
-   - **Warlock Doctor** — a diagnostic tool that checks your install, GPU, packs, and models (more on this under Troubleshooting below)
+   - **Realmspinner** — the app itself
+   - **Realmspinner Doctor** — a diagnostic tool that checks your install, GPU, packs, and models (more on this under Troubleshooting below)
 
 ## Step 3: Understand the two kinds of "download after install"
 
@@ -44,11 +44,11 @@ The base install you just did gets you a working window, the tile/atlas/pose-lib
 - **Dependency packs** (Settings → Packs) are *code* — Python packages such as `torch` and `diffusers` that a workspace needs in order to run at all. Without the matching pack, a mode like Create, Poser, or Muse says what it's missing instead of opening.
 - **Model weights** (Settings → Models) are *data* — the actual trained checkpoints (SDXL, TRELLIS.2, and the rest) that a pack's code loads and runs. A pack with no weights fetched yet will tell you so at the door. **The 3D reconstruction engine lives on this screen too**, as *TRELLIS.2 engine*, about 0.7 GB. It is a program rather than a checkpoint, so it is the one row here that is not really "weights" — but it is a download you choose exactly like them, and it sits beside the weights it loads.
 
-You need a pack *and* its weights, in either order, before the workspace it unlocks does anything. Both are downloaded once, kept under your Warlock home, and reused by every later install or upgrade that still matches their pinned digests — see [Where things are stored](#where-things-are-stored) below.
+You need a pack *and* its weights, in either order, before the workspace it unlocks does anything. Both are downloaded once, kept under your Realmspinner home, and reused by every later install or upgrade that still matches their pinned digests — see [Where things are stored](#where-things-are-stored) below.
 
 ## Step 4: Add dependency packs
 
-Open **Settings → Packs**. Three packs are offered, matching `src/warlock/packs.py`'s registry:
+Open **Settings → Packs**. Three packs are offered, matching `src/realmspinner/packs.py`'s registry:
 
 | Pack | Unlocks | What it costs |
 |---|---|---|
@@ -56,13 +56,13 @@ Open **Settings → Packs**. Three packs are offered, matching `src/warlock/pack
 | **Rigging** | Poser's skeleton fitting, clip and character-sheet rendering | The cheapest of the three — well under a gigabyte |
 | **Music generation** | Muse's text-to-music generation | Multi-gigabyte (its own torch + diffusers stack, pinned separately from Image generation); see the pane for this build's exact figure |
 
-Install whichever ones match what you actually want to do — a pixel-art-only session never needs any of them. Each pack downloads to a wheel cache under your Warlock home, verifies every file's hash, and only then installs into the app's own runtime as a short-lived background process; the app stays open and usable throughout, and the mode it unlocks lights up automatically once it finishes (a restart is only asked for if the running process genuinely cannot pick up the change).
+Install whichever ones match what you actually want to do — a pixel-art-only session never needs any of them. Each pack downloads to a wheel cache under your Realmspinner home, verifies every file's hash, and only then installs into the app's own runtime as a short-lived background process; the app stays open and usable throughout, and the mode it unlocks lights up automatically once it finishes (a restart is only asked for if the running process genuinely cannot pick up the change).
 
 **A pack install cannot be safely cancelled once it starts writing into the runtime.** Cancel is offered only while the pack is still downloading; once installation begins, let it finish.
 
 ## First launch
 
-Open the Start Menu and launch **Warlock Studio**.
+Open the Start Menu and launch **Realmspinner**.
 
 The first time it opens, a **Set up this PC** panel appears:
 
@@ -101,28 +101,28 @@ When it opens, you'll see a rail on the left with **Home**, **Library**, and **C
 
 ## Where things are stored
 
-Everything Warlock Studio downloads or creates lives under your Warlock home, `%USERPROFILE%\.warlock` by default (`WARLOCK_HOME` overrides it) — worth knowing if you ever want to back it up or check how much space it's using:
+Everything Realmspinner downloads or creates lives under your Realmspinner home, `%USERPROFILE%\.realmspinner` by default (`REALMSPINNER_HOME` overrides it) — worth knowing if you ever want to back it up or check how much space it's using:
 
 - `assets/`, `palettes/` — your own work.
 - `models/` — model **weights** fetched from Settings → Models. Multi-gigabyte, and specific to the checkpoints you chose.
-- `engine/` — the **3D reconstruction engine** fetched from the same screen, about 0.8 GB unpacked. Separate from `models/` because it is a program rather than a checkpoint, and kept under your Warlock home rather than in the application folder so that upgrading Warlock does not cost you the download again.
-- `packs/` — the **wheel cache** for dependency packs fetched from Settings → Packs. This is separate from the app's own runtime (`%LOCALAPPDATA%\Programs\Warlock Studio`), where the packages actually get installed to run — the cache exists so that reinstalling or upgrading the app doesn't re-download a pack whose files still match what's already been verified.
+- `engine/` — the **3D reconstruction engine** fetched from the same screen, about 0.8 GB unpacked. Separate from `models/` because it is a program rather than a checkpoint, and kept under your Realmspinner home rather than in the application folder so that upgrading Realmspinner does not cost you the download again.
+- `packs/` — the **wheel cache** for dependency packs fetched from Settings → Packs. This is separate from the app's own runtime (`%LOCALAPPDATA%\Programs\Realmspinner`), where the packages actually get installed to run — the cache exists so that reinstalling or upgrading the app doesn't re-download a pack whose files still match what's already been verified.
 
 ## Upgrading
 
-Installing a newer version over an existing one keeps `%USERPROFILE%\.warlock` — your assets, your model weights, and the pack wheel cache — untouched. **What it does not currently do is reinstall the dependency packs you had.** The upgrade replaces the app's own runtime, and that runtime is where packs are installed *into*; today nothing restores them automatically afterward. This is a known gap, not an intended behaviour.
+Installing a newer version over an existing one keeps `%USERPROFILE%\.realmspinner` — your assets, your model weights, and the pack wheel cache — untouched. **What it does not currently do is reinstall the dependency packs you had.** The upgrade replaces the app's own runtime, and that runtime is where packs are installed *into*; today nothing restores them automatically afterward. This is a known gap, not an intended behaviour.
 
-**After upgrading, check Settings → Packs and reinstall anything that shows as not installed.** Because the wheel cache under `%USERPROFILE%\.warlock\packs` survives the upgrade, reinstalling a pack you'd already fetched should be fast — it re-verifies the cached wheels rather than downloading them again, as long as their pinned versions haven't changed in the new release.
+**After upgrading, check Settings → Packs and reinstall anything that shows as not installed.** Because the wheel cache under `%USERPROFILE%\.realmspinner\packs` survives the upgrade, reinstalling a pack you'd already fetched should be fast — it re-verifies the cached wheels rather than downloading them again, as long as their pinned versions haven't changed in the new release.
 
 ## Uninstalling
 
 1. Open Windows **Settings → Apps → Installed apps** (or **Control Panel → Programs → Uninstall a program**).
-2. Find **Warlock Studio** and click **Uninstall**.
-3. A confirmation message tells you your assets and downloaded models are being kept. Uninstalling does **not** delete `%USERPROFILE%\.warlock`, so you won't lose your work, your fetched model weights, or your pack wheel cache — reinstalling later and reinstalling the same packs from Settings → Packs should re-download little or nothing.
+2. Find **Realmspinner** and click **Uninstall**.
+3. A confirmation message tells you your assets and downloaded models are being kept. Uninstalling does **not** delete `%USERPROFILE%\.realmspinner`, so you won't lose your work, your fetched model weights, or your pack wheel cache — reinstalling later and reinstalling the same packs from Settings → Packs should re-download little or nothing.
 
 ## Troubleshooting
 
-- **Warlock Doctor**, in the Start Menu, re-runs the same first-run diagnostic checks any time you want to check your setup again, including which packs and which model weights are present.
+- **Realmspinner Doctor**, in the Start Menu, re-runs the same first-run diagnostic checks any time you want to check your setup again, including which packs and which model weights are present.
 - If the SmartScreen prompt during installation is what's worrying you, that's expected — see Step 2 above.
 - **If a pack or model download fails**, the message you get is whatever the network gave us, which for a connection problem is not always readable — `ConnectError: [WinError 10054]` and similar mean the connection was cut, not that anything is wrong with your install. Antivirus software, a firewall, a workplace or school proxy, or a VPN are the usual causes; try pausing them, or try a different network. Nothing is left half-installed by a failed download, so it is always safe to press Install again.
 - For anything else — crashes, out-of-memory errors, missing weights, a stuck GPU worker — see the full guide at `docs/manual/43-troubleshooting.md`.

@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import primitives as bp
-from warlock.studio import viewport_hints as clay_hints
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio import viewport_hints as clay_hints
 
 
 def _doc(*meshes):

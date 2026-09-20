@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio import controls, widgets
-from warlock.studio.modes.clay.ui.panes import bridge as clay_bridge
-from warlock.studio.modes.inker.ui.panes import generate as inker_generate
-from warlock.studio.modes.packwright.ui.panes import bridge as packwright_bridge
-from warlock.studio.modes.plotter.ui.panes import bridge as plotter_bridge
-from warlock.studio.modes.sirens.ui.panes import bridge as sirens_bridge
+from realmspinner.studio import controls, widgets
+from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+from realmspinner.studio.modes.inker.ui.panes import generate as inker_generate
+from realmspinner.studio.modes.packwright.ui.panes import bridge as packwright_bridge
+from realmspinner.studio.modes.plotter.ui.panes import bridge as plotter_bridge
+from realmspinner.studio.modes.sirens.ui.panes import bridge as sirens_bridge
 
 BRIDGES = (clay_bridge, inker_generate, packwright_bridge, plotter_bridge, sirens_bridge)
 
@@ -45,6 +45,6 @@ def test_the_status_ladder_is_one_sentence_and_exclusive():
     text = widgets.document_status_text
     assert text(None, False) == "Nothing to save yet."
     assert text(None, True) == "Not saved to a file yet."
-    assert text("song.wsng", False) == "Saved."
-    assert text("song.wsng", True) == "Unsaved changes."
-    assert text("song.wsng", True, saving=True) == "Saving..."
+    assert text("song.rsng", False) == "Saved."
+    assert text("song.rsng", True) == "Unsaved changes."
+    assert text("song.rsng", True, saving=True) == "Saving..."

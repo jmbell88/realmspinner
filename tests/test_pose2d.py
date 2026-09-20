@@ -18,8 +18,8 @@ import dataclasses
 
 import pytest
 
-from warlock.kernels.rig import skeleton, templates
-from warlock.pipelines import pose2d
+from realmspinner.kernels.rig import skeleton, templates
+from realmspinner.pipelines import pose2d
 
 # x0, y0, x1, y1 -- 200 wide, 400 tall, centred on x=200. Chosen so every
 # expected normalized coordinate below is exact in binary floating point.
@@ -333,7 +333,7 @@ def _config(tmp_path):
 
 
 def _weights(tmp_path):
-    from warlock import models
+    from realmspinner import models
 
     root = tmp_path / models.POSE_MODELS[models.DEFAULT_POSE_MODEL].dir_name
     root.mkdir(parents=True)
@@ -342,7 +342,7 @@ def _weights(tmp_path):
 
 
 def test_the_registry_entry_carries_a_download_command():
-    from warlock import models
+    from realmspinner import models
 
     spec = models.POSE_MODELS[models.DEFAULT_POSE_MODEL]
     assert spec.dir_name and "hf download" in spec.download

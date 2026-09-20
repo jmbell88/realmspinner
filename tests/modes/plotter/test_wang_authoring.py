@@ -1,7 +1,7 @@
 """Authoring a Wang set, and then painting the map with the one you authored.
 
 Nothing in this app could make a Wang set. ``WangColour``/``WangSet`` and
-``Tileset.wangsets`` had round-tripped through ``.tsx``, ``.tsj`` and ``.wmap``
+``Tileset.wangsets`` had round-tripped through ``.tsx``, ``.tsj`` and ``.rmap``
 since they landed, the Terrain tool's picker had enumerated their colours and
 the constraint matcher had painted with them -- but the only way to *get* one
 was to import a file Tiled wrote. The single ``wangset`` reference anywhere in
@@ -10,7 +10,7 @@ was to import a file Tiled wrote. The single ``wangset`` reference anywhere in
 Two halves, tested two ways, which is ``test_tile_collision``'s split and its
 reason:
 
-* The table edits are in :mod:`warlock.kernels.grid2d.wang`, headless and
+* The table edits are in :mod:`realmspinner.kernels.grid2d.wang`, headless and
   pure, and are asserted directly.
 * The *gestures* are in ``plotter_tileset_editor``, and every test of one below
   goes through the real handler -- the click dispatch with the shared synthetic
@@ -30,9 +30,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.kernels.grid2d import blob, wang
-from warlock.kernels.grid2d.tileset import TerrainSpec
-from warlock.studio.modes.plotter.ui.panes import tileset_editor as editor
+from realmspinner.kernels.grid2d import blob, wang
+from realmspinner.kernels.grid2d.tileset import TerrainSpec
+from realmspinner.studio.modes.plotter.ui.panes import tileset_editor as editor
 
 from ._drive import TileScene
 
@@ -367,8 +367,8 @@ def test_a_set_authored_here_paints_the_map_through_the_canvas_dispatch(scene):
     that painting works: it is that authoring and painting meet, with **no**
     plumbing between them.
     """
-    from warlock.studio.modes.plotter.ui.panes import canvas as plotter_canvas
-    from warlock.studio.modes.plotter.ui.panes import tools as plotter_tools
+    from realmspinner.studio.modes.plotter.ui.panes import canvas as plotter_canvas
+    from realmspinner.studio.modes.plotter.ui.panes import tools as plotter_tools
 
     # 1. Author. Colour 1 at all four corners of tile 0 makes it that colour's
     #    interior -- the tile a click on the map lays down.
@@ -403,17 +403,17 @@ def test_a_set_authored_here_paints_the_map_through_the_canvas_dispatch(scene):
     assert scene.toasts == [], "and nothing refused on the way"
 
 
-def test_the_authored_set_survives_a_wmap_round_trip(scene):
+def test_the_authored_set_survives_a_rmap_round_trip(scene):
     """The format half, so the claim in ``docs/COMPAT.md`` is not one-ended:
     what the editor writes is what a reopened map reads back."""
-    from warlock.studio.modes.plotter.engine import wmap
+    from realmspinner.studio.modes.plotter.engine import rmap
 
     scene.state.tileset_wang_colour = 1
     for slot in wang.CORNER_SLOTS:
         scene.frame(_slot(scene, slot), click=True)
     editor.rename_wangset(scene.tab, 0, 0, "Coastline")
 
-    back = wmap.read_wmap(wmap.wmap_bytes(scene.doc))
+    back = rmap.read_rmap(rmap.rmap_bytes(scene.doc))
     landed = back.tilesets[0].tileset.wangsets[0]
     assert landed.name == "Coastline" and landed.kind == "corner"
     assert [c.name for c in landed.colours] == [
@@ -578,7 +578,7 @@ def test_a_tsx_never_writes_two_wangsets_blocks(monkeypatch):
     """The pin the two refusals exist for. One block for a blob preset, one for
     a hand-authored set, and the combination refused by name rather than
     written as two."""
-    from warlock.studio.modes.plotter.engine import tsx
+    from realmspinner.studio.modes.plotter.engine import tsx
 
     made = _blob_scene(monkeypatch)
     generated = made.doc.tilesets[0].tileset

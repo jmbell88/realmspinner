@@ -13,8 +13,8 @@ import contextlib
 
 import pytest
 
-from warlock.service.errors import Invalid
-from warlock.service.validation import (
+from realmspinner.service.errors import Invalid
+from realmspinner.service.validation import (
     MAX_TRELLIS_BAND,
     MAX_TRELLIS_TEX_RES,
     MIN_TRELLIS_BAND,
@@ -22,10 +22,10 @@ from warlock.service.validation import (
     check_trellis_band,
     check_trellis_tex_res,
 )
-from warlock.studio import forms
-from warlock.studio.modes.create.engine import mesh as create_mesh
-from warlock.studio.settings import restore_form
-from warlock.studio.state import DEFAULT_FORM_3D
+from realmspinner.studio import forms
+from realmspinner.studio.modes.create.engine import mesh as create_mesh
+from realmspinner.studio.settings import restore_form
+from realmspinner.studio.state import DEFAULT_FORM_3D
 
 
 @pytest.mark.parametrize(

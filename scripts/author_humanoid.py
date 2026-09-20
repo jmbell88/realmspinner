@@ -3,7 +3,7 @@
     uv run python scripts/author_humanoid.py            # measure, write nothing
     uv run python scripts/author_humanoid.py --write    # regenerate the assets
 
-The assets under ``src/warlock/characters/humanoid/`` are **checked in**, for
+The assets under ``src/realmspinner/characters/humanoid/`` are **checked in**, for
 two reasons that are both about somebody else's build rather than this one:
 ``manifold3d`` does not promise byte-stable output across versions, and Blender
 has to import a file whatever we do. So the generator is the record of *how*,
@@ -33,10 +33,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", default="", help="one silhouette key")
     args = parser.parse_args(argv)
 
-    from warlock.characters import family as familylib
-    from warlock.characters.humanoid import generate
+    from realmspinner.characters import family as familylib
+    from realmspinner.characters.humanoid import generate
 
-    directory = ROOT / "src" / "warlock" / "characters" / "humanoid"
+    directory = ROOT / "src" / "realmspinner" / "characters" / "humanoid"
     groups = familylib.silhouettes("humanoid")
     wanted = [args.only] if args.only else sorted(groups)
 

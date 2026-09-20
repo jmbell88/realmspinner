@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.kernels.pixel import gpl
+from realmspinner.kernels.pixel import gpl
 
 SAMPLE = "JASC-PAL\r\n0100\r\n3\r\n0 0 0\r\n255 255 255\r\n34 139 34\r\n"
 
@@ -129,7 +129,7 @@ def test_an_unrecognised_suffix_writes_a_gpl_rather_than_refusing():
 
 
 def test_the_exported_pal_is_crlf_on_disk_and_not_double_carriage_returned(tmp_path):
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     dest = tmp_path / "ramp.pal"
     inker_mode._write_palette(dest, [(0, 0, 0, 255), (255, 128, 64, 255)], "Ramp")
@@ -140,7 +140,7 @@ def test_the_exported_pal_is_crlf_on_disk_and_not_double_carriage_returned(tmp_p
 def test_the_exported_gpl_keeps_its_own_line_endings_too(tmp_path):
     """The same write, the other format: ``.gpl`` is LF and must not pick up a
     carriage return on the way out either."""
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     dest = tmp_path / "ramp.gpl"
     inker_mode._write_palette(dest, [(1, 2, 3, 255)], "Ramp")
@@ -151,7 +151,7 @@ def test_the_exported_gpl_keeps_its_own_line_endings_too(tmp_path):
 
 
 def test_a_suffixless_name_lands_as_a_gpl_on_disk(tmp_path):
-    from warlock.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import mode as inker_mode
 
     inker_mode._write_palette(tmp_path / "swatches", [(1, 2, 3, 255)], "Swatches")
 

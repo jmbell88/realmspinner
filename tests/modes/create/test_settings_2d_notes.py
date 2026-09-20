@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from warlock import guidance, models
-from warlock.studio.modes.create.engine import recipe as create_recipe
-from warlock.studio.modes.create.ui.panes import settings_2d
+from realmspinner import guidance, models
+from realmspinner.studio.modes.create.engine import recipe as create_recipe
+from realmspinner.studio.modes.create.ui.panes import settings_2d
 
 
 def _ctx():
@@ -41,7 +41,7 @@ def _hint_ctx(tmp_path, prompt, doc):
     import json
 
     (tmp_path / "findings.json").write_text(json.dumps(doc), encoding="utf-8")
-    from warlock.bench import findings as findings_lib
+    from realmspinner.bench import findings as findings_lib
 
     findings_lib._CACHE.clear()
     return SimpleNamespace(
@@ -51,7 +51,7 @@ def _hint_ctx(tmp_path, prompt, doc):
 
 
 def _scoped_doc(prompt):
-    from warlock import vectors
+    from realmspinner import vectors
 
     return {
         "version": 3,
@@ -104,7 +104,7 @@ def test_pressing_use_writes_the_value_in_the_forms_own_type(tmp_path, monkeypat
         },
     }
     (tmp_path / "findings.json").write_text(json.dumps(doc), encoding="utf-8")
-    from warlock.bench import findings as findings_lib
+    from realmspinner.bench import findings as findings_lib
 
     findings_lib._CACHE.clear()
 
@@ -424,8 +424,8 @@ def test_every_mesh_setting_that_evidence_exists_for_shows_it():
     import re
     from pathlib import Path
 
-    from warlock import vectors
-    from warlock.studio.modes.create.ui.panes import settings_3d
+    from realmspinner import vectors
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     source = Path(settings_3d.__file__).read_text(encoding="utf-8")
     # ``_hint`` also draws the best-value offer now (findings v5, "actionable
@@ -465,7 +465,7 @@ def test_sweep_add_axis_combo_shows_the_manuals_human_readable_axis_names():
     verbatim, so the combo and the chapter that documents it cannot drift
     the way the ``art_style`` label already once did.
     """
-    from warlock.service import sweeps as sweeps_mod
+    from realmspinner.service import sweeps as sweeps_mod
 
     manual_names = {
         "lora_weight": "Style strength",

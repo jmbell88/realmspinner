@@ -19,11 +19,11 @@ import time
 import pytest
 from PIL import Image
 
-from warlock import models
-from warlock.config import Config
-from warlock.db import JobStore
-from warlock.pipelines import tilesheet
-from warlock.queue import Worker
+from realmspinner import models
+from realmspinner.config import Config
+from realmspinner.db import JobStore
+from realmspinner.pipelines import tilesheet
+from realmspinner.queue import Worker
 
 
 @pytest.fixture
@@ -308,7 +308,7 @@ def _tileset_request(**tile: object) -> dict:
     Built through ``generation`` rather than hand-written, so it is the shape
     ``service.jobs`` actually stores rather than the shape this test imagines.
     """
-    from warlock import generation
+    from realmspinner import generation
 
     return generation.GenerationRequest(
         generation_type="tileset",
@@ -527,7 +527,7 @@ async def test_a_default_sheet_is_the_median_cut_it_has_always_been(worker):
     re-colour every sheet already in the library."""
     import numpy as np
 
-    from warlock.pipelines.pixelsheet import quantize_shared
+    from realmspinner.pipelines.pixelsheet import quantize_shared
 
     job_id = _sheet_job(worker, tile_w=32, colors=8)
     await _run(worker, job_id)
@@ -597,7 +597,7 @@ async def test_a_designed_palette_is_one_table_over_every_cell(worker, paldir):
 async def test_the_recipe_names_the_palette_file_and_a_digest_of_its_colours(
     worker, paldir
 ):
-    from warlock.pipelines import pixel
+    from realmspinner.pipelines import pixel
 
     (paldir / "quad.hex").write_text(
         "".join(f"#{r:02x}{g:02x}{b:02x}\n" for r, g, b in _QUAD)

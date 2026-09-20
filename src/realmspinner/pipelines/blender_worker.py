@@ -1,0 +1,3053 @@
+"""The ``bpy`` side of rigging. Runs as a subprocess, never inside the app.
+
+Invoked as ``python -m realmspinner.pipelines.blender_worker`` with a JSON spec
+on stdin (see ``blender_run.run_worker``). Writes its result to
+``spec["result_path"]`` and progress to stdout as ``[blender] <frac> <label>``.
+
+Why a subprocess at all is argued in ``kernels.rig``'s own docstring (the
+package the former single ``rigging.py`` split into, P4 of
+``dev/RESTRUCTURE.md``); the short version is that ``bpy`` is process-global,
+not thread-safe, and can take the interpreter down rather than raise on the
+kind of non-manifold geometry trellis-server routinely produces.
+
+Everything that does not need Blender lives under ``kernels.rig`` and is
+imported from there, so the host and this process can never disagree about
+where a joint goes.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import dataclasses
+import json
+import math
+import re
+import sys
+from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+from .. import meshreport, poselib
+from ..kernels import sheet
+from ..kernels.rig import poses, skeleton, templates
+from . import blender_run
+
+
+def progress(frac: float, label: str) -> None:
+    print(f"{blender_run.PROGRESS_PREFIX} {frac:.3f} {label}", flush=True)
+
+
+# --- scene helpers ----------------------------------------------------------
+
+
+def _reset_scene(bpy: Any) -> None:
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+
+def _import_glb(bpy: Any, path: Path) -> Any:
+    """Import and return one joined mesh object.
+
+    A trellis GLB is usually a single mesh, but nothing guarantees it, and
+    ``parent_set`` skins the selection rather than the scene -- so joining
+    first is what makes "rig the model" mean the whole model.
+    """
+    bpy.ops.import_scene.gltf(filepath=str(path))
+    _purge_import_helpers(bpy)
+    meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+    if not meshes:
+        raise RuntimeError(f"{path.name} contains no mesh")
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in meshes:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = meshes[0]
+    if len(meshes) > 1:
+        bpy.ops.object.join()
+    mesh = bpy.context.view_layer.objects.active
+    # The importer parents meshes under a rotation empty rather than baking the
+    # Y-up -> Z-up conversion into the data. Applying it means the bbox we
+    # measure and the bbox the exporter sees are the same one.
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    return mesh
+
+
+# Blender's glTF importer parks helper objects it invents -- bone-shape widgets
+# for an imported armature -- in a collection with this name, so that a
+# re-export skips them. It is excluded from the *view layer*, so it never
+# renders and is easy to miss; but it is still in scene.objects, and a unit
+# icosphere sitting in there silently inflated the measured bounds of every
+# rigged sprite sheet and framed the subject at a third of its proper size.
+IMPORT_HELPER_COLLECTION = "glTF_not_exported"
+
+
+def _purge_import_helpers(bpy: Any) -> None:
+    collection = bpy.data.collections.get(IMPORT_HELPER_COLLECTION)
+    if collection is None:
+        return
+    for obj in list(collection.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.data.collections.remove(collection)
+
+
+def _world_bounds(mesh: Any) -> tuple[list[float], list[float]]:
+    from mathutils import Vector
+
+    corners = [mesh.matrix_world @ Vector(c) for c in mesh.bound_box]
+    lo = [min(c[i] for c in corners) for i in range(3)]
+    hi = [max(c[i] for c in corners) for i in range(3)]
+    return lo, hi
+
+
+def _build_armature(bpy: Any, bones: list[dict[str, Any]], name: str = "rig") -> Any:
+    armature = bpy.data.armatures.new(name)
+    arm_obj = bpy.data.objects.new(name, armature)
+    bpy.context.scene.collection.objects.link(arm_obj)
+    bpy.context.view_layer.objects.active = arm_obj
+    bpy.ops.object.mode_set(mode="EDIT")
+    created: dict[str, Any] = {}
+    for spec in bones:
+        eb = armature.edit_bones.new(spec["name"])
+        eb.head = spec["head"]
+        eb.tail = spec["tail"]
+        created[spec["name"]] = eb
+    for spec in bones:
+        parent = spec["parent"]
+        if parent is None:
+            continue
+        eb = created[spec["name"]]
+        eb.parent = created[parent]
+        # Connect only where the joint actually coincides, so a shoulder
+        # offset from the chest tail isn't yanked onto it.
+        eb.use_connect = _close(eb.head, created[parent].tail)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return arm_obj
+
+
+def _close(a: Any, b: Any, tol: float = 1e-6) -> bool:
+    return all(abs(a[i] - b[i]) <= tol for i in range(3))
+
+
+def weld_distance(lo: Sequence[float], hi: Sequence[float]) -> float:
+    """The merge-by-distance epsilon for a mesh with this bounding box.
+
+    Relative to the model, and the same fraction ``meshreport`` welds its
+    analysis copy by -- imported rather than restated, because the two are the
+    same judgement about the same meshes: a UV-seam split carries an
+    *identical* position, so any positive tolerance welds it, and the fraction
+    is only insurance against a rewriter that round-tripped a position through
+    float32. An absolute epsilon means something different on a 0.02 m gear
+    than on a 30 m building.
+
+    Zero (a degenerate bbox) means "do not weld", which the caller reads as an
+    ordinary unwelded run rather than as a failure.
+    """
+    diagonal = sum((float(b) - float(a)) ** 2 for a, b in zip(lo, hi, strict=True)) ** 0.5
+    return diagonal * meshreport.WELD_TOLERANCE
+
+
+def _skin_steps(merged: int) -> tuple[tuple[str, bool], ...]:
+    """The heat attempts to make after a weld merged ``merged`` vertices.
+
+    Each step is ``(the method name to record, restore the pre-weld mesh
+    first)``. Pure, and its own function for the reason ``_rig_bones`` is:
+    everything around it needs bpy, so this is the part of the fallback chain a
+    test can reach.
+
+    A weld that merged *nothing* leaves exactly the mesh the heat solve would
+    have seen anyway, so it is reported as plain ``automatic`` and there is no
+    second, identical attempt to fall back to -- retrying it would be two
+    minutes of Laplacian solve for a guaranteed repeat of the same answer.
+    """
+    if merged <= 0:
+        return (("automatic", False),)
+    return (("automatic-welded", False), ("automatic", True))
+
+
+def _weld(bpy: Any, mesh: Any, distance: float) -> tuple[Any, int]:
+    """Merge coincident vertices in place. -> (the pre-weld mesh data, merged).
+
+    The hypothesis this exists for: trellis meshes are UV-atlased, and a
+    seam-split vertex makes the surface non-manifold for bone-heat's Laplacian
+    solve even though nothing is actually open -- the same root cause that made
+    ``meshreport`` measure seams and call them holes. Welding by distance is
+    what turns that back into a closed surface for the solve.
+
+    It must not change what the user sees, and the whole argument that it does
+    not is that Blender's merge-by-distance keeps face-corner data: UVs are
+    per-loop, so the two halves of a seam keep their own texture coordinates
+    while sharing one position. ``tests/test_rigging.py`` proves that on a real
+    Blender rather than asserting it here.
+
+    The pre-weld mesh datablock is returned rather than discarded, because the
+    fallback chain may have to put it back: a welded solve that fails is not
+    evidence the unwelded one would.
+    """
+    original = mesh.data.copy()
+    before = len(mesh.data.vertices)
+    try:
+        bpy.ops.object.select_all(action="DESELECT")
+        mesh.select_set(True)
+        bpy.context.view_layer.objects.active = mesh
+        bpy.ops.object.mode_set(mode="EDIT")
+        try:
+            bpy.ops.mesh.select_all(action="SELECT")
+            bpy.ops.mesh.remove_doubles(threshold=distance)
+            # Heat weighting reads the surface, and a weld can leave two merged
+            # shells disagreeing about which way is out.
+            bpy.ops.mesh.normals_make_consistent(inside=False)
+        finally:
+            bpy.ops.object.mode_set(mode="OBJECT")
+    except BaseException:
+        # ``remove_doubles`` raising is a real failure mode -- ``_skin`` catches
+        # the ``RuntimeError`` and carries on down the fallback chain -- and the
+        # copy taken two lines up is the caller's only by *return*. A raise
+        # never returns it, so nothing downstream had a reference to free and
+        # the datablock stayed resident for the life of the subprocess.
+        with contextlib.suppress(Exception):
+            bpy.data.meshes.remove(original)
+        raise
+    return original, before - len(mesh.data.vertices)
+
+
+def _restore_mesh(bpy: Any, mesh: Any, original: Any) -> None:
+    """Put the pre-weld geometry back on the object and drop the welded copy."""
+    welded = mesh.data
+    mesh.data = original
+    bpy.data.meshes.remove(welded)
+
+
+def _skin(bpy: Any, mesh: Any, arm_obj: Any, *, weld: float = 0.0) -> tuple[str, str | None]:
+    """Bind mesh to armature, preferring heat weights. -> (method, why not).
+
+    The chain is weld -> verify -> unwelded heat -> envelope, and every rung
+    below the first is a degraded outcome that names itself.
+
+    Bone-heat weighting solves a Laplacian over the surface and fails outright
+    on non-manifold input, which describes a good share of trellis meshes -- in
+    large part because they are UV-atlased, and an xatlas seam split is a
+    non-manifold edge that is not a hole. ``weld`` is the distance to merge
+    coincident vertices by first (see ``weld_distance``); zero skips the weld
+    entirely and restores exactly the old behaviour.
+
+    The failure is reported two different ways depending on Blender version (an
+    operator RuntimeError, or a 'FINISHED' that quietly leaves every vertex
+    group empty), so both are checked at every rung. Envelope weights are worse
+    but they always exist, and a mediocre rig beats a failed job.
+
+    The *reason* is returned rather than only printed. Envelope is a degraded
+    outcome, not a second success, and while the only trace of it was a line on
+    this subprocess's stdout a rig that quietly fell back was indistinguishable
+    from one that did not -- which is exactly the state a user needs to be told
+    about, because it is the one where the deformation will look wrong.
+    ``None`` on either automatic path: there is nothing to explain about a
+    solve that took.
+    """
+    def bind(kind: str) -> None:
+        bpy.ops.object.select_all(action="DESELECT")
+        mesh.select_set(True)
+        arm_obj.select_set(True)
+        bpy.context.view_layer.objects.active = arm_obj
+        bpy.ops.object.parent_set(type=kind)
+
+    causes: list[str] = []
+    original, merged = None, 0
+    if weld > 0.0:
+        try:
+            original, merged = _weld(bpy, mesh, weld)
+        except RuntimeError as exc:
+            # The weld is an optimisation on the way to a rig, so its failure
+            # costs the welded attempt and nothing else.
+            causes.append(f"the weld pass failed: {str(exc).strip() or 'raised'}")
+            print(f"weld before weighting failed: {exc}", flush=True)
+        else:
+            print(f"welded {merged} coincident vertice(s) before weighting", flush=True)
+
+    for method, restore in _skin_steps(merged if original is not None else 0):
+        if restore and original is not None:
+            _restore_mesh(bpy, mesh, original)
+            original = None
+        try:
+            bind("ARMATURE_AUTO")
+            if _has_weights(mesh):
+                if original is not None:
+                    bpy.data.meshes.remove(original)
+                return method, None
+            causes.append(f"{method}: produced no vertex weights")
+        except RuntimeError as exc:
+            causes.append(f"{method}: {str(exc).strip() or 'raised'}")
+        # parent_set already made the mesh a child; clear it so the next bind
+        # doesn't stack a second armature modifier on top of the empty one.
+        _unbind(mesh)
+
+    if original is not None:
+        # Envelope weights do not care whether the mesh is welded, but what is
+        # exported should be the geometry the user's model.glb describes when
+        # nothing was gained by changing it.
+        _restore_mesh(bpy, mesh, original)
+    reason = "bone-heat weighting failed: " + "; ".join(causes)
+    print(f"{reason}; falling back to envelope", flush=True)
+    bind("ARMATURE_ENVELOPE")
+    return "envelope", reason
+
+
+def _unbind(mesh: Any) -> None:
+    """Every armature modifier, its weights and its parenting, off one mesh.
+
+    No ``bpy``: it took one and never used it, which in this module is a
+    misleading signature rather than a harmless one -- ``bpy`` in a parameter
+    list is how every function here says it touches the global Blender state,
+    and this one only walks the mesh it was handed."""
+    for mod in list(mesh.modifiers):
+        if mod.type == "ARMATURE":
+            mesh.modifiers.remove(mod)
+    mesh.vertex_groups.clear()
+    mesh.parent = None
+
+
+def _strip_incoming_rig(bpy: Any, mesh: Any) -> int:
+    """Drop any skin and skeleton the source GLB brought with it. -> bones removed.
+
+    **Every mesh this path had ever seen was a TRELLIS reconstruction**, which
+    carries no armature and no vertex groups, so nothing here was needed and
+    nothing noticed it was missing. A *user-supplied* base mesh is the case the
+    Troupe intake exists for, and a supplied humanoid usually arrives rigged --
+    at which point two things go wrong at once, neither of them loudly.
+
+    **``_skin``'s guard stops working.** Its contract is that bone-heat
+    weighting reports failure two ways, one of them a ``FINISHED`` that quietly
+    leaves every vertex group empty, and ``_has_weights`` is what catches the
+    quiet one. That check asks whether *any* group holds a weight -- so an
+    incoming skin answers yes before the new armature has been bound at all,
+    and a bind that produced nothing is reported as a clean ``automatic`` rig.
+    The user is then told the rig succeeded, and the character does not deform.
+
+    **The old skeleton is exported beside the new one.** ``_import_glb``
+    returns the joined mesh and leaves the rest of the scene alone, while
+    ``_export`` writes *the whole scene*; the result is a GLB carrying two
+    armatures, one of which nothing is weighted to.
+
+    **And the measurements were wrong, in two unrelated ways.** Before
+    any strip, ``_world_bounds`` already disagrees with the live vertices -- a
+    skinned mesh's ``bound_box`` is not the same shape ``_live_size`` reads off
+    the data by hand (``test_a_skinned_import_measures_wrong_until_it_is_stripped``
+    pins that). What used to be blamed for it here was a "double rotation": the
+    theory that unparenting fixed it by removing a *second* application of the
+    Y-up -> Z-up rotation. It doesn't. CesiumMan's mesh is parented
+    ``Cesium_Man -> Armature -> Z_UP``, and that rotation lives on the
+    parents' matrices -- never baked into this mesh's own vertex data the way
+    ``_import_glb`` bakes it for an unrigged one. A bare unparent (what
+    ``_unbind`` alone does) drops the parent chain but leaves ``matrix_world``
+    *stale*: Blender does not recompute it until the next depsgraph update, so
+    right after unparenting the stale value still carries the rotation and the
+    mesh looks correctly upright -- until something (``_skin``'s
+    ``parent_set``) forces that update, ``matrix_world`` collapses to the
+    mesh's own rotation-free local transform, and the mesh drops onto its
+    side. By then ``_rig_bones`` has already fitted the skeleton to the stale,
+    upright box: every cell of a CesiumMan ``rig_qa.png`` rendered the body
+    lying down, and the old test passed because it never forced that update.
+    The fix carries the world matrix across the unparent by hand and bakes it
+    into the vertex data immediately, the same way ``_import_glb`` already
+    does for a mesh that arrived without a parent -- which is why this must
+    still run *before* ``_world_bounds`` and not merely before ``_skin``.
+
+    None of the three can happen to a TRELLIS reconstruction: no skin, no
+    armature, no parent. All three happen to a supplied humanoid.
+
+    Discarding rather than adopting is deliberate. Bone names would have to map
+    onto the shipped template, and a supplied rig generally does not: CesiumMan
+    is 19 bones like the template and still does not fit it -- 3 per arm and 4
+    per leg against the template's 4 and 3. Realmspinner fits its own skeleton, and
+    the one the file arrived with is not evidence about where those joints go.
+    """
+    armatures = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+    if not armatures:
+        # The ordinary TRELLIS path: nothing parented, nothing to restore, so
+        # this stays exactly the cheap no-op it always was.
+        _unbind(mesh)
+        return 0
+
+    # Force matrix_world current *before* touching the parent chain: it is
+    # only ever recomputed by a depsgraph update, and everything below reads
+    # or restores it around an unparent that doesn't trigger one.
+    bpy.context.view_layer.update()
+    world = mesh.matrix_world.copy()
+    _unbind(mesh)
+    removed = 0
+    for obj in armatures:
+        removed += len(obj.data.bones)
+        bpy.data.objects.remove(obj, do_unlink=True)
+    print(f"discarded an incoming rig of {removed} bone(s)", flush=True)
+    # The rotation the strip just orphaned lived on the parents' matrices,
+    # never this mesh's own vertex data (CesiumMan, 2026-09-16) -- put the world transform back
+    # and bake it in now, on our own terms, rather than let the next
+    # depsgraph update (``_skin``'s ``parent_set``) drop it and leave the mesh
+    # lying on its side. Selection/active must land back on the mesh: every
+    # op after this one (``_world_bounds``, ``_skin``, ``_export``) assumes
+    # ``_import_glb``'s selection, which this would otherwise undo.
+    mesh.matrix_world = world
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    bpy.context.view_layer.update()
+    return removed
+
+
+def _import_measured(bpy: Any, path: Path) -> Any:
+    """``_import_glb`` then ``_strip_incoming_rig``, for every caller that goes
+    on to call ``_world_bounds``.
+
+    The 2026-09-07 audit (poser-02) found ``op_remesh`` and ``_retexture_frame``
+    (shared by ``op_views``/``op_project``) calling ``_world_bounds`` on a
+    freshly imported mesh without stripping first -- reading a still-skinned
+    mesh's ``bound_box``, which disagrees with its live vertices for the same
+    reason ``test_a_skinned_import_measures_wrong_until_it_is_stripped`` pins
+    (see ``_strip_incoming_rig``'s docstring; it is not a "double rotation").
+    Only ``op_rig`` had been fixed. Reproduced against real Blender: a
+    supplied rigged mesh measured as extent ``(0.505, 0.896, 1.458)`` against a
+    true ``(1.138, 0.312, 1.507)``. One helper used everywhere ``_import_glb``
+    feeds ``_world_bounds`` is what keeps a fourth caller from reintroducing it
+    by hand.
+    """
+    mesh = _import_glb(bpy, path)
+    _strip_incoming_rig(bpy, mesh)
+    return mesh
+
+
+def _has_weights(mesh: Any) -> bool:
+    if not mesh.vertex_groups:
+        return False
+    groups = {g.index for g in mesh.vertex_groups}
+    return any(g.group in groups and g.weight > 0.0 for v in mesh.data.vertices for g in v.groups)
+
+
+def _export(bpy: Any, out_glb: Path, *, animations: bool = False) -> None:
+    """Write the whole scene as a skinned GLB.
+
+    ``export_rest_position_armature=False`` is what makes a posed export mean
+    anything: left at its default the exporter writes every joint node at its
+    rest transform and relegates the current pose to an animation track, so a
+    baked pose would come back looking like a T-pose.
+
+    ``animations=True`` is the exact inverse, and the only caller is
+    :func:`op_animate`: an animation track is a rotation *from rest*, so a file
+    carrying one has to carry the rest armature to play it against. The two
+    flags move together for that reason -- they are one decision about what the
+    file means, not two knobs.
+    """
+    out_glb.parent.mkdir(parents=True, exist_ok=True)
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.export_scene.gltf(
+        filepath=str(out_glb),
+        export_format="GLB",
+        export_skins=True,
+        export_yup=True,
+        export_animations=animations,
+        export_rest_position_armature=animations,
+    )
+
+
+# --- posing -----------------------------------------------------------------
+
+
+def _import_rig(bpy: Any, path: Path) -> Any:
+    """Import a rig GLB and return its armature object.
+
+    ``bone_heuristic="BLENDER"`` keeps the imported bone matrices identical to
+    the ones the file was exported from. The default heuristic re-aims bones at
+    their children for editing comfort, which changes ``matrix_local`` -- and
+    ``matrix_local`` is exactly what :func:`_rest_local_rotation` reconstructs
+    the glTF node frame from, so a re-aimed bone would silently rotate the pose.
+    """
+    bpy.ops.import_scene.gltf(filepath=str(path), bone_heuristic="BLENDER")
+    _purge_import_helpers(bpy)
+    armatures = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+    if not armatures:
+        raise RuntimeError(f"{path.name} contains no armature")
+    return armatures[0]
+
+
+def _rest_local_rotation(bone: Any) -> Any:
+    """The joint's rest rotation in the frame the browser sees it in.
+
+    Blender composes a posed bone as::
+
+        pose(b) = pose(parent) @ (rest(parent)^-1 @ rest(b)) @ basis(b)
+
+    and a glTF joint node's local transform is ``pose(parent)^-1 @ pose(b)``,
+    so ``node_local == rest_node_local @ basis``. That identity is the whole
+    bridge between the two ends: three.js hands us ``node_local``, and
+    ``basis = rest_node_local^-1 @ node_local`` is what Blender wants. No
+    per-bone axis correction is involved, and the Z-up/Y-up conversion cancels
+    because the exporter applies it once at the root, not per joint.
+    """
+    local = bone.matrix_local
+    if bone.parent is not None:
+        local = bone.parent.matrix_local.inverted() @ local
+    return local.to_quaternion()
+
+
+def _reset_pose(arm_obj: Any) -> None:
+    """Back to rest. A pose is a partial map, so without this a later row of a
+    sheet would inherit whatever the row above it left on the bones it omits."""
+    for pbone in arm_obj.pose.bones:
+        pbone.rotation_mode = "QUATERNION"
+        pbone.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+        pbone.location = (0.0, 0.0, 0.0)
+        pbone.scale = (1.0, 1.0, 1.0)
+
+
+def _apply_root_translation(arm_obj: Any, bone_name: Any, offset_world: Sequence[float]) -> bool:
+    """Displace one pose bone by a *world-space* offset. -> whether it applied.
+
+    ``pbone.location`` lives in the bone's own rest frame, so the world offset
+    is carried through the inverse of the bone's world rest orientation. For a
+    parentless root -- the only bone anything writes an offset against today --
+    the exporter then emits ``rest + d`` as the node translation exactly.
+
+    An unknown bone is reported like ``_apply_pose``'s unknowns, never fatal: a
+    library pose applied after a re-rig with a different template should cost
+    the offset, not the bake.
+    """
+    from mathutils import Vector
+
+    pbone = arm_obj.pose.bones.get(str(bone_name or ""))
+    if pbone is None:
+        print(f"root offset names a bone this rig does not have: {bone_name!r}", flush=True)
+        return False
+    if pbone.parent is not None:
+        # The inverse below carries the offset through the bone's *rest* frame
+        # only; a parented bone composes through its parent's pose, which this
+        # arithmetic never sees. Every shipped template's root is parentless
+        # (enforced at registry load in templates._parse_template), so this is a
+        # foreign or hand-edited rig.json -- it costs the offset, not the bake,
+        # the same rule as an unknown bone above.
+        print(f"root offset bone {bone_name!r} has a parent; skipping the offset", flush=True)
+        return False
+    pbone.location = (arm_obj.matrix_world @ pbone.bone.matrix_local).to_3x3().inverted() @ Vector(
+        [float(v) for v in offset_world]
+    )
+    return True
+
+
+#: The two frames a stored rotation can be in, and they are not interchangeable.
+#:
+#: ``node`` is what the pose editor saves and every shipped *pose* uses: the
+#: joint's orientation in the glTF node frame, i.e. **absolute** relative to its
+#: parent joint. Identity there does not mean "at rest", it means "aligned with
+#: the parent", which is why :func:`_rest_local_rotation` has to be divided out.
+#:
+#: ``delta`` is a rotation **from the bone's own rest orientation**, which is
+#: exactly what Blender's pose basis already is -- so it applies with no
+#: correction at all. Clips are authored in it because an author thinks in it
+#: ("swing the thigh forward 24 degrees") and, more importantly, because it is
+#: the frame that survives a *re-fit*: a node-local value bakes in the rest
+#: orientation of the skeleton it was authored against, so the same numbers on a
+#: rig whose joints were measured off the mesh rather than fitted to its bbox
+#: produce a different -- and usually broken -- pose.
+POSE_SPACES = ("node", "delta")
+
+
+def _apply_pose(
+    arm_obj: Any, bones: dict[str, Any], space: str = "node"
+) -> tuple[int, list[str]]:
+    from mathutils import Quaternion
+
+    applied = 0
+    unknown: list[str] = []
+    delta = str(space) == "delta"
+    for name, quat in bones.items():
+        pbone = arm_obj.pose.bones.get(name)
+        if pbone is None:
+            # Skipped, not fatal: a pose saved against one skeleton should
+            # still mostly apply after a re-rig with a different template.
+            unknown.append(name)
+            continue
+        node = [float(v) for v in quat]   # stored XYZW, three.js order
+        pbone.rotation_mode = "QUATERNION"
+        if delta:
+            x, y, z, w = node
+        else:
+            # ``poses.delta_from_node``, not a local ``inverted() @``: a pose
+            # bone's ``rotation_quaternion`` *is* a rotation from rest, and the
+            # host's pose editor makes the same conversion against the viewer's
+            # rest quaternions. The order and which side is conjugated are the
+            # parts that drift, and a drifted one contorts a skeleton silently
+            # -- so there is one definition and both ends call it.
+            rest = _rest_local_rotation(pbone.bone)
+            x, y, z, w = poses.delta_from_node(
+                [rest.x, rest.y, rest.z, rest.w], node
+            )
+        pbone.rotation_quaternion = Quaternion((w, x, y, z))
+        applied += 1
+    return applied, unknown
+
+
+# --- sprite-sheet rendering -------------------------------------------------
+#
+# Layout is decided in kernels/sheet.py and packing happens back on the host;
+# this end only renders one square, transparent frame per cell. The split keeps
+# the grid arithmetic testable without Blender and keeps this function to the
+# one thing only Blender can do.
+
+
+def _render_meshes(bpy: Any) -> list[Any]:
+    """The objects a render actually shows.
+
+    Its own function because two callers now share the predicate -- the rest
+    bounds and the posed union below -- and a union taken over a *different*
+    set of objects than the rest box would frame from two disagreeing subjects.
+    ``hide_render`` is what keeps Blender's glTF importer's bone-shape widgets
+    out; see ``test_a_rigged_subject_is_framed_by_its_own_size``.
+    """
+    return [
+        obj
+        for obj in bpy.context.scene.objects
+        if obj.type == "MESH" and not obj.hide_render
+    ]
+
+
+def _scene_bounds(bpy: Any) -> tuple[list[float], list[float]]:
+    """The rest bounding box of everything that renders.
+
+    Through ``_transform`` rather than ``mathutils`` since 2026-09-05, when the
+    posed union arrived: ``_union_framing`` takes a ``max`` over corners from
+    *both* sources, and two arithmetics for one corner is a difference that
+    would show up as a hair of framing nobody could account for. (mathutils
+    vectors are single precision; this is double, so the rest box moved by
+    about a part in 10^7 -- far below a pixel at any frame size, and the
+    2026-09-05 union-framing measurement records it.)
+    """
+    corners = [
+        _transform(obj.matrix_world, c)
+        for obj in _render_meshes(bpy)
+        for c in obj.bound_box
+    ]
+    if not corners:
+        raise RuntimeError("nothing to render: the scene has no mesh")
+    return (
+        [min(c[i] for c in corners) for i in range(3)],
+        [max(c[i] for c in corners) for i in range(3)],
+    )
+
+
+def _transform(matrix: Any, point: Sequence[float]) -> tuple[float, float, float]:
+    """A 4x4 row-major matrix applied to a point, in plain arithmetic.
+
+    ``mathutils`` is not imported here on purpose: everything below this line
+    that decides the sheet's *framing* has to be reachable from the ordinary
+    (bpy-less) test lane, and a matrix-point product is three dot products. The
+    rows of a ``mathutils.Matrix`` index exactly like the nested sequences a
+    test hands it.
+    """
+    x, y, z = (float(point[0]), float(point[1]), float(point[2]))
+    return tuple(  # type: ignore[return-value]
+        float(matrix[r][0]) * x
+        + float(matrix[r][1]) * y
+        + float(matrix[r][2]) * z
+        + float(matrix[r][3])
+        for r in range(3)
+    )
+
+
+def _evaluated_corners(bpy: Any, meshes: Sequence[Any]) -> list[tuple[float, float, float]]:
+    """World-space bounding-box corners of ``meshes`` **as currently posed**.
+
+    ``_scene_bounds`` reads ``obj.bound_box`` off the original object, and for
+    a skinned mesh that is its *rest* box: armature deformation is a modifier,
+    so the posed extent exists only on the depsgraph-evaluated copy. Framing a
+    whole sheet from the rest box is what clipped the top off every overhead
+    attack wind and every jump apex -- on every cell of the run, because the
+    camera is framed once.
+
+    ``view_layer.update()`` is the caller's job: it has just applied a pose and
+    knows whether anything moved.
+    """
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    corners: list[tuple[float, float, float]] = []
+    for obj in meshes:
+        evaluated = obj.evaluated_get(depsgraph)
+        matrix = evaluated.matrix_world
+        corners.extend(_transform(matrix, corner) for corner in evaluated.bound_box)
+    return corners
+
+
+def _socket_world_point(
+    arm_obj: Any, socket: Mapping[str, Any]
+) -> tuple[float, float, float] | None:
+    """Where a named socket sits in the world, in the pose that is applied now.
+
+    A socket is ``{"bone", "offset": [along, lateral, up], "reach"}`` with the
+    offset in *bone-length* units, so it survives a re-fit onto a character of
+    a different size -- the same reasoning ``delta`` pose space is authored
+    under. Blender puts a bone's own +Y along the bone, +X lateral and +Z up,
+    which is the order the offset is written in.
+
+    An unknown bone costs the socket and never the sheet, the rule
+    ``_apply_pose`` and ``_apply_root_translation`` already follow: a socket
+    list authored against one template applied after a re-rig should lose the
+    attachment point, not 256 frames.
+    """
+    pbone = arm_obj.pose.bones.get(str(socket.get("bone") or ""))
+    if pbone is None:
+        print(f"socket names a bone this rig does not have: {socket.get('bone')!r}", flush=True)
+        return None
+    along, lateral, up = (list(socket.get("offset") or (0.0, 0.0, 0.0)) + [0.0, 0.0, 0.0])[:3]
+    length = float(pbone.bone.length)
+    local = (float(lateral) * length, float(along) * length, float(up) * length)
+    # pose-bone matrix is armature-object space; the object's own transform
+    # carries it the rest of the way.
+    return _transform(arm_obj.matrix_world, _transform(pbone.matrix, local))
+
+
+def _sphere_corners(
+    point: Sequence[float], radius: float
+) -> list[tuple[float, float, float]]:
+    """The eight corners of the box around a sphere of ``radius`` at ``point``.
+
+    A flame or a muzzle flash drawn at a socket has extent of its own, and
+    framing to the body alone would clip it. Cube corners rather than the six
+    axis extremes: over-covering a sphere by its diagonal frames a little wide,
+    which is the safe direction, where under-covering it clips.
+    """
+    x, y, z = (float(point[0]), float(point[1]), float(point[2]))
+    r = float(radius)
+    return [
+        (x + sx * r, y + sy * r, z + sz * r)
+        for sx in (-1.0, 1.0)
+        for sy in (-1.0, 1.0)
+        for sz in (-1.0, 1.0)
+    ]
+
+
+def _union_framing(
+    rest_lo: Sequence[float],
+    rest_hi: Sequence[float],
+    corners: Sequence[Sequence[float]],
+    *,
+    margin: float,
+) -> tuple[list[float], float]:
+    """The ortho window that holds every posed corner. -> ``(centre, extent)``.
+
+    **The orbit axis stays the rest ground origin.** Only the window widens:
+    ``centre``'s x and y are the *rest* box's, so the projected pivot -- which
+    sits on that axis -- lands on the same pixel at every yaw, which is the one
+    property an engine placing a sprite by it depends on. Letting the axis
+    follow the union would make the pivot drift as the character turns, which
+    is a worse defect than the clipping this fixes.
+
+    ``extent`` is the larger of the union's full height and twice the furthest
+    any corner reaches *from that axis* horizontally -- the widest the subject
+    can look from any yaw, which is the argument the single-bbox version made
+    with its horizontal diagonal. On a rest-only sheet the union is the rest
+    box and this returns exactly what that arithmetic did, to the bit.
+    """
+    import math
+
+    cx = (float(rest_lo[0]) + float(rest_hi[0])) / 2.0
+    cy = (float(rest_lo[1]) + float(rest_hi[1])) / 2.0
+    points = [tuple(float(v) for v in c) for c in corners]
+    points.extend(
+        (x, y, z)
+        for x in (float(rest_lo[0]), float(rest_hi[0]))
+        for y in (float(rest_lo[1]), float(rest_hi[1]))
+        for z in (float(rest_lo[2]), float(rest_hi[2]))
+    )
+    lo_z = min(p[2] for p in points)
+    hi_z = max(p[2] for p in points)
+    radius = max(math.hypot(p[0] - cx, p[1] - cy) for p in points)
+    extent = max(2.0 * radius, hi_z - lo_z, 1e-6) * float(margin)
+    return [cx, cy, (lo_z + hi_z) / 2.0], extent
+
+
+def _view_forward(yaw_deg: float, elevation_deg: float) -> tuple[float, float, float]:
+    """The unit vector the camera looks *along*, for one turntable position.
+
+    The same construction ``_aim_camera`` places the camera with, restated in
+    plain arithmetic for the same reason ``_transform`` is: depth ordering is
+    part of the framing decision and has to be testable without Blender. Yaw 0
+    looks along +Y.
+    """
+    import math
+
+    elevation = math.radians(float(elevation_deg))
+    yaw = math.radians(float(yaw_deg))
+    fx, fy, fz = 0.0, math.cos(elevation), -math.sin(elevation)
+    return (
+        fx * math.cos(yaw) - fy * math.sin(yaw),
+        fx * math.sin(yaw) + fy * math.cos(yaw),
+        fz,
+    )
+
+
+def _view_depth(
+    centre: Sequence[float],
+    point: Sequence[float],
+    *,
+    yaw_deg: float,
+    elevation_deg: float,
+    distance: float,
+) -> float:
+    """How far ``point`` is from the camera, measured along the view direction.
+
+    Not the straight-line distance: an orthographic camera has no eye point to
+    measure from, and what an overlay compositor needs is the ordering along
+    the view axis. ``_aim_camera`` puts the camera at ``centre - forward *
+    distance``, so this is ``dot(point - centre, forward) + distance`` -- a
+    positive number that grows away from the viewer, which is what makes
+    ``behind`` a plain ``>``.
+    """
+    forward = _view_forward(yaw_deg, elevation_deg)
+    return float(distance) + sum(
+        (float(point[i]) - float(centre[i])) * forward[i] for i in range(3)
+    )
+
+
+def _pose_union(
+    bpy: Any,
+    armature: Any,
+    cells: Sequence[Mapping[str, Any]],
+    sockets: Sequence[Mapping[str, Any]],
+    *,
+    rest_height: float,
+) -> tuple[
+    list[tuple[float, float, float]],
+    dict[Any, dict[str, tuple[float, float, float]]],
+    dict[Any, tuple[float, float, float]],
+]:
+    """Walk every distinct pose the sheet contains and measure what it reaches.
+
+    Returns the union's corners, each pose's socket world points, and each
+    pose's own body centre (what ``behind`` is measured against below).
+
+    Keyed on ``(pose, frame)`` -- the render loop's own cache key, reused
+    deliberately: measuring a key the loop would not pose would frame for a
+    pose the sheet does not contain, and measuring fewer would clip. Every
+    frame of a clip shares a pose id, which is why the frame is in the key.
+
+    The pose is left at rest afterwards, so the render loop's ``posed`` cache
+    starts from the state it claims to.
+    """
+    meshes = _render_meshes(bpy)
+    corners: list[tuple[float, float, float]] = []
+    socket_points: dict[Any, dict[str, tuple[float, float, float]]] = {}
+    body_centres: dict[Any, tuple[float, float, float]] = {}
+    seen: set[Any] = set()
+    for cell in cells:
+        key = (cell.get("pose"), cell.get("frame", 0))
+        if key in seen:
+            continue
+        seen.add(key)
+        if armature is not None:
+            # Exactly what the render loop does, in the same order: a pose
+            # measured differently from the way it is rendered is a window
+            # sized for a picture nobody gets.
+            _reset_pose(armature)
+            _apply_pose(
+                armature, cell.get("bones") or {}, str(cell.get("pose_space") or "node")
+            )
+            if cell.get("root_offset"):
+                _apply_root_translation(armature, cell.get("root_bone"), cell["root_offset"])
+        bpy.context.view_layer.update()
+        mine = _evaluated_corners(bpy, meshes)
+        if not mine:
+            raise RuntimeError("nothing to render: the scene has no mesh")
+        corners.extend(mine)
+        body_centres[key] = tuple(  # type: ignore[assignment]
+            (min(c[i] for c in mine) + max(c[i] for c in mine)) / 2.0 for i in range(3)
+        )
+        if sockets and armature is not None:
+            points: dict[str, tuple[float, float, float]] = {}
+            for socket in sockets:
+                point = _socket_world_point(armature, socket)
+                if point is None:
+                    continue
+                points[str(socket.get("name") or socket.get("bone"))] = point
+                reach = float(socket.get("reach") or 0.0) * float(rest_height)
+                if reach > 0.0:
+                    corners.extend(_sphere_corners(point, reach))
+            socket_points[key] = points
+    if armature is not None:
+        _reset_pose(armature)
+        bpy.context.view_layer.update()
+    return corners, socket_points, body_centres
+
+
+def _setup_render(bpy: Any, size: int, *, taa_samples: int | None = None) -> None:
+    """Render settings shared by the sheet and the view-bake paths.
+
+    ``taa_samples`` is the crispness knob. A native low-res render comes back
+    antialiased and soft otherwise, which is a shrunk render rather than pixel
+    art -- and the softness survives the reduction, because a partial-alpha
+    fringe is exactly what the alpha snap then has to guess about. One sample
+    is right wherever the surface emits rather than shades: an emission render
+    has no noise for TAA to average away, which is the argument ``op_views``
+    already makes at its own call. Left alone by default, because a *lit*
+    sheet does have noise and one sample would show it.
+    """
+    scene = bpy.context.scene
+    # EEVEE was renamed in 4.2 and the old id is gone in 5.x. Assigning an
+    # unknown enum raises, so try the current name first and fall back.
+    for engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
+        try:
+            scene.render.engine = engine
+            break
+        except TypeError:
+            continue
+    scene.render.film_transparent = True
+    scene.render.resolution_x = scene.render.resolution_y = size
+    scene.render.resolution_percentage = 100
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
+    # The filepath already carries .png and is exact; letting Blender append
+    # its own would give us model.png.png.
+    scene.render.use_file_extension = False
+    # Standard, not the default filmic-style transform: a sprite should come
+    # out the colour the texture says it is. A tone curve here would quietly
+    # desaturate every frame relative to the 3D preview beside it.
+    with contextlib.suppress(TypeError):
+        scene.view_settings.view_transform = "Standard"
+    if taa_samples is not None:
+        with contextlib.suppress(AttributeError):
+            scene.eevee.taa_render_samples = int(taa_samples)
+
+
+def _world(bpy: Any, strength: float) -> None:
+    scene = bpy.context.scene
+    if scene.world is None:
+        scene.world = bpy.data.worlds.new("sheet_world")
+    # Blender 5.0 deprecates World.use_nodes (worlds always have a node
+    # tree there); only reach for it on older versions where a fresh world
+    # has no tree until the flag is set.
+    if scene.world.node_tree is None:
+        scene.world.use_nodes = True
+    background = scene.world.node_tree.nodes.get("Background")
+    if background is not None:
+        background.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+        background.inputs["Strength"].default_value = strength
+
+
+def _make_flat(bpy: Any) -> None:
+    """Rewire every material to emit its own base colour.
+
+    Flat means unlit, not untextured: the albedo map still shows, it just
+    receives no shading, which is the look most 2D pipelines expect from a
+    sprite. Driving an Emission node from whatever fed Base Color keeps the
+    texture and drops the lighting in one step.
+    """
+    # A mesh with no material at all falls back to Blender's default diffuse
+    # surface, which under the black world flat mode uses renders as a
+    # silhouette. Giving it a material of its own is the difference between a
+    # sheet of the model and a sheet of its shadow.
+    for obj in bpy.context.scene.objects:
+        if obj.type == "MESH" and not obj.data.materials:
+            fallback = bpy.data.materials.new("flat_fallback")
+            # Material.use_nodes is deprecated in Blender 5.0, where a new
+            # material always carries a node tree already.
+            if fallback.node_tree is None:
+                fallback.use_nodes = True
+            obj.data.materials.append(fallback)
+
+    for material in bpy.data.materials:
+        if material.node_tree is None:
+            continue
+        nodes = material.node_tree.nodes
+        links = material.node_tree.links
+        output = next((n for n in nodes if n.type == "OUTPUT_MATERIAL"), None)
+        principled = next((n for n in nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if output is None or principled is None:
+            continue
+        emission = nodes.new("ShaderNodeEmission")
+        base = principled.inputs["Base Color"]
+        if base.is_linked:
+            links.new(base.links[0].from_socket, emission.inputs["Color"])
+        else:
+            emission.inputs["Color"].default_value = base.default_value
+        links.new(emission.outputs["Emission"], output.inputs["Surface"])
+
+
+def _make_lit(bpy: Any, centre: list[float], radius: float) -> None:
+    """A conventional three-point setup, scaled to the subject."""
+    distance = radius * 4.0
+    for name, offset, energy in (
+        ("key", (0.7, -0.9, 0.9), 5.0),
+        ("fill", (-1.0, -0.5, 0.2), 1.6),
+        ("rim", (0.1, 1.0, 0.7), 3.0),
+    ):
+        light = bpy.data.lights.new(name, type="SUN")
+        light.energy = energy
+        obj = bpy.data.objects.new(name, light)
+        obj.location = [centre[i] + offset[i] * distance for i in range(3)]
+        _aim_at(obj, centre)
+        bpy.context.scene.collection.objects.link(obj)
+    _world(bpy, 0.25)
+
+
+def _aim_at(obj: Any, target: list[float]) -> None:
+    from mathutils import Vector
+
+    direction = Vector(target) - obj.location
+    obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+
+
+def _setup_camera(bpy: Any, extent: float, distance: float) -> Any:
+    data = bpy.data.cameras.new("sheet_cam")
+    data.type = "ORTHO"
+    # One ortho_scale for every cell, so the subject stays the same size as it
+    # turns instead of breathing between columns.
+    data.ortho_scale = extent
+    data.clip_start = max(distance * 0.001, 1e-4)
+    data.clip_end = distance * 4.0
+    cam = bpy.data.objects.new("sheet_cam", data)
+    bpy.context.scene.collection.objects.link(cam)
+    bpy.context.scene.camera = cam
+    return cam
+
+
+def _aim_camera(
+    cam: Any, centre: list[float], yaw_deg: float, elevation_deg: float, distance: float
+) -> None:
+    """Place the camera on a turntable around the subject.
+
+    Yaw 0 looks along +Y, i.e. from -Y, which is the front: the skeleton
+    templates put the subject's forward direction at -Y, so column 0 of every
+    sheet is the front view. Yaw increases clockwise seen from above.
+    """
+    import math
+
+    from mathutils import Euler, Vector
+
+    elevation = math.radians(elevation_deg)
+    spin = Euler((0.0, 0.0, math.radians(yaw_deg)), "XYZ")
+    # A camera looks down its local -Z; rotating X by 90-elevation aims that at
+    # +Y and tilts it down by the elevation, and the Z rotation then spins it.
+    cam.rotation_euler = Euler((math.radians(90.0 - elevation_deg), 0.0, spin.z), "XYZ")
+    forward = Vector((0.0, math.cos(elevation), -math.sin(elevation)))
+    forward.rotate(spin)
+    cam.location = Vector(centre) - forward * distance
+
+
+def _project(bpy: Any, cam: Any, point: Sequence[float], size: int) -> tuple[float, float]:
+    """World point -> pixel coordinates within one square frame.
+
+    bpy_extras' own camera projection rather than reimplementing the ortho
+    matrix: it already accounts for ortho_scale, the sensor fit and the aspect,
+    and a hand-rolled version that disagreed would put every sprite's feet in
+    the wrong place with nothing to indicate why.
+    """
+    from bpy_extras.object_utils import world_to_camera_view
+    from mathutils import Vector
+
+    bpy.context.view_layer.update()
+    ndc = world_to_camera_view(bpy.context.scene, cam, Vector(point))
+    # world_to_camera_view returns 0..1 with y up; image pixels are y down.
+    return (float(ndc.x) * size, (1.0 - float(ndc.y)) * size)
+
+
+# --- operations -------------------------------------------------------------
+
+
+def _rig_bones(
+    spec: dict[str, Any], lo: Sequence[float], hi: Sequence[float]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The joints to build the armature from, and the record of where they
+    came from. See ``blender_spec.rig_spec`` for the order of preference.
+
+    Its own function because it is the only decision in ``op_rig``, and
+    everything around it needs Blender -- so this is what a test can reach on a
+    machine with no bpy.
+
+    A ``template_bones`` list that does not name exactly this template's bones
+    is ignored rather than trusted. The spec arrives over a pipe, and a bone
+    list whose names do not match builds an armature whose parents do not
+    resolve; falling back to the fit that is always available costs the
+    informed placement and never the rig.
+
+    A *custom* skeleton (``spec["skeleton"] == "custom"``, from ``service.rig.
+    edit_skeleton``) gets the same treatment as ``template_bones``, for the
+    same reason: it was already checked host-side by ``skeleton.
+    validate_skeleton`` before this job was queued, but the spec crossed a
+    pipe as plain JSON to get here, and re-trusting a structure this process
+    did not itself check would build an armature whose parents do not resolve
+    on any spec that failed to round-trip. ``op_rig`` tells the difference
+    between "used the caller's structure" and "fell back" by identity (the
+    list returned here *is* ``spec["bones"]`` in the success case), so this
+    stays a 2-tuple like every other call site expects.
+    """
+    template = templates.get_template(spec["template"])
+    if spec.get("bones"):
+        if spec.get("skeleton") == "custom":
+            try:
+                skeleton.check_skeleton_structure(spec["bones"])
+            except ValueError as exc:
+                print(
+                    f"custom skeleton structure is unusable, using the bbox fit: {exc}",
+                    flush=True,
+                )
+                return skeleton.fit_template(template, lo, hi), {
+                    "method": "bbox",
+                    "fallback_reason": str(exc),
+                }
+        # Caller-supplied joints win over any fit. They are already validated
+        # host-side (skeleton.validate_joints / skeleton.validate_skeleton), so
+        # this is a straight substitution rather than a second, disagreeing
+        # check.
+        return spec["bones"], spec.get("fit") or {"method": "manual"}
+
+    landmarks = spec.get("template_bones")
+    informed = bool(landmarks) and {b["name"] for b in landmarks} == {
+        b["name"] for b in template.bones
+    }
+    if landmarks and not informed:
+        print(
+            "template_bones does not name this template's bones; using the bbox fit",
+            flush=True,
+        )
+    if informed:
+        template = dataclasses.replace(template, bones=tuple(landmarks))
+    fit = spec.get("fit") or {"method": "pose2d" if informed else "bbox"}
+    return skeleton.fit_template(template, lo, hi), fit
+
+
+def _rig_meta(
+    template: Any,
+    *,
+    bones: list[dict[str, Any]],
+    lo: Any,
+    hi: Any,
+    weighting: str,
+    weighting_reason: str | None,
+    adjusted: bool,
+    fit: dict[str, Any],
+    root: str | None = None,
+    mirror_pairs: Any = None,
+    skeleton: str | None = None,
+) -> dict[str, Any]:
+    """Everything rig.json says about a rig, as a plain dict.
+
+    Its own function for the reason ``_rig_bones`` is: everything around it in
+    ``op_rig`` needs bpy, so pulling the *content* of the file out is what
+    makes it assertable on a machine with no Blender -- which is every machine
+    the app ships on.
+
+    ``root``/``mirror_pairs``/``skeleton`` fall back to the template's own
+    (and ``skeleton`` to ``"template"``) when not given -- an ordinary
+    template rig or joint move, which is every rig before the skeleton editor
+    existed, writes exactly what it always wrote. ``op_rig`` passes them only
+    when the spec named a custom skeleton *and* ``_rig_bones`` used it
+    unchanged (see its own docstring); a spec that fell back to the bbox fit
+    must not have a fallback armature labelled with the custom root/pairs it
+    was never built from.
+    """
+    return {
+        "version": 1,
+        "template": template.key,
+        "label": template.label,
+        "root": root or template.root,
+        "weighting": weighting,
+        # Additive beside ``weighting``, and no version bump with it for the
+        # same reason ``fit`` needed none: every reader is .get-based, so a
+        # rig.json written before this field stays readable and one written
+        # after it stays readable by anything that has not heard of it. None on
+        # the automatic path -- there is nothing to explain about a success.
+        "weighting_reason": weighting_reason,
+        "bounds": {"min": lo, "max": hi},
+        "bones": bones,
+        "mirror_pairs": [
+            list(pair)
+            for pair in (mirror_pairs if mirror_pairs is not None else template.mirror_pairs)
+        ],
+        "adjusted": adjusted,
+        # "template" is the shape every rig before the skeleton editor
+        # existed wrote implicitly; this makes it explicit so a reader never
+        # has to treat an absent key and "template" as two different things.
+        "skeleton": skeleton or "template",
+        "fit": fit,
+    }
+
+
+def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    template = templates.get_template(spec["template"])
+    source = Path(spec["source_glb"])
+    if not source.exists():
+        raise RuntimeError(f"no mesh to rig at {source}")
+
+    progress(0.05, "Loading mesh")
+    _reset_scene(bpy)
+    mesh = _import_measured(bpy, source)
+
+    progress(0.25, "Fitting skeleton")
+    lo, hi = _world_bounds(mesh)
+    # The 2026-09-16 audit: captured *before* the measured-joints branch below
+    # can rebind ``spec`` with its own measured ``bones`` -- ``adjusted`` must
+    # mean "the caller supplied bones", per dev/INVARIANTS.md ("adjusted
+    # still means only 'the user moved these'"), and reading it off the
+    # post-mutation ``spec`` further down could no longer tell that apart
+    # from "op_rig's own measured-joints branch just populated spec['bones']".
+    caller_supplied_bones = bool(spec.get("bones"))
+    if spec.get("joints") == "measured" and not spec.get("bones"):
+        # Measured off the geometry rather than scaled to its box. Done here
+        # and not on the host because this is the only process that can read a
+        # GLB's vertices; it lands in ``spec["bones"]``, so from ``_rig_bones``
+        # onward it is indistinguishable from a user's own joint correction --
+        # which is exactly what it is, taken automatically.
+        from . import jointfit
+
+        verts = [mesh.matrix_world @ v.co for v in mesh.data.vertices]
+        try:
+            measured = jointfit.payload([tuple(v) for v in verts])
+            # validate_joints raises ValueError too -- e.g. a non-humanoid
+            # template's bone set not matching what jointfit measured -- and
+            # the 2026-09-07 audit (poser-04) found it living *after* this
+            # try's except, so that ValueError reached ``main`` unguarded and
+            # crashed the worker instead of falling back. It belongs in the
+            # same try as the measurement it validates: both failures mean
+            # the same thing, "costs the measurement, never the rig".
+            validated = skeleton.validate_joints(measured, template)
+        except ValueError as exc:
+            # Costs the measurement, never the rig: the bbox fit is still a
+            # rig, and a mesh this cannot read is exactly the mesh whose
+            # measurements would be worth least.
+            print(f"joint measurement failed, using the template fit: {exc}", flush=True)
+        else:
+            spec = {**spec, "bones": validated}
+            # The 2026-09-16 audit: without this, ``_rig_bones``'s
+            # caller-supplied branch falls through to ``spec.get("fit") or
+            # {"method": "manual"}`` -- tagging an automatic geometric
+            # measurement with the same "manual" label a real user
+            # hand-correction gets. Tag it before ``_rig_bones`` ever sees
+            # this spec.
+            spec.setdefault("fit", {"method": "jointfit"})
+    bones, fit = _rig_bones(spec, lo, hi)
+    # Identity, not equality: a spec that asked for a custom skeleton but
+    # failed re-verification (``_rig_bones``) returns a *fresh* list from
+    # ``fit_template``, never ``spec["bones"]`` itself. Only the case that
+    # actually built the armature from the caller's structure gets to label
+    # rig.json with the caller's root/mirror_pairs/skeleton.
+    custom_ok = spec.get("skeleton") == "custom" and bones is spec.get("bones")
+    arm_obj = _build_armature(bpy, bones)
+
+    progress(0.40, "Computing weights")
+    weighting, weighting_reason = _skin(bpy, mesh, arm_obj, weld=weld_distance(lo, hi))
+
+    progress(0.85, "Exporting rig")
+    _export(bpy, Path(spec["out_glb"]))
+
+    rig_meta = _rig_meta(
+        template,
+        bones=bones,
+        lo=lo,
+        hi=hi,
+        weighting=weighting,
+        weighting_reason=weighting_reason,
+        adjusted=caller_supplied_bones,
+        fit=fit,
+        root=spec.get("root") if custom_ok else None,
+        mirror_pairs=spec.get("mirror_pairs") if custom_ok else None,
+        skeleton=spec.get("skeleton") if custom_ok else None,
+    )
+    Path(spec["out_json"]).write_text(json.dumps(rig_meta, indent=2), encoding="utf-8")
+    progress(1.0, "Rig complete")
+    return {
+        "ok": True,
+        "weighting": weighting,
+        "weighting_reason": weighting_reason,
+        "bones": len(bones),
+    }
+
+
+def op_pose(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Bake one saved pose into its own GLB, next to the rig it came from."""
+    rig_glb = Path(spec["rig_glb"])
+    if not rig_glb.exists():
+        raise RuntimeError(f"no rig to pose at {rig_glb}")
+
+    progress(0.10, "Loading rig")
+    _reset_scene(bpy)
+    arm_obj = _import_rig(bpy, rig_glb)
+
+    progress(0.50, "Applying pose")
+    applied, unknown = _apply_pose(
+        arm_obj, spec["bones"], str(spec.get("pose_space") or "node")
+    )
+    if unknown:
+        print(f"pose names {len(unknown)} bone(s) this rig does not have: {unknown}", flush=True)
+    if spec.get("root_offset"):
+        # Only present when a library pose carried a nonzero root translation
+        # (blender_spec.pose_spec adds the keys conditionally), so a spec without it
+        # bakes exactly what it always did.
+        _apply_root_translation(arm_obj, spec.get("root_bone"), spec["root_offset"])
+
+    progress(0.70, "Exporting pose")
+    _export(bpy, Path(spec["out_glb"]))
+    progress(1.0, "Pose complete")
+    return {"ok": True, "bones": applied, "unknown": unknown}
+
+
+def op_animate(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Bake every authored clip onto the rig as a named glTF animation.
+
+    ``op_pose``'s sibling one step up: a pose is one set of bone rotations, and
+    a clip is a sequence of them under a name an engine can play. The frames
+    arrive **already interpolated** -- ``clips.animate_spec`` resolves them
+    through ``kernels.sheet`` on the host, the same split ``op_sheet`` and
+    ``fit_template`` take -- so nothing here decides what a walk cycle looks
+    like. What only Blender can do is key an armature and write the samplers.
+
+    One action per clip, each kept alive with ``use_fake_user`` because the
+    glTF exporter writes one animation per action and an action with no user is
+    gone by the time the export runs. Keyframes land on ``track["step"]`` scene
+    frames apart against ``spec["fps"]``, which is how five clips with five
+    different tempos share one timebase (see ``clips.ANIMATION_FPS``).
+    """
+    rig_glb = Path(spec["rig_glb"])
+    if not rig_glb.exists():
+        raise RuntimeError(f"no rig to animate at {rig_glb}")
+    tracks = list(spec.get("clips") or ())
+    if not tracks:
+        # Refused rather than exported empty: a GLB whose whole reason is its
+        # animations, carrying none, answers the question wrongly rather than
+        # not at all. ``animate_spec`` refuses first; this is the worker's own
+        # floor.
+        raise RuntimeError("no clips to bake")
+
+    progress(0.05, "Loading rig")
+    _reset_scene(bpy)
+    arm_obj = _import_rig(bpy, rig_glb)
+    bpy.context.scene.render.fps = int(spec.get("fps") or 30)
+    if arm_obj.animation_data is None:
+        arm_obj.animation_data_create()
+
+    baked: list[dict[str, Any]] = []
+    unknown: list[str] = []
+    for index, track in enumerate(tracks):
+        name = str(track.get("name") or f"clip{index}")
+        progress(0.10 + 0.70 * (index / max(len(tracks), 1)), f"Baking {name}")
+        frames = list(track.get("frames") or ())
+        if not frames:
+            continue
+        action = bpy.data.actions.new(name)
+        # The exporter writes one animation per *action*, and an action with no
+        # user is collected before the export runs.
+        action.use_fake_user = True
+        arm_obj.animation_data.action = action
+        step = float(track.get("step") or 1.0)
+        space = str(track.get("space") or "delta")
+        for frame_index, frame in enumerate(frames):
+            _applied, missing = _apply_pose(arm_obj, frame.get("bones") or {}, space)
+            unknown.extend(n for n in missing if n not in unknown)
+            at = 1.0 + frame_index * step
+            # The 2026-09-08 audit (poser-01): every shipped clip's authored
+            # root_translation -- a walk's strike-passing lift, a jump's whole
+            # crouch/launch/apex/land arc -- reached this loop and was never
+            # applied, unlike op_pose's single-frame bake, which has always
+            # called _apply_root_translation for a library pose's offset.
+            # clips.animate_spec pre-scales it to a world offset (it has the
+            # rig's own bounds; this loop only has the armature), keyed off
+            # the same root bone rig.json's own "root" field names.
+            root_offset = frame.get("root_offset")
+            if root_offset:
+                root_bone = frame.get("root_bone")
+                if _apply_root_translation(arm_obj, root_bone, root_offset):
+                    root_pbone = arm_obj.pose.bones.get(str(root_bone or ""))
+                    if root_pbone is not None:
+                        root_pbone.keyframe_insert(data_path="location", frame=at)
+            for pbone in arm_obj.pose.bones:
+                pbone.rotation_mode = "QUATERNION"
+                pbone.keyframe_insert(data_path="rotation_quaternion", frame=at)
+        baked.append({"name": name, "frames": len(frames), "loop": bool(track.get("loop"))})
+    # Left unassigned, or the last clip is also the pose the mesh is exported
+    # in -- and with the rest armature written out, a stray current action is
+    # the one thing that could still put a bind pose in the file.
+    arm_obj.animation_data.action = None
+
+    progress(0.85, "Exporting animations")
+    _export(bpy, Path(spec["out_glb"]), animations=True)
+    progress(1.0, "Animations complete")
+    if unknown:
+        print(f"clips name {len(unknown)} bone(s) this rig does not have: {unknown}", flush=True)
+    return {"ok": True, "clips": baked, "unknown": unknown}
+
+
+def op_armature(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Export one template's armature over the canonical unit box, meshless.
+
+    The Poser preview: no source mesh, no skinning, just the skeleton fitted to
+    ``poselib.UNIT_LO``/``UNIT_HI`` -- where ``fit_template``'s ``place()`` is
+    the identity on the normalized landmarks, so the exported armature is
+    exactly one character-height tall and a root translation authored against
+    it is in character-height units literally.
+
+    ``_build_armature`` and ``_export`` are the same calls ``op_rig`` makes, on
+    purpose: the preview's bone frames and a real bake's must be the same
+    frames, and sharing the code path is what makes that divergence-proof.
+    """
+    template = templates.get_template(spec["template"])
+
+    progress(0.10, "Building armature")
+    _reset_scene(bpy)
+    bones = skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
+    _build_armature(bpy, bones)
+
+    progress(0.60, "Exporting armature")
+    _export(bpy, Path(spec["out_glb"]))
+    progress(1.0, "Armature complete")
+    return {"ok": True, "template": template.key, "bones": len(bones)}
+
+
+def _clip_sample_matches(
+    name: str, strips: Sequence[re.Pattern[str]], candidates: set[str]
+) -> bool:
+    """Whether ``name`` names a bone a shipped clip map's chain claims.
+
+    ``blender_spec.clip_sample_spec`` hands over every map's strip pattern and
+    chain names, not just the one that will eventually match -- so this only
+    has to recognise a *naming family*, never resolve one. ``clipmaps.match``
+    does the actual scoring, host-side, later, against what this op reports.
+    """
+    if name in candidates:
+        return True
+    return any(pattern.sub("", name, count=1) in candidates for pattern in strips)
+
+
+def _clip_sample_rest_frame(arm: Any, bone: Any) -> dict[str, Any]:
+    """One bone's rest transform in world space. -> {parent, rest_rotation, head, tail}.
+
+    ``matrix_local`` is armature space, not world -- the same distinction
+    ``_rest_local_rotation`` exists for -- so it is carried through
+    ``arm.matrix_world`` here exactly as :func:`_world_bounds` carries a
+    mesh's own. ``.to_3x3().normalized()`` is what keeps a non-uniform import
+    scale (a Mixamo FBX's centimeter unit conversion, on top of whatever the
+    source object's own scale is) from leaking a shear into the quaternion.
+    """
+    m = arm.matrix_world @ bone.matrix_local
+    quat = m.to_3x3().normalized().to_quaternion()
+    head = m.translation
+    tail = arm.matrix_world @ bone.tail_local
+    return {
+        "parent": bone.parent.name if bone.parent is not None else None,
+        "rest_rotation": [quat.x, quat.y, quat.z, quat.w],
+        "head": [head.x, head.y, head.z],
+        "tail": [tail.x, tail.y, tail.z],
+    }
+
+
+def op_clip_sample(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Sample an external animation's world bone transforms for "Import clip".
+
+    **Never called "retarget"** -- see ``clipmaps``'s module docstring for why
+    that word is reserved for triangle-budget re-optimisation in this
+    codebase. This op is Blender SAMPLES: it reads a Mixamo/Rigify file's
+    bone-space poses into plain numbers and reports the Realmspinner template's own
+    rest frames alongside them, built the same way :func:`op_armature` builds
+    its preview. The math that converts one onto the other is a later, pure
+    step (``cliptransfer.py``) that never touches bpy.
+
+    Every anticipated failure -- an ASCII FBX, a file with no bone naming any
+    shipped clip map recognises, a mirrored armature -- is returned as
+    ``{"ok": False, "error": ...}`` rather than raised: these are properties
+    of the file a user handed in, not bugs in this worker, and the host reads
+    the *result*, not a subprocess exit code, to tell them apart from a crash.
+    """
+    source = Path(spec["source"])
+    candidates: set[str] = set(spec.get("candidates") or ())
+    try:
+        strips = [re.compile(p) for p in (spec.get("strip") or ())]
+    except re.error as exc:
+        return {"ok": False, "error": f"a clip map's strip pattern does not compile: {exc}"}
+    max_frames = int(spec.get("max_frames") or 900)
+    max_actions = int(spec.get("max_actions") or 64)
+
+    progress(0.05, "Loading animation")
+    _reset_scene(bpy)
+    ext = source.suffix.lower()
+    try:
+        if ext == ".fbx":
+            bpy.ops.import_scene.fbx(
+                filepath=str(source), use_anim=True, automatic_bone_orientation=False
+            )
+        elif ext in (".glb", ".gltf"):
+            bpy.ops.import_scene.gltf(filepath=str(source), bone_heuristic="BLENDER")
+            _purge_import_helpers(bpy)
+        else:
+            return {"ok": False, "error": f"{source.name} is not an FBX or glTF file"}
+    except RuntimeError as exc:
+        reason = str(exc).strip() or exc
+        return {"ok": False, "error": f"{source.name} could not be imported: {reason}"}
+
+    armatures = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+    best, best_count = None, 0
+    for arm in armatures:
+        count = sum(1 for b in arm.data.bones if _clip_sample_matches(b.name, strips, candidates))
+        if count > best_count:
+            best, best_count = arm, count
+    if best is None or best_count == 0:
+        return {
+            "ok": False,
+            "error": f"{source.name} has no skeleton naming any known clip map recognises",
+        }
+    if best.matrix_world.determinant() < 0:
+        return {
+            "ok": False,
+            "error": f"{source.name}'s armature ({best.name}) is mirrored and cannot be sampled",
+        }
+
+    progress(0.20, "Reading source bones")
+    armature_name = best.name
+    all_bone_names = [b.name for b in best.data.bones]
+    matched_names = [n for n in all_bone_names if _clip_sample_matches(n, strips, candidates)]
+    source_bones = {
+        name: _clip_sample_rest_frame(best, best.data.bones[name]) for name in matched_names
+    }
+
+    if best.animation_data is None:
+        best.animation_data_create()
+    scene = bpy.context.scene
+    fps = scene.render.fps / scene.render.fps_base
+    actions = list(bpy.data.actions)
+    # The 2026-09-18 audit, finding poser-02: nothing bounded how many
+    # actions a source FBX/GLB may carry, so a file with hundreds of baked
+    # actions sampled every one of them -- frame by frame, each an
+    # ``animation_data.action`` reassignment and a ``scene.frame_set`` walk --
+    # before the host ever saw a result to refuse. Refused by name here,
+    # before the sampling loop starts, rather than left to the host's
+    # ``analyse`` (S127's family of doors), which can only count actions
+    # after Blender has already reported them.
+    if len(actions) > max_actions:
+        return {
+            "ok": False,
+            "error": (
+                f"{source.name} carries {len(actions)} actions, over the "
+                f"{max_actions}-action import limit"
+            ),
+            "field": "source",
+        }
+    sampled_actions: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    for index, action in enumerate(actions):
+        progress(0.30 + 0.60 * (index / max(len(actions), 1)), f"Sampling {action.name}")
+        for track in best.animation_data.nla_tracks:
+            track.mute = True
+        best.animation_data.action = action
+        # Blender 4.4+'s layered actions need a bound slot as well as an
+        # assigned action, or ``frame_set`` evaluates the armature at rest --
+        # guarded with hasattr because older Blenders have neither attribute.
+        if hasattr(best.animation_data, "action_slot") and getattr(action, "slots", None):
+            best.animation_data.action_slot = action.slots[0]
+        start_f, end_f = action.frame_range
+        frame_start, frame_end = int(round(start_f)), int(round(end_f))
+        frame_count = frame_end - frame_start + 1
+        if frame_count > max_frames:
+            skipped.append(
+                f"{action.name}: {frame_count} frames exceeds the {max_frames}-frame limit"
+            )
+            continue
+        frames: list[dict[str, Any]] = []
+        for f in range(frame_start, frame_end + 1):
+            scene.frame_set(f)
+            bones: dict[str, Any] = {}
+            for name in matched_names:
+                pbone = best.pose.bones.get(name)
+                if pbone is None:
+                    continue
+                m = best.matrix_world @ pbone.matrix
+                quat = m.to_3x3().normalized().to_quaternion()
+                head = m.translation
+                bones[name] = {
+                    "rotation": [quat.x, quat.y, quat.z, quat.w],
+                    "head": [head.x, head.y, head.z],
+                }
+            frames.append({"frame": f, "bones": bones})
+        sampled_actions.append(
+            {
+                "name": action.name,
+                "fps": fps,
+                "frame_start": frame_start,
+                "frame_end": frame_end,
+                "frames": frames,
+            }
+        )
+    best.animation_data.action = None
+
+    progress(0.92, "Building target rest frames")
+    template = templates.get_template(spec["template"])
+    _reset_scene(bpy)  # the source armature is gone from here on -- see op_armature
+    target_bones_fitted = skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
+    target_arm = _build_armature(bpy, target_bones_fitted)
+    target_bones: dict[str, Any] = {}
+    for b in target_arm.data.bones:
+        quat = b.matrix_local.to_quaternion()
+        target_bones[b.name] = {
+            "parent": b.parent.name if b.parent is not None else None,
+            "rest_rotation": [quat.x, quat.y, quat.z, quat.w],
+            "head": [b.head_local.x, b.head_local.y, b.head_local.z],
+            "tail": [b.tail_local.x, b.tail_local.y, b.tail_local.z],
+        }
+
+    progress(1.0, "Clip sampled")
+    result: dict[str, Any] = {
+        "ok": True,
+        "armature": armature_name,
+        "source_bones": source_bones,
+        "all_bone_names": all_bone_names,
+        "actions": sampled_actions,
+        "target": {"template": template.key, "bones": target_bones},
+    }
+    if skipped:
+        result["skipped"] = skipped
+    return result
+
+
+def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Render one PNG per sheet cell into ``frames_dir``.
+
+    The host decided the grid and will do the packing; this walks the cell list
+    in order, posing and spinning the camera as it goes. The framing is
+    computed **once, from the union of every pose the sheet contains**, and
+    never touched again -- reframing per pose would make the subject jump
+    between rows of the finished sheet, and framing from the rest box alone
+    clipped every pose whose apex leaves it (an overhead attack wind, a jump)
+    on every cell of that run.
+
+    The pre-pass is universal rather than gated on which animations were asked
+    for: a clipped apex is a defect on any sheet, and on a rest-only sheet the
+    union *is* the rest box, so those sheets come out byte-identical.
+    """
+    source = Path(spec["source_glb"])
+    if not source.exists():
+        raise RuntimeError(f"nothing to render at {source}")
+    frames_dir = Path(spec["frames_dir"])
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    size = int(spec["frame_size"])
+    elevation = float(spec["elevation"])
+    cells = spec["cells"]
+    sockets = [dict(s) for s in (spec.get("sockets") or [])]
+
+    progress(0.05, "Loading model")
+    _reset_scene(bpy)
+    bpy.ops.import_scene.gltf(filepath=str(source), bone_heuristic="BLENDER")
+    _purge_import_helpers(bpy)
+    armature = next((o for o in bpy.context.scene.objects if o.type == "ARMATURE"), None)
+
+    lo, hi = _scene_bounds(bpy)
+    # ``spec.get("margin")`` has two writers and only one of them invents a
+    # number. ``_q_troupe``'s validation retry chooses one, re-rendering a sheet
+    # whose first attempt clipped at a wider margin; a *subset* re-render passes
+    # back the ``frame_margin`` its base sidecar recorded, because cells landing
+    # beside existing ones have to be framed exactly as those were or the
+    # character changes size inside rectangles that must not change.
+    # Every other caller omits the key and gets ``sheet.FRAME_MARGIN`` -- the
+    # same figure ``studio.viewer.sheet`` frames the in-app preview with, which
+    # is why it is that constant and not a literal here.
+    margin = float(spec.get("margin") or sheet.FRAME_MARGIN)
+    progress(0.07, "Measuring poses")
+    union, socket_points, body_centres = _pose_union(
+        bpy, armature, cells, sockets, rest_height=max(hi[2] - lo[2], 1e-6)
+    )
+    if not union:
+        # An empty cell list -- nothing to pose, so the union is the rest box.
+        union = [(x, y, z) for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+    centre, extent = _union_framing(lo, hi, union, margin=margin)
+    distance = extent * 2.0
+
+    progress(0.10, "Setting up")
+    # Flat is unlit emission, so one sample is the whole answer and antialiasing
+    # is pure loss -- see _setup_render. A lit sheet keeps Blender's default.
+    _setup_render(bpy, size, taa_samples=1 if spec["lighting"] != "lit" else None)
+    if spec["lighting"] == "lit":
+        _make_lit(bpy, centre, extent / 2.0)
+    else:
+        _make_flat(bpy)
+        _world(bpy, 0.0)
+    cam = _setup_camera(bpy, extent, distance)
+
+    # The subject's ground origin: horizontally centred, sitting on the bbox
+    # floor. Projected once, from yaw 0, because the ortho camera is framed once
+    # and only spins -- so this pixel is the same in every direction, which is
+    # exactly what makes it usable as a sprite pivot. Aiming here also keeps the
+    # projection out of the render loop.
+    #
+    # A ``front_yaw`` offset (see ``_q_troupe``/``_q_rig``) costs nothing here:
+    # ``_union_framing`` above returns a scalar ``extent``, so the ortho window
+    # is the same square whichever direction is called "front", and this pivot
+    # is the projection of ``(centre[0], centre[1], lo[2])`` -- a point *on*
+    # the vertical orbit axis the camera spins around -- so it lands on the
+    # same pixel at any yaw, offset or not.
+    _aim_camera(cam, centre, 0.0, elevation, distance)
+    pivot = _project(bpy, cam, (centre[0], centre[1], lo[2]), size)
+
+    posed: Any = "__rest__"
+    rendered = []
+    projected: dict[int, dict[str, dict[str, Any]]] = {}
+    for i, cell in enumerate(cells):
+        # Cells arrive grouped by row, so this re-poses once per row rather than
+        # once per frame -- eight times less work on an eight-yaw sheet. A
+        # clip's rows differ only by frame, which is why the cache key carries
+        # it: without that every frame of a clip would render the first one.
+        key = (cell.get("pose"), cell.get("frame", 0))
+        if armature is not None and key != posed:
+            _reset_pose(armature)
+            _apply_pose(
+                armature, cell.get("bones") or {}, str(cell.get("pose_space") or "node")
+            )
+            if cell.get("root_offset"):
+                # A sheet built from snapshotted library poses must not
+                # silently disagree with the bake -- one meaning per pose.
+                # _reset_pose zeroes pbone.location between rows, so an offset
+                # never leaks into the next pose's cells.
+                _apply_root_translation(armature, cell.get("root_bone"), cell["root_offset"])
+            posed = key
+        # Read twice below -- here to aim, and again at the socket depth
+        # ordering -- which is exactly why a ``front_yaw`` offset (see
+        # ``_q_troupe``/``_q_rig``) is added into this per-cell value on the
+        # host rather than carried as a separate spec key: a spec key would
+        # have to be threaded to both reads and re-derived here, where adding
+        # it once, upstream, means this worker keeps needing to know only one
+        # angle per cell, exactly as it always has.
+        _aim_camera(cam, centre, float(cell["yaw"]), elevation, distance)
+        if sockets:
+            # Per cell, because a socket is attached to a bone and both the
+            # pose and the yaw move it. Projected through the same ``_project``
+            # the pivot goes through, so a socket and the feet are in one
+            # coordinate system -- pixels within the rendered frame, which the
+            # host converts to cell pixels with ``charsheet.point_in_cell``.
+            yaw = float(cell["yaw"])
+            body = body_centres.get(key)
+            here: dict[str, dict[str, Any]] = {}
+            for name, point in (socket_points.get(key) or {}).items():
+                px, py = _project(bpy, cam, point, size)
+                depth = _view_depth(
+                    centre, point, yaw_deg=yaw, elevation_deg=elevation, distance=distance
+                )
+                behind = body is not None and depth > _view_depth(
+                    centre, body, yaw_deg=yaw, elevation_deg=elevation, distance=distance
+                )
+                here[name] = {
+                    "x": float(px),
+                    "y": float(py),
+                    "depth": float(depth),
+                    "behind": bool(behind),
+                }
+            projected[int(cell["index"])] = here
+        out = frames_dir / f"{cell['index']:04d}.png"
+        bpy.context.scene.render.filepath = str(out)
+        bpy.ops.render.render(write_still=True)
+        rendered.append(cell["index"])
+        progress(0.10 + 0.85 * (i + 1) / max(len(cells), 1), f"Rendering {i + 1}/{len(cells)}")
+
+    progress(1.0, "Frames rendered")
+    result: dict[str, Any] = {
+        "ok": True,
+        "frames": rendered,
+        "bounds": {"min": lo, "max": hi},
+        "pivot": list(pivot),
+        # What the window was actually sized to, so the host can record it and
+        # a retry at a wider margin can say what changed. ``bounds`` above stays
+        # the *rest* box: it is what the pivot is derived from and readers of it
+        # predate the union.
+        "framing": {
+            "extent": float(extent),
+            "margin": float(margin),
+            "union_bounds": {
+                "min": [min(c[i] for c in union) for i in range(3)],
+                "max": [max(c[i] for c in union) for i in range(3)],
+            },
+        },
+    }
+    if sockets:
+        # Only when they were asked for, so every sheet rendered before sockets
+        # existed comes back with the dict it always came back with. The keys
+        # are cell indices and arrive at the host as JSON object keys, i.e.
+        # strings -- the result travels through ``result.json``.
+        result["sockets"] = projected
+    return result
+
+
+def op_fbx(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Import a GLB and write it back out as FBX, skins and all."""
+    source = Path(spec["source_glb"])
+    if not source.exists():
+        raise RuntimeError(f"nothing to convert at {source}")
+
+    progress(0.10, "Loading model")
+    _reset_scene(bpy)
+    bpy.ops.import_scene.gltf(filepath=str(source), bone_heuristic="BLENDER")
+    _purge_import_helpers(bpy)
+
+    progress(0.60, "Writing FBX")
+    out = Path(spec["out_fbx"])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.export_scene.fbx(
+        filepath=str(out),
+        use_selection=True,
+        path_mode="COPY",
+        embed_textures=True,
+        # Unity and Unreal both read Y-up FBX; matching the GLB's axes means the
+        # FBX and the GLB describe the same orientation rather than two.
+        axis_forward="-Z",
+        axis_up="Y",
+        bake_anim=False,
+    )
+    progress(1.0, "FBX written")
+    return {"ok": True, "objects": len(bpy.context.scene.objects)}
+
+
+# The scratch UV layer a projection lands in. The mesh's own atlas stays the
+# active layer and is what every bake writes *into*; this only ever carries one
+# view at a time and is rebuilt per view.
+PROJECT_UV = "wl_proj"
+
+
+def _view_direction(yaw: float, pitch: float) -> tuple[float, float, float]:
+    """The unit direction the camera sits in, in Blender axes.
+
+    ``pipelines.retexture.view_matrix`` is the same arithmetic and is the one a
+    test can reach without bpy; this is the worker's copy, which imports
+    nothing from the host half by design -- the layer split (Layer 1's
+    ``kernels.rig`` has no process control) is what keeps that one-way.
+    ``tests/test_retexture.py`` pins the two against each other, which is the
+    same treatment ``skeleton.fit_template`` gets for the same reason.
+    """
+    import math
+
+    y, p = math.radians(yaw), math.radians(pitch)
+    return (math.sin(y) * math.cos(p), -math.cos(y) * math.cos(p), math.sin(p))
+
+
+def _depth_terms(extent: float, distance: float) -> tuple[float, float]:
+    """The (offset, scale) of the camera-depth encoding: enc = (offset - d) * scale.
+
+    Inverted -- near 1, far 0 -- so a pixel where nothing rendered decodes to
+    the far plane and "no occluder here" needs no special case on the host.
+    Pure arithmetic, importable without bpy, and pinned against
+    ``pipelines.retexture.depth_encode`` by ``tests/test_retexture.py`` -- the
+    ``_view_direction`` treatment, because the host decodes what these two
+    numbers encoded and a drift reads every visibility compare against the
+    wrong plane, which looks like random dropout rather than like a bug.
+    """
+    span = max(2.0 * extent, 1e-9)
+    return (distance + extent, 1.0 / span)
+
+
+def _depth_chain(tree: Any, centre, extent: float, distance: float):
+    """The node chain computing this surface point's encoded camera depth.
+
+    -> (dot_node, value_socket). The caller points ``dot_node.inputs[1]`` at
+    each view's direction; the socket then carries
+    ``depth_encode(distance - dot(P - centre, dir))`` for that view. Shared by
+    the depth *render* material and the depth-pair *bake* material so the two
+    cannot disagree about what a texel's own depth is.
+    """
+    offset, scale = _depth_terms(extent, distance)
+    geo = tree.nodes.new("ShaderNodeNewGeometry")
+    rel = tree.nodes.new("ShaderNodeVectorMath")
+    rel.operation = "SUBTRACT"
+    rel.inputs[1].default_value = tuple(centre)
+    tree.links.new(geo.outputs["Position"], rel.inputs[0])
+    dot = tree.nodes.new("ShaderNodeVectorMath")
+    dot.operation = "DOT_PRODUCT"
+    tree.links.new(rel.outputs["Vector"], dot.inputs[0])
+    # d = distance - dot(P - centre, dir); enc = (offset - d) * scale, clamped.
+    depth = tree.nodes.new("ShaderNodeMath")
+    depth.operation = "SUBTRACT"
+    depth.inputs[0].default_value = distance
+    tree.links.new(dot.outputs["Value"], depth.inputs[1])
+    inverted = tree.nodes.new("ShaderNodeMath")
+    inverted.operation = "SUBTRACT"
+    inverted.inputs[0].default_value = offset
+    tree.links.new(depth.outputs["Value"], inverted.inputs[1])
+    scaled = tree.nodes.new("ShaderNodeMath")
+    scaled.operation = "MULTIPLY"
+    scaled.use_clamp = True
+    scaled.inputs[1].default_value = scale
+    tree.links.new(inverted.outputs["Value"], scaled.inputs[0])
+    return dot, scaled.outputs["Value"]
+
+
+def _depth_material(bpy: Any, centre, extent: float, distance: float):
+    """One emission material rendering the camera-depth encoding. -> (material, dot)
+
+    The dot node is returned so ``op_views`` can retarget the view direction
+    per render instead of rebuilding the material ten times.
+    """
+    material = bpy.data.materials.new("wl_depth")
+    if material.node_tree is None:
+        material.use_nodes = True
+    tree = material.node_tree
+    tree.nodes.clear()
+    out = tree.nodes.new("ShaderNodeOutputMaterial")
+    dot, value = _depth_chain(tree, centre, extent, distance)
+    emit = tree.nodes.new("ShaderNodeEmission")
+    tree.links.new(value, emit.inputs["Color"])
+    tree.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+    return material, dot
+
+
+def _retexture_frame(bpy: Any, source: Path, size: int):
+    """Import, measure, and frame the one camera both re-texture ops use.
+
+    Shared rather than written twice because the two ops have to agree about
+    that camera *exactly*: ``op_views`` renders through it and ``op_project``
+    projects through it, and a framing that differed by a pixel between them
+    would shift the whole atlas by that pixel with nothing on screen to say
+    why. -> (mesh, centre, extent, distance)
+    """
+    _reset_scene(bpy)
+    mesh = _import_measured(bpy, source)
+    lo, hi = _world_bounds(mesh)
+    centre = [(a + b) / 2.0 for a, b in zip(lo, hi, strict=True)]
+    span = [b - a for a, b in zip(lo, hi, strict=True)]
+    # The horizontal diagonal, as op_sheet sizes to: one axis clips the corner
+    # views, and here a clipped view is a strip of atlas nothing covers.
+    extent = max((span[0] ** 2 + span[1] ** 2) ** 0.5, span[2], 1e-6) * 1.05
+    distance = extent * 2.0
+    _setup_render(bpy, size)
+    return mesh, centre, extent, distance
+
+
+def op_views(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Render the mesh once per view direction, flat.
+
+    **Flat, not lit, and that is the load-bearing choice.** These renders are
+    restyled and then baked back into the *albedo*, so any shading in them
+    becomes shading painted permanently into the texture -- a highlight that
+    stays put as the object turns, which is the one artefact a base-colour map
+    must not have. ``_make_flat`` keeps the existing texture and drops the
+    lighting, which is exactly the signal an img2img pass should be restyling.
+
+    The alpha matters as much as the colour: ``film_transparent`` leaves the
+    background clear, and ``op_project`` uses that alpha as the mask saying
+    which texels this view is entitled to speak about at all.
+    """
+    source = Path(spec["source_glb"])
+    if not source.exists():
+        raise RuntimeError(f"nothing to render at {source}")
+    # Resolved, and that is not tidiness. ``render.filepath`` is one of the
+    # paths Blender interprets *itself*, relative to the .blend file rather
+    # than to the process's directory -- and there is no .blend file here, so a
+    # relative path renders successfully and saves the PNG somewhere the caller
+    # will never look. Nothing raises: ``bpy.ops.render.render`` reports
+    # completion and ``op_views`` returns ok. ``op_sheet`` has always been safe
+    # only because its caller hands it a TemporaryDirectory, which is absolute
+    # by construction.
+    views_dir = Path(spec["views_dir"]).resolve()
+    views_dir.mkdir(parents=True, exist_ok=True)
+    views = spec["views"]
+
+    progress(0.05, "Loading model")
+    _mesh, centre, extent, distance = _retexture_frame(bpy, source, int(spec["size"]))
+    _make_flat(bpy)
+    _world(bpy, 0.0)
+    cam = _setup_camera(bpy, extent, distance)
+
+    for i, (yaw, pitch) in enumerate(views):
+        _aim_camera(cam, centre, float(yaw), float(pitch), distance)
+        bpy.context.scene.render.filepath = str(views_dir / f"view_{i:02d}.png")
+        bpy.ops.render.render(write_still=True)
+        progress(0.05 + 0.9 * (i + 1) / max(len(views), 1), f"View {i + 1}/{len(views)}")
+
+    if spec.get("depth"):
+        # A second pass rather than interleaved: it costs the same either way
+        # and leaves the colour loop exactly what it was. Every mesh wears the
+        # one depth material -- the colour pass is over, so nothing needs its
+        # materials back in this process.
+        scene = bpy.context.scene
+        depth_mat, dot = _depth_material(bpy, centre, extent, distance)
+        for obj in scene.objects:
+            if obj.type == "MESH":
+                obj.data.materials.clear()
+                obj.data.materials.append(depth_mat)
+        # Raw, not Standard: the encoding is a linear ramp and Standard's sRGB
+        # curve would bend it before the host's decode. 16-bit because the
+        # depth-pair bake samples this file inside Blender, where the extra
+        # precision is kept even though Pillow reads it back at 8.
+        with contextlib.suppress(TypeError):
+            scene.view_settings.view_transform = "Raw"
+        scene.render.image_settings.color_depth = "16"
+        with contextlib.suppress(AttributeError):
+            # One sample: the occlusion source needs hard edges, and an
+            # emission render has no noise for TAA to average away.
+            scene.eevee.taa_render_samples = 1
+        for i, (yaw, pitch) in enumerate(views):
+            dot.inputs[1].default_value = _view_direction(float(yaw), float(pitch))
+            _aim_camera(cam, centre, float(yaw), float(pitch), distance)
+            scene.render.filepath = str(views_dir / f"depth_{i:02d}.png")
+            bpy.ops.render.render(write_still=True)
+
+    progress(1.0, "Views rendered")
+    return {"ok": True, "views": len(views), "extent": extent}
+
+
+def _project_material(
+    bpy: Any,
+    colour_png: Path,
+    mask_png: Path,
+    direction,
+    depth_png: Path | None = None,
+    frame: tuple[Any, float, float] | None = None,
+):
+    """One material carrying every bake. -> (material, colour_emit, weight_emit, depth_emit)
+
+    All emissions share one projection and one set of textures, so switching
+    which node feeds the output is the whole difference between the colour bake
+    and the weight bake -- they cannot come to disagree about where the view
+    landed.
+
+    The mask is the **original** render's alpha rather than the restyled one's,
+    because img2img returns RGB and drops it. Two textures over one UV layer,
+    which also makes "outside the camera frustum" free: ``CLIP`` extension
+    returns alpha 0 out there, so a texel the camera never saw gets weight 0
+    without a frustum test of its own.
+
+    With ``depth_png`` and ``frame`` (= centre, extent, distance) a third
+    emission carries the depth pair: R is the depth render sampled through the
+    same projected UVs -- what the camera actually saw at this texel's pixel
+    -- and G is the texel's own depth from ``_depth_chain``. R is a
+    pass-through sample, so the only encode formula lives in the node graphs
+    fed by ``_depth_terms`` within one process run; ``depth_emit`` is ``None``
+    when not asked for.
+    """
+    material = bpy.data.materials.new("wl_project")
+    if material.node_tree is None:
+        material.use_nodes = True
+    tree = material.node_tree
+    tree.nodes.clear()
+    out = tree.nodes.new("ShaderNodeOutputMaterial")
+
+    uv = tree.nodes.new("ShaderNodeUVMap")
+    uv.uv_map = PROJECT_UV
+
+    colour_tex = tree.nodes.new("ShaderNodeTexImage")
+    colour_tex.image = bpy.data.images.load(str(colour_png))
+    colour_tex.extension = "CLIP"
+    tree.links.new(uv.outputs["UV"], colour_tex.inputs["Vector"])
+
+    mask_tex = tree.nodes.new("ShaderNodeTexImage")
+    mask_tex.image = bpy.data.images.load(str(mask_png))
+    mask_tex.extension = "CLIP"
+    tree.links.new(uv.outputs["UV"], mask_tex.inputs["Vector"])
+
+    colour_emit = tree.nodes.new("ShaderNodeEmission")
+    tree.links.new(colour_tex.outputs["Color"], colour_emit.inputs["Color"])
+
+    # facing = max(0, dot(N, the direction the camera is in)), masked by the
+    # render's own alpha. Clamped at zero rather than made absolute: a face
+    # pointing away from this camera is not "seen from behind", it is not seen.
+    geo = tree.nodes.new("ShaderNodeNewGeometry")
+    dot = tree.nodes.new("ShaderNodeVectorMath")
+    dot.operation = "DOT_PRODUCT"
+    dot.inputs[1].default_value = direction
+    tree.links.new(geo.outputs["Normal"], dot.inputs[0])
+    clamp = tree.nodes.new("ShaderNodeMath")
+    clamp.operation = "MAXIMUM"
+    clamp.inputs[1].default_value = 0.0
+    tree.links.new(dot.outputs["Value"], clamp.inputs[0])
+    masked = tree.nodes.new("ShaderNodeMath")
+    masked.operation = "MULTIPLY"
+    tree.links.new(clamp.outputs["Value"], masked.inputs[0])
+    tree.links.new(mask_tex.outputs["Alpha"], masked.inputs[1])
+    weight_emit = tree.nodes.new("ShaderNodeEmission")
+    tree.links.new(masked.outputs["Value"], weight_emit.inputs["Color"])
+
+    depth_emit = None
+    if depth_png is not None and frame is not None:
+        centre, extent, distance = frame
+        depth_tex = tree.nodes.new("ShaderNodeTexImage")
+        depth_tex.image = bpy.data.images.load(str(depth_png))
+        # Non-Color or the compare silently rots: the render is a linear
+        # encoding, and the sRGB decode every loaded PNG gets by default
+        # would bend zread against the zsurf computed in nodes.
+        depth_tex.image.colorspace_settings.name = "Non-Color"
+        depth_tex.extension = "CLIP"
+        tree.links.new(uv.outputs["UV"], depth_tex.inputs["Vector"])
+        dot, own_depth = _depth_chain(tree, centre, extent, distance)
+        dot.inputs[1].default_value = direction
+        pair = tree.nodes.new("ShaderNodeCombineColor")
+        # R = what the camera saw at this texel's pixel, G = this texel's own
+        # depth. The host subtracts them; nothing here decides visibility.
+        tree.links.new(depth_tex.outputs["Color"], pair.inputs["Red"])
+        tree.links.new(own_depth, pair.inputs["Green"])
+        depth_emit = tree.nodes.new("ShaderNodeEmission")
+        tree.links.new(pair.outputs["Color"], depth_emit.inputs["Color"])
+
+    tree.links.new(colour_emit.outputs["Emission"], out.inputs["Surface"])
+    return material, colour_emit, weight_emit, depth_emit
+
+
+def _free_material(bpy: Any, material: Any) -> None:
+    """Free a projection material and every image it loaded.
+
+    Blender's datablocks are reference-counted only for *saving*: an image or a
+    material with no user still sits in ``bpy.data`` for the life of the
+    process. ``mesh.data.materials.clear()`` empties an object's slots and
+    ``tree.nodes.remove`` detaches a node; neither frees anything, which is why
+    both of those already being called is not enough.
+
+    Written defensively -- a datablock already gone is not an error worth
+    failing a bake over -- and it collects the images *before* removing the
+    material, because removing the material invalidates its node tree.
+    """
+    images = []
+    tree = getattr(material, "node_tree", None)
+    if tree is not None:
+        images = [
+            node.image
+            for node in tree.nodes
+            if getattr(node, "type", "") == "TEX_IMAGE" and node.image is not None
+        ]
+    with contextlib.suppress(Exception):
+        bpy.data.materials.remove(material)
+    for image in images:
+        with contextlib.suppress(Exception):
+            bpy.data.images.remove(image)
+
+
+def op_project(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Bake each restyled view into the atlas, with a weight image beside it.
+
+    One pair of images per view, combined on the host by
+    ``pipelines.retexture.assemble`` -- deliberately not accumulated here,
+    because a weighted mean is arithmetic and belongs where ``sheet.py``'s grid
+    does.
+
+    The projection is Blender's own UVProject modifier onto a scratch UV layer,
+    applied per view and rebuilt for the next. The mesh's real atlas stays the
+    *active* layer throughout, because that is the one every bake writes into
+    -- leaving the scratch layer active would bake the projection into itself.
+    """
+    source = Path(spec["source_glb"])
+    if not source.exists():
+        raise RuntimeError(f"nothing to project onto at {source}")
+    # Both resolved, for op_views' reason: ``Image.filepath_raw`` is the same
+    # kind of path as ``render.filepath`` and Blender resolves it the same way,
+    # so a relative out_dir saves every bake somewhere the host will not find
+    # and reports success doing it.
+    views_dir = Path(spec["views_dir"]).resolve()
+    out_dir = Path(spec["out_dir"]).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    views = spec["views"]
+    texture_size = int(spec["texture_size"])
+
+    progress(0.05, "Loading model")
+    mesh, centre, extent, distance = _retexture_frame(bpy, source, int(spec["size"]))
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    # An emission bake carries no noise, so one sample is the whole budget.
+    scene.cycles.samples = 1
+    scene.render.bake.use_pass_direct = False
+    scene.render.bake.use_pass_indirect = False
+    # No margin: the host dilates, and it has to, because a margin Blender
+    # grew per view would be grown from that view's colours before the views
+    # were ever combined.
+    scene.render.bake.margin = 0
+
+    if not mesh.data.uv_layers:
+        raise RuntimeError("this mesh has no UVs to bake into")
+    atlas_uv = mesh.data.uv_layers.active.name
+    cam = _setup_camera(bpy, extent, distance)
+
+    original = list(mesh.data.materials)
+    depth_wanted = bool(spec.get("depth"))
+    done = []
+    for i, (yaw, pitch) in enumerate(views):
+        colour_png = views_dir / f"restyled_{i:02d}.png"
+        mask_png = views_dir / f"view_{i:02d}.png"
+        depth_png = views_dir / f"depth_{i:02d}.png"
+        if not colour_png.exists() or not mask_png.exists():
+            # A view whose restyle never arrived contributes nothing rather
+            # than failing the bake: five good projections beat none.
+            continue
+        if depth_wanted and not depth_png.exists():
+            # Same rule: without its depth render this view cannot be
+            # occlusion-tested, and the host's all-or-nothing assemble would
+            # refuse a bake that arrived without its pair.
+            continue
+        _aim_camera(cam, centre, float(yaw), float(pitch), distance)
+
+        if PROJECT_UV in mesh.data.uv_layers:
+            mesh.data.uv_layers.remove(mesh.data.uv_layers[PROJECT_UV])
+        mesh.data.uv_layers.new(name=PROJECT_UV)
+        modifier = mesh.modifiers.new("wl_project", "UV_PROJECT")
+        modifier.uv_layer = PROJECT_UV
+        modifier.projector_count = 1
+        modifier.projectors[0].object = cam
+        modifier.aspect_x = modifier.aspect_y = 1.0
+        bpy.context.view_layer.objects.active = mesh
+        bpy.ops.object.modifier_apply(modifier="wl_project")
+        mesh.data.uv_layers.active = mesh.data.uv_layers[atlas_uv]
+
+        material, colour_emit, weight_emit, depth_emit = _project_material(
+            bpy,
+            colour_png,
+            mask_png,
+            _view_direction(float(yaw), float(pitch)),
+            depth_png if depth_wanted else None,
+            (centre, extent, distance) if depth_wanted else None,
+        )
+        mesh.data.materials.clear()
+        mesh.data.materials.append(material)
+        tree = material.node_tree
+        out_node = next(n for n in tree.nodes if n.type == "OUTPUT_MATERIAL")
+
+        bakes = [("bake", colour_emit), ("weight", weight_emit)]
+        if depth_emit is not None:
+            bakes.append(("depthpair", depth_emit))
+        for suffix, emit in bakes:
+            for link in list(out_node.inputs["Surface"].links):
+                tree.links.remove(link)
+            tree.links.new(emit.outputs["Emission"], out_node.inputs["Surface"])
+            image = bpy.data.images.new(
+                f"wl_{suffix}_{i}", texture_size, texture_size, alpha=False
+            )
+            if suffix in ("depthpair", "weight"):
+                # The bake target's colorspace decides how save() encodes the
+                # PNG. Non-Color writes linear values raw; the default would
+                # sRGB-encode them and the host would read a bent curve as a
+                # straight one.
+                #
+                # Both of these are *data*, not colour. ``depthpair`` is the
+                # near/far pair the host subtracts. ``weight`` is
+                # ``max(0, N.V) * mask_alpha`` -- a facing ratio -- and it was
+                # left on the sRGB default while ``retexture.assemble`` read it
+                # back as linear and thresholded it against ``MIN_FACING``.
+                # Since srgb_encode(0.0196) is about 0.15, a floor meant to
+                # drop views past ~81 degrees off-normal was really dropping
+                # only those past ~89, and the curve's compression handed
+                # grazing views roughly twice their intended share of every
+                # texel. ``bake`` -- the colour target -- stays sRGB, which is
+                # correct for it and is why this is a tuple rather than a flip.
+                #
+                # See dev/measurements/2026-08-20-retexture-weight-colorspace.md.
+                image.colorspace_settings.name = "Non-Color"
+            node = tree.nodes.new("ShaderNodeTexImage")
+            node.image = image
+            tree.nodes.active = node
+            bpy.ops.object.bake(type="EMIT")
+            image.filepath_raw = str(out_dir / f"{suffix}_{i:02d}.png")
+            image.file_format = "PNG"
+            image.save()
+            tree.nodes.remove(node)
+            # The PNG is on disk and nothing reads the datablock again.
+            # ``nodes.remove`` only detaches it: an image datablock outlives
+            # every node that pointed at it and is freed only by an explicit
+            # ``images.remove``. At ``texture_size`` up to 2048 and three
+            # targets a view, ten views left the better part of a gibibyte
+            # resident in the one subprocess whose host-commit budget the rest
+            # of the codebase guards carefully.
+            bpy.data.images.remove(image)
+
+        mesh.data.materials.clear()
+        # Same argument, for what ``_project_material`` allocated: the material
+        # and the two or three PNGs it loaded. ``materials.clear()`` empties the
+        # object's *slots*, which is not the same as freeing the datablock.
+        _free_material(bpy, material)
+        done.append(i)
+        progress(0.05 + 0.9 * (i + 1) / max(len(views), 1), f"Baking {i + 1}/{len(views)}")
+
+    for material in original:
+        mesh.data.materials.append(material)
+    progress(1.0, "Projections baked")
+    return {"ok": True, "baked": done, "uv_layer": atlas_uv}
+
+
+# --- remesh --------------------------------------------------------------------
+
+#: The voxel size of the hole-closing pre-pass, as a fraction of the mesh's
+#: bounding diagonal, and the bake margin in texels. Restated from
+#: ``pipelines.remesh`` because this side may not import the host package;
+#: ``tests/test_remesh.py`` pins the pair.
+VOXEL_FRACTION = 0.005
+BAKE_MARGIN_PX = 8
+
+
+def _face_stats(mesh: Any) -> tuple[int, float]:
+    """(face count, fraction of faces that are quads)."""
+    polys = mesh.data.polygons
+    if len(polys) == 0:
+        return 0, 0.0
+    quads = sum(1 for p in polys if len(p.vertices) == 4)
+    return len(polys), quads / len(polys)
+
+
+def _bake_image(bpy: Any, name: str, size: int, *, data: bool) -> Any:
+    image = bpy.data.images.new(name, size, size, alpha=False)
+    if data:
+        # Roughness and normals are data, not colour: left on the sRGB
+        # default the exporter would bend a straight ramp
+        # (dev/measurements/2026-08-20-retexture-weight-colorspace.md).
+        image.colorspace_settings.name = "Non-Color"
+    return image
+
+
+def _source_metallic(source: Any) -> float:
+    """The source's metallic factor, when it is a constant.
+
+    Cycles has no metallic bake type, and rewiring every source material's
+    metallic input into an emission is a second bake pipeline for a channel a
+    reconstruction almost never varies. The constant is honest: it is what the
+    importer wrote, averaged over the slots, and the report says "constant".
+    """
+    values = []
+    for material in source.data.materials:
+        if material is None or not material.use_nodes:
+            continue
+        for node in material.node_tree.nodes:
+            if node.type == "BSDF_PRINCIPLED":
+                socket = node.inputs.get("Metallic")
+                if socket is not None and not socket.is_linked:
+                    values.append(float(socket.default_value))
+    return sum(values) / len(values) if values else 0.0
+
+
+_BAKE_MAP_KINDS: dict[str, tuple[str, dict[str, Any], bool]] = {
+    # key -> (the bake() operator's ``type``, its extra kwargs, whether the
+    # target image is data rather than colour -- ``_bake_image``'s own
+    # Non-Color reasoning applies to roughness and normal alike).
+    "base_color": ("DIFFUSE", {}, False),
+    "roughness": ("ROUGHNESS", {}, True),
+    "normal": ("NORMAL", {"normal_space": "TANGENT"}, True),
+}
+
+
+def _remesh_object(
+    bpy: Any,
+    obj: Any,
+    *,
+    target_faces: int,
+    seed: int,
+    close_holes: bool,
+    diagonal: float,
+    on_close_holes: Callable[[], None] | None = None,
+    on_remesh: Callable[[], None] | None = None,
+) -> str:
+    """Voxel pre-pass (optional) + quadriflow-with-decimate-fallback on
+    ``obj``'s own mesh data. -> the method that ran ("quadriflow" or
+    "decimate").
+
+    Selects ``obj`` alone before touching it, so a caller looping over
+    several objects (``op_clay_retopo``) never leaves the previous one's
+    selection live for an operator that reads it -- a no-op for
+    ``op_remesh``'s single-object call, where ``obj`` was already the sole
+    selected, active object coming out of ``_weld``.
+
+    Split out of ``op_remesh`` (``dev/CLAY-PLAN.md`` tranche 4) with no
+    change to its behaviour: the operator calls, their order and their
+    arguments are unchanged from what used to sit inline.
+    """
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    method = "quadriflow"
+    if close_holes:
+        if on_close_holes is not None:
+            on_close_holes()
+        obj.data.remesh_voxel_size = diagonal * VOXEL_FRACTION
+        obj.data.remesh_voxel_adaptivity = 0.0
+        obj.data.use_remesh_fix_poles = False
+        bpy.ops.object.voxel_remesh()
+
+    if on_remesh is not None:
+        on_remesh()
+    try:
+        bpy.ops.object.quadriflow_remesh(
+            target_faces=target_faces,
+            use_mesh_symmetry=False,
+            use_preserve_sharp=False,
+            use_preserve_boundary=False,
+            seed=seed,
+            mode="FACES",
+        )
+        if len(obj.data.polygons) == 0:
+            raise RuntimeError("quadriflow produced no faces")
+    except Exception:
+        # Non-manifold input, or a mesh quadriflow gave up on. The budget is
+        # still honoured, in triangles, and the result says so.
+        method = "decimate"
+        modifier = obj.modifiers.new("wl_decimate", "DECIMATE")
+        tris = max(len(obj.data.polygons), 1)
+        modifier.ratio = max(min((target_faces * 2) / tris, 1.0), 0.001)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier="wl_decimate")
+    return method
+
+
+def _smart_unwrap(
+    bpy: Any, obj: Any, *, angle_limit_deg: float = 66.0, island_margin: float = 0.003
+) -> None:
+    """Fresh UV layer + Smart UV Project on ``obj``. Geometry untouched.
+
+    Existing UV layers are dropped first: a GLB's imported layer is either
+    the reconstruction's xatlas soup (``op_remesh``) or a retopologised
+    mesh's leftover one (``op_clay_unwrap``, when it runs after
+    ``op_clay_retopo``), and unwrapping "on top of" a stale layer would leave
+    two disagreeing about which one the exporter and a later bake read.
+
+    Split out of ``op_remesh`` with no change to its behaviour: same
+    operators in the same order, and the same default angle limit and
+    margin ``op_remesh`` always called with.
+    """
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    while obj.data.uv_layers:
+        obj.data.uv_layers.remove(obj.data.uv_layers[0])
+    obj.data.uv_layers.new(name="UVMap")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(
+        angle_limit=math.radians(angle_limit_deg), island_margin=island_margin
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _bake_maps(
+    bpy: Any,
+    low: Any,
+    highs: Sequence[Any],
+    *,
+    maps: Sequence[str],
+    texture_size: int,
+    cage_extrusion: float,
+    max_ray_distance: float,
+    margin_px: int = BAKE_MARGIN_PX,
+    material_name: str = "wl_remeshed",
+    image_prefix: str = "wl",
+    on_bake: Callable[[str], None] | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Selected-to-active Cycles bake of ``maps`` from ``highs`` onto
+    ``low``. -> (the new material, {map key: baked image}).
+
+    Builds one fresh material on ``low`` -- clearing whatever it carried,
+    the same way ``op_remesh`` always baked into a brand-new material rather
+    than layering onto a mesh's own palette -- with one image node per
+    requested map, wired into the Principled BSDF the glTF exporter reads
+    (roughness straight into Roughness, normal through a Normal Map node).
+    Metallic is never a bake target here: Cycles has no metallic bake type,
+    so every caller that wants it carries it over as a constant
+    (``_source_metallic``/``_metallic_constant``, called separately).
+
+    Split out of ``op_remesh`` with no change to its behaviour when called
+    with ``maps=("base_color", "roughness", "normal")`` and the defaults
+    below: same bake settings, same node wiring, same image names
+    (``wl_base_color`` etc -- unchanged by ``image_prefix``'s default).
+    """
+    material = bpy.data.materials.new(material_name)
+    material.use_nodes = True
+    tree = material.node_tree
+    principled = next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED")
+    images: dict[str, Any] = {}
+    nodes: dict[str, Any] = {}
+    for key in maps:
+        _kind, _extra, is_data = _BAKE_MAP_KINDS[key]
+        image = _bake_image(bpy, f"{image_prefix}_{key}", texture_size, data=is_data)
+        node = tree.nodes.new("ShaderNodeTexImage")
+        node.image = image
+        images[key] = image
+        nodes[key] = node
+    low.data.materials.clear()
+    low.data.materials.append(material)
+
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = 4
+    bake = scene.render.bake
+    bake.use_selected_to_active = True
+    bake.cage_extrusion = cage_extrusion
+    bake.max_ray_distance = max_ray_distance
+    bake.margin = margin_px
+    bake.use_pass_direct = False
+    bake.use_pass_indirect = False
+    bake.use_pass_color = True
+
+    bpy.ops.object.select_all(action="DESELECT")
+    for high in highs:
+        high.select_set(True)
+    low.select_set(True)
+    bpy.context.view_layer.objects.active = low
+
+    for key in maps:
+        if on_bake is not None:
+            on_bake(key)
+        kind, extra, _is_data = _BAKE_MAP_KINDS[key]
+        tree.nodes.active = nodes[key]
+        bpy.ops.object.bake(type=kind, **extra)
+        nodes[key].image.pack()
+
+    if "base_color" in images:
+        tree.links.new(nodes["base_color"].outputs["Color"], principled.inputs["Base Color"])
+    if "roughness" in images:
+        tree.links.new(nodes["roughness"].outputs["Color"], principled.inputs["Roughness"])
+    if "normal" in images:
+        normal_map = tree.nodes.new("ShaderNodeNormalMap")
+        tree.links.new(nodes["normal"].outputs["Color"], normal_map.inputs["Color"])
+        tree.links.new(normal_map.outputs["Normal"], principled.inputs["Normal"])
+    return material, images
+
+
+def _set_metallic_constant(material: Any, metallic: float) -> None:
+    principled = next(n for n in material.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    principled.inputs["Metallic"].default_value = metallic
+
+
+def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Remesh to a quad budget, unwrap, and bake the old surface onto the new.
+
+    The one step every commercial pipeline sells as "game-ready" and a
+    reconstruction lacks. Four stages, all in this process:
+
+    1. **Remesh.** Optionally a voxel pass first (it closes the plate-crust
+       holes ``meshaudit`` counts, at the cost of rounding sharp edges), then
+       quadriflow to ``target_faces``. Quadriflow refuses non-manifold input,
+       which a reconstruction routinely is; the fallback is a decimate to the
+       same budget in triangles, and the result says which path ran -- a
+       decimated mesh must not be reported as a quad one.
+    2. **Unwrap.** Smart UV project on the new surface. Not an artist's
+       layout, but every island is a real region of the mesh, which is what
+       the reconstruction's xatlas soup was not.
+    3. **Bake.** Selected-to-active from the *original* object: base colour
+       (the diffuse colour pass alone -- no lighting, ``op_views``' rule),
+       roughness, and tangent-space normals, which carry the high-resolution
+       geometry the budget threw away. Metallic is a constant, see
+       ``_source_metallic``.
+    4. **Export** the new object alone, textures packed into the GLB.
+    """
+    source_path = Path(spec["source_glb"])
+    out_glb = Path(spec["out_glb"]).resolve()
+    if not source_path.exists():
+        raise RuntimeError(f"nothing to remesh at {source_path}")
+    target = int(spec["target_faces"])
+    texture_size = int(spec["texture_size"])
+    seed = int(spec.get("seed", 0))
+
+    progress(0.02, "Loading model")
+    _reset_scene(bpy)
+    source = _import_measured(bpy, source_path)
+    faces_before, _ = _face_stats(source)
+    lo, hi = _world_bounds(source)
+    diagonal = max(math.dist(lo, hi), 1e-6)
+
+    # A working copy: the original keeps its materials and UVs as the bake
+    # source, and is deleted before export.
+    bpy.ops.object.select_all(action="DESELECT")
+    source.select_set(True)
+    bpy.context.view_layer.objects.active = source
+    bpy.ops.object.duplicate()
+    work = bpy.context.view_layer.objects.active
+    work.name = "wl_remesh"
+    work.data.materials.clear()
+
+    # **Weld before anything else touches the topology.** glTF cannot share a
+    # position between two texture coordinates, so every GLB splits its
+    # vertices at each UV seam -- which makes an imported mesh non-manifold
+    # before anything is actually wrong with it. ``_weld``'s docstring carries
+    # that argument already; what is new here is that *every* input on this
+    # path is a GLB, so the quadriflow branch below could never succeed and
+    # every remesh silently produced the triangle fallback instead.
+    #
+    # Measured 2026-08-30 on a UV sphere: 1,106 vertices before export, 4,512
+    # after the round trip, and quadriflow answering "Remeshing failed".
+    # Welded back to 1,106 it returns 479 faces, all of them quads.
+    #
+    # ``work`` alone. ``source`` keeps its own vertices, UVs and materials
+    # because it is the bake's selected-to-active source, and welding it would
+    # change the surface the colour and normal passes are read from.
+    weld = weld_distance(lo, hi)
+    if weld > 0.0:
+        pre_weld, _merged = _weld(bpy, work, weld)
+        # Never restored: unlike the skin chain, there is no fallback here that
+        # wants the split mesh back, so the copy ``_weld`` takes is freed at
+        # once rather than living until the subprocess exits.
+        with contextlib.suppress(Exception):
+            bpy.data.meshes.remove(pre_weld)
+
+    # Stages below are shared with the Clay background ops
+    # (``op_clay_retopo``/``op_clay_unwrap``) -- ``_remesh_object``,
+    # ``_smart_unwrap`` and ``_bake_maps`` carry the "why", this call site
+    # only supplies op_remesh's own budget, labels and defaults, which is
+    # exactly what ran inline here before the split.
+    method = _remesh_object(
+        bpy,
+        work,
+        target_faces=target,
+        seed=seed,
+        close_holes=bool(spec.get("close_holes")),
+        diagonal=diagonal,
+        on_close_holes=lambda: progress(0.08, "Closing holes"),
+        on_remesh=lambda: progress(0.15, f"Remeshing to {target:,} quads"),
+    )
+
+    progress(0.45, "Unwrapping")
+    _smart_unwrap(bpy, work)
+
+    _remesh_bake_labels = {
+        "base_color": (0.55, "Baking colour"),
+        "roughness": (0.70, "Baking roughness"),
+        "normal": (0.82, "Baking normals"),
+    }
+    material, _images = _bake_maps(
+        bpy,
+        work,
+        [source],
+        maps=("base_color", "roughness", "normal"),
+        texture_size=texture_size,
+        cage_extrusion=diagonal * 0.02,
+        max_ray_distance=diagonal * 0.05,
+        on_bake=lambda key: progress(*_remesh_bake_labels[key]),
+    )
+
+    # glTF packs roughness in G and metallic in B of one image; the exporter
+    # builds that image itself when roughness is a texture and metallic a
+    # constant.
+    metallic = _source_metallic(source)
+    _set_metallic_constant(material, metallic)
+
+    progress(0.92, "Exporting")
+    bpy.data.objects.remove(source, do_unlink=True)
+    faces, quads = _face_stats(work)
+    _export(bpy, out_glb)
+    progress(1.0, "Remeshed")
+    return {
+        "ok": True,
+        "method": method,
+        "faces_before": faces_before,
+        "faces": faces,
+        "quads": quads,
+        "texture_size": texture_size,
+        "metallic": metallic,
+    }
+
+
+# --- Clay background ops (dev/CLAY-PLAN.md tranche 4) -----------------------
+#
+# Three GLB-in/GLB-out ops for Clay's mesh-cleanup menu, each a background op
+# run on a temp GLB of the caller's selection. Unlike every op above, none of
+# these joins its input into one object: Clay sends one node per selected
+# object and expects the same shape back, names and node transforms held.
+#
+# Confirmed against a real Blender import/export round trip (no armature, no
+# parenting) that a flat multi-object GLB's node names, translations,
+# rotations and scales come back byte-identical with nothing baked on this
+# side -- so these ops touch only ``obj.data`` (geometry, UVs, materials) in
+# each object's own local space and never an object's transform.
+
+
+def _import_glb_objects(bpy: Any, path: Path) -> list[Any]:
+    """Import ``path`` with no join -- one Blender object per glTF node,
+    named as authored. -> the newly imported mesh objects, import order.
+
+    Unlike ``_import_glb`` (which joins everything into one object for the
+    rig/remesh pipeline's single-mesh world), the Clay ops' contract is "one
+    node per object in, one node per object out": a multi-object selection is
+    the ordinary case, not an edge one.
+
+    Tracks the *delta* against the scene rather than sweeping up every MESH
+    object in it, because ``op_clay_bake`` imports two GLBs into one scene
+    (the high file's objects selected, the low file's active) and a second
+    import must not also claim the first file's objects.
+    """
+    before = set(bpy.context.scene.objects)
+    bpy.ops.import_scene.gltf(filepath=str(path))
+    _purge_import_helpers(bpy)
+    meshes = [o for o in bpy.context.scene.objects if o.type == "MESH" and o not in before]
+    if not meshes:
+        raise RuntimeError(f"{path.name} contains no mesh")
+    return meshes
+
+
+def _local_bounds(obj: Any) -> tuple[list[float], list[float]]:
+    """``obj``'s bounding box in its own local space.
+
+    Unlike ``_world_bounds``, no ``matrix_world`` multiply -- the Clay ops
+    never touch an object's transform, and a local box is all the weld
+    epsilon and the voxel size need.
+    """
+    corners = [list(c) for c in obj.bound_box]
+    lo = [min(c[i] for c in corners) for i in range(3)]
+    hi = [max(c[i] for c in corners) for i in range(3)]
+    return lo, hi
+
+
+def _tri_count(obj: Any) -> int:
+    """Tessellated triangle count -- what ``target_faces`` is shared out by
+    proportionally in ``op_clay_retopo``, so a 10-triangle prop bundled with
+    a 10,000-triangle hero mesh is not squeezed to the same budget."""
+    return sum(max(len(p.vertices) - 2, 0) for p in obj.data.polygons)
+
+
+def _snapshot_faces(obj: Any) -> tuple[list[tuple[float, ...]], list[tuple[int, ...]], list[int]]:
+    """(vertex positions, polygon vertex-index tuples, polygon
+    material_index) of ``obj``'s mesh right now, local space -- taken before
+    a remesh changes the topology, for
+    ``_transfer_materials_by_nearest_face`` to look answers up in
+    afterwards."""
+    mesh = obj.data
+    verts = [tuple(v.co) for v in mesh.vertices]
+    polys = [tuple(p.vertices) for p in mesh.polygons]
+    mat_idx = [p.material_index for p in mesh.polygons]
+    return verts, polys, mat_idx
+
+
+def _transfer_materials_by_nearest_face(
+    bpy: Any,
+    obj: Any,
+    verts: list[tuple[float, ...]],
+    polys: list[tuple[int, ...]],
+    mat_idx: list[int],
+) -> None:
+    """Assign each of ``obj``'s *current* faces the material of the nearest
+    pre-remesh face, by a BVH built on the snapshot ``_snapshot_faces`` took.
+
+    Quadriflow and the decimate fallback both hand back all-new topology
+    with every face's ``material_index`` reset to 0 -- Blender has no
+    material-aware remesh operator -- so a multi-material object would
+    silently repaint itself into slot 0 without this. The material *slots*
+    (``obj.data.materials``) survive the remesh unchanged; only the per-face
+    assignment is lost, which is exactly what this restores.
+    """
+    if not polys:
+        return
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+
+    bvh = BVHTree.FromPolygons(verts, polys, all_triangles=False, epsilon=0.0)
+    mesh = obj.data
+    for poly in mesh.polygons:
+        center = Vector((0.0, 0.0, 0.0))
+        for vi in poly.vertices:
+            center += mesh.vertices[vi].co
+        center /= len(poly.vertices)
+        hit = bvh.find_nearest(center)
+        index = hit[2] if hit else None
+        if index is not None and 0 <= index < len(mat_idx):
+            poly.material_index = mat_idx[index]
+
+
+def _uv_island_count(obj: Any) -> int:
+    """Connected components of ``obj``'s active UV layer, cutting at a seam
+    (loop UVs disagreeing across a shared edge) -- the same test Blender's
+    own seam tools make. Best-effort: the result field it feeds is optional,
+    because what a caller mostly wants confirmed is that the unwrap produced
+    *some* islands, not an atlas-packer's exact count.
+
+    No ``bpy`` parameter: like ``_unbind``, it only walks the mesh it was
+    handed and never touches Blender's global state.
+    """
+    import bmesh
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        uv_layer = bm.loops.layers.uv.active
+        if uv_layer is None or not bm.faces:
+            return 0
+        parent = list(range(len(bm.faces)))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        face_index = {f: idx for idx, f in enumerate(bm.faces)}
+        for edge in bm.edges:
+            linked = edge.link_faces
+            if len(linked) != 2:
+                continue
+            f1, f2 = linked
+            loops1 = [ln for ln in f1.loops if ln.vert in edge.verts]
+            loops2 = [ln for ln in f2.loops if ln.vert in edge.verts]
+            uv1 = {tuple(round(c, 6) for c in ln[uv_layer].uv) for ln in loops1}
+            uv2 = {tuple(round(c, 6) for c in ln[uv_layer].uv) for ln in loops2}
+            if uv1 == uv2:
+                union(face_index[f1], face_index[f2])
+        return len({find(i) for i in range(len(bm.faces))})
+    finally:
+        bm.free()
+
+
+def _metallic_constant(objects: Sequence[Any]) -> float:
+    """``_source_metallic``, averaged over several objects rather than one.
+
+    ``op_clay_bake``'s high side may be more than one object -- Clay can send
+    a multi-object selection as the bake source -- and the reasoning for
+    reading a constant off the Principled BSDF rather than baking it is
+    ``_source_metallic``'s.
+    """
+    values: list[float] = []
+    for obj in objects:
+        for material in obj.data.materials:
+            if material is None or not material.use_nodes:
+                continue
+            for node in material.node_tree.nodes:
+                if node.type == "BSDF_PRINCIPLED":
+                    socket = node.inputs.get("Metallic")
+                    if socket is not None and not socket.is_linked:
+                        values.append(float(socket.default_value))
+    return sum(values) / len(values) if values else 0.0
+
+
+def op_clay_retopo(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Retopologise every mesh object in a Clay-sent GLB, independently.
+
+    No unwrap and no bake: those are ``op_clay_unwrap`` and ``op_clay_bake``,
+    so a caller that only wants a lower triangle count is not paying for a UV
+    pass or a Cycles bake it did not ask for.
+
+    Each object's share of ``target_faces`` is proportional to its own
+    triangle count -- see ``_tri_count``. Materials survive by nearest-face
+    lookup -- see ``_transfer_materials_by_nearest_face``. UV layers are
+    dropped after the remesh unless ``keep_uvs`` is set: quadriflow writes no
+    UVs at all and the decimate fallback's are undefined territory on a
+    topology this different, so the default is to leave a caller-run
+    ``op_clay_unwrap`` a clean slate rather than a stale layer that happens
+    to still parse.
+    """
+    source_path = Path(spec["source_glb"])
+    out_glb = Path(spec["out_glb"]).resolve()
+    if not source_path.exists():
+        raise RuntimeError(f"nothing to retopologise at {source_path}")
+    target_faces = int(spec["target_faces"])
+    seed = int(spec.get("seed", 0))
+    close_holes = bool(spec.get("close_holes", False))
+    keep_uvs = bool(spec.get("keep_uvs", False))
+
+    progress(0.02, "Loading model")
+    _reset_scene(bpy)
+    objects = _import_glb_objects(bpy, source_path)
+
+    total_tris = sum(_tri_count(o) for o in objects) or 1
+    n = len(objects)
+    span = 0.9 / n
+    report: list[dict[str, Any]] = []
+    for i, obj in enumerate(objects):
+        frac_lo = 0.05 + span * i
+        frac_hi = 0.05 + span * (i + 1)
+        faces_before = len(obj.data.polygons)
+        tris = _tri_count(obj)
+        obj_target = max(int(round(target_faces * tris / total_tris)), 4)
+
+        verts, polys, mat_idx = _snapshot_faces(obj)
+        lo, hi = _local_bounds(obj)
+        diagonal = max(math.dist(lo, hi), 1e-6)
+        weld = weld_distance(lo, hi)
+        if weld > 0.0:
+            pre_weld, _merged = _weld(bpy, obj, weld)
+            with contextlib.suppress(Exception):
+                bpy.data.meshes.remove(pre_weld)
+
+        method = _remesh_object(
+            bpy,
+            obj,
+            target_faces=obj_target,
+            seed=seed,
+            close_holes=close_holes,
+            diagonal=diagonal,
+            on_close_holes=lambda o=obj, f=frac_lo: progress(
+                f + span * 0.3, f"Closing holes: {o.name}"
+            ),
+            on_remesh=lambda o=obj, t=obj_target, f=frac_lo: progress(
+                f + span * 0.5, f"Remeshing {o.name} to {t:,} quads"
+            ),
+        )
+
+        _transfer_materials_by_nearest_face(bpy, obj, verts, polys, mat_idx)
+
+        if not keep_uvs:
+            while obj.data.uv_layers:
+                obj.data.uv_layers.remove(obj.data.uv_layers[0])
+
+        faces, quads = _face_stats(obj)
+        report.append(
+            {
+                "name": obj.name,
+                "method": method,
+                "faces_before": faces_before,
+                "faces": faces,
+                "quads": quads,
+            }
+        )
+        progress(frac_hi, f"Retopologised {obj.name}")
+
+    progress(0.97, "Exporting")
+    _export(bpy, out_glb)
+    progress(1.0, "Retopologised")
+    return {"ok": True, "objects": report}
+
+
+def op_clay_unwrap(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Smart-UV-Project every mesh object in a Clay-sent GLB. Geometry
+    untouched -- only what ``op_clay_bake``'s UV precondition and a later
+    manual layout depend on."""
+    source_path = Path(spec["source_glb"])
+    out_glb = Path(spec["out_glb"]).resolve()
+    if not source_path.exists():
+        raise RuntimeError(f"nothing to unwrap at {source_path}")
+    angle_limit = float(spec.get("angle_limit", 66.0))
+    island_margin = float(spec.get("island_margin", 0.003))
+
+    progress(0.05, "Loading model")
+    _reset_scene(bpy)
+    objects = _import_glb_objects(bpy, source_path)
+
+    report: list[dict[str, Any]] = []
+    n = len(objects)
+    span = 0.85 / n
+    for i, obj in enumerate(objects):
+        progress(0.1 + span * i, f"Unwrapping {obj.name}")
+        _smart_unwrap(bpy, obj, angle_limit_deg=angle_limit, island_margin=island_margin)
+        report.append({"name": obj.name, "islands": _uv_island_count(obj)})
+
+    progress(0.97, "Exporting")
+    _export(bpy, out_glb)
+    progress(1.0, "Unwrapped")
+    return {"ok": True, "objects": report}
+
+
+def op_clay_bake(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Selected-to-active Cycles bake from a high GLB onto a low GLB's UVs.
+
+    Two separate files rather than one -- the high and low meshes are two
+    different GLBs Clay sends (a retopologised low next to the mesh it
+    replaced), imported into one scene only for the bake. The high objects
+    are removed again before export, so the written GLB carries the low
+    mesh(es) alone.
+
+    "the low one(s)" in the brief this came from: Blender's selected-to-active
+    bake only ever has one *active* object, so a multi-object low selection
+    (the same shape ``op_clay_retopo``/``op_clay_unwrap`` hand back) is baked
+    one object at a time, every high object selected each time -- there is no
+    per-low mapping to the high side, because Clay's own selection is already
+    the scope of "what this bake is for".
+
+    Every low object must already carry UVs -- refused by name rather than
+    producing a blank atlas, the same rule ``op_remesh``'s own bake depends
+    on ``op_clay_unwrap`` or the reconstruction's own layout to have
+    satisfied. Checked for *all* of them before any bake runs, so a job
+    already minutes into Cycles never fails on the last object for a mistake
+    that was visible before it started.
+    """
+    high_path = Path(spec["high_glb"])
+    low_path = Path(spec["low_glb"])
+    out_glb = Path(spec["out_glb"]).resolve()
+    if not high_path.exists():
+        raise RuntimeError(f"nothing to bake from at {high_path}")
+    if not low_path.exists():
+        raise RuntimeError(f"nothing to bake onto at {low_path}")
+    texture_size = int(spec["texture_size"])
+    cage_extrusion = float(spec.get("cage_extrusion", 0.0))
+    requested = spec.get("maps") or list(_BAKE_MAP_KINDS)
+    maps = [m for m in requested if m in _BAKE_MAP_KINDS]
+    if not maps:
+        raise RuntimeError("no bake maps requested")
+
+    progress(0.02, "Loading low mesh")
+    _reset_scene(bpy)
+    lows = _import_glb_objects(bpy, low_path)
+    unwrapped = [low.name for low in lows if not low.data.uv_layers]
+    if unwrapped:
+        raise RuntimeError(
+            f"{low_path.name} has no UVs to bake into (object(s) {', '.join(unwrapped)}); "
+            "unwrap it first"
+        )
+
+    progress(0.1, "Loading high mesh")
+    highs = _import_glb_objects(bpy, high_path)
+    metallic = _metallic_constant(highs)
+
+    labels = {
+        "base_color": "Baking colour",
+        "roughness": "Baking roughness",
+        "normal": "Baking normals",
+    }
+    total_bakes = len(lows) * len(maps)
+    counter = iter(range(1, total_bakes + 1))
+    for low in lows:
+        lo, hi = _local_bounds(low)
+        diagonal = max(math.dist(lo, hi), 1e-6)
+        max_ray_distance = diagonal * 0.05
+        material, _images = _bake_maps(
+            bpy,
+            low,
+            highs,
+            maps=maps,
+            texture_size=texture_size,
+            cage_extrusion=cage_extrusion,
+            max_ray_distance=max_ray_distance,
+            material_name="wl_clay_baked",
+            on_bake=lambda key, low=low: progress(
+                0.15 + 0.7 * next(counter) / total_bakes,
+                f"{labels.get(key, f'Baking {key}')}: {low.name}",
+            ),
+        )
+        _set_metallic_constant(material, metallic)
+
+    progress(0.9, "Exporting")
+    for high in highs:
+        bpy.data.objects.remove(high, do_unlink=True)
+    _export(bpy, out_glb)
+    progress(1.0, "Baked")
+    return {"ok": True, "maps": maps, "texture_size": texture_size, "metallic": metallic}
+
+
+OPS = {
+    "rig": op_rig,
+    "pose": op_pose,
+    "animate": op_animate,
+    "armature": op_armature,
+    "clip_sample": op_clip_sample,
+    "sheet": op_sheet,
+    "fbx": op_fbx,
+    "views": op_views,
+    "project": op_project,
+    "remesh": op_remesh,
+    "clay_retopo": op_clay_retopo,
+    "clay_unwrap": op_clay_unwrap,
+    "clay_bake": op_clay_bake,
+}
+
+
+def main() -> int:
+    # ``fetch_worker``'s rule: a malformed spec is reported in a sentence and
+    # an exit code, never as a traceback. The host reads the tail of stdout to
+    # build its error message, and a stack trace from a JSON decoder tells the
+    # user nothing about the job they submitted. The result path is resolved
+    # here rather than after the op, so a spec that could never hand anything
+    # back is refused before Blender spends minutes on it.
+    try:
+        spec = json.loads(sys.stdin.read())
+        result_path = Path(spec["result_path"])
+    except (ValueError, TypeError, KeyError) as exc:
+        print(f"the worker spec on stdin is not usable: {exc}", file=sys.stderr)
+        return 2
+    op = OPS.get(spec.get("op"))
+    if op is None:
+        print(f"unknown op {spec.get('op')!r}", file=sys.stderr)
+        return 2
+    try:
+        import bpy
+    except ImportError as exc:
+        print(f"Blender (bpy) is not installed: {exc}", file=sys.stderr)
+        return 3
+    result = op(bpy, spec)
+    # Staged and renamed, like every other write onto a name something else
+    # reads: the host polls for this file's existence, so a partial write is a
+    # result it would parse as a failure of the op rather than of the write.
+    tmp = result_path.with_name(result_path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(result), encoding="utf-8")
+        tmp.replace(result_path)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

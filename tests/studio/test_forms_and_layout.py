@@ -14,13 +14,13 @@ from pathlib import Path
 import pytest
 from _panes import pane_files
 
-from warlock.studio import dialogs as dialogs_mod
-from warlock.studio import layout as layout_mod
-from warlock.studio import theme, tokens
-from warlock.studio.modes.create.ui.panes import settings_2d, settings_3d
-from warlock.studio.modes.home.ui.panes import landing
-from warlock.studio.modes.library.ui.panes import library
-from warlock.studio.modes.settings.ui.panes import app_settings
+from realmspinner.studio import dialogs as dialogs_mod
+from realmspinner.studio import layout as layout_mod
+from realmspinner.studio import theme, tokens
+from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
+from realmspinner.studio.modes.home.ui.panes import landing
+from realmspinner.studio.modes.library.ui.panes import library
+from realmspinner.studio.modes.settings.ui.panes import app_settings
 
 PANES = pane_files()
 
@@ -103,7 +103,7 @@ def test_no_pane_hardcodes_a_pixel_size(path):
 
 
 def test_the_swatch_grid_scales_with_the_display():
-    from warlock.studio.modes.inker.ui.panes import colors as inker_colors
+    from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
 
     source = inspect.getsource(inker_colors._swatches)
     assert "sp(SWATCH)" in source
@@ -127,7 +127,7 @@ def test_the_2d_form_scrolls_under_a_fixed_plan():
 
 
 def test_generate_is_not_in_the_scrolling_column_at_all():
-    from warlock.studio.modes.create.ui import brief as create_brief
+    from realmspinner.studio.modes.create.ui import brief as create_brief
 
     assert "primary_button" not in inspect.getsource(settings_2d)
     assert "primary_button" in inspect.getsource(create_brief)
@@ -199,7 +199,7 @@ def test_the_size_field_is_an_unbounded_drag_that_carries_its_unit():
 def test_the_atlas_is_rebuilt_between_frames_and_never_inside_one():
     """Rebuilding invalidates every ImFont handle, and those are pushed and
     popped all through ``_build_ui``."""
-    from warlock.studio import fonts, main
+    from realmspinner.studio import fonts, main
 
     source = inspect.getsource(main.App.frame)
     assert "fonts.reload" in source
@@ -259,11 +259,11 @@ def test_the_resume_cursor_wraps():
     not -- which is why the library's arrows clamp and these do not."""
     from types import SimpleNamespace
 
-    from warlock.studio import recents
+    from realmspinner.studio import recents
 
     settings = _RecentSettings()
     for index in range(3):
-        recents.remember(settings, "clay", f"f{index}.wblk", when=float(index))
+        recents.remember(settings, "clay", f"f{index}.rblk", when=float(index))
     ctx = SimpleNamespace(state=SimpleNamespace(home_index=0), settings=settings)
     landing.move(ctx, -1)
     assert ctx.state.home_index == len(landing.rows(ctx)) - 1 == 2
@@ -286,7 +286,7 @@ def test_home_takes_the_arrows_and_enter():
     """Library and Profiles are modes now, so there is no sub-view behind which
     a cursor could move invisibly and then fire on the next Enter -- which is
     what the ``landing_view == "choose"`` guard here used to be for."""
-    from warlock.studio import main
+    from realmspinner.studio import main
 
     source = inspect.getsource(main.App._shortcut)
     assert "landing_view" not in source
@@ -395,7 +395,7 @@ def test_the_pixel_palette_is_warm_and_keeps_darks_elevation_direction():
 def test_the_strip_progress_comes_from_the_renderer():
     """A tally kept by the pane would describe the *previous* run after a
     cancel-and-restart."""
-    from warlock.studio.viewer_embed import Viewer
+    from realmspinner.studio.viewer_embed import Viewer
 
     source = inspect.getsource(Viewer.strip_progress.fget)
     assert "self._strip" in source
@@ -456,7 +456,7 @@ def test_a_form_field_whose_label_overruns_the_column_stacks_instead_of_overlapp
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from _ui_context import imgui_context
 
-    from warlock.studio import forms
+    from realmspinner.studio import forms
 
     class _Recorder:
         """Wraps the real ``same_line`` so the test can tell whether the
@@ -523,7 +523,7 @@ def test_forms_footer_does_not_bypass_the_divider_door():
     call had nothing to catch it. ``widgets.divider()`` is the one door every
     other rule between two groups goes through (2026-09-05).
     """
-    from warlock.studio import forms
+    from realmspinner.studio import forms
 
     source = Path(inspect.getfile(forms)).read_text(encoding="utf-8")
     tree = ast.parse(source)

@@ -18,8 +18,8 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import main
-from warlock.studio.state import AppState
+from realmspinner.studio import main
+from realmspinner.studio.state import AppState
 
 JOB = {"id": "job-1", "status": "done", "kind": "mesh", "files": ["input.png", "model.glb"]}
 
@@ -249,8 +249,8 @@ def _a_model() -> Any:
     the same helper ``test_viewer_embed_textures.py`` uses, duplicated here
     rather than imported since that file is a sibling test module, not a
     library this one may depend on."""
-    from warlock.kernels.mesh import document as bd
-    from warlock.kernels.mesh import primitives as bp
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import primitives as bp
 
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
@@ -271,7 +271,7 @@ def test_adopting_a_different_model_mid_strip_cancels_the_strip_instead_of_finis
     the remaining cells came back blank while the pane still believed the
     strip had finished normally.
     """
-    from warlock.studio.viewer_embed import Viewer
+    from realmspinner.studio.viewer_embed import Viewer
 
     viewer = Viewer(gl)
     try:
@@ -296,7 +296,7 @@ def test_clearing_the_viewer_mid_strip_cancels_it_instead_of_finishing_it_blank(
     the paused strip still held a direct reference to, so the strip resumed
     drawing its remaining cells blank instead of finishing or cancelling.
     """
-    from warlock.studio.viewer_embed import Viewer
+    from realmspinner.studio.viewer_embed import Viewer
 
     viewer = Viewer(gl)
     try:

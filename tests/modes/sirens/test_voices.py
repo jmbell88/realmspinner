@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.modes.sirens.engine import voices
+from realmspinner.studio.modes.sirens.engine import voices
 
 
 def test_the_two_noise_taps_have_the_periods_the_chip_has():

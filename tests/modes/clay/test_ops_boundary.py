@@ -11,11 +11,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import adjacency as adj
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops_topo as ops
-from warlock.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh import adjacency as adj
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops_topo as ops
+from realmspinner.kernels.mesh import primitives as prim
 
 from .topo_asserts import (
     assert_closed,
@@ -256,7 +256,7 @@ def test_a_bridge_quad_inherits_the_material_of_the_loop_it_grew_from() -> None:
 
 
 def test_extrude_is_one_row_and_one_key_across_all_three_modes() -> None:
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     op = clay_ops.get("extrude")
     assert op.modes == clay_ops.ELEMENT_MODES
@@ -265,6 +265,6 @@ def test_extrude_is_one_row_and_one_key_across_all_three_modes() -> None:
 
 
 def test_bridge_is_offered_in_edge_mode_only() -> None:
-    from warlock.studio.modes.clay import ops as clay_ops
+    from realmspinner.studio.modes.clay import ops as clay_ops
 
     assert clay_ops.get("bridge").modes == ("edge",)

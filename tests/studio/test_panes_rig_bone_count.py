@@ -20,8 +20,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from warlock.studio.panes import inspector
-from warlock.studio.state import AppState
+from realmspinner.studio.panes import inspector
+from realmspinner.studio.state import AppState
 
 
 class FakeCtx:

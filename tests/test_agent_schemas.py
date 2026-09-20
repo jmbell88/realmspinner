@@ -234,7 +234,7 @@ not actually enforce, fixed rather than the test being weakened to match:
   inside ``base64.b64decode`` -- three bare exceptions, all caught only by
   ``call()``'s generic backstop.
 
-See ``src/warlock/studio/modes/clay/agent/dispatch.py``'s own module docstring for the
+See ``src/realmspinner/studio/modes/clay/agent/dispatch.py``'s own module docstring for the
 paragraph this file is cited from, and the same commit's diff for each fix.
 """
 
@@ -248,9 +248,9 @@ from typing import Any
 import pytest
 from modes.clay.test_agent_clay import _Ctx, _install_fake_view, _payload  # see module docstring
 
-from warlock.kernels.mesh import presets
-from warlock.studio.modes.clay import mode as clay_mode
-from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.kernels.mesh import presets
+from realmspinner.studio.modes.clay import mode as clay_mode
+from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
 Args = dict[str, Any]
 BaselineFactory = Callable[..., tuple[Any, agent_clay.Session, Args]]
@@ -840,7 +840,7 @@ def _select_by_call(
     query: str, extra: Args, monkeypatch: Any = None, svc: Any = None
 ) -> tuple[Any, agent_clay.Session, Args]:
     del monkeypatch, svc
-    from warlock.kernels.mesh import select as clay_select_mod
+    from realmspinner.kernels.mesh import select as clay_select_mod
 
     ctx, session, uid1, _uid2 = _new_world()
     modes = clay_select_mod.QUERIES[query].modes

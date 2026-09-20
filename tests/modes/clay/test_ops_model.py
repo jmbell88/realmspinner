@@ -6,13 +6,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.kernels.mesh import adjacency as adj
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import ops_model as om
-from warlock.kernels.mesh import ops_topo as ops
-from warlock.kernels.mesh import primitives as prim
-from warlock.kernels.mesh.mesh import from_faces
+from realmspinner.kernels.mesh import adjacency as adj
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops_model as om
+from realmspinner.kernels.mesh import ops_topo as ops
+from realmspinner.kernels.mesh import primitives as prim
+from realmspinner.kernels.mesh.mesh import from_faces
 
 from .topo_asserts import assert_closed, assert_consistently_oriented, assert_wound_outward
 

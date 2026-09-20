@@ -25,13 +25,13 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.kernels.mesh import document as bd
-from warlock.kernels.mesh import elements as el
-from warlock.kernels.mesh import mesh as bm
-from warlock.kernels.mesh import primitives as bp
-from warlock.kernels.mesh import uv as bmuv
-from warlock.kernels.mesh import uvtools
-from warlock.studio.modes.clay.ui.panes import uv as clay_uv
+from realmspinner.kernels.mesh import document as bd
+from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import uv as bmuv
+from realmspinner.kernels.mesh import uvtools
+from realmspinner.studio.modes.clay.ui.panes import uv as clay_uv
 
 
 @pytest.fixture

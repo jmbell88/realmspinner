@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from warlock.familiar import router
+from realmspinner.familiar import router
 
 
 def test_an_unparseable_route_falls_back_to_other():

@@ -5,7 +5,7 @@ Marked ``perf`` and therefore deselected by the default parallel run, for
 workers saturate the cores is a reading about the scheduler. Run them with
 ``uv run pytest -m perf -n 0``.
 
-The budgets are ratios against the ``WARLOCK_NATIVE=0`` fallback wherever a
+The budgets are ratios against the ``REALMSPINNER_NATIVE=0`` fallback wherever a
 fallback exists, so they survive a slower machine and still say whether the
 kernel is doing the work it was written to do. The two Tier 0 entries have no
 seam to toggle -- they *replaced* their reference -- so their budget is against
@@ -22,7 +22,7 @@ import time
 import numpy as np
 import pytest
 
-from warlock import native
+from realmspinner import native
 
 pytestmark = pytest.mark.perf
 
@@ -39,12 +39,12 @@ def _timed(fn, repeats: int = 3) -> float:
 def _without_native(fn):
     import os
 
-    os.environ["WARLOCK_NATIVE"] = "0"
+    os.environ["REALMSPINNER_NATIVE"] = "0"
     native.reset()
     try:
         return fn()
     finally:
-        os.environ.pop("WARLOCK_NATIVE", None)
+        os.environ.pop("REALMSPINNER_NATIVE", None)
         native.reset()
 
 
@@ -53,11 +53,11 @@ def _without_native(fn):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_the_bvh_build_is_at_least_three_times_the_numpy_path() -> None:
     """Measured at 8.5x on a 200k-triangle mesh (1045 ms to 123 ms); three is
     the floor that fails only if the kernel has stopped being reached."""
-    from warlock.studio.viewer import picking
+    from realmspinner.studio.viewer import picking
 
     rng = np.random.default_rng(0xB00)
     positions = rng.random((60_000, 3)) * 10.0
@@ -73,14 +73,14 @@ def test_the_bvh_build_is_at_least_three_times_the_numpy_path() -> None:
     )
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_the_plotter_render_is_at_least_three_times_the_numpy_path() -> None:
     """The interactive path batch 3's budgets never covered. Measured at 5.7x
     on the 200x200x3 map the plan benched (4348 ms to 759 ms)."""
-    from warlock.kernels.grid2d import gid
-    from warlock.kernels.grid2d.tileset import Tileset
-    from warlock.studio.modes.plotter.engine import render
-    from warlock.studio.modes.plotter.engine.tilemap import MapDoc
+    from realmspinner.kernels.grid2d import gid
+    from realmspinner.kernels.grid2d.tileset import Tileset
+    from realmspinner.studio.modes.plotter.engine import render
+    from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
 
     rng = np.random.default_rng(0x71E)
     tiles, size, cells = 64, 32, 60
@@ -104,13 +104,13 @@ def test_the_plotter_render_is_at_least_three_times_the_numpy_path() -> None:
     )
 
 
-@pytest.mark.skipif(not native.available(), reason="warlockc is not built")
+@pytest.mark.skipif(not native.available(), reason="realmspinnerc is not built")
 def test_the_oklab_palette_search_is_at_least_twice_the_numpy_path() -> None:
     """Only twice: unlike the other two, a large share of what is left is
     ``_to_oklab``, which the kernel deliberately does not swallow."""
     from PIL import Image
 
-    from warlock.pipelines import pixel
+    from realmspinner.pipelines import pixel
 
     rng = np.random.default_rng(0xD1E)
     image = Image.fromarray(
@@ -141,7 +141,7 @@ def test_the_clay_scatter_beats_the_unbuffered_ufunc_it_replaced() -> None:
     """``mesh.accumulate`` is on Clay's rebuild-on-every-edit path, and the
     reference is written out here because there is no seam to toggle -- the
     bincount *is* the implementation now."""
-    from warlock.kernels.mesh.mesh import accumulate
+    from realmspinner.kernels.mesh.mesh import accumulate
 
     rng = np.random.default_rng(0x5EED)
     n_verts = 200_000
@@ -184,7 +184,7 @@ def test_the_palette_histogram_no_longer_scales_with_the_palette() -> None:
     the palette and the packed pass is flat in it. A 16-entry and a 256-entry
     reading over the same canvas have to come out within a factor of two, which
     a reintroduced per-entry scan could not manage."""
-    from warlock.kernels.pixel import indexed as ix
+    from realmspinner.kernels.pixel import indexed as ix
 
     rng = np.random.default_rng(0xA11CE)
     side = 512

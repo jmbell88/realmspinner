@@ -1,5 +1,5 @@
 /* Silhouette coverage rasterisation -- the inner half of
- * warlock.meshaudit._coverage.
+ * realmspinner.meshaudit._coverage.
  *
  * The Python this replaces is vectorised but pays for it in memory: a batch of
  * n triangles sharing a k x k window materialises about a dozen (n, k, k)
@@ -12,11 +12,11 @@
  * Every quirk of the Python is reproduced deliberately, because the test bar is
  * a bit-identical mask rather than a similar one. They are marked below. */
 
-#include "warlockc.h"
+#include "realmspinnerc.h"
 
 #include <math.h>
 
-int32_t warlockc_abi(void) { return WARLOCKC_ABI; }
+int32_t realmspinnerc_abi(void) { return REALMSPINNERC_ABI; }
 
 /* floor/ceil, then clamp, then truncate -- in that order.
  *
@@ -45,7 +45,7 @@ static double max3(double p, double q, double r) {
     return m > r ? m : r;
 }
 
-void warlockc_rasterise(const double *ax, const double *ay, const double *bx,
+void realmspinnerc_rasterise(const double *ax, const double *ay, const double *bx,
                         const double *by, const double *cx, const double *cy,
                         const double *area2, int64_t n, int32_t resolution,
                         uint8_t *covered) {

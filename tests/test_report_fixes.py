@@ -17,8 +17,8 @@ import zlib
 
 import pytest
 
-from warlock import leases
-from warlock.core.safeio import zipguard
+from realmspinner import leases
+from realmspinner.core.safeio import zipguard
 
 # --- the zip claimed-size ceiling was bypassable -------------------------------
 
@@ -101,10 +101,10 @@ def test_every_container_door_reads_through_the_bounded_reader():
     from pathlib import Path
 
     doors = [
-        Path("src/warlock/kernels/pixel/ora.py"),
-        Path("src/warlock/kernels/mesh/serialize.py"),
-        Path("src/warlock/studio/modes/packwright/engine/wpack.py"),
-        Path("src/warlock/studio/modes/plotter/engine/wmap.py"),
+        Path("src/realmspinner/kernels/pixel/ora.py"),
+        Path("src/realmspinner/kernels/mesh/serialize.py"),
+        Path("src/realmspinner/studio/modes/packwright/engine/rpack.py"),
+        Path("src/realmspinner/studio/modes/plotter/engine/rmap.py"),
     ]
     for door in doors:
         source = door.read_text(encoding="utf-8")
@@ -121,7 +121,7 @@ def test_every_container_door_reads_through_the_bounded_reader():
 
 
 def test_the_maintainer_may_run_its_own_model_operation():
-    """``queue._unload_under_lease`` under ``WARLOCK_T2I_IN_PROCESS=1``.
+    """``queue._unload_under_lease`` under ``REALMSPINNER_T2I_IN_PROCESS=1``.
 
     It holds ``maintain`` and then calls ``pipe.unload()``, which takes
     ``use``. ``use``'s ``wait_for`` has no timeout, so before the fix this hung
@@ -185,7 +185,7 @@ def test_a_cel_that_inflates_past_its_rectangle_is_refused():
     called bare ``zlib.decompress`` three times and checked the size in
     ``_decode``, which runs after the allocation it would have prevented.
     """
-    from warlock.kernels.pixel import asein
+    from realmspinner.kernels.pixel import asein
 
     # A 4x4 RGBA cel is 64 bytes. This stream inflates to 8 MiB.
     payload = b"\0" * (8 << 20)
@@ -196,14 +196,14 @@ def test_a_cel_that_inflates_past_its_rectangle_is_refused():
 def test_a_chunk_declaring_more_than_the_ceiling_is_refused_outright():
     """The second line of defence: the rectangle itself is two u16s, so an
     honest-looking 65535x65535 RGBA cel still asks for 17 GiB."""
-    from warlock.kernels.pixel import asein
+    from realmspinner.kernels.pixel import asein
 
     with pytest.raises(ValueError, match="past the"):
         asein._inflate(zlib.compress(b"x"), 65535 * 65535 * 4, "a cel on layer 0")
 
 
 def test_an_honest_cel_still_inflates():
-    from warlock.kernels.pixel import asein
+    from realmspinner.kernels.pixel import asein
 
     payload = bytes(range(64))
     assert asein._inflate(zlib.compress(payload), 64, "a cel on layer 0") == payload
@@ -213,8 +213,8 @@ def test_an_infinite_maps_chunk_cannot_outrun_the_extent_cap():
     """``tmx`` capped a *fixed* map's dimensions through ``MapDoc.__init__``,
     but an infinite map's real dimensions arrive as ``<chunk>`` attributes,
     which went straight into the decode bound uncapped."""
-    from warlock.studio.modes.plotter.engine import tmx
-    from warlock.studio.modes.plotter.engine.tilemap import MAX_DIMENSION
+    from realmspinner.studio.modes.plotter.engine import tmx
+    from realmspinner.studio.modes.plotter.engine.tilemap import MAX_DIMENSION
 
     assert tmx._chunk_side(16, "width") == 16
     assert tmx._chunk_side(MAX_DIMENSION, "width") == MAX_DIMENSION
@@ -238,7 +238,7 @@ def test_a_junk_window_size_never_reaches_set_mode(stored):
     reports the crash but never rewrites the key, so a non-developer gets a
     window that refuses to open on every launch with no way back in.
     """
-    from warlock.studio.main import MIN_SIZE, _window_size
+    from realmspinner.studio.main import MIN_SIZE, _window_size
 
     size = _window_size(stored, override=None, first_run_scale=1.0, desktop=(1920, 1080))
     assert size[0] >= MIN_SIZE[0] and size[1] >= MIN_SIZE[1]
@@ -247,7 +247,7 @@ def test_a_junk_window_size_never_reaches_set_mode(stored):
 def test_the_default_window_is_clamped_to_the_desktop():
     """1600x950 at the 125% Windows recommends for many 1080p laptops asks for
     2000x1187, which does not fit the panel it was scaled for."""
-    from warlock.studio.main import _window_size
+    from realmspinner.studio.main import _window_size
 
     assert _window_size(None, override=None, first_run_scale=1.25, desktop=(1920, 1080)) == (
         1920,
@@ -263,7 +263,7 @@ def test_the_default_window_is_clamped_to_the_desktop():
 def test_an_explicit_override_is_never_clamped():
     """The screenshot harness asks for an exact framebuffer, and a clamp there
     would silently produce shots of a size nothing asked for."""
-    from warlock.studio.main import _window_size
+    from realmspinner.studio.main import _window_size
 
     assert _window_size(
         [1700, 1000], override=(640, 480), first_run_scale=1.0, desktop=(1920, 1080)
@@ -271,7 +271,7 @@ def test_an_explicit_override_is_never_clamped():
 
 
 def test_a_display_that_reports_nothing_falls_back_to_the_default():
-    from warlock.studio.main import DEFAULT_SIZE, _window_size
+    from realmspinner.studio.main import DEFAULT_SIZE, _window_size
 
     assert _window_size(None, override=None, first_run_scale=1.0, desktop=None) == DEFAULT_SIZE
 
@@ -310,7 +310,7 @@ def test_fit_rect(outer, work, expected):
     (``MonitorFromWindow``/``GetMonitorInfoW``/``GetWindowRect``) that supply
     ``fit_window_to_work_area``'s two rects and cannot be exercised off
     Windows."""
-    from warlock.studio.dpi import fit_rect
+    from realmspinner.studio.dpi import fit_rect
 
     assert fit_rect(outer, work) == expected
 
@@ -324,7 +324,7 @@ def test_desktop_size_prefers_the_work_area(monkeypatch):
     ``get_desktop_sizes`` returned instead (here, an exception turned into
     ``None`` by the old function's blanket ``except``).
     """
-    from warlock.studio import dpi, main
+    from realmspinner.studio import dpi, main
 
     monkeypatch.setattr(dpi, "work_area", lambda: (0, 0, 1920, 1040))
 
@@ -340,7 +340,7 @@ def test_desktop_size_prefers_the_work_area(monkeypatch):
 def test_desktop_size_falls_back_to_get_desktop_sizes(monkeypatch):
     """Off Windows, or if ``SystemParametersInfoW`` itself fails, ``work_area``
     returns None and the whole-display size is still better than nothing."""
-    from warlock.studio import dpi, main
+    from realmspinner.studio import dpi, main
 
     monkeypatch.setattr(dpi, "work_area", lambda: None)
 
@@ -364,7 +364,7 @@ def test_saving_a_png_in_place_is_staged_and_replaced(tmp_path, monkeypatch):
     The helper has since moved out of ``inker_mode`` and into ``core.safeio.atomic``
     -- see ``tests/test_atomic_writes.py`` for why it had to stop being one
     module's private idiom -- but the property is this one and stays here."""
-    from warlock.core.safeio import atomic
+    from realmspinner.core.safeio import atomic
 
     target = tmp_path / "drawing.png"
     target.write_bytes(b"the user's only copy")
@@ -385,7 +385,7 @@ def test_saving_a_png_in_place_is_staged_and_replaced(tmp_path, monkeypatch):
 
 
 def test_a_successful_atomic_write_replaces_and_leaves_no_temp(tmp_path):
-    from warlock.core.safeio import atomic
+    from realmspinner.core.safeio import atomic
 
     target = tmp_path / "drawing.png"
     target.write_bytes(b"old")
@@ -397,7 +397,7 @@ def test_a_successful_atomic_write_replaces_and_leaves_no_temp(tmp_path):
 def test_write_ora_leaves_no_staging_file_when_the_encode_fails(tmp_path, monkeypatch):
     """Not data loss -- ``replace`` only runs on success -- but ``plotter_io``,
     ``packwright_io`` and ``journal`` all unlink theirs and this one did not."""
-    from warlock.kernels.pixel import ora
+    from realmspinner.kernels.pixel import ora
 
     class Boom:
         def __getattr__(self, name):
@@ -416,7 +416,7 @@ def test_every_mode_says_what_it_is_for():
     """Six of eleven rail labels are invented names, and the rail is the
     primary navigation. ``rail._item`` already took a ``tooltip`` no call site
     passed."""
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     assert set(modes.PURPOSE) == set(modes.KEYS)
     for key, text in modes.PURPOSE.items():
@@ -452,7 +452,7 @@ def test_no_mode_is_marked_experimental():
     mode joining or leaving maturity tracking is a claim about the app that
     should have to be written down twice.
     """
-    from warlock.studio import modes
+    from realmspinner.studio import modes
 
     assert modes.MATURITY == {}
     assert modes.MATURITY_NOTE == {}
@@ -463,7 +463,7 @@ def test_the_rail_passes_the_purpose_and_the_badge_through():
     the call site passed no tooltip at all before."""
     import inspect
 
-    from warlock.studio import rail
+    from realmspinner.studio import rail
 
     source = inspect.getsource(rail)
     assert "modes.PURPOSE.get(key" in source
@@ -483,8 +483,8 @@ def test_no_cuda_device_is_fatal_once_it_has_actually_been_looked_for():
     fallback, so the real refusal used to arrive as
     ``RuntimeError("trellis-server exited during startup")`` two minutes into
     the first reconstruction."""
-    from warlock import doctor
-    from warlock.config import get_config
+    from realmspinner import doctor
+    from realmspinner.config import get_config
 
     config = get_config()
     check = doctor._vram_check(config, probe=True)
@@ -502,8 +502,8 @@ def test_a_deferred_probe_is_never_reported_as_a_missing_card():
     """
     import sys
 
-    from warlock import doctor
-    from warlock.config import get_config
+    from realmspinner import doctor
+    from realmspinner.config import get_config
 
     if "torch" in sys.modules:
         pytest.skip("torch already imported; the deferred path cannot be observed")
@@ -518,7 +518,7 @@ def test_a_deferred_probe_is_never_reported_as_a_missing_card():
 def test_every_base_model_declares_its_licence():
     """A tool whose purpose is producing assets people sell shipped two
     checkpoints that restrict exactly that, and said so nowhere."""
-    from warlock import models
+    from realmspinner import models
 
     for key, spec in models.BASE_MODELS.items():
         assert spec.license, f"{key} declares no licence"
@@ -529,7 +529,7 @@ def test_the_two_restricted_models_are_marked_as_such():
     promoted in the README as "the fast option". Playground v2.5 permits
     commercial use only below 1M monthly users and requires an attribution
     string this project owes."""
-    from warlock import models
+    from realmspinner import models
 
     turbo = models.BASE_MODELS["turbo"]
     assert not turbo.commercial
@@ -548,8 +548,8 @@ def test_the_two_restricted_models_are_marked_as_such():
 def test_the_licence_reaches_the_row_the_download_button_is_on():
     """Metadata nobody can see is not disclosure. The models table is where the
     ~7 GB fetch is agreed to."""
-    from warlock.service import downloads
-    from warlock.studio.modes.settings.ui.panes import app_settings
+    from realmspinner.service import downloads
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     row = {"license": "Some Non-Commercial Licence", "commercial": False,
            "license_note": "Ask first."}
