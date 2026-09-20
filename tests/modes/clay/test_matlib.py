@@ -8,6 +8,8 @@ in this session's brief).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -139,6 +141,93 @@ def test_load_tolerates_a_manifest_naming_a_texture_file_that_is_gone(tmp_path) 
     loaded = matlib.load_material(tmp_path, entry.id)
     assert loaded is not None
     assert loaded.base_color is None
+
+
+def _orphaned_pngs(folder) -> set[str]:
+    """A texture side car under *folder* whose manifest is not there to name
+    it -- what nothing in this module ever lists or sweeps."""
+    if not folder.is_dir():
+        return set()
+    manifests = {p.stem for p in folder.glob("*.json")}
+    orphans: set[str] = set()
+    for png in folder.glob("*.png"):
+        stem = png.stem
+        for slot in matlib.TEXTURE_SLOTS:
+            suffix = f"_{slot}"
+            if stem.endswith(suffix):
+                entry_id = stem[: -len(suffix)]
+                break
+        else:
+            entry_id = stem
+        if entry_id not in manifests:
+            orphans.add(png.name)
+    return orphans
+
+
+def test_an_interrupted_save_or_delete_leaves_no_orphaned_texture_side_cars(
+    tmp_path, monkeypatch
+) -> None:
+    """The 2026-09-19 audit, finding clay-32. ``save_material`` used to write
+    every texture PNG *before* the manifest that names them, and
+    ``delete_material`` unlinked the manifest *before* its PNGs -- an
+    interruption between either pair left PNGs under
+    ``REALMSPINNER_HOME/clay/materials`` that nothing lists or sweeps
+    (``list_materials`` only ever walks ``*.json``). The fix writes the
+    manifest first on save and last on delete, so a crash in the middle
+    always leaves either no manifest and no textures, or a manifest whose
+    texture slots ``load_material`` already tolerates missing.
+    """
+    folder = matlib.library_dir(tmp_path)
+
+    # --- an interrupted save: the manifest lands, then the crash hits partway
+    # through the textures -- one PNG makes it to disk, the rest do not.
+    real_write_png = matlib._write_png
+    calls = {"n": 0}
+
+    def _write_png_crash_after_first(path, image):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return real_write_png(path, image)
+        raise RuntimeError("simulated crash mid-texture-write")
+
+    material = gltf.Material(name="Rusty", base_color=_texture(), normal=_texture())
+    with monkeypatch.context() as m:
+        m.setattr(matlib, "_write_png", _write_png_crash_after_first)
+        with pytest.raises(RuntimeError):
+            matlib.save_material(tmp_path, "Rusty", material)
+
+    assert calls["n"] == 2, "the crash must land mid-write, not before or after every texture"
+    assert _orphaned_pngs(folder) == set(), (
+        "a save interrupted after the manifest write must not orphan the PNG that did land"
+    )
+    entries = matlib.list_materials(tmp_path)
+    assert [e.name for e in entries] == ["Rusty"], "the manifest itself landed intact"
+    loaded = matlib.load_material(tmp_path, entries[0].id)
+    assert loaded is not None, "a half-written material must still load, degraded"
+
+    matlib.delete_material(tmp_path, entries[0].id)  # a clean delete, for the next half
+
+    # --- an interrupted delete: both textures are unlinked, then the crash
+    # hits before the manifest itself is.
+    entry = matlib.save_material(
+        tmp_path, "Glass", gltf.Material(name="Glass", base_color=_texture(), normal=_texture())
+    )
+    real_unlink = Path.unlink
+
+    def _unlink_crash_on_manifest(self, *args, **kwargs):
+        if self.suffix == ".json":
+            raise RuntimeError("simulated crash before the manifest unlink")
+        return real_unlink(self, *args, **kwargs)
+
+    with monkeypatch.context() as m:
+        m.setattr(Path, "unlink", _unlink_crash_on_manifest)
+        with pytest.raises(RuntimeError):
+            matlib.delete_material(tmp_path, entry.id)
+
+    assert _orphaned_pngs(folder) == set(), (
+        "a delete interrupted before the manifest unlink must not orphan a PNG -- "
+        "the textures are already gone by then"
+    )
 
 
 def test_library_dir_is_under_the_given_home_not_the_real_one(tmp_path) -> None:

@@ -132,6 +132,34 @@ _SPHERE_RINGS = 6
 _CAPSULE_SEGMENTS = 12
 _CAPSULE_RINGS = 3
 
+#: The most **deduplicated** points :func:`_quickhull_core` may be asked to
+#: hull at once -- covering all three of its callers: :func:`convex_hull`,
+#: :func:`compound` (once per part) and :func:`fit_box`'s oriented PCA fit
+#: (via :func:`_hull_points_for_fit`). The 2026-09-19 audit's clay-10: this
+#: pure-Python incremental quickhull (see the module docstring: "the simpler
+#: O(faces) scan per iteration is not worth an adjacency structure") had no
+#: ceiling of its own -- the ``guard_limit = 20 * n + 64`` inside it is a
+#: convergence valve against a numerically stuck loop, not a size refusal --
+#: so an ordinary imported mesh's vertex count ran unbounded on the frame
+#: thread: 2.68 s at 2,000 points, 11.16 s at 20,000 (points sitting near
+#: their own eventual hull surface, which the audit's own probe picked as
+#: the case that keeps the most points "outside" some face for longest, and
+#: which is also what a real organic import's vertices actually look like).
+#: Re-measured at merge on this same worst-case distribution: 2.52 s / 10.24
+#: s at those two counts; 5,000 points (this ceiling) measures 4.44 s. That
+#: is still seconds, not milliseconds -- stated honestly rather than chasing
+#: the sub-second bar ``ops_dissolve.MAX_DISSOLVED_RING``/``ops_bevel.
+#: MAX_BEVELED_CORNERS`` hold themselves to for a per-edit op, because
+#: fitting a collider is the same "deliberate one-shot action" shape
+#: ``dev/INVARIANTS.md`` already accepts a bounded multi-second stall for
+#: (a large ``clay_boolean``, a whole-document ``clay_analyze``) -- the
+#: fix is a bound, not an instant answer. ``_hull_points_for_fit`` already
+#: treats any :class:`~.elements.OpError` out of :func:`_quickhull_core` as
+#: "fall back to every vertex for the PCA", so ``fit_box(oriented=True)``
+#: keeps the module docstring's "refuse nothing" contract past this ceiling
+#: too -- only the hull step skips, not the box.
+MAX_HULL_POINTS = 5_000
+
 
 # --- geometry, reused from primitives.py -------------------------------------
 
@@ -209,6 +237,7 @@ def _hull_points_for_fit(mesh: Mesh) -> np.ndarray:
         uniq = np.unique(points, axis=0)
         if len(uniq) < 4:
             return points
+        _refuse_hull_complexity(len(uniq), "oriented box fit")
         scale = float(max(np.ptp(uniq, axis=0).max(initial=0.0), 1.0))
         hull_idx, _faces = _quickhull_core(uniq, 1e-9 * scale)
         return uniq[hull_idx]
@@ -422,6 +451,22 @@ def _plane_of(points: np.ndarray, face: tuple[int, int, int]) -> tuple[np.ndarra
     return np.cross(pj - pi, pk - pi), pi
 
 
+def _refuse_hull_complexity(n_points: int, kind: str) -> None:
+    """Refuse before :func:`_quickhull_core` runs, from the (already
+    deduplicated) point count it would face -- the same shape
+    :func:`~.ops_boolean._refuse_complexity` uses: a cheap count read
+    before the expensive call, not a check woven into it. See
+    :data:`MAX_HULL_POINTS`'s own docstring for the incident and the
+    measurements behind the number.
+    """
+    if n_points > MAX_HULL_POINTS:
+        raise OpError(
+            f"This {kind} would need to hull {n_points:,} points, past the "
+            f"{MAX_HULL_POINTS:,} Clay works with. Simplify the mesh first, "
+            "or select fewer objects."
+        )
+
+
 def _quickhull_core(
     points: np.ndarray, eps: float
 ) -> tuple[np.ndarray, list[tuple[int, int, int]]]:
@@ -585,13 +630,16 @@ def _farthest_point_sample(points: np.ndarray, k: int) -> np.ndarray:
     return np.array(chosen, dtype="i8")
 
 
-def _hull_from_points(points: np.ndarray, max_faces: int) -> tuple[Mesh, dict[str, Any]]:
+def _hull_from_points(
+    points: np.ndarray, max_faces: int, *, kind: str = "convex hull"
+) -> tuple[Mesh, dict[str, Any]]:
     pts = np.asarray(points, dtype="f8")
     uniq = np.unique(pts, axis=0)
     if len(uniq) < 4:
         raise OpError(
             f"A convex hull needs at least 4 distinct points, got {len(uniq)}."
         )
+    _refuse_hull_complexity(len(uniq), kind)
     scale = float(max(np.ptp(uniq, axis=0).max(initial=0.0), 1.0))
     eps = 1e-9 * scale
 
@@ -743,7 +791,7 @@ def compound(
     parts: list[Collider] = []
     for g in groups:
         idx = np.unique(mesh.loops[_corners_of_faces(mesh, g)])
-        hull_mesh, params = _hull_from_points(mesh.positions[idx], max_faces)
+        hull_mesh, params = _hull_from_points(mesh.positions[idx], max_faces, kind="compound part")
         parts.append(Collider(kind="convex", mesh=hull_mesh, params=params))
 
     merged = _concat_meshes([p.mesh for p in parts])

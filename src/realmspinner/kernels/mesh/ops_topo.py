@@ -330,6 +330,53 @@ def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[
 
 # --- inset ------------------------------------------------------------------
 
+#: The largest selected-corner count :func:`inset_faces` will build new
+#: geometry for, in either its per-face or its ``region=True`` shape. The
+#: 2026-09-19 audit's clay-23 found inset had no ceiling of any kind, unlike
+#: every sibling growth op in this package (``MAX_BEVELED_CORNERS``,
+#: ``MAX_LOOP_CUT_CORNERS``, ``MAX_COLLAPSED_PAIRS``, ``MAX_BRIDGED_RING``,
+#: ``ops_dissolve.MAX_DISSOLVED_RING``, ``ops_subdiv.MAX_SUBDIVIDED_FACES``):
+#: a 700x700 grid, 490,000 selected faces (1,960,000 corners), inset in
+#: 904 ms with no refusal, and kept growing past it. Measured on this
+#: machine, a flat grid of *n* separate quad faces (so corners = 4n, the same
+#: per-face-independent shape the reproduction above used), selected whole:
+#:
+#: | corners   | inset_faces() | inset_faces(region=True) |
+#: |----------:|--------------:|--------------------------:|
+#: |    40,000 |       15.8 ms |                    20.7 ms |
+#: |   160,000 |       74.5 ms |                    89.3 ms |
+#: |   360,000 |      163.8 ms |                   213.4 ms |
+#: |   640,000 |      334.7 ms |                   402.4 ms |
+#: | 1,000,000 |      513.9 ms |               (extrapolated) |
+#:
+#: ...linear throughout, about 0.51us/corner per-face and 0.63us/corner for
+#: ``region=True`` (the extra pull-to-centroid pass over
+#: :func:`extrude_faces`'s own output costs more per corner, so the region
+#: path is the one that sets the binding rate). 800,000 corners measures
+#: ~410 ms per-face / ~500 ms region -- comfortably under the point (~1.6
+#: million corners for the region path) where "well under a second" stops
+#: being true, the same margin ``ops_topo.MAX_BRIDGED_RING`` keeps under its
+#: own measured stall point.
+MAX_INSET_CORNERS = 800_000
+
+
+def _refuse_inset_size(n_corners: int) -> None:
+    """Refuse from the selection's own corner count, **before**
+    :func:`topo.corner_spans` or any of ``inset_faces``'s per-corner arrays
+    are built -- the same "refuse before the allocation" pattern
+    ``ops_bevel._refuse_size``, ``ops_subdiv._refuse_growth`` and
+    ``ops_dissolve._refuse_ring`` already follow, and the one place both the
+    per-face and the ``region=True`` path (:func:`_inset_region`, which
+    starts from the identical selection) share before they diverge.
+    """
+    if n_corners > MAX_INSET_CORNERS:
+        raise OpError(
+            f"Insetting this selection means building {n_corners:,} new "
+            f"corners, past the {MAX_INSET_CORNERS:,} inset works with "
+            "before it would stall the frame it runs on. Inset a smaller "
+            "selection."
+        )
+
 
 def inset_faces(
     mesh: Mesh,
@@ -364,12 +411,13 @@ def inset_faces(
     face normal, which is what makes inset-then-push a panel.
     """
     faces = _require_faces(sel, "inset")
+    starts = mesh.starts.astype("i8")
+    counts = starts[faces + 1] - starts[faces]
+    _refuse_inset_size(int(counts.sum()))
     if region:
         return _inset_region(mesh, faces, thickness=thickness, depth=depth)
 
-    starts = mesh.starts.astype("i8")
     corners = topo.corner_spans(mesh.starts, faces)
-    counts = starts[faces + 1] - starts[faces]
     offsets, nxt, _ = topo.flat_next(counts)
     total = len(corners)
 

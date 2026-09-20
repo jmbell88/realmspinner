@@ -69,7 +69,15 @@ def test_the_timeline_still_says_so_on_the_labels_it_kept():
 
 def test_a_clay_op_that_opens_a_dialog_says_so():
     """The registry's own rule: ``hint`` is only shown by a parameterised op,
-    which is exactly the set that opens a dialog."""
+    which is exactly the set that opens a dialog.
+
+    This is only the forward direction. The 2026-09-19 audit (clay-30) found
+    ``union``/``difference``/``intersection`` ending in an ellipsis while
+    declaring no params -- a label promising a dialog that never opened -- and
+    the reverse assertion that catches that lives beside the registry it reads,
+    as ``tests/modes/clay/test_clay_ops.py::
+    test_every_clay_op_label_ending_in_ellipsis_actually_has_params``.
+    """
     for op in clay_ops.OPS:
         if op.params:
             assert op.label.endswith("..."), op.name

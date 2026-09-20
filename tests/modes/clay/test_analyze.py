@@ -16,6 +16,7 @@ from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.kernels.mesh import analyze
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import modifiers as mod
 from realmspinner.kernels.mesh import ops as clay_ops
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh.elements import OpError
@@ -151,6 +152,45 @@ def test_the_object_cap_refuses() -> None:
     ]
     with pytest.raises(OpError):
         analyze.analyze(objs)
+
+
+def test_analyze_checks_max_analyze_objects_before_evaluating_every_objects_modifier_stack(
+    monkeypatch,
+) -> None:
+    """The 2026-09-19 audit's clay-22: the MAX_ANALYZE_OBJECTS refusal used
+    to run only after ``_evaluated_world(obj, doc)`` had already mapped over
+    every object -- and that call runs ``doc.evaluated``, which evaluates
+    the object's whole modifier stack. A `uids`-omitted `clay_analyze` call
+    passes every visible object (`agent/tools_ops.py`), so a call this
+    refuses still paid for evaluating every object's modifier stack first.
+
+    Each object here carries a real Subdivide modifier -- the module
+    docstring's own caveat is that evaluating a plain object with no
+    modifier stack is the cheap is-identical return, so a regression built
+    on bare objects would not fail before the fix either way.
+    """
+    doc = bd.ClayDoc()
+    for i in range(analyze.MAX_ANALYZE_OBJECTS + 1):
+        obj = bd.Obj(
+            uid=bd.new_uid(),
+            name=f"obj{i}",
+            mesh=bp.box(),
+            translation=[float(i) * 3.0, 0.5, 0.0],
+            rotation=m3.quat_identity(),
+        )
+        doc.add_object(obj)
+        doc.set_modifiers(obj.uid, (mod.make("subdivide", {"levels": 2}, id=1),))
+    objs = list(doc.objects)
+
+    def _boom(obj: object, doc: object) -> None:
+        raise AssertionError(
+            "_evaluated_world ran before the MAX_ANALYZE_OBJECTS refusal"
+        )
+
+    monkeypatch.setattr(analyze, "_evaluated_world", _boom)
+
+    with pytest.raises(OpError):
+        analyze.analyze(objs, doc=doc)
 
 
 def test_the_triangle_pair_cap_truncates_with_exact_false() -> None:

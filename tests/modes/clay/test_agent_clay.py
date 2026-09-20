@@ -119,6 +119,7 @@ from PIL import Image
 from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import modifiers as clay_modifiers
+from realmspinner.kernels.mesh import ops_clean as oc
 from realmspinner.kernels.mesh import presets, serialize
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio.modes.clay import mode as clay_mode
@@ -1772,6 +1773,63 @@ def test_clay_diagnose_whole_document_is_refused_rather_than_oversized_past_max_
 
     result = agent_clay.call(ctx, session, "clay_diagnose", {})
     assert result["isError"] is True
+
+
+def test_clay_diagnose_reports_a_skip_for_one_oversized_object_without_losing_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-19 audit's clay-39: once `ops_clean.survey`/
+    `face_defect_masks` carry `MAX_CLEAN_CORNERS`, a whole-document
+    `clay_diagnose` call (no `uid`) must not let one oversized object's
+    `OpError` refuse the *entire* call -- every other, legally-sized object
+    in the same document would lose its findings too. Fails against the
+    unfixed `_h_diagnose`, which has no try/except around
+    `clay_diagnose.findings` in its per-object loop at all: the monkeypatched
+    refusal propagates out of the loop, out of `_h_diagnose`, and is only
+    caught by `call()`'s own generic `OpError` handler -- refusing the whole
+    call (`isError: True`) rather than reporting the small object's own
+    clean, real answer."""
+    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 100)  # a box clears it; a uv_sphere does not
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session, "box")
+    add2 = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "uv_sphere"})
+    uid2 = _payload(add2)["uid"]
+
+    result = agent_clay.call(ctx, session, "clay_diagnose", {})
+    assert result["isError"] is False, result
+    rows = {row["uid"]: row for row in _payload(result)["objects"]}
+    assert {uid1, uid2} == set(rows)
+    assert rows[uid1]["clean"] is True
+    assert not any(f["kind"] == "too_large_to_check" for f in rows[uid1]["findings"])
+    assert any(f["kind"] == "too_large_to_check" for f in rows[uid2]["findings"])
+
+
+def test_clay_add_mesh_still_places_the_object_when_the_diagnose_step_is_too_large_to_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-19 audit's clay-39: `_h_add_mesh` calls
+    `clay_diagnose.findings` purely to summarise the mesh it just placed --
+    by the time that runs, `doc.add_object` has already committed. Letting
+    the `OpError` reach `call()`'s own generic catch would report the whole
+    `clay_add_mesh` call a refusal even though the object is sitting in the
+    document, which would fool an agent into re-adding it. Fails against the
+    unfixed `_h_add_mesh`, which has no try/except around that call at all --
+    the monkeypatched refusal propagates out of the handler and `call()`
+    turns it into `isError: True`, with no `uid` in the reply to say the
+    object exists."""
+    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
+    ctx = _Ctx()
+    session = agent_clay.Session()
+
+    result = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["closed"] is False
+    assert any(f["kind"] == "too_large_to_check" for f in payload["findings"])
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert tab.doc.by_uid(payload["uid"]) is not None, "the object must still have been placed"
 
 
 # ==============================================================================

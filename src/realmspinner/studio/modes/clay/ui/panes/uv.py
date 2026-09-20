@@ -184,6 +184,22 @@ class UvPaneState:
     # already places in being called in order (``ClayDoc.add_group``'s own
     # local ``mark`` has no guard either).
     drag_mark: int = 0
+    # :func:`_measurements`'s own cache -- keyed on mesh *identity*, not a
+    # counter: ``Mesh`` is immutable (see its own docstring), so holding the
+    # exact object this last measured is already an exact revision check,
+    # the same reasoning ``document.ClayDoc.mesh_stamp``'s own docstring
+    # gives for why identity already is a mesh's revision. Held as a strong
+    # reference (never an ``id()``) so the address-reuse trap that method's
+    # docstring warns about cannot apply here -- this keeps the very object
+    # alive that it compares against. The 2026-09-19 audit's clay-12 found
+    # ``_measurements`` re-running ``uvtools.overlap_faces``/``stretch``
+    # every single frame the pane was open, including every frame nothing
+    # about the mesh had changed at all (panning, zooming, hovering).
+    # ``None`` before anything has been measured.
+    measured_mesh: Any = None
+    measured_result: tuple[np.ndarray | None, np.ndarray | None, str] = field(
+        default_factory=lambda: (None, None, "")
+    )
 
 #: The uv unit square is treated as a texture this many pixels on a side, for
 #: :mod:`~.shell.paintview`'s pan/zoom arithmetic alone -- it never appears in
@@ -542,23 +558,39 @@ def _selected_object(doc: Any) -> Any:
         return None
 
 
-def _measurements(mesh: Any) -> tuple[np.ndarray | None, np.ndarray | None, str]:
+def _measurements(
+    view_state: UvPaneState, mesh: Any
+) -> tuple[np.ndarray | None, np.ndarray | None, str]:
     """``(overlap, stretch, refusal)`` for *mesh* -- ``uvtools.overlap_faces``/
     ``stretch``, computed once here rather than by the caller so both a
     refusal (a mesh past ``uvtools.MAX_OVERLAP_TRIANGLES``) and the ordinary
-    answer share one call site. ``refusal`` is ``""`` on success."""
+    answer share one call site. ``refusal`` is ``""`` on success.
+
+    Memoised on *view_state* keyed by ``mesh`` identity (see
+    :attr:`UvPaneState.measured_mesh`): the 2026-09-19 audit's clay-12 found
+    this recomputed on every single frame the pane was open, including every
+    frame that panned, zoomed or merely hovered with the mesh completely
+    unchanged -- only an actual edit replaces ``obj.mesh`` with a new object.
+    """
+    if view_state.measured_mesh is mesh:
+        return view_state.measured_result
     try:
         overlap = uvtools.overlap_faces(mesh)
     except el.OpError as error:
-        # Not a toast: this runs every frame the pane is open, on the frame
-        # thread, for a mesh that is simply too dense for the grid check
-        # (``uvtools.overlap_faces``'s own ceiling) -- the pane already says
-        # so in words next to the canvas (see ``_canvas``); the log line is
-        # for whoever is chasing why the tint never lights up on one object.
+        # Not a toast: even memoised, this still runs once per edit on the
+        # frame thread, for a mesh that is simply too dense for the grid
+        # check (``uvtools.overlap_faces``'s own ceilings) -- the pane
+        # already says so in words next to the canvas (see ``_canvas``); the
+        # log line is for whoever is chasing why the tint never lights up on
+        # one object.
         log.debug("uv pane: overlap/stretch not shown (%s)", error)
-        return None, None, str(error)
-    stretch = uvtools.stretch(mesh)
-    return overlap, stretch, ""
+        result = (None, None, str(error))
+    else:
+        stretch = uvtools.stretch(mesh)
+        result = (overlap, stretch, "")
+    view_state.measured_mesh = mesh
+    view_state.measured_result = result
+    return result
 
 
 # --- drawing ------------------------------------------------------------------
@@ -597,6 +629,26 @@ def _body(ctx: Any) -> None:
 
     view_state: UvPaneState = tab.uv_view
     if view_state.for_uid != obj.uid:
+        # The 2026-09-19 audit's clay-16: the properties panel (or the
+        # outliner) can move the selection out from under an armed live
+        # rotate/scale with no release and no Escape to route through --
+        # exactly the gap ``ClayView.settle_drag`` exists to close for the
+        # viewport's own gizmo drag. Left alone, the mark
+        # ``begin_live_transform`` opened via ``doc.history.mark()`` never
+        # closes: only ``collapse_since`` (via commit/cancel) decrements
+        # ``UndoStack._open_gestures``, and while any gesture is open the
+        # stack's own deferred-eviction rule (``mark``'s own docstring)
+        # switches off depth- and byte-budget trimming for the rest of the
+        # document's life. Commit rather than cancel -- the same choice
+        # ``settle_drag`` makes -- since the drag's own preview is already
+        # sitting on the object and there is nothing here that asked for it
+        # to be thrown away. Guarded on a gesture actually being open --
+        # ``commit_live_transform`` unconditionally folds history back to
+        # ``drag_mark``, which is a stale ``0`` when nothing was ever armed,
+        # and folding from serial 0 would collapse the *entire* document
+        # history into one step on every ordinary selection change.
+        if view_state.drag_mode in ("rotate", "scale"):
+            commit_live_transform(doc, view_state)
         # A fresh object: island ids from a previous mesh mean nothing here.
         view_state.for_uid = obj.uid
         view_state.selected_islands = frozenset()
@@ -648,7 +700,17 @@ def _toolbar(ctx: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
     if changed:
         view_state.pending_rotate = value
     imgui.same_line()
-    if widgets.disabled_button("Apply##uvrotate", bool(selected) and not live):
+    # The 2026-09-19 audit's clay-34: ``transform_islands`` always returns a
+    # freshly-built ``Mesh``, even for a 0-degree/x1 no-op, so ``set_mesh``'s
+    # own identity check can never see that nothing actually changed --
+    # guarded here against the field's own resting value instead, the same
+    # "compares against the current value first" check the move gesture just
+    # below already makes (``delta != (0.0, 0.0)``) before calling
+    # ``apply_translate``.
+    if (
+        widgets.disabled_button("Apply##uvrotate", bool(selected) and not live)
+        and view_state.pending_rotate != 0.0
+    ):
         apply_rotate(doc, obj.uid, selected, view_state.pending_rotate)
         view_state.pending_rotate = 0.0
 
@@ -657,8 +719,11 @@ def _toolbar(ctx: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
     if changed:
         view_state.pending_scale = value
     imgui.same_line()
-    if widgets.disabled_button(
-        "Apply##uvscale", bool(selected) and view_state.pending_scale > 0.0 and not live
+    if (
+        widgets.disabled_button(
+            "Apply##uvscale", bool(selected) and view_state.pending_scale > 0.0 and not live
+        )
+        and view_state.pending_scale != 1.0
     ):
         apply_scale(doc, obj.uid, selected, view_state.pending_scale)
         view_state.pending_scale = 1.0
@@ -752,7 +817,7 @@ def _canvas(ctx: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
         (origin[0], origin[1]), (origin[0] + region[0], origin[1] + region[1]), True
     )
     _backdrop(draw_list, view, origin)
-    overlap, stretch, refusal = _measurements(mesh)
+    overlap, stretch, refusal = _measurements(view_state, mesh)
     covered = touched_islands(mesh, ids, doc.element_sel.get(obj.uid))
     _faces(draw_list, view, origin, mesh, ids, overlap, stretch)
     _edges(draw_list, view, origin, mesh, obj.seams)

@@ -72,6 +72,33 @@ def test_unwrap_lscm_refuses_an_island_past_the_vertex_ceiling(monkeypatch) -> N
         lscm.unwrap_lscm(tube, _one_vertical_seam())
 
 
+def test_unwrap_lscm_refuses_a_large_unseamed_island_before_triangulating_and_masking_it(
+    monkeypatch,
+) -> None:
+    """The 2026-09-19 audit's clay-13: :data:`lscm.MAX_LSCM_VERTICES`'s
+    refusal used to fire only inside ``_solve_island``, which ran *after*
+    the whole mesh had already been triangulated by ``corner_triangles``
+    below (and after the old Python-loop ``_corner_mask`` had already run
+    once for the very island about to refuse) -- 1.56 s at 490,000
+    vertices, 3.74 s at 1,000,000, reached by clicking Unwrap on any dense
+    imported mesh with no seams marked, an entirely ordinary starting
+    state. The check must fire before ``corner_triangles`` is ever called --
+    proved here by making ``corner_triangles`` itself an assertion failure.
+    """
+    monkeypatch.setattr(lscm, "MAX_LSCM_VERTICES", 100)
+
+    def _boom(positions, loops, starts, normals):
+        raise AssertionError("corner_triangles ran before the vertex-ceiling refusal")
+
+    monkeypatch.setattr(lscm, "corner_triangles", _boom)
+
+    # 200 segments -> 400 vertices, one connected (unseamed) island, over a
+    # ceiling of 100 -- an ordinary dense, unseamed import in miniature.
+    tube = _open_tube(segments=200)
+    with pytest.raises(OpError, match="vertices"):
+        lscm.unwrap_lscm(tube, np.zeros((0, 2), dtype="i4"))
+
+
 # --- the cylinder case named in the plan -------------------------------
 
 

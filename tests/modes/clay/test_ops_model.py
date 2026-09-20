@@ -200,6 +200,40 @@ def test_vertex_slide_topology_is_untouched_so_uv_is_preserved() -> None:
     assert np.array_equal(out.loops, box.loops)
 
 
+def test_vertex_slide_and_edge_slide_refuse_a_selection_past_a_corner_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-19 audit's clay-15: unlike `bisect`, `rip`, `tris_to_quads`
+    and `grid_fill` in this same module, every one of which measures and
+    refuses first, neither slide op had any ceiling at all -- a whole-mesh
+    Select All reaches either op with no seed. Measured at 8k/32k/130k
+    touched vertices: 58/235/935 ms for `vertex_slide`, 50/195/808 ms for
+    `edge_slide` -- linear, and within noise of a second by 130k.
+
+    Driven with the ceiling lowered rather than with a 65,537-vertex mesh, the
+    same "prove the refusal, not the wall clock" shape
+    `test_clean_refuses_past_the_ceiling` uses.
+    """
+    monkeypatch.setattr(om, "MAX_SLIDE_VERTICES", 1)
+    box = prim.box()
+    sel_v = el.ElementSel(verts=np.array([0, 1], dtype="i4"))
+    with pytest.raises(el.OpError, match="past the"):
+        om.vertex_slide(box, sel_v, t=0.3)
+
+    sel_e = el.ElementSel(edges=np.array([[4, 5], [5, 6]], dtype="i4"))
+    with pytest.raises(el.OpError, match="past the"):
+        om.edge_slide(box, sel_e, t=0.3)
+
+
+def test_vertex_slide_and_edge_slide_stay_reachable_under_the_ceiling() -> None:
+    """The ceiling must not have crept down onto ordinary use."""
+    box = prim.box()
+    sel_v = el.ElementSel(verts=np.arange(len(box.positions), dtype="i4"))
+    assert len(sel_v.verts) < om.MAX_SLIDE_VERTICES
+    out, _ = om.vertex_slide(box, sel_v, t=0.3)
+    bm.validate(out)
+
+
 # --- rip --------------------------------------------------------------------
 
 

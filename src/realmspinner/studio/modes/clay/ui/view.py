@@ -322,6 +322,10 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         self._knife_ibo: Any = None
         self._element_drags: dict[int, _ElementDrag] = {}
         self._overlays: dict[int, _SelOverlay] = {}
+        # A collider's own translucent overlay (clay-09, 2026-09-19 audit) --
+        # one small per-uid GL cache, the shape ``_overlays`` and
+        # ``_ghost_cache`` already use, released in ``release()`` beside them.
+        self._collider_overlays: dict[int, _SelOverlay] = {}
         self._element_centre = np.zeros(3)
         # Redraw bookkeeping (B13), the shape Viewer.render uses (B12).
         self._render_dirty = True
@@ -468,6 +472,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
             ground=self.god_light,
             overlays=(
                 self._element_overlays(doc)
+                + self._collider_draws(doc)
                 + self._gizmo_draws(doc, height)
                 + self._ghost_draws(doc)
                 + self._knife_draws()
@@ -537,6 +542,13 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
                 # Familiar preview that would delete this object should not
                 # also show it solid, or the ghost reads as decoration rather
                 # than as what would actually happen.
+                continue
+            if obj.role == "collider":
+                # Drawn instead as a translucent fill and wireframe by
+                # ``_collider_draws`` (clay-09, 2026-09-19 audit) -- never
+                # through this opaque, shaded path, which is what let a
+                # collider render as an opaque duplicate of the geometry it
+                # previews, occluding or z-fighting it.
                 continue
             entry = self._cache.get(obj.uid)
             if entry is None:
@@ -1008,6 +1020,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
     def release(self) -> None:
         self.clear()
         self._release_overlays()
+        self._release_collider_overlays()
         self._release_ghost()
         self._release_knife_overlay()
         self.translate_gizmo.release()

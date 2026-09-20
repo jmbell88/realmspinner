@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -140,6 +142,36 @@ def test_restrict_drops_what_a_shrunken_mesh_no_longer_has() -> None:
     assert got.verts.tolist() == [0]
     assert got.edges.tolist() == [[0, 1]]
     assert got.faces.tolist() == [0]
+
+
+def test_restrict_does_not_let_a_same_count_topology_change_carry_a_stale_selection() -> None:
+    """The 2026-09-18 audit's clay-06, closed by the 2026-09-19 audit's
+    clay-17: a generator-parameter edit that rebuilds a mesh with the exact
+    same vertex and face counts passes every range check ``restrict()``
+    makes on its own, so a selection recorded against the *old* mesh
+    survives verbatim into the new one even though index 0 no longer names
+    the same vertex. Passing the pre-edit mesh as ``prior`` -- exactly what
+    ``ClayDoc.set_generator_params`` already holds -- is what lets
+    ``restrict()`` see the swap and drop the whole selection instead of
+    guessing that a still-legal index still means something.
+    """
+    before = prim.plane()  # 4 verts, 1 face
+    # Same vertex and face counts as `before`, but a different vertex sits at
+    # each index -- exactly the "still in range, no longer the same thing"
+    # case a plain range check cannot see through.
+    after = replace(before, positions=before.positions[[1, 2, 3, 0]])
+    sel = el.ElementSel(verts=[0, 1], faces=[0])
+
+    stale = el.restrict(after, sel, prior=before)
+    assert stale.verts.tolist() == []
+    assert stale.faces.tolist() == []
+
+    # No `prior`: unchanged, narrower range-only behaviour -- still correct
+    # for the callers (and this file's own test just above) that have no
+    # pre-edit mesh to compare against.
+    ranged = el.restrict(after, sel)
+    assert ranged.verts.tolist() == [0, 1]
+    assert ranged.faces.tolist() == [0]
 
 
 def test_restrict_is_reachable_from_a_live_code_path_or_its_docstring_says_it_is_not() -> None:

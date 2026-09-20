@@ -576,7 +576,7 @@ non-zero distance, and the shells you kept apart are welded together. Merge the 
 keep the parts as separate objects until last.
 
 It is a weld and not a solid union. Geometry inside an overlap is kept rather than cut away — for
-that, use **Union Objects...** (`Ctrl+Shift+M`) below — the merge dialog says so too.
+that, use **Union Objects** (`Ctrl+Shift+M`) below — the merge dialog says so too.
 
 A merged object is no longer what a generator would build, so its generator claim is dropped along
 with the merge — the properties panel stops offering the size field that would have rebuilt a
@@ -584,7 +584,7 @@ pristine box over your work. That drop is part of the same undo step.
 
 ## Union objects
 
-**Union Objects...** (`Ctrl+Shift+M`, object mode, two or more visible objects selected) is the
+**Union Objects** (`Ctrl+Shift+M`, object mode, two or more visible objects selected) is the
 other way of turning
 several shapes into one, and it answers a different question. A merge keeps everything: two
 interpenetrating cubes come out as one object still carrying both sets of interior walls, which
@@ -787,7 +787,7 @@ with no area, merges vertices closer than the distance you give, removes faces t
 face's corners, and drops vertices no face uses. It then makes every face wind the same way as its
 neighbours and turns each closed shell outward. **Fill holes** is off by default, because an open
 edge is sometimes the point: a cape, a leaf, a decal. An object with nothing wrong is left exactly
-as it was, generator and all, and the toast says so.
+as it was, generator and all, and nothing is said about it.
 
 **Recalculate Normals** does only the last step: consistent winding, closed shells facing out. It
 works on whole objects rather than selected faces, because which way a face should point is a
@@ -886,8 +886,15 @@ hull per disconnected part). The collider arrives as a child of the object it wa
 moving the object moves it too, and it is not counted against the triangle budget in the game check,
 because it is not part of what gets drawn.
 
+A collider is not drawn like the rest of the model. It renders as a translucent fill and wireframe
+over the geometry it was fitted to, never as opaque shaded geometry, so it reads as a proxy rather
+than a second copy of the shape. The outliner marks its row with a dashed square, and once it is
+selected the properties panel names it **Collider** and gives its kind. That last part matters
+because the auto-generated name used to be the only place a collider announced itself, and renaming
+the object does not change what the exporters and the game check still treat it as.
+
 Which engine you are exporting to is a setting, and it decides two things. Colliders are **renamed
-on the way out** to whatever that engine recognises — `UCX_Crate_00` for Unreal, a `-colonly`
+on the way out** to whatever that engine recognises — `UCX_Crate_00` for Unreal, a `-convcolonly`
 suffix for Godot — while the names in your document stay as you wrote them. And an OBJ export is
 converted to the engine's axis and scale convention. A GLB is deliberately left alone: every engine's
 glTF importer does that conversion itself, and doing it twice is the classic way to end up with an

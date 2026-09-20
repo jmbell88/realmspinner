@@ -7,6 +7,7 @@ after a reorder must still land on the object the edit was made to.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import numpy as np
@@ -1331,3 +1332,45 @@ def test_a_cached_plans_arrays_cannot_be_written_through() -> None:
     _, layout = bd.render_plan(bp.box())[0]
     with pytest.raises(ValueError):
         layout.indices[0] = 0
+
+
+def test_document_module_docstring_contains_the_locking_paragraph_it_cites() -> None:
+    """The 2026-09-19 audit's clay-28: a dozen docstrings and comments in this
+    module cite "the module docstring's locking paragraph" as authoritative
+    (``Obj.locked``'s own field comment among them), but the module docstring
+    itself said nothing about locking at all -- a citation with nothing to
+    cite. This pins that the paragraph actually exists and actually names
+    every door it is cited from: the ones that refuse a locked object, and
+    the ones deliberately exempt.
+    """
+    doc = inspect.getdoc(bd)
+    assert doc is not None
+    assert "locked" in doc.lower()
+
+    refusing_doors = (
+        "set_mesh",
+        "set_transform",
+        "set_generator_params",
+        "set_seams",
+        "set_modifiers",
+        "apply_modifiers",
+    )
+    for door in refusing_doors:
+        assert door in doc, f"the locking paragraph never names the refusing door {door!r}"
+
+    exempt_doors = ("set_parent", "set_origin", "set_props", "add_collider")
+    for door in exempt_doors:
+        assert door in doc, f"the locking paragraph never names the exempt door {door!r}"
+
+
+def test_document_module_docstring_no_longer_claims_obj_has_no_parent() -> None:
+    """The 2026-09-19 audit's clay-29: the opening paragraph still said "There
+    is no hierarchy in Phase 1 ... so Obj carries a TRS and no parent" --
+    contradicted by ``Obj.parent`` and the whole "hierarchy" section tranche 3
+    added beneath it.
+    """
+    doc = inspect.getdoc(bd)
+    assert doc is not None
+    assert "no parent" not in doc.lower()
+    assert "no hierarchy" not in doc.lower()
+    assert "parent" in doc.lower()

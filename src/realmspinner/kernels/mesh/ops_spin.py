@@ -34,7 +34,46 @@ __all__ = ["screw", "spin"]
 #: coordinates -- so the cost is exactly that product. New code with nothing
 #: measured yet, so the bound mirrors ``primitives.MAX_DIVISIONS``'s own
 #: order of magnitude rather than a rate taken from a real run.
+#:
+#: **This product alone does not bound the wall clock.** The 2026-09-19
+#: audit's clay-21 found the comment above was never actually measured, and
+#: is false: at the identical 65,536-quad product, a 1-edge-profile spun
+#: 65,536 steps measured 576-658 ms (bands-only and identical-product series,
+#: this fix's own scratch measurement, reproducing the audit's 689-692 ms),
+#: while a 256-edge-profile spun 256 steps -- same product -- measured only
+#: 48 ms. The outer per-band loop (slicing ``ring_index[k]``/``ring_index
+#: [k2]``, the modulo, the fixed Python-level overhead of one more iteration)
+#: costs roughly 10us *per band* almost independently of how many profile
+#: edges that band carries, while the inner per-quad loop costs roughly
+#: 0.7-2.5us *per quad* -- so a selection with many bands and few edges pays
+#: for bands it is not amortising over, and :data:`MAX_SPIN_QUADS` alone
+#: cannot see that: it only ever saw the two multiplied together. See
+#: :data:`MAX_SPIN_BANDS`, which bounds the factor this ceiling cannot.
 MAX_SPIN_QUADS = 65_536
+
+#: The largest step/band count either op will walk, **regardless of profile
+#: length** -- the other half of clay-21's fix, refusing on ``n_bands`` and
+#: ``n_pairs`` (via :data:`MAX_SPIN_QUADS`) separately rather than only on
+#: their product. Measured on this machine, a one-edge profile (``n_pairs``
+#: pinned at 1, so this is the per-band cost in isolation) at increasing step
+#: counts, uv-bearing (the slightly more expensive case):
+#:
+#: | bands  | quads  | spin() |
+#: |-------:|-------:|-------:|
+#: |    256 |    256 |  2.7 ms |
+#: |  4,096 |  4,096 | 39.9 ms |
+#: | 16,384 | 16,384 |156.1 ms |
+#: | 32,768 | 32,768 |320.4 ms |
+#: | 65,536 | 65,536 |657.8 ms |
+#:
+#: ...linear, about 10us/band -- so 65,536 bands alone, whatever the profile,
+#: already measures within noise of a second. The ceiling sits at half that,
+#: comfortably under the point (~100,000 bands) where "well under a second"
+#: stops being true, the same margin ``ops_topo.MAX_BRIDGED_RING`` keeps
+#: under its own measured stall point. The UI's own ``steps`` Param caps at
+#: 256 either way, so this closes a latent hazard (an agent, or a future UI
+#: control, asking for more steps) without touching anything reachable today.
+MAX_SPIN_BANDS = 32_768
 
 
 def _profile_order(edges: np.ndarray) -> tuple[list[int], bool]:
@@ -141,6 +180,16 @@ def _quad_uv_array(quad_uv: list[tuple[float, float]]) -> np.ndarray:
 
 
 def _refuse_spin_size(n_bands: int, n_pairs: int, what: str) -> None:
+    """Refuse on ``n_bands`` and the ``n_bands * n_pairs`` quad count
+    separately -- see :data:`MAX_SPIN_BANDS`'s own comment for why a single
+    product ceiling cannot see the band-heavy case on its own.
+    """
+    if n_bands > MAX_SPIN_BANDS:
+        raise OpError(
+            f"{what} this profile would walk {n_bands:,} steps, past the "
+            f"{MAX_SPIN_BANDS:,} it works with before stalling the frame it "
+            "runs on, whatever the profile's own length. Spin fewer steps."
+        )
     total = n_bands * n_pairs
     if total > MAX_SPIN_QUADS:
         raise OpError(

@@ -495,7 +495,15 @@ def ask_import_mesh(ctx: Any) -> None:
         if path is None:
             return None
         data = _within_mesh_ceiling(path).read_bytes()
-        doc = meshimport.import_file(data, path.suffix, path.stem, scale=use_scale, up=use_up)
+        # The 2026-09-19 audit (clay-07): this picker never read the sibling
+        # ``.mtl``, so an OBJ Clay itself exported came back grey through this
+        # button while drag-and-drop (``import_mesh_path``, which has always
+        # called ``_sibling_mtl``) got the colours right. Same file, same
+        # lookup, so the two routes agree.
+        mtl = _sibling_mtl(path, data) if path.suffix.lower() == ".obj" else None
+        doc = meshimport.import_file(
+            data, path.suffix, path.stem, scale=use_scale, up=use_up, mtl=mtl
+        )
         triangles = sum(max(len(obj.mesh.starts) - 1, 0) for obj in doc.objects)
         return {"doc": doc, "title": path.stem, "triangles": triangles}
 
@@ -705,12 +713,19 @@ def _rename_collider_nodes(doc: Any, model: Any, engine: str) -> None:
     ``document.to_model`` builds one ``gltf.Node`` per *kept* object -- every
     visible object, plus every hidden object with a visible descendant
     (its own docstring's "hiding is per object, as in Blender" rule) -- in
-    that same order, so re-deriving that one "kept" filter here and zipping
-    it against ``model.nodes`` is exactly how to tell which node came from
-    which :class:`~.document.Obj`. Re-derived rather than imported: ``document.py``
-    is a file this tranche's own brief lists as owned by a concurrent agent
-    and must not touch, and the filter itself is five lines straight out of
-    ``to_model``'s own docstring, not a guess at its behaviour.
+    that same order, so zipping that "kept" list against ``model.nodes`` is
+    exactly how to tell which node came from which :class:`~.document.Obj`.
+    That filter is :func:`~.document.kept_objects` -- called here, not
+    re-derived, since the 2026-09-19 audit's clay-20: this function used to
+    hand-copy ``to_model``'s own five-line filter because ``document.py`` was,
+    at the time, a file a concurrent agent owned and this tranche's brief
+    said not to touch. Two copies of "which objects become nodes" is exactly
+    what "One conversion out, three consumers" exists to prevent -- a future
+    edit to one copy and not the other would silently misalign this zip and
+    rename a collider node belonging to the wrong object -- so now that both
+    files are owned together, this calls the one the exporter and the
+    viewport already agree on rather than keeping a second copy in sync by
+    hand.
 
     Only a node whose object is a collider is touched
     (:func:`~.objexport.collider_export_names` only ever returns collider
@@ -720,17 +735,13 @@ def _rename_collider_nodes(doc: Any, model: Any, engine: str) -> None:
     :class:`~.geom3d.gltf.Model` this call's caller is about to hand to
     :func:`~.geom3d.glbwrite.write_glb` and throw away.
     """
+    from ....kernels.mesh import document as bd
     from ....kernels.mesh import objexport
 
     names = objexport.collider_export_names(doc, engine)
     if not names:
         return
-    keep = {obj.uid: obj.visible for obj in doc.objects}
-    for obj in doc.objects:
-        if obj.visible:
-            for ancestor_uid in doc.ancestors(obj.uid):
-                keep[ancestor_uid] = True
-    kept = [obj for obj in doc.objects if keep.get(obj.uid, False)]
+    kept = bd.kept_objects(doc)
     for obj, node in zip(kept, model.nodes, strict=True):
         new_name = names.get(obj.uid)
         if new_name is not None:

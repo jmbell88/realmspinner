@@ -61,6 +61,79 @@ Releases before this one were published as Warlock Studio. The entries below
 are left exactly as they were written — they are the record of what shipped
 under that name.
 
+The 2026-09-19 audit of Clay found 38 things, and closing them found 3 more. All 41 are
+fixed, each with a regression test proven to fail against the unfixed code. Clay had just
+been rewritten — cleanup and decimation, a modifier stack, UV seams, colliders, parenting
+and twelve new modelling operations, all in one release — and thirty of the thirty-eight
+were in code that change wrote. What follows is what you would actually have run into.
+
+- **Mirroring a rotated object made the wrong shape, silently.** Mirror Copy reflected
+  twice — once in the mesh and once again in the transform — so any object that had been
+  rotated came back subtly wrong, written into your document as if it were correct, with
+  no error and nothing obviously amiss in the viewport. Only objects at their default
+  rotation were unaffected, which is why it survived.
+- **Four ways to crash the whole app, all from a long chain of parented objects.** A
+  legal, non-looping chain of around a thousand parts — reachable by parenting each new
+  piece onto the last, or by opening a file that contains one — would take the app down
+  to the crash dialog rather than refuse by name. Opening the outliner did it; so did
+  selecting an object with the properties panel open, viewing or exporting a boolean
+  modifier stack, and opening the file at all. All four now walk the chain without
+  recursing.
+- **Delete did nothing at all in vertex and edge mode, most of the time.** Unless your
+  selection happened to cover every corner of a whole face, pressing Delete produced no
+  change, no message and no undo step. The refusal existed; it was being swallowed
+  before it reached you. It now says "Select at least one face to delete."
+- **Colliders looked exactly like geometry.** A fitted collider drew as opaque shaded
+  mesh sitting on top of the object it previews, z-fighting with it, with nothing in the
+  outliner or the properties panel to say what it was — the auto-generated name was the
+  only clue, and renaming erased that. Colliders now draw as a translucent wireframe,
+  carry their own outliner icon, and name themselves and their kind when selected. The
+  same fix also stops them appearing in the reference render sent to the 3D engine, and
+  they no longer inflate the viewport's triangle count, which is meant to tell you what
+  an engine will actually draw.
+- **Import Mesh… lost every material; drag-and-drop kept them.** An OBJ that Clay itself
+  exported came back grey through the documented button and correct when dropped on the
+  window, because only one of the two routes looked for the `.mtl` file beside it.
+- **A dozen operations could freeze the window with no way out, and now refuse first.**
+  Convex Hull and Compound on an ordinary imported mesh; Unwrap by seams on anything
+  dense; Pack UV Islands and Normalise Texel Density on a prop unwrapped per part; the UV
+  overlap check, which ran *every frame* the UV pane was open; Recalculate Normals;
+  Inset Faces; Edge and Vertex Slide after Select All; Spin and Screw; a whole-document
+  analysis; and Decimate, Retopologise, Smart Unwrap and Bake Detail across a
+  multi-object selection. Each now measures what it is about to do and declines by name
+  before it starts, instead of going quiet for seconds at a time. Where a limit is new,
+  it was measured rather than guessed.
+- **Three kinds of malformed file crashed instead of being refused.** A GLB whose node,
+  mesh, material, skin or primitive list contained something that was not an object; an
+  OBJ padded with hundreds of thousands of unused vertex lines, which could expand to
+  over a gigabyte from a small file; and an STL or PLY whose header over-declared, which
+  was fully parsed before any limit was checked.
+- **Undo in the UV pane.** Arming a rotate or scale and then selecting a different object
+  left the gesture open forever — so those frames never folded into a single undo step,
+  and, worse, the undo stack quietly stopped trimming itself for the rest of that
+  document's session. Pressing Apply at its resting value also burned an undo step for a
+  change that did nothing.
+- **Saving or deleting a material could leave files behind that nothing could ever find.**
+  An interruption at the wrong moment left texture PNGs with no manifest naming them.
+  The manifest is now written first and removed last.
+- **The long background operations tell you they are running.** Retopologise and Bake
+  Detail can take minutes, and until now said nothing after the click; the status they
+  were already recording internally is now shown. (There is still no way to cancel one —
+  that has never been promised, and is now written down as a known limit rather than an
+  open question.)
+- **Smaller honesty fixes.** A rounded box's stored corner radius could disagree
+  permanently with the shape built from it. A modifier given an out-of-range numeric
+  choice silently used a different one instead of refusing. An AI agent's preview could
+  overwrite a **locked** object's modifier stack or seams. Three menu items ended in "…",
+  which in this app means "this opens a dialog", and opened nothing. Clean Up promised in
+  writing that it would say nothing when there was nothing to clean, and then said
+  something. Triangulate Faces offered a fallback that could not be reached. The material
+  shelf was re-read from disk on every single frame.
+- **Two places the Manual was wrong.** Chapter 7 told you Clay has no decimate or
+  retopology operation; both shipped in the previous release and chapter 30 documents
+  them. And the Godot collider suffix was given as `-colonly` where the exporter only
+  ever writes `-convcolonly`.
+
 ## 0.0.51 — 2026-09-18
 
 Two audit passes over the whole app in one day, 130 findings closed, every one

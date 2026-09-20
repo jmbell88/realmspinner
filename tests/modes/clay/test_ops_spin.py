@@ -150,6 +150,39 @@ def test_spin_generates_uv_only_when_the_source_mesh_already_has_it() -> None:
     assert out_uv.uv.shape == (len(out_uv.loops), 2)
 
 
+def test_spin_refuses_before_the_ceiling_stalls_the_frame_thread_for_every_bands_pairs_split(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-19 audit's clay-21: `MAX_SPIN_QUADS`'s own comment claimed
+    "the cost is exactly that product" (`n_bands * n_pairs`), which this
+    fix's own scratch measurement shows is false -- at the identical
+    65,536-quad product, a 1-edge-profile spun 65,536 steps measured
+    576-658 ms (reproducing the audit's 689-692 ms) while a 256-edge-profile
+    spun 256 steps measured only 48 ms, because the per-*band* Python
+    overhead (~10us/band) dominates when a band carries few profile edges,
+    and the product ceiling alone cannot see that.
+
+    Both a bands-heavy split (many steps, one profile edge) and a
+    pairs-heavy split (many profile edges, one step) must refuse once
+    `MAX_SPIN_BANDS` is lowered -- the first because `n_bands` alone now
+    exceeds it, the second because `n_bands * n_pairs` still does.
+    """
+    monkeypatch.setattr(osp, "MAX_SPIN_BANDS", 4)
+    box = prim.box()
+    with pytest.raises(el.OpError, match="past the"):
+        osp.spin(box, _PROFILE, axis=1, angle=180.0, steps=5, center=(0.0, 0.0, 0.0))
+
+
+def test_spin_stays_reachable_under_the_bands_ceiling() -> None:
+    """The UI's own `steps` Param caps at 256, well under `MAX_SPIN_BANDS` --
+    ordinary use must not have been caught by closing the latent hazard."""
+    box = prim.box()
+    assert osp.MAX_SPIN_BANDS > 256
+    out, sel = osp.spin(box, _PROFILE, axis=1, angle=180.0, steps=256, center=(0.0, 0.0, 0.0))
+    bm.validate(out)
+    assert len(sel.faces) == 256
+
+
 def test_spin_new_bands_are_consistently_wound() -> None:
     box = prim.box()
     out, sel = osp.spin(box, _PROFILE, axis=1, angle=270.0, steps=5, center=(0.0, 0.0, 0.0))

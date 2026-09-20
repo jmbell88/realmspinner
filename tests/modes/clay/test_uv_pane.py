@@ -472,6 +472,126 @@ def test_a_cancel_with_no_motion_at_all_is_also_a_no_op() -> None:
     assert doc.by_uid(obj.uid).mesh is base
 
 
+def test_uv_pane_switching_the_selected_object_mid_live_transform_closes_the_open_gesture(
+    ui, monkeypatch
+) -> None:
+    """The 2026-09-19 audit's clay-16: ``_body``'s own per-object reset used
+    to clear ``drag_mode`` without closing the ``UndoStack.mark()`` gesture
+    ``begin_live_transform`` opened -- only ``collapse_since`` (via a commit
+    or a cancel) decrements ``UndoStack._open_gestures``, and while any
+    gesture is open the stack's deferred-eviction rule switches off depth-
+    and byte-budget trimming for the rest of the document's life. Asserts
+    both halves the audit measured: the several per-frame steps fold into
+    one undo step, and ``_open_gestures`` actually returns to zero."""
+    doc, obj_a = _doc_with_two_islands()
+    obj_b = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=_two_island_mesh()))
+    doc.select([obj_a.uid])
+    view_state = clay_uv.UvPaneState(for_uid=obj_a.uid, selected_islands=frozenset({0, 1}))
+    ids = np.array([0, 1], dtype="i4")
+    before_history = len(doc.history)
+
+    assert clay_uv.begin_live_transform(doc, view_state, "rotate", obj_a.mesh, ids, (0.05, 0.05))
+    clay_uv.update_live_transform(doc, obj_a.uid, view_state, (0.3, 0.1))
+    clay_uv.update_live_transform(doc, obj_a.uid, view_state, (0.1, 0.4))
+    assert len(doc.history) > before_history + 1, "the drag pushed several frames to fold"
+    assert doc.history._open_gestures == 1, "begin_live_transform's mark() is still open"
+
+    # The properties panel (or the outliner) moves the selection with no
+    # release and no Escape to route through -- _body's own per-object reset
+    # is the only place left that can see this happened.
+    doc.select([obj_b.uid])
+
+    class _Tab:
+        def __init__(self, doc, view_state) -> None:
+            self.doc = doc
+            self.uv_view = view_state
+
+    class _State:
+        def __init__(self, tab) -> None:
+            self.active = tab
+
+    monkeypatch.setattr(clay_uv.clay_mode, "ensure", lambda ctx: _State(_Tab(doc, view_state)))
+    ui.new_frame()
+    ui.begin("##host")
+    try:
+        clay_uv._body(ctx=None)
+    finally:
+        ui.end()
+        ui.end_frame()
+
+    assert len(doc.history) == before_history + 1, "the abandoned gesture folds into one undo step"
+    assert doc.history._open_gestures == 0, "the mark begin_live_transform opened must close"
+    assert view_state.drag_mode == ""
+    assert view_state.for_uid == obj_b.uid
+
+
+def test_uv_pane_apply_buttons_at_their_own_identity_value_push_no_undo_step(
+    ui, monkeypatch
+) -> None:
+    """The 2026-09-19 audit's clay-34: ``transform_islands`` always returns a
+    freshly-built ``Mesh``, even for a 0-degree rotate or an x1 scale, so
+    ``set_mesh``'s own identity check can never see that nothing changed --
+    the Apply buttons used to fire regardless. Forces a click every call
+    (the same ``monkeypatch`` shape ``test_modifier_props.py`` uses for its
+    own small-button doors) so the guard under test is the value check, not
+    imgui's own enabled/disabled gating."""
+    doc, obj = _doc_with_two_islands()
+    view_state = clay_uv.UvPaneState(selected_islands=frozenset({0, 1}))
+    monkeypatch.setattr(clay_uv.widgets, "disabled_button", lambda *a, **kw: True)
+
+    def click() -> None:
+        ui.new_frame()
+        ui.begin("##host")
+        try:
+            clay_uv._toolbar(ctx=None, doc=doc, obj=obj, view_state=view_state)
+        finally:
+            ui.end()
+            ui.end_frame()
+
+    before = len(doc.history)
+    click()  # pending_rotate=0.0, pending_scale=1.0: both at their own resting value
+    assert len(doc.history) == before, "Apply at 0 degrees / x1 scale pushed no undo step"
+
+    view_state.pending_rotate = 45.0
+    click()
+    assert len(doc.history) == before + 1, "a real rotate still applies and pushes one step"
+    assert view_state.pending_rotate == 0.0, "Apply resets the field back to identity"
+
+    view_state.pending_scale = 2.0
+    click()
+    assert len(doc.history) == before + 2, "a real scale still applies and pushes one step"
+    assert view_state.pending_scale == 1.0
+
+
+def test_uv_pane_measurements_are_memoised_on_the_mesh_and_not_recomputed_every_frame(
+    monkeypatch,
+) -> None:
+    """The 2026-09-19 audit's clay-12: ``_measurements`` used to call
+    ``uvtools.overlap_faces``/``stretch`` fresh on every single frame the
+    pane was open, including a frame where nothing about the mesh had
+    changed at all (panning, zooming, hovering) -- only an actual edit
+    replaces ``obj.mesh`` with a new object."""
+    mesh = _two_island_mesh()
+    calls = []
+    original = uvtools.overlap_faces
+
+    def counting(m):
+        calls.append(1)
+        return original(m)
+
+    monkeypatch.setattr(clay_uv.uvtools, "overlap_faces", counting)
+    view_state = clay_uv.UvPaneState()
+
+    clay_uv._measurements(view_state, mesh)
+    clay_uv._measurements(view_state, mesh)
+    clay_uv._measurements(view_state, mesh)
+    assert len(calls) == 1, "the same mesh object must be measured once, not every call"
+
+    other = _two_island_mesh()
+    clay_uv._measurements(view_state, other)
+    assert len(calls) == 2, "a genuinely different mesh still gets measured"
+
+
 def test_live_rotate_keeps_the_generator() -> None:
     doc = bd.ClayDoc()
     mesh = bmuv.box_unwrap(bp.box())

@@ -481,9 +481,17 @@ def load(path: Path | bytes) -> Model:
     # See MAX_PRIMITIVES: MAX_MESHES bounds mesh *entries*, not how many
     # primitives one of them declares, so this is summed across every mesh
     # before the decode loop below builds one Primitive per entry.
-    declared_primitives = sum(
-        len(mesh.get("primitives") or []) for mesh in gltf.get("meshes", [])
-    )
+    #
+    # clay-04 (2026-09-19 audit): this ``mesh.get(...)`` used to run before
+    # anything checked that ``mesh`` was itself an object, so a "meshes" entry
+    # holding null/a string/a list/a number reached it as a bare
+    # AttributeError/TypeError -- the first place this file's own decode order
+    # touches a mesh entry, ahead of even ``declared_meshes`` above being able
+    # to stop it (that only counts entries, it never looks inside one).
+    declared_primitives = 0
+    for mesh in gltf.get("meshes", []):
+        _check_dict_entry(mesh, "a mesh in this GLB's \"meshes\" array")
+        declared_primitives += len(mesh.get("primitives") or [])
     if declared_primitives > MAX_PRIMITIVES:
         raise ValueError(
             f"this GLB declares {declared_primitives} primitives, "
@@ -501,10 +509,14 @@ def load(path: Path | bytes) -> Model:
         )
     reader = _Reader(gltf, buffer)
     materials = [reader.material(m) for m in gltf.get("materials", [])]
-    meshes = [
-        [reader.primitive(p, materials) for p in mesh.get("primitives", [])]
-        for mesh in gltf.get("meshes", [])
-    ]
+    meshes = []
+    for mesh in gltf.get("meshes", []):
+        # Same check as the declared_primitives pass above, repeated rather
+        # than hoisted: that pass and this one both dereference ``mesh`` on
+        # their own, the same duplication ``gltf.get("meshes", [])`` already
+        # pays for twice in this function.
+        _check_dict_entry(mesh, "a mesh in this GLB's \"meshes\" array")
+        meshes.append([reader.primitive(p, materials) for p in mesh.get("primitives", [])])
     skins = [reader.skin(s) for s in gltf.get("skins", [])]
     nodes = [reader.node(n) for n in gltf.get("nodes", [])]
     return Model(
@@ -584,6 +596,27 @@ def _check_int_index(value: Any, what: str) -> None:
     """
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"{what} must be a whole number, got {value!r}")
+
+
+def _check_dict_entry(value: Any, what: str) -> None:
+    """Refuse an array entry that is not a JSON object before it reaches
+    ``.get(...)`` or attribute-shaped indexing.
+
+    The 2026-09-19 audit, finding clay-04: ``node()``, ``primitive()``,
+    ``material()`` and ``skin()`` each read their argument straight off
+    ``nodes``/``meshes[].primitives``/``materials``/``skins`` with ``.get(...)``
+    calls and no check that the entry itself was an object -- so a GLB that is
+    legal JSON but puts ``null``, a string, a list or a number in one of those
+    arrays reached the first ``.get`` as a bare, un-messaged
+    ``AttributeError``/``TypeError`` instead of the named ``ValueError`` every
+    other malformed shape in this loader raises (``_check_int_index``, just
+    above, is the same rule for an index-shaped field rather than a whole
+    entry). Five earlier audit findings (clay-03/04/05/06/09, create-01)
+    closed exactly this class for every *other* malformed field this loader
+    reads; the top-level array entries were the one shape left.
+    """
+    if not isinstance(value, dict):
+        raise ValueError(f"{what} must be a JSON object, got {value!r}")
 
 
 def _number(value: Any, default: float) -> float:
@@ -950,6 +983,7 @@ class _Reader:
     # -- pieces ------------------------------------------------------------
 
     def primitive(self, prim: dict, materials: list[Material]) -> Primitive:
+        _check_dict_entry(prim, "a primitive in a mesh's \"primitives\" array")
         attrs = prim.get("attributes", {})
         if "POSITION" not in attrs:
             raise ValueError("a primitive with no POSITION is not renderable")
@@ -1078,6 +1112,7 @@ class _Reader:
         return out
 
     def material(self, mat: dict) -> Material:
+        _check_dict_entry(mat, "a material in this GLB's \"materials\" array")
         pbr = mat.get("pbrMetallicRoughness", {})
         out = Material(
             name=mat.get("name", ""),
@@ -1273,6 +1308,7 @@ class _Reader:
         return decoded
 
     def skin(self, skin: dict) -> Skin:
+        _check_dict_entry(skin, "a skin in this GLB's \"skins\" array")
         # The 2026-09-15 audit, finding clay-03: ``skin["joints"]`` indexed
         # straight into the JSON with no check, so a skin entry missing the
         # required ``joints`` array (glTF requires it, but ``check_glb`` at
@@ -1372,6 +1408,7 @@ class _Reader:
         )
 
     def node(self, node: dict) -> Node:
+        _check_dict_entry(node, "a node in this GLB's \"nodes\" array")
         # Bounds-checked against the file's own declared counts, not decoded
         # length -- both are read from ``self.gltf`` before any node is built,
         # so this holds regardless of load()'s decode order. The 2026-09-05

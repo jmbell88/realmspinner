@@ -32,6 +32,7 @@ class _Toasts:
 
     def __init__(self) -> None:
         self.errors: list[str] = []
+        self.info: list[str] = []
 
 
 class _Ctx:
@@ -41,6 +42,8 @@ class _Ctx:
     def toast(self, message: str, level: str = "info") -> None:
         if level == "error":
             self.toasts.errors.append(message)
+        else:
+            self.toasts.info.append(message)
 
 
 def _doc() -> tuple[bd.ClayDoc, int]:
@@ -774,6 +777,40 @@ def test_mirror_copy_distinguishes_itself_from_mirror_x_y_z_in_its_hint() -> Non
     assert "Mirror X/Y/Z" in clay_ops.get("mirror-copy").hint
 
 
+def test_triangulate_faces_no_selection_fallback_is_unreachable_through_the_registered_op() -> None:
+    """clay-36 (2026-09-19 audit): the hint used to promise "(or every face,
+    with none selected)", but ``triangulate``'s own ``enabled=in_mode("face")``
+    requires a *non-empty* element selection (``in_mode``'s own ``bool(doc.
+    element_sel)`` check), so the row is greyed out exactly when the kernel's
+    no-selection branch (``ops_model.triangulate_faces``) would fire. That
+    kernel branch is another fixer's file and stays untouched; the fix here is
+    the sentence, which must stop promising a path this op can never reach."""
+    doc, uid = _doc()
+    doc.set_element_mode("face")
+    op = clay_ops.get("triangulate")
+
+    assert not op.enabled(doc), "an empty face selection must leave the row disabled"
+    assert "none selected" not in op.hint
+    assert "every face" not in op.hint
+
+
+def test_clean_mesh_hint_promises_no_toast_but_pressing_it_on_a_clean_object_toasts() -> None:
+    """clay-24 (2026-09-19 audit): Clean Up's own hint says "A clean object
+    is left untouched -- no toast, no step," but pressing it on an
+    already-clean box used to raise an info toast ("Nothing to clean.").
+    It is the one sentence a user reads before deciding whether Clean Up is
+    safe to press speculatively, so it must be true."""
+    doc, uid = _doc()
+    doc.select([uid])
+    op = clay_ops.get("clean-mesh")
+    assert "no toast" in op.hint
+
+    ctx = _Ctx()
+    assert clay_ops.run(ctx, doc, op) is False, "an already-clean box has nothing to fix"
+    assert not ctx.toasts.info, "the hint promises no toast for the no-op case"
+    assert not ctx.toasts.errors
+
+
 # --- place-between (the third op this tranche adds) --------------------------
 
 
@@ -1207,6 +1244,21 @@ def test_every_op_hint_names_a_binding_that_exists() -> None:
         for token in op.hint.replace(",", " ").replace("(", " ").replace(")", " ").split():
             if token.startswith("Ctrl+") or token.startswith("Shift+"):
                 assert token in bindings, f"{op.name}: {token} is not bound to anything"
+
+
+def test_every_clay_op_label_ending_in_ellipsis_actually_has_params() -> None:
+    """The reverse of ``tests/test_label_conventions.py``'s own
+    ``test_a_clay_op_that_opens_a_dialog_says_so``, which only ever checked
+    "has params => label ends in an ellipsis". The 2026-09-19 audit
+    (clay-30) found the other direction broken: ``union``, ``difference``
+    and ``intersection`` ended in "..." -- the registry's own convention for
+    "this opens a dialog" -- while declaring no ``params``, so each fired
+    immediately with no dialog at all. Kept beside the registry itself
+    (``test_clay_ops.py``) rather than in the shared, cross-mode
+    ``tests/test_label_conventions.py``, which this fixer does not own."""
+    for op in clay_ops.OPS:
+        if op.label.endswith("..."):
+            assert op.params, f"{op.name}: label promises a dialog but declares no params"
 
 
 # --- difference and intersection (2026-09-11 audit's clay-04) ---------------

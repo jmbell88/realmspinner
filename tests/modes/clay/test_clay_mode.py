@@ -1563,3 +1563,64 @@ def test_framing_a_small_document_does_not_shrink_the_grid(gl) -> None:
         assert view.renderer.grid.divisions == 100
     finally:
         view.release()
+
+
+# --- clay-20 (2026-09-19 audit): collider node renaming stays aligned -------
+
+
+def test_rename_collider_nodes_stays_aligned_with_to_models_kept_filter_for_a_hidden_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_rename_collider_nodes`` used to re-derive ``to_model``'s own "which
+    objects become nodes" filter by hand, because ``document.py`` was, at the
+    time, a file this tranche's brief put out of reach. Two hand-kept copies
+    of the same five-line filter is exactly what "One conversion out, three
+    consumers" exists to prevent: a future edit to one and not the other
+    would silently misalign ``zip(kept, model.nodes, strict=True)`` and
+    rename the wrong node.
+
+    Proven by monkeypatching ``document.kept_objects`` -- the shared helper
+    the fix factors out and calls -- to swap the order of two kept objects
+    while ``model.nodes`` (built by a real, unpatched ``to_model`` call)
+    keeps its true order. The unfixed code computes its own local "kept"
+    list and never looks at ``document.kept_objects`` at all, so the swap
+    has no effect on it and the collider keeps its own node's new name; the
+    fixed code delegates to the (now swapped) helper, so the rename lands on
+    the wrong node instead -- which is exactly the misalignment clay-20
+    warns about, reproduced on demand rather than left to a future edit to
+    trigger by accident.
+    """
+    from realmspinner.kernels.mesh import colliders as cl
+
+    doc = bd.ClayDoc()
+    root = bd.Obj(uid=bd.new_uid(), name="Root", mesh=bp.box())
+    doc.add_object(root)
+    # Hidden, but kept anyway because its collider child is visible -- the
+    # "hidden parent with a visible descendant" case ``to_model`` and
+    # ``kept_objects`` both promise to keep, per their own docstrings.
+    parent = bd.Obj(uid=bd.new_uid(), name="Parent", mesh=bp.box(), visible=False)
+    doc.add_object(parent)
+    collider = doc.add_collider(parent.uid, cl.fit_box(parent.mesh))
+
+    model = bd.to_model(doc)
+    real_kept = bd.kept_objects(doc)
+    assert [o.uid for o in real_kept] == [root.uid, parent.uid, collider.uid]
+
+    # Swap the last two -- the parent and its collider -- so the patched
+    # helper disagrees with the true node order ``model.nodes`` was built in.
+    swapped = [real_kept[0], real_kept[2], real_kept[1]]
+    monkeypatch.setattr(bd, "kept_objects", lambda _doc: swapped)
+
+    clay_mode._rename_collider_nodes(doc, model, "unreal")
+
+    # The collider's own node is index 2 (built from the real, unpatched
+    # to_model order). The fixed code, delegating to the (patched) helper,
+    # zips the collider against index 1 instead -- the parent's own node --
+    # and renames that one. The unfixed code ignores the patch, recomputes
+    # the true order itself, and would leave index 2 renamed and index 1
+    # untouched, which is what this assertion catches when it fails.
+    assert model.nodes[1].name == "UBX_Parent_00", (
+        "the (patched) shared filter was not consulted -- "
+        f"got node names {[n.name for n in model.nodes]}"
+    )
+    assert model.nodes[2].name == "Parent Box"

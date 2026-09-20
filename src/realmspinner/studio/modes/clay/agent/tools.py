@@ -561,9 +561,31 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
     # boundary or a non-manifold edge does (``ops_boolean``'s own "needs
     # every selected object to be a closed solid" refusal), so those are the
     # two kinds this boolean is read from.
-    rows = clay_diagnose.findings(obj.mesh)
+    # By this point ``doc.add_object`` has already committed -- the 2026-09-19
+    # audit's clay-39: past ``ops_clean.MAX_CLEAN_CORNERS`` (reachable here: a
+    # face's own corner count has no ceiling above 3, so ``MAX_MESH_FACES``
+    # faces at a handful of corners each clears 300,000 well inside
+    # ``MAX_MESH_VERTICES``), ``findings`` now raises ``OpError`` rather than
+    # stalling, and letting that reach ``call()``'s own generic catch would
+    # report this whole call a refusal even though the object is sitting in
+    # the document, which would fool an agent into re-adding it (or worse,
+    # retrying with the same name and hitting the "taken name" refusal for an
+    # object it does not know exists). Caught here instead and reported as a
+    # named skip, the same ``diagnose.too_large_finding`` row every other
+    # caller of ``findings`` now falls back to. ``closed`` stays declared
+    # ``boolean`` in this tool's own ``outputSchema`` (``_mesh_row_output_
+    # schema``), so the honest "unmeasured" answer is not representable
+    # there; ``False`` is the safe reading for a boolean gate ``clay_boolean``
+    # trusts to mean "known good" -- an unmeasured mesh must never read as
+    # closed by default.
+    try:
+        rows = clay_diagnose.findings(obj.mesh)
+        closed = not any(r.kind in ("hole", "nonmanifold") for r in rows)
+    except OpError as error:
+        rows = [clay_diagnose.too_large_finding(str(error))]
+        closed = False
     row = _scene_row(doc, obj)
-    row["closed"] = not any(r.kind in ("hole", "nonmanifold") for r in rows)
+    row["closed"] = closed
     row["findings"] = [
         {"kind": r.kind, "label": r.label, "count": r.count, "mode": r.mode} for r in rows
     ]

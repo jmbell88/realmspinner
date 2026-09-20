@@ -39,6 +39,17 @@ FILL_COLOR = (0.95, 0.25, 0.25, 0.28)
 # read as one.
 KNIFE_LINE_COLOR = (1.0, 1.0, 1.0, 0.95)
 
+# A collider's own translucent draw (the 2026-09-19 audit's clay-09):
+# ``document.add_collider``'s own docstring promises "a collider draws as a
+# translucent wireframe rather than shaded geometry", naming the UI half of
+# tranche 7 as the owner of that -- it was never built, so a collider drew
+# through the same opaque path as ordinary geometry and occluded or z-fought
+# the source object it previews. A cool cyan rather than the selection reds
+# or the ghost preview's green/red so a collider reads as its own kind of
+# thing rather than as a selection or a Familiar preview.
+COLLIDER_FILL_COLOR = (0.25, 0.75, 0.95, 0.28)
+COLLIDER_LINE_COLOR = (0.35, 0.85, 1.0, 0.9)
+
 # How far a selected face's translucent fill is pulled toward the eye, as a
 # fraction of its distance. ``glPolygonOffset`` is the textbook answer and is
 # deliberately not used: it is global GL state that moderngl caches, so setting
@@ -366,6 +377,81 @@ class OverlayOps:
         for overlay in self._overlays.values():
             overlay.release()
         self._overlays.clear()
+
+    # -- the collider overlay (clay-09) --------------------------------------
+
+    def _collider_draws(self: ClayView, doc: Any) -> list[Any]:
+        """Every visible collider object, as a translucent unlit fill plus a
+        wireframe -- never through :meth:`ClayView._composite`'s opaque,
+        shaded path, which is what ordinary geometry draws through and what
+        every collider drew through before this existed (the 2026-09-19
+        audit's clay-09: ``document.add_collider``'s own docstring promised
+        this and named "the UI half of this tranche" as the owner, and
+        nothing ever built it -- not here, not in ``_view_cache.CacheOps._build``,
+        not in ``document.to_primitives``).
+
+        Built the same shape :meth:`ClayView._ghost_draws` builds the
+        Familiar preview's own translucent overlay -- a small per-uid GL
+        cache of its own, released for a uid that stops being a visible
+        collider -- and reusing *this* module's own fill/wireframe recipe
+        rather than inventing a second one: the eye-biased translucent
+        triangle fill is :meth:`_overlay_specs`'s selected-face fill
+        (``FILL_COLOR``, ``biased=True``) applied to the whole mesh instead
+        of a selection, and the wireframe is the same "dim guide" edge draw
+        that method builds from ``adjacency.edge_verts``.
+
+        ``doc.evaluated(obj.uid)`` -- not ``obj.mesh`` -- for the same reason
+        :meth:`~._view_cache.CacheOps.sync` reads it for ordinary geometry:
+        a collider can carry a modifier stack too, and this has to draw what
+        is actually on screen.
+        """
+        from .....kernels.mesh.adjacency import adjacency, cached_triangulation
+
+        program = self.renderer.programs.get("solid")
+        live: set[int] = set()
+        items: list[Any] = []
+        for obj in doc.objects:
+            if obj.role != "collider" or not obj.visible:
+                continue
+            mesh = doc.evaluated(obj.uid)
+            live.add(obj.uid)
+            key = (id(mesh),)
+            overlay = self._collider_overlays.get(obj.uid)
+            if overlay is None or overlay.key != key:
+                if overlay is not None:
+                    overlay.release()
+                overlay = _SelOverlay(self.ctx, program, key, mesh.positions)
+                # Pinned so the id in the key stays sound -- the
+                # ``_view_cache._Entry`` reason, applied here too.
+                overlay.pins = mesh
+                self._collider_overlays[obj.uid] = overlay
+            if overlay.specs is None:
+                add, specs = self._collect(overlay, hover=False)
+                add(adjacency(mesh).edge_verts, moderngl.LINES, COLLIDER_LINE_COLOR, depth=True)
+                tris, _tri_face = cached_triangulation(mesh)
+                if len(tris):
+                    add(tris, moderngl.TRIANGLES, COLLIDER_FILL_COLOR, depth=True, biased=True)
+                overlay.specs = specs
+            world = self._world(doc, obj)
+            for vao, gl_mode, color, depth, size, biased in overlay.specs:
+                items.append(
+                    DrawItem(
+                        vao=vao,
+                        color=color,
+                        model=_toward_eye(self.camera.position) @ world if biased else world,
+                        mode=gl_mode,
+                        depth=depth,
+                        point_size=size,
+                    )
+                )
+        for uid in [u for u in self._collider_overlays if u not in live]:
+            self._collider_overlays.pop(uid).release()
+        return items
+
+    def _release_collider_overlays(self: ClayView) -> None:
+        for overlay in self._collider_overlays.values():
+            overlay.release()
+        self._collider_overlays.clear()
 
     # -- the knife gesture's own line ---------------------------------------
 

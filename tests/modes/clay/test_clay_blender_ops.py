@@ -222,6 +222,37 @@ def test_the_prepared_glb_carries_each_objects_world_translation() -> None:
     assert node.translation == pytest.approx([1.0, 2.0, 3.0])
 
 
+def test_a_multi_object_retopology_refuses_on_the_selections_total_before_triangulating_any_of_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """clay-40 (2026-09-19 audit, found during the fix phase, the ``ops-tail``
+    reading debt): ``_blender_multi_prepare`` -- shared by retopo, unwrap and
+    bake-detail -- ran ``_decimate_primitives`` (earclip triangulation plus an
+    ``np.unique(key, axis=0)`` dedup) once per uid with no ceiling of any
+    kind, so a selection of many legally-sized objects drove an unrefusable
+    synchronous frame-thread stall. Two boxes (12 triangles each, 24 summed)
+    trip a ceiling monkeypatched to 20 -- below either object alone -- so
+    only the *selection's total* can be what trips it, the same shape
+    ``ops_boolean._refuse_complexity``/``ops.MAX_JOINED_CORNERS`` already use
+    for their own kernels.
+    """
+    from realmspinner.kernels.mesh.elements import OpError
+
+    doc = bd.ClayDoc()
+    a = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
+    b = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))
+    doc.select([a.uid, b.uid])
+
+    monkeypatch.setattr(clay_ops, "MAX_PRIMITIVES_TRIANGLES", 20)
+    with pytest.raises(OpError):
+        clay_ops._blender_multi_prepare(doc, [a.uid, b.uid])
+
+    # One box alone is 12 triangles -- under the ceiling -- proving this is
+    # the selection's sum and not a per-object cap in different clothes.
+    glb, meta = clay_ops._blender_multi_prepare(doc, [a.uid])
+    assert meta
+
+
 # --- retopo: inline round trip -------------------------------------------------
 
 

@@ -865,22 +865,36 @@ def _validate_hierarchy(objects: list[Obj]) -> None:
     # own dependency graph -- a cycle here is unreachable through any live
     # edit (``document.ClayDoc.set_parent`` refuses one going forward), so
     # the only way one can appear is a hand-edited or corrupted file.
+    #
+    # An explicit stack, not recursion: the 2026-09-19 audit's clay-02 found
+    # this walk raised an uncaught ``RecursionError`` -- not the ``ValueError``
+    # every other malformed-file refusal in this module raises -- on a
+    # legal, acyclic chain of a couple thousand objects listed child-first
+    # (well inside ``glbimport.MAX_OBJECTS``), crashing the app on open
+    # instead of loading the file. Every object here has at most one outgoing
+    # edge (its own ``parent``), so walking up that single chain -- marking
+    # each uid GRAY as the walk passes through it, BLACK once it is proven
+    # cycle-free -- needs no branching stack of iterators, only the path
+    # taken so far.
     WHITE, GRAY, BLACK = 0, 1, 2
     color = dict.fromkeys(by_uid, WHITE)
 
-    def visit(uid: int) -> bool:
-        color[uid] = GRAY
-        parent = by_uid[uid].parent
-        if parent is not None:
+    for start in by_uid:
+        if color[start] != WHITE:
+            continue
+        path: list[int] = []
+        uid = start
+        while color[uid] == WHITE:
+            color[uid] = GRAY
+            path.append(uid)
+            parent = by_uid[uid].parent
+            if parent is None:
+                break
             if color[parent] == GRAY:
-                return True
-            if color[parent] == WHITE and visit(parent):
-                return True
-        color[uid] = BLACK
-        return False
-
-    if any(color[uid] == WHITE and visit(uid) for uid in by_uid):
-        raise ValueError("this clay document's objects form a parenting cycle")
+                raise ValueError("this clay document's objects form a parenting cycle")
+            uid = parent
+        for u in path:
+            color[u] = BLACK
 
 
 def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:

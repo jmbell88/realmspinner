@@ -249,7 +249,7 @@ def invert(mesh: Mesh, sel: ElementSel, mode: str) -> ElementSel:
     return combine(select_all(mesh, mode), sel, "subtract")
 
 
-def restrict(mesh: Mesh, sel: ElementSel) -> ElementSel:
+def restrict(mesh: Mesh, sel: ElementSel, prior: Mesh | None = None) -> ElementSel:
     """Drop elements a mesh no longer has.
 
     Called from :meth:`ClayDoc.set_generator_params`, the one path that
@@ -269,25 +269,34 @@ def restrict(mesh: Mesh, sel: ElementSel) -> ElementSel:
     own self-adjusting gate kept honest rather than one this file could drift
     away from unnoticed.
 
-    **This only range-checks, deliberately, and that is narrower than it
-    sounds.** It drops an index a rebuilt mesh no longer *has*, but an index
-    that is still in range after the rebuild survives verbatim, however
-    little it still means -- a generator edit that changes segment counts
+    **A plain range check cannot tell "still means the same thing" from
+    "still a legal index".** A generator edit that changes segment counts
     replaces every position and every face from scratch, so index 3 naming
     "the third face" before the edit and index 3 after it are, in general,
-    two different faces that merely share a number. The 2026-09-18 audit's
-    clay-06 named this gap: a selection can end up pointing at geometry the
-    user never selected, silently, with no crash to surface it. Closing it
-    for real needs the *old* mesh's own counts to compare against, and this
-    function is never given them -- only ``ClayDoc.set_generator_params``,
-    its one caller, holds both the pre-edit mesh and the rebuilt one at once,
-    so a caller wanting the stronger guarantee (drop the whole selection on
-    *any* count change, not just an out-of-range index) would compare there
-    and pass :func:`empty` through instead of calling this. Left
-    range-checking only here, rather than widened past what this function's
-    two arguments can actually know.
+    two different faces that merely share a number -- and if the rebuild
+    happens to leave the *same* vertex/face counts (a parameter that changes
+    shape but not resolution), every index in a stale selection is still "in
+    range", so the naive check drops nothing at all. The 2026-09-18 audit's
+    clay-06 named this gap; the 2026-09-19 audit's clay-17 closed it: *prior*,
+    when the caller has it, is the mesh *sel* was actually made against.
+    ``ClayDoc.set_generator_params`` is exactly that caller -- it holds both
+    the pre-edit mesh and the rebuilt one at once -- and passes its own
+    pre-edit mesh here rather than comparing counts itself, so the one place
+    that decides "did this rebuild actually preserve what was selected" is
+    this function, not each caller re-deriving the same rule. When *prior*'s
+    vertex and face counts both still match *mesh*'s, that is precisely the
+    case a range check cannot see through, so the whole selection is dropped
+    rather than kept on a guess; when a count differs, the old, narrower
+    per-index check below still applies, because at least the pruned indices
+    are provably gone. ``prior=None`` (every caller before clay-17, and
+    ``tests/modes/clay/test_elements.py``'s own direct calls) keeps exactly
+    the old range-only behaviour.
     """
     n_verts, n_faces = len(mesh.positions), len(mesh.starts) - 1
+    if prior is not None:
+        prior_n_verts, prior_n_faces = len(prior.positions), len(prior.starts) - 1
+        if prior_n_verts == n_verts and prior_n_faces == n_faces:
+            return empty()
     edges = sel.edges
     if len(edges):
         edges = edges[(edges < n_verts).all(axis=1)]

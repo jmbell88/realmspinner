@@ -31,6 +31,7 @@ comes back non-finite.
 from __future__ import annotations
 
 import io
+import struct
 
 import numpy as np
 
@@ -99,6 +100,66 @@ def _geometry_mesh(geom: object, material: int = 0) -> bm.Mesh | None:
     return shading.auto_smooth(flat)
 
 
+def _stl_declared_triangles(data: bytes) -> int | None:
+    """A binary STL's own declared triangle count, or ``None`` if this file is
+    not (recognisably) binary STL.
+
+    clay-18 (the 2026-09-19 audit): ``mesh_file_to_claydoc`` called
+    ``trimesh.load`` -- the full parse and allocation -- before checking
+    ``tri_total``/object count against the ceilings below, unlike its two
+    siblings (:mod:`.objimport`'s own text pre-pass, :func:`.glbimport.
+    _declared_budget` off a GLB's JSON chunk), both of which refuse before the
+    expensive part runs. Binary STL's format hands this over for free: an
+    80-byte header immediately followed by a little-endian ``uint32`` triangle
+    count, before a single 50-byte facet record -- so refusing here costs
+    reading 84 bytes, not parsing the file.
+
+    The declared count is cross-checked against the file's actual length
+    (``84 + count * 50`` must account for every byte) rather than trusted on
+    its own: ASCII STL also starts with a variable-length ``solid`` header
+    that may happen to be at least 84 bytes long, and reading 4 arbitrary
+    bytes of *that* as a triangle count would refuse a legitimate ASCII file
+    over a coincidence rather than a real declared count.
+    """
+    if len(data) < 84:
+        return None
+    count = struct.unpack_from("<I", data, 80)[0]
+    if 84 + count * 50 != len(data):
+        return None
+    return count
+
+
+def _ply_declared_faces(data: bytes) -> int | None:
+    """A PLY's own declared face count off its ASCII header, or ``None`` if
+    the header cannot be read this cheaply.
+
+    clay-18: a PLY's header is always plain ASCII text -- even when the body
+    it precedes is ``binary_little_endian`` -- terminated by an
+    ``end_header`` line, and it declares ``element face N`` before a single
+    byte of geometry. Read only up to that line, capped at 64 KiB so a file
+    with no ``end_header`` at all (not a PLY, or one trimesh will itself
+    refuse) costs a bounded read rather than a scan of the whole file. A
+    header this function cannot parse returns ``None`` rather than inventing
+    a count -- trimesh, not this pre-check, is the PLY parser, and refusing a
+    file over a guess would be worse than not checking at all.
+    """
+    head = data[:65536]
+    if not head.startswith(b"ply"):
+        return None
+    end = head.find(b"end_header")
+    if end == -1:
+        return None
+    try:
+        text = head[:end].decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[0] == "element" and parts[1] == "face" and parts[2].isdigit():
+            return int(parts[2])
+    return None
+
+
 def mesh_file_to_claydoc(
     data: bytes,
     suffix: str,
@@ -120,6 +181,24 @@ def mesh_file_to_claydoc(
             f"meshimport does not read {suffix!r} files; it reads "
             + ", ".join(sorted(_TRIMESH_TYPE))
         )
+    # clay-18: checked before trimesh.load below -- the full parse and
+    # allocation -- rather than only after it, the way objimport's text
+    # pre-pass and glbimport's _declared_budget both refuse an oversized file
+    # before their own expensive part runs. A file whose declared count this
+    # cheaply cannot be read (an ASCII STL, or a PLY header this cannot parse)
+    # falls through unchecked here, same as those two: it is bounded by
+    # nothing more than the 100 MiB import-door file size, which is the case
+    # the audit rated Medium rather than High -- trimesh 4.12.2's own STL/PLY
+    # readers already validate a declared count against the bytes remaining,
+    # so today's worst case stays proportional to that door rather than
+    # amplifying past it.
+    declared_tris = _stl_declared_triangles(data) if kind == "stl" else _ply_declared_faces(data)
+    if declared_tris is not None and declared_tris > MAX_TRIANGLES:
+        raise OpError(
+            f"This {suffix.upper()} declares {declared_tris:,} triangles in its "
+            f"own header, past the {MAX_TRIANGLES:,} Clay can edit."
+        )
+
     import trimesh  # lazy: see tests/modes/clay/test_clay_imports.py's LAZY_ONLY
 
     try:

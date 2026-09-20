@@ -1,12 +1,11 @@
 """The Clay document -- objects, a material palette, and the history over them.
 
-A Clay document is a flat list of objects. There is no hierarchy in Phase 1:
-parenting is a feature with a cost (a transform that is not the one you typed,
-an outliner that has to explain itself) and nothing in "place a few primitives
-and export them" needs it, so ``Obj`` carries a TRS and no parent. The one
-conversion out of here -- :func:`to_model` -- is what the viewport draws, what
-the exporter writes and what the trellis render photographs; there is exactly
-one of it, so those three can never disagree about what the document *is*.
+A Clay document is a flat list of objects, each carrying a TRS and, since
+tranche 3, an optional ``parent`` uid (see the "hierarchy" section below for
+what that buys and what it costs). The one conversion out of here --
+:func:`to_model` -- is what the viewport draws, what the exporter writes and
+what the trellis render photographs; there is exactly one of it, so those
+three can never disagree about what the document *is*.
 
 **Materials are ``viewer.gltf.Material`` objects, not a new type.** They are
 already pure data, they already carry ``base_color_factor`` /
@@ -47,6 +46,29 @@ own target both *consume* an evaluated mesh, and the object whose stack fed
 one is cleared of it in the same step: its modifiers are now baked into
 whatever adopted the result, and leaving the stack in place would apply it a
 second time the next time that object was drawn.
+
+**``locked`` means "cannot be changed", not "cannot be seen".** A locked
+object still draws, still exports, and a viewport click still passes through
+it -- the outliner still selects it -- so only a door that would alter what
+the object *is* refuses it. :meth:`ClayDoc._refuse_if_locked` is that
+refusal, called first by every door that mutates the object's own geometry,
+modifier stack or transform: :meth:`set_mesh`, :meth:`set_transform` (which
+also walks :meth:`ancestors`, since dragging an object *inside* a locked
+group still visibly rearranges the group even though the group's own
+geometry never changes), :meth:`set_generator_params`, :meth:`set_seams`,
+:meth:`set_modifiers` and :meth:`apply_modifiers`. :meth:`remove_object` and
+:meth:`separate` check ``obj.locked`` directly for the same reason without
+going through the shared helper -- the object does not survive either door,
+which is the least undoable change there is. Deliberately exempt:
+:meth:`set_parent` and :meth:`set_origin`, because with ``keep_world``
+neither moves anything on screen -- a re-framing, not a change to what the
+object looks like (each says so in its own docstring); :meth:`set_props`,
+because a locked object must still allow a rename, a visibility change, a
+tag edit and unlocking itself, or a mistake made while locked could never be
+undone by anyone but the lock; and :meth:`add_collider`, because attaching a
+new child changes nothing about the parent object itself. See the
+2026-09-19 audit's clay-28, which found a dozen citations of this exact
+paragraph and no paragraph here for them to cite.
 
 **Dirty is a comparison against ``history.head``, not a flag.** ``rev`` counts
 changes and an undo is a change, so a rev-based check calls an undone document
@@ -467,17 +489,27 @@ class ClayDoc:
         return out
 
     def descendants(self, uid: int) -> list[int]:
-        """Every uid under *uid*, depth-first, document order per level."""
+        """Every uid under *uid*, depth-first, document order per level.
+
+        An explicit stack, not recursion -- the same shape :meth:`ancestors`
+        already uses three lines above, and for the same reason: the 2026-09-19
+        audit's clay-02 found this walk raised an uncaught ``RecursionError``
+        on a legal, acyclic parent chain of a few thousand objects (well
+        inside ``glbimport.MAX_OBJECTS``), reachable by simply selecting any
+        object with the properties panel open (``props.py`` calls this on
+        every selection). Children are pushed in reverse so the stack still
+        pops them in document order, one root's whole subtree finished before
+        its next sibling starts -- exactly what the old recursive ``walk``
+        produced.
+        """
         out: list[int] = []
-
-        def walk(u: int) -> None:
-            for child in self.children_of(u):
-                if child in out:  # cycle guard; see ancestors()'s own
-                    continue
-                out.append(child)
-                walk(child)
-
-        walk(uid)
+        stack = list(reversed(self.children_of(uid)))
+        while stack:
+            u = stack.pop()
+            if u in out:  # cycle guard; see ancestors()'s own
+                continue
+            out.append(u)
+            stack.extend(reversed(self.children_of(u)))
         return out
 
     def roots(self) -> list[int]:
@@ -1291,9 +1323,16 @@ class ClayDoc:
             # uid from ``selection``, the same as every other path that
             # touches ``element_sel``. Not undoable, same as every other
             # selection change: it pushes nothing of its own.
+            #
+            # ``prior=was_mesh`` closes the 2026-09-19 audit's clay-17: this
+            # is the one caller that already holds both the pre-edit mesh and
+            # the rebuilt one, which is exactly what ``el.restrict`` needs to
+            # tell a same-count topology change (every index still "in
+            # range", none of it still meaning the same geometry) from an
+            # honest shrink -- see that function's own docstring.
             existing = self.element_sel.get(uid)
             if existing is not None:
-                self.set_element_sel(uid, el.restrict(mesh, existing))
+                self.set_element_sel(uid, el.restrict(mesh, existing, prior=was_mesh))
             # Tranche 6: the exact same range check, for the exact same
             # reason -- see ``_restrict_seams``'s own docstring, which names
             # this method as one of its two callers.
@@ -1606,10 +1645,13 @@ class ClayDoc:
         :func:`~.ops.next_name` exactly the way :meth:`group` disambiguates
         a generated empty's name -- only when that name is already taken,
         so the common case (one collider per source) is not needlessly
-        suffixed. Always visible: a collider draws as a translucent
-        wireframe rather than shaded geometry (the UI half of this tranche
-        owns that), so starting it hidden would cost an extra click just to
-        see the thing that was just fit.
+        suffixed. Always visible: a collider draws as a translucent fill and
+        wireframe rather than shaded geometry (the 2026-09-19 audit's
+        clay-09 built the UI half of that promise -- ``ClayView._composite``
+        excludes ``role == "collider"`` from the opaque path and
+        ``_view_overlay.OverlayOps._collider_draws`` draws it instead), so
+        starting it hidden would cost an extra click just to see the thing
+        that was just fit.
 
         **Not a locking door.** Unlike a mesh edit or a transform, adding a
         collider changes nothing about the *source* object itself -- its
@@ -2107,6 +2149,32 @@ def preview_primitives(
     return prims
 
 
+def kept_objects(doc: ClayDoc) -> list[Obj]:
+    """Every object :func:`to_model` emits a node for, in ``doc.objects``
+    order: visible, or with a visible descendant anywhere under it -- the
+    module docstring's "hiding is per object, as in Blender" decision. See
+    :func:`to_model`'s own docstring for what "kept" means and why a hidden
+    parent with a visible child still gets a node.
+
+    Split out of :func:`to_model` by the 2026-09-19 audit's clay-20:
+    ``studio/modes/clay/mode.py``'s ``_rename_collider_nodes`` needs this exact
+    filter -- it zips its own "which objects became nodes" list against
+    ``to_model(doc).nodes`` to find each collider's node -- and used to
+    re-derive it by hand because ``document.py`` was a file that tranche's
+    own brief put out of reach. That constraint no longer holds (both files
+    are owned together here), and "One conversion out, three consumers" is
+    exactly the reason to have one function answer "which objects become
+    nodes" rather than two copies that could silently drift apart and
+    misalign that zip.
+    """
+    keep: dict[int, bool] = {obj.uid: obj.visible for obj in doc.objects}
+    for obj in doc.objects:
+        if obj.visible:
+            for ancestor_uid in doc.ancestors(obj.uid):
+                keep[ancestor_uid] = True
+    return [obj for obj in doc.objects if keep.get(obj.uid, False)]
+
+
 def to_model(doc: ClayDoc) -> gltf.Model:
     """The document as a :class:`~gltf.Model`: real glTF hierarchy.
 
@@ -2123,10 +2191,10 @@ def to_model(doc: ClayDoc) -> gltf.Model:
     drawn either. ``children`` is wired from ``Obj.parent`` and ``roots`` is
     every kept object with no kept parent -- by construction that is every
     object whose own parent is ``None``, since a kept child's parent is
-    always kept too (see the ancestor-marking pass below); a dangling
-    ``parent`` naming a uid this document does not have (never written by
-    this package, but defensive against a hand-edited state) falls back to a
-    root rather than raising.
+    always kept too (see :func:`kept_objects`'s own ancestor-marking pass);
+    a dangling ``parent`` naming a uid this document does not have (never
+    written by this package, but defensive against a hand-edited state)
+    falls back to a root rather than raising.
 
     **Every visible object draws its evaluated mesh**, base run through its
     modifier stack (``doc.evaluated``), not the base alone -- this is the one
@@ -2134,13 +2202,7 @@ def to_model(doc: ClayDoc) -> gltf.Model:
     has to take effect for the viewport, the exporter and the trellis render
     to agree about what the document looks like.
     """
-    keep: dict[int, bool] = {obj.uid: obj.visible for obj in doc.objects}
-    for obj in doc.objects:
-        if obj.visible:
-            for ancestor_uid in doc.ancestors(obj.uid):
-                keep[ancestor_uid] = True
-
-    kept = [obj for obj in doc.objects if keep.get(obj.uid, False)]
+    kept = kept_objects(doc)
     index_of_uid = {obj.uid: i for i, obj in enumerate(kept)}
 
     nodes: list[gltf.Node] = []

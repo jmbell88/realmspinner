@@ -37,19 +37,22 @@ cache keyed on ``id(evaluated.mesh)`` -- ``document._PLANS``,
 ``adjacency``'s own triangulation cache -- does not re-upload geometry that
 has not actually changed.
 
-**Boolean targets are evaluated recursively**, through the same
-:func:`evaluate`, which is what makes a chain of booleans-of-booleans work
-with no special case. A missing target uid is an error on that modifier, not
-a crash (a hand-edited or partially-loaded ``.rblk`` can name one); a cycle --
-only reachable the same way, since :meth:`~.document.ClayDoc.set_modifiers`
+**Boolean targets are evaluated through the same :func:`_evaluate`**, which is
+what makes a chain of booleans-of-booleans work with no special case. Not
+through Python recursion, though, since the 2026-09-19 audit's clay-02: a
+chain of 1,500 boolean targets (well inside ``glbimport.MAX_OBJECTS``) used
+to raise an uncaught ``RecursionError`` here, so :func:`_evaluate` now
+resolves the whole chain with its own explicit stack of frames -- see its
+docstring. A missing target uid is an error on that modifier, not a crash (a
+hand-edited or partially-loaded ``.rblk`` can name one); a cycle -- only
+reachable the same way, since :meth:`~.document.ClayDoc.set_modifiers`
 refuses one going forward -- is an error on the modifier that *closes* it,
-caught by an in-progress set of uids rather than let recurse until the stack
-overflows.
+caught by an in-progress set of uids rather than let anything grow unbounded.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -126,7 +129,8 @@ class EvalContext:
     once parenting exists: a pure ancestor move that never touches either
     object's own local TRS still changes where the boolean result should
     land, and a cache keyed on local TRS alone would go on serving a stale
-    result. See ``_apply_boolean`` and ``_boolean_deps_still_valid``.
+    result. See ``_run_boolean`` and :func:`_evaluate`'s own cache-validity
+    phase.
     """
 
     doc: ClayDoc
@@ -222,7 +226,35 @@ def _apply_boolean(mesh: Mesh, params: dict, ctx: EvalContext) -> Mesh:
         target_obj = ctx.doc.by_uid(target_uid)
     except KeyError:
         raise el.OpError(f"Target object {target_uid} no longer exists.") from None
+    # Recurses -- one Python call per link -- but only ever *one* link deep
+    # from here: this function's own caller is either ``_evaluate``'s single
+    # per-modifier dispatch (which, for its *own* uid's stack, resolves a
+    # boolean target through the iterative path below instead of coming back
+    # here -- see that function's docstring) or ``ClayDoc.apply_modifiers``'s
+    # bake, which calls this once per prefix entry from its own ordinary
+    # ``for`` loop. Either way, this one recursive call is the whole recursion
+    # budget it ever spends; whatever chain of targets *target_uid* itself
+    # depends on is resolved entirely inside that single call to
+    # :func:`_evaluate`, which manages its own explicit stack rather than
+    # recursing again (the 2026-09-19 audit's clay-02).
     target_eval = _evaluate(ctx.doc, target_uid, ctx.visiting)
+    return _run_boolean(mesh, target_obj, params, ctx, target_eval)
+
+
+def _run_boolean(
+    mesh: Mesh, target_obj: Obj, params: dict, ctx: EvalContext, target_eval: Evaluated
+) -> Mesh:
+    """The boolean arithmetic half of :func:`_apply_boolean`, taking *target_obj*
+    and *target_eval* already resolved rather than fetching them itself.
+
+    Split out so :func:`_evaluate`'s own iterative stack can run this same
+    math for a whole chain of boolean targets it has already resolved without
+    Python recursion -- :func:`_apply_boolean` remains the one recursive,
+    single-target entry point, used by :meth:`~.document.ClayDoc.
+    apply_modifiers`'s bake (which only ever needs one target resolved, and
+    lets that one call reach arbitrarily deep on its own).
+    """
+    target_uid = int(params.get("target", 0))
     self_world = ctx.doc.world_matrix(ctx.obj.uid)
     target_world = ctx.doc.world_matrix(target_uid)
     ctx.boolean_deps.append(
@@ -362,7 +394,17 @@ _register(
 
 
 def _coerce(p: ModParam, raw: Any) -> float | int | bool:
-    """*raw* into the shape *p* declares: an index, a bool, or a clamped number."""
+    """*raw* into the shape *p* declares: an index, a bool, or a clamped number.
+
+    A choice given as a string that names none of *p.choices* is refused by
+    name (below); a choice given as a *number* used to be silently clamped to
+    the nearest legal index instead, so ``axis=5`` on a 3-choice param was
+    quietly reinterpreted as ``axis=2`` -- a different, unrequested choice --
+    rather than refused. The 2026-09-19 audit's clay-27: an out-of-range
+    index now gets the same refusal an unrecognised string already got,
+    rather than the silent stand-in a plain number happened to fall through
+    to.
+    """
     if p.choices:
         if isinstance(raw, str):
             try:
@@ -373,7 +415,11 @@ def _coerce(p: ModParam, raw: Any) -> float | int | bool:
                 ) from None
         else:
             idx = int(raw)
-        return max(0, min(len(p.choices) - 1, idx))
+            if not 0 <= idx < len(p.choices):
+                raise el.OpError(
+                    f"{p.label} must be one of {', '.join(p.choices)}, not index {idx!r}."
+                )
+        return idx
     if p.boolean:
         return bool(raw)
     value = float(raw)
@@ -468,6 +514,16 @@ def would_cycle(doc: ClayDoc, uid: int, stack: tuple[Modifier, ...]) -> bool:
     (it only has to pass through an edge that did). A target uid absent from
     the document is not a cycle by itself; :func:`evaluate` reports that
     separately, as a missing-target error on the modifier that names it.
+
+    The white/gray/black DFS below walks with an **explicit stack of
+    resumable iterators**, not recursion: the 2026-09-19 audit's clay-02
+    found a boolean-target chain of 1,500 objects (well inside
+    ``glbimport.MAX_OBJECTS``) raised an uncaught ``RecursionError`` here,
+    on the ordinary path of just calling :meth:`~.document.ClayDoc.
+    set_modifiers`. Each stack entry is ``(node, iterator over its own
+    out-edges)`` -- ``ClayDoc.ancestors``' own explicit-stack shape, widened
+    from a chain to a branching graph by resuming each node's iterator where
+    it left off rather than following a single ``.parent`` pointer.
     """
     graph: dict[int, set[int]] = {
         obj.uid: targets(stack if obj.uid == uid else obj.modifiers) for obj in doc.objects
@@ -475,19 +531,28 @@ def would_cycle(doc: ClayDoc, uid: int, stack: tuple[Modifier, ...]) -> bool:
     WHITE, GRAY, BLACK = 0, 1, 2
     color = dict.fromkeys(graph, WHITE)
 
-    def visit(u: int) -> bool:
-        color[u] = GRAY
-        for v in graph.get(u, ()):
-            if v not in color:
-                continue
-            if color[v] == GRAY:
-                return True
-            if color[v] == WHITE and visit(v):
-                return True
-        color[u] = BLACK
-        return False
-
-    return any(color[u] == WHITE and visit(u) for u in graph)
+    for start in graph:
+        if color[start] != WHITE:
+            continue
+        color[start] = GRAY
+        frames: list[tuple[int, Iterator[int]]] = [(start, iter(graph.get(start, ())))]
+        while frames:
+            node, neighbours = frames[-1]
+            descended = False
+            for v in neighbours:
+                if v not in color:
+                    continue
+                if color[v] == GRAY:
+                    return True
+                if color[v] == WHITE:
+                    color[v] = GRAY
+                    frames.append((v, iter(graph.get(v, ()))))
+                    descended = True
+                    break
+            if not descended:
+                color[node] = BLACK
+                frames.pop()
+    return False
 
 
 # --- evaluation -----------------------------------------------------------
@@ -522,78 +587,211 @@ class _CacheEntry:
     result: Evaluated
 
 
-def _boolean_deps_still_valid(
-    doc: ClayDoc,
-    obj: Obj,
-    boolean_deps: tuple[tuple[int, Mesh, np.ndarray, np.ndarray], ...],
-    visiting: frozenset[int],
-) -> bool:
-    """Whether every boolean dependency this evaluation recorded still holds.
-
-    **World matrices** (tranche 3), not local TRS: a boolean modifier's
-    placement depends on where ``self`` and its target sit in *world* space,
-    so a pure ancestor move -- neither object's own local TRS changes at all
-    -- has to invalidate this exactly as a direct move would, or a parent
-    dragged across the scene would leave every boolean beneath it stuck
-    where it used to be. Comparing ``obj.trs()``/``target_obj.trs()`` (as
-    this did before parenting existed) would miss precisely that case.
-    """
-    for target_uid, target_mesh, self_world, target_world in boolean_deps:
-        try:
-            doc.by_uid(target_uid)  # existence only; the world matrix below is the value
-        except KeyError:
-            return False
-        if not np.array_equal(self_world, doc.world_matrix(obj.uid)) or not np.array_equal(
-            target_world, doc.world_matrix(target_uid)
-        ):
-            return False
-        target_eval = _evaluate(doc, target_uid, visiting | {obj.uid})
-        if target_eval.mesh is not target_mesh:
-            return False
-    return True
-
-
 def evaluate(doc: ClayDoc, uid: int) -> Evaluated:
     """*uid*'s base mesh run through its modifier stack. See the module docstring."""
     return _evaluate(doc, uid, frozenset())
 
 
+class _EvalFrame:
+    """One object's evaluation, alive on :func:`_evaluate`'s own explicit
+    stack in place of a Python call frame. See that function's docstring."""
+
+    __slots__ = (
+        "uid",
+        "obj",
+        "stack",
+        "visiting",
+        "ctx",
+        "mesh",
+        "idx",
+        "errors",
+        "phase",
+        "cache_entry",
+        "dep_idx",
+    )
+
+    def __init__(self, doc: ClayDoc, uid: int, incoming_visiting: frozenset[int]) -> None:
+        obj = doc.by_uid(uid)
+        self.uid = uid
+        self.obj = obj
+        self.stack = obj.modifiers
+        # Matches the old recursive ``_evaluate``'s own ``new_visiting`` --
+        # *this* uid included -- which is what a self-target or a cycle back
+        # to an ancestor is checked against below.
+        self.visiting = incoming_visiting | {uid}
+        self.ctx = EvalContext(doc=doc, obj=obj, visiting=self.visiting)
+        self.mesh = obj.mesh
+        self.idx = 0
+        self.errors: list[tuple[int, str]] = []
+        self.cache_entry = doc._evaluated.get(uid)
+        self.phase = "cache" if self.cache_entry is not None else "apply"
+        self.dep_idx = 0
+
+
 def _evaluate(doc: ClayDoc, uid: int, visiting: frozenset[int]) -> Evaluated:
-    obj = doc.by_uid(uid)
-    stack = obj.modifiers
-    if not any(m.enabled for m in stack):
-        # The fast path: no computation, no cache entry, the base mesh handed
-        # back ``is``-identical. See the module docstring.
-        return Evaluated(obj.mesh, ())
+    """*uid*'s base mesh run through its modifier stack, resolving any chain
+    of boolean-modifier targets with an explicit stack of :class:`_EvalFrame`
+    rather than Python recursion.
 
-    entry = doc._evaluated.get(uid)
-    if (
-        entry is not None
-        and entry.base is obj.mesh
-        and entry.stack == stack
-        and _boolean_deps_still_valid(doc, obj, entry.boolean_deps, visiting)
-    ):
-        return entry.result
+    Before this fix, a boolean modifier's target was resolved through a
+    direct recursive call -- from :func:`_apply_boolean`, and again from the
+    cache-validity check this function used to delegate to -- so a chain of
+    1,500 objects, each targeting the next (well inside ``glbimport.
+    MAX_OBJECTS``, no cycle anywhere), raised an uncaught ``RecursionError``
+    on ordinary viewing, export, readiness and :meth:`~.document.ClayDoc.
+    set_modifiers` itself (the 2026-09-19 audit's clay-02). Every object this
+    call needs -- *uid* itself and every boolean target beneath it,
+    transitively -- gets one :class:`_EvalFrame` on ``frames`` instead of one
+    Python stack frame; a target not yet resolved is pushed and the current
+    frame is revisited once it is done, the same "come back to this one"
+    shape :meth:`~.document.ClayDoc.ancestors` already uses for a plain
+    parent chain, widened here to a frame that does real work (a cache check,
+    then a modifier stack) rather than only following a pointer. ``memo``
+    holds this call's own results, uid to :class:`Evaluated`, so a target
+    shared by two different boolean modifiers (a diamond, not a cycle) is
+    resolved once.
 
-    new_visiting = visiting | {uid}
-    ctx = EvalContext(doc=doc, obj=obj, visiting=new_visiting)
-    mesh = obj.mesh
-    errors: list[tuple[int, str]] = []
-    for mod in stack:
+    Each frame runs up to two phases. **"cache"**, only when
+    ``doc._evaluated`` already holds an entry for this uid: valid exactly
+    when the base mesh is still the same object, the modifiers tuple still
+    compares equal, and -- checked here one recorded dependency at a time,
+    each needing its own target *resolved*, hence a possible push -- every
+    boolean target's world matrix is unchanged and its own evaluation still
+    produces the identical mesh object the cache remembered (see the module
+    docstring's cache paragraph). Any failure drops straight to **"apply"**:
+    walk the modifier stack in order, run each enabled one, and for a boolean
+    modifier resolve its target the same way -- push and revisit if it is not
+    already in ``memo`` -- instead of the old recursive call. A cycle is
+    still refused by name, not by exhausting the stack: :meth:`~.document.
+    ClayDoc.set_modifiers` refuses one going forward, so the only way one
+    reaches here is a hand-edited or partially-loaded ``.rblk``, caught the
+    moment a target names a uid already in the current frame's own
+    ``visiting`` set (every frame on the path down to it, itself included) --
+    see ``test_a_hand_edited_cycle_is_refused_on_the_closing_modifier_not_recursion``.
+    """
+    memo: dict[int, Evaluated] = {}
+    frames: list[_EvalFrame] = [_EvalFrame(doc, uid, visiting)]
+
+    while frames:
+        frame = frames[-1]
+        obj = frame.obj
+
+        if not any(m.enabled for m in frame.stack):
+            # The fast path: no computation, no cache entry, the base mesh
+            # handed back ``is``-identical. See the module docstring.
+            memo[frame.uid] = Evaluated(obj.mesh, ())
+            frames.pop()
+            continue
+
+        if frame.phase == "cache":
+            entry = frame.cache_entry
+            if entry is None or entry.base is not obj.mesh or entry.stack != frame.stack:
+                frame.phase = "apply"
+                continue
+            deps = entry.boolean_deps
+            if frame.dep_idx >= len(deps):
+                # Every recorded dependency held: the cached result stands,
+                # exactly as ``entry.result`` was built.
+                memo[frame.uid] = entry.result
+                frames.pop()
+                continue
+            target_uid, target_mesh, self_world, target_world = deps[frame.dep_idx]
+            try:
+                doc.by_uid(target_uid)  # existence only; the world check below is the value
+            except KeyError:
+                frame.phase = "apply"
+                continue
+            # World matrices (tranche 3), not local TRS: a boolean modifier's
+            # placement depends on where ``self`` and its target sit in
+            # *world* space, so a pure ancestor move -- neither object's own
+            # local TRS changes at all -- has to invalidate this exactly as a
+            # direct move would.
+            if not np.array_equal(self_world, doc.world_matrix(frame.uid)) or not np.array_equal(
+                target_world, doc.world_matrix(target_uid)
+            ):
+                frame.phase = "apply"
+                continue
+            if target_uid in frame.visiting:
+                # A cycle turning up while validating an old cache entry is
+                # unreachable through any live edit (see this function's own
+                # docstring) -- only a hand-edited file could produce one --
+                # and this phase has no refusal to record it under; fall
+                # through to "apply", where the modifier loop below refuses
+                # it by name instead of pushing a frame nothing would ever
+                # pop.
+                frame.phase = "apply"
+                continue
+            if target_uid not in memo:
+                frames.append(_EvalFrame(doc, target_uid, frame.visiting))
+                continue
+            if memo[target_uid].mesh is not target_mesh:
+                frame.phase = "apply"
+                continue
+            frame.dep_idx += 1
+            continue
+
+        # frame.phase == "apply"
+        if frame.idx >= len(frame.stack):
+            result = Evaluated(frame.mesh, tuple(frame.errors))
+            doc._evaluated[frame.uid] = _CacheEntry(
+                obj.mesh, frame.stack, tuple(frame.ctx.boolean_deps), result
+            )
+            memo[frame.uid] = result
+            frames.pop()
+            continue
+
+        mod = frame.stack[frame.idx]
         if not mod.enabled:
+            frame.idx += 1
             continue
         kind_def = MODIFIERS.get(mod.kind)
         if kind_def is None:
-            errors.append((mod.id, f"Unknown modifier kind {mod.kind!r}."))
+            frame.errors.append((mod.id, f"Unknown modifier kind {mod.kind!r}."))
+            frame.idx += 1
             continue
+
+        if mod.kind == "boolean":
+            params = mod.as_dict()
+            target_uid = int(params.get("target", 0))
+            if target_uid == 0:
+                frame.errors.append((mod.id, "Choose a target object."))
+                frame.idx += 1
+                continue
+            if target_uid in frame.visiting:
+                frame.errors.append(
+                    (mod.id, "This modifier's boolean target would create a cycle.")
+                )
+                frame.idx += 1
+                continue
+            try:
+                target_obj = doc.by_uid(target_uid)
+            except KeyError:
+                frame.errors.append((mod.id, f"Target object {target_uid} no longer exists."))
+                frame.idx += 1
+                continue
+            if target_uid not in memo:
+                frames.append(_EvalFrame(doc, target_uid, frame.visiting))
+                continue
+            target_eval = memo[target_uid]
+            try:
+                grown = _run_boolean(frame.mesh, target_obj, params, frame.ctx, target_eval)
+                ops_modifiers._refuse_growth("This modifier", ops_modifiers._triangle_count(grown))
+            except el.OpError as error:
+                frame.errors.append((mod.id, str(error)))
+                frame.idx += 1
+                continue
+            frame.mesh = grown
+            frame.idx += 1
+            continue
+
         try:
-            grown = kind_def.apply(mesh, mod.as_dict(), ctx)
+            grown = kind_def.apply(frame.mesh, mod.as_dict(), frame.ctx)
             ops_modifiers._refuse_growth("This modifier", ops_modifiers._triangle_count(grown))
         except el.OpError as error:
-            errors.append((mod.id, str(error)))
+            frame.errors.append((mod.id, str(error)))
+            frame.idx += 1
             continue
-        mesh = grown
+        frame.mesh = grown
+        frame.idx += 1
 
-    result = Evaluated(mesh, tuple(errors))
-    doc._evaluated[uid] = _CacheEntry(obj.mesh, stack, tuple(ctx.boolean_deps), result)
-    return result
+    return memo[uid]

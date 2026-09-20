@@ -205,6 +205,31 @@ def drag_readout(kind: str, axis: str, space: str, amount: str) -> str:
     return " · ".join(parts)
 
 
+def resolve_hint(*, busy: str, measure: str, default: str) -> str:
+    """Which of the hint line's three non-drag candidates wins, in priority
+    order: a running background op, then a live measurement, then the
+    ordinary mode/tool legend.
+
+    The 2026-09-19 audit's clay-41, found during this same pass's own
+    reading debt: ``ClayTab.bg_busy`` is written by ``clay_ops``'s four
+    background ops (decimate, retopo, smart-unwrap, bake-detail) and, before
+    this, read by nothing -- a repo-wide grep found five writers and zero
+    readers, while the sibling ``tab.saving`` it names itself after is read
+    in six panes. Retopologise's and Bake Detail's own hint text warns they
+    can take "minutes for something dense", and for that whole window the
+    user had nothing on screen saying so. ``busy`` therefore outranks
+    ``measure`` -- a stale-looking measurement readout is a smaller cost than
+    total silence during a multi-minute Blender bake -- and both outrank
+    ``default``, exactly as ``measure`` already outranked ``default`` alone
+    before this. A live keyboard/gizmo drag is not one of the three: it is
+    decided separately, by ``hud.hint_line``, ahead of all three, because a
+    background op and an active drag are not expected to coincide and the
+    drag readout is the more urgent thing on screen on the rare frame they
+    might.
+    """
+    return busy or measure or default
+
+
 def keys_named(text: str) -> set[str]:
     """Every key or chord the line mentions, for the parity test.
 
@@ -287,11 +312,21 @@ def stats(doc: Any) -> str:
     objects = [obj for obj in doc.objects if getattr(obj, "visible", True)]
     evaluate = getattr(doc, "evaluated", None)
     verts = edges = faces = tris = 0
+    collider_tris = 0
     for obj in objects:
+        # The 2026-09-19 audit (clay-33): this loop used to sum every visible
+        # object with no ``role`` filter, so a collider's geometry inflated
+        # the same triangle count ``readiness.validate`` deliberately leaves
+        # colliders out of (dev/INVARIANTS.md's own collider-rows paragraph)
+        # -- an engine never draws a collider, so it costs nothing at
+        # runtime and does not belong in a budget about render cost. It gets
+        # its own tally instead of vanishing outright: a modeller judging
+        # "game-ready" still wants to know a collider has gone needlessly
+        # heavy, just not mixed into the number that answers "is this too
+        # much to draw".
+        is_collider = getattr(obj, "role", "mesh") == "collider"
         mesh = obj.mesh if evaluate is None else evaluate(obj.uid)
-        verts += int(len(mesh.positions))
         count = _faces_of(mesh)
-        faces += count
         loops = getattr(mesh, "loops", None)
         # ``or ()`` is wrong on a numpy array -- truthiness of one with more
         # than one element raises -- so the absence is tested with ``is None``.
@@ -301,8 +336,14 @@ def stats(doc: Any) -> str:
         # not the corner count: a cube has 24 corners and 12 edges, because
         # every edge is shared by two faces, and reporting 24 would be a number
         # a reader can check against a cube and find wrong.
+        mesh_tris = max(0, corners - 2 * count)
+        if is_collider:
+            collider_tris += mesh_tris
+            continue
+        verts += int(len(mesh.positions))
+        faces += count
         edges += _unique_edges(mesh)
-        tris += max(0, corners - 2 * count)
+        tris += mesh_tris
     parts = [
         f"{len(objects)} object{'' if len(objects) == 1 else 's'}",
         f"{verts:,} verts",
@@ -310,6 +351,8 @@ def stats(doc: Any) -> str:
         f"{faces:,} faces",
         f"{tris:,} tris",
     ]
+    if collider_tris:
+        parts.append(f"{collider_tris:,} collider tris")
     picked = _selected(doc)
     if picked:
         parts.append(picked)

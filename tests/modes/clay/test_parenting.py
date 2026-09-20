@@ -592,3 +592,71 @@ def test_rblk_refuses_a_cycle_in_the_file() -> None:
 
     with pytest.raises(ValueError, match="cycle"):
         ser.read_rblk(out.getvalue())
+
+
+def test_a_long_parent_chain_does_not_blow_the_recursion_limit_in_the_outliner_the_document_the_modifier_stack_or_a_loaded_file() -> None:  # noqa: E501
+    """The 2026-09-19 audit's clay-02: four separate recursive walks, none of
+    them capped, each raised an uncaught ``RecursionError`` on a legal,
+    acyclic chain well inside ``glbimport.MAX_OBJECTS`` (4,096) -- the
+    outliner's own tree walk and :meth:`~.document.ClayDoc.descendants` on a
+    3,000-deep parent chain (crashing the app the moment the outliner opened,
+    or the moment any object was selected with the properties panel open),
+    :func:`~.modifiers.would_cycle` and :func:`~.modifiers.evaluate` on a
+    1,500-deep chain of boolean-modifier targets (crashing ordinary viewing,
+    export, readiness and ``set_modifiers`` itself), and
+    :mod:`~.serialize`'s ``_validate_hierarchy`` on a 2,000-deep chain loaded
+    from a file that lists its objects child-first. :meth:`~.document.ClayDoc.
+    ancestors` was already written with an explicit stack three lines above
+    ``descendants``, and all four sites now copy that shape -- see each
+    site's own docstring. The existing cycle guards (``ancestors``' ``seen``
+    set, ``would_cycle``'s color marking) still refuse an actual cycle by
+    name; see ``test_a_hand_edited_cycle_is_refused_on_the_closing_modifier_
+    not_recursion`` in ``test_modifiers.py`` and
+    ``test_rblk_refuses_a_cycle_in_the_file`` just above for that half.
+    """
+    from realmspinner.kernels.mesh import serialize as ser
+    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+
+    # -- outliner._tree_rows and ClayDoc.descendants: a 3,000-deep parent chain.
+    doc = bd.ClayDoc()
+    chain_depth = 3000
+    objs = [doc.add_object(_obj(f"O{i}")) for i in range(chain_depth)]
+    for i in range(1, chain_depth):
+        doc.set_parent(objs[i].uid, objs[i - 1].uid, keep_world=False)
+
+    rows = clay_outliner._tree_rows(doc)
+    assert len(rows) == chain_depth
+    assert rows[0][0].uid == objs[0].uid and rows[0][1] == 0
+    assert rows[-1][0].uid == objs[-1].uid and rows[-1][1] == chain_depth - 1
+
+    assert doc.descendants(objs[0].uid) == [o.uid for o in objs[1:]]
+
+    # -- modifiers.would_cycle and modifiers.evaluate: a 1,500-deep chain of
+    # boolean modifiers, each targeting the next -- no cycle, but the same
+    # depth of Python recursion the old would_cycle and _evaluate needed.
+    pytest.importorskip("manifold3d")
+    mod_depth = 1500
+    mobjs = [
+        doc.add_object(_obj(f"M{i}", translation=(float(i) * 3.0, 0.0, 0.0)))
+        for i in range(mod_depth)
+    ]
+    for i in range(mod_depth - 1):
+        mobjs[i].modifiers = (
+            mod.make("boolean", {"target": mobjs[i + 1].uid, "operation": "union"}, id=1),
+        )
+    assert mod.would_cycle(doc, mobjs[0].uid, mobjs[0].modifiers) is False
+    ev = doc.evaluation(mobjs[0].uid)
+    assert ev.errors == ()
+
+    # -- serialize._validate_hierarchy: a 2,000-deep chain read from a file
+    # that lists its objects child-first.
+    ser_depth = 2000
+    uids = [bd.new_uid() for _ in range(ser_depth)]
+    chained = [
+        bd.Obj(uid=uid, name=f"S{i}", mesh=bp.box(), parent=(uids[i - 1] if i else None))
+        for i, uid in enumerate(uids)
+    ]
+    child_first_doc = bd.ClayDoc(objects=list(reversed(chained)))
+    reloaded = ser.read_rblk(ser.rblk_bytes(child_first_doc))
+    assert len(reloaded.objects) == ser_depth
+    assert reloaded.by_uid(uids[-1]).parent == uids[-2]

@@ -188,10 +188,24 @@ def mirror_world(
             if i != axis:
                 rotation[i] = -rotation[i]
         return replace(mirror(obj, axis), translation=translation, rotation=rotation)
+    # The 2026-09-19 audit's clay-01: ``mirror(obj, axis)`` below has already
+    # baked a local-axis reflection into the mesh (see the module docstring's
+    # negative-scale rule -- that reflection has to live *somewhere*, and it
+    # is never a node scale). The ``world is None`` branch above cancels that
+    # bake by negating the two off-axis rotation components; decomposing
+    # ``reflect @ world`` alone does not, so the reflection was counted
+    # twice and every rotated object came out wrong with no error and no
+    # visible sign in the viewport. Right-multiplying by the object's own
+    # local reflection before decomposing undoes the bake the same way the
+    # root branch does, algebraically: it is the diagonal matrix with -1 at
+    # ``axis`` and no translation, exactly what ``mirror`` applied to the
+    # mesh in object space.
+    local_reflect = np.eye(4)
+    local_reflect[axis, axis] = -1.0
     reflect = np.eye(4)
     reflect[axis, axis] = -1.0
     reflect[axis, 3] = 2.0 * float(offset)
-    new_world = reflect @ np.asarray(world, dtype="f8")
+    new_world = reflect @ np.asarray(world, dtype="f8") @ local_reflect
     translation, rotation, scale = m3.decompose(new_world)
     return replace(mirror(obj, axis), translation=translation, rotation=rotation, scale=scale)
 

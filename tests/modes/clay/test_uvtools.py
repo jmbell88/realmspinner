@@ -7,6 +7,8 @@ half that reads or rearranges a uv a mesh already has.
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 
@@ -200,6 +202,103 @@ def test_pack_islands_with_rotation_is_never_larger_than_without() -> None:
     no_rotate = ut.pack_islands(mesh, margin=0.01, rotate=False)
     rotated = ut.pack_islands(mesh, margin=0.01, rotate=True)
     assert rotated.uv.max(axis=0)[0] <= no_rotate.uv.max(axis=0)[0] + 1e-6
+
+
+def test_pack_islands_refuses_a_mesh_with_more_islands_than_its_ceiling_before_scanning_each_one(
+    monkeypatch,
+) -> None:
+    """The 2026-09-19 audit's clay-11: pack_islands' own per-island scan (an
+    O(total corners) mask build, once per island) had no ceiling at all --
+    measured at 0.041s/0.144s/0.539s/2.074s for 500/2,000/4,000/8,000
+    islands, accelerating. Monkeypatched down the way
+    ``test_overlap_faces_refuses_past_the_triangle_ceiling`` already proves
+    the shape for MAX_OVERLAP_TRIANGLES."""
+    monkeypatch.setattr(ut, "MAX_UV_ISLANDS", 2)
+    mesh = _three_disjoint_islands()  # 3 islands, over a ceiling of 2
+    with pytest.raises(OpError):
+        ut.pack_islands(mesh)
+
+
+def test_normalize_density_refuses_a_mesh_with_more_islands_than_its_ceiling(monkeypatch) -> None:
+    """normalize_density's own loop is the same shape as pack_islands' --
+    clay-11 names both."""
+    monkeypatch.setattr(ut, "MAX_UV_ISLANDS", 2)
+    mesh = _three_disjoint_islands()
+    with pytest.raises(OpError):
+        ut.normalize_density(mesh, 300.0)
+
+
+def test_transform_islands_refuses_more_islands_in_one_call_than_its_ceiling(monkeypatch) -> None:
+    """transform_islands' own per-island loop is the third of clay-11's
+    "no ceiling on any of the three" -- bounded on how many islands *this
+    call* transforms, not on how many the mesh has in total."""
+    monkeypatch.setattr(ut, "MAX_UV_ISLANDS", 2)
+    mesh = _three_disjoint_islands()
+    with pytest.raises(OpError):
+        ut.transform_islands(mesh, [0, 1, 2], translate=(0.1, 0.1))
+
+
+def test_normalize_density_computes_islands_only_once_not_once_per_island(monkeypatch) -> None:
+    """clay-11's other half: normalize_density already computed its own
+    ``islands(mesh)`` at the top of the loop, but never passed it to
+    ``transform_islands``, which recomputed the whole adjacency-plus-
+    connected-components pass again on *every* iteration. Three islands
+    should cost exactly one ``islands()`` call, not four (one at the top
+    plus one per island)."""
+    mesh = _three_disjoint_islands()
+    calls = []
+    original = ut.islands
+
+    def counting(m):
+        calls.append(1)
+        return original(m)
+
+    monkeypatch.setattr(ut, "islands", counting)
+    ut.normalize_density(mesh, 300.0)
+    assert len(calls) == 1, "islands(mesh) must be computed once, not once per island"
+
+
+def _thin_strip_islands_mesh(n: int) -> bm.Mesh:
+    """*n* full-width horizontal-strip islands, edge to edge in v: each
+    triangle's own uv bbox keeps the *same* wide u-extent (0 to 1) no matter
+    how many strips there are, which is exactly the shape
+    ``uvtools.MAX_OVERLAP_REGISTRATIONS``'s own docstring measures -- a
+    packed layout of *uniformly-sized* islands does not reproduce it (its
+    triangles shrink along with the grid's own resolution as island count
+    grows), so this fixture is deliberately not built from ``pack_islands``.
+    """
+    positions: list[list[float]] = []
+    faces: list[list[int]] = []
+    uvs: list[list[tuple[float, float]]] = []
+    h = 1.0 / (2 * n)
+    for i in range(n):
+        wy = float(i)
+        base = len(positions)
+        positions.extend([[0.0, wy, 0.0], [1.0, wy, 0.0], [1.0, wy, 1.0], [0.0, wy, 1.0]])
+        faces.append([base, base + 1, base + 2, base + 3])
+        v0 = i * h
+        uvs.append([(0.0, v0), (1.0, v0), (1.0, v0 + h), (0.0, v0 + h)])
+    return bm.from_faces(positions, faces, uvs)
+
+
+def test_overlap_faces_stays_bounded_on_a_multi_island_uv_layout_under_the_triangle_ceiling() -> None:  # noqa: E501
+    """The 2026-09-19 audit's clay-12: 3,500 full-width strip islands (7,000
+    triangles) sit at well under 10% of MAX_OVERLAP_TRIANGLES (50,000), but
+    this shape's own registration count at that scale (measured ~600,000 --
+    see MAX_OVERLAP_REGISTRATIONS' own docstring) took multiple seconds of
+    pure-Python bucket building before this fix, with neither
+    MAX_OVERLAP_TRIANGLES nor MAX_OVERLAP_BUCKET ever catching it. Bounded
+    here on wall clock, not only on the exception: a fix that raised only
+    *after* paying for the registrations would not be a fix at all.
+    """
+    mesh = _thin_strip_islands_mesh(3500)
+    start = time.perf_counter()
+    with pytest.raises(OpError):
+        ut.overlap_faces(mesh)
+    elapsed = time.perf_counter() - start
+    assert elapsed < 2.0, (
+        f"the registrations ceiling must refuse before building the grid, took {elapsed:.2f}s"
+    )
 
 
 def test_pack_islands_of_an_empty_mesh_is_a_no_op() -> None:

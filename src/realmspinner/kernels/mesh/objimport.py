@@ -51,6 +51,32 @@ from .document import ClayDoc, Obj, default_material, new_uid
 from .elements import OpError
 from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
 
+#: Ceiling on total declared ``v``/``vt`` line count, folded into the same
+#: pre-pass as ``tri_budget``/``object_budget`` below (H01, the same reasoning
+#: :func:`.glbimport._declared_budget` states for a GLB's JSON chunk).
+#:
+#: The 2026-09-19 audit, finding clay-05: that pre-pass bounded the file's
+#: declared *triangle* and *object* counts but never its raw ``v``/``vt`` line
+#: count, so an OBJ with many vertex lines and almost no faces passed it and
+#: was parsed into Python lists unbounded -- ``tri_budget`` never sees an
+#: unreferenced vertex, and neither does any ceiling downstream of it.
+#: Reproduced (and re-measured at fix time): 200,000 unreferenced ``v`` lines
+#: behind one face cost 5.11 s and a 44.5 MB traced heap against 2.8 MB of
+#: source (15.9x); the amplification held constant through 2,000,000 lines
+#: (446.3 MB against 28 MB of source), so extrapolated to the 100 MiB
+#: ``MAX_MESH_BYTES`` import-door ceiling that is ~1.55 GiB -- with nothing in
+#: pass 1 to stop it. Same value as ``MAX_TRIANGLES``: a legitimate mesh
+#: already declares a comparable number of ``v``/``vt`` lines when its
+#: vertices are actually referenced by that many triangles, so this bounds
+#: only the unreferenced-vertex case the audit found, at the measured 446 MB
+#: worst case, without moving the ceiling any file this pipeline already
+#: accepts relies on. Counting itself stays cheap regardless of file size --
+#: measured at 2.6 s for the full pre-pass (line join plus counting, no float
+#: parsing) at 7,500,000 lines, comfortably inside the 100 MiB door -- which is
+#: the whole point: the expensive part (pass 2, below) never starts for a file
+#: over this line.
+MAX_VERTEX_LINES = MAX_TRIANGLES
+
 __all__ = ["axis_matrix", "obj_to_claydoc", "ns_from_roughness", "roughness_from_ns"]
 
 
@@ -274,10 +300,15 @@ def obj_to_claydoc(
     matrix = axis_matrix(scale=scale, up=up)[:3, :3]
     lines = _joined_lines(text)
 
-    # --- pass 1: the declared budget, before a single array is built (H01,
-    # the same reasoning glbimport._declared_budget states for a GLB's JSON).
+    # --- pass 1: the declared triangle, object *and* vertex/texcoord-line
+    # budget, before a single array is built (H01, the same reasoning
+    # glbimport._declared_budget states for a GLB's JSON) -- clay-05 (the
+    # 2026-09-19 audit) found this comment was only two-thirds true: "v"/"vt"
+    # lines were counted nowhere here, so they reached pass 2 regardless of
+    # how many of them the file declared.
     tri_budget = 0
     object_budget = 1  # the implicit first object, before any "o"/"g" line
+    vertex_budget = 0
     for line in lines:
         head = line.split(None, 1)[0]
         if head == "f":
@@ -285,6 +316,8 @@ def obj_to_claydoc(
             tri_budget += max(0, corners - 2)
         elif head in ("o", "g"):
             object_budget += 1
+        elif head in ("v", "vt"):
+            vertex_budget += 1
     if tri_budget > MAX_TRIANGLES:
         raise OpError(
             f"This OBJ has {tri_budget:,} triangles (n-gons counted by corners "
@@ -294,6 +327,12 @@ def obj_to_claydoc(
         raise OpError(
             f"This OBJ declares at least {object_budget:,} objects, past the "
             f"{MAX_OBJECTS:,} Clay holds."
+        )
+    if vertex_budget > MAX_VERTEX_LINES:
+        raise OpError(
+            f"This OBJ declares {vertex_budget:,} vertex/texture-coordinate "
+            f"lines, past the {MAX_VERTEX_LINES:,} Clay will parse before it "
+            "has seen how many of them a face actually uses."
         )
 
     # --- pass 2: the real parse.

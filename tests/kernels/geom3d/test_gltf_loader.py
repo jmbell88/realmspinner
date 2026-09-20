@@ -1789,3 +1789,73 @@ def test_a_file_declaring_more_markers_than_this_build_holds_is_refused(monkeypa
         gltf.load(
             _marker_glb(extensions={"KHR_lights_punctual": {"lights": [{"type": "point"}] * 3}})
         )
+
+
+# --- array entries checked for being an object at all ------------------------
+#
+# The 2026-09-19 audit, finding clay-04: every *index-shaped field* this
+# loader reads (node.mesh/skin/child/camera/light, a skin's joints, a
+# material's texture/image index...) was hardened for type and range across
+# five earlier findings (clay-03/04/05/06/09, create-01) -- but the entries of
+# "nodes"/"meshes"/"materials"/"skins" themselves, and of a mesh's
+# "primitives", were never checked to *be* objects at all, so one of them
+# holding null, a string, a list or a number reached that entry's own
+# ``.get(...)`` call as a bare AttributeError/TypeError instead.
+
+_BAD_ENTRIES = pytest.mark.parametrize(
+    "bad", [None, "not-an-object", [1, 2, 3], 42], ids=["null", "a_string", "a_list", "a_number"]
+)
+
+
+@_BAD_ENTRIES
+def test_a_glb_whose_node_entry_is_not_an_object_is_refused_by_name_not_a_bare_attributeerror(bad):
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [bad],
+    }
+    with pytest.raises(ValueError, match='"nodes" array must be a JSON object'):
+        gltf.load(_glb(doc, b""))
+
+
+@_BAD_ENTRIES
+def test_a_glb_whose_mesh_entry_is_not_an_object_is_refused_by_name_not_a_bare_attributeerror(bad):
+    doc = {
+        "asset": {"version": "2.0"},
+        "nodes": [{"mesh": 0}],
+        "scenes": [{"nodes": [0]}],
+        "meshes": [bad],
+    }
+    with pytest.raises(ValueError, match='"meshes" array must be a JSON object'):
+        gltf.load(_glb(doc, b""))
+
+
+@_BAD_ENTRIES
+def test_a_glb_whose_material_entry_is_not_an_object_is_refused_by_name_not_a_bare_attributeerror(
+    bad,
+):
+    doc = {"asset": {"version": "2.0"}, "nodes": [], "materials": [bad]}
+    with pytest.raises(ValueError, match='"materials" array must be a JSON object'):
+        gltf.load(_glb(doc, b""))
+
+
+@_BAD_ENTRIES
+def test_a_glb_whose_skin_entry_is_not_an_object_is_refused_by_name_not_a_bare_attributeerror(bad):
+    doc = {"asset": {"version": "2.0"}, "nodes": [{"skin": 0}], "skins": [bad]}
+    with pytest.raises(ValueError, match='"skins" array must be a JSON object'):
+        gltf.load(_glb(doc, b""))
+
+
+@_BAD_ENTRIES
+def test_a_glb_whose_primitive_entry_is_not_an_object_is_refused_by_name_not_a_bare_attributeerror(
+    bad,
+):
+    doc = {
+        "asset": {"version": "2.0"},
+        "nodes": [{"mesh": 0}],
+        "scenes": [{"nodes": [0]}],
+        "meshes": [{"primitives": [bad]}],
+    }
+    with pytest.raises(ValueError, match='"primitives" array must be a JSON object'):
+        gltf.load(_glb(doc, b""))

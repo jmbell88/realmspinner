@@ -402,6 +402,32 @@ def test_inset_refuses_an_empty_selection() -> None:
         ops.inset_faces(prim.box(), el.empty())
 
 
+def test_inset_faces_refuses_past_its_own_size_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The 2026-09-19 audit's clay-23: unlike every sibling growth op
+    (`MAX_BEVELED_CORNERS`, `MAX_LOOP_CUT_CORNERS`, `MAX_COLLAPSED_PAIRS`,
+    `MAX_BRIDGED_RING`), `inset_faces` had no size ceiling of any kind -- a
+    700x700 grid, 490,000 selected faces (1,960,000 corners), inset in
+    904 ms with no refusal and kept growing past it. Both the per-face
+    default and `region=True` must refuse once the ceiling is lowered.
+    """
+    monkeypatch.setattr(ops, "MAX_INSET_CORNERS", 4)
+    box = prim.box()
+    sel = el.ElementSel(faces=np.arange(bm.face_count(box), dtype="i4"))
+    with pytest.raises(el.OpError, match="past the"):
+        ops.inset_faces(box, sel)
+    with pytest.raises(el.OpError, match="past the"):
+        ops.inset_faces(box, sel, region=True)
+
+
+def test_inset_faces_stays_reachable_under_the_ceiling() -> None:
+    """The ceiling must not have crept down onto ordinary use."""
+    box = prim.box()
+    sel = el.ElementSel(faces=np.arange(bm.face_count(box), dtype="i4"))
+    assert 4 * bm.face_count(box) < ops.MAX_INSET_CORNERS
+    out, _ = ops.inset_faces(box, sel, thickness=0.1)
+    bm.validate(out)
+
+
 # --- weld -------------------------------------------------------------------
 
 

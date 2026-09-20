@@ -165,6 +165,32 @@ def test_an_unknown_mode_falls_back_rather_than_raising():
     assert clay_hints.hint("nonsense", "select") == clay_hints.hint("object", "select")
 
 
+# --- the background-op line ---------------------------------------------------
+
+
+def test_a_running_background_op_says_so_where_the_user_can_see_it():
+    """clay-41 (2026-09-19 audit, found during the fix phase): ``ClayTab.bg_busy``
+    was write-only -- five writers (``clay_ops``'s four background ops:
+    decimate, retopo, smart-unwrap, bake-detail) and zero readers, while the
+    sibling ``tab.saving`` it names itself after is read in six panes. Bake
+    Detail and Retopologize's own hint text warns they can take "minutes for
+    something dense", and for that whole window the user had nothing on
+    screen saying so. ``resolve_hint`` is what ``hud.hint_line`` now calls to
+    decide the line, and a background op in flight must win over both the
+    measurement readout and the ordinary mode/tool legend.
+    """
+    assert clay_hints.resolve_hint(busy="Decimating...", measure="", default="x") == "Decimating..."
+    assert (
+        clay_hints.resolve_hint(busy="Baking...", measure="area  1.0000 m²", default="x")
+        == "Baking..."
+    ), "a background op outranks a live measurement, not the other way round"
+    assert (
+        clay_hints.resolve_hint(busy="", measure="area  1.0000 m²", default="x")
+        == "area  1.0000 m²"
+    )
+    assert clay_hints.resolve_hint(busy="", measure="", default="x") == "x"
+
+
 # --- the keys the line names -------------------------------------------------
 
 

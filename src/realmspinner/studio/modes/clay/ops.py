@@ -1659,7 +1659,12 @@ def _clean_mesh(
 
     run_object_op(ctx, doc, one)
     if not changed:
-        ctx.toast("Nothing to clean.")
+        # The 2026-09-19 audit (clay-24): the hint promises "no toast, no
+        # step" for an already-clean object, but this used to toast "Nothing
+        # to clean." anyway -- the one sentence a user reads before deciding
+        # whether it is safe to press speculatively. Silent matches every
+        # other no-op ``run()`` in this module (none of them toast either);
+        # the caller already knows nothing happened from the ``False``.
         return False
     parts = [
         f"{n} {label}"
@@ -1803,6 +1808,34 @@ def _tri_count(mesh: Any) -> int:
     return max(0, corners - 2 * faces)
 
 
+#: What :func:`_decimate_prepare` and :func:`_blender_multi_prepare` may run
+#: :func:`_decimate_primitives` over in one call, summed across *every* uid
+#: in the selection -- the 2026-09-19 audit's clay-40, found during this same
+#: pass's own reading debt: ``_decimate`` checked each object's triangle
+#: count against ``glbimport.MAX_TRIANGLES`` individually but never summed
+#: the selection, and ``_blender_multi_prepare`` (retopo/unwrap/bake-detail's
+#: shared prepare) had no check at all, so a selection of many legally-sized
+#: objects drove ``_decimate_primitives`` -- earclip triangulation plus an
+#: ``np.unique(key, axis=0)`` dedup -- once per uid with no way to refuse
+#: partway through, exactly the unrefusable frame-thread stall
+#: ``ops_boolean._refuse_complexity`` and ``ops.MAX_JOINED_CORNERS`` already
+#: guard their own kernels against.
+#:
+#: Measured 2026-09-20 against ``_decimate_primitives`` itself, the
+#: expensive step both callers spend their time in: linear in triangle
+#: count at roughly 2.3 microseconds each (10k -> 0.033 s, 500k -> 1.14 s,
+#: 2,000,000 -> 4.6 s, and four 500k-triangle objects summing to the same
+#: 2,000,000 cost 4.4 s -- the same total either way, which is what "summed"
+#: means here). 2,000,000 is the same order of magnitude as the reproduced
+#: 4.4 s ``ops.MAX_JOINED_CORNERS`` was set against, and the same value as
+#: ``ops_boolean.MAX_BOOLEAN_TRIANGLES``/``glbimport.MAX_TRIANGLES`` for the
+#: same reason theirs matches: one mesh at the import ceiling is exactly
+#: what a single already-legal object costs, so a selection's budget is "no
+#: worse than one object at the ceiling," never a lower bar than an import
+#: already clears.
+MAX_PRIMITIVES_TRIANGLES = 2_000_000
+
+
 def _decimate_primitives(mesh: Any, materials: Any) -> list[Any]:
     """*mesh* as one :class:`~.gltf.Primitive` per material slot it uses, with
     no normals -- see the section docstring above for why.
@@ -1867,9 +1900,27 @@ def _decimate_prepare(doc: Any, uids: Iterable[int]) -> list[dict[str, Any]]:
     ever calling ``set_mesh`` -- see that method's own comment for why a
     result computed against a mesh the user has since edited must be
     discarded rather than silently overwriting the edit.
+
+    Refuses up front, from :data:`MAX_PRIMITIVES_TRIANGLES`, if the
+    selection's *summed* triangle count would run :func:`_decimate_primitives`
+    past its budget -- see that constant's own comment (the 2026-09-19
+    audit's clay-40). ``_decimate``'s own per-object check against
+    ``glbimport.MAX_TRIANGLES`` catches one oversized object; it never
+    summed a selection of several legal ones, which is what this catches
+    instead.
     """
     from ....kernels.geom3d import glbwrite
     from ....kernels.geom3d import gltf as gltf_mod
+    from ....kernels.mesh.elements import OpError
+
+    uids = list(uids)
+    total = sum(_tri_count(doc.by_uid(uid).mesh) for uid in uids)
+    if total > MAX_PRIMITIVES_TRIANGLES:
+        raise OpError(
+            f"This decimate would need {total:,} triangles, past the "
+            f"{MAX_PRIMITIVES_TRIANGLES:,} Clay can prepare in one pass. "
+            "Select fewer objects, or simplify them first."
+        )
 
     prepared: list[dict[str, Any]] = []
     for uid in uids:
@@ -2220,16 +2271,38 @@ def _blender_multi_prepare(doc: Any, uids: Iterable[int]) -> tuple[bytes, list[d
     tag did not survive). An empty *uids*, or a selection of objects with no
     geometry at all, comes back ``(b"", [])`` -- the caller's own "nothing to
     do" refusal, not this function's to raise.
+
+    Refuses up front, from :data:`MAX_PRIMITIVES_TRIANGLES`, from the
+    selection's *summed* evaluated triangle count -- the 2026-09-19 audit's
+    clay-40: this function had no ceiling of any kind, unlike every sibling
+    combine op (``ops_boolean._refuse_complexity``, ``ops.MAX_JOINED_CORNERS``),
+    so a selection of many legally-sized objects drove
+    :func:`_decimate_primitives` once per uid with no way to bail out
+    partway through. Every uid is evaluated once, up front, so the meshes
+    the refusal counts are exactly the ones the loop below turns into
+    primitives -- summing and then evaluating a second time would double
+    the modifier-stack cost this function already pays once.
     """
     from ....kernels.geom3d import glbwrite, math3d
     from ....kernels.geom3d import gltf as gltf_mod
+    from ....kernels.mesh.elements import OpError
+
+    uids = list(uids)
+    evaluated = {uid: doc.evaluated(uid) for uid in uids}
+    total = sum(_tri_count(mesh) for mesh in evaluated.values())
+    if total > MAX_PRIMITIVES_TRIANGLES:
+        raise OpError(
+            f"This selection would need {total:,} triangles, past the "
+            f"{MAX_PRIMITIVES_TRIANGLES:,} Clay can prepare for Blender in "
+            "one pass. Select fewer objects, or simplify them first."
+        )
 
     nodes: list[Any] = []
     meshes: list[Any] = []
     meta: list[dict[str, Any]] = []
     for uid in uids:
         obj = doc.by_uid(uid)
-        prims = _decimate_primitives(doc.evaluated(uid), doc.materials)
+        prims = _decimate_primitives(evaluated[uid], doc.materials)
         if not prims:
             continue
         translation, rotation, scale = math3d.decompose(doc.world_matrix(uid))
@@ -3858,7 +3931,7 @@ def _register_defaults() -> None:
             # the result -- has not been paid yet.
             hint=(
                 "Welds the shapes and keeps the surfaces inside the overlap. For "
-                "shapes that interpenetrate, Union Objects... (Ctrl+Shift+M) cuts "
+                "shapes that interpenetrate, Union Objects (Ctrl+Shift+M) cuts "
                 "those away instead -- at the cost of the UVs and the n-gons."
             ),
             params=(
@@ -3890,7 +3963,7 @@ def _register_defaults() -> None:
     register(
         Op(
             name="union",
-            label="Union Objects...",
+            label="Union Objects",
             modes=("object",),
             run=_union,
             enabled=has_two_visible,
@@ -3923,7 +3996,7 @@ def _register_defaults() -> None:
     register(
         Op(
             name="difference",
-            label="Difference Objects...",
+            label="Difference Objects",
             modes=("object",),
             run=_difference,
             enabled=has_two_visible,
@@ -3938,7 +4011,7 @@ def _register_defaults() -> None:
     register(
         Op(
             name="intersection",
-            label="Intersect Objects...",
+            label="Intersect Objects",
             modes=("object",),
             run=_intersection,
             enabled=has_two_visible,
@@ -4555,8 +4628,12 @@ def _register_defaults() -> None:
             enabled=in_mode("face"),
             reason=_in_mode_reason("face"),
             key="T",
-            hint="Replaces the selected faces (or every face, with none "
-            "selected) with their own triangles.",
+            # The 2026-09-19 audit (clay-36): the kernel's own no-selection
+            # fallback ("every face") is unreachable through this row --
+            # ``enabled=in_mode("face")`` requires a non-empty element
+            # selection, so the button is greyed out exactly when that branch
+            # would fire. The hint used to promise it anyway.
+            hint="Replaces the selected faces with their own triangles.",
         )
     )
     register(

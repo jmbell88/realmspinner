@@ -509,6 +509,41 @@ def test_the_mirror_axis_is_a_parameter():
     assert len(select.mirror_pairs(box, 2)) == 8
 
 
+def test_mirror_pairs_is_reachable_from_a_live_code_path_or_its_docstring_says_it_is_not():
+    """The 2026-09-19 audit's clay-26: ``mirror_pairs``'s docstring reads as
+    though X-mirror editing already calls it ("what X-mirror editing needs"),
+    but ``header.py``'s own docstring admits the feature is not built yet --
+    X-mirror is explicitly listed there as "not here yet, deliberately".
+    ``elements.restrict()`` had exactly this gap (the 2026-09-08 audit's
+    clay-09) and ``test_elements.py`` closed it with this same self-adjusting
+    gate; ``mirror_pairs`` never got the mirror. Either a live caller exists,
+    or the docstring has to say plainly that none does, so a future caller
+    does not assume X-mirror dragging is already wired up.
+    """
+    import inspect
+    import re
+    from pathlib import Path
+
+    import realmspinner
+
+    root = Path(realmspinner.__file__).parent
+    callers = [
+        path
+        for path in root.rglob("*.py")
+        if path.name != "select.py"
+        and re.search(r"\bmirror_pairs\s*\(", path.read_text(encoding="utf-8"))
+    ]
+    if callers:
+        return  # a live caller exists -- nothing more to prove
+
+    doc = inspect.getdoc(select.mirror_pairs) or ""
+    assert "not currently called" in doc.lower() or "not built" in doc.lower(), (
+        "mirror_pairs() has no live caller anywhere under realmspinner/, but "
+        "its docstring no longer admits that -- either wire it into X-mirror "
+        "editing, or restore the honest docstring"
+    )
+
+
 # --- delete and duplicate, one undo step per gesture --------------------------
 #
 # The 2026-09-06 audit, finding clay-01: delete_selected and duplicate_selected

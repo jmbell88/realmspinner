@@ -1,7 +1,7 @@
 """What Clay's agent tool schemas declare, and whether the handler behind
 each one actually enforces it.
 
-Every one of the 29 tools :func:`agent_clay.tools` publishes carries a real
+Every one of the {TOOL_COUNT} tools :func:`agent_clay.tools` publishes carries a real
 JSON Schema -- ``type``, ``enum``, ``minimum``/``maximum``, ``minItems``/
 ``maxItems``, ``required``, ``additionalProperties``, ``anyOf``,
 ``exclusiveMinimum``. **Nothing validates any of it at the door.**
@@ -251,6 +251,16 @@ from modes.clay.test_agent_clay import _Ctx, _install_fake_view, _payload  # see
 from realmspinner.kernels.mesh import presets
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
+
+# The 2026-09-19 audit, finding clay-37: the module docstring's opening
+# sentence hand-wrote "29" while the docstring's own later paragraphs (and
+# the live registry) had long since moved to 47, the exact hand-restated-
+# number-goes-stale failure this file's own "Coverage, honestly" paragraph
+# names for a *count* ("restated here where it went stale at 281 while the
+# walk had already moved on"). Interpolating the live count in, the same as
+# every other measured number here is checked against the schemas rather
+# than trusted, means the opening sentence cannot go stale again the same way.
+__doc__ = (__doc__ or "").format(TOOL_COUNT=len(agent_clay.tools()))
 
 Args = dict[str, Any]
 BaselineFactory = Callable[..., tuple[Any, agent_clay.Session, Args]]
@@ -1496,6 +1506,43 @@ def test_every_override_baseline_is_itself_accepted(
     ctx, session, args = _OVERRIDE_BASELINES[label](monkeypatch, svc)
     result = agent_clay.call(ctx, session, tool_name, args)
     assert result["isError"] is False, result
+
+
+def test_the_tool_count_sentence_matches_the_live_tool_count() -> None:
+    """The 2026-09-19 audit, finding clay-37: this file's opening sentence
+    hand-wrote "29" while the registry -- and this file's own later
+    paragraphs -- had long since moved to 47, the exact restated-number-goes-
+    stale failure the "Coverage, honestly" paragraph above names for a count
+    ("restated here where it went stale at 281 while the walk had already
+    moved on"). The sentence is interpolated now (the ``__doc__.format`` call
+    near the top of this file), so this pins the two against drifting apart
+    again rather than trusting the interpolation was spelled right.
+    """
+    import re
+
+    match = re.search(r"Every one of the (\d+) tools", __doc__ or "")
+    assert match is not None, "the tool-count sentence itself went missing from the docstring"
+    assert int(match.group(1)) == len(agent_clay.tools())
+
+
+def test_the_undo_enumeration_docstring_names_every_tool_that_pushes_no_step() -> None:
+    """The 2026-09-19 audit, finding clay-38. ``dispatch.py``'s "The undo
+    enumeration, in full" paragraph named two families of tools that push no
+    undo step -- references and the selection tools -- and omitted
+    ``clay_checkpoint``, which pushes none either: ``schema.py``'s own
+    ``BATCH_EXCLUDED`` comment says so in these words ("clay_checkpoint
+    itself pushes no step ... so it stays batchable"), and
+    ``tools_structure.py``'s own "three of the ten are exempt" paragraph
+    points straight back at this enumeration for the claim, which did not
+    have it. Developer-facing only: the runtime ``instructions()`` text an
+    agent actually reads already named ``clay_checkpoint`` alongside
+    ``clay_reference_add`` before this fix, and still does.
+    """
+    doc = agent_clay.__doc__ or ""
+    start = doc.index("The undo enumeration, in full.")
+    end = doc.index("A call that outruns", start)
+    section = doc[start:end]
+    assert "clay_checkpoint" in section, "clay-38: the enumeration omits clay_checkpoint"
 
 
 # --- the discovery walk itself, pinned against the measured ground truth ------

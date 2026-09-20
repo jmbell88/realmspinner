@@ -40,6 +40,24 @@ def test_the_object_ceiling_refuses(monkeypatch) -> None:
         objimport.obj_to_claydoc(text)
 
 
+def test_many_unreferenced_vertex_lines_are_bounded_before_they_are_all_parsed_into_memory(
+    monkeypatch,
+) -> None:
+    """The 2026-09-19 audit, finding clay-05: ``tri_budget``/``object_budget``
+    bounded the file's declared triangle and object counts, but nothing
+    bounded its raw ``v``/``vt`` line count -- so an OBJ with many vertex
+    lines and almost no faces sailed past pass 1 and was parsed into Python
+    lists unbounded (reproduced: 200,000 unreferenced ``v`` lines behind one
+    face cost 5.11 s and a 44.5 MB traced heap from 2.8 MB of source).
+    Monkeypatched low so the fixture stays small: the refusal must name the
+    vertex/texcoord budget, not the (satisfied) triangle or object one.
+    """
+    monkeypatch.setattr(objimport, "MAX_VERTEX_LINES", 5)
+    text = "\n".join(f"v {i} 0 0" for i in range(50)) + "\nf 1 2 3\n"
+    with pytest.raises(OpError, match="vertex/texture-coordinate lines"):
+        objimport.obj_to_claydoc(text)
+
+
 def test_an_unknown_up_axis_is_refused() -> None:
     with pytest.raises(OpError):
         objimport.obj_to_claydoc("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", up="x")

@@ -140,8 +140,16 @@ def delete_selected(doc: Any) -> list[str]:
     for uid in list(doc.element_sel):
         obj = doc.by_uid(uid)
         faces = el.convert(obj.mesh, doc.element_sel_of(uid), "face")
-        if el.is_empty(faces):
-            continue
+        # The 2026-09-19 audit, finding clay-03: this used to ``continue`` past
+        # an object whose selection converted to zero faces -- a partial
+        # vertex or edge selection, the ordinary case rather than an edge
+        # case -- which swallowed ``delete_faces``'s own refusal ("Select at
+        # least one face to delete.") before it could reach the caller's
+        # toast. Calling ``delete_faces`` unconditionally lets it raise that
+        # refusal itself, and collecting it here keeps the same "a refusal on
+        # one object does not abandon the others" contract this function's
+        # docstring already promises for every other ``OpError``: an object
+        # whose selection does convert to a face is still deleted.
         try:
             mesh, sel = ops_topo.delete_faces(obj.mesh, faces)
         except el.OpError as error:

@@ -343,6 +343,47 @@ def _unit(v: np.ndarray) -> np.ndarray:
     return v / length if length > 1e-12 else v
 
 
+#: The largest number of touched vertices :func:`edge_slide` and
+#: :func:`vertex_slide` will walk in their own per-vertex Python loop. The
+#: 2026-09-19 audit's clay-15 found neither op had any ceiling at all --
+#: unlike :func:`bisect`, :func:`rip`, :func:`tris_to_quads` and
+#: :func:`grid_fill` in this same module, every one of which measures and
+#: refuses first -- and a whole-mesh selection reaches either op with no seed
+#: (Select All, then Edge Slide or Vertex Slide, straight off the menu or the
+#: agent surface). Measured on this machine, a ``uv_sphere`` at increasing
+#: resolution -- every vertex slid for :func:`vertex_slide`, every latitude
+#: ring's own edges slid for :func:`edge_slide` (so every touched vertex keeps
+#: its ordinary two up/down rails rather than tripping the O(k^2) pole
+#: disambiguation below, the same way a real quad-strip selection would):
+#:
+#: | vertices | vertex_slide | edge_slide |
+#: |---------:|-------------:|-----------:|
+#: |    4,034 |        29 ms |       25 ms |
+#: |    8,066 |        58 ms |       50 ms |
+#: |   16,258 |       116 ms |       98 ms |
+#: |   32,514 |       235 ms |      195 ms |
+#: |   65,282 |       466 ms |      402 ms |
+#: |  130,562 |       935 ms |      808 ms |
+#:
+#: ...linear throughout, about 7.2us/vertex for ``vertex_slide`` (the more
+#: expensive of the two, so the one ceiling both ops share is read off its
+#: rate). 130,562 vertices already measures within noise of a second, so the
+#: ceiling sits at half that -- comfortably under the point (~140,000) where
+#: "well under a second" stops being true, the same margin
+#: ``ops_topo.MAX_BRIDGED_RING`` keeps under its own measured stall point.
+MAX_SLIDE_VERTICES = 65_536
+
+
+def _refuse_slide_size(n_touched: int, what: str) -> None:
+    if n_touched > MAX_SLIDE_VERTICES:
+        raise OpError(
+            f"{what} this selection means walking {n_touched:,} vertices one "
+            f"at a time, past the {MAX_SLIDE_VERTICES:,} slide works with "
+            "before it would stall the frame it runs on. Slide a smaller "
+            "selection."
+        )
+
+
 def edge_slide(mesh: Mesh, sel: ElementSel, *, t: float = 0.0) -> tuple[Mesh, ElementSel]:
     """Slide every vertex of the selected edge loop along its own two rails.
 
@@ -374,6 +415,7 @@ def edge_slide(mesh: Mesh, sel: ElementSel, *, t: float = 0.0) -> tuple[Mesh, El
         raise OpError("That edge is not part of this mesh.")
 
     verts = np.unique(sel.edges.reshape(-1).astype("i8"))
+    _refuse_slide_size(len(verts), "Sliding")
     positions = mesh.positions.astype("f8").copy()
     t = float(t)
 
@@ -440,6 +482,7 @@ def vertex_slide(
     """
     if len(sel.verts) == 0:
         raise OpError("Select the vertices to slide.")
+    _refuse_slide_size(len(np.unique(sel.verts)), "Sliding")
     a = adjacency(mesh)
     positions = mesh.positions.astype("f8").copy()
     direction = None

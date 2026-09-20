@@ -314,15 +314,26 @@ def by_material(mesh: Mesh, slot: int) -> np.ndarray:
 def mirror_pairs(mesh: Mesh, axis: int = 0, eps: float = 1e-4) -> dict[int, int]:
     """``{vertex: its mirror}`` across the plane ``axis == 0``.
 
-    What X-mirror editing needs and what it can only be as good as: a mesh that
-    is not actually symmetric has no pairs to find, and this reports the ones it
-    can rather than pretending. A vertex *on* the plane maps to itself, which is
-    the case that has to be handled rather than excluded -- those are the ones a
-    mirrored drag must slide along the plane instead of moving off it.
+    What X-mirror editing would need and what it can only be as good as: a
+    mesh that is not actually symmetric has no pairs to find, and this
+    reports the ones it can rather than pretending. A vertex *on* the plane
+    maps to itself, which is the case that has to be handled rather than
+    excluded -- those are the ones a mirrored drag must slide along the
+    plane instead of moving off it.
 
     ``eps`` is a distance in the mesh's own units. Bucketed on the rounded
     coordinate rather than compared pairwise, because pairwise is O(V^2) and a
     50k-vertex import would take minutes.
+
+    **Not currently called.** X-mirror editing itself is not built --
+    ``studio/modes/clay/ui/panes/header.py``'s own docstring lists it among
+    what is "not here yet, deliberately" -- so this function has no live
+    caller anywhere under ``realmspinner/`` yet; only its own tests in
+    ``tests/modes/clay/test_select.py`` exercise it. The 2026-09-19 audit's
+    clay-26 found the docstring above reading as though the feature already
+    called it, the same gap ``elements.restrict()`` had (the 2026-09-08
+    audit's clay-09) before its own docstring said so plainly. Wire this in
+    when X-mirror dragging is built, and remove this paragraph then.
     """
     positions = np.asarray(mesh.positions, dtype="f8")
     if not len(positions):

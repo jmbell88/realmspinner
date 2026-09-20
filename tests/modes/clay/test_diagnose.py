@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from realmspinner.kernels.mesh import diagnose
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops_clean as oc
 from realmspinner.kernels.mesh import primitives as prim
 
 
@@ -142,3 +144,30 @@ def test_rows_for_does_not_measure_twice() -> None:
     mesh = _one_quad()
     report = adj.check_manifold(mesh)
     assert [f.kind for f in diagnose.rows_for(mesh, report)] == _kinds(mesh)
+
+
+# --- the size ceiling (the 2026-09-19 audit's clay-39) ------------------------
+
+
+def test_findings_raises_past_the_clean_corner_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`findings` calls `ops_clean.face_defect_masks`/`survey` with no gate of
+    its own -- it is a pass-through, not a guard (see its own docstring) --
+    so once those two carry `MAX_CLEAN_CORNERS`, an oversized mesh reaches
+    this as an uncaught `OpError` rather than the silent stall it used to be.
+    Every real caller (the properties panel, the agent's `clay_diagnose` and
+    `clay_add_mesh` tools) now catches this and reports a named skip instead
+    -- see `test_clay_props_widget.py` and `test_agent_clay.py`."""
+    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
+    with pytest.raises(el.OpError, match="past the"):
+        diagnose.findings(prim.box())
+
+
+def test_too_large_finding_carries_the_callers_own_caught_message() -> None:
+    """`too_large_finding` is a shared shape, not a message generator -- the
+    text it carries is whatever the caller caught, so it can never drift out
+    of step with `ops_clean._refuse_if_too_large`'s own wording."""
+    row = diagnose.too_large_finding("This mesh has 9 corners, past the 4 it can process.")
+    assert row.kind == diagnose.TOO_LARGE_KIND
+    assert row.label == "This mesh has 9 corners, past the 4 it can process."
+    assert row.count == 0
+    assert len(row.sel) == 0

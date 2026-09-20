@@ -237,6 +237,40 @@ def test_mirror_world_rejects_an_axis_that_is_not_one_of_three() -> None:
         ops.mirror_world(_obj(), 3, 0.0)
 
 
+def test_mirror_world_with_a_world_override_matches_the_root_path_for_a_rotated_object() -> None:
+    """The 2026-09-19 audit's clay-01: ``mirror(obj, axis)`` -- called by both
+    branches of ``mirror_world`` -- has already baked a local-axis reflection
+    into the mesh. The ``world=None`` branch cancels that by negating the
+    off-axis rotation components; the ``world=`` branch decomposed
+    ``reflect @ world`` directly and did not, so an unparented object (whose
+    own world *is* its local frame, per this function's own docstring) got a
+    different, wrong answer through the ``world=`` path than through the root
+    path for the exact same reflection. Built on the same rotated,
+    non-uniformly-scaled fixture as the sibling root-path test above, because
+    an axis-aligned or unscaled fixture cannot tell a doubled reflection from
+    a correct one.
+    """
+    obj = _obj(
+        "A",
+        bp.box(),
+        translation=(2.0, -1.0, 4.0),
+        rotation=m3.quat_from_axis_angle(
+            m3.vec3(1.0, 2.0, 3.0) / math.sqrt(14.0), math.radians(50.0)
+        ),
+        scale=(2.0, 0.5, 3.0),
+    )
+    before = _world_positions(obj)
+    axis, offset = 1, 2.5
+    world = m3.compose(obj.translation, obj.rotation, obj.scale)
+
+    out = ops.mirror_world(obj, axis, offset, world=world)
+
+    expected = before.copy()
+    expected[:, axis] = 2.0 * offset - expected[:, axis]
+    assert np.allclose(_world_positions(out), expected, atol=1e-6)
+    assert np.allclose(out.scale, obj.scale)
+
+
 # --- align_y (promoted out of presets._align_y) and place_between -----------
 #
 # ``align_y`` used to live in ``presets.py`` as a private, and the eight-

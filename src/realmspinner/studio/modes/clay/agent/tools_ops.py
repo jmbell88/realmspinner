@@ -964,7 +964,19 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
     reports: dict[int, list] = {}
     report = []
     for obj in targets:
-        rows = clay_diagnose.findings(obj.mesh)
+        # The 2026-09-19 audit's clay-39: ``findings`` past
+        # ``ops_clean.MAX_CLEAN_CORNERS`` now raises ``OpError`` rather than
+        # stalling. A whole-document call (``uid`` omitted) walks every
+        # visible object in one loop, so letting that propagate would refuse
+        # the *entire* call -- and every object's findings with it -- over
+        # one oversized mesh among many legally-sized ones. Caught per object
+        # and reported as a named skip instead, reusing the same row shape
+        # every other finding already gets (``diagnose.too_large_finding``),
+        # so the rest of the document is still answered for.
+        try:
+            rows = clay_diagnose.findings(obj.mesh)
+        except el.OpError as error:
+            rows = [clay_diagnose.too_large_finding(str(error))]
         reports[obj.uid] = rows
         report.append(
             {
@@ -996,8 +1008,15 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
             # The object this call was asked to select in was not among this
             # call's own targets (a narrower ``uid`` was given, or it is
             # hidden) -- measured fresh rather than refused for a technicality
-            # this call could answer on its own.
-            rows = clay_diagnose.findings(sel_obj.mesh)
+            # this call could answer on its own. Unlike the loop above, an
+            # ``OpError`` here really is a refusal: a ``select`` this call
+            # cannot compute has nothing to fall back to, so it takes the
+            # ordinary refusal shape (``fail``) every other named-field
+            # refusal on this surface already uses, rather than a new one.
+            try:
+                rows = clay_diagnose.findings(sel_obj.mesh)
+            except el.OpError as error:
+                return fail(str(error), field="select")
         row = next((r for r in rows if r.kind == kind), None)
         if row is None:
             available = sorted({r.kind for r in rows})

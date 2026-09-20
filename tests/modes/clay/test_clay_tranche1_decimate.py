@@ -111,6 +111,31 @@ def test_decimate_refuses_a_ratio_of_one(tmp_path: Path) -> None:
     assert any("nothing to decimate" in m.lower() for m, _ in ctx.toasted)
 
 
+def test_a_multi_object_decimate_refuses_on_the_selections_total_before_triangulating_any_of_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """clay-40 (2026-09-19 audit, found during the fix phase, the ``ops-tail``
+    reading debt): ``_decimate_prepare`` ran ``_decimate_primitives`` once per
+    selected uid with no summed ceiling -- only ``_decimate``'s own
+    per-object check against ``glbimport.MAX_TRIANGLES`` existed, and a
+    selection of several legally-sized objects never trips a per-object cap.
+    Two boxes (12 triangles each, 24 summed) trip a ceiling monkeypatched to
+    20, below either alone -- proving this is the selection's total.
+    """
+    from realmspinner.kernels.mesh.elements import OpError
+
+    doc = bd.ClayDoc()
+    a = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
+    b = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))
+
+    monkeypatch.setattr(clay_ops, "MAX_PRIMITIVES_TRIANGLES", 20)
+    with pytest.raises(OpError):
+        clay_ops._decimate_prepare(doc, [a.uid, b.uid])
+
+    prepared = clay_ops._decimate_prepare(doc, [a.uid])
+    assert len(prepared) == 1
+
+
 # --- the prepared GLB -----------------------------------------------------
 
 

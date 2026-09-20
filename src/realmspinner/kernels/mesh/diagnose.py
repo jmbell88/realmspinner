@@ -55,7 +55,21 @@ from . import ops_clean
 from .adjacency import ManifoldReport, boundary_loops, check_manifold
 from .mesh import Mesh
 
-__all__ = ["Finding", "SceneFinding", "findings", "rows_for", "scene_findings"]
+__all__ = [
+    "Finding",
+    "SceneFinding",
+    "TOO_LARGE_KIND",
+    "findings",
+    "rows_for",
+    "scene_findings",
+    "too_large_finding",
+]
+
+#: ``Finding.kind`` for the row a caller of :func:`findings` builds itself
+#: after catching the :class:`~.elements.OpError` :func:`~.ops_clean.survey`/
+#: :func:`~.ops_clean.face_defect_masks` now raise past
+#: :data:`~.ops_clean.MAX_CLEAN_CORNERS` -- see :func:`too_large_finding`.
+TOO_LARGE_KIND = "too_large_to_check"
 
 
 @dataclass(frozen=True)
@@ -86,6 +100,15 @@ def findings(mesh: Mesh) -> list[Finding]:
     O(corners) and not frame-thread work on a real model -- see the note on
     :func:`~.adjacency.check_manifold`. The caller runs it on demand and holds
     the result against the mesh it was measured from.
+
+    **Raises** :class:`~.elements.OpError` past
+    :data:`~.ops_clean.MAX_CLEAN_CORNERS`, since :func:`~.ops_clean.survey`
+    and :func:`~.ops_clean.face_defect_masks` do (the 2026-09-19 audit's
+    clay-39) -- this function is a pass-through, not a guard, so every caller
+    must catch it and report a named skip the way each of this repo's three
+    callers now does (the properties panel's "Check mesh" button, and the
+    agent's `clay_diagnose`/`clay_add_mesh` tools) rather than let a stall
+    turn into an unhandled crash.
     """
     return rows_for(mesh, check_manifold(mesh))
 
@@ -306,3 +329,24 @@ def scene_findings(objects: Sequence[Any]) -> list[SceneFinding]:
             )
         )
     return out
+
+
+def too_large_finding(message: str) -> Finding:
+    """The row a caller of :func:`findings` builds after catching the
+    :class:`~.elements.OpError` :func:`~.ops_clean.survey`/
+    :func:`~.ops_clean.face_defect_masks` raise past
+    :data:`~.ops_clean.MAX_CLEAN_CORNERS` (the 2026-09-19 audit's clay-39).
+
+    Kept here as one shared shape rather than three callers writing their own
+    -- the same "one function, every caller agrees" doctrine this module's
+    own docstring states for :func:`findings` itself. *message* is the caught
+    error's own text (``str(error)``), not recomposed here, so the ceiling
+    this names can never drift out of step with
+    :func:`~.ops_clean._refuse_if_too_large`'s own wording.
+
+    ``count=0`` and ``sel`` is empty (:func:`~.elements.empty`-equivalent):
+    nothing was measured, so there is nothing to count and nothing to select
+    -- a caller drawing this row must show it as information, never as a
+    clickable defect the way every other :class:`Finding` is.
+    """
+    return Finding(kind=TOO_LARGE_KIND, label=message, count=0, mode="face", sel=el.ElementSel())

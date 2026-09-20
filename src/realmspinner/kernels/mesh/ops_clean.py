@@ -522,7 +522,21 @@ def _compute_face_defects(mesh: Mesh) -> tuple[FaceDefectMasks, np.ndarray]:
 
 def face_defect_masks(mesh: Mesh) -> FaceDefectMasks:
     """The four per-face defect masks :func:`survey` and :mod:`.diagnose` both
-    read, computed once. See :class:`FaceDefectMasks`."""
+    read, computed once. See :class:`FaceDefectMasks`.
+
+    Refuses past :data:`MAX_CLEAN_CORNERS`, the same gate :func:`clean` and
+    :func:`recalc_outside` already apply before running this identical
+    BFS/adjacency/volume pass. The 2026-09-19 audit's clay-39, opened by
+    clay-14's own fixer: this and :func:`survey` pay the same cost `clean()`
+    refuses for, but were exported with no ceiling of their own, reached
+    uncaught through :func:`~.diagnose.findings` from the properties panel's
+    "Check mesh" button and the agent's diagnose tools (`agent/tools.py`,
+    `agent/tools_ops.py`). Those three callers were fixed first, to catch
+    this and report a named skip, precisely so this gate would not turn
+    today's silent stall into an uncaught crash in files this module does
+    not own -- see each caller's own comment for how it now survives this.
+    """
+    _refuse_if_too_large(mesh)
     return _compute_face_defects(mesh)[0]
 
 
@@ -534,7 +548,11 @@ def survey(mesh: Mesh, *, distance: float = 1e-5) -> Survey:
     from a per-frame draw. See :class:`Survey`'s own field-by-field docstrings
     on each `remove_*`/`merge_by_distance`/`recalc_outside` op below for what
     each count actually measures.
+
+    Refuses past :data:`MAX_CLEAN_CORNERS`, for the same reason and the same
+    2026-09-19 audit's clay-39 history as :func:`face_defect_masks` above.
     """
+    _refuse_if_too_large(mesh)
     a = adjacency(mesh)
     masks, bad_shell = _compute_face_defects(mesh)
 
@@ -740,7 +758,19 @@ def recalc_outside(mesh: Mesh) -> Mesh:
 
     Identity when every shell is already consistent and outward: the flip mask
     this computes is empty, and `flip_normals` is never called.
+
+    Refuses past :data:`MAX_CLEAN_CORNERS`, the same gate :func:`clean` already
+    applies before running this same BFS/adjacency/volume pass as one of its
+    own steps. The 2026-09-19 audit's clay-14: called directly (as
+    `modes/clay/ops.py`'s `_recalc_normals` does -- both the **Recalculate
+    Normals** menu item and `readiness.FIX_OPS`' own remedy for a `normals`
+    warning, so an agent following a `clay_validate` result reaches this too)
+    this op had no ceiling of its own at all, even though it pays the identical
+    cost `clean()` refuses for: a 523,264-corner mesh that `clean()` refuses by
+    name ran to completion here in 429 ms with no warning, unbounded as the
+    mesh grows from there.
     """
+    _refuse_if_too_large(mesh)
     return _recalc(mesh)[0]
 
 

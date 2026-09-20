@@ -632,6 +632,16 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
         # had no mirror here at all.
         r_out = abs(float(out["width"])) * 0.5
         out["thickness"] = min(max(abs(float(out["thickness"])), r_out * 0.02), r_out * 0.9)
+    if generator == "rounded_box" and "radius" in out and "size" in out:
+        # The 2026-09-19 audit's clay-06: the same torus/column/sweep/arch
+        # class of clay-04/clay-05 defect -- ``rounded_box`` clamps its own
+        # radius to at most half the shorter of its box's own X/Z extents
+        # (see :func:`rounded_box`'s ``r = min(abs(radius), hx, hz)``) but
+        # this function never got the mirror, so a saved document's radius
+        # could permanently disagree with the mesh built from it.
+        sx, _sy, sz = (abs(float(s)) for s in out["size"])
+        hx, hz = sx * 0.5, sz * 0.5
+        out["radius"] = min(abs(float(out["radius"])), hx, hz)
     return out
 
 

@@ -337,6 +337,55 @@ def test_clean_runs_under_the_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
     assert report == oc.CleanReport(0, 0, 0, 0, 0, 0)
 
 
+def test_recalc_normals_refuses_a_mesh_past_the_clean_corner_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-19 audit's clay-14: `clean()` already refuses past
+    `MAX_CLEAN_CORNERS` before running the identical BFS/adjacency/volume
+    pass `recalc_outside` runs on its own -- but `recalc_outside` had no
+    such gate, even though `modes/clay/ops.py`'s `_recalc_normals` (both the
+    **Recalculate Normals** menu item and `readiness.FIX_OPS`' own remedy for
+    a `normals` warning) calls it directly, bypassing `clean()`'s gate
+    entirely."""
+    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
+    with pytest.raises(el.OpError, match="past the"):
+        oc.recalc_outside(_fully_inverted(_box()))
+
+
+def test_recalc_normals_runs_under_the_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 10_000)
+    box = _box()
+    out = oc.recalc_outside(_fully_inverted(box))
+    bm.validate(out)
+    assert oc.survey(out) == oc.Survey(0, 0, 0, 0, 0, 0, 0)
+
+
+def test_survey_refuses_a_mesh_past_the_clean_corner_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-19 audit's clay-39, opened by clay-14's own fixer:
+    `survey` pays the identical BFS/adjacency/volume cost `clean()` and
+    `recalc_outside` already refuse past `MAX_CLEAN_CORNERS`, but was
+    exported with no ceiling of its own -- reached uncaught through
+    `diagnose.findings` from the properties panel's "Check mesh" button and
+    the agent's diagnose tools (see `test_diagnose.py` and
+    `test_agent_clay.py` for those three callers surviving this)."""
+    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
+    with pytest.raises(el.OpError, match="past the"):
+        oc.survey(_box())
+
+
+def test_face_defect_masks_refuses_a_mesh_past_the_clean_corner_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same finding, same ceiling, the other of the two functions clay-39
+    named: `face_defect_masks` is what `diagnose.rows_for` actually calls
+    first, and it paid the same unbounded cost `survey` did."""
+    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
+    with pytest.raises(el.OpError, match="past the"):
+        oc.face_defect_masks(_box())
+
+
 # --- every op's output validates ---------------------------------------------
 
 

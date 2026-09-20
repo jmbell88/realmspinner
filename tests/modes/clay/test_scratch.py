@@ -317,3 +317,45 @@ def test_transplant_with_material_removal_keeps_face_indices_right():
     live_mesh_material = doc.by_uid(obj.uid).mesh.material
     painted = live_mesh_material[: len(live_mesh_material) // 2]
     assert (painted == new_third_index).all()
+
+
+def test_transplant_does_not_change_a_locked_objects_modifiers_or_seams():
+    """The 2026-09-19 audit, finding clay-19: ``transplant`` applied a scratch
+    run's ``modifiers``/``seams`` edit through ``set_props``, which is
+    deliberately not a locking door (a rename or an unlock must still work on
+    a locked object -- see its own docstring), instead of ``set_modifiers``/
+    ``set_seams``, which both call ``_refuse_if_locked``. An agent preview
+    built while an object was unlocked, then applied after the user locked
+    that object, walked straight past the lock and overwrote its modifier
+    stack and marked seams anyway.
+
+    The object is locked on the *real* document only after the preview is
+    built, the same "state can move between preview and apply" path
+    ``test_transplant_surfaces_a_material_the_real_document_refused_to_drop``
+    already exercises for materials -- a scratch run has no way to know the
+    base will be locked later, so the refusal has to happen at transplant
+    time, and it must not abort the rest of the transplant.
+    """
+    from realmspinner.kernels.mesh import modifiers as mod
+
+    doc = _doc(1)
+    uid = doc.objects[0].uid
+    scratch = clay_scratch.clone(doc)
+
+    scratch.set_modifiers(uid, (mod.make("mirror", {}, id=1),))
+    scratch.set_seams(uid, [(0, 1)])
+    scratch.set_props(uid, name="renamed")  # a plain prop should still land
+
+    result = clay_scratch.diff(doc, scratch)
+    assert uid in result.props_changed
+    assert {"modifiers", "seams", "name"} <= result.props_changed[uid]
+
+    doc.set_props(uid, locked=True)
+
+    changed = clay_scratch.transplant(doc, scratch, result)
+
+    assert changed
+    live = doc.by_uid(uid)
+    assert live.modifiers == (), "a locked object's modifier stack must not change"
+    assert live.seams == (), "a locked object's seams must not change"
+    assert live.name == "renamed", "a non-locking prop still transplants"

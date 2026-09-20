@@ -141,14 +141,14 @@ def save_material(home: Path | str, name: str, material: gltf.Material) -> Mater
     folder.mkdir(parents=True, exist_ok=True)
     entry_id = f"{_slug(name)}-{uuid.uuid4().hex[:8]}"
 
-    textures: dict[str, str] = {}
+    # Which slots exist, and their deterministic filenames, decided *before*
+    # any PNG is written -- a slot's filename never depends on its bytes.
+    images: dict[str, tuple[int, int, bytes]] = {}
     for slot in TEXTURE_SLOTS:
         image = getattr(material, slot, None)
-        if image is None:
-            continue
-        filename = f"{entry_id}_{slot}.png"
-        _write_png(folder / filename, image)
-        textures[slot] = filename
+        if image is not None:
+            images[slot] = image
+    textures = {slot: f"{entry_id}_{slot}.png" for slot in images}
 
     payload: dict[str, Any] = {
         "name": str(name),
@@ -161,7 +161,17 @@ def save_material(home: Path | str, name: str, material: gltf.Material) -> Mater
         "alpha_cutoff": float(material.alpha_cutoff),
         "textures": textures,
     }
+    # The 2026-09-19 audit, finding clay-32: the manifest used to be written
+    # *after* every texture PNG, so a crash partway through the texture loop
+    # left PNGs on disk that no manifest named -- orphans ``list_materials``
+    # (it only ever walks ``*.json``) and ``delete_material`` (it only knows
+    # an id's side cars by its own naming convention) can never find. Writing
+    # the manifest first instead means an interrupted save leaves, at worst,
+    # a listed entry with a texture slot ``load_material`` already tolerates
+    # missing -- never an unlisted, unsweepable file.
     atomic.write_text(_entry_path(home, entry_id), json.dumps(payload, indent=2))
+    for slot, image in images.items():
+        _write_png(folder / textures[slot], image)
     return MaterialEntry(
         id=entry_id,
         name=str(name),
@@ -277,17 +287,26 @@ def load_material(home: Path | str, entry_id: str) -> gltf.Material | None:
 def delete_material(home: Path | str, entry_id: str) -> bool:
     """Remove an entry and its texture side cars. -> whether anything was there.
 
-    The JSON manifest and every one of :data:`TEXTURE_SLOTS`' possible side
-    car names are unlinked -- the side cars unconditionally (``missing_ok``),
-    since a texture slot the manifest never listed leaves no other trace
-    that would need cleaning up, and a manifest that failed to parse
-    (:func:`_read_entry` returned ``None`` for it, so it never appears in
-    :func:`list_materials`) still has its side cars swept by name here.
+    Every one of :data:`TEXTURE_SLOTS`' possible side car names is unlinked
+    unconditionally (``missing_ok``), since a texture slot the manifest never
+    listed leaves no other trace that would need cleaning up, and a manifest
+    that failed to parse (:func:`_read_entry` returned ``None`` for it, so it
+    never appears in :func:`list_materials`) still has its side cars swept by
+    name here.
+
+    The side cars go **first** and the JSON manifest **last** -- the mirror
+    of :func:`save_material`'s own fix, and the 2026-09-19 audit's same
+    finding, clay-32: unlinking the manifest first left an interruption's
+    PNGs on disk with no manifest left to name them, an orphan
+    :func:`list_materials` can never see and this function can then never be
+    asked to sweep by id. Deleting the textures before the manifest means an
+    interrupted delete leaves, at worst, a manifest whose texture slots
+    :func:`load_material` already tolerates missing -- never an orphaned PNG.
     """
     home = Path(home)
     path = _entry_path(home, entry_id)
     existed = path.is_file()
-    path.unlink(missing_ok=True)
     for slot in TEXTURE_SLOTS:
         _texture_path(home, entry_id, slot).unlink(missing_ok=True)
+    path.unlink(missing_ok=True)
     return existed

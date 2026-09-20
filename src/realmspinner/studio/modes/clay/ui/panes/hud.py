@@ -182,6 +182,13 @@ def hint_line(ctx: Any) -> None:
         # takes the line over the ordinary key legend -- the numbers are the
         # more useful thing to read while two vertices are selected, and the
         # legend is one click (Q, then pick something else) away the moment
-        # they are not.
-        line = clay_hints.measure_line(tab.doc) or clay_hints.hint(tab.doc.element_mode, state.tool)
+        # they are not. The 2026-09-19 audit's clay-41: ``tab.bg_busy`` outranks
+        # both -- see ``resolve_hint``'s own docstring for why a running
+        # background op (Decimate/Retopologise/Smart Unwrap/Bake Detail) beats
+        # a measurement readout rather than the other way round.
+        line = clay_hints.resolve_hint(
+            busy=tab.bg_busy,
+            measure=clay_hints.measure_line(tab.doc),
+            default=clay_hints.hint(tab.doc.element_mode, state.tool),
+        )
     widgets.muted(line)

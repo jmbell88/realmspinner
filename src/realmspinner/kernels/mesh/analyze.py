@@ -1045,14 +1045,22 @@ def analyze(
     a stalled read is a worse answer than a refusal naming the ceiling.
     """
     objs = list(objects)
-    if doc is not None:
-        objs = [_evaluated_world(obj, doc) for obj in objs]
+    # The 2026-09-19 audit's clay-22: this cap used to be checked after
+    # _evaluated_world(obj, doc) had already run for every object, and that
+    # call evaluates the object's whole modifier stack (doc.evaluated ->
+    # modifiers.evaluate) -- so a call this refuses still paid for
+    # evaluating every object's stack first. _evaluated_world is a 1:1 map
+    # that never changes how many objects there are, so checking the raw
+    # count first and evaluating only what survives is exactly the same
+    # refusal, paid for before the cost it exists to prevent.
     if len(objs) > MAX_ANALYZE_OBJECTS:
         raise OpError(
             f"This analysis would need to look at {len(objs)} objects at "
             f"once, past the {MAX_ANALYZE_OBJECTS} Clay works with. Narrow "
             "the selection with uids."
         )
+    if doc is not None:
+        objs = [_evaluated_world(obj, doc) for obj in objs]
 
     # 2026-09-14 audit, clay-04: this used to sum len(geom.tris) after
     # _geometry(obj) -- via cached_triangulation -- had already triangulated

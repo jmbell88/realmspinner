@@ -133,3 +133,69 @@ def test_removing_the_last_palette_material_greys_out_with_a_stated_reason() -> 
 
     # And the control is enabled -- no reason -- only when it truly can act.
     assert clay_props._palette_remove_reason(material_count=2, users=0) == ""
+
+
+# --- clay-25 (2026-09-19 audit): the properties panel names a collider -----
+
+
+def test_props_pane_shows_that_a_selected_object_is_a_collider() -> None:
+    """clay-25: no pane anywhere read ``Obj.role``/``Obj.collider_kind`` --
+    this panel's Identity section showed nothing distinguishing a collider
+    from any other object, and the Generator section printed the same
+    "frozen -- N vertices, M faces" line for both. The auto-generated name
+    (``document.add_collider``'s own ``"<source> <kind label>"``) was the
+    *only* signal in the whole UI, and the rename field just below this
+    section (``commit=True``, no warning) could erase it with nothing else
+    left to say what the object was -- even though readiness and every
+    exporter still treat it specially.
+
+    ``_role_line`` is the pure function the Identity section now draws,
+    testable without a live imgui frame the same way
+    ``_palette_remove_reason`` above already is.
+    """
+    from realmspinner.kernels.mesh import colliders as cl
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import primitives as bp
+
+    doc = bd.ClayDoc()
+    source = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Crate", mesh=bp.box()))
+    collider = doc.add_collider(source.uid, cl.fit_box(source.mesh))
+
+    assert clay_props._role_line(source) is None, "an ordinary mesh object gets no role line"
+    line = clay_props._role_line(collider)
+    assert line is not None
+    assert "collider" in line.lower()
+    assert "box" in line.lower()
+
+
+def test_check_mesh_on_a_huge_object_reports_a_skip_instead_of_stalling_or_crashing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-19 audit's clay-39, opened by clay-14's own fixer:
+    `ops_clean.survey`/`face_defect_masks` pay the identical BFS/adjacency/
+    volume cost `clean()` already refuses past `MAX_CLEAN_CORNERS`, but were
+    exported with no gate of their own -- reached straight from the
+    Properties panel's "Check mesh" button through `diagnose.findings`, with
+    nothing there catching an `OpError`. Once that gate exists, pressing the
+    button on an oversized import would take the whole panel down instead of
+    the stall this ceiling exists to prevent.
+
+    `_measure` is `_diagnostics`'s click handler split out so this is
+    testable without a real imgui frame, the same way this file's other
+    private-helper tests already are. Fails against the unfixed code: today
+    `_measure` does not exist at all (`clay_props` has no such attribute),
+    the direct symptom of the click handler having nothing between the
+    button and `diagnose.findings`.
+    """
+    from types import SimpleNamespace
+
+    from realmspinner.kernels.mesh import diagnose
+    from realmspinner.kernels.mesh import ops_clean as oc
+    from realmspinner.kernels.mesh import primitives as bp
+
+    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
+    obj = SimpleNamespace(mesh=bp.box())
+    rows = clay_props._measure(obj)
+    assert len(rows) == 1
+    assert rows[0].kind == diagnose.TOO_LARGE_KIND
+    assert "past the" in rows[0].label

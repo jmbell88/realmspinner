@@ -281,6 +281,63 @@ def test_a_removed_object_is_filtered_from_the_composite_while_previewed(view) -
     assert removed_uid in view._ghost_cache
 
 
+def test_a_collider_object_draws_as_a_translucent_wireframe_not_shaded_geometry(view) -> None:
+    """clay-09 (2026-09-19 audit): ``document.add_collider``'s own docstring
+    promises "a collider draws as a translucent wireframe rather than shaded
+    geometry", naming "the UI half of this tranche" as the owner of that --
+    but nothing anywhere (``_view_cache.CacheOps._build``, ``ClayView.
+    _composite``, ``document.to_primitives``) ever read ``obj.role``, so a
+    collider rendered through the exact same opaque, fully-shaded path as the
+    object it previews, occluding or z-fighting it.
+
+    A collider must therefore be absent from the opaque composite
+    (``_composite``, what :meth:`ClayView.draw` hands the shaded pass to) and
+    present in :meth:`ClayView._collider_draws`'s own translucent overlay,
+    with every draw item's colour carrying alpha below 1.0 -- "translucent",
+    not a second opaque copy in a different colour.
+    """
+    from realmspinner.kernels.mesh import colliders as cl
+
+    doc = _doc(count=1)
+    source = doc.objects[0]
+    collider = doc.add_collider(source.uid, cl.fit_box(source.mesh))
+    view.sync(doc)
+
+    composite = view._composite(doc)
+    drawn_uids = set(composite.uids) if composite is not None else set()
+    assert source.uid in drawn_uids, "the source mesh still draws through the opaque path"
+    assert collider.uid not in drawn_uids, (
+        "a collider must not draw through the opaque, shaded composite"
+    )
+
+    draws = view._collider_draws(doc)
+    assert draws, "a visible collider must produce at least one translucent draw"
+    assert all(item.color[3] < 1.0 for item in draws), (
+        "every collider draw item must be translucent (alpha < 1.0), not opaque"
+    )
+
+
+def test_hiding_a_collider_drops_its_translucent_draw_and_gl_state(view) -> None:
+    """The other half of the same promise: a hidden collider draws nothing,
+    the same as any other hidden object (``document.py``'s "hiding is per
+    object" rule), and its overlay's GL buffers are released rather than
+    held forever -- the ``_ghost_cache``/``_overlays`` eviction shape this
+    reuses from :mod:`._view_overlay`.
+    """
+    from realmspinner.kernels.mesh import colliders as cl
+
+    doc = _doc(count=1)
+    source = doc.objects[0]
+    collider = doc.add_collider(source.uid, cl.fit_box(source.mesh))
+    view.sync(doc)
+    assert view._collider_draws(doc)
+    assert collider.uid in view._collider_overlays
+
+    doc.set_visibility({collider.uid: False})
+    assert view._collider_draws(doc) == []
+    assert collider.uid not in view._collider_overlays
+
+
 def test_release_forgets_the_texture_before_freeing_it(gl, monkeypatch) -> None:
     v = clay_view.ClayView(gl, _Ctx())
     order: list[str] = []

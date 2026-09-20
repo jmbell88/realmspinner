@@ -104,3 +104,47 @@ def test_import_file_dispatches_by_suffix_and_refuses_the_rest() -> None:
 def test_a_corrupt_stl_is_refused_rather_than_crashing() -> None:
     with pytest.raises(OpError):
         meshimport.mesh_file_to_claydoc(b"not an stl file at all", ".stl", "X")
+
+
+def _binary_stl_header(declared_triangles: int) -> bytes:
+    """A binary STL whose 80-byte header and triangle count are legitimate,
+    but whose facet records are not -- exactly enough for
+    ``_stl_declared_triangles``'s own length cross-check to accept it, and no
+    further, since the regression below must never reach a real parse."""
+    import struct
+
+    header = b"\x00" * 80 + struct.pack("<I", declared_triangles)
+    return header + b"\x00" * (declared_triangles * 50)
+
+
+_PLY_HEADER = (
+    "ply\nformat ascii 1.0\nelement vertex 8\nproperty float x\nproperty float y\n"
+    "property float z\nelement face {faces}\nproperty list uchar int vertex_indices\n"
+    "end_header\n"
+)
+
+
+def test_the_triangle_ceiling_for_stl_and_ply_refuses_before_trimesh_parses_the_whole_file(
+    monkeypatch,
+) -> None:
+    """The 2026-09-19 audit, finding clay-18: ``mesh_file_to_claydoc`` called
+    ``trimesh.load`` -- the full parse and allocation -- before checking
+    ``tri_total``/object count against the ceilings, unlike its siblings
+    (objimport's text pre-pass, glbimport's ``_declared_budget``). Binary
+    STL's own header and PLY's own ASCII header each declare a triangle/face
+    count for free; ``trimesh.load`` is monkeypatched to raise if reached at
+    all, so this proves the refusal fires before that call, not after it.
+    """
+    monkeypatch.setattr(meshimport, "MAX_TRIANGLES", 5)
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("trimesh.load must not run once the header over-declares")
+
+    monkeypatch.setattr(trimesh, "load", _boom)
+
+    with pytest.raises(OpError, match="triangles in its own header"):
+        meshimport.mesh_file_to_claydoc(_binary_stl_header(10), ".stl", "X")
+
+    ply_data = (_PLY_HEADER.format(faces=10) + "0 0 0\n" * 8).encode("ascii")
+    with pytest.raises(OpError, match="triangles in its own header"):
+        meshimport.mesh_file_to_claydoc(ply_data, ".ply", "X")

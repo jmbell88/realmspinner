@@ -132,8 +132,11 @@ prompt.
 One consequence: an asset built in Clay can never be rerolled or remeshed, because there is no
 reference image behind it. The app knows and the buttons are absent rather than broken.
 
-Note also what is *not* in Clay: there is no decimate or retopology operation. Triangle budgets are
-applied downstream, on the finished asset, in the retarget panel.
+Clay carries both ends of a triangle budget itself: it can reduce a mesh to the fraction of its
+triangles you ask for, and it can rebuild one as an even quad mesh through Blender. Both are in
+[Clay](30-clay.md), under *Cleaning up and reducing* and *Retopology, unwrap and bake*. A budget on a
+*generated* asset is a different thing, and is still applied downstream, on the finished asset, in the
+retarget panel.
 
 ## Round trips
 

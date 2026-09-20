@@ -22,10 +22,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from imgui_bundle import imgui
 
+from ......kernels.mesh import colliders as cl
 from ......kernels.mesh import primitives as bp
 from ......kernels.mesh import regen
 from ..... import controls, icons, theme, tokens, widgets
@@ -142,6 +144,28 @@ def _selected(doc: Any) -> Any:
         return None
 
 
+def _role_line(obj: Any) -> str | None:
+    """The Identity section's own collider indicator, or ``None`` for an
+    ordinary mesh object.
+
+    clay-25 (2026-09-19 audit): no pane anywhere read ``Obj.role`` or
+    ``Obj.collider_kind`` -- the outliner drew an ordinary row with ordinary
+    icons and this panel's Identity/Relations/Generator sections showed
+    nothing distinguishing a collider from any other frozen mesh (the
+    ``_generator`` section prints the same "frozen -- N vertices, M faces"
+    line either way). The auto-generated name (``"<source> <kind label>"``,
+    ``document.add_collider``'s own naming) was the *only* signal anywhere
+    in the UI, and the rename field two lines below this one (``commit=True``,
+    no warning) could erase it with nothing else left to say what the object
+    was -- even though readiness and every exporter still treat it specially.
+    """
+    if obj.role != "collider":
+        return None
+    kind = cl.COLLIDER_KINDS.get(obj.collider_kind)
+    label = kind[0] if kind is not None else (obj.collider_kind or "unknown kind")
+    return f"{icons.SQUARE_DASHED} Collider -- {label}"
+
+
 def _identity(doc: Any, obj: Any) -> None:
     # commit=True: the 2026-09-06 audit's clay-02 found this field reporting a
     # change on every keystroke, so ``set_props`` -- an unconditional
@@ -160,6 +184,14 @@ def _identity(doc: Any, obj: Any) -> None:
     changed, value = widgets.toggle(f"{icons.LOCK} Locked", obj.locked, tag=f"lock{obj.uid}")
     if changed:
         doc.set_props(obj.uid, locked=value)
+    role_line = _role_line(obj)
+    if role_line is not None:
+        widgets.muted(role_line)
+        widgets.help_marker(
+            "A collider is fitted for a game engine's physics, not part of "
+            "what gets drawn -- readiness and every exporter treat it "
+            "specially, whatever it is renamed to below."
+        )
 
 
 def _set_parent(ctx: Any, doc: Any, uid: int, parent: int | None) -> None:
@@ -712,6 +744,30 @@ def _modifiers(ctx: Any, doc: Any, obj: Any) -> None:
     _add_modifier_row(ctx, doc, obj)
 
 
+def _measure(obj: Any) -> list[Any]:
+    """One "Check mesh" click's own work: measure ``obj.mesh``'s findings, or
+    report why it could not.
+
+    Split out of :func:`_diagnostics` so this catch is testable without a
+    real imgui frame -- clicking the button is only ever this call plus a
+    dict write. ``diagnose.findings`` past ``ops_clean.MAX_CLEAN_CORNERS``
+    raises :class:`~.elements.OpError` (the 2026-09-19 audit's clay-39: it
+    pays the identical BFS/adjacency/volume cost ``ops_clean.clean`` already
+    refuses past that ceiling); letting that reach the button's click handler
+    uncaught would take the whole panel down the moment someone pressed
+    "Check mesh" on an oversized import, which is a strictly worse answer
+    than the stall this ceiling exists to prevent. Reported as a named,
+    non-clickable row instead -- see ``diagnose.too_large_finding``.
+    """
+    from ......kernels.mesh import diagnose
+    from ......kernels.mesh.elements import OpError
+
+    try:
+        return diagnose.findings(obj.mesh)
+    except OpError as error:
+        return [diagnose.too_large_finding(str(error))]
+
+
 def _diagnostics(state: Any, doc: Any, obj: Any) -> None:
     """What is wrong with this object's mesh, measured on request.
 
@@ -726,7 +782,9 @@ def _diagnostics(state: Any, doc: Any, obj: Any) -> None:
     A row is a button because the useful thing to do with "3 non-manifold
     edges" is to look at them. Clicking sets the element mode *and* the
     selection together, since either one alone leaves the user staring at an
-    overlay of the wrong kind.
+    overlay of the wrong kind. The one exception is a
+    ``diagnose.TOO_LARGE_KIND`` row (see :func:`_measure`): there is nothing
+    to select, so it draws as plain text instead of a button.
     """
     from ......kernels.mesh import diagnose
 
@@ -743,7 +801,7 @@ def _diagnostics(state: Any, doc: Any, obj: Any) -> None:
         if measured is not None:
             widgets.muted("edited since the last check")
         if controls.button(f"{icons.ACTIVITY} Check mesh##claycheck"):
-            state.manifold[obj.uid] = (obj.mesh, diagnose.findings(obj.mesh))
+            state.manifold[obj.uid] = (obj.mesh, _measure(obj))
         widgets.help_marker(
             "Looks for holes, non-manifold edges, inconsistently wound faces, "
             "duplicate faces and unused vertices. An open sheet is a perfectly "
@@ -754,6 +812,9 @@ def _diagnostics(state: Any, doc: Any, obj: Any) -> None:
 
     if not rows:
         widgets.muted(f"{icons.CIRCLE_CHECK} closed, consistent, nothing unused")
+        return
+    if len(rows) == 1 and rows[0].kind == diagnose.TOO_LARGE_KIND:
+        widgets.muted(f"{icons.TRIANGLE_ALERT} {rows[0].label}")
         return
     for row in rows:
         if controls.button(f"{icons.TRIANGLE_ALERT} {row.label}##claydiag{row.kind}"):
@@ -1069,11 +1130,47 @@ def _apply_library_material(doc: Any, uids: Any, material: Any) -> bool:
     return True
 
 
+#: The 2026-09-19 audit, finding clay-35: ``clay_matlib.list_materials`` is a
+#: ``Path.glob`` plus one JSON parse per entry, and :func:`_material_library`
+#: called it fresh every single frame the properties panel shows an object
+#: with any material -- nearly always -- with cost scaling in how many
+#: materials the user has ever saved, for a list that changes only on a save
+#: or a delete. Keyed on the home directory rather than on nothing, since a
+#: test (and, in principle, more than one configured home) must not share a
+#: stale entry across two different ``REALMSPINNER_HOME``s.
+#:
+#: Invalidated explicitly, below, on the two writes this module itself makes
+#: -- not memoised on the directory's mtime, which this audit's own finding
+#: warned is coarse enough on Windows to miss a save immediately followed by
+#: a read (the exact "save then list" shape this cache's own two callers
+#: are). ``matlib.py`` currently has no other caller that writes the shelf
+#: (an agent tool, say) without going through this module, so explicit
+#: invalidation here is complete, not partial; a future writer that is not
+#: this pane needs to call :func:`_invalidate_material_library` too.
+_matlib_cache: dict[Path, list[clay_matlib.MaterialEntry]] = {}
+
+
+def _cached_materials(home: Path) -> list[clay_matlib.MaterialEntry]:
+    entries = _matlib_cache.get(home)
+    if entries is None:
+        entries = clay_matlib.list_materials(home)
+        _matlib_cache[home] = entries
+    return entries
+
+
+def _invalidate_material_library(home: Path) -> None:
+    _matlib_cache.pop(home, None)
+
+
 def _material_library(ctx: Any, doc: Any, obj: Any) -> None:
     """Named materials saved under ``REALMSPINNER_HOME`` (``matlib.py``): save the
     selected object's current material, list what is saved, apply one back,
     delete one. See ``matlib.py``'s own module docstring for the on-disk
     shape and why it is synchronous unlike :func:`_pick_texture` above.
+
+    The list itself is cached (see :data:`_matlib_cache`'s own comment) --
+    read through :func:`_cached_materials` and invalidated by hand after
+    either write this function makes.
     """
     widgets.field_label("material library")
     home = ctx.svc.config.home
@@ -1086,8 +1183,9 @@ def _material_library(ctx: Any, doc: Any, obj: Any) -> None:
     )
     if typed.strip():
         clay_matlib.save_material(home, typed.strip(), doc.materials[index])
+        _invalidate_material_library(home)
 
-    entries = clay_matlib.list_materials(home)
+    entries = _cached_materials(home)
     if not entries:
         widgets.muted("nothing saved yet")
         return
@@ -1106,4 +1204,5 @@ def _material_library(ctx: Any, doc: Any, obj: Any) -> None:
         imgui.same_line()
         if controls.small_button(f"{icons.TRASH}##matlibdel", tooltip=f"Delete {entry.name!r}"):
             clay_matlib.delete_material(home, entry.id)
+            _invalidate_material_library(home)
         imgui.pop_id()

@@ -40,6 +40,8 @@ from .mesh import Mesh, face_count, face_normals
 __all__ = [
     "MAX_OVERLAP_TRIANGLES",
     "MAX_OVERLAP_BUCKET",
+    "MAX_OVERLAP_REGISTRATIONS",
+    "MAX_UV_ISLANDS",
     "edge_key",
     "edge_keys",
     "seams_from_uv",
@@ -63,6 +65,41 @@ MAX_OVERLAP_TRIANGLES = 50_000
 #: help (every triangle's uv extent covers most of the square), and pairwise
 #: testing everything in it is the O(n^2) the grid exists to avoid.
 MAX_OVERLAP_BUCKET = 512
+
+#: A ceiling on the *total* number of triangle-into-cell registrations one
+#: :func:`overlap_faces` call may perform, summed across every triangle --
+#: the other half of the two-ceiling shape :func:`~.analyze._grid_candidates`
+#: already uses (its own ``_MAX_CELLS_PER_TRIANGLE_AXIS``,
+#: ``_MAX_GRID_REGISTRATIONS``): :data:`MAX_OVERLAP_BUCKET` alone only bounds
+#: one over-full cell, not the aggregate cost of *many* triangles that each
+#: individually stay under it. The 2026-09-19 audit's clay-12 found this grid
+#: has no per-triangle span cap at all, so a layout of many uniformly-narrow
+#: islands -- each one's own triangles keeping the *same* wide extent along
+#: one uv axis regardless of how many islands there are -- makes the grid's
+#: resolution (``sqrt(triangle count)``) shrink the cell size while the
+#: triangle's own span does not, so its registration count grows with the
+#: island count instead of staying flat. Measured on exactly that shape (this
+#: module's own worst case, full-width horizontal-strip islands): 264,064
+#: registrations at 4,000 triangles (2.3s), 736,020 at 8,000 (7.8s),
+#: 2,064,004 at 16,000 (28.7s) -- all far under :data:`MAX_OVERLAP_TRIANGLES`.
+#: An *ordinary* packed layout of similarly-sized islands stays well clear of
+#: this even at the 50,000-triangle ceiling (measured ~289,000 registrations
+#: there), so this only ever refuses the pathological shape.
+MAX_OVERLAP_REGISTRATIONS = 500_000
+
+#: Past this many uv islands, :func:`pack_islands`, :func:`normalize_density`
+#: and :func:`transform_islands` refuse rather than pay their own per-island
+#: numpy scan (an O(total corners) mask build, once per island) -- an
+#: O(islands * corners) cost that accelerates as island count grows, with no
+#: ceiling of its own before the 2026-09-19 audit's clay-11. Measured on this
+#: module's own many-small-islands fixture: :func:`pack_islands` at
+#: 0.041s/0.144s/0.539s/2.074s for 500/2,000/4,000/8,000 islands;
+#: :func:`normalize_density`, after hoisting :func:`islands` out of its own
+#: loop (below) so it no longer also recomputes the whole adjacency-plus-
+#: connected-components pass on every iteration, at 0.112s/0.322s/1.620s/
+#: 6.815s/20.157s for 500/1,000/2,000/4,000/8,000. Any hard-surface prop
+#: unwrapped per-part reaches this.
+MAX_UV_ISLANDS = 2_000
 
 
 # --- seam/edge vocabulary -----------------------------------------------
@@ -265,6 +302,7 @@ def transform_islands(
     rotate_deg: float = 0.0,
     scale: float = 1.0,
     pivot: Literal["centre", "origin"] = "centre",
+    ids: np.ndarray | None = None,
 ) -> Mesh:
     """Rotate/scale each chosen island about its own uv-bbox centre, then
     slide the whole selection by *translate*.
@@ -282,10 +320,26 @@ def transform_islands(
     An id in *island_ids* that :func:`islands` does not currently report is
     silently a no-op for that id, the same tolerance ``elements.combine``'s
     subtract has for an element that is not selected.
+
+    *ids* lets a caller that already has :func:`islands`' own per-face array
+    -- a loop over every island, like :func:`normalize_density`'s -- pass it
+    straight through instead of paying this function's own adjacency-plus-
+    connected-components pass again on every iteration. Omitted (the
+    default), this computes its own the way it always has: a one-shot caller
+    (the toolbar's typed field, a live drag) has no array of its own to hand
+    in. The 2026-09-19 audit's clay-11 found :func:`normalize_density` paying
+    for that recompute *and* nothing bounding either loop -- see
+    :data:`MAX_UV_ISLANDS`.
     """
     uv = _require_uv(mesh, "transform_islands")
-    ids = islands(mesh)
+    if ids is None:
+        ids = islands(mesh)
     wanted = np.unique(np.asarray(list(island_ids), dtype="i4"))
+    if len(wanted) > MAX_UV_ISLANDS:
+        raise OpError(
+            f"This would transform {len(wanted)} uv islands at once, past the "
+            f"{MAX_UV_ISLANDS} this op reads -- check a smaller selection."
+        )
     face_mask = np.isin(ids, wanted)
     if not face_mask.any():
         return mesh
@@ -354,12 +408,19 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
     if n_faces == 0:
         return mesh
     ids = islands(mesh)
+    labels = np.unique(ids).tolist()
+    if len(labels) > MAX_UV_ISLANDS:
+        raise OpError(
+            f"This mesh has {len(labels)} uv islands, past the {MAX_UV_ISLANDS} "
+            f"pack_islands reads -- check a smaller selection instead of the "
+            f"whole mesh."
+        )
     foc = _face_of_corner(mesh)
     corner_island = ids[foc]
     new_uv = np.array(uv, dtype="f8", copy=True)
 
     items = []
-    for label in np.unique(ids).tolist():
+    for label in labels:
         mask = corner_island == label
         pts = new_uv[mask]
         lo, hi = pts.min(axis=0), pts.max(axis=0)
@@ -466,16 +527,32 @@ def normalize_density(mesh: Mesh, target: float, *, texture_px: int = 1024) -> M
     One division per island, no iteration: :func:`texel_density` takes a
     square root of area, so a uniform uv scale of *k* multiplies the reading
     by exactly *k*, and the per-island factor is ``target / current``.
+
+    ``ids`` is computed once, here, and handed to every :func:`transform_islands`
+    call below rather than letting each one recompute it -- the 2026-09-19
+    audit's clay-11 found the opposite: this loop already had its own
+    ``islands(mesh)`` at the top, but never passed it on, so each iteration
+    paid a *second*, identical adjacency-plus-connected-components pass
+    inside :func:`transform_islands`. A rigid per-island transform never
+    merges or splits islands, so the grouping this computes up front stays
+    correct for every later iteration.
     """
     _require_uv(mesh, "normalize_density")
     ids = islands(mesh)
+    labels = np.unique(ids).tolist()
+    if len(labels) > MAX_UV_ISLANDS:
+        raise OpError(
+            f"This mesh has {len(labels)} uv islands, past the {MAX_UV_ISLANDS} "
+            f"normalize_density reads -- check a smaller selection instead of "
+            f"the whole mesh."
+        )
     result = mesh
-    for label in np.unique(ids).tolist():
+    for label in labels:
         faces = np.flatnonzero(ids == label)
         current = texel_density(result, faces, texture_px=texture_px)
         if current <= 0.0:
             continue
-        result = transform_islands(result, [label], scale=float(target) / current)
+        result = transform_islands(result, [label], scale=float(target) / current, ids=ids)
     return result
 
 
@@ -562,7 +639,12 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
     keeps the *common* case cheap, but a mesh whose uv triangles nearly all
     cover the whole square degenerates to the full O(T^2) the grid exists to
     avoid regardless of the total count, and that is not a check to run
-    silently on the frame thread.
+    silently on the frame thread. A third ceiling, :data:`MAX_OVERLAP_REGISTRATIONS`,
+    catches the case neither of the first two does: many uniformly-narrow
+    islands whose triangles each keep the same wide extent along one uv axis
+    however many islands there are, so no single bucket ever fills past
+    :data:`MAX_OVERLAP_BUCKET` but the aggregate registration cost still
+    grows with island count (see that constant's own docstring).
     """
     uv = _require_uv(mesh, "overlap_faces")
     n_faces = face_count(mesh)
@@ -589,6 +671,21 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
     cell = np.maximum(span / res, 1e-9)
     lo_cell = np.floor((lo - origin) / cell).astype("i8")
     hi_cell = np.floor((hi - origin) / cell).astype("i8")
+
+    # See MAX_OVERLAP_REGISTRATIONS: estimate what the bucket-building loop
+    # below will cost -- one cell-span product per triangle, summed over the
+    # whole mesh -- vectorised, before a single Python iteration runs. The
+    # same "refuse before the allocation" shape
+    # analyze._grid_candidates uses for the equivalent 3D count.
+    span_cells = (hi_cell - lo_cell + 1).astype(np.int64)
+    total_registrations = int((span_cells[:, 0] * span_cells[:, 1]).sum())
+    if total_registrations > MAX_OVERLAP_REGISTRATIONS:
+        raise OpError(
+            f"This uv layout would need {total_registrations} grid "
+            f"registrations, past the {MAX_OVERLAP_REGISTRATIONS} an overlap "
+            f"check reads -- its islands keep a wide extent along one axis "
+            f"regardless of how many there are. Check a smaller selection."
+        )
 
     buckets: dict[tuple[int, int], list[int]] = {}
     for t in range(len(corners)):

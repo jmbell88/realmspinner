@@ -252,3 +252,60 @@ def test_pick_texture_decodes_through_the_pixel_guard(
     result = clay_props._pick_texture("normal")
     expected_rgba = bytes(np.full((2, 3, 4), 128, dtype=np.uint8))
     assert result == {"width": 3, "height": 2, "rgba": expected_rgba}
+
+
+# --- the material shelf listing is cached, not re-read every frame ----------
+
+
+def test_material_library_listing_is_memoised_across_frames(
+    monkeypatch: pytest.MonkeyPatch, ui
+) -> None:
+    """The 2026-09-19 audit, finding clay-35: ``clay_matlib.list_materials``
+    -- a ``Path.glob`` plus one JSON parse per entry -- was called with no
+    memoisation on every single frame ``_material_library`` draws, which is
+    nearly every frame the properties panel shows an object with any
+    material at all. Cost scales with how many materials the user has ever
+    saved.
+    """
+    doc, obj = _doc_with_object()
+    ctx = _FakeCtxForMaterial()
+    home = ctx.svc.config.home
+    clay_props._invalidate_material_library(home)  # a clean slate for this home
+
+    calls = {"n": 0}
+    real_list = clay_props.clay_matlib.list_materials
+
+    def _counting_list(path):
+        calls["n"] += 1
+        return real_list(path)
+
+    monkeypatch.setattr(clay_props.clay_matlib, "list_materials", _counting_list)
+
+    def _run_frame() -> None:
+        ui.new_frame()
+        ui.begin("##host")
+        clay_props._material_library(ctx, doc, obj)
+        ui.end()
+        ui.end_frame()
+
+    _run_frame()
+    assert calls["n"] == 1, "the first frame must read the shelf once"
+
+    for _ in range(4):
+        _run_frame()
+    assert calls["n"] == 1, "unchanged frames must not re-read the shelf"
+
+    def _typed_values():
+        yield "Rusty Metal"
+        while True:
+            yield ""
+
+    typed = _typed_values()
+    monkeypatch.setattr(clay_props.widgets, "input_text", lambda *a, **kw: next(typed))
+
+    _run_frame()  # types and commits a save in one motion
+    assert calls["n"] == 2, "a save must invalidate the cache and force a re-read"
+
+    for _ in range(4):
+        _run_frame()
+    assert calls["n"] == 2, "frames after the save, with nothing new changed, hit the cache again"

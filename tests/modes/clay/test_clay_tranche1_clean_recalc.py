@@ -93,7 +93,13 @@ def test_clean_mesh_fixes_a_flip_and_a_duplicate_in_one_step_and_toasts_the_summ
     assert restored.duplicate_faces >= 1 and restored.flipped_faces >= 1
 
 
-def test_clean_mesh_on_a_clean_primitive_pushes_no_step_and_keeps_the_generator() -> None:
+def test_clean_mesh_on_a_clean_primitive_is_a_silent_no_op() -> None:
+    """Pushes no undo step and keeps the generator -- both still true and
+    still worth asserting. clay-24 (2026-09-19 audit): this used to also
+    assert an info toast ("Nothing to clean."), which contradicted the op's
+    own hint ("no toast, no step"). The fix made the no-op path silent --
+    matching every other no-op ``run()`` in the registry, none of which
+    toast either -- so the toast assertion is gone rather than renamed."""
     doc = bd.ClayDoc()
     obj = doc.add_object(
         bd.Obj(
@@ -112,7 +118,7 @@ def test_clean_mesh_on_a_clean_primitive_pushes_no_step_and_keeps_the_generator(
     assert len(doc.history) == depth, "nothing to fix, nothing pushed"
     assert doc.by_uid(obj.uid).generator == "box"
     assert doc.by_uid(obj.uid).mesh is obj.mesh, "the identical object, not a rebuild"
-    assert any("Nothing to clean" in m for m, _ in ctx.toasted)
+    assert ctx.toasted == [], "a clean object is left untouched -- no toast, no step"
 
 
 def test_clean_mesh_is_gated_on_a_selection() -> None:

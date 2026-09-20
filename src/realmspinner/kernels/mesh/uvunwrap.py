@@ -50,11 +50,23 @@ MAX_LSCM_VERTICES = 20_000
 
 
 def _corner_mask(mesh: Mesh, faces: np.ndarray) -> np.ndarray:
-    starts = mesh.starts.astype("i8")
-    mask = np.zeros(len(mesh.loops), dtype=bool)
-    for f in faces.tolist():
-        mask[starts[f] : starts[f + 1]] = True
-    return mask
+    """*mesh*'s per-corner boolean mask selecting exactly the corners of
+    *faces* -- vectorised over :func:`~.adjacency.adjacency`'s own
+    ``corner_face`` table rather than a Python loop that set one slice per
+    face (``for f in faces.tolist(): mask[starts[f]:starts[f+1]] = True``).
+    That loop is why :func:`unwrap_lscm`'s own :data:`MAX_LSCM_VERTICES`
+    refusal used to be unaffordable to check early: the 2026-09-19 audit's
+    clay-13 found the refusal fired only after the whole mesh had already
+    been triangulated *and* this per-face scan had already run once for the
+    refusing island. Making the scan itself O(corners) numpy rather than
+    O(faces) Python is what lets :func:`unwrap_lscm` call this to count an
+    island's vertices *before* triangulating anything.
+    """
+    corner_face = adjacency(mesh).corner_face.astype("i8")
+    n_faces = len(mesh.starts) - 1
+    selected = np.zeros(n_faces, dtype=bool)
+    selected[faces] = True
+    return selected[corner_face]
 
 
 def _island_is_closed(mesh: Mesh, faces: np.ndarray) -> bool:
@@ -366,6 +378,27 @@ def unwrap_lscm(
         return mesh
 
     island_ids = islands_by_seams(mesh, seams)
+
+    # The 2026-09-19 audit's clay-13: this ceiling used to be checked only
+    # inside _solve_island, which ran *after* the whole mesh had already
+    # been triangulated below (1.56 s at 490,000 vertices, 3.74 s at
+    # 1,000,000 on an ordinary dense unseamed import -- the ceiling's own
+    # docstring promises "not a solver that goes quiet for a minute on the
+    # frame thread", and that promise was paid for in full before it could
+    # ever fire). _corner_mask is now vectorised (see its own docstring),
+    # so counting each island's vertices is cheap enough to do here, before
+    # corner_triangles ever touches the mesh.
+    for label in np.unique(island_ids).tolist():
+        faces = np.flatnonzero(island_ids == label)
+        corner_idx = np.flatnonzero(_corner_mask(mesh, faces))
+        n_verts = len(np.unique(mesh.loops[corner_idx]))
+        if n_verts > MAX_LSCM_VERTICES:
+            raise OpError(
+                f"This island has {n_verts} vertices, past the "
+                f"{MAX_LSCM_VERTICES} an unwrap by seams reads -- mark more "
+                "seams to split it, or use Smart Unwrap on a mesh this dense."
+            )
+
     normals = face_normals(mesh)
     tri_corners, tri_face = corner_triangles(mesh.positions, mesh.loops, mesh.starts, normals)
 

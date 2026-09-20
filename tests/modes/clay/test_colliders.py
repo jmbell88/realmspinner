@@ -321,6 +321,75 @@ def test_convex_hull_is_deterministic():
     assert np.array_equal(a.mesh.starts, b.mesh.starts)
 
 
+def test_convex_hull_refuses_a_mesh_past_a_point_ceiling_before_running_quickhull(
+    monkeypatch,
+):
+    """The 2026-09-19 audit's clay-10: :func:`cl._quickhull_core` had no
+    ceiling of its own -- ``guard_limit = 20 * n + 64`` at line 513 is a
+    convergence valve against a numerically stuck loop, not a size refusal
+    -- so Convex Hull ran the whole pure-Python incremental hull over every
+    deduplicated point with no bound at all: 2.68 s at 2,000 points, 11.16 s
+    at 20,000 (see :data:`cl.MAX_HULL_POINTS`'s own docstring for the
+    re-measurement). The point-count ceiling must fire before
+    ``_quickhull_core`` ever runs, on the deduplicated point set -- proved
+    here by making ``_quickhull_core`` itself an assertion failure.
+    """
+
+    def _boom(points, eps):
+        raise AssertionError("_quickhull_core ran past the point ceiling")
+
+    monkeypatch.setattr(cl, "_quickhull_core", _boom)
+
+    rng = np.random.default_rng(0)
+    n = cl.MAX_HULL_POINTS + 10
+    positions = rng.normal(size=(n, 3))
+    mesh = bm.from_faces(positions, [[0, 1, 2]])  # topology is irrelevant here
+
+    with pytest.raises(OpError):
+        cl.convex_hull(mesh)
+
+
+def test_compound_refuses_a_part_past_the_point_ceiling_before_running_quickhull(
+    monkeypatch,
+):
+    """The same clay-10 ceiling, exercised through :func:`cl.compound` --
+    the audit names Compound (once per part) as one of the three routes
+    into the unbounded quickhull, alongside Convex Hull and Box (Oriented).
+    """
+
+    def _boom(points, eps):
+        raise AssertionError("_quickhull_core ran past the point ceiling")
+
+    monkeypatch.setattr(cl, "_quickhull_core", _boom)
+
+    rng = np.random.default_rng(0)
+    n = cl.MAX_HULL_POINTS + 30
+    n_tris = n // 3
+    positions = rng.normal(size=(n_tris * 3, 3))
+    faces = [[3 * i, 3 * i + 1, 3 * i + 2] for i in range(n_tris)]
+    mesh = bm.from_faces(positions, faces)
+
+    with pytest.raises(OpError):
+        cl.compound(mesh, face_groups=[list(range(n_tris))])
+
+
+def test_oriented_box_fit_falls_back_rather_than_refuses_past_the_hull_point_ceiling():
+    """``fit_box``'s own contract (module docstring: "refuse nothing" for
+    every fit but ``convex_hull``) must survive :data:`cl.MAX_HULL_POINTS`:
+    ``_hull_points_for_fit`` already treats any :class:`OpError` out of
+    ``_quickhull_core`` as "fall back to every vertex for the PCA" (the
+    same path a degenerate/coplanar input already takes), so the new
+    ceiling must route through that fallback rather than propagate past
+    ``fit_box``.
+    """
+    mesh = bp.uv_sphere(radius=1.0, segments=120, rings=90)
+    assert len(np.unique(mesh.positions, axis=0)) > cl.MAX_HULL_POINTS
+
+    col = cl.fit_box(mesh, oriented=True)
+    assert col.kind == "box"
+    _assert_valid_shell(col.mesh)
+
+
 # --- compound -----------------------------------------------------------------
 
 

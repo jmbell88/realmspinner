@@ -75,6 +75,18 @@ def test_make_coerces_the_booleans_operation_choice() -> None:
     assert mod.make("boolean", {"operation": "intersection"}, id=1).get("operation") == 2
 
 
+def test_modifier_param_coerce_refuses_an_out_of_range_choice_index() -> None:
+    """The 2026-09-19 audit's clay-27: an unrecognised *string* choice is
+    refused by name, but an out-of-range *numeric* index used to be silently
+    clamped to the nearest legal choice instead -- ``axis=5`` on ``mirror``'s
+    3-choice axis quietly became ``axis=2`` ("Z"), a different, unrequested
+    choice, rather than a refusal an agent or a restored value could see."""
+    with pytest.raises(el.OpError, match="Axis"):
+        mod.make("mirror", {"axis": 5}, id=1)
+    with pytest.raises(el.OpError, match="Axis"):
+        mod.make("mirror", {"axis": -1}, id=1)
+
+
 def test_make_refuses_an_unknown_kind() -> None:
     with pytest.raises(el.OpError, match="Unknown modifier kind"):
         mod.make("not-a-kind", id=1)

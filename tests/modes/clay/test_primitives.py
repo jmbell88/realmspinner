@@ -1098,6 +1098,28 @@ def test_clamp_params_mirrors_archs_own_thickness_clamp() -> None:
 # number through ``clamp_params`` alone with nothing else in the way.
 
 
+def test_clamp_params_mirrors_rounded_boxs_own_radius_clamp() -> None:
+    """The 2026-09-19 audit's clay-06: ``rounded_box`` clamps its own
+    ``radius`` to at most half the shorter of its box's own X/Z extents
+    (``r = min(abs(radius), hx, hz)`` at :func:`rounded_box`) but
+    ``clamp_params`` had no ``rounded_box`` branch -- the torus/column/sweep/
+    arch class of clay-04/clay-05 defect this function exists to close.
+    ``rounded_box`` is new in ``d416cb42`` and never got the mirror, so a
+    saved document's ``radius`` could permanently disagree with the panel
+    built from it.
+    """
+    raw = {"size": (1.0, 1.0, 1.0), "radius": 5.0, "segments": 4}
+    clamped = bp.clamp_params("rounded_box", raw)
+    hx, hz = abs(raw["size"][0]) * 0.5, abs(raw["size"][2]) * 0.5
+    assert clamped["radius"] <= min(hx, hz) + 1e-9
+    # Not cosmetic: building from the clamped numbers must be the same mesh
+    # ``rounded_box`` already silently builds from the raw ones.
+    from_raw = bp.rounded_box(**raw)
+    from_clamped = bp.rounded_box(**clamped)
+    assert np.array_equal(from_raw.positions, from_clamped.positions)
+    assert list(from_raw.starts) == list(from_clamped.starts)
+
+
 def test_clamp_params_caps_an_absurd_segment_count() -> None:
     clamped = bp.clamp_params(
         "cylinder", {"radius": 0.5, "height": 1.0, "segments": 50_000_000}

@@ -100,9 +100,13 @@ class ClayTab(docmodes.HistoryTab):
     # What background task (if any) this tab is waiting on, in words a hint
     # line can show as-is -- "Decimating..." -- or "" while nothing is
     # pending. Set by the op that submits the ``clay-bg:<uid>`` task
-    # (``clay_ops._decimate``) and cleared by ``clay_mode.on_task_done``/
-    # ``on_task_failed`` once it lands, the same shape ``saving`` already has
-    # for a save in flight.
+    # (``clay_ops._decimate``/``_retopo``/``_smart_unwrap``/``_bake_detail``)
+    # and cleared by ``clay_mode.on_task_done``/``on_task_failed`` once it
+    # lands, the same shape ``saving`` already has for a save in flight. Read
+    # by ``hud.hint_line`` (through ``viewport_hints.resolve_hint``) -- the
+    # 2026-09-19 audit's clay-41 found this field written in four places and
+    # read in none, so a multi-minute Blender bake left the user with nothing
+    # on screen saying so.
     bg_busy: str = ""
 
     # The last "Game check" result, and the document revision it was computed

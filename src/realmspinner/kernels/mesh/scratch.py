@@ -69,11 +69,13 @@ regression.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from . import document as bd
+from . import elements as el
 
 
 def clone(doc: bd.ClayDoc) -> bd.ClayDoc:
@@ -195,21 +197,28 @@ class PreviewDiff:
 
 
 # ``modifiers`` is a plain prop here: a stack is a tuple of frozen, value-equal
-# modifiers, so "the scratch run changed the stack" is an ``!=`` like a rename,
-# and ``set_props`` puts it back as one step. Missing, a batch that added a
-# mirror previewed nothing and transplanted nothing.
+# modifiers, so "the scratch run changed the stack" is an ``!=`` like a rename.
+# Missing, a batch that added a mirror previewed nothing and transplanted
+# nothing. :func:`transplant` itself, below, does **not** apply it through
+# ``set_props`` -- see that function's own comment for why.
 #
-# ``tags``, ``locked``, ``seams``, ``role`` and ``collider_kind`` join it for
-# the same reason and by the same test: each is a value ``ClayDoc.set_props``
-# accepts and applies with a plain ``setattr`` (see that method's own
-# docstring -- it blocks exactly one field, ``parent``, because reparenting
-# is the one case here that needs cycle-checking generic ``set_props`` cannot
-# do), so transplanting one through it is exactly as sound as transplanting a
-# rename. ``seams`` in particular already went through :meth:`~.document.
-# ClayDoc.set_seams`'s own validation *inside the scratch run itself* before
-# ever reaching here -- the same "already validated by the door that ran it"
-# trust :meth:`transplant`'s own docstring states for ``modifiers`` and
-# ``set_modifiers``.
+# ``tags``, ``locked``, ``role`` and ``collider_kind`` join it for the same
+# comparison reason and *are* applied through ``set_props``: each is a value
+# ``ClayDoc.set_props`` accepts and applies with a plain ``setattr`` (see that
+# method's own docstring -- it blocks exactly one field, ``parent``, because
+# reparenting is the one case here that needs cycle-checking generic
+# ``set_props`` cannot do), so transplanting one through it is exactly as
+# sound as transplanting a rename.
+#
+# ``seams`` sits with ``modifiers`` rather than with those four: it already
+# went through :meth:`~.document.ClayDoc.set_seams`'s own validation *inside
+# the scratch run itself* before ever reaching here, and the 2026-09-19 audit
+# (finding clay-19) is why :func:`transplant` also routes it through
+# ``set_seams`` rather than ``set_props`` on the way back -- ``set_props`` is
+# deliberately not a locking door (its own docstring says so), so applying a
+# scratch's seams or modifier-stack edit through it walked straight past
+# ``_refuse_if_locked`` and could overwrite a locked object's seams or
+# modifier stack from an agent preview.
 #
 # ``parent`` is deliberately absent: :meth:`~.document.ClayDoc.set_props`
 # refuses it by name ("use set_parent"), so adding it here would make
@@ -367,7 +376,28 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
                 doc.set_mesh(uid, s.mesh, keep_generator=True)
             fields = diff_.props_changed.get(uid)
             if fields:
-                doc.set_props(uid, **{f: getattr(s, f) for f in fields})
+                # The 2026-09-19 audit, finding clay-19: ``set_props`` is
+                # deliberately not a locking door (a rename, a visibility
+                # flip or an unlock must still work on a locked object), so
+                # routing a scratch run's ``modifiers``/``seams`` edit
+                # through it walked straight past ``_refuse_if_locked`` and
+                # let an agent preview overwrite a locked object's modifier
+                # stack or marked seams. Their own doors -- ``set_modifiers``
+                # and ``set_seams`` -- check the lock; a refusal is tolerated
+                # exactly as a removed object is above (the base object may
+                # have been locked after the preview was shown, same as it
+                # may have been deleted), so the rest of the transplant still
+                # lands.
+                door_fields = fields & {"modifiers", "seams"}
+                if "modifiers" in door_fields:
+                    with contextlib.suppress(el.OpError):
+                        doc.set_modifiers(uid, s.modifiers)
+                if "seams" in door_fields:
+                    with contextlib.suppress(el.OpError):
+                        doc.set_seams(uid, s.seams)
+                generic_fields = fields - door_fields
+                if generic_fields:
+                    doc.set_props(uid, **{f: getattr(s, f) for f in generic_fields})
 
         for uid in diff_.transform_changed - diff_.added:
             s = scratch.by_uid(uid)

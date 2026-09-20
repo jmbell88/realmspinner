@@ -293,18 +293,29 @@ trip should cost.
 (which move the history head rather than pushing one of their own),
 ``clay_batch`` and ``clay_program`` are three exceptions that fold or move a
 step -- what makes "one tool call is one undo step" true rather than
-approximately true. Two families push none at all instead: references
+approximately true. Three groups push none at all instead: references
 (``clay_reference_add``
 and friends), because nothing in the document changes when a picture is
-merely held on the session, and the selection tools (``clay_element_mode``,
+merely held on the session; the selection tools (``clay_element_mode``,
 ``clay_select_elements``, ``clay_select_by``, ``clay_select``), because
 selection is not undoable by design (``document.py``'s own module docstring)
 -- an undoable selection would push a step, the step would move
 ``history.head``, and a document would ask to be saved again because
-somebody looked at a different object. The two families differ from each
-other in one way worth stating rather than blurring: a reference never
-touches the ``ClayDoc`` at all, while a selection tool genuinely changes the
-document and still pushes nothing.
+somebody looked at a different object; and ``clay_checkpoint``
+(``studio/modes/clay/agent/tools_structure.py``'s own "three of the ten are
+exempt" paragraph), because ``ClayDoc.set_checkpoint`` only writes a name
+into ``self.checkpoints``, an in-memory dict the module docstring marks
+"agent-facing, not serialized" -- named in this enumeration for the 2026-09-19
+audit's own reason, finding clay-38: this paragraph used to omit it while
+calling itself "in full", the one entry ``tools_structure.py``'s own
+docstring already pointed back at here and did not find. (``clay_restore``
+is not a fourth: it **moves** ``history.head``, exactly as ``clay_undo``/
+``clay_redo`` do, so it already sits with them above.) The three differ from
+each other in one way worth stating rather than blurring: a reference never
+touches the ``ClayDoc`` at all, a selection tool genuinely changes the
+document and still pushes nothing, and ``clay_checkpoint`` sits between the
+two -- it does touch the ``ClayDoc`` object, but only a dict nothing else
+reads, serializes or undoes.
 
 **A call that outruns ``agent_host.CALL_TIMEOUT`` is dropped if the frame
 thread has not started it, and finishes if it has.** The two outcomes tell

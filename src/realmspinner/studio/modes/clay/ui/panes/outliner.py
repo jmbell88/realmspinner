@@ -101,21 +101,27 @@ def _tree_rows(doc: Any) -> list[tuple[Any, int, bool]]:
     *drawing* decision (``_body``'s own depth-skip loop), never a fact this
     walk itself forgets, because a tag or name filter has to be able to find
     a match inside a collapsed group.
+
+    An explicit stack, not recursion, the same shape ``ClayDoc.ancestors``
+    uses for its own parent walk: the 2026-09-19 audit's clay-02 found this
+    walk raised an uncaught ``RecursionError`` on a legal, acyclic parent
+    chain of a few thousand objects (well inside ``glbimport.MAX_OBJECTS``),
+    crashing the app the moment the outliner opened. Each uid is pushed with
+    its depth; children are pushed in reverse so the stack still pops them
+    in document order, one root's whole subtree finished before its next
+    sibling starts -- exactly what the old recursive ``walk`` produced.
     """
     rows: list[tuple[Any, int, bool]] = []
-
-    def walk(uid: int, depth: int) -> None:
+    stack: list[tuple[int, int]] = [(root, 0) for root in reversed(doc.roots())]
+    while stack:
+        uid, depth = stack.pop()
         try:
             obj = doc.by_uid(uid)
         except KeyError:  # pragma: no cover - defensive; no caller builds this
-            return
+            continue
         children = doc.children_of(uid)
         rows.append((obj, depth, bool(children)))
-        for child in children:
-            walk(child, depth + 1)
-
-    for root in doc.roots():
-        walk(root, 0)
+        stack.extend((child, depth + 1) for child in reversed(children))
     return rows
 
 
@@ -403,6 +409,25 @@ def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
     imgui.end_popup()
 
 
+def row_label(obj: Any) -> str:
+    """This row's display text: the object's name (or a placeholder for an
+    unnamed one), with a distinct icon prefix for a collider.
+
+    clay-25 (2026-09-19 audit): the outliner drew a collider as an ordinary
+    row with ordinary icons -- the eye and the lock are the only two any row
+    ever gets -- so the auto-generated name (``document.add_collider``'s own
+    ``"<source> <kind label>"``) was the only thing anywhere in the tree
+    saying an object was one, and a double-click rename could erase that with
+    nothing left to say so. ``SQUARE_DASHED`` reads as "a boundary, not the
+    real geometry" -- the same reason a dashed outline means a proxy or a
+    guide everywhere else this app draws one.
+    """
+    label = obj.name or f"object {obj.uid}"
+    if obj.role == "collider":
+        return f"{icons.SQUARE_DASHED} {label}"
+    return label
+
+
 #: The expander's own width -- narrower than the eye/lock buttons, which are
 #: real targets a thumb aims at; the expander is a tree decoration most users
 #: never touch, so it earns less of the row. A leaf row reserves the same
@@ -478,7 +503,7 @@ def _row(
         if imgui.is_item_deactivated():
             state.renaming = 0
     else:
-        label = obj.name or f"object {obj.uid}"
+        label = row_label(obj)
         # A hidden object's name is drawn muted. It used to be a
         # ``text_colored(theme.MUTED, "")`` above the selectable, which coloured
         # nothing -- and, being an item rather than a style push, put the name

@@ -85,6 +85,30 @@ def test_counts_are_summed_over_the_objects():
     assert got["vert"] == 16 and got["face"] == 12
 
 
+def test_stats_excludes_collider_geometry_from_the_triangle_count():
+    """clay-33 (2026-09-19 audit): this summed every visible object with no
+    ``role`` filter, so a collider's triangles inflated the same budget
+    ``readiness.validate`` deliberately excludes them from (dev/INVARIANTS.md's
+    collider-rows paragraph: "an engine does not draw them"). A collider gets
+    its own line instead of vanishing outright -- still worth knowing about,
+    just not mixed into "is this too heavy to render"."""
+    doc, uids = _doc(bp.box())
+    doc.add_object(bd.Obj(uid=bd.new_uid(), name="A collider", mesh=bp.box(), role="collider"))
+
+    got = _numbers(clay_hints.stats(doc))
+    line = clay_hints.stats(doc)
+
+    assert got["vert"] == 8, "the collider's 8 verts must not join the render count"
+    assert got["tri"] == 12, "the collider's 12 tris must not join the render count"
+    assert got["object"] == 2, "the collider is still an object in the document"
+    assert "12 collider tris" in line
+
+
+def test_a_document_with_no_collider_names_no_collider_line():
+    doc, _uids = _doc(bp.box())
+    assert "collider" not in clay_hints.stats(doc)
+
+
 def test_a_hidden_object_is_not_counted():
     """The overlay describes what is on screen. An object you have hidden is
     not on screen, and counting it would make the numbers disagree with the

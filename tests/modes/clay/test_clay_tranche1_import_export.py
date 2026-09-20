@@ -311,6 +311,33 @@ def test_an_obj_exported_from_clay_imports_with_its_material_colour(
     assert tuple(round(c, 4) for c in red) in colours
 
 
+def test_ask_import_mesh_reads_the_sibling_mtl_the_same_way_import_mesh_path_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """clay-07 (2026-09-19 audit): the "Import Mesh..." button's picker
+    (``ask_import_mesh``) never computed the sibling ``.mtl``, so an OBJ Clay
+    itself exported came back grey through that button while drag-and-drop
+    (``import_mesh_path``) got the colours right -- same file, two different
+    answers depending only on which door was used."""
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    red = (0.8, 0.1, 0.1, 1.0)
+    tab.doc.materials[0] = _with_colour(tab.doc.materials[0], red)
+    out = tmp_path / "painted.obj"
+    monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: out)
+    clay_mode.export_mesh_file(ctx, tab, "obj")
+    clay_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result))
+
+    monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: out)
+    importer = FakeCtx()
+    clay_mode.ask_import_mesh(importer)
+    doc = importer.result["doc"]
+
+    used = {int(i) for obj in doc.objects for i in obj.mesh.material}
+    colours = [tuple(round(c, 4) for c in doc.materials[i].base_color_factor) for i in used]
+    assert tuple(round(c, 4) for c in red) in colours
+
+
 def test_an_mtllib_with_a_directory_part_is_not_followed(tmp_path: Path) -> None:
     outside = tmp_path / "elsewhere"
     outside.mkdir()
