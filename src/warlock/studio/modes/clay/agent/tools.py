@@ -24,6 +24,7 @@ of these ten handlers ever needs anything that lives only there.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -36,6 +37,7 @@ from .....kernels.mesh import mesh as bm
 from .....kernels.mesh import ops as clay_geom_ops
 from .....kernels.mesh import ops_boolean, presets, regen, shading
 from .....kernels.mesh import primitives as bp
+from .....kernels.mesh.elements import OpError
 from .. import ops as clay_ops
 from ..ui.panes import tools as pane_clay_tools
 from .schema import MAX_MESH_FACES, MAX_MESH_VERTICES
@@ -68,10 +70,18 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
     doc = tab.doc
     objects = [_scene_row(doc, obj) for obj in doc.objects]
 
+    # Evaluated, not the base -- a mirror or an array modifier changes what
+    # actually sits inside the document's own bounds, and a box computed
+    # from the base alone would disagree with what clay_render draws. See
+    # _scene_row's own per-object bbox for the identical rule.
     boxes = [
-        clay_geom_ops.world_box(obj)
-        for obj in doc.objects
-        if obj.visible and clay_geom_ops.world_box(obj) is not None
+        box
+        for box in (
+            clay_geom_ops.world_box(obj, doc.evaluated(obj.uid), world=doc.world_matrix(obj.uid))
+            for obj in doc.objects
+            if obj.visible
+        )
+        if box is not None
     ]
     bounds = None
     if boxes:
@@ -595,12 +605,20 @@ def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
         scale, failure = _validate_vec3(scale, "scale")
         if failure:
             return failure
-    changed = doc.set_transform(
-        obj.uid,
-        translation=translation,
-        rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
-        scale=scale,
-    )
+    # Tranche 3: locking. ``set_transform`` raises OpError -- checking the
+    # object *and* its ancestor chain -- and pushes nothing before it does;
+    # caught here rather than left to call()'s generic OpError handler so the
+    # refusal names ``field="uid"``, the same "refuse a locked object by
+    # name" contract clay_delete's own locked check below states.
+    try:
+        changed = doc.set_transform(
+            obj.uid,
+            translation=translation,
+            rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
+            scale=scale,
+        )
+    except OpError as error:
+        return fail(str(error), field="uid")
     return _json({"uid": obj.uid, "changed": changed})
 
 
@@ -893,7 +911,18 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
             field="uids",
             uids=targets,
         )
-    mesh = ops_boolean.boolean([doc.by_uid(u) for u in targets], kind)
+    # Evaluated, not the base -- a boolean must consume what a mirror or an
+    # array modifier actually built, the same rule the interactive ops will
+    # follow (``document.join_objects``'s own "merging ops consume evaluated
+    # meshes" paragraph). ``join_objects`` below clears the target's own
+    # stack in the same step: its modifiers are now baked into what this
+    # absorbed, so leaving them in place would apply them a second time the
+    # next time the target was drawn.
+    mesh = ops_boolean.boolean(
+        [replace(doc.by_uid(u), mesh=doc.evaluated(u)) for u in targets],
+        kind,
+        world=[doc.world_matrix(u) for u in targets],
+    )
     doc.join_objects(targets[0], mesh, targets[1:])
     # clay-08 (2026-09-08 audit), the same pop ``clay_ops._join``/``_union``
     # make: the objects a boolean absorbs must not leave their manifold-check
@@ -935,6 +964,20 @@ def _h_delete(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     if not uids:
         return fail("give at least one uid.", field="uids")
+    # Tranche 3: locking, checked for *every* named uid before any of them is
+    # removed -- "validate everything before the first mutation", the same
+    # rule every other multi-uid door in this fold follows. ``remove_object``
+    # itself refuses a locked uid too (OpError, nothing pushed for *that*
+    # call), but reaching it from inside this loop would leave whichever
+    # uids sorted earlier already deleted while ``fail()``'s own ``changed``
+    # default (False) claimed nothing had moved -- a real "the document
+    # changed but the refusal said otherwise" gap this loop would open the
+    # moment a locked object's uid was not first in the list.
+    locked = [obj for obj in (doc.by_uid(u) for u in uids) if obj.locked]
+    if locked:
+        return fail(
+            f"{locked[0].name!r} is locked.", field="uids", uids=[o.uid for o in locked]
+        )
 
     mark = doc.history.mark()
     for uid in uids:

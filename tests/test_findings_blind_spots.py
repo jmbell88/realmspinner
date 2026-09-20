@@ -64,13 +64,16 @@ def test_the_gpu_cache_key_moves_with_the_mesh_and_not_with_the_transform():
     obj = SimpleNamespace(mesh=mesh, material=0, translation=(0.0, 0.0, 0.0))
 
     materials = _view_cache._materials_key(doc)
-    before = _view_cache._object_key(obj, materials)
+    # The key is built on the *evaluated* mesh (an object with no modifier
+    # stack evaluates to ``obj.mesh`` itself -- see modifiers.py's fast path),
+    # not on ``obj`` directly; ``sync`` is what resolves ``doc.evaluated``.
+    before = _view_cache._object_key(obj.mesh, materials, obj.material)
 
     obj.translation = (5.0, 0.0, 0.0)
-    assert _view_cache._object_key(obj, materials) == before
+    assert _view_cache._object_key(obj.mesh, materials, obj.material) == before
 
     obj.mesh = object()
-    assert _view_cache._object_key(obj, materials) != before
+    assert _view_cache._object_key(obj.mesh, materials, obj.material) != before
 
 
 def test_a_replaced_material_changes_the_cache_key():

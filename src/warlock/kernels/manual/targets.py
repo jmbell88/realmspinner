@@ -84,6 +84,12 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "clay-tools": ("30-clay", "adding-a-primitive"),
     "clay-props": ("30-clay", "materials"),
     "clay-outliner": ("30-clay", "adding-a-primitive"),
+    # Tranche 6 ("UV and materials"). Its own anchor rather than sharing
+    # ``clay-props``: the questions asked in front of this panel -- what the
+    # overlap/stretch tint means, what dragging a box does, what Pack Islands
+    # and Texel Density actually set -- are answered in one section, "The UV
+    # view" under "Texture coordinates".
+    "clay-uv": ("30-clay", "the-uv-view"),
     "clay-bridge": ("30-clay", "the-two-ways-out"),
     # Mason's seven, pointed at its own chapter. They were interim from Stage E
     # until ``31-mason.md`` landed: Part II was full at 20-38, so giving Mason a

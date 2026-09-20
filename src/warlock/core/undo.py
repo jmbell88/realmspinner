@@ -226,6 +226,28 @@ class UndoStack:
         """
         return self._done[-1].serial if self._done else 0
 
+    def position_of(self, serial: int) -> int | None:
+        """The done-count :meth:`step_to` would need to reach *serial*'s
+        edit, or ``None`` if it is on neither branch -- evicted out of
+        ``_done``, or discarded from ``_undone`` by a ``push`` that diverged
+        past it (``push`` clears the whole redo branch; see its own body).
+
+        For a named checkpoint (Clay's ``ClayDoc.set_checkpoint``, the reason
+        this exists): only the *top-level* entries of each list are checked,
+        because ``push`` stamps a serial on whatever it is handed -- a lone
+        ``Edit`` or a ``CompoundEdit`` folded from several -- and never on a
+        compound's own children, so a serial a caller outside this module
+        could have recorded (:meth:`head`'s own docstring) never names one of
+        those.
+        """
+        for i, edit in enumerate(self._done):
+            if edit.serial == serial:
+                return i + 1
+        for j, edit in enumerate(self._undone):
+            if edit.serial == serial:
+                return len(self._done) + (len(self._undone) - j)
+        return None
+
     def mark(self) -> int:
         """Open a gesture. -> the token ``collapse_since`` folds back to.
 

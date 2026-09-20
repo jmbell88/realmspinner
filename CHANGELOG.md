@@ -26,6 +26,85 @@ data-loss bug five modes shared: opening a file that was already open in another
 tab made a second, independent tab on the same path, and whichever tab saved
 last silently discarded the other's edits.
 
+- **Clay can clean up, lighten and check a mesh for a game.** Three new
+  object operations: **Clean Up** removes zero-area and repeated faces,
+  merges near-coincident vertices, drops unused ones, and turns every closed
+  shell outward, with hole filling as an option. **Recalculate Normals** does
+  only the winding step. **Decimate** cuts the triangle count through the
+  vendored gltfpack, in the background, and throws its result away if you
+  edit the object before it lands. It sends gltfpack the mesh without
+  normals, because a split normal is a seam the simplifier will not cross:
+  with normals a 960-triangle sphere came back at 960, without them at 556.
+  The new **Game check** measures a document against Godot desktop or
+  mobile, Unity, Unreal or WebGL, with a Fix button on each row that has a
+  remedy. Agents get the same check as `clay_validate`, and the three
+  operations through `clay_op` with no new tool.
+- **Clay imports OBJ, STL and PLY, and exports GLB and OBJ to a file.** OBJ
+  keeps quads and larger faces, texture coordinates and, from a `.mtl` in the
+  same folder, colours, so an OBJ Clay exported comes back as it left. Units
+  and up axis are chosen beside the Import button and apply to a dropped
+  file too. The file exports sit beside Export to Library and never touch it.
+- **Clay has a modifier stack.** Each object carries an ordered list of
+  modifiers that change what is shown and exported without touching the mesh
+  you edit: Mirror, Array, Radial Array, Solidify, Bevel (by angle),
+  Subdivide, Weld, Triangulate, Smooth and Boolean (against another object,
+  which may be hidden). Rows can be switched off, reordered, applied or
+  removed in the properties panel, and **Apply Modifiers** bakes whole stacks.
+  A modifier that cannot run says why and is skipped. Merging and the object
+  Booleans apply stacks first, so the result is what you saw. Agents get
+  `clay_modifier_add`, `_set`, `_remove`, `_move` and `_apply`, and
+  `clay_scene` reports each stack and its evaluated size. Documents are saved
+  as `.wblk` version 3, which older builds refuse to open.
+- **Clay has a UV view, seams and a material library.** Mark seams on edges
+  and **Unwrap Seams** flattens by cutting along them, with far less
+  distortion than a projection manages; seams belong to the object, are saved
+  with it, and are dropped only where an edit takes their vertices away. The
+  new **UV** panel shows the layout, tints overlapping and stretched faces,
+  and moves, rotates, scales and packs islands. **Texel Density** sets how
+  many pixels per metre a surface gets, so neighbouring props match. Materials
+  gained emissive, alpha mode and cutoff, double-sided, and texture slots that
+  can be assigned from a PNG or cleared — and a named material can be saved to
+  a library shared across documents.
+- **Clay fits colliders and exports for a named engine.** Box, sphere,
+  capsule, convex hull and compound colliders are fitted from the selection
+  and arrive parented to what they were fitted to, out of the triangle budget
+  because they are not drawn. The export engine — Godot, Unity, Unreal or
+  WebGL — renames colliders to that engine's own convention in the written
+  file while your document keeps its names, and converts axis and scale for
+  OBJ only, because a glTF importer does that itself and twice is wrong. The
+  game check reads the same choice and gained three collider rows.
+- **Clay's modelling toolkit roughly doubles, and gains a game shape set.**
+  New operations: bisect and a click-drag **knife**, edge and vertex slide,
+  rip, poke, triangulate, tris-to-quads, spin, screw, symmetrize and grid
+  fill, plus select-similar by area, normal, material, side count, edge
+  length or valence. Six new shapes join the add row under **Game**: wedge,
+  ramp, rounded box, stairs, wall and doorway — the doorway being the
+  flat-headed counterpart to the round-headed arch. Agents reach every one of
+  them through the existing tools, because the menus, the palette and the tool
+  schemas are all generated from the same registries.
+- **Clay has a scene, not just a list.** Objects can be parented — drag a row
+  onto another in the outliner, or use **Parent to Last** — and a child keeps
+  its place when you do it, moves with its parent afterwards, and reads its
+  transform as local from then on. **Group Selected** parents a selection to
+  an empty made for it; deleting a parent leaves its children where they
+  stand. Objects can be **locked** (no edits, and viewport clicks pass through
+  them) and **tagged**, with the outliner filtering on either. New operations
+  separate an object by loose parts, material or selected faces, and move its
+  origin to its bounds, its base, the element selection or the world origin
+  without moving the geometry. Snapping gained edge and face targets, and the
+  hint line now measures the selection: distance, angle, area or volume. Agents
+  get `clay_parent`, `clay_group`, `clay_ungroup`, `clay_lock`, `clay_tag`,
+  `clay_separate`, `clay_set_origin`, `clay_measure` and session-only
+  checkpoints, and `clay_scene` reports world placement with the local values
+  beside it.
+- **Clay can retopologise, unwrap and bake through Blender.**
+  **Retopologise** rebuilds the selection as quads at a triangle target,
+  **Smart Unwrap** lays out texture coordinates by cutting where the mesh
+  bends, and **Bake Detail** paints the selected objects' detail onto the
+  topmost one as base colour, roughness and normal maps. Each needs the `rig`
+  extra and says so when it is missing, each runs in the background, and each
+  discards its result for any object edited while it was working. Agents reach
+  all three through `clay_op` with no new tool.
 - **Inker's Walk Cycle no longer shows two bars above the canvas.** While a
   walk session was open, the ordinary tool bar — brush, size, symmetry, all
   still live — drew above the walk row's next / Bake / Cancel. The walk row

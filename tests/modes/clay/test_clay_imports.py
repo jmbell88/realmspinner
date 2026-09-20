@@ -71,6 +71,10 @@ OUTWARD_IMPORTS = {
     # entry, not two: ``glbimport.py`` reaches ``geom3d`` for ``glbio``,
     # ``gltf`` and ``math3d`` through relative imports of the same package.
     ("glbimport.py", "warlock.kernels.geom3d"),
+    # 2026-09-19, Clay tranche 1: an OBJ's ``usemtl``/MTL colours become
+    # ``gltf.Material`` palette slots, glbimport's reason exactly -- a Clay
+    # material is a ``gltf.Material``, never a parallel type.
+    ("objimport.py", "warlock.kernels.geom3d"),
     ("ops.py", "warlock.kernels.geom3d"),
     # Added deliberately on 2026-09-06 (the audit's clay-08): grounding a
     # figure preset has to know where its *built* geometry ends, not just
@@ -89,6 +93,20 @@ OUTWARD_IMPORTS = {
     # as the rest of this list, for the one file that also reaches
     # ``core.safeio`` above.
     ("serialize.py", "warlock.kernels.geom3d"),
+    # Clay tranche 2, the modifier stack: radial-array spins each copy about
+    # the object's own local origin, the same ``math3d.compose``/
+    # ``quat_from_axis_angle`` pair ``ops.py``'s ``rotated_about_origin``
+    # already reaches for -- one quaternion convention, not a second one for
+    # a modifier that happens to rotate too.
+    ("ops_modifiers.py", "warlock.kernels.geom3d"),
+    # Clay tranche 3, scene structure: readiness's ``scale``/``pivot``/
+    # ``transforms`` checks measure a document's *world* placement, not local
+    # TRS (a parented object's own fields are relative to its parent, not
+    # what an engine importing the document sees) -- so ``validate`` decomposes
+    # ``doc.world_matrix`` onto a duck-typed copy of each object before any
+    # check runs, the same ``math3d.compose``/``decompose`` pair ``ops.py``,
+    # ``document.py`` and ``analyze.py`` already reach for.
+    ("readiness.py", "warlock.kernels.geom3d"),
 }
 
 #: Which modules of ``kernels.geom3d``, since the entry above is recorded at

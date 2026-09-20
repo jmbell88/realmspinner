@@ -20,9 +20,10 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
+import math
 import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -2298,6 +2299,197 @@ def _source_metallic(source: Any) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+_BAKE_MAP_KINDS: dict[str, tuple[str, dict[str, Any], bool]] = {
+    # key -> (the bake() operator's ``type``, its extra kwargs, whether the
+    # target image is data rather than colour -- ``_bake_image``'s own
+    # Non-Color reasoning applies to roughness and normal alike).
+    "base_color": ("DIFFUSE", {}, False),
+    "roughness": ("ROUGHNESS", {}, True),
+    "normal": ("NORMAL", {"normal_space": "TANGENT"}, True),
+}
+
+
+def _remesh_object(
+    bpy: Any,
+    obj: Any,
+    *,
+    target_faces: int,
+    seed: int,
+    close_holes: bool,
+    diagonal: float,
+    on_close_holes: Callable[[], None] | None = None,
+    on_remesh: Callable[[], None] | None = None,
+) -> str:
+    """Voxel pre-pass (optional) + quadriflow-with-decimate-fallback on
+    ``obj``'s own mesh data. -> the method that ran ("quadriflow" or
+    "decimate").
+
+    Selects ``obj`` alone before touching it, so a caller looping over
+    several objects (``op_clay_retopo``) never leaves the previous one's
+    selection live for an operator that reads it -- a no-op for
+    ``op_remesh``'s single-object call, where ``obj`` was already the sole
+    selected, active object coming out of ``_weld``.
+
+    Split out of ``op_remesh`` (``dev/CLAY-PLAN.md`` tranche 4) with no
+    change to its behaviour: the operator calls, their order and their
+    arguments are unchanged from what used to sit inline.
+    """
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    method = "quadriflow"
+    if close_holes:
+        if on_close_holes is not None:
+            on_close_holes()
+        obj.data.remesh_voxel_size = diagonal * VOXEL_FRACTION
+        obj.data.remesh_voxel_adaptivity = 0.0
+        obj.data.use_remesh_fix_poles = False
+        bpy.ops.object.voxel_remesh()
+
+    if on_remesh is not None:
+        on_remesh()
+    try:
+        bpy.ops.object.quadriflow_remesh(
+            target_faces=target_faces,
+            use_mesh_symmetry=False,
+            use_preserve_sharp=False,
+            use_preserve_boundary=False,
+            seed=seed,
+            mode="FACES",
+        )
+        if len(obj.data.polygons) == 0:
+            raise RuntimeError("quadriflow produced no faces")
+    except Exception:
+        # Non-manifold input, or a mesh quadriflow gave up on. The budget is
+        # still honoured, in triangles, and the result says so.
+        method = "decimate"
+        modifier = obj.modifiers.new("wl_decimate", "DECIMATE")
+        tris = max(len(obj.data.polygons), 1)
+        modifier.ratio = max(min((target_faces * 2) / tris, 1.0), 0.001)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier="wl_decimate")
+    return method
+
+
+def _smart_unwrap(
+    bpy: Any, obj: Any, *, angle_limit_deg: float = 66.0, island_margin: float = 0.003
+) -> None:
+    """Fresh UV layer + Smart UV Project on ``obj``. Geometry untouched.
+
+    Existing UV layers are dropped first: a GLB's imported layer is either
+    the reconstruction's xatlas soup (``op_remesh``) or a retopologised
+    mesh's leftover one (``op_clay_unwrap``, when it runs after
+    ``op_clay_retopo``), and unwrapping "on top of" a stale layer would leave
+    two disagreeing about which one the exporter and a later bake read.
+
+    Split out of ``op_remesh`` with no change to its behaviour: same
+    operators in the same order, and the same default angle limit and
+    margin ``op_remesh`` always called with.
+    """
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    while obj.data.uv_layers:
+        obj.data.uv_layers.remove(obj.data.uv_layers[0])
+    obj.data.uv_layers.new(name="UVMap")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(
+        angle_limit=math.radians(angle_limit_deg), island_margin=island_margin
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _bake_maps(
+    bpy: Any,
+    low: Any,
+    highs: Sequence[Any],
+    *,
+    maps: Sequence[str],
+    texture_size: int,
+    cage_extrusion: float,
+    max_ray_distance: float,
+    margin_px: int = BAKE_MARGIN_PX,
+    material_name: str = "wl_remeshed",
+    image_prefix: str = "wl",
+    on_bake: Callable[[str], None] | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Selected-to-active Cycles bake of ``maps`` from ``highs`` onto
+    ``low``. -> (the new material, {map key: baked image}).
+
+    Builds one fresh material on ``low`` -- clearing whatever it carried,
+    the same way ``op_remesh`` always baked into a brand-new material rather
+    than layering onto a mesh's own palette -- with one image node per
+    requested map, wired into the Principled BSDF the glTF exporter reads
+    (roughness straight into Roughness, normal through a Normal Map node).
+    Metallic is never a bake target here: Cycles has no metallic bake type,
+    so every caller that wants it carries it over as a constant
+    (``_source_metallic``/``_metallic_constant``, called separately).
+
+    Split out of ``op_remesh`` with no change to its behaviour when called
+    with ``maps=("base_color", "roughness", "normal")`` and the defaults
+    below: same bake settings, same node wiring, same image names
+    (``wl_base_color`` etc -- unchanged by ``image_prefix``'s default).
+    """
+    material = bpy.data.materials.new(material_name)
+    material.use_nodes = True
+    tree = material.node_tree
+    principled = next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED")
+    images: dict[str, Any] = {}
+    nodes: dict[str, Any] = {}
+    for key in maps:
+        _kind, _extra, is_data = _BAKE_MAP_KINDS[key]
+        image = _bake_image(bpy, f"{image_prefix}_{key}", texture_size, data=is_data)
+        node = tree.nodes.new("ShaderNodeTexImage")
+        node.image = image
+        images[key] = image
+        nodes[key] = node
+    low.data.materials.clear()
+    low.data.materials.append(material)
+
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = 4
+    bake = scene.render.bake
+    bake.use_selected_to_active = True
+    bake.cage_extrusion = cage_extrusion
+    bake.max_ray_distance = max_ray_distance
+    bake.margin = margin_px
+    bake.use_pass_direct = False
+    bake.use_pass_indirect = False
+    bake.use_pass_color = True
+
+    bpy.ops.object.select_all(action="DESELECT")
+    for high in highs:
+        high.select_set(True)
+    low.select_set(True)
+    bpy.context.view_layer.objects.active = low
+
+    for key in maps:
+        if on_bake is not None:
+            on_bake(key)
+        kind, extra, _is_data = _BAKE_MAP_KINDS[key]
+        tree.nodes.active = nodes[key]
+        bpy.ops.object.bake(type=kind, **extra)
+        nodes[key].image.pack()
+
+    if "base_color" in images:
+        tree.links.new(nodes["base_color"].outputs["Color"], principled.inputs["Base Color"])
+    if "roughness" in images:
+        tree.links.new(nodes["roughness"].outputs["Color"], principled.inputs["Roughness"])
+    if "normal" in images:
+        normal_map = tree.nodes.new("ShaderNodeNormalMap")
+        tree.links.new(nodes["normal"].outputs["Color"], normal_map.inputs["Color"])
+        tree.links.new(normal_map.outputs["Normal"], principled.inputs["Normal"])
+    return material, images
+
+
+def _set_metallic_constant(material: Any, metallic: float) -> None:
+    principled = next(n for n in material.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    principled.inputs["Metallic"].default_value = metallic
+
+
 def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     """Remesh to a quad budget, unwrap, and bake the old surface onto the new.
 
@@ -2320,8 +2512,6 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
        ``_source_metallic``.
     4. **Export** the new object alone, textures packed into the GLB.
     """
-    import math
-
     source_path = Path(spec["source_glb"])
     out_glb = Path(spec["out_glb"]).resolve()
     if not source_path.exists():
@@ -2371,101 +2561,46 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         with contextlib.suppress(Exception):
             bpy.data.meshes.remove(pre_weld)
 
-    method = "quadriflow"
-    if spec.get("close_holes"):
-        progress(0.08, "Closing holes")
-        work.data.remesh_voxel_size = diagonal * VOXEL_FRACTION
-        work.data.remesh_voxel_adaptivity = 0.0
-        work.data.use_remesh_fix_poles = False
-        bpy.ops.object.voxel_remesh()
-
-    progress(0.15, f"Remeshing to {target:,} quads")
-    try:
-        bpy.ops.object.quadriflow_remesh(
-            target_faces=target,
-            use_mesh_symmetry=False,
-            use_preserve_sharp=False,
-            use_preserve_boundary=False,
-            seed=seed,
-            mode="FACES",
-        )
-        if len(work.data.polygons) == 0:
-            raise RuntimeError("quadriflow produced no faces")
-    except Exception:
-        # Non-manifold input, or a mesh quadriflow gave up on. The budget is
-        # still honoured, in triangles, and the result says so.
-        method = "decimate"
-        modifier = work.modifiers.new("wl_decimate", "DECIMATE")
-        tris = max(len(work.data.polygons), 1)
-        modifier.ratio = max(min((target * 2) / tris, 1.0), 0.001)
-        bpy.context.view_layer.objects.active = work
-        bpy.ops.object.modifier_apply(modifier="wl_decimate")
+    # Stages below are shared with the Clay background ops
+    # (``op_clay_retopo``/``op_clay_unwrap``) -- ``_remesh_object``,
+    # ``_smart_unwrap`` and ``_bake_maps`` carry the "why", this call site
+    # only supplies op_remesh's own budget, labels and defaults, which is
+    # exactly what ran inline here before the split.
+    method = _remesh_object(
+        bpy,
+        work,
+        target_faces=target,
+        seed=seed,
+        close_holes=bool(spec.get("close_holes")),
+        diagonal=diagonal,
+        on_close_holes=lambda: progress(0.08, "Closing holes"),
+        on_remesh=lambda: progress(0.15, f"Remeshing to {target:,} quads"),
+    )
 
     progress(0.45, "Unwrapping")
-    bpy.ops.object.select_all(action="DESELECT")
-    work.select_set(True)
-    bpy.context.view_layer.objects.active = work
-    while work.data.uv_layers:
-        work.data.uv_layers.remove(work.data.uv_layers[0])
-    work.data.uv_layers.new(name="UVMap")
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(angle_limit=math.radians(66.0), island_margin=0.003)
-    bpy.ops.object.mode_set(mode="OBJECT")
+    _smart_unwrap(bpy, work)
 
-    # The new material, with the three bake targets already in it: a bake
-    # writes into the active image node of the active object's material.
-    material = bpy.data.materials.new("wl_remeshed")
-    material.use_nodes = True
-    tree = material.node_tree
-    principled = next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED")
-    base_img = _bake_image(bpy, "wl_base_color", texture_size, data=False)
-    rough_img = _bake_image(bpy, "wl_roughness", texture_size, data=True)
-    normal_img = _bake_image(bpy, "wl_normal", texture_size, data=True)
-    nodes = {}
-    for key, image in (("base", base_img), ("rough", rough_img), ("normal", normal_img)):
-        node = tree.nodes.new("ShaderNodeTexImage")
-        node.image = image
-        nodes[key] = node
-    work.data.materials.append(material)
+    _remesh_bake_labels = {
+        "base_color": (0.55, "Baking colour"),
+        "roughness": (0.70, "Baking roughness"),
+        "normal": (0.82, "Baking normals"),
+    }
+    material, _images = _bake_maps(
+        bpy,
+        work,
+        [source],
+        maps=("base_color", "roughness", "normal"),
+        texture_size=texture_size,
+        cage_extrusion=diagonal * 0.02,
+        max_ray_distance=diagonal * 0.05,
+        on_bake=lambda key: progress(*_remesh_bake_labels[key]),
+    )
 
-    scene = bpy.context.scene
-    scene.render.engine = "CYCLES"
-    scene.cycles.samples = 4
-    bake = scene.render.bake
-    bake.use_selected_to_active = True
-    bake.cage_extrusion = diagonal * 0.02
-    bake.max_ray_distance = diagonal * 0.05
-    bake.margin = BAKE_MARGIN_PX
-    bake.use_pass_direct = False
-    bake.use_pass_indirect = False
-    bake.use_pass_color = True
-
-    bpy.ops.object.select_all(action="DESELECT")
-    source.select_set(True)
-    work.select_set(True)
-    bpy.context.view_layer.objects.active = work
-
-    for frac, label, key, kind, extra in (
-        (0.55, "Baking colour", "base", "DIFFUSE", {}),
-        (0.70, "Baking roughness", "rough", "ROUGHNESS", {}),
-        (0.82, "Baking normals", "normal", "NORMAL", {"normal_space": "TANGENT"}),
-    ):
-        progress(frac, label)
-        tree.nodes.active = nodes[key]
-        bpy.ops.object.bake(type=kind, **extra)
-        nodes[key].image.pack()
-
-    # Wire the bakes into the material the exporter reads. glTF packs
-    # roughness in G and metallic in B of one image; the exporter builds that
-    # image itself when roughness is a texture and metallic a constant.
+    # glTF packs roughness in G and metallic in B of one image; the exporter
+    # builds that image itself when roughness is a texture and metallic a
+    # constant.
     metallic = _source_metallic(source)
-    tree.links.new(nodes["base"].outputs["Color"], principled.inputs["Base Color"])
-    tree.links.new(nodes["rough"].outputs["Color"], principled.inputs["Roughness"])
-    normal_map = tree.nodes.new("ShaderNodeNormalMap")
-    tree.links.new(nodes["normal"].outputs["Color"], normal_map.inputs["Color"])
-    tree.links.new(normal_map.outputs["Normal"], principled.inputs["Normal"])
-    principled.inputs["Metallic"].default_value = metallic
+    _set_metallic_constant(material, metallic)
 
     progress(0.92, "Exporting")
     bpy.data.objects.remove(source, do_unlink=True)
@@ -2483,6 +2618,384 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# --- Clay background ops (dev/CLAY-PLAN.md tranche 4) -----------------------
+#
+# Three GLB-in/GLB-out ops for Clay's mesh-cleanup menu, each a background op
+# run on a temp GLB of the caller's selection. Unlike every op above, none of
+# these joins its input into one object: Clay sends one node per selected
+# object and expects the same shape back, names and node transforms held.
+#
+# Confirmed against a real Blender import/export round trip (no armature, no
+# parenting) that a flat multi-object GLB's node names, translations,
+# rotations and scales come back byte-identical with nothing baked on this
+# side -- so these ops touch only ``obj.data`` (geometry, UVs, materials) in
+# each object's own local space and never an object's transform.
+
+
+def _import_glb_objects(bpy: Any, path: Path) -> list[Any]:
+    """Import ``path`` with no join -- one Blender object per glTF node,
+    named as authored. -> the newly imported mesh objects, import order.
+
+    Unlike ``_import_glb`` (which joins everything into one object for the
+    rig/remesh pipeline's single-mesh world), the Clay ops' contract is "one
+    node per object in, one node per object out": a multi-object selection is
+    the ordinary case, not an edge one.
+
+    Tracks the *delta* against the scene rather than sweeping up every MESH
+    object in it, because ``op_clay_bake`` imports two GLBs into one scene
+    (the high file's objects selected, the low file's active) and a second
+    import must not also claim the first file's objects.
+    """
+    before = set(bpy.context.scene.objects)
+    bpy.ops.import_scene.gltf(filepath=str(path))
+    _purge_import_helpers(bpy)
+    meshes = [o for o in bpy.context.scene.objects if o.type == "MESH" and o not in before]
+    if not meshes:
+        raise RuntimeError(f"{path.name} contains no mesh")
+    return meshes
+
+
+def _local_bounds(obj: Any) -> tuple[list[float], list[float]]:
+    """``obj``'s bounding box in its own local space.
+
+    Unlike ``_world_bounds``, no ``matrix_world`` multiply -- the Clay ops
+    never touch an object's transform, and a local box is all the weld
+    epsilon and the voxel size need.
+    """
+    corners = [list(c) for c in obj.bound_box]
+    lo = [min(c[i] for c in corners) for i in range(3)]
+    hi = [max(c[i] for c in corners) for i in range(3)]
+    return lo, hi
+
+
+def _tri_count(obj: Any) -> int:
+    """Tessellated triangle count -- what ``target_faces`` is shared out by
+    proportionally in ``op_clay_retopo``, so a 10-triangle prop bundled with
+    a 10,000-triangle hero mesh is not squeezed to the same budget."""
+    return sum(max(len(p.vertices) - 2, 0) for p in obj.data.polygons)
+
+
+def _snapshot_faces(obj: Any) -> tuple[list[tuple[float, ...]], list[tuple[int, ...]], list[int]]:
+    """(vertex positions, polygon vertex-index tuples, polygon
+    material_index) of ``obj``'s mesh right now, local space -- taken before
+    a remesh changes the topology, for
+    ``_transfer_materials_by_nearest_face`` to look answers up in
+    afterwards."""
+    mesh = obj.data
+    verts = [tuple(v.co) for v in mesh.vertices]
+    polys = [tuple(p.vertices) for p in mesh.polygons]
+    mat_idx = [p.material_index for p in mesh.polygons]
+    return verts, polys, mat_idx
+
+
+def _transfer_materials_by_nearest_face(
+    bpy: Any,
+    obj: Any,
+    verts: list[tuple[float, ...]],
+    polys: list[tuple[int, ...]],
+    mat_idx: list[int],
+) -> None:
+    """Assign each of ``obj``'s *current* faces the material of the nearest
+    pre-remesh face, by a BVH built on the snapshot ``_snapshot_faces`` took.
+
+    Quadriflow and the decimate fallback both hand back all-new topology
+    with every face's ``material_index`` reset to 0 -- Blender has no
+    material-aware remesh operator -- so a multi-material object would
+    silently repaint itself into slot 0 without this. The material *slots*
+    (``obj.data.materials``) survive the remesh unchanged; only the per-face
+    assignment is lost, which is exactly what this restores.
+    """
+    if not polys:
+        return
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+
+    bvh = BVHTree.FromPolygons(verts, polys, all_triangles=False, epsilon=0.0)
+    mesh = obj.data
+    for poly in mesh.polygons:
+        center = Vector((0.0, 0.0, 0.0))
+        for vi in poly.vertices:
+            center += mesh.vertices[vi].co
+        center /= len(poly.vertices)
+        hit = bvh.find_nearest(center)
+        index = hit[2] if hit else None
+        if index is not None and 0 <= index < len(mat_idx):
+            poly.material_index = mat_idx[index]
+
+
+def _uv_island_count(obj: Any) -> int:
+    """Connected components of ``obj``'s active UV layer, cutting at a seam
+    (loop UVs disagreeing across a shared edge) -- the same test Blender's
+    own seam tools make. Best-effort: the result field it feeds is optional,
+    because what a caller mostly wants confirmed is that the unwrap produced
+    *some* islands, not an atlas-packer's exact count.
+
+    No ``bpy`` parameter: like ``_unbind``, it only walks the mesh it was
+    handed and never touches Blender's global state.
+    """
+    import bmesh
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        uv_layer = bm.loops.layers.uv.active
+        if uv_layer is None or not bm.faces:
+            return 0
+        parent = list(range(len(bm.faces)))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        face_index = {f: idx for idx, f in enumerate(bm.faces)}
+        for edge in bm.edges:
+            linked = edge.link_faces
+            if len(linked) != 2:
+                continue
+            f1, f2 = linked
+            loops1 = [ln for ln in f1.loops if ln.vert in edge.verts]
+            loops2 = [ln for ln in f2.loops if ln.vert in edge.verts]
+            uv1 = {tuple(round(c, 6) for c in ln[uv_layer].uv) for ln in loops1}
+            uv2 = {tuple(round(c, 6) for c in ln[uv_layer].uv) for ln in loops2}
+            if uv1 == uv2:
+                union(face_index[f1], face_index[f2])
+        return len({find(i) for i in range(len(bm.faces))})
+    finally:
+        bm.free()
+
+
+def _metallic_constant(objects: Sequence[Any]) -> float:
+    """``_source_metallic``, averaged over several objects rather than one.
+
+    ``op_clay_bake``'s high side may be more than one object -- Clay can send
+    a multi-object selection as the bake source -- and the reasoning for
+    reading a constant off the Principled BSDF rather than baking it is
+    ``_source_metallic``'s.
+    """
+    values: list[float] = []
+    for obj in objects:
+        for material in obj.data.materials:
+            if material is None or not material.use_nodes:
+                continue
+            for node in material.node_tree.nodes:
+                if node.type == "BSDF_PRINCIPLED":
+                    socket = node.inputs.get("Metallic")
+                    if socket is not None and not socket.is_linked:
+                        values.append(float(socket.default_value))
+    return sum(values) / len(values) if values else 0.0
+
+
+def op_clay_retopo(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Retopologise every mesh object in a Clay-sent GLB, independently.
+
+    No unwrap and no bake: those are ``op_clay_unwrap`` and ``op_clay_bake``,
+    so a caller that only wants a lower triangle count is not paying for a UV
+    pass or a Cycles bake it did not ask for.
+
+    Each object's share of ``target_faces`` is proportional to its own
+    triangle count -- see ``_tri_count``. Materials survive by nearest-face
+    lookup -- see ``_transfer_materials_by_nearest_face``. UV layers are
+    dropped after the remesh unless ``keep_uvs`` is set: quadriflow writes no
+    UVs at all and the decimate fallback's are undefined territory on a
+    topology this different, so the default is to leave a caller-run
+    ``op_clay_unwrap`` a clean slate rather than a stale layer that happens
+    to still parse.
+    """
+    source_path = Path(spec["source_glb"])
+    out_glb = Path(spec["out_glb"]).resolve()
+    if not source_path.exists():
+        raise RuntimeError(f"nothing to retopologise at {source_path}")
+    target_faces = int(spec["target_faces"])
+    seed = int(spec.get("seed", 0))
+    close_holes = bool(spec.get("close_holes", False))
+    keep_uvs = bool(spec.get("keep_uvs", False))
+
+    progress(0.02, "Loading model")
+    _reset_scene(bpy)
+    objects = _import_glb_objects(bpy, source_path)
+
+    total_tris = sum(_tri_count(o) for o in objects) or 1
+    n = len(objects)
+    span = 0.9 / n
+    report: list[dict[str, Any]] = []
+    for i, obj in enumerate(objects):
+        frac_lo = 0.05 + span * i
+        frac_hi = 0.05 + span * (i + 1)
+        faces_before = len(obj.data.polygons)
+        tris = _tri_count(obj)
+        obj_target = max(int(round(target_faces * tris / total_tris)), 4)
+
+        verts, polys, mat_idx = _snapshot_faces(obj)
+        lo, hi = _local_bounds(obj)
+        diagonal = max(math.dist(lo, hi), 1e-6)
+        weld = weld_distance(lo, hi)
+        if weld > 0.0:
+            pre_weld, _merged = _weld(bpy, obj, weld)
+            with contextlib.suppress(Exception):
+                bpy.data.meshes.remove(pre_weld)
+
+        method = _remesh_object(
+            bpy,
+            obj,
+            target_faces=obj_target,
+            seed=seed,
+            close_holes=close_holes,
+            diagonal=diagonal,
+            on_close_holes=lambda o=obj, f=frac_lo: progress(
+                f + span * 0.3, f"Closing holes: {o.name}"
+            ),
+            on_remesh=lambda o=obj, t=obj_target, f=frac_lo: progress(
+                f + span * 0.5, f"Remeshing {o.name} to {t:,} quads"
+            ),
+        )
+
+        _transfer_materials_by_nearest_face(bpy, obj, verts, polys, mat_idx)
+
+        if not keep_uvs:
+            while obj.data.uv_layers:
+                obj.data.uv_layers.remove(obj.data.uv_layers[0])
+
+        faces, quads = _face_stats(obj)
+        report.append(
+            {
+                "name": obj.name,
+                "method": method,
+                "faces_before": faces_before,
+                "faces": faces,
+                "quads": quads,
+            }
+        )
+        progress(frac_hi, f"Retopologised {obj.name}")
+
+    progress(0.97, "Exporting")
+    _export(bpy, out_glb)
+    progress(1.0, "Retopologised")
+    return {"ok": True, "objects": report}
+
+
+def op_clay_unwrap(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Smart-UV-Project every mesh object in a Clay-sent GLB. Geometry
+    untouched -- only what ``op_clay_bake``'s UV precondition and a later
+    manual layout depend on."""
+    source_path = Path(spec["source_glb"])
+    out_glb = Path(spec["out_glb"]).resolve()
+    if not source_path.exists():
+        raise RuntimeError(f"nothing to unwrap at {source_path}")
+    angle_limit = float(spec.get("angle_limit", 66.0))
+    island_margin = float(spec.get("island_margin", 0.003))
+
+    progress(0.05, "Loading model")
+    _reset_scene(bpy)
+    objects = _import_glb_objects(bpy, source_path)
+
+    report: list[dict[str, Any]] = []
+    n = len(objects)
+    span = 0.85 / n
+    for i, obj in enumerate(objects):
+        progress(0.1 + span * i, f"Unwrapping {obj.name}")
+        _smart_unwrap(bpy, obj, angle_limit_deg=angle_limit, island_margin=island_margin)
+        report.append({"name": obj.name, "islands": _uv_island_count(obj)})
+
+    progress(0.97, "Exporting")
+    _export(bpy, out_glb)
+    progress(1.0, "Unwrapped")
+    return {"ok": True, "objects": report}
+
+
+def op_clay_bake(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Selected-to-active Cycles bake from a high GLB onto a low GLB's UVs.
+
+    Two separate files rather than one -- the high and low meshes are two
+    different GLBs Clay sends (a retopologised low next to the mesh it
+    replaced), imported into one scene only for the bake. The high objects
+    are removed again before export, so the written GLB carries the low
+    mesh(es) alone.
+
+    "the low one(s)" in the brief this came from: Blender's selected-to-active
+    bake only ever has one *active* object, so a multi-object low selection
+    (the same shape ``op_clay_retopo``/``op_clay_unwrap`` hand back) is baked
+    one object at a time, every high object selected each time -- there is no
+    per-low mapping to the high side, because Clay's own selection is already
+    the scope of "what this bake is for".
+
+    Every low object must already carry UVs -- refused by name rather than
+    producing a blank atlas, the same rule ``op_remesh``'s own bake depends
+    on ``op_clay_unwrap`` or the reconstruction's own layout to have
+    satisfied. Checked for *all* of them before any bake runs, so a job
+    already minutes into Cycles never fails on the last object for a mistake
+    that was visible before it started.
+    """
+    high_path = Path(spec["high_glb"])
+    low_path = Path(spec["low_glb"])
+    out_glb = Path(spec["out_glb"]).resolve()
+    if not high_path.exists():
+        raise RuntimeError(f"nothing to bake from at {high_path}")
+    if not low_path.exists():
+        raise RuntimeError(f"nothing to bake onto at {low_path}")
+    texture_size = int(spec["texture_size"])
+    cage_extrusion = float(spec.get("cage_extrusion", 0.0))
+    requested = spec.get("maps") or list(_BAKE_MAP_KINDS)
+    maps = [m for m in requested if m in _BAKE_MAP_KINDS]
+    if not maps:
+        raise RuntimeError("no bake maps requested")
+
+    progress(0.02, "Loading low mesh")
+    _reset_scene(bpy)
+    lows = _import_glb_objects(bpy, low_path)
+    unwrapped = [low.name for low in lows if not low.data.uv_layers]
+    if unwrapped:
+        raise RuntimeError(
+            f"{low_path.name} has no UVs to bake into (object(s) {', '.join(unwrapped)}); "
+            "unwrap it first"
+        )
+
+    progress(0.1, "Loading high mesh")
+    highs = _import_glb_objects(bpy, high_path)
+    metallic = _metallic_constant(highs)
+
+    labels = {
+        "base_color": "Baking colour",
+        "roughness": "Baking roughness",
+        "normal": "Baking normals",
+    }
+    total_bakes = len(lows) * len(maps)
+    counter = iter(range(1, total_bakes + 1))
+    for low in lows:
+        lo, hi = _local_bounds(low)
+        diagonal = max(math.dist(lo, hi), 1e-6)
+        max_ray_distance = diagonal * 0.05
+        material, _images = _bake_maps(
+            bpy,
+            low,
+            highs,
+            maps=maps,
+            texture_size=texture_size,
+            cage_extrusion=cage_extrusion,
+            max_ray_distance=max_ray_distance,
+            material_name="wl_clay_baked",
+            on_bake=lambda key, low=low: progress(
+                0.15 + 0.7 * next(counter) / total_bakes,
+                f"{labels.get(key, f'Baking {key}')}: {low.name}",
+            ),
+        )
+        _set_metallic_constant(material, metallic)
+
+    progress(0.9, "Exporting")
+    for high in highs:
+        bpy.data.objects.remove(high, do_unlink=True)
+    _export(bpy, out_glb)
+    progress(1.0, "Baked")
+    return {"ok": True, "maps": maps, "texture_size": texture_size, "metallic": metallic}
+
+
 OPS = {
     "rig": op_rig,
     "pose": op_pose,
@@ -2494,6 +3007,9 @@ OPS = {
     "views": op_views,
     "project": op_project,
     "remesh": op_remesh,
+    "clay_retopo": op_clay_retopo,
+    "clay_unwrap": op_clay_unwrap,
+    "clay_bake": op_clay_bake,
 }
 
 

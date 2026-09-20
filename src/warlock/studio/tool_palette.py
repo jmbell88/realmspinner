@@ -80,6 +80,23 @@ PRIMITIVE_ICONS = {
     # polyline tool uses the same glyph, which is fine: the two panes are
     # never on screen at once, and this set is strained enough already.
     "tube": icons.WAYPOINTS,
+    # Clay tranche 5: the "game" category's six blockout shapes. The set is
+    # already strained (the comments above say so twice), so these lean on
+    # reuse rather than invent a mismatch: a wedge and a ramp are literally
+    # the same right-triangle prism at two orientations (``primitives.ramp``'s
+    # own docstring), so only the ramp gets the distinct "rising" glyph and
+    # the wedge keeps the plain triangle cone already borrows.
+    "wedge": icons.TRIANGLE_ALERT,
+    "ramp": icons.ARROW_UP_RIGHT,
+    "rounded_box": icons.SQUARE,
+    # No staircase glyph in the pinned set; layers -- already sweep's own
+    # borrow for "stacked cross-sections" -- reads the same way for a
+    # staircase's stacked risers and treads.
+    "stairs": icons.LAYERS,
+    "wall": icons.HOUSE,
+    # A doorway is a wall with an opening cut into it; a dashed square is the
+    # nearest silhouette this set has for "an outline with a gap in it".
+    "doorway": icons.SQUARE_DASHED,
 }
 
 

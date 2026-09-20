@@ -23,6 +23,22 @@ stays the report's edges. Both build the same weakly-cached
 and so is a plane with no thickness; ``clean`` is a strict reading rather than a
 verdict, which is why the rows say what was measured and never how to feel about
 it. That is the same doctrine ``widgets.quality_badge`` is written under.
+
+**Three rows come from :mod:`.ops_clean` rather than :func:`~.adjacency.check_manifold`**,
+because the report cannot measure them: ``degenerate`` (a face with under three
+distinct vertices, or (near) zero area -- neither is a CSR-structure question),
+``flipped_face`` (a face whose winding disagrees with the majority of its own
+connected shell, read off the same BFS :func:`~.ops_clean.recalc_outside` walks
+to fix it) and ``inside_out`` (a closed shell that is uniformly wound but the
+wrong way round, which no per-face or per-edge measurement can see at all --
+only a volume sign can). Duplicate faces and loose vertices are **not**
+duplicated under a second name here even though :class:`~.ops_clean.Survey`
+also counts both: the existing ``duplicate``/``unused`` rows already answer
+them from `report` at no extra cost, and `Survey.duplicate_faces` counts a
+narrower thing (the later face of a repeat only, matching what
+:func:`~.ops_clean.remove_duplicate_faces` would delete) than
+`report.duplicate_faces` does (every member of the group) -- switching would
+change what an existing row selects, not just where its number comes from.
 """
 
 from __future__ import annotations
@@ -35,6 +51,7 @@ from typing import Any
 import numpy as np
 
 from . import elements as el
+from . import ops_clean
 from .adjacency import ManifoldReport, boundary_loops, check_manifold
 from .mesh import Mesh
 
@@ -139,6 +156,58 @@ def rows_for(mesh: Mesh, report: ManifoldReport) -> list[Finding]:
                 count=len(report.unused_verts),
                 mode="vertex",
                 sel=el.ElementSel(verts=report.unused_verts),
+            )
+        )
+
+    # ``ops_clean.survey``'s three defects `check_manifold` cannot measure at
+    # all: degenerate area, winding that disagrees with a face's own shell, and
+    # a shell that is uniformly wound but net inside-out. Duplicate faces and
+    # loose vertices are already rows above (``duplicate``/``unused``, straight
+    # off `report`) and are not duplicated here under a second name -- both
+    # measure the same defect `ops_clean.Survey.duplicate_faces` and
+    # `.loose_vertices` name, `report` already has them for free from the same
+    # `check_manifold` pass, and `Survey.duplicate_faces` counts a repeat
+    # narrower ("the later face only") than `report.duplicate_faces` does, so
+    # switching would move the selection and count these existing rows already
+    # promise. Both mode="face" (`inside_out`'s selection is every face of the
+    # shell the volume sign convicted, not only the ones that individually
+    # disagree with a neighbour -- see `ops_clean.FaceDefectMasks`).
+    masks = ops_clean.face_defect_masks(mesh)
+    if masks.degenerate.any():
+        faces = np.flatnonzero(masks.degenerate).astype("i4")
+        out.append(
+            Finding(
+                kind="degenerate",
+                label=_plural(len(faces), "degenerate face", "degenerate faces"),
+                count=len(faces),
+                mode="face",
+                sel=el.ElementSel(faces=faces),
+            )
+        )
+    if masks.flipped.any():
+        faces = np.flatnonzero(masks.flipped).astype("i4")
+        out.append(
+            Finding(
+                kind="flipped_face",
+                label=_plural(len(faces), "flipped face", "flipped faces"),
+                count=len(faces),
+                mode="face",
+                sel=el.ElementSel(faces=faces),
+            )
+        )
+    if masks.inside_out.any():
+        faces = np.flatnonzero(masks.inside_out).astype("i4")
+        # The count is *shells*, the same "count the loop, select the edges"
+        # split the ``hole`` row above uses -- a shell reads as one defect
+        # however many faces make it up.
+        shells = ops_clean.survey(mesh).inside_out_shells
+        out.append(
+            Finding(
+                kind="inside_out",
+                label=_plural(shells, "inside-out shell", "inside-out shells"),
+                count=shells,
+                mode="face",
+                sel=el.ElementSel(faces=faces),
             )
         )
     return out

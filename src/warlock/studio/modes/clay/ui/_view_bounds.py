@@ -71,7 +71,7 @@ class BoundsOps:
             verts = el.affected_verts(obj.mesh, sel)
             if not len(verts):
                 continue
-            matrix = self._world(obj)
+            matrix = self._world(doc, obj)
             local = obj.mesh.positions[verts].astype("f8")
             world = (matrix @ np.hstack([local, np.ones((len(local), 1))]).T).T[:, :3]
             total += world.sum(axis=0)
@@ -93,13 +93,15 @@ class BoundsOps:
         """The world AABB over visible objects, or ``(None, None)`` if there are none.
 
         Memoized the way ``element_centre`` is (B27): the key names every
-        object's visibility, selection membership, mesh identity and transform
-        identities, so a miss happens exactly when the box can move.
+        object's visibility, selection membership, *evaluated* mesh identity
+        and transform identities, so a miss happens exactly when the box can
+        move -- which now includes a modifier's own parameters changing, not
+        only the base mesh, since ``doc.evaluated`` is what is boxed below.
         """
         key = (id(doc), tuple(
             (
                 obj.uid, obj.visible, obj.uid in doc.selection,
-                id(obj.mesh), id(obj.translation), id(obj.rotation), id(obj.scale),
+                id(doc.evaluated(obj.uid)), id(obj.translation), id(obj.rotation), id(obj.scale),
             )
             for obj in doc.objects
         ))
@@ -113,10 +115,11 @@ class BoundsOps:
         # is held alive for as long as the memo can match on them.
         pins: list[Any] = [doc]
         for obj in doc.objects:
-            pins.extend((obj.mesh, obj.translation, obj.rotation, obj.scale))
+            evaluated = doc.evaluated(obj.uid)
+            pins.extend((obj.mesh, evaluated, obj.translation, obj.rotation, obj.scale))
             if not obj.visible or (selected_only and obj.uid not in doc.selection):
                 continue
-            box = self._object_world_box(obj)
+            box = self._object_world_box(doc, obj)
             if box is None:
                 continue
             lo = np.minimum(lo, box[0])
@@ -126,16 +129,28 @@ class BoundsOps:
         self._bounds_memo[selected_only] = (key, out, tuple(pins))
         return out
 
-    def _object_world_box(self: ClayView, obj: Any) -> tuple[Any, Any] | None:
-        """``ops.world_box``, and deliberately nothing else.
+    def _object_world_box(self: ClayView, doc: Any, obj: Any) -> tuple[Any, Any] | None:
+        """``ops.world_box`` over the *evaluated* mesh, and deliberately nothing else.
 
         It used to be a second copy of the same eight corners, which is how the
         properties panel's dimensions row and the camera's framing would have
-        come to disagree about the size of one object.
+        come to disagree about the size of one object. Passing
+        ``doc.evaluated(obj.uid)`` is what keeps this agreeing with what the
+        viewport actually draws once an object carries a modifier stack --
+        a mirror alone doubles the width the base mesh would report.
+
+        ``world=self._world(doc, obj)`` (tranche 3: scene structure): left at
+        ``world_box``'s own default, this composed only *obj*'s own TRS, which
+        for a parented object is local to its parent, not its world placement
+        -- so a child's framing and dimensions row would have measured it as
+        if it sat at the origin of its parent's frame rather than where it
+        actually is. A root's world matrix is exactly its own local TRS (see
+        ``document.py``'s module docstring), so an unparented document is
+        measured exactly as it always was.
         """
         from .....kernels.mesh import ops as bops
 
-        return bops.world_box(obj)
+        return bops.world_box(obj, doc.evaluated(obj.uid), world=self._world(doc, obj))
 
     def frame_selection(self: ClayView, doc: Any) -> float:
         """Put the selection -- or the whole document -- on screen.

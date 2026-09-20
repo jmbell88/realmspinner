@@ -50,6 +50,9 @@ from .....kernels.geom3d import math3d as m3
 from .....kernels.mesh import elements as el
 from .....kernels.mesh import mesh as bm
 from .....kernels.mesh import ops as clay_geom_ops
+from .....kernels.mesh import ops_modifiers as clay_ops_modifiers
+from .....kernels.mesh import uvtools
+from .....kernels.mesh.elements import OpError
 from .. import mode as clay_mode
 
 # --- protocol glue ------------------------------------------------------------
@@ -732,6 +735,66 @@ def _op_params_type_refusal(op: Any, params: dict, field: str = "params") -> dic
     return fail(" ".join(messages), field=field, recovery="fix_arguments")
 
 
+def _modifier_params_type_refusal(
+    kind_def: Any, params: dict, field: str = "params"
+) -> dict | None:
+    """Every value of a modifier's own ``params`` held to what that
+    modifier's kind actually declares -- the identical shape
+    :func:`_op_params_type_refusal` already checks for ``clay_op``'s own
+    ``params`` (a name in the kind's declared parameter list, and a single
+    finite number, the only shape any ``modifiers.ModParam`` ever stores),
+    so a bad value here is refused by name before it ever reaches
+    ``modifiers.make``/``with_params`` -- which trusts its ``params`` dict
+    to already be coerced and clamped (:mod:`.ops_modifiers`'s own module
+    docstring) and would otherwise let a non-numeric string reach a bare
+    ``float()`` call and raise there, uncaught, exactly the crash class
+    :func:`_op_params_type_refusal`'s own docstring names for ``clay_op``.
+    """
+    declared = {p.name: p for p in kind_def.params}
+    messages = []
+    for key in sorted(params):
+        if key not in declared:
+            messages.append(f"{field}.{key} is not a parameter of modifier {kind_def.name!r}.")
+            continue
+        try:
+            value = float(params[key])
+        except (TypeError, ValueError):
+            messages.append(
+                f"{field}.{key} must be a single number for modifier {kind_def.name!r}."
+            )
+            continue
+        if not math.isfinite(value):
+            messages.append(f"{field}.{key} must be finite for modifier {kind_def.name!r}.")
+    if not messages:
+        return None
+    return fail(" ".join(messages), field=field, recovery="fix_arguments")
+
+
+def _resolve_modifier(
+    obj: Any, args: dict, key: str = "modifier"
+) -> tuple[int | None, dict | None]:
+    """*obj*'s modifier named by ``args[key]``, or a refusal naming
+    ``field=key`` -- the modifier-stack counterpart of :func:`_resolve_uid`,
+    shared by every ``clay_modifier_*`` handler but ``clay_modifier_add``
+    (which mints a new one rather than looking an existing one up). An
+    absent id and an unknown one are two different refusals for the same
+    reason :func:`_resolve_uid`'s own docstring gives: a caller that never
+    passed one has nothing to fix by re-reading the document, while a
+    caller naming a stale id does.
+    """
+    if args.get(key) is None:
+        return None, fail(f"give a value for {key!r}.", field=key, recovery="fix_arguments")
+    try:
+        modifier_id = int(args[key])
+    except (TypeError, ValueError):
+        return None, fail(f"{key} must be an integer.", field=key, recovery="fix_arguments")
+    if not any(m.id == modifier_id for m in obj.modifiers):
+        return None, fail(
+            f"This object has no modifier {modifier_id}.", field=key, recovery="read_scene"
+        )
+    return modifier_id, None
+
+
 def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
     """One ``clay_select_by`` argument, validated against the fixed
     vocabulary ``agent_clay_schema._QUERY_ARG_SCHEMAS`` describes -- the one
@@ -796,6 +859,102 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
                 "space must be 'world' or 'local'.", field="space", recovery="fix_arguments"
             )
         return value, None
+    if name in ("faces", "verts"):
+        # Tranche 5's "similar" queries' own seed set (``similar_area``,
+        # ``similar_normal``, ``similar_material``, ``similar_sides`` for
+        # ``faces``; ``similar_valence`` for ``verts``).
+        # ``_QUERY_ARG_SCHEMAS[name]`` declares an array of non-negative
+        # integers with ``minItems: 1`` -- identical for both names, which is
+        # why they share this branch the same way ``direction``/``min``/
+        # ``max`` already share :func:`_validate_vec3` above, rather than
+        # two copies of the same three checks.
+        #
+        # **This was the gap tests/test_agent_schemas.py's discovery walk
+        # found (dev/CLAY-PLAN.md tranche 5's follow-up, 2026-09-19):**
+        # before this branch existed, any name this function did not
+        # recognise fell through to the ``unknown query argument`` refusal
+        # below -- which is *correct* for a name nothing declares, but
+        # ``faces``/``edges``/``verts``/``tolerance`` are declared, in
+        # ``_QUERY_ARG_SCHEMAS``, and simply had no case here yet. Every
+        # constraint the schema promised for the four of them -- minItems,
+        # item type, item minimum -- was a promise the handler never checked.
+        if not isinstance(value, list) or not value:
+            return None, fail(
+                f"{name} must be a non-empty list of integers.",
+                field=name,
+                recovery="fix_arguments",
+            )
+        try:
+            indices = [int(v) for v in value]
+        except (TypeError, ValueError):
+            return None, fail(
+                f"{name} must be a non-empty list of integers.",
+                field=name,
+                recovery="fix_arguments",
+            )
+        if any(i < 0 for i in indices):
+            return None, fail(
+                f"{name} must be non-negative integers.", field=name, recovery="fix_arguments"
+            )
+        return indices, None
+    if name == "edges":
+        # ``similar_length``'s own seed set: ``_QUERY_ARG_SCHEMAS["edges"]``
+        # declares a non-empty array of ``[vertex, vertex]`` pairs, each a
+        # non-negative integer -- the same pair shape ``clay_select_elements``'s
+        # own ``edges`` argument already checks in ``_h_select_elements``,
+        # minus that handler's further check that the pair is a real edge of
+        # *this* mesh (``adjacency(obj.mesh).edge_ids``): a query argument
+        # here only owns the JSON-shape half of that contract, the way
+        # ``edge``'s own branch above does not check the loop seed is a real
+        # edge either -- ``select.edge_loop``/``similar_length`` both answer
+        # empty for a seed that is not, rather than needing this function to
+        # refuse it first.
+        if not isinstance(value, list) or not value:
+            return None, fail(
+                f"{name} must be a non-empty list of [vertex, vertex] pairs.",
+                field=name,
+                recovery="fix_arguments",
+            )
+        pairs: list[list[int]] = []
+        for pair in value:
+            if not isinstance(pair, list) or len(pair) != 2:
+                return None, fail(
+                    f"{name} must be a list of [vertex, vertex] pairs.",
+                    field=name,
+                    recovery="fix_arguments",
+                )
+            try:
+                a, b = int(pair[0]), int(pair[1])
+            except (TypeError, ValueError):
+                return None, fail(
+                    f"{name} must be a list of [vertex, vertex] pairs.",
+                    field=name,
+                    recovery="fix_arguments",
+                )
+            if a < 0 or b < 0:
+                return None, fail(
+                    f"{name} must be non-negative vertex indices.",
+                    field=name,
+                    recovery="fix_arguments",
+                )
+            pairs.append([a, b])
+        return pairs, None
+    if name == "tolerance":
+        # Every "similar" query's own band, shared vocabulary the way
+        # ``max_angle`` is shared by ``normal`` alone -- ``_QUERY_ARG_
+        # SCHEMAS["tolerance"]`` declares ``minimum: 0.0`` (no maximum: a
+        # fraction for area/length, degrees for a normal, an integer step
+        # for sides/valence -- there is no one honest ceiling across all
+        # four units), so this checks only the floor ``_validate_number``
+        # alone does not.
+        out, failure = _validate_number(value, name)
+        if failure:
+            return None, failure
+        if out < 0.0:
+            return None, fail(
+                f"{name} must be non-negative.", field=name, recovery="fix_arguments"
+            )
+        return out, None
     return None, fail(
         f"unknown query argument {name!r}.", field=name, recovery="fix_arguments"
     )  # pragma: no cover
@@ -853,30 +1012,126 @@ def _sel_counts(sel: el.ElementSel) -> dict:
     return {"verts": len(sel.verts), "edges": len(sel.edges), "faces": len(sel.faces)}
 
 
+def _modifier_row(m: Any, evaluation: Any) -> dict:
+    """One :class:`~.modifiers.Modifier` as JSON -- the shape ``clay_scene``'s
+    own ``modifiers`` list and every ``clay_modifier_*`` tool's own reply
+    share, so a stack an agent just edited never needs a second call to see
+    what changed. ``error`` is present only for a modifier
+    :meth:`~.document.ClayDoc.evaluation` skipped -- see :mod:`.modifiers`'s
+    own "skipped, not fatal" rule; a modifier disabled outright carries no
+    error at all, since :func:`~.modifiers.evaluate` never even tries it.
+    """
+    row: dict[str, Any] = {
+        "id": m.id, "kind": m.kind, "enabled": m.enabled, "params": m.as_dict(),
+    }
+    error = next((msg for mid, msg in evaluation.errors if mid == m.id), None)
+    if error is not None:
+        row["error"] = error
+    return row
+
+
+def _uv_facts(mesh: Any) -> dict | None:
+    """The four uv measurements :data:`~.schema._object_row_output_schema`'s
+    own ``uv`` block declares, off *mesh*'s own already-assigned uv -- or
+    ``None`` when it has none (:mod:`.uvtools`' own ``Mesh.uv is None`` gate,
+    ``_require_uv``'s reason every function here would otherwise raise for).
+
+    Read off the **base** mesh, never the evaluated one -- see
+    :func:`_scene_row`'s own docstring's tranche 6 paragraph for why: a seam
+    and an unwrap are both authoring concepts about the geometry an edit
+    would actually touch.
+
+    ``overlapping_faces`` is the one measurement that can refuse
+    (:class:`~.elements.OpError`, past :data:`~.uvtools.MAX_OVERLAP_TRIANGLES`/
+    :data:`~.uvtools.MAX_OVERLAP_BUCKET`) -- caught here and reported ``None``
+    rather than left to blow up the whole ``clay_scene`` reply. ``clay_scene``
+    reads *every* visible object's row on every call it answers, so a single
+    dense, uv'd mesh must not turn a read into a refusal for the rest of the
+    document; a caller that wants the real answer for that one object can
+    still ask ``clay_uv`` directly, whose own refusal names it.
+    """
+    if mesh.uv is None:
+        return None
+    ids = uvtools.islands(mesh)
+    n_islands = int(ids.max()) + 1 if len(ids) else 0
+    stretch_vals = uvtools.stretch(mesh)
+    mean_stretch = float(stretch_vals.mean()) if len(stretch_vals) else 0.0
+    try:
+        overlapping = int(uvtools.overlap_faces(mesh).sum())
+    except OpError:
+        overlapping = None
+    return {
+        "islands": n_islands,
+        "overlapping_faces": overlapping,
+        "mean_stretch": _round(mean_stretch),
+        "texel_density": _round(uvtools.texel_density(mesh)),
+    }
+
+
 def _scene_row(doc: Any, obj: Any) -> dict:
     """Everything ``clay_scene`` says about one object -- and everything
     ``clay_add_primitive``/``clay_add_figure`` hand back too, so an agent that
     just placed something never needs a second call to learn where it landed.
+
+    ``bbox``/``size``/``center`` are measured off *this object's evaluated
+    mesh* (``doc.evaluation(uid)``, cheap -- an object with no enabled
+    modifiers evaluates to its own base mesh, ``is``-identical, see
+    :mod:`.modifiers`'s own module docstring), never the base alone: a
+    mirror or an array modifier changes what is actually on screen, and a
+    box measured only around half of it would contradict what
+    ``clay_render`` draws. ``faces``/``verts`` stay the *base* mesh's own
+    counts on purpose -- an element edit (and every element-only ``clay_op``
+    row) acts on the base, so those two numbers describe what editing this
+    object would actually change, not what a modifier stack turns it into.
+    ``modifiers``/``evaluated`` are added only once the stack is non-empty --
+    see :func:`~.schema._object_row_output_schema`'s own docstring for the
+    exact shape.
+
+    **Tranche 6/7: ``role``/``collider_kind`` and ``uv``.** ``role``/
+    ``collider_kind`` are :class:`~.document.Obj`'s own two fields, always
+    present. ``uv`` is added only when the *base* mesh carries texture
+    coordinates -- the base, not ``evaluation.mesh``, because a seam and an
+    unwrap are both authoring concepts about the geometry an element edit
+    would touch, the identical reasoning ``faces``/``verts`` already follow;
+    see :func:`_uv_facts` for the four measurements and why one of them can
+    read ``null``.
     """
-    box = clay_geom_ops.world_box(obj)
-    rx, ry, rz = _euler_xyz_from_quat(obj.rotation)
+    world = doc.world_matrix(obj.uid)
+    evaluation = doc.evaluation(obj.uid)
+    box = clay_geom_ops.world_box(obj, evaluation.mesh, world=world)
+    # Tranche 3: scene structure. A root's own world matrix *is* its local
+    # TRS (document.py's own invariant), so reading the object's own fields
+    # directly here -- rather than decomposing `world` back apart -- is not a
+    # shortcut, it is the exact same number with none of a matrix round
+    # trip's float noise, which is what keeps every pre-tranche-3 document's
+    # clay_scene reply bit-identical to what it always reported. Only a
+    # parented object's world TRS genuinely differs from its own fields, so
+    # only there is `world` actually decomposed.
+    if obj.parent is None:
+        world_t, world_q, world_s = obj.translation, obj.rotation, obj.scale
+    else:
+        world_t, world_q, world_s = m3.decompose(world)
+    wrx, wry, wrz = _euler_xyz_from_quat(world_q)
     size = center = None
     if box is not None:
         lo, hi = box
         size = _round(hi - lo)
         center = _round((lo + hi) * 0.5)
-    return {
+    row: dict[str, Any] = {
         "uid": obj.uid,
         "name": obj.name,
         "visible": obj.visible,
+        "parent": obj.parent,
+        "locked": obj.locked,
+        "tags": list(obj.tags),
         "generator": obj.generator,
         "params": obj.params,
         "faces": bm.face_count(obj.mesh),
         "material": obj.material,
         "bbox": None if box is None else {"min": box[0].tolist(), "max": box[1].tolist()},
-        "translation": _round(obj.translation),
-        "rotation": _round([rx, ry, rz]),
-        "scale": _round(obj.scale),
+        "translation": _round(world_t),
+        "rotation": _round([wrx, wry, wrz]),
+        "scale": _round(world_s),
         "size": size,
         "center": center,
         "verts": len(obj.mesh.positions),
@@ -885,7 +1140,27 @@ def _scene_row(doc: Any, obj: Any) -> dict:
         # need a second call to learn what came across on this object.
         "stamp": doc.mesh_stamp(obj.uid),
         "selected": _sel_counts(doc.element_sel_of(obj.uid)),
+        "role": obj.role,
+        "collider_kind": obj.collider_kind,
     }
+    uv_facts = _uv_facts(obj.mesh)
+    if uv_facts is not None:
+        row["uv"] = uv_facts
+    if obj.parent is not None:
+        lrx, lry, lrz = _euler_xyz_from_quat(obj.rotation)
+        row["local"] = {
+            "translation": _round(obj.translation),
+            "rotation": _round([lrx, lry, lrz]),
+            "scale": _round(obj.scale),
+        }
+    if obj.modifiers:
+        row["modifiers"] = [_modifier_row(m, evaluation) for m in obj.modifiers]
+        row["evaluated"] = {
+            "vertices": len(evaluation.mesh.positions),
+            "faces": bm.face_count(evaluation.mesh),
+            "triangles": clay_ops_modifiers._triangle_count(evaluation.mesh),
+        }
+    return row
 
 
 _OBJECT_SELECTION_DERIVED_REFUSAL = (

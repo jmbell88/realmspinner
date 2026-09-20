@@ -170,6 +170,90 @@ def persist(ctx: Any) -> None:
     ctx.settings.set("clay", block)
 
 
+# --- export engine (tranche 7: export profiles) ------------------------------
+#
+# **Lives in app settings, not on ``ClayTab``/``ClayState``.** The brief for
+# this tranche asked to check that first, since ``state.py`` was concurrently
+# owned by another agent while this was built: a per-tab field would have
+# meant either touching that file anyway or grafting the setting onto
+# ``ClayTab`` from outside it, and there is nothing document-specific about
+# "which engine do my exports target" to begin with -- it is a preference
+# about the *person's* project, the same kind of thing ``grid``/``grid_size``/
+# ``god_light`` already are (see :func:`persist`'s own docstring), and
+# unlike those three it has to be readable with no ``ClayState`` built yet
+# (:func:`export_engine` is called from :func:`export_asset`/
+# ``export_mesh_file`` before ``ensure`` runs). Stored under the same
+# ``"clay"`` settings block those three use, as a sibling key to ``"view"``
+# rather than a second top-level settings entry -- one block for "Clay's own
+# app-level preferences" rather than an ever-growing set of bare keys.
+
+
+def _default_export_engine() -> str:
+    """The engine :func:`export_engine` answers with when nothing has been
+    chosen yet -- whichever :data:`~.engines.ENGINES` entry targets
+    ``readiness.DEFAULT_PROFILE``, read off that one mapping rather than a
+    second hard-coded default this tranche's brief explicitly warns against
+    ("the engine choice must not become a second list -- ``ENGINES[key].
+    readiness_profile`` is the one mapping, gated both ways";
+    ``test_engines.py``'s own ``test_every_engine_profile_points_at_a_real_
+    readiness_profile`` is that gate's other direction). Today that is
+    ``"godot4"`` (``readiness.DEFAULT_PROFILE == "godot-desktop"``), but this
+    reads it rather than states it, so the two can never quietly disagree.
+    """
+    from ....kernels.mesh import engines as engines_mod
+    from ....kernels.mesh import readiness
+
+    for key, eng in engines_mod.ENGINES.items():
+        if eng.readiness_profile == readiness.DEFAULT_PROFILE:
+            return key
+    # Unreachable while ``test_every_engine_profile_points_at_a_real_
+    # readiness_profile`` holds *and* some engine targets the default
+    # profile -- both true today -- but a caller still gets a real engine
+    # key rather than ``None`` if that ever stops being so.
+    return next(iter(engines_mod.ENGINES))
+
+
+def export_engine(ctx: Any) -> str:
+    """The persisted export engine choice, read fresh from settings rather
+    than cached anywhere -- a value Settings' own combo writes (once built;
+    this tranche is the door, not that pane -- see the module docstring's
+    file list) must be visible here with no second copy to fall out of sync.
+
+    Always a real :data:`~.engines.ENGINES` key: an unrecognised or missing
+    stored value (a hand-edited ``settings.json``, or nothing chosen yet)
+    falls back to :func:`_default_export_engine` rather than ``None`` --
+    export always targets *some* engine's conventions, the same "there is
+    always a profile" contract ``ClayTab.readiness_profile`` keeps by falling
+    back to ``readiness.DEFAULT_PROFILE``.
+    """
+    from ....kernels.mesh import engines as engines_mod
+
+    settings = getattr(ctx, "settings", None)
+    if callable(getattr(settings, "get", None)):
+        stored = settings.get("clay")
+        key = stored.get("export_engine") if isinstance(stored, dict) else None
+        if isinstance(key, str) and key in engines_mod.ENGINES:
+            return key
+    return _default_export_engine()
+
+
+def set_export_engine(ctx: Any, key: str) -> None:
+    """Persist *key* as the export engine choice. Refuses an unknown engine
+    by name rather than silently storing a value :func:`export_engine` would
+    then have to fall back past."""
+    from ....kernels.mesh import engines as engines_mod
+
+    if key not in engines_mod.ENGINES:
+        choices = ", ".join(sorted(engines_mod.ENGINES))
+        raise ValueError(f"Unknown engine profile {key!r}. Choose one of {choices}.")
+    settings = getattr(ctx, "settings", None)
+    if not callable(getattr(settings, "set", None)):
+        return
+    stored = settings.get("clay") if callable(getattr(settings, "get", None)) else None
+    block = dict(stored) if isinstance(stored, dict) else {}
+    block["export_engine"] = key
+    ctx.settings.set("clay", block)
+
 
 def active(ctx: Any) -> ClayTab | None:
     state = ctx.state.clay
@@ -304,20 +388,118 @@ def open_path(ctx: Any, path: Path) -> None:
 SLOW_TRIANGLES = 200_000
 
 
-def import_glb_path(ctx: Any, path: Path) -> None:
-    """Parse a GLB on a task thread and adopt it as a document.
+#: A material library is a few lines per material; anything this large is
+#: not one, and reading it would only feed the parser noise.
+MAX_MTL_BYTES = 4 * 1024 * 1024
 
-    The parse and the merge are both O(triangles) and a ``model.glb`` is
-    routinely a hundred thousand of them, so neither runs on the frame thread --
-    the same rule every dialog and every encode in this module follows.
+
+def _sibling_mtl(path: Path, data: bytes) -> str | None:
+    """The text of the ``.mtl`` an OBJ's first ``mtllib`` line names, if it
+    sits beside the OBJ. Blocking; task thread only.
+
+    Without this an OBJ that Clay itself exported came back grey: Export OBJ
+    writes the colours into the ``.mtl``, and the import never looked. Only a
+    bare file name in the same folder is followed -- a path with a directory
+    part is refused rather than resolved, so an OBJ cannot make the importer
+    read a file somewhere else on the disk. A missing, oversized or unreadable
+    library is not an error: the OBJ still imports, just without its colours.
     """
-    ensure(ctx)
+    for raw in data.decode("utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line.startswith("mtllib"):
+            continue
+        name = line[len("mtllib"):].strip()
+        if not name or Path(name).name != name:
+            return None
+        candidate = path.with_name(name)
+        try:
+            if not candidate.is_file() or candidate.stat().st_size > MAX_MTL_BYTES:
+                return None
+            return candidate.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+    return None
+
+
+def import_mesh_path(
+    ctx: Any, path: Path, *, scale: float | None = None, up: str | None = None
+) -> None:
+    """Parse any of :data:`~.meshimport.SUPPORTED_SUFFIXES` on a task thread
+    and adopt it as a document.
+
+    The generalisation of what used to be ``import_glb_path`` (now a thin
+    alias below): the drop handler (``studio/shell/events.py``'s Clay branch
+    of ``_on_drop``) and the bridge pane's "Import Mesh..." button both call
+    this rather than each knowing GLB is one format among four.
+
+    The parse is O(triangles) and a ``model.glb`` is routinely a hundred
+    thousand of them, so it never runs on the frame thread -- the same rule
+    every dialog and every encode in this module follows.
+
+    ``scale``/``up`` default to whatever the tab last remembered
+    (``ClayState.import_scale``/``import_up``), so a session importing a batch
+    of same-convention files sets them once. An explicit value updates that
+    memory for the *next* import too, which is what makes the bridge's own
+    combo -- read the state, not passed a value -- and a caller that always
+    wants exactly 1.0/"y" (there is none today) behave the same way.
+    """
+    state = ensure(ctx)
     path = Path(path)
+    if scale is not None:
+        state.import_scale = float(scale)
+    if up is not None:
+        state.import_up = up
+    use_scale = state.import_scale
+    use_up = state.import_up
 
     def run() -> dict[str, Any]:
-        return _parse_glb(_within_mesh_ceiling(path).read_bytes(), path.stem)
+        from ....kernels.mesh import meshimport
+
+        data = _within_mesh_ceiling(path).read_bytes()
+        mtl = _sibling_mtl(path, data) if path.suffix.lower() == ".obj" else None
+        doc = meshimport.import_file(
+            data, path.suffix, path.stem, scale=use_scale, up=use_up, mtl=mtl
+        )
+        triangles = sum(max(len(obj.mesh.starts) - 1, 0) for obj in doc.objects)
+        return {"doc": doc, "title": path.stem, "triangles": triangles}
 
     ctx.submit(f"clay-import:{_path_key(path)}", run)
+
+
+def import_glb_path(ctx: Any, path: Path) -> None:
+    """Thin alias of :func:`import_mesh_path`, kept for existing callers (this
+    module's own tests, and anything reaching for it by its old, GLB-only
+    name) rather than a signature change rippling out for no behaviour
+    change -- a bare GLB import is exactly ``scale=1.0, up="y"``, this
+    function's own defaults."""
+    import_mesh_path(ctx, path)
+
+
+def ask_import_mesh(ctx: Any) -> None:
+    """The picker for the bridge's "Import Mesh..." button -- ``ask_open``'s
+    own shape (the picker and the parse, both on one task thread), pointed at
+    :data:`~.meshimport.SUPPORTED_SUFFIXES` instead of ``.wblk``.
+
+    The bare ``clay-import`` key, not a path-keyed one: a picker's result is
+    not known until it returns, so there is nothing to key on yet, the same
+    reason ``ask_open`` submits under bare ``clay-open``.
+    """
+    state = ensure(ctx)
+    use_scale = state.import_scale
+    use_up = state.import_up
+
+    def run() -> dict[str, Any] | None:
+        from ....kernels.mesh import meshimport
+
+        path = dialogs.open_file("Import mesh", IMPORT_MESH_FILTER)
+        if path is None:
+            return None
+        data = _within_mesh_ceiling(path).read_bytes()
+        doc = meshimport.import_file(data, path.suffix, path.stem, scale=use_scale, up=use_up)
+        triangles = sum(max(len(obj.mesh.starts) - 1, 0) for obj in doc.objects)
+        return {"doc": doc, "title": path.stem, "triangles": triangles}
+
+    ctx.submit("clay-import", run)
 
 
 def edit_asset_in_clay(ctx: Any, job: Any) -> None:
@@ -515,8 +697,54 @@ def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
 # --- export -----------------------------------------------------------------
 
 
+def _rename_collider_nodes(doc: Any, model: Any, engine: str) -> None:
+    """Rewrite *model*'s collider node names to *engine*'s own convention, in
+    place -- the GLB half of tranche 7's export-profiles rule 2, mirroring
+    what :func:`~.objexport.claydoc_to_obj` already does for OBJ text.
+
+    ``document.to_model`` builds one ``gltf.Node`` per *kept* object -- every
+    visible object, plus every hidden object with a visible descendant
+    (its own docstring's "hiding is per object, as in Blender" rule) -- in
+    that same order, so re-deriving that one "kept" filter here and zipping
+    it against ``model.nodes`` is exactly how to tell which node came from
+    which :class:`~.document.Obj`. Re-derived rather than imported: ``document.py``
+    is a file this tranche's own brief lists as owned by a concurrent agent
+    and must not touch, and the filter itself is five lines straight out of
+    ``to_model``'s own docstring, not a guess at its behaviour.
+
+    Only a node whose object is a collider is touched
+    (:func:`~.objexport.collider_export_names` only ever returns collider
+    uids) -- an ordinary mesh node's name is exactly what ``to_model`` gave
+    it, ``obj.name``, untouched. The *document*'s own ``Obj.name`` is never
+    written to: only ``model.nodes[i].name``, on the in-memory
+    :class:`~.geom3d.gltf.Model` this call's caller is about to hand to
+    :func:`~.geom3d.glbwrite.write_glb` and throw away.
+    """
+    from ....kernels.mesh import objexport
+
+    names = objexport.collider_export_names(doc, engine)
+    if not names:
+        return
+    keep = {obj.uid: obj.visible for obj in doc.objects}
+    for obj in doc.objects:
+        if obj.visible:
+            for ancestor_uid in doc.ancestors(obj.uid):
+                keep[ancestor_uid] = True
+    kept = [obj for obj in doc.objects if keep.get(obj.uid, False)]
+    for obj, node in zip(kept, model.nodes, strict=True):
+        new_name = names.get(obj.uid)
+        if new_name is not None:
+            node.name = new_name
+
+
 def build_asset(
-    svc: Any, doc: Any, *, title: str, prompt: str | None = None, view: Any = None
+    svc: Any,
+    doc: Any,
+    *,
+    title: str,
+    prompt: str | None = None,
+    view: Any = None,
+    engine: str | None = None,
 ) -> str:
     """The one document -> finished ``model`` row chain.
 
@@ -537,6 +765,15 @@ def build_asset(
     always kept: a crash between them leaves the sidecar absent rather than
     lying about a mesh it did not produce.
 
+    ``engine``, tranche 7: when given, every collider node in the written GLB
+    is renamed to that engine's own convention (:func:`_rename_collider_nodes`)
+    before it is encoded -- the document's own object names are untouched, as
+    always. ``None`` (the default, and what the agent's own call above still
+    passes) skips that step entirely, reproducing this function's
+    pre-tranche-7 behaviour: the agent surface for an engine choice on export
+    is a later tranche's own door (see this tranche's brief, item 5), not
+    this one.
+
     Takes a ``WarlockService`` rather than a ``ctx`` -- the house convention
     (see ``src/warlock/service/``) -- so this is callable from anywhere a
     document exists, headlessly included, with no tab, toast or task runner
@@ -549,6 +786,8 @@ def build_asset(
     from ....service import jobs as svc_jobs
 
     model = bd.to_model(doc)
+    if engine is not None:
+        _rename_collider_nodes(doc, model, engine)
     snap = serialize.snapshot(doc, view=view)
     glb = glbwrite.write_glb(model)
     result = svc_jobs.import_mesh(svc, glb, name=title, prompt=prompt or title)
@@ -568,8 +807,10 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
     its docstring for the read/encode ordering it owns. What stays here is
     what only the interactive path needs: the "nothing visible" refusal,
     the camera pulled from the live viewport (``camera_of``, GL-thread-bound,
-    so it is read before the task runs rather than inside it), and the
-    task-thread split -- ``build_asset``'s reads and encodes both now run
+    so it is read before the task runs rather than inside it), the persisted
+    export engine (:func:`export_engine`, read on the frame thread beside the
+    camera -- settings, like the camera, do not belong inside ``run()``), and
+    the task-thread split -- ``build_asset``'s reads and encodes both now run
     inside ``run()``, off the frame thread entirely.
     """
     tab = tab or active(ctx)
@@ -584,12 +825,98 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
         return
 
     view = camera_of(ctx, tab)
+    engine = export_engine(ctx)
 
     def run() -> dict[str, Any]:
-        job_id = build_asset(ctx.svc, doc, title=title, view=view)
+        job_id = build_asset(ctx.svc, doc, title=title, view=view, engine=engine)
         return {"job_id": job_id, "exported": True}
 
     _start(ctx, tab, f"clay-export:{tab.uid}", run)
+
+
+OBJ_FILTER = ["Wavefront OBJ (*.obj)", "*.obj"]
+IMPORT_MESH_FILTER = [
+    "Mesh files (*.glb *.obj *.stl *.ply)",
+    "*.glb *.obj *.stl *.ply",
+]
+
+
+def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
+    """Save the document as a plain mesh file on disk -- GLB or OBJ+MTL --
+    beside :func:`export_asset`'s library export.
+
+    The two are genuinely different destinations, the bridge pane's own
+    reasoning for keeping "Export to Library" and "Make 3D" apart applies
+    here too: this writes a file the library never sees, for a user handing a
+    mesh straight to another tool.
+
+    The document read (``bd.to_model``/``objexport.claydoc_to_obj``, both
+    reads of the live ``doc``) happens *before* the picker opens, on the frame
+    thread, the same ordering ``save_as``'s own docstring explains: an
+    unbounded modal dialog is exactly the moment a read must not straddle. The
+    encode was already done by the time the read happened -- ``to_model``
+    and ``claydoc_to_obj`` both return plain data, not bytes, so this is the
+    same "read the document, encode what it read" split every task-thread
+    closure in this module keeps, just landing after the picker for the OBJ
+    case's own reason (below) instead of before it.
+
+    Tranche 7: both branches export under the persisted :func:`export_engine`
+    -- a collider is renamed to that engine's own convention either way
+    (:func:`_rename_collider_nodes` for GLB, ``objexport.claydoc_to_obj``'s
+    own ``engine`` argument for OBJ), and the OBJ branch alone also applies
+    that engine's axis/scale conversion (``claydoc_to_obj``'s own docstring
+    says why GLB does not).
+    """
+    tab = tab or active(ctx)
+    if tab is None or tab.saving:
+        return
+    doc, title = tab.doc, tab.title
+    if not any(obj.visible for obj in doc.objects):
+        ctx.toast("There is nothing visible to export.", "error")
+        return
+
+    engine = export_engine(ctx)
+
+    if kind == "glb":
+        from ....kernels.geom3d import glbwrite
+        from ....kernels.mesh import document as bd
+
+        model = bd.to_model(doc)
+        _rename_collider_nodes(doc, model, engine)
+        data = glbwrite.write_glb(model)
+
+        def run() -> dict[str, Any] | None:
+            path = dialogs.save_file("Export mesh", f"{title}.glb", dialogs.GLB_FILTER)
+            if path is None:
+                return None
+            path = path.with_suffix(".glb")
+            atomic.write_bytes(path, data)
+            return {"path": str(path), "exported_file": True}
+
+    elif kind == "obj":
+        from ....kernels.mesh import objexport
+
+        obj_text, mtl_text = objexport.claydoc_to_obj(doc, name=title, engine=engine)
+
+        def run() -> dict[str, Any] | None:
+            path = dialogs.save_file("Export mesh", f"{title}.obj", OBJ_FILTER)
+            if path is None:
+                return None
+            path = path.with_suffix(".obj")
+            stem = path.stem
+            # ``claydoc_to_obj`` wrote ``mtllib {title}.mtl`` against the tab's
+            # own title, which the save dialog is free to have renamed --
+            # kept in sync here rather than re-reading the document with the
+            # chosen name, so the obj always names the mtl actually beside it.
+            text = obj_text.replace(f"mtllib {title}.mtl", f"mtllib {stem}.mtl", 1)
+            atomic.write_bytes(path, text.encode("utf-8"))
+            atomic.write_bytes(path.with_name(f"{stem}.mtl"), mtl_text.encode("utf-8"))
+            return {"path": str(path), "exported_file": True}
+
+    else:
+        raise ValueError(f"unknown mesh export kind {kind!r}")
+
+    _start(ctx, tab, f"clay-exportfile:{tab.uid}", run)
 
 
 # --- task results -----------------------------------------------------------
@@ -646,6 +973,34 @@ def on_task_done(ctx: Any, done: Any) -> None:
             _adopt_import(ctx, result)
         return
 
+    if name == "clay-bg":
+        # Clay's background ops -- Decimate (tranche 1) and, since tranche 4,
+        # Retopologize/Smart Unwrap/Bake Detail -- all land here; see
+        # ``clay_ops``'s own section docstrings for the ``prepare``/``work``/
+        # ``apply`` shape they share. Not folded into the generic
+        # ``tab.saving`` tail below: this key's result shapes (``{"items":
+        # ...}``/``{"glb_out": ...}``/``{"error": ...}``) are nothing like a
+        # save's, and nothing here should touch ``saving`` at all -- a
+        # background op in flight leaves the document editable, which is the
+        # feature.
+        #
+        # Which of the four ``apply`` functions to run is read off the
+        # result's own ``"kind"`` -- decimate's own result carries none
+        # (tranche 1 predates the other three), so it stays the default.
+        tab = state.get(key.split(":", 1)[1]) if ":" in key else None
+        if tab is not None:
+            tab.bg_busy = ""
+            from . import ops as clay_ops
+
+            kind = result.get("kind") if isinstance(result, dict) else None
+            apply = {
+                "retopo": clay_ops.retopo_apply,
+                "unwrap": clay_ops.unwrap_apply,
+                "bake": clay_ops.bake_apply,
+            }.get(kind, clay_ops.decimate_apply)
+            apply(ctx, tab.doc, result)
+        return
+
     tab = state.get(key.split(":", 1)[1]) if ":" in key else None
     if tab is None:
         ctx.cache.invalidate()
@@ -658,6 +1013,14 @@ def on_task_done(ctx: Any, done: Any) -> None:
         tab.job_id = result["job_id"]
         ctx.cache.invalidate()
         ctx.toast("Exported as an asset.")
+        return
+
+    if result.get("exported_file"):
+        # A plain mesh file on disk, not the ``.wblk`` that makes the tab
+        # clean -- unlike ``exported`` (the library asset) and the save
+        # branch below, this touches neither ``mark_saved`` nor the journal:
+        # the document itself is exactly as saved or dirty as it was before.
+        ctx.toast(f"Exported to {result['path']}.")
         return
 
     tab.mark_saved(result.get("rev"))
@@ -678,6 +1041,13 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     ``saving`` disables every editing control, so without this a single failed
     write makes the tab permanently read-only with no way back short of
     closing it.
+
+    A failed ``clay-bg`` task clears ``bg_busy`` the same way, as a safety
+    net: ``clay_ops._decimate_work`` catches its own ``OptimizeError`` and
+    returns it as an ordinary (non-failed) result specifically so
+    :func:`on_task_done` can toast the real gltfpack message rather than the
+    generic one this path shows, so this branch exists for whatever an
+    unexpected exception past that catch would otherwise leave stuck.
     """
     state = ctx.state.clay
     if state is None or ":" not in done.key:
@@ -685,6 +1055,7 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     tab = state.get(done.key.split(":", 1)[1])
     if tab is not None:
         tab.saving = False
+        tab.bg_busy = ""
 
 
 # --- the guard --------------------------------------------------------------
@@ -810,6 +1181,23 @@ def redo(ctx: Any, tab: Any) -> None:
     tab.doc.redo()
 
 
+def check_readiness(ctx: Any, tab: ClayTab, profile: str) -> None:
+    """Run ``readiness.validate`` against *tab*'s document, on demand.
+
+    O(corners) -- a BFS per visible object, see that module's own cost section
+    -- so this runs once per press of the bridge's "Check" button, never per
+    frame. The result and the document's own history head land on the tab
+    (``readiness_report``/``readiness_head``) so the pane can tell a caller
+    "out of date" rather than quietly showing a verdict the document has since
+    moved past.
+    """
+    from ....kernels.mesh import readiness
+
+    tab.readiness_profile = profile
+    tab.readiness_report = readiness.validate(tab.doc, profile)
+    tab.readiness_head = tab.doc.history.head
+
+
 def step_history(ctx: Any, tab: Any, index: int) -> bool:
     """Jump the document to a position in its undo stack. -> whether it moved.
 
@@ -933,7 +1321,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
 
             clay_ops.run(ctx, doc, clay_ops.get("delete"))
     elif event.key == pygame.K_ESCAPE:
-        _escape(state, tab, doc)
+        _escape(state, tab, doc, view)
     return True
 
 
@@ -1008,13 +1396,30 @@ def _fire_op(ctx: Any, doc: Any, op: Any) -> bool:
     return clay_ops.run(ctx, doc, op)
 
 
-def _escape(state: ClayState, tab: ClayTab, doc: Any) -> None:
-    """Esc, staged: the elements, then the mode, then the objects.
+def _escape(state: ClayState, tab: ClayTab, doc: Any, view: Any = None) -> None:
+    """Esc, staged: the armed knife, then the elements, then the mode, then
+    the objects.
 
     One key that undoes the last thing the user got into, in the order they got
     into it. It **never leaves Clay mode**: Esc means "drop what I am doing",
     and losing a workspace full of tabs to a stray keypress is not that.
+
+    **The knife check comes first and returns early.** ``ClayView.begin_knife``
+    arms the gesture before any press lands -- waiting for the drag that draws
+    the cut line -- and that armed-but-undragged state sets no ``_grab`` of
+    its own (``begin_knife``'s own docstring), so ``handle_key``'s live-drag
+    branch above (which checks ``view.dragging``) never sees it and an armed
+    knife reached this function with nothing here that cancelled it: Esc
+    silently did nothing while the knife sat waiting for its first click.
+    ``view.cancel_drag`` already knows how to disarm exactly this state (its
+    own docstring: "checked *ahead* of the ``dragging`` guard... since an
+    *armed* knife... sets no ``_grab`` at all") -- this only has to ask it
+    before running the staged clearing below, which is otherwise correct but
+    has nothing to do with a knife that has not touched the document yet.
     """
+    if view is not None and getattr(view, "_knife_armed", False):
+        view.cancel_drag(doc)
+        return
     if not tab.saving:
         if doc.element_mode != "object":
             if doc.element_sel:

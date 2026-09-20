@@ -18,9 +18,17 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ... import docmodes
+
+if TYPE_CHECKING:
+    # Deferred: ``ui.panes.uv`` imports ``mode``, which imports *this* module
+    # for ``ClayState``/``ClayTab`` -- a module-scope import here would be a
+    # cycle. ``from __future__ import annotations`` already makes the
+    # ``ClayTab.uv_view`` annotation below a string, so this import only ever
+    # runs for a type checker, never at class-definition time.
+    from .ui.panes.uv import UvPaneState
 
 # Name, label, and the key that selects it. The primitive tools mirror the
 # generator registry; the transform tools mirror the three gizmos.
@@ -61,6 +69,23 @@ _uids = itertools.count(1)
 CameraView = docmodes.CameraView
 
 
+def _new_uv_view() -> UvPaneState:
+    """``ClayTab.uv_view``'s default factory.
+
+    A local import rather than a module-scope one: ``UvPaneState`` lives in
+    ``ui/panes/uv.py`` (it is pane state, not document state -- moved there
+    2026-09-19 so this module keeps its one-tab-state-class-per-mode shape,
+    see ``test_docmodes.py::test_every_document_mode_inherits_the_one_tab_
+    list``), and that module imports ``mode``, which imports *this* module
+    for ``ClayState``/``ClayTab``. Importing it at module scope here would be
+    a cycle; importing it lazily, on first ``ClayTab()`` construction -- long
+    after both modules have finished loading -- is not.
+    """
+    from .ui.panes.uv import UvPaneState
+
+    return UvPaneState()
+
+
 @dataclass
 class ClayTab(docmodes.HistoryTab):
     """One open document (``docmodes.DocTab`` holds the shared fields)."""
@@ -71,6 +96,34 @@ class ClayTab(docmodes.HistoryTab):
     # raster editor's sense: a built asset is a *snapshot*, and editing the
     # document afterwards does not change the mesh already on disk.
     job_id: str = ""
+
+    # What background task (if any) this tab is waiting on, in words a hint
+    # line can show as-is -- "Decimating..." -- or "" while nothing is
+    # pending. Set by the op that submits the ``clay-bg:<uid>`` task
+    # (``clay_ops._decimate``) and cleared by ``clay_mode.on_task_done``/
+    # ``on_task_failed`` once it lands, the same shape ``saving`` already has
+    # for a save in flight.
+    bg_busy: str = ""
+
+    # The last "Game check" result, and the document revision it was computed
+    # at -- ``readiness.validate`` is O(corners) (a BFS per object), so it
+    # runs on a button press, never per frame, and this is what lets the
+    # panel say "out of date" instead of silently showing a stale verdict
+    # after the document has moved on. ``None`` means no check has been run
+    # yet in this tab.
+    readiness_report: Any = None
+    readiness_head: int = -1
+    # The profile the section's combo shows, per tab: a mobile prop and a
+    # desktop hero asset open side by side are checked against different
+    # targets. It was declared on ``ClayState`` while every reader used the
+    # tab, so the pane raised on its first draw before any check had run.
+    readiness_profile: str = ""
+
+    # Tranche 6: the UV pane's own pan/zoom and island selection. See
+    # ``UvPaneState``'s own docstring (``ui/panes/uv.py``) for why it is a
+    # nested dataclass beside ``view`` rather than loose fields here, and
+    # ``_new_uv_view``'s above for why the default factory imports it lazily.
+    uv_view: UvPaneState = field(default_factory=_new_uv_view)
 
 
 def title_for(path: Path | None) -> str:
@@ -109,6 +162,15 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # the first everywhere else. Off by default: it changes what a plain drag
     # does, and a viewport that silently jumps is worse than one that does not.
     snap_vertex: bool = False
+    # Tranche 3: scene structure. Two more targets beside grid and vertex --
+    # the nearest point on an edge, and the ray hit on a face, both in world
+    # space (``_view_drag.DragOps._snap_edge``/``_snap_face``). Independent
+    # switches, the same reason ``snap_vertex`` is one rather than a mode of
+    # ``snap``: a user may want any combination on, and ``_narrow`` tries
+    # vertex, then edge, then face -- finest target first -- when more than
+    # one is.
+    snap_edge: bool = False
+    snap_face: bool = False
 
     # Proportional editing: an element drag carries the geometry around the
     # selection with it, fading out over ``proportional_radius`` metres of world
@@ -230,6 +292,28 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # reason every address in this package is one: the list reorders, and an
     # anchor that was an index would silently point at a different row.
     outliner_anchor: int = 0
+    # Tranche 3: scene structure. Which rows' subtrees the outliner's own
+    # expander has hidden, by uid -- the same address rule as the anchor
+    # above, and for the same reason: a set of *indices* would point at
+    # whatever now sits at that row once the tree reorders. Not persisted:
+    # a document reopened expanded is the same "nothing remembered" default
+    # every other transient view setting in this class gets.
+    outliner_collapsed: set[int] = field(default_factory=set)
+    # The outliner's tag filter box, alongside the name filter's own entry
+    # in ``AppState.list_filters`` -- kept here instead, since a tag query is
+    # Clay-specific state with nothing else that would want to key on it the
+    # way the shared, cross-mode ``list_filters`` dict does.
+    outliner_tag_filter: str = ""
+
+    # Units and up-axis for the next mesh import (the "Import Mesh..." button
+    # and a file dropped onto the viewport both read these), remembered across
+    # imports the way a modelling package's own import dialog does -- a
+    # session importing a batch of centimetre-scale, Z-up assets should not
+    # retype both on every file. Not persisted to settings: unlike the view
+    # block, a scale/axis choice is about the *files* a session happens to be
+    # importing today, not a preference to carry into a different one.
+    import_scale: float = 1.0
+    import_up: str = "y"
 
     # The last manifold check, per object: the ``Mesh`` it measured and the rows
     # it produced. Held here rather than recomputed because ``check_manifold``

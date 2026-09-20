@@ -69,6 +69,69 @@ def test_clone_copies_selection_and_element_state():
     assert scratch.element_mode == "vertex"
 
 
+def test_scratch_clone_carries_every_obj_field():
+    """A self-adjusting gate against the exact defect ``clone``'s own
+    docstring now names: it silently dropped ``parent``/``locked``/``tags``
+    (tranche 3 fields) until this 2026-09-19 field sweep caught it -- a
+    scratch preview of anything reading a parented object's world matrix saw
+    every object as a root, and a locked object's own doors happily let a
+    preview edit it, with the mismatch only surfacing as an unexplained
+    transplant refusal three calls later. ``modifiers`` had already been
+    caught and fixed the same way once before (see ``clone``'s own comment).
+
+    Rather than re-deriving "did clone forget a field" from ``clone``'s own
+    source, this builds one :class:`~warlock.kernels.mesh.document.Obj` with
+    a value that differs from every field's own dataclass default, clones
+    it, and checks every value survived. The value table's keys are checked
+    against ``dataclasses.fields(Obj)`` first: adding a field to ``Obj``
+    without adding it here fails this test immediately (a clear "update me"
+    signal) rather than leaving a silent gap the rest of the test cannot see.
+    """
+    import dataclasses
+
+    from warlock.kernels.mesh import modifiers as mod
+
+    non_default: dict[str, object] = {
+        "name": "distinctive",
+        "translation": np.array([1.0, 2.0, 3.0]),
+        "rotation": np.array([0.0, 0.0, 0.70710678, 0.70710678]),
+        "scale": np.array([2.0, 2.0, 2.0]),
+        "generator": "box",
+        "params": {"size": [2.0, 2.0, 2.0]},
+        "visible": False,
+        "material": 3,
+        "modifiers": (mod.make("mirror", {}, id=1),),
+        # A fictitious uid -- nothing here exercises hierarchy semantics
+        # (``world_matrix``, ``ancestors``), only whether the plain value
+        # ``clone`` is handed comes back unchanged, so there is no need for
+        # a second real object to parent onto.
+        "parent": 999,
+        "locked": True,
+        "tags": ("hero", "prop"),
+        "seams": ((0, 1), (2, 3)),
+        "role": "collider",
+        "collider_kind": "box",
+    }
+    obj_fields = {f.name for f in dataclasses.fields(bd.Obj)} - {"uid", "mesh"}
+    assert non_default.keys() == obj_fields, (
+        "Obj gained or lost a field without this test's own value table being "
+        "updated to match -- see this test's own docstring"
+    )
+
+    doc = bd.ClayDoc()
+    source = doc.add_object(bd.Obj(uid=bd.new_uid(), mesh=bp.box(), **non_default))
+    scratch = clay_scratch.clone(doc)
+    cloned = scratch.by_uid(source.uid)
+
+    assert cloned.mesh is source.mesh  # shared, per clone()'s own contract
+    for field_name, value in non_default.items():
+        cloned_value = getattr(cloned, field_name)
+        if isinstance(value, np.ndarray):
+            assert np.array_equal(cloned_value, value), field_name
+        else:
+            assert cloned_value == value, field_name
+
+
 def test_a_new_object_minted_during_a_scratch_run_never_collides_with_the_base():
     doc = _doc(3)
     scratch = clay_scratch.clone(doc)

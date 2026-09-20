@@ -816,15 +816,25 @@ class EventsMixin:
             inker_mode.open_path(ctx, path)
             return
         if ctx.state.mode == "clay":
+            from ...kernels.mesh import meshimport
             from ..modes.clay import mode as clay_mode
             from ..modes.clay import state as clay_state
 
             if path.suffix.lower() == clay_state.WBLK_SUFFIX:
                 clay_mode.open_path(ctx, path)
-            elif path.suffix.lower() == ".glb":
-                clay_mode.import_glb_path(ctx, path)
+            elif path.suffix.lower() in meshimport.SUPPORTED_SUFFIXES:
+                # Every importable mesh suffix, not just GLB (Task 3):
+                # ``import_mesh_path`` is the one door for all four, and reads
+                # the tab's own remembered scale/up the same way the bridge's
+                # "Import Mesh..." button does.
+                clay_mode.import_mesh_path(ctx, path)
             else:
-                ctx.toast("Clay opens .wblk documents and .glb meshes.", "error")
+                ctx.toast(
+                    "Clay opens .wblk documents and "
+                    + ", ".join(meshimport.SUPPORTED_SUFFIXES)
+                    + " meshes.",
+                    "error",
+                )
             return
         if ctx.state.mode == "mason":
             from ..modes.mason import mode as mason_mode

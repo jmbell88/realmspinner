@@ -81,7 +81,7 @@ callers have not needed yet.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -276,6 +276,27 @@ class _Geom:
     lo: np.ndarray | None  # (3,) f8, or None for an empty mesh
     hi: np.ndarray | None
     diag: float
+
+
+def _evaluated_world(obj: Any, doc: Any) -> Any:
+    """*obj*, its mesh swapped for the evaluated one and its
+    translation/rotation/scale swapped for its **world** TRS.
+
+    Duck-typed, on purpose -- see :func:`analyze`'s own docstring and the
+    module docstring's "objects are duck-typed" paragraph -- so a
+    parentless object (``getattr(obj, "parent", None) is None``, true for
+    every object in a document with no parenting, and for any caller's own
+    object with no such field at all) skips the decompose round trip
+    entirely rather than composing and immediately decomposing a matrix
+    back to numbers that were already exact. ``doc.world_matrix`` is
+    :class:`~.document.ClayDoc`'s own, called duck-typed through *doc*
+    exactly as ``doc.evaluated`` already is.
+    """
+    mesh = doc.evaluated(obj.uid)
+    if getattr(obj, "parent", None) is None:
+        return replace(obj, mesh=mesh)
+    t, r, s = m3.decompose(doc.world_matrix(obj.uid))
+    return replace(obj, mesh=mesh, translation=t, rotation=r, scale=s)
 
 
 def _world_positions(obj: Any) -> np.ndarray:
@@ -977,6 +998,7 @@ def _floating(
 def analyze(
     objects: Sequence[Any],
     *,
+    doc: Any = None,
     pairs_among: Sequence[int] | None = None,
     contact_tol: float = 0.001,
     near: float = 0.05,
@@ -997,12 +1019,34 @@ def analyze(
     reporting on it as floating would be answering a question this call was
     never asked.
 
+    *doc*, given, swaps every object's mesh for its **evaluated** one
+    (:meth:`~.document.ClayDoc.evaluated`) before anything below ever reads
+    ``obj.mesh`` -- bounds, mass properties, ground contact, symmetry, contact
+    and overlap all then measure what a modifier stack actually produced, the
+    same "measurement reads evaluated" rule :mod:`.modifiers`' own module
+    docstring states. It also **pre-bakes each object's world TRS onto its
+    translation/rotation/scale fields** (tranche 3: scene structure) rather
+    than importing :class:`~.document.ClayDoc` here to compose one -- see the
+    module docstring's "objects are duck-typed" paragraph, which this keeps
+    true, and :func:`_evaluated_world`. A parentless object's world TRS *is*
+    its own TRS, so nothing about this changes for a document with no
+    parenting. Every downstream helper still only ever reads ``obj.mesh``/
+    ``obj.translation``/``obj.rotation``/``obj.scale`` as it always has -- the
+    swap happens once, here, rather than threading a mesh or a matrix
+    override through every one of them. ``None`` -- the default -- measures
+    each *objects* entry's own mesh and TRS unchanged, which is what keeps
+    this module's duck-typed contract (see the module docstring: "nothing
+    here knows about :class:`~.document.ClayDoc` or a session either") true
+    for every caller with no document in hand.
+
     Raises :class:`~.elements.OpError` past :data:`MAX_ANALYZE_OBJECTS` or
     :data:`MAX_ANALYZE_TRIANGLES` -- refused, not truncated, because either
     ceiling exists to keep this call from stalling the frame it runs on, and
     a stalled read is a worse answer than a refusal naming the ceiling.
     """
     objs = list(objects)
+    if doc is not None:
+        objs = [_evaluated_world(obj, doc) for obj in objs]
     if len(objs) > MAX_ANALYZE_OBJECTS:
         raise OpError(
             f"This analysis would need to look at {len(objs)} objects at "

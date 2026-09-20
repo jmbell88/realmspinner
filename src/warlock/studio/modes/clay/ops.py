@@ -38,6 +38,7 @@ bug and swallowing it would leave a half-built mesh on screen with no clue why.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -50,14 +51,18 @@ __all__ = [
     "OPS",
     "Op",
     "Param",
+    "bake_apply",
     "by_key",
+    "decimate_apply",
     "defaults_for",
     "menu",
     "reason_for",
     "register",
+    "retopo_apply",
     "run",
     "run_mesh_op",
     "run_object_op",
+    "unwrap_apply",
 ]
 
 # The element modes an op can appear in. "object" is the fourth and is not an
@@ -430,6 +435,17 @@ def has_two_visible(doc: Any) -> bool:
     return sum(1 for obj in doc.objects if obj.uid in doc.selection and obj.visible) >= 2
 
 
+def has_modifier_stack(doc: Any) -> bool:
+    """Whether any selected object carries a modifier. Apply Modifiers' gate.
+
+    Any modifier, enabled or not -- Apply drops the *whole* prefix through the
+    one it is pressed for (``ClayDoc.apply_modifiers``'s own contract: a
+    disabled entry in the prefix is dropped, not applied), so a stack that is
+    entirely disabled still has something for the button to do.
+    """
+    return any(obj.modifiers for obj in doc.objects if obj.uid in doc.selection)
+
+
 def has_three_selected(doc: Any) -> bool:
     """Exactly three -- Place Between's own gate.
 
@@ -454,6 +470,16 @@ def has_three_or_more_selected(doc: Any) -> bool:
     it is refused.
     """
     return len(doc.selection) >= 3
+
+
+def has_two_or_more_selected(doc: Any) -> bool:
+    """At least two -- Group Selected's and Parent to Last Selected's own
+    gate. Grouping or parenting one object is the identity (there is
+    nothing else to fold into the new empty, or to reparent onto the
+    topmost one), the same "enabled but does nothing" trap ``has_two_visible``
+    already refuses for Merge/Union.
+    """
+    return len(doc.selection) >= 2
 
 
 def in_mode(*modes: str) -> Callable[[Any], bool]:
@@ -514,6 +540,12 @@ def _has_two_visible_reason(doc: Any) -> str:
     return "" if has_two_visible(doc) else "Select two visible objects first."
 
 
+def _has_modifier_stack_reason(doc: Any) -> str:
+    if not has_objects(doc):
+        return "Select an object first."
+    return "" if has_modifier_stack(doc) else "The selection has no modifiers to apply."
+
+
 def _has_three_selected_reason(doc: Any) -> str:
     n = len(doc.selection)
     return (
@@ -531,6 +563,11 @@ def _selection_reason(doc: Any) -> str:
 def _has_three_or_more_selected_reason(doc: Any) -> str:
     n = len(doc.selection)
     return "" if n >= 3 else f"Select at least three objects first -- {n} selected now."
+
+
+def _has_two_or_more_selected_reason(doc: Any) -> str:
+    n = len(doc.selection)
+    return "" if n >= 2 else f"Select at least two objects first -- {n} selected now."
 
 
 def _in_mode_reason(*modes: str) -> Callable[[Any], str]:
@@ -653,11 +690,28 @@ def _bake(ctx: Any, doc: Any, **_: Any) -> None:
     ``test_every_op_that_changes_geometry_freezes_it`` already runs a bake
     through ``clay_ops.run`` and would have caught the fold landing as two
     steps rather than one.
+
+    **Baked to world, and detached from its parent (tranche 3: scene
+    structure).** ``bake_transform`` is handed the object's *world* matrix,
+    not its own local TRS -- a parented object's local fields describe its
+    placement relative to its parent, not what is on screen, and "fold the
+    transform into the geometry" means the latter. ``bake_transform``'s own
+    docstring says the object's ``parent`` field "is meaningless once its
+    geometry has been baked to world space", and it means it literally: the
+    reset local TRS is the identity regardless, so an object left parented
+    would still inherit its parent's live transform on top of geometry that
+    already contains it, moving a second time. ``set_parent(..., None,
+    keep_world=False)`` runs *after* the local TRS has already been reset to
+    identity, deliberately not ``keep_world=True`` -- the object's current
+    world matrix at that point is only its parent's (the bake already threw
+    the rest away into the mesh), and recomputing from it would reintroduce
+    exactly the double transform this is closing.
     """
     from ....kernels.mesh import ops as clay_ops_geom
 
     def one(doc: Any, obj: Any) -> None:
-        baked = clay_ops_geom.bake_transform(obj)
+        had_parent = obj.parent is not None
+        baked = clay_ops_geom.bake_transform(obj, world=doc.world_matrix(obj.uid))
         doc.set_mesh(obj.uid, baked.mesh)
         doc.set_transform(
             obj.uid,
@@ -665,6 +719,8 @@ def _bake(ctx: Any, doc: Any, **_: Any) -> None:
             rotation=baked.rotation,
             scale=baked.scale,
         )
+        if had_parent:
+            doc.set_parent(obj.uid, None, keep_world=False)
 
     run_object_op(ctx, doc, one)
 
@@ -690,11 +746,29 @@ def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
     invisible in its result too: the geometry arrives inside the survivor, which
     *is* shown. ``_select_all`` no longer hands over hidden objects, so this is
     the second half -- an object hidden after it was selected.
+
+    **Merging applies every stack.** Every input is handed over with its
+    *evaluated* mesh, not its base, so what you saw is what you get -- an
+    object carrying a mirror or an array merges the shape on screen, not the
+    single half or copy its base alone describes. ``join_objects``'s own
+    ``clear_modifiers=True`` default drops the target's stack in the same
+    step: it is now baked into the merge, and leaving it in place would apply
+    it a second time the next time the target was drawn.
+
+    **Every input's own world matrix, not its local TRS (tranche 3: scene
+    structure).** Two objects under different parents -- or one parented and
+    one not -- are not correctly related by composing their own TRS alone;
+    ``ops.join``'s own ``world`` parameter is exactly for this, and the
+    result still lands in the target's local frame (``join``'s own "in the
+    first object's frame" contract), so the target's transform is untouched
+    either way.
     """
     from ....kernels.mesh import ops as clay_ops_geom
 
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
-    mesh = clay_ops_geom.join([doc.by_uid(uid) for uid in uids], eps=float(weld))
+    evaluated = [replace(doc.by_uid(uid), mesh=doc.evaluated(uid)) for uid in uids]
+    worlds = [doc.world_matrix(uid) for uid in uids]
+    mesh = clay_ops_geom.join(evaluated, eps=float(weld), world=worlds)
     doc.join_objects(uids[0], mesh, uids[1:])
     # clay-08 (2026-09-08 audit): the absorbed objects leave ``doc.objects``
     # here, and their manifold-check cache entries would otherwise outlive
@@ -717,11 +791,21 @@ def _union(ctx: Any, doc: Any, **_: Any) -> None:
     In-process and synchronous, unlike a mesh pipeline: manifold is CPU and
     fast at the scale Clay authors at, and handing this to ``TaskRunner`` would
     mean a document edit landing from another thread.
+
+    **Merging applies every stack** -- see :func:`_join`'s identical
+    paragraph: every input is handed over with its evaluated mesh, so what
+    you saw is what you get.
+
+    **Every input's own world matrix, not its local TRS** -- see
+    :func:`_join`'s identical paragraph: two objects under different
+    parents are not correctly related by composing their own TRS alone.
     """
     from ....kernels.mesh import ops_boolean
 
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
-    mesh = ops_boolean.union([doc.by_uid(uid) for uid in uids])
+    evaluated = [replace(doc.by_uid(uid), mesh=doc.evaluated(uid)) for uid in uids]
+    worlds = [doc.world_matrix(uid) for uid in uids]
+    mesh = ops_boolean.union(evaluated, world=worlds)
     doc.join_objects(uids[0], mesh, uids[1:])
     # clay-08 (2026-09-08 audit): see ``_join``'s identical comment -- the
     # absorbed objects' manifold-check cache entries would otherwise outlive
@@ -746,11 +830,20 @@ def _difference(ctx: Any, doc: Any, **_: Any) -> None:
     already reach all three through ``studio/modes/clay/agent/dispatch.py``'s own ``clay_boolean``
     tool -- only the registry, which the menu, the tools pane and the keyboard
     all read, offered a human just this one's sibling.
+
+    **Merging applies every stack** -- see :func:`_join`'s identical
+    paragraph: every input is handed over with its evaluated mesh, so what
+    you saw is what you get.
+
+    **Every input's own world matrix, not its local TRS** -- see
+    :func:`_join`'s identical paragraph.
     """
     from ....kernels.mesh import ops_boolean
 
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
-    mesh = ops_boolean.difference([doc.by_uid(uid) for uid in uids])
+    evaluated = [replace(doc.by_uid(uid), mesh=doc.evaluated(uid)) for uid in uids]
+    worlds = [doc.world_matrix(uid) for uid in uids]
+    mesh = ops_boolean.difference(evaluated, world=worlds)
     doc.join_objects(uids[0], mesh, uids[1:])
     _forget_manifold(ctx, uids[1:])
     doc.select([uids[0]])
@@ -763,11 +856,20 @@ def _intersection(ctx: Any, doc: Any, **_: Any) -> None:
     is selected first changes nothing about the answer, only which survives
     as the target. See ``_difference``'s docstring for the finding this and
     it both close.
+
+    **Merging applies every stack** -- see :func:`_join`'s identical
+    paragraph: every input is handed over with its evaluated mesh, so what
+    you saw is what you get.
+
+    **Every input's own world matrix, not its local TRS** -- see
+    :func:`_join`'s identical paragraph.
     """
     from ....kernels.mesh import ops_boolean
 
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
-    mesh = ops_boolean.intersection([doc.by_uid(uid) for uid in uids])
+    evaluated = [replace(doc.by_uid(uid), mesh=doc.evaluated(uid)) for uid in uids]
+    worlds = [doc.world_matrix(uid) for uid in uids]
+    mesh = ops_boolean.intersection(evaluated, world=worlds)
     doc.join_objects(uids[0], mesh, uids[1:])
     _forget_manifold(ctx, uids[1:])
     doc.select([uids[0]])
@@ -941,7 +1043,17 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     on the object before it is inserted. Left un-frozen, the properties panel
     would still offer the source generator's size field, and touching it
     would rebuild a pristine, unmirrored primitive over the copy.
+
+    **The plane is world space; the copy's TRS is not (tranche 3: scene
+    structure).** ``mirror_world`` is handed the source's own world matrix,
+    so a parented source is reflected about the plane it actually sits at,
+    not about a plane read through its parent's frame. With ``world=``
+    given, what comes back is the copy's new *world* placement (``mirror_
+    world``'s own docstring), not local TRS to write straight onto an
+    object sharing the source's parent -- ``doc.local_from_world`` converts
+    it, the same door :func:`_place_between` uses for its own world result.
     """
+    from ....kernels.geom3d import math3d as m3
     from ....kernels.mesh import document as bd
     from ....kernels.mesh import ops as clay_ops_geom
 
@@ -950,10 +1062,16 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     originals = list(doc.selection)
     made: list[Any] = []
     for uid in originals:
-        copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
+        source = doc.by_uid(uid)
+        copy = clay_ops_geom.duplicate(source, bd.new_uid(), taken=taken)
         taken.append(copy.name)
-        mirrored = clay_ops_geom.mirror_world(copy, int(axis), offset)
-        made.append(replace(mirrored, generator=None, params={}))
+        world = doc.world_matrix(uid)
+        mirrored = clay_ops_geom.mirror_world(copy, int(axis), offset, world=world)
+        new_world = m3.compose(mirrored.translation, mirrored.rotation, mirrored.scale)
+        t, r, s = doc.local_from_world(uid, new_world)
+        made.append(
+            replace(mirrored, generator=None, params={}, translation=t, rotation=r, scale=s)
+        )
     doc.add_objects(made)
     # Originals *and* copies, exactly as both arrays leave them, and for the
     # same reason: mirroring a mirror is a normal thing to want. Leaving the
@@ -979,7 +1097,11 @@ def _place_between(ctx: Any, doc: Any, fit: float = 1.0, **_: Any) -> bool:
     "between these two" means the same thing here as it does to a user
     looking at the panel -- a box's own centre can disagree with it the
     moment the object has been scaled or its mesh is not centred on the
-    origin it was authored at.
+    origin it was authored at. **Their *world* translation (tranche 3: scene
+    structure)**, not the local field alone -- ``ops.place_between`` reads
+    ``a``/``b`` as world points (its own docstring), and a parented anchor's
+    ``translation`` is local to its parent, not where the gizmo actually
+    sits.
 
     **The mover is the *last* in document order, which is the opposite of
     what ``_join``/``_union`` keep, and deliberately.** Those two keep the
@@ -993,21 +1115,35 @@ def _place_between(ctx: Any, doc: Any, fit: float = 1.0, **_: Any) -> bool:
     tiebreaker a user can see) and disagree about which end of it matters
     because they are answering different questions: "which of these survives"
     against "which of these is the newcomer".
+
+    **``fit``'s span is read off the evaluated mesh.** ``ops.place_between``
+    measures the mover's own local Y extent to stretch it across the gap
+    (its own docstring), and an object under a modifier stack has a
+    different footprint on screen than its base -- an array three copies
+    long should fit the array's length, not one copy's. Only the mesh handed
+    to the fit calculation changes; the transform this then writes back is
+    unaffected, since the stack stays on top of the object exactly as it was.
+
+    **The result converts back through the mover's own parent.** ``place_
+    between`` answers in the same world space ``a``/``b`` were given in, so
+    what it hands back is the mover's new *world* placement, not local TRS
+    to write straight onto a parented mover -- ``doc.local_from_world`` is
+    the same conversion :func:`_mirror_copy` runs its own world result
+    through, for the identical reason.
     """
+    from ....kernels.geom3d import math3d as m3
     from ....kernels.mesh import ops as clay_ops_geom
 
     del ctx
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
     anchor_a, anchor_b, mover = uids[0], uids[1], uids[2]
-    a = doc.by_uid(anchor_a).translation
-    b = doc.by_uid(anchor_b).translation
-    placed = clay_ops_geom.place_between(doc.by_uid(mover), a, b, fit=bool(fit))
-    return doc.set_transform(
-        mover,
-        translation=placed.translation,
-        rotation=placed.rotation,
-        scale=placed.scale,
-    )
+    a = doc.world_matrix(anchor_a)[:3, 3]
+    b = doc.world_matrix(anchor_b)[:3, 3]
+    mover_footprint = replace(doc.by_uid(mover), mesh=doc.evaluated(mover))
+    placed = clay_ops_geom.place_between(mover_footprint, a, b, fit=bool(fit))
+    new_world = m3.compose(placed.translation, placed.rotation, placed.scale)
+    t, r, s = doc.local_from_world(mover, new_world)
+    return doc.set_transform(mover, translation=t, rotation=r, scale=s)
 
 
 def _world_boxes(doc: Any, uids: Iterable[int]) -> dict[int, tuple[np.ndarray, np.ndarray]]:
@@ -1020,12 +1156,27 @@ def _world_boxes(doc: Any, uids: Iterable[int]) -> dict[int, tuple[np.ndarray, n
     ``GeometrySource``. An object whose mesh has no vertices reports no box
     (``ops.world_box`` returns ``None``) and is left out rather than degrading
     every other object's math with a phantom point at the origin.
+
+    **Measured off the evaluated mesh.** Align, Distribute and Drop to Ground
+    all move objects by their visible extent, and an object under a solidify
+    or an array modifier has a different one than its base -- see
+    ``ops.world_box``'s own ``mesh`` override, which is what keeps this a
+    one-line change: an object with no enabled modifiers evaluates to its own
+    base mesh, ``is``-identical, so nothing here changes for the common case.
+
+    **And off the object's own world matrix (tranche 3: scene structure)**,
+    not the TRS composed from its own fields alone -- a parented object's
+    translation/rotation/scale describe its placement relative to its
+    parent, not where its box actually sits, and every caller here (and
+    :func:`_apply_deltas`, which writes the deltas this produces back) means
+    the box the user can see.
     """
     from ....kernels.mesh import ops as clay_ops_geom
 
     out: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     for uid in uids:
-        box = clay_ops_geom.world_box(doc.by_uid(uid))
+        obj = doc.by_uid(uid)
+        box = clay_ops_geom.world_box(obj, doc.evaluated(uid), world=doc.world_matrix(uid))
         if box is not None:
             out[uid] = box
     return out
@@ -1040,11 +1191,30 @@ def _apply_deltas(doc: Any, deltas: dict[int, np.ndarray]) -> bool:
     step its docstring promises, exactly as ``_bake``'s two-call-per-object
     fold already does, so a multi-object Align or Distribute is one Ctrl+Z
     whatever it moved.
+
+    **A root's own translation, still -- but a parented object's world
+    matrix (tranche 3: scene structure).** The delta is world space
+    (:func:`_world_boxes`'s own contract), and adding it straight to a
+    root's translation is exactly adding it in world space, since a root's
+    local frame *is* the world frame -- untouched here for the common case,
+    bit-identical to what this always did. A parented object's own
+    ``translation`` is local to its parent, not the world the delta was
+    measured in, so its *world* matrix is shifted by the delta instead and
+    the result converted back through ``doc.local_from_world``, the same
+    door every other parented write in this file uses.
     """
     ran = False
     for uid, delta in deltas.items():
-        translation = np.asarray(doc.by_uid(uid).translation, dtype="f8") + delta
-        if doc.set_transform(uid, translation=translation):
+        obj = doc.by_uid(uid)
+        if obj.parent is None:
+            translation = np.asarray(obj.translation, dtype="f8") + delta
+            if doc.set_transform(uid, translation=translation):
+                ran = True
+            continue
+        world = np.array(doc.world_matrix(uid), dtype="f8", copy=True)
+        world[:3, 3] = world[:3, 3] + np.asarray(delta, dtype="f8")
+        t, r, s = doc.local_from_world(uid, world)
+        if doc.set_transform(uid, translation=t, rotation=r, scale=s):
             ran = True
     return ran
 
@@ -1119,6 +1289,274 @@ def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> None:
     run_object_op(ctx, doc, one)
 
 
+# --- tranche 3: scene structure -- parenting, groups, separate, origin, lock -
+#
+# ``dev/CLAY-PLAN.md`` tranche 3. The document-layer doors (``ClayDoc.group``/
+# ``set_parent``/``remove_object``/``set_origin``/``separate``, and the pure
+# ``kernels.mesh.separate`` splitters) already carry the one-step contract and
+# the locking refusals -- see ``kernels/mesh/document.py``'s own module
+# docstring for both. What belongs here is only the registry wiring: which
+# selection each row reads, and turning its result into the door call.
+
+
+def _is_group(doc: Any, obj: Any) -> bool:
+    """Whether *obj* is a "group" in Ungroup's sense: an empty -- no mesh of
+    its own, ``ClayDoc.group``'s own shape -- with at least one child to
+    release. An empty with nothing under it, or an object that carries real
+    geometry of its own, is not what Ungroup means to act on.
+    """
+    return len(obj.mesh.positions) == 0 and bool(doc.children_of(obj.uid))
+
+
+def has_group_selected(doc: Any) -> bool:
+    """Ungroup's own gate: at least one selected object is a group."""
+    return any(_is_group(doc, obj) for obj in doc.objects if obj.uid in doc.selection)
+
+
+def _has_group_selected_reason(doc: Any) -> str:
+    if not doc.selection:
+        return "Select a group first."
+    return "" if has_group_selected(doc) else "Select an empty with children to ungroup."
+
+
+def _group(ctx: Any, doc: Any, **_: Any) -> None:
+    """Group the selection under one new empty, and select the empty.
+
+    ``ClayDoc.group`` does the placement (the selection's combined world
+    bounds centre) and the parenting, as one step -- see its own docstring.
+    The empty is left selected rather than its new children, the same
+    "leave the thing that now has a role to play selected" choice
+    ``_join``/``_union`` make for their own merge target: grouping is a
+    gesture aimed at moving the group as one from here on, not at any one
+    member of it.
+    """
+    del ctx
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
+    empty = doc.group(uids)
+    doc.select([empty.uid])
+
+
+def _ungroup(ctx: Any, doc: Any, **_: Any) -> None:
+    """Release every selected group's children back to its own parent, and
+    delete the empty.
+
+    ``ClayDoc.remove_object`` already *is* "re-parent this object's children
+    onto its own parent, keeping world placement, then remove it" as one
+    step (its own docstring) -- exactly what Ungroup means, so this is the
+    same door Delete uses, scoped to groups by :func:`_is_group`. A selected
+    object that is not a group is left alone rather than refused: the row is
+    enabled the moment *one* of the selection qualifies, the same
+    "whichever of the selection this actually applies to" shape
+    ``_shade``'s own face-mode branch already reads.
+    """
+
+    def one(doc: Any, obj: Any) -> None:
+        if _is_group(doc, obj):
+            doc.remove_object(obj.uid)
+
+    run_object_op(ctx, doc, one)
+
+
+def _parent_to_last(ctx: Any, doc: Any, **_: Any) -> None:
+    """Parent every other selected object onto the topmost one in the
+    outliner.
+
+    The topmost selected object in document order is the new parent --
+    ``doc.selection`` is a set with no order of its own, the same reason
+    ``_join``/``_union`` read their own merge target out of ``doc.objects``
+    rather than out of the selection directly (see either docstring). "Last
+    Selected" is Blender's own name for this gesture, which reads the
+    *active* object; Clay has no such concept, so this reuses the identical
+    document-order tiebreak a user can see and predict, rather than
+    inventing a second one.
+
+    ``ClayDoc.set_parent`` is the door, one call per child -- it refuses a
+    cycle (parenting an object onto its own descendant) with its own
+    sentence, toasted and skipped by ``run_object_op`` exactly like every
+    other per-object refusal in this file, so one bad choice in a bigger
+    selection does not abandon the rest of it.
+    """
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
+    if len(uids) < 2:
+        return
+    target, *rest = uids
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.set_parent(obj.uid, target, keep_world=True)
+
+    run_object_op(ctx, doc, one, uids=rest)
+
+
+def _clear_parent(ctx: Any, doc: Any, **_: Any) -> None:
+    """Every selected object becomes a root, keeping its world placement --
+    ``ClayDoc.set_parent(uid, None, keep_world=True)`` per object, the same
+    door :func:`_ungroup` and :func:`_parent_to_last` both use. An
+    already-rootless object is a no-op (``set_parent`` pushes nothing for
+    it), so a mixed selection of roots and children clears only the ones
+    that had somewhere to fall from.
+    """
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.set_parent(obj.uid, None, keep_world=True)
+
+    run_object_op(ctx, doc, one)
+
+
+def _separate_loose(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Split every selected object into one new object per loose part.
+
+    ``kernels.mesh.separate.by_loose_parts`` computes the pieces;
+    ``ClayDoc.separate`` turns them into objects, copies the source's
+    transform, parent and modifier stack onto each one and removes the
+    source, as one step (its own docstring). A single-piece object refuses
+    with a toast (``by_loose_parts``'s own "nothing to separate") and is
+    left untouched, the rest of the selection still separating -- and, if
+    that was the whole selection, this reports it ran nothing, the way
+    :func:`_clean_mesh` does for its own identical "nothing to fix" case.
+    """
+    from ....kernels.mesh import separate as sep
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.separate(obj.uid, sep.by_loose_parts(obj.mesh))
+
+    return run_object_op(ctx, doc, one)
+
+
+def _separate_material(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Split every selected object into one new object per material slot it
+    uses. :func:`_separate_loose`'s identical shape, over
+    ``kernels.mesh.separate.by_material`` instead."""
+    from ....kernels.mesh import separate as sep
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.separate(obj.uid, sep.by_material(obj.mesh))
+
+    return run_object_op(ctx, doc, one)
+
+
+def _separate_selection(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Split every selected object's own face selection out as a new
+    object, leaving the rest of it behind.
+
+    Face mode only, and reading ``doc.element_sel`` the way every element op
+    in this registry does (the invariant the module docstring states: in an
+    element mode, ``doc.selection`` already names exactly the objects with
+    something picked, so ``run_object_op``'s default selection is the right
+    one with no extra filtering). ``kernels.mesh.separate.by_selection``
+    always answers with exactly two pieces and refuses -- a toast, not an
+    abort of the rest of the selection -- a pick touching none of an
+    object's faces or all of them.
+    """
+    from ....kernels.mesh import separate as sep
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.separate(obj.uid, sep.by_selection(obj.mesh, doc.element_sel_of(obj.uid)))
+
+    return run_object_op(ctx, doc, one)
+
+
+def _origin_to_bounds(ctx: Any, doc: Any, **_: Any) -> None:
+    """Move each selected object's origin to its own *world* box's centre.
+
+    Measured off the evaluated mesh (``doc.evaluated``) and the object's
+    world matrix (``doc.world_matrix``, tranche 3), the same pair
+    :func:`_world_boxes` reads for Align/Distribute/Drop to Ground -- an
+    object under a modifier stack, or under a parent, has a footprint and a
+    placement its own base mesh and local TRS do not describe alone.
+    ``ClayDoc.set_origin`` keeps the geometry and every child exactly where
+    they were (its own docstring); only the pivot moves.
+    """
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    def one(doc: Any, obj: Any) -> None:
+        box = clay_ops_geom.world_box(
+            obj, mesh=doc.evaluated(obj.uid), world=doc.world_matrix(obj.uid)
+        )
+        if box is None:
+            return
+        lo, hi = box
+        doc.set_origin(obj.uid, (lo + hi) * 0.5)
+
+    run_object_op(ctx, doc, one)
+
+
+def _origin_to_base(ctx: Any, doc: Any, **_: Any) -> None:
+    """Move each selected object's origin to its own world box's bottom
+    centre -- :func:`_origin_to_bounds`'s identical measurement, with the
+    Y (up) component read off the box's *low* corner instead of its middle,
+    the same axis ``_drop_to_ground`` rests on ``y=0``.
+    """
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    def one(doc: Any, obj: Any) -> None:
+        box = clay_ops_geom.world_box(
+            obj, mesh=doc.evaluated(obj.uid), world=doc.world_matrix(obj.uid)
+        )
+        if box is None:
+            return
+        lo, hi = box
+        doc.set_origin(obj.uid, [(lo[0] + hi[0]) * 0.5, lo[1], (lo[2] + hi[2]) * 0.5])
+
+    run_object_op(ctx, doc, one)
+
+
+def _origin_to_selection(ctx: Any, doc: Any, **_: Any) -> None:
+    """Move each selected object's origin to its own element selection's
+    centroid.
+
+    Read off the *base* mesh in local space -- editing always reads the
+    base, never the evaluated mesh (the module docstring's rule) -- and
+    carried into a world point through the object's own world matrix before
+    ``ClayDoc.set_origin`` writes it back, since that door takes a world
+    point (its own signature) and a parented object's local positions are
+    not one.
+    """
+    from ....kernels.mesh import elements as el
+
+    def one(doc: Any, obj: Any) -> None:
+        verts = el.affected_verts(obj.mesh, doc.element_sel_of(obj.uid))
+        if len(verts) == 0:
+            return
+        local = np.asarray(obj.mesh.positions, dtype="f8")[verts].mean(axis=0)
+        homogeneous = np.array([local[0], local[1], local[2], 1.0], dtype="f8")
+        point = (doc.world_matrix(obj.uid) @ homogeneous)[:3]
+        doc.set_origin(obj.uid, point)
+
+    run_object_op(ctx, doc, one)
+
+
+def _origin_to_world(ctx: Any, doc: Any, **_: Any) -> None:
+    """Move each selected object's origin to the world origin -- the one
+    origin-* row that needs no measurement at all."""
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.set_origin(obj.uid, [0.0, 0.0, 0.0])
+
+    run_object_op(ctx, doc, one)
+
+
+def _lock(ctx: Any, doc: Any, **_: Any) -> None:
+    """Lock every selected object -- ``ClayDoc.set_props`` per object, not a
+    locking door itself (the module docstring's own exception list), so a
+    selection that mixes locked and unlocked objects locks the rest without
+    tripping over the ones already locked.
+    """
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.set_props(obj.uid, locked=True)
+
+    run_object_op(ctx, doc, one)
+
+
+def _unlock(ctx: Any, doc: Any, **_: Any) -> None:
+    """Unlock every selected object. :func:`_lock`'s identical shape."""
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.set_props(obj.uid, locked=False)
+
+    run_object_op(ctx, doc, one)
+
+
 def _forget_manifold(ctx: Any, uids: Iterable[int]) -> None:
     """Drop cached "mesh check" entries for objects that just left the document.
 
@@ -1172,6 +1610,1414 @@ def _unwrap(ctx: Any, doc: Any, **_: Any) -> None:
 
     def one(doc: Any, obj: Any) -> None:
         doc.set_mesh(obj.uid, uv_mod.box_unwrap(obj.mesh), keep_generator=True)
+
+    run_object_op(ctx, doc, one)
+
+
+# --- clean-mesh / recalc-normals (readiness's own FIX_OPS) ------------------
+#
+# ``kernels/mesh/readiness.py`` names both by these exact strings in its
+# ``FIX_OPS`` -- a "Fix" button next to a readiness warning runs
+# ``ops.get(check.fix)``, so the names here are load-bearing, not a label
+# choice.
+
+
+def _clean_mesh(
+    ctx: Any, doc: Any, distance: float = 1e-5, fill_holes: float = 0.0, **_: Any
+) -> bool:
+    """Run :func:`~.ops_clean.clean` over every selected object, one undo step.
+
+    Only objects :func:`~.ops_clean.clean` actually changed call ``set_mesh``
+    -- its own identity contract ("every op is a no-op when there is nothing
+    to fix") is what lets this tell "nothing was wrong" from "something was
+    fixed" without measuring twice, the same way :func:`_shade_auto` reads its
+    own ``smoothed is mesh`` check.
+    """
+    from ....kernels.mesh import ops_clean
+
+    totals = dict(
+        degenerate_removed=0,
+        merged_vertices=0,
+        duplicate_removed=0,
+        loose_removed=0,
+        holes_filled=0,
+        faces_flipped=0,
+    )
+    changed = False
+
+    def one(doc: Any, obj: Any) -> None:
+        nonlocal changed
+        mesh, report = ops_clean.clean(
+            obj.mesh, distance=float(distance), fill_holes=bool(fill_holes)
+        )
+        if mesh is obj.mesh:
+            return
+        doc.set_mesh(obj.uid, mesh)
+        changed = True
+        for key in totals:
+            totals[key] += getattr(report, key)
+
+    run_object_op(ctx, doc, one)
+    if not changed:
+        ctx.toast("Nothing to clean.")
+        return False
+    parts = [
+        f"{n} {label}"
+        for n, label in (
+            (totals["degenerate_removed"], "degenerate"),
+            (totals["merged_vertices"], "merged"),
+            (totals["duplicate_removed"], "duplicate"),
+            (totals["loose_removed"], "loose"),
+            (totals["holes_filled"], "holes filled"),
+            (totals["faces_flipped"], "faces flipped"),
+        )
+        if n
+    ]
+    ctx.toast("Cleaned: " + ", ".join(parts) + "." if parts else "Cleaned.")
+    return True
+
+
+def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> None:
+    """Make every selected object's winding consistent and outward.
+
+    **Object mode only.** A flipped face is a property of a *shell* --
+    :func:`~.ops_clean.recalc_outside`'s own BFS walks whole connected
+    components, majority-votes each one, then signs it by volume -- and a face
+    selection is not a shell: recalculating "the selected faces" would have to
+    either ignore the faces around them (silently wrong the moment the
+    selection is not the whole shell) or walk past the selection into
+    unselected geometry anyway (silently doing more than the button claims).
+    Object mode asks the one question the algorithm actually answers.
+
+    **Freezes the generator, deliberately, through the same door as every
+    other geometry-changing op.** ``doc.set_mesh`` does the freezing (see the
+    module docstring); this passes no ``keep_generator=True`` because winding
+    is not a fact a generator's parameters record, so an object whose winding
+    this corrected is no longer exactly what its generator would rebuild.
+    In practice this is unreachable on an untouched primitive: every
+    generator in this package already emits outward, consistently wound faces
+    (:func:`~.ops_clean.recalc_outside` is idempotent on one), so the freeze
+    only ever fires on an imported or hand-repaired mesh that actually needed
+    the fix -- ``recalc_outside`` returns the identical object otherwise, and
+    identity is what ``set_mesh`` reads to decide whether anything happened at
+    all.
+    """
+    from ....kernels.mesh import ops_clean
+
+    def one(doc: Any, obj: Any) -> None:
+        mesh = ops_clean.recalc_outside(obj.mesh)
+        if mesh is not obj.mesh:
+            doc.set_mesh(obj.uid, mesh)
+
+    run_object_op(ctx, doc, one)
+
+
+def _apply_modifiers(ctx: Any, doc: Any, **_: Any) -> None:
+    """Bake every selected object's whole modifier stack into its base mesh.
+
+    ``ClayDoc.apply_modifiers`` already folds one object's bake into a single
+    step of its own (a ``MeshEdit`` plus the ``ObjectPropsEdit`` that drops
+    the baked prefix and, if the object still claimed one, freezes its
+    generator -- see that method's own docstring); ``run_object_op`` supplies
+    the per-object loop, the stale-uid tolerance and the per-object refusal
+    toast every other object-level op in this file already gets, and
+    ``run``'s own ``_one_step`` (the module docstring's "one press, one
+    Ctrl+Z") folds however many of those land into one further step across
+    the whole selection, the same two-layer fold :func:`_bake` already uses.
+    An object whose stack currently refuses (a modifier in the prefix that
+    errors right now) is toasted and left alone; the rest of the selection
+    still bakes.
+    """
+
+    def one(doc: Any, obj: Any) -> None:
+        doc.apply_modifiers(obj.uid)
+
+    run_object_op(ctx, doc, one)
+
+
+# --- decimate: Clay's first background op ------------------------------------
+#
+# Every op above runs synchronously on the frame thread -- cheap enough that a
+# button press and its result are the same frame. gltfpack is a child process
+# and is not: a triangle budget on a real mesh is real wall-clock, and running
+# it inline would freeze the viewport for however long it takes. The shape
+# below (``prepare`` on the frame thread, ``work`` off it, ``apply`` back on
+# it) is deliberately general -- tranche 4 routes Blender retopology/UV/bake
+# through the same three-function split -- and it has two dispatches:
+#
+# * **Interactive**: ``prepare`` snapshots what is selected, ``ctx.submit``
+#   runs ``work`` on a task thread, and ``apply`` lands later from
+#   ``clay_mode.on_task_done`` (routed there by the ``clay-bg:<tab uid>`` key
+#   prefix). Refused with a toast, not queued, if a decimate for this tab is
+#   already in flight -- ``TaskRunner.submit``'s own rule, the same one a
+#   double-clicked Export already leans on.
+# * **Inline**: an agent's sandboxed ``Ctx`` (``getattr(ctx, "inline", False)``)
+#   has no frame/task-thread split to cross -- there is no second call the
+#   agent makes later to collect a result the way a human's next frame would
+#   -- so ``work`` and ``apply`` both run synchronously inside this call,
+#   the same one-shot cost ``agent/tools_ops.py``'s ``_h_export`` pays
+#   deliberately rather than the per-frame stall the split exists to prevent
+#   everywhere else.
+#
+# **The GLB gltfpack sees carries no normals.** ``gltfpack`` will not simplify
+# across an attribute discontinuity -- a split normal or a UV seam -- so a
+# primitive built the way ``document.to_primitives`` builds one (splitting a
+# vertex per corner on every flat face, to carry a *per-corner* normal) handed
+# gltfpack nothing but discontinuities and it removed nothing at all (960 ->
+# 960 triangles on a Clay ``uv_sphere``, measured 2026-09-19 by whoever wrote
+# ``optimize.simplify_bytes``'s own docstring). Dropping the normal entirely
+# is what lets a flat face's three corners share one vertex like any other
+# corner would, so :func:`_decimate_primitives` builds its own primitives
+# rather than reusing ``to_primitives`` -- keyed on ``(vertex, uv)`` alone,
+# never on the smooth flag, so a flat-shaded face is never split for a reason
+# gltfpack cannot see. ``-sa`` (the ``aggressive`` param) still restores real
+# reduction on a heavily UV-seamed mesh -- see ``optimize.simplify_bytes``'s
+# own docstring for that flag.
+#
+# **The palette survives the round trip by name, not by primitive order.**
+# gltfpack is free to drop, split or reorder primitives while it simplifies,
+# so a primitive's *position* in the output is not a safe way to recover which
+# document material it came from. Each primitive's material is tagged with
+# :func:`_material_tag` before it is written, and :func:`_decimate_mesh_from_glb`
+# reads the tag back out rather than counting -- so the round trip creates no
+# new palette slots for a material that already existed.
+
+
+_MATERIAL_TAG_RE = re.compile(r"^__clay_decimate_material_(\d+)__$")
+
+
+def _material_tag(index: int) -> str:
+    return f"__clay_decimate_material_{index}__"
+
+
+def _tri_count(mesh: Any) -> int:
+    """Triangles a face-corner mesh renders as. ``bridge.py``'s own
+    ``_triangles`` and ``readiness._tri_count`` compute the identical number
+    the identical way (``corners - 2 * faces``, valid because every face has
+    at least three corners); kept as its own small function here rather than
+    imported from either, since both are on the far side of a layer this
+    package may not reach into (a pane, and a sibling kernel module with no
+    call of its own into this one)."""
+    faces = max(0, len(mesh.starts) - 1)
+    corners = len(mesh.loops)
+    return max(0, corners - 2 * faces)
+
+
+def _decimate_primitives(mesh: Any, materials: Any) -> list[Any]:
+    """*mesh* as one :class:`~.gltf.Primitive` per material slot it uses, with
+    no normals -- see the section docstring above for why.
+
+    Vertices are deduplicated by ``(vertex index, uv)`` -- never by the smooth
+    flag or by which face a corner belongs to -- so two corners of one flat
+    face that share a position and a uv share a vertex here exactly as they
+    would on a smooth face. A uv seam still splits, because that is a real
+    difference in the data this mesh carries, not an artefact of shading.
+    """
+    from ....kernels.geom3d import gltf as gltf_mod
+    from ....kernels.mesh import mesh as bm_mod
+    from ....kernels.mesh.earclip import corner_triangles
+
+    if bm_mod.face_count(mesh) == 0:
+        return []
+    corners, tri_face = corner_triangles(
+        mesh.positions, mesh.loops, mesh.starts, bm_mod.face_normals(mesh)
+    )
+    if len(corners) == 0:
+        return []
+    prims: list[Any] = []
+    for material_index in np.unique(mesh.material).tolist():
+        face_mask = mesh.material[tri_face] == material_index
+        tri_corners = corners[face_mask]
+        if len(tri_corners) == 0:
+            continue
+        flat = tri_corners.reshape(-1)
+        vtx = mesh.loops[flat].astype("f8")
+        if mesh.uv is not None:
+            uv = mesh.uv[flat].astype("f8")
+            key = np.concatenate([vtx[:, None], uv], axis=1)
+        else:
+            key = vtx[:, None]
+        uniq_keys, inverse = np.unique(key, axis=0, return_inverse=True)
+        indices = inverse.astype("u4").reshape(-1)
+        positions = mesh.positions[uniq_keys[:, 0].astype("i4")]
+        uvs = uniq_keys[:, 1:3].astype("f4") if mesh.uv is not None else None
+        source = (
+            materials[material_index]
+            if 0 <= material_index < len(materials)
+            else gltf_mod.Material()
+        )
+        tagged = replace(source, name=_material_tag(material_index))
+        prims.append(
+            gltf_mod.Primitive(
+                positions=positions.astype("f4"),
+                indices=indices,
+                normals=None,
+                uvs=uvs,
+                material=tagged,
+            )
+        )
+    return prims
+
+
+def _decimate_prepare(doc: Any, uids: Iterable[int]) -> list[dict[str, Any]]:
+    """Frame-thread half: one no-normals GLB per selected object, plus enough
+    to detect a stale result and to fold the result back in later.
+
+    ``doc.mesh_stamp`` is the token :meth:`_decimate_apply` checks before
+    ever calling ``set_mesh`` -- see that method's own comment for why a
+    result computed against a mesh the user has since edited must be
+    discarded rather than silently overwriting the edit.
+    """
+    from ....kernels.geom3d import glbwrite
+    from ....kernels.geom3d import gltf as gltf_mod
+
+    prepared: list[dict[str, Any]] = []
+    for uid in uids:
+        obj = doc.by_uid(uid)
+        prims = _decimate_primitives(obj.mesh, doc.materials)
+        if not prims:
+            continue
+        model = gltf_mod.Model([gltf_mod.Node(mesh=0)], [0], [prims], [])
+        prepared.append(
+            {
+                "uid": uid,
+                "name": obj.name,
+                "stamp": doc.mesh_stamp(uid),
+                "glb": glbwrite.write_glb(model),
+                "material": int(obj.material),
+                "before": _tri_count(obj.mesh),
+            }
+        )
+    return prepared
+
+
+def _decimate_work(
+    prepared: list[dict[str, Any]],
+    *,
+    ratio: float,
+    exe: Any,
+    lock_border: bool,
+    aggressive: bool,
+) -> dict[str, Any]:
+    """Off-thread half: run every prepared GLB through ``gltfpack``.
+
+    Returns rather than raises on an :class:`~.optimize.OptimizeError` --
+    ``{"error": str(error)}`` -- so the caller (whichever of the two dispatch
+    paths this ran under) can toast the real gltfpack failure. A raised
+    ``OptimizeError`` reaches the task layer's own generic "something went
+    wrong" wording instead (``tasks.py``'s ``CARRIES_ITS_OWN_MESSAGE`` does not
+    name it, and that module is outside this change's file ownership), which
+    is a worse answer than this module catching its own dependency's error and
+    saying so itself.
+    """
+    from ....pipelines import optimize as optimize_mod
+
+    try:
+        items = []
+        for item in prepared:
+            out = optimize_mod.simplify_bytes(
+                item["glb"],
+                ratio=ratio,
+                exe=exe,
+                lock_border=lock_border,
+                aggressive=aggressive,
+            )
+            items.append({**item, "glb_out": out})
+        return {"items": items, "ratio": float(ratio)}
+    except optimize_mod.OptimizeError as error:
+        return {"error": str(error)}
+
+
+def _mesh_from_tagged_primitives(prims: list[Any], fallback_material: int) -> Any:
+    """*prims*, each already :func:`_material_tag`-labelled the way
+    :func:`_decimate_primitives` labels decimate's, merged into one Clay mesh
+    on the palette slots their tags name.
+
+    Reads each primitive's material back off its tag rather than trusting
+    primitive order or count, both of which gltfpack -- and, since tranche 4,
+    Blender's own glTF exporter -- are free to change. ``fallback_material``
+    -- the object's own default material -- covers the one case a tag cannot
+    survive: an untagged primitive (a gltfpack ``-km`` run that dropped the
+    name, a hand-edited exe, an object Blender only ever saw with one
+    material) still lands on a real palette slot rather than crashing.
+
+    Extracted from :func:`_decimate_mesh_from_glb`, which is now the
+    one-node-per-GLB case of this -- decimate always sends one object per
+    call, so every primitive in the loaded model is that object's own. The
+    Blender ops (:func:`_blender_objects_from_glb`) send several objects in
+    one GLB and call this once per node instead.
+    """
+    from ....kernels.mesh import document as bd
+    from ....kernels.mesh import glbimport
+    from ....kernels.mesh import ops as clay_ops_geom
+    from ....kernels.mesh import shading as shading_mod
+
+    objs = []
+    for index, prim in enumerate(prims):
+        tag = prim.material.name if prim.material is not None else ""
+        match = _MATERIAL_TAG_RE.match(tag or "")
+        material_index = int(match.group(1)) if match else fallback_material
+        mesh = glbimport._mesh_for(prim, material_index)
+        objs.append(bd.Obj(uid=index, name=f"m{index}", mesh=mesh))
+    merged = objs[0].mesh if len(objs) == 1 else clay_ops_geom.join(objs, eps=0.0)
+    # Topology changed, so no per-face flag survives to be carried -- recomputed
+    # at the shared default angle rather than left flat, which
+    # ``glbimport._mesh_for`` would otherwise do for every face (no NORMAL
+    # accessor went in, so none comes back, and its own smooth-flag guess reads
+    # that as smooth for every triangle rather than auto-detecting hard edges).
+    return shading_mod.auto_smooth(merged)
+
+
+def _decimate_mesh_from_glb(data: bytes, fallback_material: int) -> Any:
+    """One prepared-and-simplified GLB, merged back into a single Clay mesh.
+    See :func:`_mesh_from_tagged_primitives` for the tag round trip itself --
+    this is only the "one object per GLB" framing decimate sends."""
+    from ....kernels.geom3d import gltf as gltf_mod
+    from ....kernels.mesh.elements import OpError
+
+    model = gltf_mod.load(data)
+    prims = [
+        prim
+        for node in model.nodes
+        if node.mesh is not None
+        for prim in model.meshes[node.mesh]
+    ]
+    if not prims:
+        raise OpError("Decimate produced a mesh with no geometry.")
+    return _mesh_from_tagged_primitives(prims, fallback_material)
+
+
+def _decimate_apply(ctx: Any, doc: Any, result: Any) -> None:
+    """Fold a finished decimate's result into the document, one undo step.
+
+    Called from two places: directly, inside :func:`_decimate` itself, on the
+    inline agent path; and from ``clay_mode.on_task_done``, for the ``clay-bg``
+    task key, once the background path's ``work`` has returned. Self-contained
+    either way -- its own ``history.mark()``/``collapse_since`` fold whatever it
+    pushes into one step named "Decimate", so calling it from inside
+    :func:`run`'s own fold (the inline path) nests two collapses over the same
+    range rather than conflicting with it.
+    """
+    if not isinstance(result, dict):
+        return
+    if "error" in result:
+        ctx.toast(result["error"], "error")
+        return
+    items = result.get("items", [])
+    ratio = float(result.get("ratio", 1.0))
+    mark = doc.history.mark()
+    head = doc.history.head
+    total_before = 0
+    total_after = 0
+    applied: list[str] = []
+    skipped: list[str] = []
+    for item in items:
+        uid = item["uid"]
+        try:
+            obj = doc.by_uid(uid)
+        except KeyError:
+            skipped.append(item["name"])
+            continue
+        # The stamp taken in ``_decimate_prepare`` still has to match: an edit
+        # made to this object while gltfpack ran means the result was computed
+        # against geometry that no longer exists, and applying it would
+        # silently discard whatever the user did in the meantime.
+        if doc.mesh_stamp(uid) != item["stamp"]:
+            skipped.append(obj.name)
+            continue
+        mesh = _decimate_mesh_from_glb(item["glb_out"], item["material"])
+        doc.set_mesh(uid, mesh)
+        total_before += item["before"]
+        total_after += _tri_count(mesh)
+        applied.append(obj.name)
+    doc.history.collapse_since(mark)
+    top = doc.history.top
+    if top is not None and doc.history.head != head:
+        top.label = "Decimate"
+    _decimate_report(ctx, applied, skipped, total_before, total_after, ratio)
+
+
+def _decimate_report(
+    ctx: Any,
+    applied: list[str],
+    skipped: list[str],
+    before: int,
+    after: int,
+    ratio: float,
+) -> None:
+    parts: list[str] = []
+    if applied:
+        parts.append(f"Decimated {before:,} -> {after:,} triangles.")
+        target = before * ratio
+        if target > 0 and after > target * 1.1:
+            parts.append("That is more than asked for -- try Aggressive.")
+    for name in skipped:
+        parts.append(f"Skipped {name}: it changed while decimating.")
+    if not parts:
+        parts.append("Nothing to decimate.")
+    ctx.toast(" ".join(parts))
+
+
+def decimate_apply(ctx: Any, doc: Any, result: Any) -> None:
+    """Public door for :func:`_decimate_apply`, called by
+    ``clay_mode.on_task_done`` for the ``clay-bg`` task key -- the one caller
+    outside this module, so it gets a name without the leading underscore
+    the rest of this section's helpers keep."""
+    _decimate_apply(ctx, doc, result)
+
+
+def _tab_for(ctx: Any, doc: Any) -> Any:
+    """The open ``ClayTab`` whose document is *doc*, or ``None``.
+
+    Reached through ``ctx.state.clay`` with ``getattr`` at every hop, the way
+    ``_forget_manifold`` above does -- this keeps the module callable with the
+    bare toast-only ``ctx`` double the rest of this file's tests use, and with
+    the agent's sandboxed ``Ctx``, neither of which carries a real tab list.
+    """
+    state = getattr(ctx, "state", None)
+    clay_state = getattr(state, "clay", None) if state is not None else None
+    if clay_state is None:
+        return None
+    for tab in getattr(clay_state, "docs", ()):
+        if tab.doc is doc:
+            return tab
+    return None
+
+
+def _decimate(
+    ctx: Any,
+    doc: Any,
+    ratio: float = 0.5,
+    keep_seams: float = 1.0,
+    aggressive: float = 0.0,
+    **_: Any,
+) -> bool:
+    from pathlib import Path
+
+    from ....kernels.mesh import glbimport
+    from ....kernels.mesh.elements import OpError
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
+    if not uids:
+        return False
+    if float(ratio) >= 1.0:
+        raise OpError("Ratio is already 1.0 -- there is nothing to decimate.")
+
+    exe = getattr(ctx, "gltfpack_exe", None) or ctx.svc.config.gltfpack_exe
+    exe = Path(exe)
+    if not exe.is_file():
+        raise OpError(
+            "gltfpack is not installed, so Decimate is unavailable. Install "
+            "the base pack in Settings > Models."
+        )
+
+    for uid in uids:
+        obj = doc.by_uid(uid)
+        if _tri_count(obj.mesh) > glbimport.MAX_TRIANGLES:
+            raise OpError(
+                f"{obj.name} has more triangles than Decimate can process in one pass."
+            )
+
+    prepared = _decimate_prepare(doc, uids)
+    if not prepared:
+        raise OpError("Nothing to decimate.")
+
+    work_kwargs = dict(
+        ratio=float(ratio), exe=exe, lock_border=bool(keep_seams), aggressive=bool(aggressive)
+    )
+
+    if getattr(ctx, "inline", False):
+        # No frame/task-thread split to cross -- see the section docstring.
+        result = _decimate_work(prepared, **work_kwargs)
+        _decimate_apply(ctx, doc, result)
+        return True
+
+    tab = _tab_for(ctx, doc)
+    if tab is None:
+        raise OpError("Decimate needs an open document tab.")
+    submitted = ctx.submit(f"clay-bg:{tab.uid}", _decimate_work, prepared, **work_kwargs)
+    if not submitted:
+        raise OpError("A decimate is already running for this document.")
+    tab.bg_busy = "Decimating..."
+    return True
+
+
+# --- retopo / smart-unwrap / bake-detail: Clay's first Blender ops -----------
+#
+# ``dev/CLAY-PLAN.md`` tranche 4. Three more background ops in decimate's own
+# ``prepare``/``work``/``apply`` shape (the section above), with two real
+# differences from it:
+#
+# * **One Blender launch per call, not one per object.** gltfpack starts in
+#   milliseconds and decimate pays that cost once per selected object
+#   (``_decimate_work``'s own loop); a bpy interpreter does not, so retopo,
+#   unwrap and bake-detail's own high side all send *every* object they touch
+#   in one combined GLB -- :func:`_blender_multi_prepare` -- and Blender's
+#   own ``op_clay_retopo``/``op_clay_unwrap``/``op_clay_bake`` already handle
+#   "every mesh object in this GLB, independently" (bake aside, where the
+#   independence is deliberately not total -- see :func:`_bake_detail`).
+# * **The GLB carries a world matrix, not just a mesh.** Decimate's objects
+#   never interact with each other, so its own prepared GLB carries no
+#   transform at all. A selected-to-active bake does interact -- the low
+#   mesh's cage has to sit where the high meshes actually are -- so every
+#   node here carries its object's *world* transform (``doc.world_matrix``,
+#   decomposed), and the mesh data inside stays local, exactly like every
+#   other glTF node ever written by this codebase.
+#
+# All three are refused up front, by name, when ``clay_blender.available()``
+# says no -- :func:`_blender_enabled`/:func:`_blender_reason` (retopo,
+# smart-unwrap) and :func:`_blender_bake_enabled`/:func:`_blender_bake_reason`
+# (bake-detail, which also needs a second selected object). ``available()``'s
+# own sentence is what ``Op.reason`` shows; nothing here writes a second one.
+#
+# **The three share one background task key** with decimate --
+# ``clay-bg:<tab uid>`` -- because only one background Blender/gltfpack op
+# makes sense running against one document at a time. What tells
+# ``clay_mode.on_task_done`` which ``apply`` to run once the task lands is a
+# ``"kind"`` field each of these three work functions puts in its own result
+# (``"retopo"``/``"unwrap"``/``"bake"``); decimate's own result carries none,
+# which is what keeps it the default case there rather than a fourth entry
+# every one of these three would otherwise have needed to agree with by hand.
+
+
+def _blender_node_name(uid: int) -> str:
+    """The GLB node name a prepared object round-trips through Blender by.
+
+    Not the Clay object's own ``name`` -- two objects can share one (nothing
+    in this document enforces uniqueness the way a filesystem does), and a
+    collision here would merge two objects' results under one node the way a
+    stale stamp already has a story for but a silent name clash does not.
+    """
+    return f"__clay_blender_obj_{uid}__"
+
+
+def _blender_multi_prepare(doc: Any, uids: Iterable[int]) -> tuple[bytes, list[dict[str, Any]]]:
+    """Frame-thread half shared by retopo, unwrap and bake-detail's own two
+    calls (high objects, then the low one): one combined GLB, one node per
+    *uid* that still has geometry, tagged and world-placed.
+
+    Each node's mesh is its object's *evaluated* mesh (``doc.evaluated`` --
+    what a modifier stack actually built, the same rule ``_join``/``_union``
+    already apply through their own evaluated-mesh copies) run through
+    :func:`_decimate_primitives`, which gives it no normals and tags each
+    primitive with :func:`_material_tag` -- see that function's own
+    docstring for why Blender's importer, like gltfpack, is handed nothing it
+    would mistake for a real attribute discontinuity, and why the tag survives
+    a round trip name/order does not. Each node's transform is the object's
+    *world* matrix (``doc.world_matrix``, decomposed into T/R/S) rather than
+    its own local one, so several objects sent together land at their real
+    relative positions -- see the section docstring for why that matters to
+    bake-detail and costs nothing for retopo/unwrap, which never look past
+    their own object.
+
+    -> (glb bytes, meta), where meta has one entry per uid that actually had
+    geometry to send, each carrying ``uid``, ``name`` (for a toast),
+    ``node_name`` (what :func:`_blender_objects_from_glb` matches the result
+    back by), ``stamp`` (:meth:`~.document.ClayDoc.mesh_stamp` at prepare
+    time -- the same staleness guard decimate's own ``_decimate_prepare``
+    takes) and ``material`` (the object's own default palette slot, the
+    fallback :func:`_mesh_from_tagged_primitives` uses for a primitive whose
+    tag did not survive). An empty *uids*, or a selection of objects with no
+    geometry at all, comes back ``(b"", [])`` -- the caller's own "nothing to
+    do" refusal, not this function's to raise.
+    """
+    from ....kernels.geom3d import glbwrite, math3d
+    from ....kernels.geom3d import gltf as gltf_mod
+
+    nodes: list[Any] = []
+    meshes: list[Any] = []
+    meta: list[dict[str, Any]] = []
+    for uid in uids:
+        obj = doc.by_uid(uid)
+        prims = _decimate_primitives(doc.evaluated(uid), doc.materials)
+        if not prims:
+            continue
+        translation, rotation, scale = math3d.decompose(doc.world_matrix(uid))
+        node_name = _blender_node_name(uid)
+        nodes.append(
+            gltf_mod.Node(
+                name=node_name,
+                translation=translation,
+                rotation=rotation,
+                scale=scale,
+                mesh=len(meshes),
+            )
+        )
+        meshes.append(prims)
+        meta.append(
+            {
+                "uid": uid,
+                "name": obj.name,
+                "node_name": node_name,
+                "stamp": doc.mesh_stamp(uid),
+                "material": int(obj.material),
+            }
+        )
+    if not meta:
+        return b"", []
+    model = gltf_mod.Model(nodes, list(range(len(nodes))), meshes, [])
+    return glbwrite.write_glb(model), meta
+
+
+def _blender_objects_from_glb(data: bytes, meta: list[dict[str, Any]]) -> dict[int, Any]:
+    """*data*'s nodes, matched back to *meta* by :func:`_blender_node_name`,
+    each merged into one Clay mesh via :func:`_mesh_from_tagged_primitives`.
+
+    -> ``{uid: mesh}`` for every uid whose node came back with geometry. A uid
+    in *meta* with no matching node, or a node with no primitives, is simply
+    left out of the mapping -- the caller (:func:`_retopo_apply`/
+    :func:`_unwrap_apply`) reports that the same way it reports a stale
+    stamp, rather than this function raising over a Blender op that legally
+    dropped an object (an obj_target of zero, an operator that found nothing
+    to act on).
+    """
+    from ....kernels.geom3d import gltf as gltf_mod
+
+    model = gltf_mod.load(data)
+    by_node_name = {node.name: node for node in model.nodes if node.mesh is not None}
+    out: dict[int, Any] = {}
+    for item in meta:
+        node = by_node_name.get(item["node_name"])
+        if node is None:
+            continue
+        prims = model.meshes[node.mesh]
+        if not prims:
+            continue
+        out[item["uid"]] = _mesh_from_tagged_primitives(prims, item["material"])
+    return out
+
+
+def _blender_timeout(ctx: Any) -> float:
+    """The Blender timeout to hand ``blender_run.run_worker`` for one of
+    these three ops.
+
+    ``_q_mesh.py``'s remesh job -- the app's other quad-retopology-through-
+    Blender op, ``op_remesh`` -- already passes ``self.config.rig_timeout``
+    to ``blender_run.run_worker``; that is the one Settings-reachable number
+    this app has for "how long is a Blender op allowed to run", so retopo,
+    smart-unwrap and bake-detail reuse it rather than inventing a second,
+    Clay-only config field that would answer the identical question. Reached
+    through ``ctx.svc.config`` for the real interactive ``ctx``, exactly the
+    way ``_decimate`` reaches ``ctx.svc.config.gltfpack_exe``; the agent's
+    sandboxed ``_OpCtx`` has no ``svc`` of its own, so it carries the number
+    as a plain ``blender_timeout`` attribute instead -- see that dataclass's
+    own docstring, and ``clay_blender.BLENDER_TIMEOUT`` is the last resort
+    when neither is reachable (a bare toast-only ``ctx`` test double).
+    """
+    from ....pipelines import blender_run
+
+    timeout = getattr(ctx, "blender_timeout", None)
+    if timeout is None:
+        svc = getattr(ctx, "svc", None)
+        timeout = getattr(getattr(svc, "config", None), "rig_timeout", None)
+    return float(timeout) if timeout else blender_run.BLENDER_TIMEOUT
+
+
+def _blender_available_reason(doc: Any) -> str:
+    del doc
+    from ....pipelines import clay_blender
+
+    _ok, reason = clay_blender.available()
+    return reason
+
+
+def _blender_enabled(doc: Any) -> bool:
+    """Retopologize/Smart Unwrap's own gate: Blender reachable, and a
+    selection -- exactly ``decimate``'s own :data:`has_objects`, plus the one
+    extra precondition every op this section adds needs."""
+    from ....pipelines import clay_blender
+
+    ok, _reason = clay_blender.available()
+    return ok and has_objects(doc)
+
+
+def _blender_reason(doc: Any) -> str:
+    reason = _blender_available_reason(doc)
+    return reason if reason else _has_objects_reason(doc)
+
+
+def _blender_bake_enabled(doc: Any) -> bool:
+    """Bake Detail's own gate: Blender reachable, and two *visible* selected
+    objects -- the low target plus at least one high source, the same count
+    :func:`has_two_visible` already checks for Merge/Union, which read their
+    own target out of document order the identical way (see
+    :func:`_bake_detail`'s own docstring)."""
+    from ....pipelines import clay_blender
+
+    ok, _reason = clay_blender.available()
+    return ok and has_two_visible(doc)
+
+
+def _blender_bake_reason(doc: Any) -> str:
+    reason = _blender_available_reason(doc)
+    return reason if reason else _has_two_visible_reason(doc)
+
+
+def _blender_op_report(ctx: Any, verb: str, applied: list[str], skipped: list[str]) -> None:
+    parts: list[str] = []
+    if applied:
+        parts.append(f"{verb}: {', '.join(applied)}.")
+    for name in skipped:
+        parts.append(f"Skipped {name}: it changed while running.")
+    if not parts:
+        parts.append("Nothing to do.")
+    ctx.toast(" ".join(parts))
+
+
+def _retopo_work(
+    glb: bytes,
+    meta: list[dict[str, Any]],
+    *,
+    target_faces: int,
+    close_holes: bool,
+    seed: int,
+    timeout: float,
+) -> dict[str, Any]:
+    """Off-thread half of Retopologize. ``{"error": ...}`` on a
+    :class:`~.clay_blender.ClayBlenderError`, exactly like
+    :func:`_decimate_work`'s own ``OptimizeError`` catch, so the caller can
+    toast the real Blender failure rather than the task layer's generic one.
+    """
+    from ....pipelines import clay_blender
+
+    try:
+        out_glb, report = clay_blender.retopo_bytes(
+            glb, target_faces=target_faces, close_holes=close_holes, seed=seed, timeout=timeout,
+        )
+        return {"kind": "retopo", "glb_out": out_glb, "meta": meta, "report": report}
+    except clay_blender.ClayBlenderError as error:
+        return {"kind": "retopo", "error": str(error)}
+
+
+def _unwrap_work(
+    glb: bytes,
+    meta: list[dict[str, Any]],
+    *,
+    angle_limit: float,
+    island_margin: float,
+    timeout: float,
+) -> dict[str, Any]:
+    """Off-thread half of Smart Unwrap. See :func:`_retopo_work`'s own
+    docstring -- identical shape, the other pipeline function."""
+    from ....pipelines import clay_blender
+
+    try:
+        out_glb, report = clay_blender.unwrap_bytes(
+            glb, angle_limit=angle_limit, island_margin=island_margin, timeout=timeout,
+        )
+        return {"kind": "unwrap", "glb_out": out_glb, "meta": meta, "report": report}
+    except clay_blender.ClayBlenderError as error:
+        return {"kind": "unwrap", "error": str(error)}
+
+
+def _bake_work(
+    high_glb: bytes,
+    low_glb: bytes,
+    meta: list[dict[str, Any]],
+    *,
+    texture_size: int,
+    cage_extrusion: float,
+    maps: list[str],
+    timeout: float,
+) -> dict[str, Any]:
+    """Off-thread half of Bake Detail. *meta* is the low object's own
+    (:func:`_blender_multi_prepare` called with one uid) -- the high side's
+    own meta is spent building ``high_glb`` and carried no further, since the
+    high objects are consumed by the bake and never written back to."""
+    from ....pipelines import clay_blender
+
+    try:
+        out_glb, report = clay_blender.bake_bytes(
+            high_glb, low_glb, texture_size=texture_size, cage_extrusion=cage_extrusion,
+            maps=maps, timeout=timeout,
+        )
+        return {"kind": "bake", "glb_out": out_glb, "meta": meta, "report": report}
+    except clay_blender.ClayBlenderError as error:
+        return {"kind": "bake", "error": str(error)}
+
+
+def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
+    """Fold a finished Retopologize's result into the document, one undo
+    step. :func:`_decimate_apply`'s own shape, with two differences: the
+    result is one multi-object GLB read back by node name
+    (:func:`_blender_objects_from_glb`), not one GLB per object, and every
+    applied object's generator freezes with no ``keep_generator`` --
+    retopology replaces the base mesh outright, exactly what the section of
+    ``dev/CLAY-PLAN.md`` this closes asks for.
+    """
+    if not isinstance(result, dict):
+        return
+    if "error" in result:
+        ctx.toast(result["error"], "error")
+        return
+    meta = result.get("meta") or []
+    glb_out = result.get("glb_out")
+    meshes = _blender_objects_from_glb(glb_out, meta) if glb_out else {}
+    mark = doc.history.mark()
+    head = doc.history.head
+    applied: list[str] = []
+    skipped: list[str] = []
+    for item in meta:
+        uid = item["uid"]
+        try:
+            obj = doc.by_uid(uid)
+        except KeyError:
+            skipped.append(item["name"])
+            continue
+        # Exactly ``_decimate_apply``'s own guard: a result computed against
+        # geometry the user has since edited is discarded rather than
+        # silently overwriting the edit.
+        if doc.mesh_stamp(uid) != item["stamp"]:
+            skipped.append(obj.name)
+            continue
+        mesh = meshes.get(uid)
+        if mesh is None:
+            continue
+        doc.set_mesh(uid, mesh)
+        applied.append(obj.name)
+    doc.history.collapse_since(mark)
+    top = doc.history.top
+    if top is not None and doc.history.head != head:
+        top.label = "Retopologize"
+    _blender_op_report(ctx, "Retopologized", applied, skipped)
+
+
+def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
+    """Fold a finished Smart Unwrap's result in, one undo step.
+    :func:`_retopo_apply`'s shape exactly, except every ``set_mesh`` passes
+    ``keep_generator=True`` -- UVs are not geometry, the same reason
+    :func:`_unwrap` (Box Unwrap) never freezes either.
+    """
+    if not isinstance(result, dict):
+        return
+    if "error" in result:
+        ctx.toast(result["error"], "error")
+        return
+    meta = result.get("meta") or []
+    glb_out = result.get("glb_out")
+    meshes = _blender_objects_from_glb(glb_out, meta) if glb_out else {}
+    mark = doc.history.mark()
+    head = doc.history.head
+    applied: list[str] = []
+    skipped: list[str] = []
+    for item in meta:
+        uid = item["uid"]
+        try:
+            obj = doc.by_uid(uid)
+        except KeyError:
+            skipped.append(item["name"])
+            continue
+        if doc.mesh_stamp(uid) != item["stamp"]:
+            skipped.append(obj.name)
+            continue
+        mesh = meshes.get(uid)
+        if mesh is None:
+            continue
+        doc.set_mesh(uid, mesh, keep_generator=True)
+        applied.append(obj.name)
+    doc.history.collapse_since(mark)
+    top = doc.history.top
+    if top is not None and doc.history.head != head:
+        top.label = "Smart Unwrap"
+    _blender_op_report(ctx, "Unwrapped", applied, skipped)
+
+
+def _blender_bake_material(data: bytes | None) -> Any:
+    """The one baked material :func:`~.blender_worker.op_clay_bake` wrote
+    into the low object's own GLB, or ``None`` if there is nothing to read."""
+    if not data:
+        return None
+    from ....kernels.geom3d import gltf as gltf_mod
+
+    model = gltf_mod.load(data)
+    for node in model.nodes:
+        if node.mesh is None:
+            continue
+        for prim in model.meshes[node.mesh]:
+            if prim.material is not None:
+                return prim.material
+    return None
+
+
+def _bake_apply(ctx: Any, doc: Any, result: Any) -> None:
+    """Fold a finished Bake Detail's result into the low object's material,
+    one undo step.
+
+    Unlike retopo/unwrap this touches no mesh at all -- the low object's
+    geometry is exactly what it was before the bake -- so what lands is a
+    single :meth:`~.document.ClayDoc.set_material`, replacing the palette
+    entry by identity (``replace(material, ...)``) rather than mutating one
+    in place, the same rule the section this closes states. Only the maps
+    Blender was actually asked to bake (``report["maps"]``) touch the
+    replacement's texture fields; an unrequested one keeps whatever the
+    palette entry already had. ``metallic_factor`` is the one field set
+    unconditionally -- ``op_clay_bake`` always reads it off the high side's
+    own materials and reports it, independent of which maps were chosen.
+    """
+    if not isinstance(result, dict):
+        return
+    if "error" in result:
+        ctx.toast(result["error"], "error")
+        return
+    meta = result.get("meta") or []
+    if not meta:
+        return
+    item = meta[0]
+    uid = item["uid"]
+    try:
+        obj = doc.by_uid(uid)
+    except KeyError:
+        ctx.toast(f"Skipped {item['name']}: it no longer exists.", "error")
+        return
+    if doc.mesh_stamp(uid) != item["stamp"]:
+        ctx.toast(f"Skipped {obj.name}: it changed while baking.", "error")
+        return
+    material = _blender_bake_material(result.get("glb_out"))
+    if material is None:
+        ctx.toast("Bake produced no material.", "error")
+        return
+    report = result.get("report") or {}
+    maps = report.get("maps") or []
+    fields: dict[str, Any] = {}
+    if "base_color" in maps:
+        fields["base_color"] = material.base_color
+        fields["base_color_factor"] = material.base_color_factor
+    if "roughness" in maps:
+        fields["metallic_roughness"] = material.metallic_roughness
+        fields["roughness_factor"] = material.roughness_factor
+    if "normal" in maps:
+        fields["normal"] = material.normal
+    if "metallic" in report:
+        fields["metallic_factor"] = float(report["metallic"])
+    index = int(obj.material)
+    mark = doc.history.mark()
+    head = doc.history.head
+    doc.set_material(index, replace(doc.materials[index], **fields))
+    doc.history.collapse_since(mark)
+    top = doc.history.top
+    if top is not None and doc.history.head != head:
+        top.label = "Bake Detail"
+    ctx.toast(f"Baked onto {obj.name}.")
+
+
+def retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
+    """Public door for :func:`_retopo_apply`, called by
+    ``clay_mode.on_task_done`` for a ``clay-bg`` result tagged
+    ``"kind": "retopo"``. See :func:`decimate_apply`'s own docstring for why
+    this file exposes one undecorated name per background op's ``apply``."""
+    _retopo_apply(ctx, doc, result)
+
+
+def unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
+    """Public door for :func:`_unwrap_apply`; see :func:`retopo_apply`."""
+    _unwrap_apply(ctx, doc, result)
+
+
+def bake_apply(ctx: Any, doc: Any, result: Any) -> None:
+    """Public door for :func:`_bake_apply`; see :func:`retopo_apply`."""
+    _bake_apply(ctx, doc, result)
+
+
+def _retopo(
+    ctx: Any,
+    doc: Any,
+    target_faces: float = 5000.0,
+    close_holes: float = 0.0,
+    seed: float = 0.0,
+    **_: Any,
+) -> bool:
+    """Send the selection's evaluated meshes to Blender for a quad
+    retopology, replacing each object's base mesh (generator frozen, modifier
+    stack kept -- ``set_mesh``'s own default). Object mode, every selected
+    object independently -- unlike bake-detail, retopo/unwrap have no notion
+    of "the target": every selected object gets its own result back.
+    """
+    from ....kernels.mesh.elements import OpError
+    from ....pipelines import clay_blender
+
+    ok, reason = clay_blender.available()
+    if not ok:
+        raise OpError(reason)
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
+    if not uids:
+        return False
+
+    glb, meta = _blender_multi_prepare(doc, uids)
+    if not meta:
+        raise OpError("Nothing to retopologize.")
+
+    work_kwargs = dict(
+        target_faces=int(target_faces),
+        close_holes=bool(close_holes),
+        seed=int(seed),
+        timeout=_blender_timeout(ctx),
+    )
+
+    if getattr(ctx, "inline", False):
+        # No frame/task-thread split to cross -- see decimate's own identical
+        # branch, the precedent this and the other two follow.
+        result = _retopo_work(glb, meta, **work_kwargs)
+        _retopo_apply(ctx, doc, result)
+        return True
+
+    tab = _tab_for(ctx, doc)
+    if tab is None:
+        raise OpError("Retopologize needs an open document tab.")
+    submitted = ctx.submit(f"clay-bg:{tab.uid}", _retopo_work, glb, meta, **work_kwargs)
+    if not submitted:
+        raise OpError("A background Blender op is already running for this document.")
+    tab.bg_busy = "Retopologizing..."
+    return True
+
+
+def _smart_unwrap(
+    ctx: Any,
+    doc: Any,
+    angle_limit: float = 66.0,
+    island_margin: float = 0.003,
+    **_: Any,
+) -> bool:
+    """Smart-UV-Project the selection in Blender. UVs only -- keeps the
+    generator (``set_mesh(..., keep_generator=True)``), the way Box Unwrap
+    already does, since an unwrap changes no geometry."""
+    from ....kernels.mesh.elements import OpError
+    from ....pipelines import clay_blender
+
+    ok, reason = clay_blender.available()
+    if not ok:
+        raise OpError(reason)
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
+    if not uids:
+        return False
+
+    glb, meta = _blender_multi_prepare(doc, uids)
+    if not meta:
+        raise OpError("Nothing to unwrap.")
+
+    work_kwargs = dict(
+        angle_limit=float(angle_limit),
+        island_margin=float(island_margin),
+        timeout=_blender_timeout(ctx),
+    )
+
+    if getattr(ctx, "inline", False):
+        result = _unwrap_work(glb, meta, **work_kwargs)
+        _unwrap_apply(ctx, doc, result)
+        return True
+
+    tab = _tab_for(ctx, doc)
+    if tab is None:
+        raise OpError("Smart Unwrap needs an open document tab.")
+    submitted = ctx.submit(f"clay-bg:{tab.uid}", _unwrap_work, glb, meta, **work_kwargs)
+    if not submitted:
+        raise OpError("A background Blender op is already running for this document.")
+    tab.bg_busy = "Unwrapping..."
+    return True
+
+
+def _bake_detail(
+    ctx: Any,
+    doc: Any,
+    texture_size: float = 2.0,
+    cage_extrusion: float = 0.02,
+    bake_base_color: float = 1.0,
+    bake_roughness: float = 1.0,
+    bake_normal: float = 1.0,
+    **_: Any,
+) -> bool:
+    """Bake every other selected, visible object onto the *topmost* selected
+    one in the outliner.
+
+    Clay has no notion of an "active object" the way Blender does, so the low
+    (target) object is picked by document order -- the identical
+    "topmost selected is the target" rule :func:`_join`/:func:`_union`
+    already use for their own merge target, for the identical reason: a
+    selection is a set with no order of its own, and document order is the
+    one ordering a user can actually see (the outliner). Every other
+    selected, visible object is a high source. The target must already carry
+    UVs (Smart Unwrap first, or its own generator's) -- refused by
+    ``clay_blender.bake_bytes`` itself, by name, rather than baking a blank
+    atlas.
+    """
+    from ....kernels.mesh.elements import OpError
+    from ....kernels.rig import blender_spec
+    from ....pipelines import clay_blender
+
+    ok, reason = clay_blender.available()
+    if not ok:
+        raise OpError(reason)
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    if len(uids) < 2:
+        return False
+    low_uid, high_uids = uids[0], uids[1:]
+
+    maps = [
+        name
+        for name, flag in (
+            ("base_color", bake_base_color),
+            ("roughness", bake_roughness),
+            ("normal", bake_normal),
+        )
+        if flag
+    ]
+    if not maps:
+        raise OpError("Choose at least one map to bake.")
+
+    high_glb, high_meta = _blender_multi_prepare(doc, high_uids)
+    low_glb, low_meta = _blender_multi_prepare(doc, [low_uid])
+    if not high_meta or not low_meta:
+        raise OpError("Nothing to bake.")
+
+    sizes = blender_spec.CLAY_TEXTURE_SIZES
+    work_kwargs = dict(
+        texture_size=int(sizes[int(texture_size)]),
+        cage_extrusion=float(cage_extrusion),
+        maps=maps,
+        timeout=_blender_timeout(ctx),
+    )
+
+    if getattr(ctx, "inline", False):
+        result = _bake_work(high_glb, low_glb, low_meta, **work_kwargs)
+        _bake_apply(ctx, doc, result)
+        return True
+
+    tab = _tab_for(ctx, doc)
+    if tab is None:
+        raise OpError("Bake Detail needs an open document tab.")
+    submitted = ctx.submit(
+        f"clay-bg:{tab.uid}", _bake_work, high_glb, low_glb, low_meta, **work_kwargs
+    )
+    if not submitted:
+        raise OpError("A background Blender op is already running for this document.")
+    tab.bg_busy = "Baking..."
+    return True
+
+
+# --- tranche 5: modelling breadth --------------------------------------------
+#
+# ``dev/CLAY-PLAN.md`` tranche 5. ``kernels.mesh.ops_model`` and
+# ``kernels.mesh.ops_spin`` are the kernel half; what belongs here is the
+# registry wiring -- which selection each row reads, which of its numbers
+# becomes a ``Param``, and the handful (bisect, knife, spin, screw,
+# symmetrize) whose kernel signature takes a point, a vector or a choice the
+# kernel reads by sign rather than by index, none of which ``_element`` can
+# forward as-is. Every selection-taking op that needs nothing else still goes
+# through ``_element`` exactly like Bevel/Loop Cut/Weld above.
+
+
+def _bisect(
+    ctx: Any, doc: Any, axis: float = 0.0, clear: float = 0.0, fill: float = 0.0, **_: Any
+) -> bool:
+    """Cut the selected faces with a plane through the object's own local
+    origin, normal to the chosen axis.
+
+    ``ops_model.bisect``'s own ``point``/``normal`` are not numbers a
+    ``Param`` dialog can offer -- ``Param`` is scalar by design (see its own
+    docstring) -- so this always cuts through the object's own local origin,
+    the same "no third number, move the object instead" trade
+    ``array-radial``'s own docstring documents for its world-origin hub, here
+    the *local* origin because ``ops_model.bisect`` works in the object's own
+    space (``_element``'s own contract, with no ``doc.world_matrix`` in
+    reach). Knife is the row for an arbitrary plane, drawn as a line in the
+    viewport rather than dialled in.
+
+    ``clear``'s three choices are the kernel's own values (0 keep both, 1
+    remove the negative side, 2 remove the positive), forwarded by index
+    exactly as ``array-radial``'s own ``axis`` already is -- unlike
+    :func:`_symmetrize`'s ``direction`` below, nothing here needs translating.
+    """
+    from ....kernels.mesh import ops_model
+
+    normal = [0.0, 0.0, 0.0]
+    normal[int(axis)] = 1.0
+    return run_mesh_op(
+        ctx,
+        doc,
+        ops_model.bisect,
+        point=(0.0, 0.0, 0.0),
+        normal=tuple(normal),
+        clear=int(clear),
+        fill=bool(fill),
+    )
+
+
+def _knife(ctx: Any, doc: Any, point: Any = None, normal: Any = None, **_: Any) -> bool:
+    """Arms the viewport's click-drag knife gesture, or -- once it has drawn
+    a line -- commits the cut it defines.
+
+    ``ops_model.knife`` needs a real point and normal, which neither a bare
+    context-menu row nor a tools-pane button can supply: a zero-``Param`` op
+    fires as ``clay_ops.run(ctx, doc, op)``, no other keyword at all
+    (``ui/panes/tools.py`` and ``ui/panes/menu.py``'s identical shape, and
+    ``clay_mode._registry_key``'s for the keyboard path -- this row
+    deliberately carries no ``key`` for exactly that reason: firing it bare
+    has no sane default the way Extrude's "zero offset, then drag" does,
+    since there is no sane default *plane*). So firing it bare **arms** the
+    viewport instead: ``ctx.clay_view`` is the live ``ClayView``, reached the
+    same way every other keyboard-adjacent door in this mode already does
+    (``clay_mode.handle_key``'s own ``getattr(ctx, "clay_view", None)``),
+    and ``ClayView.begin_knife`` (``ui/_view_drag.py``) puts it into the
+    gesture. The *next* press-drag-release draws the line and calls back in
+    here with a real plane, so a cut still gets ``run``'s one-step-undo fold
+    like every other op -- and a caller with no ``clay_view`` at all (every
+    test double in ``test_clay_ops.py``, and a headless script driving Clay
+    with no window) gets the plain refusal this row has always raised,
+    :class:`~.kernels.mesh.elements.OpError`, caught and toasted where every
+    other refusal in this registry is.
+
+    **``point``/``normal`` are world space, not local** -- the plane through
+    the drag line and the camera's forward direction, per the tranche 5
+    integration spec -- and are converted into each selected object's own
+    local frame here, not by the caller. ``ops_model.knife`` (like
+    ``ops_model.bisect``) works in local space, exactly the contract
+    ``_bisect`` and ``_element`` already depend on, so this cannot simply
+    forward one ``point``/``normal`` pair to :func:`run_mesh_op` the way
+    every other selection-taking row does: two objects rarely share a local
+    frame, and with parenting landed (tranche 3) they may not even share a
+    parent's. The conversion uses ``doc.world_matrix(uid)`` -- never a
+    hand-composed TRS, the rule every parented write in this file follows --
+    but *not* the same way for both halves of the plane: ``point`` is an
+    ordinary position and converts by the matrix's plain inverse, while
+    ``normal`` is a covector and converts by the **transpose of the forward
+    matrix's linear 3x3**. The two agree only when the object carries no
+    non-uniform scale, which is why a hand-rolled ``inverse @ normal`` would
+    look right on every rotated, uniformly-scaled test object and quietly
+    tilt the cut the day someone stretches one axis.
+
+    **Every object with a face selection is cut by the same world plane.**
+    The honest reading of "several objects have faces selected" when only
+    one line was drawn: the plane the user drew is one plane in the world
+    they are looking at, not one per object, so each object's own local
+    version of that single world plane is what cuts it -- matching
+    ``_union``/``_join``/``_apply_deltas``'s own "every input's own world
+    matrix" rule for the identical reason. The op's own hint says so.
+    """
+    from ....kernels.mesh import ops_model
+    from ....kernels.mesh.elements import OpError
+
+    if point is None or normal is None:
+        view = getattr(ctx, "clay_view", None)
+        begin = getattr(view, "begin_knife", None)
+        if begin is not None and begin(doc):
+            return False
+        raise OpError("Draw a knife cut across the selected faces first.")
+
+    world_point = np.asarray(point, dtype="f8")
+    world_normal = np.asarray(normal, dtype="f8")
+    ran = False
+    for uid in list(doc.element_sel):
+        try:
+            obj = doc.by_uid(uid)
+        except KeyError:
+            continue
+        world = np.asarray(doc.world_matrix(uid), dtype="f8")
+        try:
+            inverse = np.linalg.inv(world)
+        except np.linalg.LinAlgError:
+            continue
+        local_point = (inverse @ np.append(world_point, 1.0))[:3]
+        # The forward matrix's own linear part, transposed -- not
+        # ``inverse``'s -- per this function's own docstring on why a plane
+        # normal is not a point.
+        local_normal = world[:3, :3].T @ world_normal
+        length = float(np.linalg.norm(local_normal))
+        if length < 1e-12:
+            continue
+        local_normal = local_normal / length
+        try:
+            mesh, sel = ops_model.knife(
+                obj.mesh, doc.element_sel_of(uid), point=local_point, normal=local_normal
+            )
+        except OpError as error:
+            toast(ctx, str(error))
+            continue
+        doc.set_mesh(uid, mesh, select=sel)
+        ran = True
+    return ran
+
+
+def _spin(
+    ctx: Any, doc: Any, axis: float = 1.0, angle: float = 360.0, steps: float = 8.0, **_: Any
+) -> bool:
+    """Lathe the selected edge profile (a chain or a loop) about the object's
+    own local origin.
+
+    ``center`` is ``ops_spin.spin``'s own point and not a dial, for the
+    identical reason :func:`_bisect`'s plane is not one: always the object's
+    own local origin, the same "no third number" trade ``array-radial``
+    documents for its own hub.
+    """
+    from ....kernels.mesh import ops_spin
+
+    return run_mesh_op(
+        ctx,
+        doc,
+        ops_spin.spin,
+        axis=int(axis),
+        angle=float(angle),
+        steps=int(steps),
+        center=(0.0, 0.0, 0.0),
+    )
+
+
+def _screw(
+    ctx: Any,
+    doc: Any,
+    axis: float = 1.0,
+    angle: float = 360.0,
+    steps: float = 8.0,
+    height: float = 1.0,
+    **_: Any,
+) -> bool:
+    """:func:`_spin`'s identical shape, plus the per-step lift along ``axis``
+    that turns a lathe into a helix -- ``ops_spin.screw``'s own docstring:
+    even a whole-turn ``angle`` never closes the seam. Same local-origin
+    ``center``, same reason.
+    """
+    from ....kernels.mesh import ops_spin
+
+    return run_mesh_op(
+        ctx,
+        doc,
+        ops_spin.screw,
+        axis=int(axis),
+        angle=float(angle),
+        steps=int(steps),
+        height=float(height),
+        center=(0.0, 0.0, 0.0),
+    )
+
+
+def _symmetrize(ctx: Any, doc: Any, axis: float = 1.0, direction: float = 1.0, **_: Any) -> None:
+    """Symmetrize every selected object across its own local plane, whatever
+    the element mode.
+
+    **Ignores the element selection, like Smooth** (:func:`_smooth`'s
+    identical shape: whole objects, ``run_object_op``, not ``run_mesh_op``) --
+    ``ops_model.symmetrize`` states its own reason: a delete-then-mirror pass
+    means the whole object or it means nothing, the same way a smoothing
+    subdivision cannot move only some of a surface's vertices without tearing
+    it.
+
+    **``direction`` is a choice, not the kernel's own signed float.** A
+    choice ``Param``'s stored value is always ``0..len(choices) - 1`` (the
+    dataclass's own constraint), so ``0`` cannot mean "the negative side" the
+    way ``ops_model.symmetrize``'s own ``direction >= 0`` test reads it --
+    unlike :func:`_bisect`'s ``clear``, whose three kernel values already
+    start at 0 and forward unchanged, this one needs translating.
+    """
+    from ....kernels.mesh import elements as el
+    from ....kernels.mesh import ops_model
+
+    axis_i = int(axis)
+    direction_v = -1.0 if int(direction) == 0 else 1.0
+
+    def one(doc: Any, obj: Any) -> None:
+        mesh, sel = ops_model.symmetrize(obj.mesh, el.empty(), axis=axis_i, direction=direction_v)
+        doc.set_mesh(obj.uid, mesh, select=sel)
 
     run_object_op(ctx, doc, one)
 
@@ -1344,6 +3190,248 @@ def _verb_boundary(mesh: Any, sel: Any, mode: str) -> Any:
 # wrappers above for the only callers.
 
 
+# --- tranche 6: UV (seams, unwrap-by-seams, pack, texel density) ------------
+#
+# ``dev/CLAY-PLAN.md`` tranche 6's integration half. ``kernels.mesh.uvtools``
+# and ``kernels.mesh.uvunwrap`` are the kernel half; what belongs here is the
+# same wiring tranche 5's own section states -- which selection or object set
+# each row reads, which of its numbers becomes a ``Param``, and the refusal
+# each row inherits verbatim from the kernel it calls rather than writing its
+# own sentence.
+
+
+def _seam_op(mark: bool) -> Callable[..., bool]:
+    """Mark/Clear Seam -- edge mode's own doors onto ``Obj.seams``.
+
+    Reads each selected object's own edge selection (``doc.element_sel_of``,
+    already the canonical vertex pairs :meth:`~.document.ClayDoc.set_seams`
+    wants -- see ``elements.ElementSel``'s own docstring) and folds it into,
+    or out of, that object's seam set through ``set_seams`` -- one call per
+    object, one step overall (``run``'s own ``collapse_since``). An object
+    with edge mode active but nothing picked in it is never handed to ``one``
+    at all: ``doc.selection`` in edge mode is exactly the uids with a
+    non-empty ``element_sel`` (the document module's own invariant), which is
+    what ``run_object_op`` iterates.
+    """
+
+    def run(ctx: Any, doc: Any, **_: Any) -> bool:
+        def one(doc: Any, obj: Any) -> None:
+            picked = {(int(a), int(b)) for a, b in doc.element_sel_of(obj.uid).edges.tolist()}
+            if not picked:
+                return
+            current = set(obj.seams)
+            wanted = current | picked if mark else current - picked
+            doc.set_seams(obj.uid, wanted)
+
+        return run_object_op(ctx, doc, one)
+
+    return run
+
+
+def _unwrap_seams(ctx: Any, doc: Any, **_: Any) -> bool:
+    """"Unwrap (Seams)" -- LSCM by whatever seams each selected object
+    carries, keeping the generator (a uv is not geometry, exactly the reason
+    Box Unwrap and Smart Unwrap both already state for their own rows).
+
+    Whole objects, not the element selection -- ``uvunwrap.unwrap_lscm``
+    reads ``Obj.seams`` itself, a property of the *object*, not of whatever
+    happens to be picked right now. Refuses with the kernel's own sentence
+    ("A closed surface cannot be flattened with no seam...") through the
+    ``OpError`` ``run_object_op`` already catches and toasts -- no refusal
+    text of this row's own, because the kernel already names exactly what is
+    wrong and what to do about it.
+    """
+    from ....kernels.mesh import uvunwrap
+
+    def one(doc: Any, obj: Any) -> None:
+        mesh = uvunwrap.unwrap_lscm(obj.mesh, obj.seams)
+        doc.set_mesh(obj.uid, mesh, keep_generator=True)
+
+    return run_object_op(ctx, doc, one)
+
+
+def _pack_uv(ctx: Any, doc: Any, margin: float = 0.005, rotate: float = 0.0, **_: Any) -> bool:
+    """"Pack UV Islands" -- ``uvtools.pack_islands`` over every selected
+    object's own uv, keeping the generator. Refuses (the kernel's own
+    sentence) an object with no uv at all -- unwrap it first.
+    """
+    from ....kernels.mesh import uvtools
+
+    def one(doc: Any, obj: Any) -> None:
+        packed = uvtools.pack_islands(obj.mesh, margin=float(margin), rotate=bool(rotate))
+        doc.set_mesh(obj.uid, packed, keep_generator=True)
+
+    return run_object_op(ctx, doc, one)
+
+
+def _texel_density(
+    ctx: Any, doc: Any, target: float = 1024.0, texture_size: float = 2.0, **_: Any
+) -> bool:
+    """"Normalise Texel Density" -- ``uvtools.normalize_density`` scales every
+    island so it reads *target* pixels per metre on a *texture_size*-square
+    texture, keeping the generator. ``texture_size``'s choices are Bake
+    Detail's own ``blender_spec.CLAY_TEXTURE_SIZES`` -- the one list of
+    "texture sizes Clay offers", not a second one for this row to drift from.
+    """
+    from ....kernels.mesh import uvtools
+    from ....kernels.rig import blender_spec
+
+    def one(doc: Any, obj: Any) -> None:
+        texture_px = blender_spec.CLAY_TEXTURE_SIZES[int(texture_size)]
+        normalized = uvtools.normalize_density(obj.mesh, float(target), texture_px=texture_px)
+        doc.set_mesh(obj.uid, normalized, keep_generator=True)
+
+    return run_object_op(ctx, doc, one)
+
+
+# --- tranche 7: colliders -----------------------------------------------------
+#
+# ``dev/CLAY-PLAN.md`` tranche 7's integration half. ``kernels.mesh.colliders``
+# is the kernel half; one row per ``COLLIDER_KINDS`` entry, built by looping
+# the registry rather than five hand-written ``register`` calls -- that
+# module's own docstring says a sixth kind should need nothing here, and the
+# only way that sentence stays true is if the row list is rebuilt from the
+# dict every time :func:`_register_collider_ops` runs rather than snapshotted
+# once and written out below.
+
+
+def _collider_params(defaults: dict[str, Any]) -> tuple[Param, ...]:
+    """One ``Param`` per keyword default a ``COLLIDER_KINDS`` fit function
+    takes: a ``bool`` default is a checkbox, an ``int`` default is a whole
+    number (``max_faces``'s own floor of 4 is the smallest hull --
+    a tetrahedron -- :func:`~.colliders.convex_hull` can return). Sphere and
+    capsule take neither and get ``params=()`` -- a bare-action row, the same
+    "no dialog for a zero-parameter op" rule Box Unwrap already follows.
+    """
+    params: list[Param] = []
+    for name, value in defaults.items():
+        label = name.replace("_", " ")
+        if isinstance(value, bool):
+            params.append(
+                Param(name, label, 1.0 if value else 0.0, 1.0, low=0.0, high=1.0, boolean=True)
+            )
+        elif isinstance(value, int):
+            params.append(
+                Param(name, label, float(value), 1.0, low=4.0, high=1024.0, integer=True)
+            )
+        else:
+            params.append(Param(name, label, float(value), 0.01, low=0.0))
+    return tuple(params)
+
+
+def _collider_kwargs(defaults: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """*params* (``run``'s already-clamped floats) narrowed back to the type
+    each default actually is, so a checkbox reads as ``bool`` and a whole
+    number as ``int`` -- exactly what :func:`_collider_params` built the
+    widget to promise, and what the fit functions' own signatures declare."""
+    kwargs: dict[str, Any] = {}
+    for name, default in defaults.items():
+        if name not in params:
+            continue
+        value = params[name]
+        if isinstance(default, bool):
+            kwargs[name] = bool(value)
+        elif isinstance(default, int):
+            kwargs[name] = int(value)
+        else:
+            kwargs[name] = float(value)
+    return kwargs
+
+
+def _collider_op(kind: str) -> Callable[..., bool]:
+    """Fit *kind* against every selected object's **evaluated** mesh and add
+    one collider child per source through :meth:`~.document.ClayDoc.
+    add_collider`, all as one step (``run``'s own ``collapse_since`` folds
+    the per-object pushes, the same way every other multi-object row in this
+    file folds its own per-object loop). Leaves the sources selected --
+    neither ``doc.evaluated`` nor ``add_collider`` touches ``doc.selection``.
+
+    *kind* is looked up in ``COLLIDER_KINDS`` fresh on every call rather than
+    closed over as a fit function directly, so a row still calls the right
+    fit if the dict it names was replaced (a monkeypatched test double) after
+    this closure was built.
+    """
+
+    def run(ctx: Any, doc: Any, **params: Any) -> bool:
+        from ....kernels.mesh import colliders as colliders_mod
+        from ....kernels.mesh.elements import OpError
+
+        _label, fit, defaults = colliders_mod.COLLIDER_KINDS[kind]
+        kwargs = _collider_kwargs(defaults, params)
+
+        ran = False
+        for uid in list(doc.selection):
+            try:
+                doc.by_uid(uid)  # tolerate one deleted since the snapshot above
+            except KeyError:
+                continue
+            try:
+                mesh = doc.evaluated(uid)
+                collider = fit(mesh, **kwargs)
+            except OpError as error:
+                toast(ctx, str(error))
+                continue
+            doc.add_collider(uid, collider)
+            ran = True
+        return ran
+
+    return run
+
+
+def _register_collider_ops() -> None:
+    """Register one row per :data:`~.colliders.COLLIDER_KINDS` entry -- see
+    this section's own header comment for why this is a loop and not five
+    ``register`` calls.
+
+    **The label is the registry's own, verbatim -- no "Collider" appended**,
+    plus "..." exactly when the kind takes parameters, the same
+    ``test_label_conventions.py::test_a_clay_op_that_opens_a_dialog_says_so``
+    rule every other parameterised row in this file follows: a label ending
+    "..." is the one signal a reader gets that pressing it opens a dialog
+    rather than running immediately. Box, Convex Hull and Compound take one
+    (``oriented``, ``max_faces`` -- see :func:`_collider_params`); Sphere and
+    capsule take none and stay bare-action rows.
+
+    The suffix is added **here, not on ``COLLIDER_KINDS`` itself** --
+    ``colliders.COLLIDER_KINDS[kind][0]`` is also what
+    :meth:`~.document.ClayDoc.add_collider` names the new child object with
+    and what the agent surface's tool schema describes a kind by
+    (``agent/schema.py``), and "..." means "opens a dialog" in neither of
+    those places -- an object named "Barrel Box..." or a tool description
+    ending in it would be the ellipsis leaking into a context it says nothing
+    true about.
+
+    "Convex Hull Collider" measures past the tools pane's own longest label
+    ("Bake Transform") at the 190/240 dp widths
+    ``test_clay_tools_panels.py`` pins, the exact incident that test's own
+    docstring already names once; every ``COLLIDER_KINDS`` label -- with or
+    without the "..." this adds -- is short enough alone, and ``Op.hint``
+    (below) is where "this adds a collision proxy" actually gets said.
+    """
+    from ....kernels.mesh import colliders as colliders_mod
+
+    for kind, (label, _fit, defaults) in colliders_mod.COLLIDER_KINDS.items():
+        register(
+            Op(
+                name=f"collider-{kind}",
+                label=f"{label}..." if defaults else label,
+                modes=("object",),
+                run=_collider_op(kind),
+                enabled=has_objects,
+                reason=_has_objects_reason,
+                # First collider row only: the same "separator ahead of a
+                # new group" convention Duplicate and Shade Smooth already
+                # use, not something per-kind to get out of sync.
+                separator_before=kind == next(iter(colliders_mod.COLLIDER_KINDS)),
+                hint="Fits a collision proxy to the selected objects' "
+                "evaluated meshes and adds it as a translucent, unshaded "
+                "child of each source -- never in place of the source's own "
+                "mesh.",
+                params=_collider_params(defaults),
+            )
+        )
+
+
 def _register_defaults() -> None:
     """Build the registry once, at import.
 
@@ -1494,6 +3582,98 @@ def _register_defaults() -> None:
             reason=_has_objects_reason,
         )
     )
+    # Tranche 6: seams and the rows built on them -- see that section's own
+    # header comment, just above ``_register_defaults``. ``blender_spec`` is
+    # imported here, ahead of tranche 4's own import below, because
+    # ``texel-density``'s texture-size choices reuse ``CLAY_TEXTURE_SIZES``
+    # and this block registers first.
+    from ....kernels.rig import blender_spec
+
+    register(
+        Op(
+            name="mark-seam",
+            label="Mark Seam",
+            modes=("edge",),
+            run=_seam_op(True),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            hint="Adds the selected edges to this object's seam set -- where "
+            "Unwrap (Seams) will cut.",
+        )
+    )
+    register(
+        Op(
+            name="clear-seam",
+            label="Clear Seam",
+            modes=("edge",),
+            run=_seam_op(False),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            hint="Removes the selected edges from this object's seam set.",
+        )
+    )
+    register(
+        Op(
+            # Not "Unwrap (Seams)": at 98px that string ties the tools
+            # pane's own longest label ("Bake Transform") exactly, leaving no
+            # margin at the 190/240 dp widths ``test_clay_tools_panels.py``
+            # pins -- see that test's own docstring for the incident a
+            # too-long label already caused here once.
+            name="unwrap-seams",
+            label="Unwrap Seams",
+            modes=("object",),
+            run=_unwrap_seams,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Flattens each selected object by its own marked seams "
+            "(LSCM, angle-preserving). Keeps the generator -- a uv is not "
+            "geometry. Refuses a closed surface with no seam to cut it open.",
+        )
+    )
+    register(
+        Op(
+            name="pack-uv",
+            label="Pack Islands...",
+            modes=("object",),
+            run=_pack_uv,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Repacks every selected object's uv islands into the unit "
+            "square, preserving their relative scale. Needs a uv already -- "
+            "unwrap first.",
+            params=(
+                Param("margin", "margin", 0.005, 0.001, low=0.0, high=0.5),
+                Param(
+                    "rotate", "rotate islands", 0.0, 1.0, low=0.0, high=1.0, boolean=True,
+                ),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="texel-density",
+            label="Texel Density...",
+            modes=("object",),
+            run=_texel_density,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Scales every selected object's uv islands so each one "
+            "reads the target pixels-per-metre on the chosen texture size. "
+            "Needs a uv already -- unwrap first.",
+            params=(
+                Param("target", "target (px/m)", 1024.0, 64.0, low=1.0),
+                Param(
+                    "texture_size",
+                    "texture size",
+                    2.0,
+                    1.0,
+                    low=0.0,
+                    high=float(len(blender_spec.CLAY_TEXTURE_SIZES) - 1),
+                    choices=tuple(str(s) for s in blender_spec.CLAY_TEXTURE_SIZES),
+                ),
+            ),
+        )
+    )
     register(
         Op(
             name="bake",
@@ -1502,6 +3682,159 @@ def _register_defaults() -> None:
             run=_bake,
             enabled=has_objects,
             reason=_has_objects_reason,
+        )
+    )
+    register(
+        Op(
+            name="clean-mesh",
+            label="Clean Up...",
+            modes=("object",),
+            run=_clean_mesh,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Removes degenerate and duplicate faces, merges coincident "
+            "vertices and drops loose ones, then re-orients every shell "
+            "outward. A clean object is left untouched -- no toast, no step.",
+            params=(
+                Param(
+                    "distance", "merge distance (m)", 1e-5, 1e-5, low=1e-9,
+                    warn="Vertices closer than this are merged into one.",
+                ),
+                Param("fill_holes", "fill holes", 0.0, 1.0, low=0.0, high=1.0, boolean=True),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="recalc-normals",
+            label="Recalculate Normals",
+            modes=("object",),
+            run=_recalc_normals,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Makes every shell's winding agree with itself, then orients "
+            "each shell outward. Whole objects only -- winding is a fact "
+            "about a shell, not about a face selection.",
+        )
+    )
+    register(
+        Op(
+            name="apply-modifiers",
+            label="Apply Modifiers",
+            modes=("object",),
+            run=_apply_modifiers,
+            enabled=has_modifier_stack,
+            reason=_has_modifier_stack_reason,
+            hint="Bakes every selected object's modifier stack into its base "
+            "mesh, one step: what you saw is what you get, and the stack is "
+            "gone.",
+        )
+    )
+    register(
+        Op(
+            name="decimate",
+            label="Decimate...",
+            modes=("object",),
+            run=_decimate,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Triangulates the selection and reduces its triangle count "
+            "with gltfpack, keeping materials. Runs in the background -- the "
+            "object stays editable while it works, and the result is dropped "
+            "if the mesh changed before it landed.",
+            params=(
+                Param("ratio", "triangles kept", 0.5, 0.05, low=0.01, high=1.0),
+                Param(
+                    "keep_seams", "keep seams", 1.0, 1.0, low=0.0, high=1.0, boolean=True,
+                ),
+                Param("aggressive", "aggressive", 0.0, 1.0, low=0.0, high=1.0, boolean=True),
+            ),
+        )
+    )
+    # Tranche 4: the three Blender-backed ops, decimate's own background-op
+    # shape aimed at ``pipelines.clay_blender`` instead of gltfpack -- see
+    # that section's own docstring, just above ``_retopo``.
+    from ....kernels.rig import blender_spec
+
+    register(
+        Op(
+            name="retopo",
+            label="Retopologize...",
+            modes=("object",),
+            run=_retopo,
+            enabled=_blender_enabled,
+            reason=_blender_reason,
+            hint="Sends the selection's evaluated meshes to Blender for a "
+            "quad retopology, replacing each object's base mesh and keeping "
+            "its modifier stack. Spawns Blender -- seconds for a simple "
+            "prop, minutes for something dense -- and is greyed out when "
+            "Blender (the rig extra) is not installed.",
+            params=(
+                Param(
+                    "target_faces",
+                    "target faces",
+                    5000.0,
+                    100.0,
+                    low=float(blender_spec.CLAY_TARGET_FACES_MIN),
+                    high=float(blender_spec.CLAY_TARGET_FACES_MAX),
+                    integer=True,
+                ),
+                Param("close_holes", "close holes", 0.0, 1.0, low=0.0, high=1.0, boolean=True),
+                Param("seed", "seed", 0.0, 1.0, low=0.0, high=999_999.0, integer=True),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="smart-unwrap",
+            label="Smart Unwrap...",
+            modes=("object",),
+            run=_smart_unwrap,
+            enabled=_blender_enabled,
+            reason=_blender_reason,
+            hint="Smart-UV-Projects the selection in Blender -- UVs only, so "
+            "the generator is not frozen, the way Box Unwrap already works. "
+            "Spawns Blender and is greyed out when it is not installed.",
+            params=(
+                Param("angle_limit", "angle limit (deg)", 66.0, 1.0, low=1.0, high=89.0),
+                Param("island_margin", "island margin", 0.003, 0.001, low=0.0, high=0.5),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="bake-detail",
+            label="Bake Detail...",
+            modes=("object",),
+            run=_bake_detail,
+            enabled=_blender_bake_enabled,
+            reason=_blender_bake_reason,
+            hint="Bakes every other selected, visible object onto the "
+            "topmost one in the outliner -- Clay has no 'active object', so "
+            "document order picks the low-poly target, the same rule "
+            "Merge/Union Objects use for their own target. The target needs "
+            "UVs already (Smart Unwrap first); the result replaces its "
+            "material's textures, never in place. Spawns Blender and is "
+            "greyed out when it is not installed.",
+            params=(
+                Param(
+                    "texture_size",
+                    "texture size",
+                    2.0,
+                    1.0,
+                    low=0.0,
+                    high=float(len(blender_spec.CLAY_TEXTURE_SIZES) - 1),
+                    choices=tuple(str(s) for s in blender_spec.CLAY_TEXTURE_SIZES),
+                ),
+                Param("cage_extrusion", "cage extrusion (m)", 0.02, 0.005, low=0.0, high=1.0),
+                Param(
+                    "bake_base_color", "base colour", 1.0, 1.0, low=0.0, high=1.0, boolean=True,
+                ),
+                Param(
+                    "bake_roughness", "roughness", 1.0, 1.0, low=0.0, high=1.0, boolean=True,
+                ),
+                Param("bake_normal", "normal", 1.0, 1.0, low=0.0, high=1.0, boolean=True),
+            ),
         )
     )
     register(
@@ -1770,6 +4103,182 @@ def _register_defaults() -> None:
         )
     )
 
+    # Tranche 3: scene structure -- parenting and groups, separate, set
+    # origin, lock. See the section above (just before ``_forget_manifold``)
+    # for the shared door reasoning; what is here is only the registry rows.
+    register(
+        Op(
+            name="group",
+            label="Group Selected",
+            modes=("object",),
+            run=_group,
+            enabled=has_two_or_more_selected,
+            reason=_has_two_or_more_selected_reason,
+            hint="Makes a new, mesh-less object at the selection's combined "
+            "centre and parents the selection onto it -- Clay's one grouping "
+            "concept (see the manual's Outliner chapter).",
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="ungroup",
+            label="Ungroup",
+            modes=("object",),
+            run=_ungroup,
+            enabled=has_group_selected,
+            reason=_has_group_selected_reason,
+            hint="Releases a group's children back to its own parent, "
+            "keeping their world placement, and removes the empty.",
+        )
+    )
+    register(
+        Op(
+            name="parent-to-last",
+            # "Parent to Last Selected" is the full name the spec and the
+            # manual use; shortened here because it is the longest label in
+            # the object menu and does not fit even a one-column grid at the
+            # narrowest tested sidebar (190 dp) -- see
+            # ``test_no_action_button_is_narrower_than_its_own_label``.
+            label="Parent to Last",
+            modes=("object",),
+            run=_parent_to_last,
+            enabled=has_two_or_more_selected,
+            reason=_has_two_or_more_selected_reason,
+            hint="Parents every other selected object onto the topmost one "
+            "in the outliner, keeping world placement -- Clay has no "
+            "'active object', so document order stands in for it, the same "
+            "rule Merge/Union Objects use for their own target.",
+        )
+    )
+    register(
+        Op(
+            name="clear-parent",
+            label="Clear Parent",
+            modes=("object",),
+            run=_clear_parent,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Every selected object becomes a root, keeping its world "
+            "placement.",
+        )
+    )
+    register(
+        Op(
+            name="separate-loose",
+            # Same reasoning as "Parent to Last" above: "Separate by Loose
+            # Parts" is one pixel too wide for the narrowest tested sidebar.
+            label="Separate Loose Parts",
+            modes=("object",),
+            run=_separate_loose,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Splits each selected object into one new object per "
+            "connected shell, as one step: same transform, same parent, "
+            "same modifier stack, copied onto every piece.",
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="separate-material",
+            label="Separate by Material",
+            modes=("object",),
+            run=_separate_material,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Splits each selected object into one new object per "
+            "material slot it uses.",
+        )
+    )
+    register(
+        Op(
+            name="separate-selection",
+            label="Separate Selection",
+            modes=("face",),
+            run=_separate_selection,
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+            key="P",
+            hint="Splits the selected faces out into a new object, leaving "
+            "the rest behind.",
+        )
+    )
+    register(
+        Op(
+            name="origin-to-bounds",
+            label="Origin to Bounds",
+            modes=("object",),
+            run=_origin_to_bounds,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Moves each selected object's origin to its own world "
+            "box's centre. Geometry and children stay exactly where they "
+            "are -- only the pivot moves.",
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="origin-to-base",
+            label="Origin to Base",
+            modes=("object",),
+            run=_origin_to_base,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Moves each selected object's origin to its own world "
+            "box's bottom centre.",
+        )
+    )
+    register(
+        Op(
+            name="origin-to-selection",
+            label="Origin to Selection",
+            modes=ELEMENT_MODES,
+            run=_origin_to_selection,
+            enabled=has_elements,
+            reason=_has_elements_reason,
+            hint="Moves each selected object's origin to its own element "
+            "selection's centroid.",
+        )
+    )
+    register(
+        Op(
+            name="origin-to-world",
+            label="Origin to World",
+            modes=("object",),
+            run=_origin_to_world,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Moves each selected object's origin to the world origin.",
+        )
+    )
+    register(
+        Op(
+            name="lock",
+            label="Lock",
+            modes=("object",),
+            run=_lock,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Refuses geometry, transform and delete on the selection "
+            "until it is unlocked again. Renaming, visibility, tags and "
+            "unlocking stay allowed, or a mistake made while locked could "
+            "not be undone by anyone but the lock.",
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="unlock",
+            label="Unlock",
+            modes=("object",),
+            run=_unlock,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+        )
+    )
+
     register(
         Op(
             name="extrude",
@@ -1938,6 +4447,208 @@ def _register_defaults() -> None:
             reason=_in_mode_reason("face"),
         )
     )
+
+    # Tranche 5 (dev/CLAY-PLAN.md): modelling breadth. Selection-taking rows
+    # with nothing else to supply go through ``_element`` exactly like the
+    # face/edge rows above; the four with their own wrapper are documented in
+    # that wrapper's own docstring, just above ``_shade``.
+    register(
+        Op(
+            name="bisect",
+            label="Bisect...",
+            modes=("face",),
+            run=_bisect,
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+            separator_before=True,
+            hint="Cuts the selected faces with a plane through the object's "
+            "own local origin, normal to the chosen axis. For an arbitrary "
+            "plane, draw one with Knife instead.",
+            params=(
+                Param("axis", "axis", 0.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
+                Param(
+                    "clear", "clear", 0.0, 1.0, low=0.0, high=2.0,
+                    choices=("Keep Both", "Remove -", "Remove +"),
+                ),
+                Param("fill", "fill the cut", 0.0, 1.0, low=0.0, high=1.0, boolean=True),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="knife",
+            label="Knife",
+            modes=("face",),
+            run=_knife,
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+            hint="Draws a line across the selected faces in the viewport; "
+            "the cut follows the drag line and the view direction. With "
+            "faces selected on more than one object, every one is cut by "
+            "the same plane. Firing this row arms the gesture -- press, "
+            "drag a line and release to cut, or Esc or a right-click to "
+            "cancel.",
+        )
+    )
+    register(
+        Op(
+            name="edge-slide",
+            label="Edge Slide...",
+            modes=("edge",),
+            run=_element("ops_model.edge_slide"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            hint="Slides the selected edge loop along its own two rails, -1 "
+            "to +1 between them; 0 leaves it where it is.",
+            params=(Param("t", "position", 0.0, 0.05, low=-1.0, high=1.0),),
+        )
+    )
+    register(
+        Op(
+            name="vertex-slide",
+            label="Vertex Slide...",
+            modes=("vertex",),
+            run=_element("ops_model.vertex_slide"),
+            enabled=in_mode("vertex"),
+            reason=_in_mode_reason("vertex"),
+            hint="Slides the selected vertices toward their nearest-index "
+            "neighbour; 1 reaches it exactly, and a value outside 0..1 "
+            "overshoots past it.",
+            params=(Param("t", "amount", 0.0, 0.05, low=-1e6),),
+        )
+    )
+    register(
+        Op(
+            name="rip",
+            label="Rip",
+            modes=("edge",),
+            run=_element("ops_model.rip"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            key="V",
+            hint="Splits every vertex the selected edges touch, so the "
+            "faces on each side stop sharing it. Refuses a boundary edge -- "
+            "there is only one face there, nothing to separate.",
+        )
+    )
+    register(
+        Op(
+            name="poke",
+            label="Poke Faces...",
+            modes=("face",),
+            run=_element("ops_model.poke"),
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+            hint="Fans each selected face into triangles around a new "
+            "centre vertex, pushed along the face normal by the offset -- "
+            "zero changes topology only, the same 'extrude at zero, then "
+            "drag' default Extrude uses.",
+            params=(Param("offset", "offset (m)", 0.0, 0.01, low=-1e6),),
+        )
+    )
+    register(
+        Op(
+            name="triangulate",
+            label="Triangulate Faces",
+            modes=("face",),
+            run=_element("ops_model.triangulate_faces"),
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+            key="T",
+            hint="Replaces the selected faces (or every face, with none "
+            "selected) with their own triangles.",
+        )
+    )
+    register(
+        Op(
+            name="tris-to-quads",
+            label="Tris to Quads...",
+            modes=("face",),
+            run=_element("ops_model.tris_to_quads"),
+            enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
+            hint="Greedily joins adjacent selected triangle pairs into "
+            "quads wherever the dihedral angle between them is within the "
+            "limit and the merged quad stays convex.",
+            params=(Param("max_angle", "max angle (deg)", 40.0, 1.0, low=0.0, high=180.0),),
+        )
+    )
+    register(
+        Op(
+            name="grid-fill",
+            label="Grid Fill...",
+            # ``ops_model.grid_fill`` reads ``sel.edges`` -- the selected
+            # boundary loop -- exactly as Fill Hole above does, not
+            # ``sel.faces``; edge mode is what puts anything in that
+            # selection for it to read, so this sits with edge mode's rows
+            # rather than face mode's despite the "fill" in its name.
+            modes=("edge",),
+            run=_element("ops_model.grid_fill"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            hint="Fills the selected closed boundary loop with a grid of "
+            "quads, span columns wide -- the loop needs an even vertex "
+            "count to split evenly into two matching sides.",
+            params=(Param("span", "span", 1.0, 1.0, low=1.0, high=256.0, integer=True),),
+        )
+    )
+    register(
+        Op(
+            name="spin",
+            label="Spin...",
+            modes=("edge",),
+            run=_spin,
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            hint="Lathes the selected edge profile (a chain or a loop) "
+            "around the object's own local origin. A full turn closes the "
+            "ring; any other sweep leaves both ends open.",
+            params=(
+                Param("axis", "axis", 1.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
+                Param("angle", "sweep (deg)", 360.0, 5.0, low=-1e6),
+                Param("steps", "steps", 8.0, 1.0, low=1.0, high=256.0, integer=True),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="screw",
+            label="Screw...",
+            modes=("edge",),
+            run=_screw,
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            hint="Spin's own lathe, plus a per-step lift along the axis -- "
+            "a helix, and the seam never closes even at a full turn.",
+            params=(
+                Param("axis", "axis", 1.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
+                Param("angle", "sweep (deg)", 360.0, 5.0, low=-1e6),
+                Param("steps", "steps", 8.0, 1.0, low=1.0, high=256.0, integer=True),
+                Param("height", "height (m)", 1.0, 0.05, low=-1e6),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="symmetrize",
+            label="Symmetrize...",
+            modes=("object",),
+            run=_symmetrize,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Deletes the chosen half of each selected object across "
+            "its own local plane and mirrors what remains to rebuild the "
+            "other side -- ignores the element selection, like Smooth.",
+            params=(
+                Param("axis", "axis", 1.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
+                Param("direction", "keep side", 1.0, 1.0, low=0.0, high=1.0, choices=("-", "+")),
+            ),
+        )
+    )
+    # Tranche 7: one row per ``colliders.COLLIDER_KINDS`` entry -- see
+    # ``_register_collider_ops``'s own docstring, just above.
+    _register_collider_ops()
+
     register(
         Op(
             name="smooth",

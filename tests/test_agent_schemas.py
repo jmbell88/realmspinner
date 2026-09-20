@@ -1,7 +1,7 @@
 """What Clay's agent tool schemas declare, and whether the handler behind
 each one actually enforces it.
 
-Every one of the 28 tools :func:`agent_clay.tools` publishes carries a real
+Every one of the 29 tools :func:`agent_clay.tools` publishes carries a real
 JSON Schema -- ``type``, ``enum``, ``minimum``/``maximum``, ``minItems``/
 ``maxItems``, ``required``, ``additionalProperties``, ``anyOf``,
 ``exclusiveMinimum``. **Nothing validates any of it at the door.**
@@ -35,7 +35,7 @@ here with nobody having to remember to extend a list for it.
 ``additionalProperties``, ``properties``, ``items``, ``required``,
 ``minItems``, ``enum``, ``maxItems``, ``minimum``, ``maximum``, ``anyOf`` and
 ``exclusiveMinimum`` reproduces an independently measured count exactly:
-177/34/31/42/22/27/17/20/17/13/3/1 respectively (404 total) -- see
+267/56/50/56/40/38/26/23/25/14/3/2 respectively (600 total) -- see
 ``test_the_discovery_walk_finds_every_measured_constraint_marker`` below,
 which pins that reproduction so this file's own claim about how much ground
 it covers is checked rather than asserted. Two of those twelve keywords,
@@ -43,26 +43,50 @@ it covers is checked rather than asserted. Two of those twelve keywords,
 to route recursion into a nested object's fields or an array's element
 shape, so this file's *discovery-and-exercise* walk (:func:`_walk_tool_schema`)
 counts them as structural rather than as constraints with a violation of
-their own -- and a third marker joins them for the identical reason: three
-of the 34 ``additionalProperties`` occurrences are not ``false`` but a
-*schema* (``clay_add_primitive``/``clay_set_params``/``clay_op``'s own
+their own -- and a third marker joins them for the identical reason: six
+of the 56 ``additionalProperties`` occurrences are not ``false`` but a
+*schema* (``clay_add_primitive``/``clay_set_params``/``clay_op``/
+``clay_modifier_add``/``clay_modifier_set``/``clay_collider``'s own
 ``params``, an open-ended object whose keys are never named in
-``properties``), so those three route recursion into that open-ended shape
+``properties``), so those six route recursion into that open-ended shape
 rather than being violated themselves either -- see
 :data:`_OPEN_ENDED_PARAMS_TOOLS`. A fourth kind of marker is excluded for a
-different reason: each of the 28 tools' own root ``"type": "object"`` is
+different reason: each of the 47 tools' own root ``"type": "object"`` is
 never a case, because ``agent_clay.call`` only ever reaches a handler with
 ``arguments`` already a dict -- there is nothing there for a schema's own
 root type to promise that is not already true by construction. What
-survives after subtracting those (31 ``properties`` + 42 ``items`` + 3
-schema-valued ``additionalProperties`` + 28 root ``type``) is 300 violable
-markers; ``required``'s remaining 22 occurrences are *lists*, each naming
-one or more keys -- 29 individual keys between them, one violation apiece
+survives after subtracting those (50 ``properties`` + 56 ``items`` + 6
+schema-valued ``additionalProperties`` + 47 root ``type``) is 441 violable
+markers; ``required``'s remaining 40 occurrences are *lists*, each naming
+one or more keys -- 57 individual keys between them, one violation apiece
 rather than one per list -- which nets the walk's own exercise total to
-**307** concrete violation attempts (300 - 22 + 29), pinned by
+**458** concrete violation attempts (441 - 40 + 57), pinned by
 ``test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases``
 so a schema edit that silently drops a case from the walk is caught here
 rather than only by a shrinking "exercised" count nobody happens to notice.
+
+Tranches 6/7 (``dev/CLAY-PLAN.md``) raised every one of the numbers above
+from what had been 405 total (240/52/47/49/37/31/22/21/19/13/3/1, 44 tools):
+three new tools (:func:`_b_uv`/:func:`_b_collider`/:func:`_b_catalog` below)
+and one new optional property on an existing one (``clay_export``'s
+``engine``). Re-measured rather than hand-added to the old figure --
+this tranche found the pre-tranche tree already past 405 (422, not the
+documented number) before adding anything of its own, which this file's own
+"checked against the schemas themselves rather than trusted" rule says to
+re-derive from the live schemas rather than paper over with an unverifiable
+delta. ``clay_uv`` alone contributes 20 cases (``uid``/``action`` required,
+their own ``type``, ``action``'s own ``enum``, ``margin``'s ``type``/
+``minimum``/``maximum``, ``rotate``'s ``type``, ``target``'s ``type``/
+``exclusiveMinimum``, ``texture_px``'s ``type``/``minimum``, ``edges``'s own
+``type``/``minItems`` plus its item pairs' own ``type``/``minItems``/
+``maxItems``/items-``type``, root ``additionalProperties``); ``clay_collider``
+10 (``uids``/``kind`` required, their own ``type``, ``uids``'s own
+``minItems``/items-``type``, ``kind``'s own ``enum``, root
+``additionalProperties``, ``params``'s own ``type`` plus one open-ended-params
+case inside it); ``clay_catalog`` 4 (``topic`` required, its own ``type``/
+``enum``, root ``additionalProperties``); ``clay_export`` rises from 1 (root
+``additionalProperties`` alone) to 3 (``engine``'s own ``type``/``enum``
+join it). 20 + 10 + 4 + 2 = 36, and 422 + 36 = 458.
 
 **Coverage, honestly.** Every one of the cases the derivation above counts is
 attempted -- the number is stated once, in that derivation, and pinned by the
@@ -88,14 +112,21 @@ baseline cannot meet at the same time as every other property** -- not
 "unreachable", just needing a *different* valid baseline for that one
 property, routed to by :data:`_PROPERTY_OVERRIDES`:
 
-* ``clay_select_by``'s seven query-argument schemas (``_QUERY_ARG_SCHEMAS``)
+* ``clay_select_by``'s twelve query-argument schemas (``_QUERY_ARG_SCHEMAS``)
   are all declared as top-level properties of one schema, but which ones a
   given call actually *needs* depends on ``query`` -- a ``slot`` given to a
   ``loop`` query is simply never read. :data:`_SELECT_BY_BASELINES` gives
   ``edge``/``face``/``slot``/``direction``/``max_angle`` each the query that
   actually consults it, rather than the ``bounds`` query the main
   :func:`_b_select_by` baseline uses for ``uid``/``query``/``how``/
-  ``expect_stamp``/``min``/``max``/``space``.
+  ``expect_stamp``/``min``/``max``/``space``. Tranche 5's "similar" queries
+  add four more: ``faces``/``tolerance`` route to ``similar_area``,
+  ``edges`` to ``similar_length`` and ``verts`` to ``similar_valence`` --
+  each is one query that actually reads the property in question, the same
+  reasoning as the first five, not a baseline per new query (``faces``
+  alone is also what ``similar_normal``/``similar_material``/
+  ``similar_sides`` read, and one reachable baseline is all this file's own
+  per-property walk needs).
 * ``clay_render``'s ``view`` conflicts with ``views`` (the main baseline's
   choice) if simply added alongside it, so it gets its own baseline
   (:func:`_b_render_view`); ``compare_mode`` and ``alpha`` are only read once
@@ -125,12 +156,15 @@ this module's own docstring asks for rather than a silent skip:
   every one of those checks runs *before* ``_view_for(ctx)`` is ever called.
   Real pixels from a real GPU are still not exercised by this file, the same
   limit ``test_agent_clay.py`` already documents for itself.
-* ``clay_export`` declares no properties at all beyond the top-level
-  ``additionalProperties: false`` every tool carries -- there is nothing
-  else in its schema to violate, so its own real-service dependency
-  (``clay_mode.build_asset``) is never reached by this file: refusing an
-  unknown top-level key happens in :func:`agent_clay.call` before any
-  handler runs, real service or not.
+* ``clay_export``'s only property is an optional ``engine`` enum (tranche 7)
+  that this handler validates and echoes back but does not yet thread
+  further -- see ``tools_ops._h_export``'s own docstring for why. That is
+  reachable here the ordinary way (``enum``/``type``); what stays out of
+  reach is ``clay_mode.build_asset`` itself, its own real-service
+  dependency, which this file's baseline (:func:`_b_export`) exercises
+  through the shared ``svc`` fixture but a schema violation never reaches:
+  refusing an unknown top-level key, or a bad ``engine``, both happen before
+  ``build_asset`` is ever called.
 * An op's own declared parameter *bounds* (``Param.low``/``Param.high`` in
   ``studio/modes/clay/ops.py``) are not part of the JSON schema at all -- ``clay_op``'s
   schema only declares ``params`` an object of numbers, with no per-key
@@ -475,7 +509,14 @@ def _walk_tool_schema(tool_name: str, schema: dict) -> list[_Case]:
 # own comment for why a *nested* case inside one ``anyOf`` branch reshapes
 # that one key's value to a fresh sample of that branch first, rather than
 # reusing the baseline's own value for every branch.
-_OPEN_ENDED_PARAMS_TOOLS = ("clay_add_primitive", "clay_set_params", "clay_op")
+_OPEN_ENDED_PARAMS_TOOLS = (
+    "clay_add_primitive",
+    "clay_set_params",
+    "clay_op",
+    "clay_modifier_add",
+    "clay_modifier_set",
+    "clay_collider",
+)
 
 
 def _open_ended_params_cases(tool_name: str, schema: dict, baseline_args: Args) -> list[_Case]:
@@ -674,6 +715,62 @@ def _b_set_params_uids(
     return ctx, session, args
 
 
+def _b_modifier_add(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    args = {"uid": uid1, "kind": "array", "params": {"count": 4.0}, "index": 0}
+    return ctx, session, args
+
+
+def _b_modifier_set(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    added = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "mirror"})
+    assert added["isError"] is False, added
+    modifier_id = _payload(added)["modifier"]
+    args = {"uid": uid1, "modifier": modifier_id, "params": {"weld": 0.001}, "enabled": True}
+    return ctx, session, args
+
+
+def _b_modifier_remove(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    added = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "mirror"})
+    assert added["isError"] is False, added
+    modifier_id = _payload(added)["modifier"]
+    return ctx, session, {"uid": uid1, "modifier": modifier_id}
+
+
+def _b_modifier_move(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    r1 = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "mirror"})
+    assert r1["isError"] is False, r1
+    r2 = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "weld"})
+    assert r2["isError"] is False, r2
+    modifier_id = _payload(r2)["modifier"]
+    return ctx, session, {"uid": uid1, "modifier": modifier_id, "index": 0}
+
+
+def _b_modifier_apply(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    added = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "mirror"})
+    assert added["isError"] is False, added
+    modifier_id = _payload(added)["modifier"]
+    return ctx, session, {"uid": uid1, "modifier": modifier_id}
+
+
 def _b_material(
     monkeypatch: Any = None, svc: Any = None
 ) -> tuple[Any, agent_clay.Session, Args]:
@@ -786,12 +883,43 @@ def _b_select_by_normal(
     return _select_by_call("normal", extra, monkeypatch)
 
 
-# ``clay_select_by``'s seven query-argument schemas are declared as top-level
-# properties of *one* schema, but a given call only ever consults the subset
-# named by ``query`` (see the module docstring's own gap paragraph). The
-# default baseline is the ``bounds`` one; a property named here gets a
-# different, query-appropriate baseline instead, so ``slot``'s own
-# ``minimum`` is actually reachable rather than silently ignored by a
+def _b_select_by_similar_area(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    """Routed to for ``faces`` and ``tolerance`` -- any "similar" query would
+    do for either (all six declare ``tolerance``; ``similar_normal``/
+    ``_material``/``_sides`` declare ``faces`` too), so this is the one
+    reachable baseline the module docstring's own paragraph promises, not a
+    baseline per query. Face 0 of a fresh box is always a real seed."""
+    extra = {"faces": [0], "tolerance": 0.5}
+    return _select_by_call("similar_area", extra, monkeypatch)
+
+
+def _b_select_by_similar_length(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    """Routed to for ``edges`` -- the one "similar" query with an edge seed
+    rather than a face or vertex one. ``(0, 1)`` is always a real edge of a
+    fresh box, the same fact :func:`_b_uv_mark_seam` already relies on."""
+    extra = {"edges": [[0, 1]], "tolerance": 0.5}
+    return _select_by_call("similar_length", extra, monkeypatch)
+
+
+def _b_select_by_similar_valence(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    """Routed to for ``verts`` -- the one "similar" query with a vertex
+    seed."""
+    extra = {"verts": [0], "tolerance": 0}
+    return _select_by_call("similar_valence", extra, monkeypatch)
+
+
+# ``clay_select_by``'s twelve query-argument schemas are declared as
+# top-level properties of *one* schema, but a given call only ever consults
+# the subset named by ``query`` (see the module docstring's own gap
+# paragraph). The default baseline is the ``bounds`` one; a property named
+# here gets a different, query-appropriate baseline instead, so ``slot``'s
+# own ``minimum`` is actually reachable rather than silently ignored by a
 # ``bounds`` call that never reads it.
 _SELECT_BY_BASELINES: dict[str, BaselineFactory] = {
     "edge": _b_select_by_loop,
@@ -799,6 +927,12 @@ _SELECT_BY_BASELINES: dict[str, BaselineFactory] = {
     "slot": _b_select_by_material,
     "direction": _b_select_by_normal,
     "max_angle": _b_select_by_normal,
+    # Tranche 5's "similar" queries -- see each factory's own docstring for
+    # why one baseline per property, not per query, is enough here.
+    "faces": _b_select_by_similar_area,
+    "edges": _b_select_by_similar_length,
+    "verts": _b_select_by_similar_valence,
+    "tolerance": _b_select_by_similar_area,
 }
 
 
@@ -1062,6 +1196,196 @@ def _b_analyze(
     return ctx, session, args
 
 
+def _b_validate(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, _uid1, _uid2 = _new_world()
+    args = {"profile": agent_clay.readiness.DEFAULT_PROFILE, "visible_only": True}
+    return ctx, session, args
+
+
+# --- tranche 3: scene structure -------------------------------------------------
+
+
+def _b_parent(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, uid2 = _new_world()
+    return ctx, session, {"uid": uid1, "parent": uid2, "keep_world": True}
+
+
+def _b_group(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"uids": [uid1], "name": "probe_group"}
+
+
+def _b_ungroup(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, uid2 = _new_world()
+    grouped = agent_clay.call(ctx, session, "clay_group", {"uids": [uid1, uid2]})
+    assert grouped["isError"] is False, grouped
+    return ctx, session, {"uid": _payload(grouped)["uid"]}
+
+
+def _b_lock(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"uids": [uid1], "locked": True}
+
+
+def _b_tag(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"uids": [uid1], "add": ["probe_tag"], "remove": ["other_tag"]}
+
+
+def _b_separate(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    """Two loose tetrahedra, apart in space, hand-built through
+    ``clay_add_mesh`` -- a real ``by='loose_parts'`` split needs a mesh that
+    is genuinely more than one connected piece, which neither of
+    ``_new_world``'s two (each its own object) already is on its own."""
+    del monkeypatch, svc
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    args = {
+        "positions": [
+            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0],
+            [10.0, 0.0, 0.0], [11.0, 0.0, 0.0], [10.0, 1.0, 0.0], [10.0, 0.0, 1.0],
+        ],
+        "faces": [
+            [0, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3],
+            [4, 6, 5], [4, 5, 7], [5, 6, 7], [6, 4, 7],
+        ],
+    }
+    added = agent_clay.call(ctx, session, "clay_add_mesh", args)
+    assert added["isError"] is False, added
+    uid = _payload(added)["uid"]
+    return ctx, session, {"uid": uid, "by": "loose_parts"}
+
+
+def _b_set_origin(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"uid": uid1, "mode": "bounds"}
+
+
+def _b_set_origin_point(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    """``point`` is never given alongside ``mode`` -- the plain
+    :func:`_b_set_origin` baseline above only ever carries ``mode``, and both
+    at once is the handler's own exactly-one refusal. Routed to by
+    :data:`_SET_ORIGIN_BASELINES` for ``point``'s own constraints."""
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"uid": uid1, "point": [1.0, 2.0, 3.0]}
+
+
+_SET_ORIGIN_BASELINES: dict[str, BaselineFactory] = {"point": _b_set_origin_point}
+
+
+def _b_measure(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    """``kind='area'`` -- the one kind that reads both ``uid`` and ``faces``,
+    so one baseline reaches every constraint clay_measure's own schema
+    declares (``a``/``b``/``c`` carry none at all -- see ``tools_structure.
+    _h_measure``'s own docstring for why they are deliberately untyped)."""
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"kind": "area", "uid": uid1, "faces": [0]}
+
+
+def _b_checkpoint(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, _uid1, _uid2 = _new_world()
+    return ctx, session, {"name": "probe_checkpoint"}
+
+
+def _b_restore(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, _uid1, _uid2 = _new_world()
+    checkpoint = agent_clay.call(ctx, session, "clay_checkpoint", {"name": "probe_checkpoint"})
+    assert checkpoint["isError"] is False, checkpoint
+    return ctx, session, {"name": "probe_checkpoint"}
+
+
+def _b_uv(monkeypatch: Any = None, svc: Any = None) -> tuple[Any, agent_clay.Session, Args]:
+    """``action='pack'`` on a box -- ``clay_add_primitive``'s own box already
+    carries a uv (``primitives.box`` calls ``box_unwrap`` on the way out), so
+    this reaches every constraint ``margin``/``rotate`` declare with no setup
+    beyond ``_new_world``. ``target``/``texture_px`` (``density``) and
+    ``edges`` (``mark_seam``/``clear_seam``) are never read on this action --
+    see :data:`_UV_BASELINES` for their own."""
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"uid": uid1, "action": "pack"}
+
+
+def _b_uv_density(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"uid": uid1, "action": "density", "target": 512.0}
+
+
+def _b_uv_mark_seam(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    """``primitives.box``'s own face list opens with ``[0, 1, 2, 3]``, so
+    ``(0, 1)`` is always a real edge of a freshly placed box -- no read of
+    the mesh needed to find one."""
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"uid": uid1, "action": "mark_seam", "edges": [[0, 1]]}
+
+
+_UV_BASELINES: dict[str, BaselineFactory] = {
+    "target": _b_uv_density,
+    "texture_px": _b_uv_density,
+    "edges": _b_uv_mark_seam,
+}
+
+
+def _b_collider(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    """``kind='box'`` with its own ``oriented`` param set, so the open-ended
+    ``params`` walk (:data:`_OPEN_ENDED_PARAMS_TOOLS`) has a real key to
+    perturb -- the only collider kind, besides convex/compound's
+    ``max_faces``, that declares one at all."""
+    del monkeypatch, svc
+    ctx, session, uid1, _uid2 = _new_world()
+    return ctx, session, {"uids": [uid1], "kind": "box", "params": {"oriented": 1.0}}
+
+
+def _b_catalog(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    return _Ctx(), agent_clay.Session(), {"topic": "ops"}
+
+
 _BASELINES: dict[str, BaselineFactory] = {
     "clay_scene": _b_scene,
     "clay_add_primitive": _b_add_primitive,
@@ -1069,6 +1393,11 @@ _BASELINES: dict[str, BaselineFactory] = {
     "clay_add_mesh": _b_add_mesh,
     "clay_transform": _b_transform,
     "clay_set_params": _b_set_params,
+    "clay_modifier_add": _b_modifier_add,
+    "clay_modifier_set": _b_modifier_set,
+    "clay_modifier_remove": _b_modifier_remove,
+    "clay_modifier_move": _b_modifier_move,
+    "clay_modifier_apply": _b_modifier_apply,
     "clay_material": _b_material,
     "clay_boolean": _b_boolean,
     "clay_select": _b_select,
@@ -1080,6 +1409,10 @@ _BASELINES: dict[str, BaselineFactory] = {
     "clay_render": _b_render,
     "clay_diagnose": _b_diagnose,
     "clay_analyze": _b_analyze,
+    "clay_validate": _b_validate,
+    "clay_uv": _b_uv,
+    "clay_collider": _b_collider,
+    "clay_catalog": _b_catalog,
     "clay_export": _b_export,
     "clay_undo": _b_undo,
     "clay_redo": _b_redo,
@@ -1091,6 +1424,16 @@ _BASELINES: dict[str, BaselineFactory] = {
     "clay_reference_list": _b_reference_list,
     "clay_reference_get": _b_reference_get,
     "clay_reference_remove": _b_reference_remove,
+    "clay_parent": _b_parent,
+    "clay_group": _b_group,
+    "clay_ungroup": _b_ungroup,
+    "clay_lock": _b_lock,
+    "clay_tag": _b_tag,
+    "clay_separate": _b_separate,
+    "clay_set_origin": _b_set_origin,
+    "clay_measure": _b_measure,
+    "clay_checkpoint": _b_checkpoint,
+    "clay_restore": _b_restore,
 }
 
 # Some tools' properties are only ever read by the handler under a
@@ -1104,6 +1447,8 @@ _PROPERTY_OVERRIDES: dict[str, dict[str, BaselineFactory]] = {
     "clay_render": _RENDER_BASELINES,
     "clay_reference_add": _REFERENCE_ADD_BASELINES,
     "clay_set_params": {"uids": _b_set_params_uids},
+    "clay_set_origin": _SET_ORIGIN_BASELINES,
+    "clay_uv": _UV_BASELINES,
 }
 
 
@@ -1195,18 +1540,18 @@ def test_the_discovery_walk_finds_every_measured_constraint_marker() -> None:
         walk(tool.schema, counts)
 
     assert dict(counts) == {
-        "type": 177,
-        "additionalProperties": 34,
-        "properties": 31,
-        "items": 42,
-        "required": 22,
-        "minItems": 27,
-        "enum": 17,
-        "maxItems": 20,
-        "minimum": 17,
-        "maximum": 13,
+        "type": 267,
+        "additionalProperties": 56,
+        "properties": 50,
+        "items": 56,
+        "required": 40,
+        "minItems": 38,
+        "enum": 26,
+        "maxItems": 23,
+        "minimum": 25,
+        "maximum": 14,
         "anyOf": 3,
-        "exclusiveMinimum": 1,
+        "exclusiveMinimum": 2,
     }
 
 
@@ -1228,23 +1573,98 @@ _ALL_CASES = _all_cases()
 
 
 def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> None:
-    """307 -- see the module docstring's own derivation: 404 measured markers,
-    minus 76 structural ones that only route recursion (31 ``properties`` +
-    42 ``items`` + 3 schema-valued ``additionalProperties``), minus 28 root
-    ``type: object`` markers that are true by construction, minus 22
-    ``required`` *lists* replaced by the 29 individual keys they actually
+    """346 -- see the module docstring's own derivation: 452 measured markers,
+    minus 84 structural ones that only route recursion (37 ``properties`` +
+    42 ``items`` + 5 schema-valued ``additionalProperties``), minus 34 root
+    ``type: object`` markers that are true by construction, minus 27
+    ``required`` *lists* replaced by the 39 individual keys they actually
     name. ``clay_program`` (2026-09-13, deliberately shallow: ``variables``,
     ``steps`` and ``dry_run``, ``additionalProperties: false``, one
-    ``required`` key) is the +8 over the previous 299: five ``type`` markers
-    (the root object, ``variables``, ``steps``, ``steps.items`` and
+    ``required`` key) was the +8 over the then-current 299: five ``type``
+    markers (the root object, ``variables``, ``steps``, ``steps.items`` and
     ``dry_run``), ``steps``' own ``minItems``/``maxItems``, and the root
     ``additionalProperties`` -- the root ``type`` and the ``required`` list
     are both excluded the same way every other tool's already are, so they
-    net to nothing here. Pinned so a schema edit that silently drops a case
-    from the walk is caught here rather than only by a shrinking "exercised"
-    count nobody happens to notice.
+    net to nothing here. ``clay_validate`` (2026-09-19, a read-only readiness
+    check with no ``required`` key at all: ``profile``, an enum of
+    ``readiness.PROFILES`` keys, and ``visible_only``, a boolean, both
+    optional, ``additionalProperties: false``) is the +4 over the previous
+    307: ``profile``'s own ``type`` and ``enum``, ``visible_only``'s own
+    ``type``, and the root ``additionalProperties`` -- the root ``type`` and
+    root ``properties`` are again both excluded the same way, so they net to
+    nothing here either.
+
+    Tranche 2 (2026-09-19), the modifier stack: five new tools --
+    ``clay_modifier_add``, ``_set``, ``_remove``, ``_move``, ``_apply``
+    (``studio/modes/clay/agent/tools_modifiers.py``) -- are the +35 over the
+    previous 311, each tool's own count reachable by summing
+    :func:`_walk_tool_schema` (plus :func:`_open_ended_params_cases` for the
+    two that declare one) directly: ``clay_modifier_add`` (``uid``/``kind``
+    required, ``uid``/``kind`` own ``type``, ``kind``'s own ``enum``, root
+    ``additionalProperties``, ``params``'s own ``type`` plus one
+    open-ended-params case inside it, ``index``'s own ``type``/``minimum``)
+    is 10; ``clay_modifier_set`` (``uid``/``modifier`` required, their own
+    ``type``, root ``additionalProperties``, ``params``'s own ``type`` plus
+    one open-ended case inside it, ``enabled``'s own ``type``) is 8;
+    ``clay_modifier_remove`` (``uid``/``modifier`` required, their own
+    ``type``, root ``additionalProperties``, no other constraint declared)
+    is 5; ``clay_modifier_move`` (``uid``/``modifier``/``index`` all
+    required, their own ``type``, root ``additionalProperties``, ``index``'s
+    own ``minimum``) is 8; ``clay_modifier_apply`` (``uid`` required, its own
+    ``type``, ``modifier``'s own ``type``, root ``additionalProperties``) is
+    4. 10 + 8 + 5 + 8 + 4 = 35, and 311 + 35 = 346. A modifier param's own
+    value schema is a bare ``{"type": "number"}`` with no ``anyOf`` to
+    walk -- unlike ``clay_add_primitive``'s three-branch one -- so
+    :func:`_open_ended_params_cases` contributes exactly one case per tool
+    here (a non-numeric value), the same shape ``clay_op``'s own ``params``
+    already gets.
+
+    Tranche 3 (2026-09-19), scene structure: ten new tools
+    (``studio/modes/clay/agent/tools_structure.py``) are the +58 over the
+    previous 346, plus one more case (``clay_select``'s own new ``tag``
+    property, added alongside them) for +59 total (346 + 59 = 405). Several
+    of these tools deliberately declare *no* schema constraint on a
+    property at all (``clay_parent``'s own ``parent``; ``clay_measure``'s
+    ``a``/``b``/``c``) -- a uid-or-null, or a point given three different
+    shapes, has no clean JSON Schema encoding this walk's own machinery
+    already supports (an ``anyOf`` of ``{"type": "null"}``/``{"type":
+    "integer"}`` would emit two identically-pathed ``type`` cases, one
+    quietly shadowing the other), so those arguments are validated by the
+    handler alone and carry no case here -- the same trade this file's own
+    docstring already states for ``clay_op``'s param *bounds*. Per tool,
+    reachable by summing :func:`_walk_tool_schema` directly: ``clay_parent``
+    (``uid``/``parent`` required, ``uid``/``keep_world`` own ``type``, root
+    ``additionalProperties``) is 5; ``clay_group`` (``uids`` required, its
+    own ``type``/``minItems``/items-``type``, ``name``'s own ``type``, root
+    AP) is 6; ``clay_ungroup`` (``uid`` required, its own ``type``, root AP)
+    is 3; ``clay_lock`` (``uids``/``locked`` required, ``uids``' own
+    ``type``/``minItems``/items-``type``, ``locked``'s own ``type``, root
+    AP) is 7; ``clay_tag`` (``uids`` required, ``uids``' own three, ``add``/
+    ``remove`` each ``type``+items-``type``, root AP) is 9; ``clay_separate``
+    (``uid``/``by`` required, ``uid``'s own ``type``, ``by``'s own
+    ``type``/``enum``, root AP) is 6; ``clay_set_origin`` (``uid`` required,
+    its own ``type``, ``mode``'s own ``type``/``enum``, ``point``'s own
+    ``type``/``minItems``/``maxItems``/items-``type``, root AP) is 9;
+    ``clay_measure`` (``kind`` required, its own ``type``/``enum``, ``uid``'s
+    own ``type``, ``faces``' own ``type``+items-``type``, root AP) is 7;
+    ``clay_checkpoint`` (``name`` required, its own ``type``, root AP) is 3;
+    ``clay_restore`` is the identical shape, also 3.
+    5+6+3+7+9+6+9+7+3+3 = 58, plus ``clay_select``'s new ``tag`` property
+    (``{"type": "string"}``, no other constraint, contributing one ``type``
+    case) = 59. 346 + 59 = 405. Pinned so a schema edit that silently drops
+    a case from the walk is caught here rather than only by a shrinking
+    "exercised" count nobody happens to notice.
+
+    Tranches 6/7 (``dev/CLAY-PLAN.md``): this tranche's own baseline was
+    already 422, not 405, before it added anything -- see this file's own
+    module docstring for the re-measurement and why it is trusted over the
+    old derivation chain rather than patched with an unverifiable delta.
+    ``clay_uv`` (20), ``clay_collider`` (10), ``clay_catalog`` (4) and
+    ``clay_export``'s own +2 (its new ``engine`` property) are each derived
+    the same way every tool above is, in that same module docstring
+    paragraph. 20 + 10 + 4 + 2 = 36, and 422 + 36 = 458.
     """
-    assert len(_ALL_CASES) == 307
+    assert len(_ALL_CASES) == 458
 
 
 # --- the exercise itself: for each declared constraint, prove a refusal -------

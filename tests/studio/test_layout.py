@@ -336,6 +336,11 @@ def test_every_split_has_a_handle_and_every_handle_a_split():
         # share against, so ``clay-tools`` is no longer a key at all.
         "clay-outliner",
         "clay-props",
+        # Tranche 6: the UV pane joins the right column below Properties, a
+        # third SHARE slot -- an island layout wants its own canvas the same
+        # reason the outliner and the properties pane each already have
+        # theirs. See ``skeletons.clay``'s own docstring.
+        "clay-uv",
         # Mason stacks two shares in each column: the asset palette over the
         # tools on the left, and the outliner over the properties on the
         # right, with the document pane taking the FILL underneath. Four

@@ -200,9 +200,13 @@ def test_a_gpu_entry_holds_the_mesh_its_key_names(monkeypatch) -> None:
     )
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
-    key = cv._object_key(obj, cv._materials_key(doc))
+    # No modifier stack, so the evaluated mesh is ``obj.mesh`` itself
+    # (modifiers.py's fast path) -- this object's entry should still pin and
+    # key on exactly that.
+    mesh = doc.evaluated(obj.uid)
+    key = cv._object_key(mesh, cv._materials_key(doc), obj.material)
 
-    entry = cv.ClayView._build(SimpleNamespace(ctx=None), obj, doc, key)
+    entry = cv.ClayView._build(SimpleNamespace(ctx=None), obj, doc, key, mesh)
     assert entry.mesh is obj.mesh
     assert entry.key[0] == id(entry.mesh), "the held mesh is the one the key identifies"
 

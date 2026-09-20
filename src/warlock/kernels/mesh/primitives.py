@@ -523,6 +523,21 @@ def _clamp_path(value: Any) -> list[list[float]]:
     return deduped
 
 
+# ``stairs``' own floor and ceiling on step count -- tranche 5's game
+# primitives (below). Six faces per step (a plain box), so a ceiling here is
+# a face-count ceiling once multiplied out: 64 steps is 384 faces, well
+# inside every other generator's own headroom in this module, and higher
+# than a real staircase asset would ever want risers.
+MIN_STAIRS_STEPS = 1
+MAX_STAIRS_STEPS = 64
+
+
+def _clamp_stairs_steps(value: Any) -> int:
+    """``stairs``' own floor and ceiling -- see :data:`MIN_STAIRS_STEPS` and
+    :data:`MAX_STAIRS_STEPS`."""
+    return min(max(int(value), MIN_STAIRS_STEPS), MAX_STAIRS_STEPS)
+
+
 # Which key names the properties panel must clamp before calling a generator,
 # and how -- see clamp_params. Keyed on parameter name rather than generator,
 # because each of these floors (and, since the 2026-09-11 audit's finding
@@ -536,6 +551,7 @@ _KEY_CLAMPS: dict[str, Callable[[Any], int]] = {
     "divisions": _clamp_divisions,
     "subdivisions": _clamp_subdivisions,
     "sections": _clamp_sections,
+    "steps": _clamp_stairs_steps,
 }
 
 # The array-valued counterpart to :data:`_KEY_CLAMPS`, kept as its own table
@@ -2157,6 +2173,288 @@ def tube(
     return _mesh(positions, faces, uv)
 
 
+# --- game primitives (Clay tranche 5) -----------------------------------
+#
+# Six shapes a game blockout wants that no swept profile or lathe already
+# gives: a doorstop wedge, a walkway ramp, a rounded panel, a blocky
+# staircase, a plain wall and a wall with a doorway cut in. Every one of
+# them still obeys the module's own rules stated at the top of this file --
+# centred on its own origin, sizes taken as magnitudes, closed and
+# consistently wound outward. ``stairs`` and ``doorway`` are each one swept
+# profile, exactly like ``arch``'s own construction, rather than several
+# touching boxes: a handful of boxes placed edge to edge to look like a
+# staircase or a portal leaves a face whose extent only *partly* matches its
+# neighbour's (a shorter step's riser against a taller one's, a pillar's
+# full height against a shorter lintel) -- a T-junction no amount of vertex
+# welding fixes, because the missing vertex is on the *larger* face's own
+# edge, not merely unshared. A single swept profile has no such seam, at the
+# cost of a reflex corner at the nosing and at the doorway's own underside,
+# which is exactly what :data:`CONCAVE_GENERATORS` names both of them for.
+
+
+def _extrude_profile(
+    profile: list[tuple[float, float]], axis: int, extent: float
+) -> tuple[np.ndarray, list[list[int]]]:
+    """A closed 2-D polygon extruded along ``axis`` by ``extent``, centred on
+    0 along that axis -- the shared body of :func:`wedge` and :func:`ramp`,
+    each of which is one right-triangle profile extruded along a different
+    axis.
+
+    ``profile``'s own two coordinates map onto the two axes other than
+    ``axis``, in ascending order (``axis=0`` reads ``(Y, Z)``, ``axis=2``
+    reads ``(X, Y)``), and it must already be wound the way ``_ring``'s own
+    docstring states for a lathe's bottom cap: read directly, it is the
+    correct winding for the cap at the *negative* end of ``axis`` --
+    :func:`_side_quads` is reused for the band unchanged, inheriting that
+    same convention from every ring-based generator that already calls it.
+    """
+    other = [a for a in range(3) if a != axis]
+    half = abs(float(extent)) * 0.5
+    n = len(profile)
+    near = np.zeros((n, 3))
+    near[:, axis] = -half
+    near[:, other[0]] = [p[0] for p in profile]
+    near[:, other[1]] = [p[1] for p in profile]
+    far = near.copy()
+    far[:, axis] = half
+    positions = np.concatenate([near, far])
+    faces: list[list[int]] = [list(range(n)), list(range(2 * n - 1, n - 1, -1))]
+    faces.extend(_side_quads(0, n, n))
+    return positions, faces
+
+
+def wedge(width: float = 1.0, height: float = 1.0, depth: float = 1.0) -> Mesh:
+    """A right-triangular prism -- a doorstop, or the simplest possible
+    ramp -- with its right angle at the back-bottom: flat on the ground,
+    vertical at the back, and one sloped face falling from the back-top
+    ridge down to the front-bottom edge. Extruded along Z by ``depth``.
+
+    A triangle cannot be reflex, so this needs no convexity exemption at any
+    ``width``/``height``.
+    """
+    from .uv import box_unwrap
+
+    w, h = abs(float(width)), abs(float(height))
+    profile = [(-w * 0.5, -h * 0.5), (w * 0.5, h * 0.5), (w * 0.5, -h * 0.5)]
+    positions, faces = _extrude_profile(profile, axis=2, extent=depth)
+    return box_unwrap(_mesh(positions, faces))
+
+
+def ramp(width: float = 1.0, length: float = 1.0, height: float = 0.5) -> Mesh:
+    """A sloped walking surface: flat on the ground, rising from the front
+    to a vertical back face. :func:`wedge`'s own right-triangle prism,
+    extruded along X by ``width`` instead of Z, and named and parametrised
+    for a walkway rather than a doorstop -- the same shape read two ways,
+    the same reason :func:`tube` and ``torus``'s own ``tube`` parameter each
+    say the other exists in their own docstrings.
+    """
+    from .uv import box_unwrap
+
+    length_, h = abs(float(length)), abs(float(height))
+    profile = [(-h * 0.5, -length_ * 0.5), (-h * 0.5, length_ * 0.5), (h * 0.5, length_ * 0.5)]
+    positions, faces = _extrude_profile(profile, axis=0, extent=width)
+    return box_unwrap(_mesh(positions, faces))
+
+
+def rounded_box(
+    size: Sequence[float] = (1.0, 1.0, 1.0), radius: float = 0.1, segments: int = 4
+) -> Mesh:
+    """A box with its four Y-parallel edges rounded to ``radius``, flat on
+    top and bottom.
+
+    **Not a fully filleted box.** Rounding all twelve edges and eight
+    corners of a box needs spherical corner patches this module has no other
+    use for; this rounds the *silhouette* seen from above instead -- the
+    common "rounded panel" shape -- which is what ``segments`` (points per
+    quarter-circle corner) actually buys, and it is stated as the limit
+    rather than dressed up as the whole thing. ``radius`` is clamped to at
+    most half the shorter of the box's own X/Z extents, the same "cannot
+    exceed the feature it rounds" clamp ``arch``'s own ``thickness`` gets in
+    :func:`clamp_params`.
+
+    A ``radius`` of (near) zero degrades to a plain rectangular outline --
+    four points, not ``4 * segments`` coincident ones -- rather than a
+    degenerate zero-length arc at every corner.
+    """
+    from .uv import box_unwrap
+
+    sx, sy, sz = (abs(float(s)) for s in size)
+    hx, hy, hz = sx * 0.5, sy * 0.5, sz * 0.5
+    r = min(abs(float(radius)), hx, hz)
+    seg = _clamp_segments(segments)
+    eff_seg = seg if r > 1e-9 else 1
+
+    corners = (
+        (hx - r, hz - r, 0.0),
+        (-(hx - r), hz - r, 90.0),
+        (-(hx - r), -(hz - r), 180.0),
+        (hx - r, -(hz - r), 270.0),
+    )
+    outline: list[tuple[float, float]] = []
+    for cx, cz, start_deg in corners:
+        angles = np.radians(start_deg + np.linspace(0.0, 90.0, eff_seg, endpoint=False))
+        outline.extend(
+            (cx + r * float(np.cos(a)), cz + r * float(np.sin(a))) for a in angles
+        )
+
+    n = len(outline)
+    positions = np.concatenate(
+        [
+            np.array([[x, -hy, z] for x, z in outline], dtype="f8"),
+            np.array([[x, +hy, z] for x, z in outline], dtype="f8"),
+        ]
+    )
+    faces: list[list[int]] = [list(range(n)), list(range(2 * n - 1, n - 1, -1))]
+    faces.extend(_side_quads(0, n, n))
+    return box_unwrap(_mesh(positions, faces))
+
+
+def _dedup_closed(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Drop a point coinciding with its predecessor, and the last against the
+    first -- the same wrap-around dedup :func:`_clamp_outline` does for a
+    user-supplied outline, needed here because a degenerate parameter (a
+    stair with a single step, a doorway pillar clamped to zero width) can
+    make two consecutive stations of a *computed* profile coincide too.
+    """
+    out: list[tuple[float, float]] = []
+    for p in points:
+        if out and out[-1] == p:
+            continue
+        out.append(p)
+    if len(out) > 1 and out[0] == out[-1]:
+        out.pop()
+    return out
+
+
+def stairs(
+    steps: int = 4,
+    width: float = 1.0,
+    total_height: float = 1.0,
+    total_depth: float = 1.0,
+    closed_underside: bool = True,
+) -> Mesh:
+    """A staircase side-profile -- the zigzag of ``steps`` risers and treads,
+    closed at the back and bottom -- extruded along X by ``width``.
+
+    One continuous shell, the same "swept profile" shape :func:`arch` and
+    :func:`sweep` already use, rather than a stack of separate boxes: a stair
+    built from touching boxes leaves a four-face edge at every nosing (each
+    step's own tread-riser fold coincides exactly with the next step's own
+    riser-bottom fold), which is genuinely non-manifold and not something
+    welding the coincident vertices can fix -- welding only makes the
+    coincidence visible to a check that used to see four separately-numbered
+    but co-located edges instead of one over-used one. A single swept profile
+    has no such seam.
+
+    ``closed_underside`` decides how the profile closes behind the last
+    step, not whether a separate panel is added: **True** drops straight down
+    to the ground and back along it (a flat, solid base, closed underneath
+    with no boolean and no extra geometry); **False** cuts directly back to
+    the start with one diagonal (a raked, hollow underside -- lighter, and
+    the honest shape for a stair that will sit against a floor that already
+    fills the gap).
+
+    The zigzag's own inside corners are reflex by construction (steps=1 is
+    the exception, folding down to a single right-triangle or quad profile),
+    so this generator is named in :data:`CONCAVE_GENERATORS`.
+    """
+    n = _clamp_stairs_steps(steps)
+    total_h = abs(float(total_height))
+    total_d = abs(float(total_depth))
+    step_h = total_h / n
+    step_d = total_d / n
+
+    profile: list[tuple[float, float]] = [(0.0, 0.0)]
+    for i in range(1, n + 1):
+        profile.append((i * step_h, (i - 1) * step_d))
+        profile.append((i * step_h, i * step_d))
+    if closed_underside:
+        profile.append((0.0, total_d))
+    # Recentred about the origin -- the profile as built runs y in
+    # [0, total_h] and z in [0, total_d], and every generator in this module
+    # is centred on its own origin (``Obj.translation`` is where an object's
+    # placement lives, not baked into its geometry).
+    profile = [(y - total_h * 0.5, z - total_d * 0.5) for y, z in profile]
+    # Reversed: read forward the walk above traces the silhouette the wrong
+    # way round for _extrude_profile's own "direct order is the near cap's
+    # winding" convention (see its docstring) -- reversing a closed polygon
+    # is exactly a winding flip, the same fix wedge's own profile needed.
+    profile = _dedup_closed(profile)[::-1]
+
+    positions, faces = _extrude_profile(profile, axis=0, extent=width)
+    from .uv import box_unwrap
+
+    return box_unwrap(_mesh(positions, faces))
+
+
+def wall(length: float = 2.0, height: float = 1.0, thickness: float = 0.2) -> Mesh:
+    """A plain box read as a wall -- :func:`box` under different parameter
+    names (``length``/``height``/``thickness`` for X/Y/Z), kept as its own
+    generator because "place a wall" and "place a box" are different things
+    a user reaches for, the same distinction :func:`pyramid` draws against
+    :func:`cone` in its own docstring.
+    """
+    return box((length, height, thickness))
+
+
+def doorway(
+    wall_length: float = 3.0,
+    wall_height: float = 2.5,
+    wall_thickness: float = 0.2,
+    opening_width: float = 0.9,
+    opening_height: float = 2.0,
+    opening_offset: float = 0.0,
+) -> Mesh:
+    """A wall with a rectangular, floor-level opening cut in directly: the
+    wall's own cross-section -- an outer rectangle with a notch open at the
+    bottom, not a hole, so it is one simple polygon and needs no slit -- swept
+    along Z by ``wall_thickness``. One continuous shell, the same technique
+    :func:`arch` already uses for a round-headed opening, with a flat lintel
+    in place of arch's semicircle.
+
+    The opening always reaches the wall's own bottom (a doorway, not a
+    window). Its width and offset are clamped so both pillars keep a
+    non-negative width, and its height is clamped under the wall's own
+    height so a lintel of at least a sliver always survives -- an opening
+    that would consume the whole wall is drawn as the widest one that still
+    leaves something standing, rather than producing a self-intersecting
+    profile, the same "clamp rather than produce nothing" reasoning
+    ``arch``'s own thickness floor gives in :func:`clamp_params`.
+
+    The two corners where the opening meets the underside of the lintel are
+    reflex by construction, so this generator is named in
+    :data:`CONCAVE_GENERATORS`.
+    """
+    length_ = abs(float(wall_length))
+    height_ = abs(float(wall_height))
+    thickness_ = abs(float(wall_thickness))
+    ow = min(abs(float(opening_width)), max(length_ - 1e-4, 0.0))
+    oh = min(abs(float(opening_height)), max(height_ - 1e-4, 0.0))
+    half_gap = max((length_ - ow) * 0.5, 0.0)
+    ox = max(-half_gap, min(half_gap, float(opening_offset)))
+
+    hl, hr = -length_ * 0.5, length_ * 0.5
+    hb, ht = -height_ * 0.5, height_ * 0.5
+    op_l, op_r, op_t = ox - ow * 0.5, ox + ow * 0.5, hb + oh
+
+    profile = _dedup_closed(
+        [
+            (hl, hb),
+            (hl, ht),
+            (hr, ht),
+            (hr, hb),
+            (op_r, hb),
+            (op_r, op_t),
+            (op_l, op_t),
+            (op_l, hb),
+        ]
+    )
+    positions, faces = _extrude_profile(profile, axis=2, extent=thickness_)
+    from .uv import box_unwrap
+
+    return box_unwrap(_mesh(positions, faces))
+
+
 # --- the registry ------------------------------------------------------------
 
 GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
@@ -2196,6 +2494,34 @@ GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
         sweep,
     ),
     "tube": ({"path": TUBE_DEFAULT_PATH, "radius": 0.1, "sides": 8}, tube),
+    # Clay tranche 5: the game blockout set -- see the "game primitives"
+    # section above for why ``stairs`` and ``doorway`` need a
+    # CONCAVE_GENERATORS entry and the other four do not.
+    "wedge": ({"width": 1.0, "height": 1.0, "depth": 1.0}, wedge),
+    "ramp": ({"width": 1.0, "length": 1.0, "height": 0.5}, ramp),
+    "rounded_box": ({"size": (1.0, 1.0, 1.0), "radius": 0.1, "segments": 4}, rounded_box),
+    "stairs": (
+        {
+            "steps": 4,
+            "width": 1.0,
+            "total_height": 1.0,
+            "total_depth": 1.0,
+            "closed_underside": True,
+        },
+        stairs,
+    ),
+    "wall": ({"length": 2.0, "height": 1.0, "thickness": 0.2}, wall),
+    "doorway": (
+        {
+            "wall_length": 3.0,
+            "wall_height": 2.5,
+            "wall_thickness": 0.2,
+            "opening_width": 0.9,
+            "opening_height": 2.0,
+            "opening_offset": 0.0,
+        },
+        doorway,
+    ),
 }
 """Name -> ``(defaults, builder)``. Every default dictionary is a complete call.
 
@@ -2226,7 +2552,7 @@ Before this constant existed, that set was ``OPEN`` in
 it were supposed to be checking *against*.
 """
 
-CONCAVE_GENERATORS: frozenset[str] = frozenset({"sweep"})
+CONCAVE_GENERATORS: frozenset[str] = frozenset({"sweep", "stairs", "doorway"})
 """The generators whose cap is legitimately not convex.
 
 The module's third rule -- "every face is wound counter-clockwise ... and
@@ -2252,15 +2578,19 @@ forever, silently weakening the convexity claim for a generator that no
 longer needs weakening.
 
 ``sweep``'s cap is an arbitrary user-supplied polygon and an L-bracket, a
-channel or a picture-frame moulding is reflex *by definition* -- unlike every
-other generator here, whose own shape is a parametrised curve or a fixed
-silhouette with no way to author a reflex corner into it at all.
+channel or a picture-frame moulding is reflex *by definition*. ``stairs`` and
+``doorway`` are the other way round: their own silhouette is fixed rather
+than user-supplied, but the shape itself -- a staircase's nosings, a
+doorway's underside -- is reflex there and nowhere else, unlike every
+other generator in this module, whose own parametrised curve or fixed
+silhouette has no reflex corner to author at all.
 """
 
 CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("primitives", ("box", "plane", "grid", "cylinder", "cone",
                     "uv_sphere", "icosphere", "torus", "capsule")),
     ("structures", ("pyramid", "arch", "column", "lathe", "sweep", "tube")),
+    ("game", ("wedge", "ramp", "rounded_box", "stairs", "wall", "doorway")),
 )
 """The add panel's sections, in the order they are drawn.
 

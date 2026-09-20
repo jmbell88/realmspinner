@@ -540,6 +540,19 @@ class TasksMixin:
 
             familiar_ui.on_task_done(ctx, done)
             return
+        if key.startswith("clay-mattex:"):
+            # Assigning a texture into a material slot from a file (tranche 6,
+            # "UV and materials"): the picker and the PNG decode
+            # (``core.safeio.pixelguard``) run off the frame thread like every
+            # other file-picking door, but landing the result is not a
+            # *document* task in ``clay_mode.on_task_done``'s sense -- there is
+            # no ``tab.saving`` to clear and nothing to toast "Saved." over, so
+            # it does not share that prefix (checked first here, before the
+            # bare "clay-" branch, precisely so it never reaches it).
+            from ..modes.clay.ui.panes import props as clay_props
+
+            clay_props.on_task_done(ctx, done)
+            return
         if key.startswith("clay-"):
             from ..modes.clay import mode as clay_mode
 

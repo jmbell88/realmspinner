@@ -538,6 +538,13 @@ def test_the_registry_names_every_generator_the_module_exports() -> None:
         "lathe",
         "sweep",
         "tube",
+        # Clay tranche 5: the game blockout set.
+        "wedge",
+        "ramp",
+        "rounded_box",
+        "stairs",
+        "wall",
+        "doorway",
     }
 
 

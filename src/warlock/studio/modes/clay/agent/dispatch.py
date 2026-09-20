@@ -61,6 +61,45 @@ have been a *fifth* place to remember one exists, beside those same three
 surfaces and ``OPS`` itself. ``clay_batch``'s own name enum is derived the
 same way, from ``_HANDLERS`` minus ``BATCH_EXCLUDED`` -- see that constant's
 own docstring (``studio/modes/clay/agent/schema.py``) for which tools are left out and why.
+``clay_validate``'s own ``profile`` enum is the identical move once more,
+drawn from ``kernels.mesh.readiness.PROFILES`` rather than a written-out
+list of profile names -- a fourth profile reaches an agent the moment it is
+registered there, with nothing in this fold to edit for it to.
+``clay_modifier_add``'s own ``kind`` enum, and every tool's own per-kind
+``params`` catalogue sentence, are the same move again, drawn from
+``kernels.mesh.modifiers.MODIFIERS`` (``agent_clay_schema._modifier_catalog``)
+rather than a hand-listed table of ten kinds' worth of parameters.
+
+**An object carries a modifier stack, a live recipe layered on top of its
+base mesh** (``kernels.mesh.modifiers``, ``ClayDoc.set_modifiers``/
+``apply_modifiers``/``evaluated``/``evaluation``): ``clay_modifier_add``,
+``clay_modifier_set``, ``clay_modifier_remove``, ``clay_modifier_move`` and
+``clay_modifier_apply`` (``studio/modes/clay/agent/tools_modifiers.py``) are
+this fold's door onto it, the same shape the ten object-level tools already
+give an object's transform, params and material. The base/evaluated split
+that module's own docstring states runs straight through every tool that
+already existed: element ops (``clay_select_elements``, ``clay_select_by``,
+and every element-gated ``clay_op`` row) still act on the *base* mesh, since
+that is what an edit really changes; ``clay_scene``'s own per-object row now
+measures ``bbox``/``size``/``center`` off the *evaluated* mesh and, once the
+stack is non-empty, reports it directly (``modifiers``: id/kind/enabled/
+params/error per entry; ``evaluated``: vertices/faces/triangles) -- while
+``faces``/``verts`` keep meaning the base's own counts, because those are
+what an element edit would actually be changing. ``clay_boolean`` and every
+merging op consume the evaluated mesh of every object they touch
+(``document.join_objects``'s own "merging ops consume evaluated meshes"
+rule) and clear the target's own stack in the same step -- its modifiers are
+now baked into what it absorbed, and a **hidden boolean cutter still
+cuts**: a boolean modifier's own target is read by uid, not by visibility,
+the same as the interactive Boolean tool's own operand. ``clay_analyze``
+(``kernels.mesh.analyze.analyze``'s own ``doc=`` kwarg) and ``clay_program``'s
+own ``bounds``/``touches``/``grounded``/``floating``/``volume`` facts
+(``agent_clay_tools_batch._ConditionAccess``) both measure the evaluated
+mesh too, for the identical reason ``clay_scene``'s own ``bbox`` does.
+``clay_diagnose`` is the one deliberate exception, staying on the base mesh
+-- a hole or a non-manifold edge is a fact about the mesh an edit would
+touch, not about what a modifier stack draws -- see its own docstring in
+``studio/modes/clay/agent/tools_ops.py``.
 
 **An agent may take a mesh apart the way a person can, once it has a
 selection to work from.** ``clay_element_mode`` switches vertex/edge/face
@@ -159,6 +198,27 @@ manifold-cache pop is real work that still has to happen, and every
 ``toast`` lands in the result instead of the running app -- so a per-object
 refusal inside ``run`` that used to become a toast the user saw and the
 agent never did now comes back as a message the agent can actually read.
+
+**A background op's own child process runs inline through this same proxy,
+on purpose.** ``decimate`` is Clay's first ``clay_op`` row whose ``run``
+spawns a real child process (gltfpack, through ``pipelines.optimize.
+simplify_bytes``) rather than only editing a mesh in memory. Interactively it
+runs on a task thread, the shape every blocking op in this codebase takes, so
+the keyboard gets its frame back immediately and the simplified mesh lands a
+little later; an MCP ``clay_op`` call has no later frame to land in; it
+returns once, from this call's own :func:`call`, the identical shape the
+``clay_export`` paragraph below already names for ``export_asset`` -- "there
+is no id to return from this call if this fold goes through it as written."
+``agent_clay_tools_ops._OpCtx.inline`` (default ``True``, unlike the
+interactive path, which never sets it and so reads ``False``) is the same
+fix applied here: ``decimate.run`` calls ``simplify_bytes`` synchronously,
+inside ``clay_ops.run``, so an agent's call to it stays the one undo step
+every other op already is, at the cost of a real subprocess run on the frame
+thread for this one call -- a deliberate one-shot cost, the same trade
+``clay_export`` already makes for its own disk and database work, never the
+per-frame stall the task-thread split exists to prevent elsewhere. See
+``_OpCtx``'s own docstring for ``gltfpack_exe``, the path that subprocess
+needs and where it comes from.
 
 **``clay_batch`` folds several tool calls into one undo step.** An agent
 that wants to block out a scene one primitive at a time pays one round trip
@@ -410,9 +470,10 @@ import functools
 import logging
 from typing import Any
 
+from .....kernels.mesh import colliders, engines, ops_boolean, presets, readiness
 from .....kernels.mesh import elements as el
+from .....kernels.mesh import modifiers as clay_modifiers
 from .....kernels.mesh import ops as clay_geom_ops  # noqa: F401 -- re-exported, see below
-from .....kernels.mesh import ops_boolean, presets
 from .....kernels.mesh import primitives as bp
 from .....kernels.mesh import select as bsel
 from .....kernels.mesh.elements import OpError
@@ -425,14 +486,19 @@ from .schema import (
     _QUERY_ARG_SCHEMAS,
     BATCH_EXCLUDED,
     BATCH_MAX,
+    CATALOG_TOPICS,
     ELEMENT_PAGE_DEFAULT,
     ELEMENT_PAGE_MAX,
     MAX_MESH_FACES,
     MAX_MESH_VERTICES,
     MAX_REFERENCES,
+    MEASURE_KINDS,
     MINTS_A_DOCUMENT,
+    ORIGIN_MODES,
     RENDER_PIXEL_BUDGET,
     RENDER_SHADINGS,
+    SEPARATE_MODES,
+    UV_ACTIONS,
     _clay_analyze_output_schema,
     _clay_diagnose_output_schema,
     _clay_scene_output_schema,
@@ -440,9 +506,7 @@ from .schema import (
     _generator_catalog,
     _mesh_row_output_schema,
     _object_row_output_schema,
-    _op_catalog,
     _params_value_schema,
-    _query_catalog,
     _vec3_schema,
 )
 from .schema import REFERENCE_TOOLS as REFERENCE_TOOLS
@@ -468,6 +532,15 @@ from .tools_batch import (
     _h_reference_remove,
     _h_undo,
 )
+from .tools_catalog import _h_catalog
+from .tools_collider import _h_collider
+from .tools_modifiers import (
+    _h_modifier_add,
+    _h_modifier_apply,
+    _h_modifier_move,
+    _h_modifier_remove,
+    _h_modifier_set,
+)
 from .tools_ops import (
     _h_analyze,
     _h_diagnose,
@@ -479,7 +552,21 @@ from .tools_ops import (
     _h_select,
     _h_select_by,
     _h_select_elements,
+    _h_validate,
 )
+from .tools_structure import (
+    _h_checkpoint,
+    _h_group,
+    _h_lock,
+    _h_measure,
+    _h_parent,
+    _h_restore,
+    _h_separate,
+    _h_set_origin,
+    _h_tag,
+    _h_ungroup,
+)
+from .tools_uv import _h_uv
 from .validate import Session, _protocol, fail
 from .validate import _euler_xyz_from_quat as _euler_xyz_from_quat
 from .validate import _quat_from_euler_xyz as _quat_from_euler_xyz
@@ -667,15 +754,16 @@ def instructions() -> str:
         "object, and every other tool that names an object takes one. "
         "Names are for humans and may be renamed (clay_rename); a uid never "
         "changes.\n\n"
-        "One tool call is one undo step, with three exceptions that fold or "
+        "One tool call is one undo step, with four exceptions that fold or "
         "move steps -- clay_batch and clay_program each fold their whole "
-        "run into one, and clay_undo/clay_redo move the history head "
-        "rather than pushing one of their own -- and two families that "
-        "push none at all: adding a "
-        "reference (clay_reference_add) touches nothing in the document, and "
-        "the selection tools (clay_element_mode, clay_select_elements, "
-        "clay_select_by, clay_select) change the document without pushing a "
-        "step, because selection is not undoable by design.\n\n"
+        "run into one, and clay_undo/clay_redo/clay_restore move the "
+        "history head rather than pushing one of their own (clay_restore "
+        "cannot be batched, for the same reason clay_undo/clay_redo cannot) "
+        "-- and two families that push none at all: clay_reference_add and "
+        "clay_checkpoint touch nothing in the document, and the selection "
+        "tools (clay_element_mode, clay_select_elements, clay_select_by, "
+        "clay_select) change the document without pushing a step, because "
+        "selection is not undoable by design.\n\n"
         "Element mode is document state, not a per-call flag. clay_op's "
         "inset/bevel/extrude and the rest of the element-only rows refuse by "
         "name (\"Switch to face mode first.\") until it is set; "
@@ -715,10 +803,73 @@ def instructions() -> str:
         "for a pair, distance, contact and overlap -- and never selects "
         "anything. Reach for analyze to check placement (is this resting on "
         "the ground, do these two touch or overlap, by how much) and "
-        "diagnose to check mesh health before a boolean.\n\n"
+        "diagnose to check mesh health before a boolean. clay_validate is a "
+        "third, advisory kind: checks against a target's own readiness "
+        "profile (a triangle ceiling, a texture size, and the rest) rather "
+        "than a mesh defect or a placement fact, never fixing anything or "
+        "selecting anything itself -- a failing check's own 'fix' names a "
+        "clay_op row to run next. clay_op's own decimate row spawns a real "
+        "gltfpack subprocess and runs it synchronously, so expect that one "
+        "call in particular to take longer than the rest.\n\n"
+        "retopo, smart-unwrap and bake-detail are clay_op rows too, and each "
+        "one spawns Blender rather than gltfpack -- seconds for a simple "
+        "prop, minutes for something dense -- and each is refused by name "
+        "when Blender (the rig extra) is not installed. bake-detail reads "
+        "the topmost selected object as the low-poly target, the way "
+        "clay_boolean's own merge target is read, and bakes every other "
+        "selected object onto it; give it UVs first with smart-unwrap.\n\n"
+        "An object may carry a modifier stack -- mirror, array, "
+        "radial-array, solidify, bevel, subdivide, weld, triangulate, "
+        "smooth and boolean. clay_modifier_add/_set/_remove/_move/_apply "
+        "edit it, in stack order; each call is one undo step. Element "
+        "edits (an element-mode clay_op row, clay_select_elements, "
+        "clay_select_by) always act on the base mesh -- clay_scene's "
+        "'faces'/'verts' stay the base's own counts, and, once the stack "
+        "is non-empty, a separate 'evaluated' (vertices/faces/triangles) "
+        "plus 'modifiers' (each entry's id/kind/enabled/params, and an "
+        "'error' for one skipped, not fatal, so the rest still ran) "
+        "report the stack's own result. clay_render, clay_boolean and "
+        "clay_analyze all read the evaluated mesh; clay_diagnose always "
+        "reads the base, since a defect is a fact about the mesh an edit "
+        "would touch, not about what a modifier stack draws. clay_boolean "
+        "bakes every object it touches and clears the survivor's stack in "
+        "the same step. A boolean modifier's own target is read by uid, "
+        "so hiding the cutter still cuts. clay_modifier_apply bakes a "
+        "stack's prefix into the base mesh, letting an element edit reach "
+        "geometry a modifier built.\n\n"
         "Materials are linear RGB, 0..1. clay_scene's 'materials' lists the "
         "palette already in use -- reuse an index from it rather than "
         "appending a near-duplicate.\n\n"
+        "clay_uv packs, normalises or LSCM-unwraps an object's own uv, and "
+        "marks or clears the seams an LSCM unwrap cuts along -- one door, "
+        "an 'action' argument, always one undo step; clay_scene reports "
+        "'uv' (islands, overlapping faces, mean stretch, texel density) "
+        "once an object has one. clay_collider fits a box, sphere, capsule, "
+        "convex hull or compound collision proxy against one or more "
+        "objects' evaluated meshes and adds it as a child with that "
+        "object's own role set to 'collider' -- clay_scene's 'role'/"
+        "'collider_kind' name it, ordinary tools (clay_parent, clay_delete, "
+        "clay_transform) work on it like any other object, and it is never "
+        "locking-gated the way a mesh edit is. clay_catalog(topic) answers "
+        "the full generated catalogue for a topic (ops, primitives, "
+        "figures, queries, modifiers, collider_kinds, validate_profiles, "
+        "engines, uv_actions) that a tool's own enum names but does not "
+        "spell out in its description -- call it once for a topic before "
+        "the first call that needs more than the name alone.\n\n"
+        "An object may now have a parent (clay_parent; clay_group parents a "
+        "selection onto a new empty, clay_ungroup reverses it). "
+        "clay_transform then writes LOCAL TRS; clay_scene always reports "
+        "WORLD translation/rotation/scale plus a 'local' block once an "
+        "object has a parent. Hiding stays per object regardless. A locked "
+        "object (clay_lock) refuses clay_transform, clay_set_params, a "
+        "geometry edit and clay_delete, by name, but still allows a "
+        "rename, visibility, tags (clay_tag) or unlocking itself. "
+        "clay_separate splits an object by loose parts, material or its "
+        "current selection; clay_set_origin moves its pivot with nothing "
+        "moving on screen; clay_measure reads distance/angle/area/volume "
+        "with no selection or edit. clay_checkpoint/clay_restore name and "
+        "return to a history position -- session-only, and a checkpoint "
+        "can report 'gone' once a later edit makes it unreachable.\n\n"
         "References: clay_reference_add takes a Library job id or inline "
         "base64; pass 'compare' to clay_render to see the current render "
         "beside the reference or blended over it.\n\n"
@@ -790,6 +941,12 @@ def tools() -> list[Any]:
     batch_names = sorted(set(_HANDLERS) - BATCH_EXCLUDED)
     element_modes = list(el.MODES)
     query_names = sorted(bsel.QUERIES)
+    validate_profiles = sorted(readiness.PROFILES)
+    modifier_kinds = sorted(clay_modifiers.MODIFIERS)
+    uv_actions = sorted(UV_ACTIONS)
+    collider_kinds = sorted(colliders.COLLIDER_KINDS)
+    engine_keys = sorted(engines.ENGINES)
+    catalog_topics = sorted(CATALOG_TOPICS)
 
     return [
         protocol.Tool(
@@ -799,11 +956,17 @@ def tools() -> list[Any]:
                 "Every object in this session's document -- its generator and "
                 "parameters (or its shape once an edit has frozen them, see "
                 "'params'), its world-space translation/rotation/scale, its "
-                "bounding box (and the box's own size and center), its face "
-                "and vertex counts and its material slot -- plus the "
-                "document's own bounds over its visible objects, its "
-                "material palette, its current selection, element mode and "
-                "whether it has unsaved changes."
+                "bounding box (and the box's own size and center, measured "
+                "off what a modifier stack actually draws), its face and "
+                "vertex counts (the base mesh's own -- what an element edit "
+                "would change, not what the stack produces) and its "
+                "material slot -- plus, once it carries a modifier stack, "
+                "'modifiers' (id/kind/enabled/params/error per entry, see "
+                "clay_modifier_add) and 'evaluated' (the stack's own "
+                "vertices/faces/triangles) -- plus the document's own "
+                "bounds over its visible objects, its material palette, its "
+                "current selection, element mode and whether it has "
+                "unsaved changes."
             ),
             schema={"type": "object", "properties": {}, "additionalProperties": False},
             output_schema=_clay_scene_output_schema(),
@@ -827,7 +990,9 @@ def tools() -> list[Any]:
                 "clay_material's job, not this one's. Everything is "
                 "validated before anything is placed, so a refused call "
                 "places nothing. Returns the same row clay_scene would show "
-                "for it. Known generators: " + _generator_catalog()
+                "for it. 'generator's own enum names every known shape; call "
+                "clay_catalog(topic='primitives') for each one's own default "
+                "numbers, or see this bridge's instructions for the same list."
             ),
             schema={
                 "type": "object",
@@ -955,8 +1120,11 @@ def tools() -> list[Any]:
             title="Move, rotate or scale an object",
             description=(
                 "Set one object's translation, rotation and/or scale, as one "
-                "undo step. Rotation is Euler X, then Y, then Z, in degrees -- "
-                "not a quaternion."
+                "undo step. Writes LOCAL TRS -- relative to its own parent, "
+                "if it has one (clay_scene reports WORLD TRS, plus 'local' "
+                "for a parented object). Rotation is Euler X, then Y, then "
+                "Z, degrees, never a quaternion. Refused by name if the "
+                "object or an ancestor is locked (clay_lock)."
             ),
             schema={
                 "type": "object",
@@ -993,8 +1161,9 @@ def tools() -> list[Any]:
                 "and accept every key in params for *its own* generator, all "
                 "checked before any is rebuilt, so a radius handed to a box "
                 "among five cylinders refuses the whole call, names that uid "
-                "and its generator, and rebuilds nothing. "
-                "Known generators: " + _generator_catalog()
+                "and its generator, and rebuilds nothing. clay_scene's own "
+                "'generator' names which one; clay_catalog(topic='primitives') "
+                "or this bridge's instructions give every one's own defaults."
             ),
             schema={
                 "type": "object",
@@ -1012,6 +1181,128 @@ def tools() -> list[Any]:
                     },
                 },
                 "required": ["params"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_modifier_add",
+            title="Add a modifier to an object's stack",
+            description=(
+                "Append (or, given 'index', insert) one new modifier onto "
+                "an object's stack, as one undo step. 'kind' picks the "
+                "modifier; 'params' overrides its own numbers, everything "
+                "else takes that kind's own default. A boolean's own "
+                "'target' is another object's uid (0 = none chosen yet -- "
+                "legal to leave that way, it simply contributes nothing "
+                "until set); given, it must name a real object other than "
+                "this one. Returns the new modifier's id alongside the "
+                "same row clay_scene would show for this object. 'kind's "
+                "own enum names every kind; call clay_catalog(topic="
+                "'modifiers') for each one's own params and bounds."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "kind": {"type": "string", "enum": modifier_kinds},
+                    "params": {
+                        "type": "object",
+                        "additionalProperties": {"type": "number"},
+                        "description": "Only the keys to override; every "
+                        "other one takes that kind's own default.",
+                    },
+                    "index": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Where in the stack to insert it. "
+                        "Omitted appends at the end.",
+                    },
+                },
+                "required": ["uid", "kind"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_modifier_set",
+            title="Change a modifier's params or enabled flag",
+            description=(
+                "Change an existing modifier's params and/or its enabled "
+                "flag, as one undo step -- give at least one of the two. "
+                "'params' merges over the modifier's current values; a key "
+                "not given keeps its value. Returns the same row "
+                "clay_scene would show for this object."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "modifier": {"type": "integer"},
+                    "params": {
+                        "type": "object",
+                        "additionalProperties": {"type": "number"},
+                    },
+                    "enabled": {"type": "boolean"},
+                },
+                "required": ["uid", "modifier"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_modifier_remove",
+            title="Remove a modifier from an object's stack",
+            description=(
+                "Drop one modifier from an object's stack, as one undo "
+                "step. Returns the same row clay_scene would show for this "
+                "object."
+            ),
+            schema={
+                "type": "object",
+                "properties": {"uid": {"type": "integer"}, "modifier": {"type": "integer"}},
+                "required": ["uid", "modifier"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_modifier_move",
+            title="Reorder a modifier within an object's stack",
+            description=(
+                "Move one modifier to a new position in its object's "
+                "stack, as one undo step -- order changes the result (a "
+                "mirror before a solidify shells the mirrored pair; a "
+                "solidify before a mirror mirrors the shell). 'index' is "
+                "the position in the stack after the move, 0 = first."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "modifier": {"type": "integer"},
+                    "index": {"type": "integer", "minimum": 0},
+                },
+                "required": ["uid", "modifier", "index"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_modifier_apply",
+            title="Bake a modifier stack's prefix into the base mesh",
+            description=(
+                "Bake modifiers into the object's base mesh and drop them "
+                "from the stack, as one undo step -- 'modifier' omitted "
+                "bakes the whole stack; given, it bakes everything through "
+                "that id (inclusive) and leaves the rest of the stack "
+                "live. A disabled modifier in the baked prefix is dropped "
+                "without being applied -- it never contributed to what was "
+                "on screen. A modifier in the prefix that currently "
+                "refuses (see clay_scene's own 'error') refuses the whole "
+                "apply instead of baking a half-result nothing ever saw. "
+                "Use this to run an element-only clay_op row (inset, "
+                "bevel, extrude...) on geometry a modifier built."
+            ),
+            schema={
+                "type": "object",
+                "properties": {"uid": {"type": "integer"}, "modifier": {"type": "integer"}},
+                "required": ["uid"],
                 "additionalProperties": False,
             },
         ),
@@ -1058,9 +1349,13 @@ def tools() -> list[Any]:
                 "that comes first in the document's own object order -- not "
                 "the order given here, which only says which objects take "
                 "part. A closed-solid requirement applies to all three; the "
-                "refusal names which object is not one. Refused in "
-                "vertex/edge/face mode for the same reason clay_select is -- "
-                "call clay_element_mode with mode='object' first."
+                "refusal names which object is not one. Consumes what each "
+                "object's own modifier stack actually built, not its base "
+                "mesh, and clears the survivor's stack in the same step -- "
+                "every modifier it carried is now baked into the result. "
+                "Refused in vertex/edge/face mode for the same reason "
+                "clay_select is -- call clay_element_mode with "
+                "mode='object' first."
             ),
             schema={
                 "type": "object",
@@ -1081,15 +1376,20 @@ def tools() -> list[Any]:
             title="Set the object selection",
             description=(
                 "Replace the document's object selection. An empty list "
-                "clears it. Refused in vertex/edge/face mode: the object "
-                "selection is derived from the element selection there, so "
-                "this tool would either be overwritten by it or manufacture "
-                "an object 'selected' with nothing selected inside it. Call "
+                "clears it; 'tag', given, adds every object carrying that "
+                "tag to the result (a union with 'uids', not a replacement). "
+                "Refused in vertex/edge/face mode: the object selection is "
+                "derived from the element selection there, so this tool "
+                "would either be overwritten by it or manufacture an object "
+                "'selected' with nothing selected inside it. Call "
                 "clay_element_mode with mode='object' first."
             ),
             schema={
                 "type": "object",
-                "properties": {"uids": {"type": "array", "items": {"type": "integer"}}},
+                "properties": {
+                    "uids": {"type": "array", "items": {"type": "integer"}},
+                    "tag": {"type": "string"},
+                },
                 "required": ["uids"],
                 "additionalProperties": False,
             },
@@ -1182,8 +1482,9 @@ def tools() -> list[Any]:
                 "(select-all, select-none, select-invert, select-linked, "
                 "select-more, select-less, select-boundary) are clay_op "
                 "rows, not here -- this tool is only for a query that needs "
-                "a seed or a parameter to answer. Known queries: "
-                + _query_catalog()
+                "a seed or a parameter to answer. 'query's own enum names "
+                "every one; call clay_catalog(topic='queries') for each "
+                "one's own argument names and hint."
             ),
             schema={
                 "type": "object",
@@ -1238,7 +1539,9 @@ def tools() -> list[Any]:
                 "viewport (Frame Selection is a no-op here) and any refusal "
                 "an op raises per object comes back as a 'messages' list in "
                 "the result rather than a toast only the person at the "
-                "keyboard would see. Known ops: " + _op_catalog(op_names)
+                "keyboard would see. 'name's own enum names every op; call "
+                "clay_catalog(topic='ops') for each one's own params, bounds "
+                "and element-mode gating."
             ),
             schema={
                 "type": "object",
@@ -1353,7 +1656,11 @@ def tools() -> list[Any]:
                 "relate rather than about one mesh, such as a family of "
                 "copies (Box, Box.001...) that no longer agree about their "
                 "material -- what naming only the original in clay_material "
-                "after arraying or mirroring it leaves behind."
+                "after arraying or mirroring it leaves behind. Always reads "
+                "the base mesh, even once an object carries a modifier "
+                "stack -- a hole or a non-manifold edge is a fact about the "
+                "mesh an edit would touch, not about what the stack draws; "
+                "see clay_scene's own 'evaluated' for that."
             ),
             schema={
                 "type": "object",
@@ -1390,6 +1697,8 @@ def tools() -> list[Any]:
                 "rotation, which is tighter than clay_scene's 'bbox' -- that "
                 "one transforms the local bounding box's own corners, "
                 "conservative for anything that is not itself box-shaped. "
+                "Every measurement reads what a modifier stack actually "
+                "built, not the base mesh. "
                 "Refused past 64 objects or 200,000 triangles combined; "
                 "past 500,000 candidate triangle pairs for one object pair, "
                 "that pair's distance is a cheaper vertex estimate marked "
@@ -1432,15 +1741,160 @@ def tools() -> list[Any]:
             output_schema=_clay_analyze_output_schema(),
         ),
         protocol.Tool(
+            name="clay_validate",
+            title="Check readiness against a profile -- advisory, never a refusal",
+            description=(
+                "Check the document (or only its visible objects) against a "
+                "readiness profile -- a target's own import rules (a "
+                "triangle ceiling, a texture size, a material count and the "
+                "rest), not a mesh defect the way clay_diagnose finds one "
+                "and not a fact about placement the way clay_analyze "
+                "measures one. Every check is advisory: this tool only "
+                "measures and reports, it never fixes anything and never "
+                "selects anything, the same read-only shape clay_diagnose "
+                "and clay_analyze already hold to. Where a check's own "
+                "'fix' is given, it names a clay_op row -- run it next "
+                "through clay_op, this tool never runs it for you. "
+                "'visible_only' (default true) checks only visible objects; "
+                "an empty or all-hidden document still answers with a "
+                "'fail' status rather than a refusal, because having "
+                "nothing to check is itself the finding. 'profile's own "
+                "enum names every one; call clay_catalog(topic="
+                "'validate_profiles') for each one's own label."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "profile": {"type": "string", "enum": validate_profiles},
+                    "visible_only": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_uv",
+            title="Pack, normalise or unwrap an object's uv, or mark seams",
+            description=(
+                "One door onto uv work, one undo step, chosen by 'action': "
+                "pack (shelf-pack every island into the unit square, "
+                "'margin'/'rotate'), density (scale every island to a "
+                "target texel density, 'target' px/m required, 'texture_px' "
+                "default 1024), unwrap_seams (cut along the object's own "
+                "marked seams and flatten with LSCM, then pack -- refused "
+                "with no seams marked), mark_seam and clear_seam (edit the "
+                "object's own marked seams; 'edges' as [[vertex, vertex], "
+                "...], or the current edge selection if omitted). pack/"
+                "density/unwrap_seams refuse an object with no uv (unwrap "
+                "it first -- clay_op's own box/planar unwrap, or "
+                "smart-unwrap); all five refuse a locked object by name. "
+                "Call clay_catalog(topic='uv_actions') for the same five "
+                "sentences at once. Returns the same row clay_scene would "
+                "show for the object (pack/density/unwrap_seams) or its "
+                "own seam count (mark_seam/clear_seam)."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "action": {"type": "string", "enum": uv_actions},
+                    "margin": {"type": "number", "minimum": 0.0, "maximum": 0.5},
+                    "rotate": {"type": "boolean"},
+                    "target": {"type": "number", "exclusiveMinimum": 0.0},
+                    "texture_px": {"type": "integer", "minimum": 1},
+                    "edges": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                        "minItems": 1,
+                    },
+                },
+                "required": ["uid", "action"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_collider",
+            title="Fit a collision proxy onto objects",
+            description=(
+                "Fit 'kind' (box/sphere/capsule/convex/compound -- see "
+                "kernels.mesh.colliders) against every named object's own "
+                "evaluated mesh and add one collider child each, as one "
+                "undo step total -- not a locking door, a locked source can "
+                "still grow one. 'params' overrides a kind's own extra "
+                "numbers: box takes 'oriented' (boolean 0/1, default 0 -- "
+                "axis-aligned unless set); convex and compound take "
+                "'max_faces' (default 64); sphere and capsule take none. "
+                "A collider draws as a translucent wireframe, is skipped by "
+                "the readiness triangle budget, and is parented onto its "
+                "source with the identity local transform -- clay_scene's "
+                "'role'/'collider_kind' name it, and clay_parent/"
+                "clay_delete work on it exactly as on any other object. "
+                "Call clay_catalog(topic='collider_kinds') for each kind's "
+                "own extra params."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uids": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+                    "kind": {"type": "string", "enum": collider_kinds},
+                    "params": {
+                        "type": "object",
+                        "additionalProperties": {"type": "number"},
+                        "description": (
+                            "Only for a kind with extra numbers; missing "
+                            "fields fall back to that kind's own defaults."
+                        ),
+                    },
+                },
+                "required": ["uids", "kind"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_catalog",
+            title="Look up a tool's own generated vocabulary",
+            description=(
+                "The full generated catalogue for one topic -- every "
+                "clay_op row's params, every generator's defaults, every "
+                "figure's part names, every clay_select_by query's "
+                "arguments, every modifier kind's params, every collider "
+                "kind's extra params, every clay_validate profile's label, "
+                "every clay_export engine's notes, or every clay_uv "
+                "action's params -- pulled from the exact same registry "
+                "each tool's own schema enum already draws from, never a "
+                "second copy. Needs no document open. The enum values "
+                "themselves are already in each tool's own schema; call "
+                "this only when a call needs more than the name alone."
+            ),
+            schema={
+                "type": "object",
+                "properties": {"topic": {"type": "string", "enum": catalog_topics}},
+                "required": ["topic"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
             name="clay_export",
             title="Export the document as an asset",
             description=(
                 "Mint a finished model row from the document, the way Clay's "
                 "own Export does, and also keep the authored document as a "
                 ".wblk this session can be resumed from. Returns the new "
-                "job's id."
+                "job's id. 'engine', given, is validated against a known "
+                "export target (collider naming, LOD naming, the OBJ axis/"
+                "scale conversion -- see clay_collider) and echoed back; "
+                "call clay_catalog(topic='engines') for each one's own "
+                "notes."
             ),
-            schema={"type": "object", "properties": {}, "additionalProperties": False},
+            schema={
+                "type": "object",
+                "properties": {"engine": {"type": "string", "enum": engine_keys}},
+                "additionalProperties": False,
+            },
         ),
         protocol.Tool(
             name="clay_undo",
@@ -1482,7 +1936,8 @@ def tools() -> list[Any]:
                 "Remove the named objects, in any element mode, as one undo "
                 "step -- never a wrapper over clay_op's own Delete row, "
                 "which acts on the selection and in a face or edge mode can "
-                "leave every object standing."
+                "leave every object standing. Refused, naming every locked "
+                "one, before any is removed."
             ),
             schema={
                 "type": "object",
@@ -1508,6 +1963,217 @@ def tools() -> list[Any]:
             },
         ),
         protocol.Tool(
+            name="clay_parent",
+            title="Reparent an object",
+            description=(
+                "Parent one object onto another, or make it a root, as one "
+                "undo step -- writes LOCAL TRS afterwards, recomputed (with "
+                "keep_world, the default true) so nothing moves on screen. "
+                "'parent' is required and may be null to clear it; refused "
+                "for a cycle (parenting to itself or a descendant)."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "parent": {"description": "a uid to reparent onto, or null for a root."},
+                    "keep_world": {"type": "boolean"},
+                },
+                "required": ["uid", "parent"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_group",
+            title="Group objects under a new empty",
+            description=(
+                "Parent every named object onto a new, mesh-less empty at "
+                "their combined world bounds centre, as one undo step. "
+                "'name' defaults to 'Group'; a collision with an existing "
+                "name is disambiguated automatically, the way a duplicated "
+                "object's own name already is. Undo the grouping itself "
+                "with clay_ungroup, not clay_delete."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uids": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+                    "name": {"type": "string"},
+                },
+                "required": ["uids"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_ungroup",
+            title="Remove a group's empty",
+            description=(
+                "Remove a group's own empty, releasing its children onto "
+                "its own parent with their world placement kept, as one "
+                "undo step. Refused for an object with no children, or one "
+                "that carries geometry of its own -- use clay_delete for "
+                "that."
+            ),
+            schema={
+                "type": "object",
+                "properties": {"uid": {"type": "integer"}},
+                "required": ["uid"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_lock",
+            title="Lock or unlock objects",
+            description=(
+                "Lock or unlock every named object, as one undo step. A "
+                "locked object refuses clay_transform, clay_set_params, "
+                "geometry edits and clay_delete -- but not renaming, "
+                "visibility, tags or this tool itself, so a mistake made "
+                "while locked can always be undone by unlocking."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uids": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+                    "locked": {"type": "boolean"},
+                },
+                "required": ["uids", "locked"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_tag",
+            title="Add or remove tags",
+            description=(
+                "Add and/or remove tags on every named object, as one undo "
+                "step -- give at least one of 'add'/'remove'. Tags are "
+                "free-form, case-insensitive and deduplicated; clay_select's "
+                "own 'tag' argument selects by one. Returns each uid's "
+                "resulting tag set."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uids": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+                    "add": {"type": "array", "items": {"type": "string"}},
+                    "remove": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["uids"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_separate",
+            title="Split an object into several",
+            description=(
+                "Split one object along 'by' -- loose_parts, material, or "
+                "selection (the object's current face/vertex/edge "
+                "selection) -- into several new objects, each keeping the "
+                "source's parent, transform and modifier stack, as one undo "
+                "step. Refused when the split would produce a single "
+                "piece, or (for 'selection') when nothing is selected on "
+                "this object."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "by": {"type": "string", "enum": list(SEPARATE_MODES)},
+                },
+                "required": ["uid", "by"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_set_origin",
+            title="Move an object's origin",
+            description=(
+                "Move one object's origin (its local 0,0,0) to a world "
+                "point, as one undo step -- the mesh and every child stay "
+                "exactly where they are on screen; freezes the generator, "
+                "like any mesh edit. Give exactly one of 'mode' (bounds: "
+                "own box centre; base: box centre at its lowest Y; "
+                "selection: mean position of what is selected inside it; "
+                "world: the world origin) or an explicit 'point'. A mirror "
+                "modifier's plane is the object's own origin, so this "
+                "moves that plane too."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "mode": {"type": "string", "enum": list(ORIGIN_MODES)},
+                    "point": _vec3_schema("metres, world space"),
+                },
+                "required": ["uid"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_measure",
+            title="Measure distance, angle, area or volume",
+            description=(
+                "Pure numbers, no selection or edit. 'distance' (a, b) and "
+                "'angle' (a, b, c -- angle at b) take points: [x,y,z] "
+                "(world space), {uid} (its world translation), or {uid, "
+                "vertex} (one vertex of its base mesh, world space). "
+                "'area' (uid, optional faces -- base-mesh indices, "
+                "defaulting to its current face selection) and 'volume' "
+                "(uid) read the base mesh -- the one clay_select_elements/"
+                "clay_elements index, never the evaluated one clay_scene/"
+                "clay_analyze report."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": list(MEASURE_KINDS)},
+                    "a": {"description": "a point -- see kind's own description."},
+                    "b": {"description": "a point -- see kind's own description."},
+                    "c": {"description": "a point -- for kind='angle' only."},
+                    "uid": {"type": "integer"},
+                    "faces": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["kind"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_checkpoint",
+            title="Name the current history position",
+            description=(
+                "Remember the current undo position under 'name', for a "
+                "later clay_restore. Pushes no undo step. Session-only -- "
+                "not saved with the document, and gone once the session "
+                "ends. Re-setting an existing name overwrites it."
+            ),
+            schema={
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_restore",
+            title="Restore a named checkpoint",
+            description=(
+                "Move the history to a named clay_checkpoint -- moves the "
+                "head rather than pushing a step of its own, like "
+                "clay_undo/clay_redo, and cannot be batched for the "
+                "identical reason. Refused for an unknown name, or one now "
+                "'gone' -- unreachable because a divergent edit since it "
+                "was set evicted or overwrote that position. "
+                "Already-current is not a refusal: 'moved' says whether "
+                "anything actually happened."
+            ),
+            schema={
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
             name="clay_batch",
             title="Run several tools as one undo step",
             description=(
@@ -1518,8 +2184,8 @@ def tools() -> list[Any]:
                 "the first call must be one of "
                 f"{', '.join(MINTS_A_DOCUMENT)}. "
                 "clay_batch, clay_program, clay_render, clay_export, "
-                "clay_undo, clay_redo and clay_reference_get cannot be "
-                "batched -- see their own tools for why. Anywhere inside a "
+                "clay_undo, clay_redo, clay_restore and clay_reference_get "
+                "cannot be batched -- see their own tools for why. Anywhere inside a "
                 "later entry's arguments, {\"$ref\": \"<name>\"} resolves to "
                 "the uid of the object of that name as the document stands "
                 "when that entry runs -- so an earlier entry can name an "
@@ -1834,6 +2500,11 @@ _HANDLERS = {
     "clay_add_mesh": _h_add_mesh,
     "clay_transform": _h_transform,
     "clay_set_params": _h_set_params,
+    "clay_modifier_add": _h_modifier_add,
+    "clay_modifier_set": _h_modifier_set,
+    "clay_modifier_remove": _h_modifier_remove,
+    "clay_modifier_move": _h_modifier_move,
+    "clay_modifier_apply": _h_modifier_apply,
     "clay_material": _h_material,
     "clay_boolean": _h_boolean,
     "clay_select": _h_select,
@@ -1845,11 +2516,25 @@ _HANDLERS = {
     "clay_render": _h_render,
     "clay_diagnose": _h_diagnose,
     "clay_analyze": _h_analyze,
+    "clay_validate": _h_validate,
+    "clay_uv": _h_uv,
+    "clay_collider": _h_collider,
+    "clay_catalog": _h_catalog,
     "clay_export": _h_export,
     "clay_undo": _h_undo,
     "clay_redo": _h_redo,
     "clay_delete": _h_delete,
     "clay_rename": _h_rename,
+    "clay_parent": _h_parent,
+    "clay_group": _h_group,
+    "clay_ungroup": _h_ungroup,
+    "clay_lock": _h_lock,
+    "clay_tag": _h_tag,
+    "clay_separate": _h_separate,
+    "clay_set_origin": _h_set_origin,
+    "clay_measure": _h_measure,
+    "clay_checkpoint": _h_checkpoint,
+    "clay_restore": _h_restore,
     "clay_batch": _h_batch,
     "clay_program": _h_program,
     "clay_reference_add": _h_reference_add,

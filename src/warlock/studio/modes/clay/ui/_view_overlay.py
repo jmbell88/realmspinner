@@ -34,6 +34,11 @@ HOVER_COLOR = (1.0, 0.85, 0.2, 1.0)
 GUIDE_COLOR = (0.55, 0.58, 0.62, 0.35)
 FILL_COLOR = (0.95, 0.25, 0.25, 0.28)
 
+# The knife's own drag line -- bright white rather than any of the above:
+# it is neither a selection nor a hover, and borrowing either colour would
+# read as one.
+KNIFE_LINE_COLOR = (1.0, 1.0, 1.0, 0.95)
+
 # How far a selected face's translucent fill is pulled toward the eye, as a
 # fraction of its distance. ``glPolygonOffset`` is the textbook answer and is
 # deliberately not used: it is global GL state that moderngl caches, so setting
@@ -236,7 +241,7 @@ class OverlayOps:
                 # invisible, the failure the key's own comment describes.
                 overlay.pins = (obj.mesh, stored)
                 self._overlays[obj.uid] = overlay
-            world = self._world(obj)
+            world = self._world(doc, obj)
             items.extend(
                 self._overlay_items(obj, overlay, world, mode, sel, hover_index)
             )
@@ -361,3 +366,61 @@ class OverlayOps:
         for overlay in self._overlays.values():
             overlay.release()
         self._overlays.clear()
+
+    # -- the knife gesture's own line ---------------------------------------
+
+    def _knife_draws(self: ClayView) -> list[Any]:
+        """The knife gesture's overlay: a plain two-point line from the press
+        to wherever the cursor is now.
+
+        Redrawn by rewriting the same two vertices rather than minting a
+        fresh VAO every frame of the drag -- ``_preview_positions``'s own
+        "positions move, buffers don't" reasoning, applied to two vertices
+        instead of a mesh's worth. World space, not screen space: the two
+        points are the same ones :meth:`~._view_drag.DragOps.
+        _knife_world_plane` would unproject at commit, so the line drawn is
+        exactly the line the plane will be built from, not a second
+        approximation of it.
+        """
+        if self._grab != "knife" or self._knife_from is None or self._knife_to is None:
+            return []
+        from ._view_drag import _knife_image_point
+
+        positions = np.array(
+            [
+                _knife_image_point(self.camera, self._rect, self._knife_from),
+                _knife_image_point(self.camera, self._rect, self._knife_to),
+            ],
+            dtype="f4",
+        )
+        if self._knife_vbo is None:
+            program = self.renderer.programs.get("solid")
+            self._knife_vbo = self.ctx.buffer(positions.tobytes())
+            self._knife_ibo = self.ctx.buffer(np.array([0, 1], dtype="u4").tobytes())
+            self._knife_vao = self.ctx.vertex_array(
+                program, [(self._knife_vbo, "3f", "a_position")], self._knife_ibo
+            )
+        else:
+            self._knife_vbo.write(positions.tobytes())
+        return [
+            DrawItem(
+                vao=self._knife_vao,
+                color=KNIFE_LINE_COLOR,
+                model=m3.identity(),
+                mode=moderngl.LINES,
+                depth=False,
+            )
+        ]
+
+    def _release_knife_overlay(self: ClayView) -> None:
+        """Drop the knife line's GL objects -- commit, cancel and teardown
+        all end the gesture the same way, so all three go through here."""
+        if self._knife_vao is not None:
+            self._knife_vao.release()
+            self._knife_vao = None
+        if self._knife_ibo is not None:
+            self._knife_ibo.release()
+            self._knife_ibo = None
+        if self._knife_vbo is not None:
+            self._knife_vbo.release()
+            self._knife_vbo = None

@@ -84,12 +84,12 @@ def _refuse_complexity(meshes: Sequence[bm.Mesh], kind: str) -> None:
         )
 
 
-def union(objs: Sequence[Obj]) -> bm.Mesh:
+def union(objs: Sequence[Obj], *, world: Sequence[np.ndarray | None] | None = None) -> bm.Mesh:
     """The boolean union of several objects, in the **first** one's frame."""
-    return boolean(objs, "union")
+    return boolean(objs, "union", world=world)
 
 
-def difference(objs: Sequence[Obj]) -> bm.Mesh:
+def difference(objs: Sequence[Obj], *, world: Sequence[np.ndarray | None] | None = None) -> bm.Mesh:
     """The first object with every other one cut out of it.
 
     The one boolean whose **order matters**, and the reason the whole family
@@ -97,15 +97,19 @@ def difference(objs: Sequence[Obj]) -> bm.Mesh:
     "the hole minus the block" are different shapes, and only one of them is
     ever what was meant.
     """
-    return boolean(objs, "difference")
+    return boolean(objs, "difference", world=world)
 
 
-def intersection(objs: Sequence[Obj]) -> bm.Mesh:
+def intersection(
+    objs: Sequence[Obj], *, world: Sequence[np.ndarray | None] | None = None
+) -> bm.Mesh:
     """Only what every selected object has in common."""
-    return boolean(objs, "intersection")
+    return boolean(objs, "intersection", world=world)
 
 
-def boolean(objs: Sequence[Obj], kind: str = "union") -> bm.Mesh:
+def boolean(
+    objs: Sequence[Obj], kind: str = "union", *, world: Sequence[np.ndarray | None] | None = None
+) -> bm.Mesh:
     """A boolean of several objects, in the **first** one's frame.
 
     The frame convention is :func:`.ops.join`'s exactly, and for its reasons:
@@ -114,6 +118,15 @@ def boolean(objs: Sequence[Obj], kind: str = "union") -> bm.Mesh:
     untouched rather than multiplied by an ``inv(M) @ M`` that is only identity
     to within a rounding error. The target keeps its transform, so nothing
     about it should move.
+
+    ``world``, given, is one world matrix per entry of *objs* (tranche 3:
+    scene structure) -- see :func:`.ops.join`'s own ``world`` for why two
+    objects under different parents need their world matrices, not their
+    own TRS, to be correctly related. ``None`` -- the whole argument or one
+    entry -- composes that object's own TRS exactly as this always has,
+    which is a root's own world matrix, so a document with no parenting
+    computes exactly what it always did. :mod:`.modifiers`' own boolean
+    kind is the one caller that always passes both.
 
     Disjoint inputs are *not* an error and are not special-cased **for a
     union**: the union of two solids that do not touch is a two-shell solid,
@@ -144,7 +157,11 @@ def boolean(objs: Sequence[Obj], kind: str = "union") -> bm.Mesh:
     # it there is what lets the refusal skip the allocation it is refusing.
     raw_meshes = [target.mesh] + [o.mesh for o in objs[1:]]
     _refuse_complexity(raw_meshes, kind)
-    meshes = [target.mesh] + [bm.transformed(o.mesh, _into(target, o)) for o in objs[1:]]
+    worlds: Sequence[np.ndarray | None] = world if world is not None else [None] * len(objs)
+    meshes = [target.mesh] + [
+        bm.transformed(o.mesh, _into(target, o, target_world=worlds[0], other_world=w))
+        for o, w in zip(objs[1:], worlds[1:], strict=True)
+    ]
     result = _run(meshes, [o.name for o in objs], kind)
     return _to_csr(result, target.mesh, kind)
 

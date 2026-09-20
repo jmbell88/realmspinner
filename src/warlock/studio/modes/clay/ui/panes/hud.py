@@ -177,5 +177,11 @@ def hint_line(ctx: Any) -> None:
     if drag is not None:
         line = clay_hints.drag_readout(drag.kind, drag.axis, drag.space, drag.amount)
     else:
-        line = clay_hints.hint(tab.doc.element_mode, state.tool)
+        # Tranche 3: scene structure. A measurement, when the current
+        # selection is one of the four shapes ``measure_line`` answers,
+        # takes the line over the ordinary key legend -- the numbers are the
+        # more useful thing to read while two vertices are selected, and the
+        # legend is one click (Q, then pick something else) away the moment
+        # they are not.
+        line = clay_hints.measure_line(tab.doc) or clay_hints.hint(tab.doc.element_mode, state.tool)
     widgets.muted(line)

@@ -105,9 +105,11 @@ def _items(state: Any) -> list[Any]:
             "snap",
             "Snap",
             icons.MAGNET,
-            tooltip="Snap a drag to the grid, to an angle, or onto the vertex "
-            "under the cursor",
-            selected=bool(state.snap or state.snap_vertex),
+            tooltip="Snap a drag to the grid, to an angle, or onto a vertex, "
+            "an edge or a face under the cursor",
+            selected=bool(
+                state.snap or state.snap_vertex or state.snap_edge or state.snap_face
+            ),
         ),
         toolbar.Item(
             "proportional",
@@ -224,6 +226,22 @@ def _snap_popup(state: Any) -> None:
             "than on the grid. The vertices being moved are never candidates, "
             "so a drag cannot snap onto itself. Typing a value or locking an "
             "axis (X/Y/Z during a drag) overrides it."
+        )
+        # Tranche 3: scene structure. Two more targets, each its own switch
+        # for ``snap_vertex``'s own reason -- and tried in that order
+        # (finest first) when more than one is on, ``_narrow``'s own rule.
+        changed, value = widgets.toggle(f"{icons.MAGNET} Snap to edge", state.snap_edge)
+        if changed:
+            state.snap_edge = value
+        widgets.help_marker(
+            "Lands on the nearest point along the edge under the cursor, not "
+            "only its ends."
+        )
+        changed, value = widgets.toggle(f"{icons.MAGNET} Snap to face", state.snap_face)
+        if changed:
+            state.snap_face = value
+        widgets.help_marker(
+            "Lands on the surface under the cursor, wherever the ray meets it."
         )
         # Clamped rather than validated: zero is the off switch every snap
         # function already treats as the identity, and a negative grid is

@@ -264,7 +264,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         self.rebuilds = 0
 
         self._rect = (0.0, 0.0, 1.0, 1.0)
-        self._grab: str | None = None  # orbit | pan | gizmo | marquee
+        self._grab: str | None = None  # orbit | pan | gizmo | marquee | keydrag | knife
         self._last_mouse = (0.0, 0.0)
         self._drag_uids: list[int] = []
         self._drag_start: dict[int, tuple[Any, Any, Any]] = {}
@@ -305,6 +305,21 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         self.marquee: tuple[float, float, float, float] | None = None
         self._marquee_from: tuple[float, float] | None = None
         self._marquee_add = "replace"
+        # The knife gesture (tranche 5 integration): armed by
+        # ``clay_ops._knife`` firing bare (``DragOps.begin_knife``), live
+        # once the press that draws the line lands (``_grab == "knife"``),
+        # and cleared on commit or cancel (``DragOps._commit_knife``/
+        # ``cancel_drag``). Two screen points only -- the plane is computed
+        # once, on release, so the frame loop between press and release does
+        # nothing heavier than remembering where the cursor is now. The GL
+        # pair below is the line overlay drawn while it is live; see
+        # ``_view_overlay.OverlayOps._knife_draws``.
+        self._knife_armed = False
+        self._knife_from: tuple[float, float] | None = None
+        self._knife_to: tuple[float, float] | None = None
+        self._knife_vbo: Any = None
+        self._knife_vao: Any = None
+        self._knife_ibo: Any = None
         self._element_drags: dict[int, _ElementDrag] = {}
         self._overlays: dict[int, _SelOverlay] = {}
         self._element_centre = np.zeros(3)
@@ -329,7 +344,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         # array's address coming back on a different transform would otherwise
         # match a stale matrix.
         self._world_cache: dict[
-            int, tuple[tuple[int, int, int], Any, tuple[Any, Any, Any]]
+            int, tuple[tuple[int, ...], Any, tuple[Any, ...]]
         ] = {}
         # element_centre / selection_centre / world_bounds memos (B25/B27),
         # each ``(key, answer, pins)`` -- the pins hold what the key's ids name.
@@ -455,27 +470,46 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
                 self._element_overlays(doc)
                 + self._gizmo_draws(doc, height)
                 + self._ghost_draws(doc)
+                + self._knife_draws()
             ),
         )
         return self.viewport.texture
 
-    def _world(self, obj: Any) -> Any:
-        """This object's world matrix, memoized on the transform arrays (B26).
+    def _world(self, doc: Any, obj: Any) -> Any:
+        """This object's world matrix, memoized on the transform arrays (B26,
+        extended for tranche 3's parenting).
 
         Sound because every transform write *rebinds* the three arrays -- the
         documented gizmo rule ("rebind rather than write through trs()'s live
         arrays") -- so the identity triple changes exactly when the transform
         does. One memo serves the composite, the overlays, the centres and the
         bounds, which is what "compute world matrices once" means here.
+
+        **The key carries every ancestor's transform-array identity, not only
+        this object's own.** An object's own ``translation``/``rotation``/
+        ``scale`` are local to its parent (the module docstring on
+        ``document.py``), so moving a *parent* leaves a child's own three
+        arrays exactly as they were -- a key built from the child's own arrays
+        alone would keep matching after the ancestor moved, and this would
+        keep serving the parent's *old* placement composed with the child's
+        current local one. Delegated to :meth:`~.document.ClayDoc.world_matrix`
+        for the actual composition, which is the one place this package
+        answers "what does the parent chain compose to" -- a root's chain is
+        empty, so this still costs one ``compose`` for a document with no
+        parenting, exactly as it always has.
         """
-        key = (id(obj.translation), id(obj.rotation), id(obj.scale))
+        chain = [obj, *(doc.by_uid(u) for u in doc.ancestors(obj.uid))]
+        key = tuple(id(v) for o in chain for v in (o.translation, o.rotation, o.scale))
         hit = self._world_cache.get(obj.uid)
         if hit is not None and hit[0] == key:
             return hit[1]
-        world = m3.compose(obj.translation, obj.rotation, obj.scale)
-        self._world_cache[obj.uid] = (
-            key, world, (obj.translation, obj.rotation, obj.scale)
-        )
+        world = doc.world_matrix(obj.uid)
+        # Every ancestor's arrays are pinned, not only this object's own: an
+        # id in the key is only sound while the array it names is alive, and
+        # nothing else holds an ancestor's transform alive on this cache's
+        # behalf.
+        pins = tuple(v for o in chain for v in (o.translation, o.rotation, o.scale))
+        self._world_cache[obj.uid] = (key, world, pins)
         if len(self._world_cache) > 4096:
             self._world_cache.clear()
         return world
@@ -507,7 +541,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
             entry = self._cache.get(obj.uid)
             if entry is None:
                 continue
-            world = self._world(obj)
+            world = self._world(doc, obj)
             for node, primitive in entry.gpu.draws:
                 node.world = world
                 draws.append((node, primitive))
@@ -591,16 +625,24 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
             except KeyError:
                 continue
             live.add(uid)
-            key = (uid, id(obj.mesh))
+            # Evaluated -- this ghost is standing in for what would actually
+            # land on screen, the same reason the real cache (``_view_cache``)
+            # draws the evaluated mesh rather than the base.
+            mesh = scratch.evaluated(uid)
+            key = (uid, id(mesh))
             overlay = self._ghost_cache.get(uid)
             if overlay is None or overlay.key != key:
                 if overlay is not None:
                     overlay.release()
-                overlay = _SelOverlay(self.ctx, program, key, obj.mesh.positions)
-                overlay.pins = obj.mesh
+                overlay = _SelOverlay(self.ctx, program, key, mesh.positions)
+                overlay.pins = mesh
                 self._ghost_cache[uid] = overlay
-            world = m3.compose(obj.translation, obj.rotation, obj.scale)
-            item = _fill(overlay, obj.mesh, world, GHOST_ADD_COLOR)
+            # ``scratch``, not ``doc``: the added/changed branch's ``obj`` is
+            # the scratch clone's own, and its ancestor chain (if any) lives
+            # there too -- composing against ``doc`` would walk the wrong
+            # document's objects, or a uid this one does not have at all.
+            world = self._world(scratch, obj)
+            item = _fill(overlay, mesh, world, GHOST_ADD_COLOR)
             if item is not None:
                 items.append(item)
 
@@ -610,15 +652,16 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
             except KeyError:
                 continue
             live.add(uid)
-            key = (uid, id(obj.mesh))
+            mesh = doc.evaluated(uid)
+            key = (uid, id(mesh))
             overlay = self._ghost_cache.get(uid)
             if overlay is None or overlay.key != key:
                 if overlay is not None:
                     overlay.release()
-                overlay = _SelOverlay(self.ctx, program, key, obj.mesh.positions)
-                overlay.pins = obj.mesh
+                overlay = _SelOverlay(self.ctx, program, key, mesh.positions)
+                overlay.pins = mesh
                 self._ghost_cache[uid] = overlay
-            item = _fill(overlay, obj.mesh, self._world(obj), GHOST_REMOVE_COLOR)
+            item = _fill(overlay, mesh, self._world(doc, obj), GHOST_REMOVE_COLOR)
             if item is not None:
                 items.append(item)
 
@@ -966,6 +1009,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         self.clear()
         self._release_overlays()
         self._release_ghost()
+        self._release_knife_overlay()
         self.translate_gizmo.release()
         self.rotate_gizmo.release()
         self.scale_gizmo.release()

@@ -66,7 +66,7 @@ def test_face_mode_pick_reaches_an_occluded_object_under_xray():
 
     calls = []
 
-    def fake_pick_face_on(self, obj, origin, direction):
+    def fake_pick_face_on(self, doc, obj, origin, direction):
         calls.append(obj.name)
         # "Near" hits at t=0 (closer), "Far" hits at t=5 (farther), each on
         # its own object -- exactly what a real per-object raycast returns.

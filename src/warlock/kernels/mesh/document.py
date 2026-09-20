@@ -32,6 +32,22 @@ and a panel still offering a size field would discard the edit the moment it
 was touched. ``clay_ops`` does that in one place for every op, so no op has to
 remember to.
 
+**``modifiers`` is a second, later stage that the freeze rule does not touch.**
+``Obj.mesh`` is still the *base* -- what an element edit, an element pick, a
+drag and every mesh op reads and writes, exactly as before -- and an object
+additionally carries ``modifiers: tuple[Modifier, ...]`` (default ``()``,
+:mod:`.modifiers`). The **evaluated** mesh is the base run through each
+enabled modifier in order (:func:`~.modifiers.evaluate`, ``ClayDoc.
+evaluated``/``.evaluation``), and it is what display, export, measurement and
+object-mode picking read; editing still reads the base. :meth:`ClayDoc.
+set_mesh` freezes the generator exactly as it always did and **keeps the
+stack** -- a topology edit invalidates "this is a box", not "this box also has
+a mirror on it" -- while :meth:`ClayDoc.join_objects` and a boolean modifier's
+own target both *consume* an evaluated mesh, and the object whose stack fed
+one is cleared of it in the same step: its modifiers are now baked into
+whatever adopted the result, and leaving the stack in place would apply it a
+second time the next time that object was drawn.
+
 **Dirty is a comparison against ``history.head``, not a flag.** ``rev`` counts
 changes and an undo is a change, so a rev-based check calls an undone document
 unsaved forever. :attr:`ClayDoc.saved_head` records the head at save time and
@@ -77,6 +93,7 @@ import numpy as np
 from ...core.undo import CompoundEdit, Edit, UndoStack
 from ..geom3d import gltf
 from ..geom3d import math3d as m3
+from . import colliders
 from . import elements as el
 from . import mesh as bm
 from .edits import (  # noqa: F401
@@ -160,6 +177,88 @@ FALLBACK_MATERIAL = gltf.Material(
 )
 
 
+def _empty_mesh() -> bm.Mesh:
+    """A mesh with zero vertices and zero faces -- what :meth:`ClayDoc.group`
+    gives its new empty object. Draws nothing (:func:`to_primitives` already
+    returns ``[]`` for a zero-face mesh) and exports as a transform-only
+    node (:func:`to_model`). Built by hand rather than through
+    :func:`~.mesh.from_faces` (which needs at least one face to infer
+    ``starts`` from): an empty mesh is the one shape that function cannot
+    describe, since it never has a face to start from."""
+    return bm.Mesh(
+        positions=np.zeros((0, 3), dtype="f4"),
+        loops=np.zeros(0, dtype="i4"),
+        starts=np.zeros(1, dtype="i4"),
+        material=np.zeros(0, dtype="i4"),
+        smooth=np.zeros(0, dtype=bool),
+    )
+
+
+def _normalize_tags(tags: Iterable[str]) -> tuple[str, ...]:
+    """A tag set as the document always stores one: sorted, deduplicated,
+    lower-cased -- so "Prop" and "prop" typed on two different objects are the
+    same tag for the outliner's filter and ``clay_select_by``'s query, rather
+    than two entries that happen to look alike in the list."""
+    return tuple(sorted({str(t).strip().lower() for t in tags if str(t).strip()}))
+
+
+def _normalize_seams(pairs: Iterable[Sequence[int]]) -> tuple[tuple[int, int], ...]:
+    """A seam set as the document always stores one: each pair ``(a, b)``
+    with ``a < b``, deduplicated, sorted -- the same reasoning
+    ``_normalize_tags`` gives for a tag typed in either case, or twice: two
+    calls marking the same edge, in either vertex order or more than once,
+    must describe one identical document, not two states a diff or an undo
+    step could disagree about. A pair naming the same vertex twice is not an
+    edge at all and is silently dropped, the same tolerant answer
+    ``_normalize_tags`` gives an empty string, rather than refused -- this
+    function only ever *canonicalises* a shape that is already sound. The
+    one thing it cannot fix, a vertex index the mesh does not actually have,
+    is :meth:`ClayDoc.set_seams`'s refusal to make, never this one's: this
+    runs from :class:`Obj`'s own ``__post_init__``, with no mesh size known
+    to be trustworthy yet at every call site (a scratch clone, a file mid-read
+    before the archive's own bounds have been checked).
+    """
+    out: set[tuple[int, int]] = set()
+    for pair in pairs:
+        a, b = int(pair[0]), int(pair[1])
+        if a == b:
+            continue
+        out.add((a, b) if a < b else (b, a))
+    return tuple(sorted(out))
+
+
+def _restrict_seams(
+    seams: tuple[tuple[int, int], ...], mesh: bm.Mesh
+) -> tuple[tuple[int, int], ...]:
+    """*seams* with any pair naming a vertex *mesh* no longer has removed.
+
+    The exact range check :func:`~.elements.restrict` already applies to an
+    element selection, and for the exact reason that function's own
+    docstring gives: an index still in range after a rebuild survives
+    verbatim however little it still means, because closing that gap needs
+    the *old* mesh to compare against, which this function is never given
+    either -- only :meth:`ClayDoc.set_generator_params`, one of this
+    function's two callers, holds both meshes at once, and it already spends
+    that on the element selection alone via ``el.restrict``. Used at
+    :meth:`ClayDoc.set_mesh` (reached by dozens of different mesh ops with
+    no shared way to say whether *this* particular call preserved indices)
+    and :meth:`ClayDoc.set_generator_params` (a full rebuild from parameters,
+    the exact site ``el.restrict`` already accepts this same "narrower than
+    it sounds" trade for the element selection). :meth:`ClayDoc.separate`,
+    :meth:`ClayDoc.join_objects` and :meth:`ClayDoc.apply_modifiers` do not
+    call this at all -- each hands its own caller a mesh that a compaction, a
+    weld/concatenation or an arbitrary modifier already provably did not keep
+    indexed the way the source was, so a range check there would not be
+    narrow, it would be wrong; each drops every seam outright instead, and
+    says so in its own docstring.
+    """
+    if not seams:
+        return seams
+    n = len(mesh.positions)
+    kept = tuple(pair for pair in seams if pair[0] < n and pair[1] < n)
+    return seams if kept == seams else kept
+
+
 @dataclass
 class Obj:
     """One object: a mesh, where it sits, and how it was made."""
@@ -176,6 +275,42 @@ class Obj:
     # The default for *new* faces only. A face's actual material lives on the
     # mesh, one index per face, because a two-toned box is one object.
     material: int = 0
+    # The live recipe layered on top of ``mesh``. See the module docstring's
+    # "modifiers is a second, later stage" paragraph; :mod:`.modifiers` is the
+    # vocabulary and :func:`~.modifiers.evaluate` is what runs it.
+    modifiers: tuple[Any, ...] = ()
+    # Tranche 3: scene structure. A uid, never an index -- see ``edits``' own
+    # rule for why every reference in this package is a uid. ``None`` is a
+    # root, and TRS is local to whatever this names (a root's local TRS *is*
+    # its world TRS, which is what keeps a document with no parenting behaving
+    # exactly as it always did -- see the module docstring).
+    parent: int | None = None
+    # "Cannot be changed", not "cannot be seen": refused at the doors listed
+    # in the module docstring's locking paragraph. Viewport clicks pass
+    # through a locked object and the outliner still selects it.
+    locked: bool = False
+    # Free-form, sorted/deduplicated/lower-cased on the way in (see
+    # ``_normalize_tags``) -- the one membership concept a group or a
+    # collection would otherwise have been (see the module docstring).
+    tags: tuple[str, ...] = ()
+    # Tranche 6: authoring intent for an unwrap, not geometry -- a seam is
+    # where the *user* means to cut before an unwrap runs, which (see the
+    # module docstring's own seams paragraph) cannot be derived from the
+    # mesh or the uvs the way islands or a texel-density number can.
+    # Vertex-index pairs into the object's *base* mesh, each stored
+    # ``(a, b)`` with ``a < b``, sorted and deduplicated (see
+    # ``_normalize_seams``, run below the same way ``_normalize_tags`` is).
+    seams: tuple[tuple[int, int], ...] = ()
+    # Tranche 7: a collider is an ordinary object that happens to carry a
+    # role -- see ``ClayDoc.add_collider`` -- not a second kind of thing the
+    # rest of this module has to special-case. "mesh" (every object before
+    # this tranche) or "collider".
+    role: str = "mesh"
+    # Which of ``colliders.COLLIDER_KINDS`` this is, when ``role`` is
+    # "collider"; empty otherwise. A plain string rather than an import of
+    # ``colliders.py``'s own enum-like keys, so this dataclass costs nothing
+    # to construct for the overwhelming majority of objects that are not one.
+    collider_kind: str = ""
 
     def __post_init__(self) -> None:
         # Own the transform arrays rather than aliasing whatever was passed in,
@@ -185,6 +320,8 @@ class Obj:
         self.translation = np.array(self.translation, dtype="f8", copy=True)
         self.rotation = np.array(self.rotation, dtype="f8", copy=True)
         self.scale = np.array(self.scale, dtype="f8", copy=True)
+        self.tags = _normalize_tags(self.tags)
+        self.seams = _normalize_seams(self.seams)
 
     def trs(self) -> tuple[Any, Any, Any]:
         return self.translation, self.rotation, self.scale
@@ -219,6 +356,20 @@ class ClayDoc:
         # rather than an agent tool just handing over ``id(obj.mesh)``.
         self._mesh_stamps: dict[int, tuple[bm.Mesh, int]] = {}
         self._next_stamp = 0
+        # The modifier-evaluation cache: uid -> the modifiers module's own
+        # entry type. Kept as ``Any`` here rather than typed against
+        # :mod:`.modifiers`, which imports *this* module -- see that module's
+        # docstring for why the import runs one way. Never read or written
+        # directly outside :meth:`evaluated`/:meth:`evaluation` and the few
+        # methods that pop a stale entry; :func:`~.modifiers.evaluate` owns
+        # what lives inside it.
+        self._evaluated: dict[int, Any] = {}
+        # Named history positions, keyed on the *serial* :attr:`history.head`
+        # gives back, never a stack position -- see :meth:`set_checkpoint`'s
+        # own docstring for why. Not serialized: the undo history is not
+        # saved either, so a checkpoint cannot outlive the session that made
+        # it.
+        self.checkpoints: dict[str, int] = {}
 
     # -- lookup ------------------------------------------------------------
 
@@ -278,6 +429,294 @@ class ClayDoc:
         self._next_stamp += 1
         self._mesh_stamps[uid] = (obj.mesh, self._next_stamp)
         return self._next_stamp
+
+    # -- hierarchy -----------------------------------------------------------
+    #
+    # Tranche 3: parenting. TRS is *local to the parent* -- see the module
+    # docstring -- so every world-space reader in this package funnels
+    # through :meth:`world_matrix` rather than composing an object's own TRS
+    # directly, and a root's world matrix is exactly its local one, which is
+    # what keeps a document with no parenting behaving exactly as it always
+    # did.
+
+    def children_of(self, uid: int) -> list[int]:
+        """*uid*'s direct children, in document order."""
+        return [obj.uid for obj in self.objects if obj.parent == uid]
+
+    def ancestors(self, uid: int) -> list[int]:
+        """*uid*'s parent, grandparent, and so on -- nearest first.
+
+        Stops at the first uid it has already seen rather than trusting the
+        chain is acyclic: :meth:`set_parent` refuses a cycle going forward
+        and :mod:`.serialize` refuses one in a loaded file, so this should
+        never actually run into one, but a caller walking a hand-built
+        in-memory document (a test, a script) gets a bounded answer rather
+        than an infinite loop if it does.
+        """
+        out: list[int] = []
+        seen = {uid}
+        current = self.by_uid(uid).parent
+        while current is not None and current not in seen:
+            try:
+                obj = self.by_uid(current)
+            except KeyError:
+                break
+            out.append(current)
+            seen.add(current)
+            current = obj.parent
+        return out
+
+    def descendants(self, uid: int) -> list[int]:
+        """Every uid under *uid*, depth-first, document order per level."""
+        out: list[int] = []
+
+        def walk(u: int) -> None:
+            for child in self.children_of(u):
+                if child in out:  # cycle guard; see ancestors()'s own
+                    continue
+                out.append(child)
+                walk(child)
+
+        walk(uid)
+        return out
+
+    def roots(self) -> list[int]:
+        """Every parentless object, in document order."""
+        return [obj.uid for obj in self.objects if obj.parent is None]
+
+    def world_matrix(self, uid: int) -> np.ndarray:
+        """*uid*'s world transform: its own local TRS, composed through every
+        ancestor's -- ancestor-first, so a root's own local TRS *is* its
+        world matrix (``ancestors`` gives nothing to compose through)."""
+        chain = [uid, *self.ancestors(uid)]
+        matrix = m3.identity()
+        for u in reversed(chain):
+            obj = self.by_uid(u)
+            matrix = matrix @ m3.compose(obj.translation, obj.rotation, obj.scale)
+        return matrix
+
+    def _local_relative(self, world: np.ndarray, parent: int | None) -> tuple[Any, Any, Any]:
+        """*world* re-expressed as local TRS relative to *parent* (or as-is
+        for a root) -- ``(t, r, s)``, via :func:`~.viewer.math3d.decompose`.
+
+        Shared by :meth:`set_parent` (the new parent), :meth:`local_from_world`
+        (the object's own current parent) and :meth:`remove_object` (the
+        removed object's own parent) -- three callers wanting the same "what
+        would this world matrix be, named relative to that uid" question.
+        """
+        if parent is None:
+            target = np.asarray(world, dtype="f8")
+        else:
+            parent_world = self.world_matrix(parent)
+            try:
+                inverse = np.linalg.inv(parent_world)
+            except np.linalg.LinAlgError as error:
+                raise el.OpError(
+                    f"{self.by_uid(parent).name!r} has a zero scale, so nothing can be "
+                    "placed relative to it."
+                ) from error
+            target = inverse @ np.asarray(world, dtype="f8")
+        return m3.decompose(target)
+
+    def local_from_world(self, uid: int, matrix: np.ndarray) -> tuple[Any, Any, Any]:
+        """*matrix*, a world transform, as ``(t, r, s)`` local to *uid*'s own
+        current parent -- what a gizmo writes back after dragging in world
+        space on a parented object."""
+        obj = self.by_uid(uid)
+        return self._local_relative(matrix, obj.parent)
+
+    def _refuse_if_locked(self, uid: int, *, check_ancestors: bool = False) -> None:
+        """Raise :class:`~.elements.OpError` if *uid* is locked -- and, when
+        *check_ancestors*, if any ancestor is, too.
+
+        Every door named in the module docstring's locking paragraph calls
+        this first, before it mutates anything: "refuse before the
+        allocation" applies here exactly as it does to every other kernel
+        refusal in this package. ``check_ancestors`` is :meth:`set_transform`'s
+        alone -- moving an object *inside* a locked group still visibly
+        rearranges the group even though the group's own geometry never
+        changes, which is not true of the other doors (a mesh edit, a
+        modifier stack, a delete) that only ever affect the object itself.
+        """
+        obj = self.by_uid(uid)
+        if obj.locked:
+            raise el.OpError(f"{obj.name!r} is locked.")
+        if check_ancestors:
+            for a in self.ancestors(uid):
+                ancestor = self.by_uid(a)
+                if ancestor.locked:
+                    raise el.OpError(
+                        f"{obj.name!r} is locked: its parent {ancestor.name!r} is locked."
+                    )
+
+    def set_parent(self, uid: int, parent: int | None, *, keep_world: bool = True) -> bool:
+        """Reparent *uid* onto *parent* (or make it a root), as one step.
+
+        Refuses -- :class:`~.elements.OpError`, nothing pushed -- parenting
+        *uid* to itself or to one of its own descendants: a document has no
+        way to compose a cycle's world matrix.
+
+        Not a locking door (see the module docstring's locking paragraph and
+        its own list): reparenting with ``keep_world`` moves nothing on
+        screen, so it is a re-framing rather than a change to what the object
+        looks like, the same reasoning :meth:`set_origin` is exempted under.
+
+        With ``keep_world`` (the default) the object's local TRS is
+        recomputed from its *current* world matrix before the parent changes,
+        so nothing in the viewport moves; the transform change and the parent
+        change ride in the same :class:`~..core.undo.CompoundEdit` -- one
+        Ctrl+Z undoes both, or the parent would change on one press and the
+        object would visibly jump on the next.
+        """
+        obj = self.by_uid(uid)
+        if parent is not None:
+            self.by_uid(parent)  # KeyError names an unknown uid, the usual way
+            if parent == uid or parent in self.descendants(uid):
+                raise el.OpError(
+                    f"{obj.name!r} cannot be parented to itself or to one of its own "
+                    "descendants."
+                )
+        if obj.parent == parent:
+            return False
+
+        old_parent = obj.parent
+        edits: list[Any] = []
+        if keep_world:
+            world = self.world_matrix(uid)
+            t, r, s = self._local_relative(world, parent)
+            before_trs = tuple(np.array(v, copy=True) for v in obj.trs())
+            after_trs = (t, r, s)
+            if not all(np.array_equal(a, b) for a, b in zip(before_trs, after_trs, strict=True)):
+                obj.translation, obj.rotation, obj.scale = after_trs
+                edits.append(TransformEdit(uid, before_trs, after_trs))
+        obj.parent = parent
+        edits.append(ObjectPropsEdit(uid, {"parent": old_parent}, {"parent": parent}))
+        self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
+        self.touch()
+        return True
+
+    def set_origin(self, uid: int, world_point: Sequence[float]) -> bool:
+        """Move *uid*'s origin (its local ``(0, 0, 0)``) to a world point, as
+        one step: the mesh and every child's placement stay exactly where
+        they were on screen, only the pivot moves.
+
+        The mesh is shifted by the inverse of the delta the origin moved by,
+        in the object's own local frame; the translation moves by the delta;
+        and each direct child's local TRS is recomputed from its own
+        (unchanged) world matrix, relative to the object's *new* one -- the
+        same "reparent, keeping world" arithmetic :meth:`set_parent` and
+        :meth:`remove_object` use, applied to a parent whose local frame
+        moved under its children rather than one that changed identity.
+
+        Not a locking door, like :meth:`set_parent` (see its own docstring):
+        nothing on screen moves.
+
+        A mirror modifier's plane is the object's own local origin (see
+        :mod:`.modifiers`), so moving the origin moves that plane too --
+        intended, not a bug: the modifier reads the object's current frame
+        exactly as it always did, and the frame is what just changed.
+
+        Freezes the generator, exactly as :meth:`set_mesh` does and for the
+        same reason: geometry that has been re-based to a new origin is not
+        what a generator would build from its stored parameters.
+        """
+        obj = self.by_uid(uid)
+        point = np.asarray(world_point, dtype="f8")
+        if point.shape != (3,) or not np.isfinite(point).all():
+            raise ValueError("world_point must be 3 finite numbers.")
+
+        parent_world = self.world_matrix(obj.parent) if obj.parent is not None else m3.identity()
+        try:
+            parent_inv = np.linalg.inv(parent_world)
+        except np.linalg.LinAlgError as error:
+            raise el.OpError(
+                f"{obj.name}'s parent has a zero scale, so its origin cannot move."
+            ) from error
+        new_translation = (parent_inv @ np.array([point[0], point[1], point[2], 1.0]))[:3]
+        if np.array_equal(new_translation, obj.translation):
+            return False
+
+        world_old = self.world_matrix(uid)
+        world_new = parent_world @ m3.compose(new_translation, obj.rotation, obj.scale)
+        try:
+            shift = np.linalg.inv(world_new) @ world_old
+        except np.linalg.LinAlgError as error:
+            raise el.OpError(f"{obj.name} has a zero scale, so its origin cannot move.") from error
+
+        children = self.children_of(uid)
+        child_worlds_old = {c: self.world_matrix(c) for c in children}
+        try:
+            world_new_inv = np.linalg.inv(world_new)
+        except np.linalg.LinAlgError as error:
+            raise el.OpError(
+                f"{obj.name} has a zero scale, so its children cannot be corrected."
+            ) from error
+
+        edits: list[Any] = []
+        before_mesh, obj.mesh = obj.mesh, bm.transformed(obj.mesh, shift)
+        edits.append(MeshEdit(uid, before_mesh, obj.mesh))
+        if obj.generator is not None:
+            was_gen = {"generator": obj.generator, "params": obj.params}
+            obj.generator, obj.params = None, {}
+            edits.append(ObjectPropsEdit(uid, was_gen, {"generator": None, "params": {}}))
+        before_trs = tuple(np.array(v, copy=True) for v in obj.trs())
+        obj.translation = new_translation
+        edits.append(TransformEdit(uid, before_trs, obj.trs()))
+        for c in children:
+            child = self.by_uid(c)
+            t, r, s = m3.decompose(world_new_inv @ child_worlds_old[c])
+            before_c = tuple(np.array(v, copy=True) for v in child.trs())
+            child.translation, child.rotation, child.scale = t, r, s
+            edits.append(TransformEdit(c, before_c, (t, r, s)))
+
+        self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
+        self.touch()
+        return True
+
+    def group(self, uids: Iterable[int], name: str | None = None) -> Obj:
+        """A new, mesh-less :class:`Obj` at *uids*' combined world bounds
+        centre, with every uid parented onto it, as one step.
+
+        See the module docstring's "a group is parenting to an empty object"
+        decision: there is no second collection concept. The empty draws
+        nothing (:func:`to_primitives` already returns ``[]`` for a
+        zero-face mesh) and exports as a transform-only glTF node.
+
+        Refuses (OpError, nothing pushed) an empty *uids*: there is no bounds
+        to place the empty at and nothing to parent.
+        """
+        from . import ops as mesh_ops
+
+        members = [int(u) for u in uids]
+        if not members:
+            raise el.OpError("Select at least one object to group.")
+        for u in members:
+            self.by_uid(u)  # KeyError names any bad uid the usual way
+
+        lo = hi = None
+        for u in members:
+            member = self.by_uid(u)
+            box = mesh_ops.world_box(member, mesh=self.evaluated(u), world=self.world_matrix(u))
+            if box is None:
+                continue
+            b_lo, b_hi = box
+            lo = b_lo if lo is None else np.minimum(lo, b_lo)
+            hi = b_hi if hi is None else np.maximum(hi, b_hi)
+        center = (lo + hi) * 0.5 if lo is not None else np.zeros(3, dtype="f8")
+
+        taken = {o.name for o in self.objects}
+        empty_name = name or "Group"
+        if empty_name in taken:
+            empty_name = mesh_ops.next_name(empty_name, taken)
+        empty_obj = Obj(uid=new_uid(), name=empty_name, mesh=_empty_mesh(), translation=center)
+
+        mark = self.history.mark()
+        self.add_object(empty_obj)
+        for u in members:
+            self.set_parent(u, empty_obj.uid, keep_world=True)
+        self.history.collapse_since(mark)
+        self.touch()
+        return empty_obj
 
     # -- saving ------------------------------------------------------------
 
@@ -403,6 +842,43 @@ class ClayDoc:
         return added
 
     def remove_object(self, uid: int) -> bool:
+        """Delete *uid*, re-parenting its children onto its own parent, as
+        **one** step.
+
+        Refuses (OpError, nothing pushed) a locked object -- one of the
+        locking doors the module docstring lists.
+
+        A child re-parented straight to ``None`` (the removed object's own
+        parent) rather than left naming a uid the document no longer has:
+        the alternative, an orphaned ``parent`` value, is exactly the
+        dangling reference :mod:`.serialize` refuses to load and
+        :meth:`world_matrix` would otherwise have to guess about. World
+        placement is kept, the same "reparenting keeps world placement"
+        decision :meth:`set_parent` states, computed from each child's
+        current world matrix *before* the object it is relative to is gone.
+        """
+        obj = self.by_uid(uid)
+        if obj.locked:
+            raise el.OpError(f"{obj.name!r} is locked.")
+        new_parent = obj.parent
+        children = self.children_of(uid)
+        child_worlds = {c: self.world_matrix(c) for c in children}
+
+        edits: list[Any] = []
+        for c in children:
+            child = self.by_uid(c)
+            t, r, s = self._local_relative(child_worlds[c], new_parent)
+            before = {"parent": child.parent}
+            child.parent = new_parent
+            edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
+            before_trs = tuple(np.array(v, copy=True) for v in child.trs())
+            after_trs = (t, r, s)
+            if not all(np.array_equal(a, b) for a, b in zip(before_trs, after_trs, strict=True)):
+                child.translation, child.rotation, child.scale = after_trs
+                edits.append(TransformEdit(c, before_trs, after_trs))
+
+        # Reparenting above touches only ``parent``/TRS fields, never list
+        # order, so this is *uid*'s original position in ``self.objects``.
         index = self.index_of(uid)
         obj = self.objects.pop(index)
         self.selection.discard(uid)
@@ -412,7 +888,13 @@ class ClayDoc:
         # later address, and an old stamp entry would otherwise linger keyed to
         # a mesh that object never had.
         self._mesh_stamps.pop(uid, None)
-        self.history.push(ObjectRemoveEdit(index, obj))
+        # Same reasoning as the stamp above: a lingering entry would be keyed
+        # to a mesh and a stack this uid no longer has the moment undo puts a
+        # *different* object back on it, though evaluate()'s own identity and
+        # equality checks would also catch that on the next read.
+        self._evaluated.pop(uid, None)
+        edits.append(ObjectRemoveEdit(index, obj))
+        self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         self.touch()
         return True
 
@@ -510,7 +992,20 @@ class ClayDoc:
         ``keep_generator`` is the single exception, for the properties panel's
         own rebuild: there the new mesh *is* what the generator makes, which is
         the one case where the claim is still true.
+
+        **Tranche 6: seams are restricted, not carried blindly.** Called by
+        dozens of different mesh ops with no shared way to say whether *this*
+        particular call kept old vertex indices meaning the same vertex, so
+        :func:`_restrict_seams` -- the same range check :func:`~.elements.
+        restrict` already applies to an element selection -- drops any seam
+        pair naming a vertex the new mesh no longer has and keeps the rest,
+        in the same step as the mesh replacement. See that function's own
+        docstring for why a range check is the honest answer here.
+
+        Refuses (OpError, nothing pushed) a locked object -- one of the
+        locking doors the module docstring lists.
         """
+        self._refuse_if_locked(uid)
         obj = self.by_uid(uid)
         if mesh is obj.mesh:
             return False
@@ -524,13 +1019,25 @@ class ClayDoc:
             was = {"generator": obj.generator, "params": obj.params}
             obj.generator, obj.params = None, {}
             edits.append(ObjectPropsEdit(uid, was, {"generator": None, "params": {}}))
+        seams_before = obj.seams
+        seams_after = _restrict_seams(seams_before, mesh)
+        if seams_after is not seams_before:
+            obj.seams = seams_after
+            edits.append(ObjectPropsEdit(uid, {"seams": seams_before}, {"seams": seams_after}))
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         if select is not None:
             self.set_element_sel(uid, select)
         self.touch()
         return True
 
-    def join_objects(self, target_uid: int, mesh: bm.Mesh, others: Iterable[int]) -> bool:
+    def join_objects(
+        self,
+        target_uid: int,
+        mesh: bm.Mesh,
+        others: Iterable[int],
+        *,
+        clear_modifiers: bool = True,
+    ) -> bool:
         """Adopt a merged mesh and drop the objects it absorbed, as **one** step.
 
         One ``CompoundEdit`` and not a ``set_mesh`` followed by N
@@ -549,6 +1056,27 @@ class ClayDoc:
         The generator freeze applies here exactly as it does in ``set_mesh``:
         a box merged with a sphere is not a box, and leaving the claim would let
         the properties panel rebuild a pristine box over the merge.
+
+        **Merging ops consume evaluated meshes.** Join, union, difference and
+        intersection all hand this the target's *evaluated* mesh, not its
+        base -- a target with a mirror on it merges the mirrored shape, not
+        half of it -- and ``clear_modifiers`` (on by default) drops the
+        target's stack in the very same step: its modifiers are now baked
+        into what this adopted, and leaving them in place would apply them a
+        second time the next time the target was drawn. A caller that has
+        instead handed over the *base* mesh unchanged -- there is none today,
+        but the door is real -- passes ``clear_modifiers=False`` to say so.
+
+        **Tranche 6: the target's own seams do not survive a real merge.**
+        The merged mesh is a weld/concatenation or a wholly recomputed
+        boolean arrangement, and this method is never handed the
+        correspondence between the target's old vertex indices and the new
+        ones -- unlike ``set_mesh``, which at least gets a plain range check
+        (see ``_restrict_seams``'s own docstring for why that would not be
+        honest here). Every seam on the target is dropped when the mesh
+        actually changes; a call that changes nothing about the target's own
+        geometry (``doomed`` absorbed nothing whose mesh differed) leaves
+        them alone.
         """
         obj = self.by_uid(target_uid)
         doomed = sorted({int(u) for u in others} - {target_uid}, key=self.index_of, reverse=True)
@@ -556,22 +1084,48 @@ class ClayDoc:
             return False
         before, obj.mesh = obj.mesh, mesh
         edits: list[Any] = [MeshEdit(target_uid, before, mesh)]
+        props_before: dict[str, Any] = {}
+        props_after: dict[str, Any] = {}
         if obj.generator is not None:
-            was = {"generator": obj.generator, "params": obj.params}
-            obj.generator, obj.params = None, {}
-            edits.append(ObjectPropsEdit(target_uid, was, {"generator": None, "params": {}}))
+            props_before["generator"], props_before["params"] = obj.generator, obj.params
+            props_after["generator"], props_after["params"] = None, {}
+        if clear_modifiers and obj.modifiers:
+            props_before["modifiers"] = obj.modifiers
+            props_after["modifiers"] = ()
+        # Tranche 6: no seam on the target survives a merge whose mesh
+        # actually changed (``mesh is not before``, the same "did the
+        # identity change" test the freeze above reads off ``obj.generator``).
+        # ``ops.join``'s own docstring says the merged result is a weld/
+        # concatenation and ``ops_boolean``'s a wholly recomputed
+        # arrangement -- either way the target's old vertex index and the
+        # merged mesh's are not the same question, and this method is never
+        # handed the correspondence between them (unlike ``set_mesh``, which
+        # at least gets a plain range check -- see ``_restrict_seams``'s own
+        # docstring for why that is not honest here). A no-op merge
+        # (``mesh is before``, reachable only when ``doomed`` is non-empty --
+        # see the early return above) leaves the target's own geometry, and
+        # so its seams, untouched.
+        if mesh is not before and obj.seams:
+            props_before["seams"] = obj.seams
+            props_after["seams"] = ()
+        if props_after:
+            for key, value in props_after.items():
+                setattr(obj, key, value)
+            edits.append(ObjectPropsEdit(target_uid, props_before, props_after))
         for uid in doomed:
             index = self.index_of(uid)
             gone = self.objects.pop(index)
             self.selection.discard(uid)
             self.element_sel.pop(uid, None)
             self._mesh_stamps.pop(uid, None)
+            self._evaluated.pop(uid, None)
             edits.append(ObjectRemoveEdit(index, gone))
         # The target's own element selection names vertices of the mesh that
         # has just been replaced, so it describes geometry that is no longer
         # there -- the same reason ``_forget_elements`` drops one after an undo.
         self.element_sel.pop(target_uid, None)
         self.history.push(CompoundEdit(edits))
+        self._evaluated.pop(target_uid, None)
         self.touch()
         return True
 
@@ -611,7 +1165,14 @@ class ClayDoc:
         drag, ``clay_ops._bake`` -- so the assertion belongs here too,
         closing the door for every caller, present and future, rather than
         trusting each one to have validated first.
+
+        Refuses (OpError, nothing pushed) a locked object *or one with a
+        locked ancestor* -- the one locking door in the module docstring
+        that checks the ancestor chain too: dragging an object inside a
+        locked group still visibly rearranges the group, even though the
+        group's own geometry never changes.
         """
+        self._refuse_if_locked(uid, check_ancestors=True)
         obj = self.by_uid(uid)
         for name, new, length in (
             ("translation", translation, 3),
@@ -636,7 +1197,11 @@ class ClayDoc:
         return True
 
     def set_props(self, uid: int, *, was: dict[str, Any] | None = None, **props: Any) -> bool:
-        """Name, visibility, generator, params, default material -- one step.
+        """Name, visibility, tags, locked, generator, params, default material
+        -- one step. Deliberately **not** a locking door (see the module
+        docstring's locking paragraph): a locked object still allows a
+        rename, a visibility change, a tag edit and unlocking itself, or a
+        mistake made while locked could not be undone by anyone but the lock.
 
         ``was`` is the counterpart of :meth:`set_transform`'s, and the trap it
         avoids is sharper here because ``params`` is a dict: a panel that edits
@@ -646,7 +1211,23 @@ class ClayDoc:
         caller passes the values it started with as ``was``; a caller that
         builds a fresh dict -- which is what a widget reading a form does --
         needs none of this.
+
+        ``tags`` is normalized (:func:`_normalize_tags`) before it is
+        compared or stored, so a caller handing over ``["Prop", "prop"]``
+        neither records a change against an object already tagged ``prop``
+        nor stores the duplicate. ``parent`` is refused by name: it has its
+        own door, :meth:`set_parent`, which is the only one that checks for
+        a cycle -- this generic one does not, and must not be used to bypass
+        it.
         """
+        if "parent" in props:
+            raise el.OpError(
+                "Use set_parent to change an object's parent -- it is the only "
+                "door that refuses a cycle."
+            )
+        if "tags" in props:
+            props = dict(props)
+            props["tags"] = _normalize_tags(props["tags"])
         obj = self.by_uid(uid)
         source = {} if was is None else was
         before = {key: source.get(key, getattr(obj, key)) for key in props}
@@ -679,7 +1260,11 @@ class ClayDoc:
         ``keep_generator`` is implied. The new mesh *is* what the generator
         makes from these parameters, which is the one case where the object's
         claim to be "box, size 1" is still true.
+
+        Refuses (OpError, nothing pushed) a locked object -- one of the
+        locking doors the module docstring lists.
         """
+        self._refuse_if_locked(uid)
         obj = self.by_uid(uid)
         before = {"params": was.get("params", obj.params)}
         edits: list[Any] = []
@@ -709,11 +1294,410 @@ class ClayDoc:
             existing = self.element_sel.get(uid)
             if existing is not None:
                 self.set_element_sel(uid, el.restrict(mesh, existing))
+            # Tranche 6: the exact same range check, for the exact same
+            # reason -- see ``_restrict_seams``'s own docstring, which names
+            # this method as one of its two callers.
+            seams_before = obj.seams
+            seams_after = _restrict_seams(seams_before, mesh)
+            if seams_after is not seams_before:
+                obj.seams = seams_after
+                edits.append(ObjectPropsEdit(uid, {"seams": seams_before}, {"seams": seams_after}))
         if not edits:
             return False
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         self.touch()
         return True
+
+    # -- seams (tranche 6) ----------------------------------------------------
+
+    def set_seams(self, uid: int, seams: Iterable[Sequence[int]]) -> bool:
+        """Replace one object's marked seams -- authoring intent for an
+        unwrap, not geometry (see the module docstring's own seams
+        paragraph) -- as **one** step.
+
+        Normalized exactly as :class:`Obj` construction already does
+        (:func:`_normalize_seams`): each pair ordered ``(a, b)`` with
+        ``a < b``, deduplicated, a pair naming the same vertex twice silently
+        dropped. What normalization cannot fix -- a vertex this object's
+        *base* mesh does not have -- is refused (:class:`~.elements.OpError`,
+        nothing pushed), naming the offending pair, the same "refuse before
+        the allocation" shape every kernel refusal in this package follows.
+        Contrast :func:`_restrict_seams`, which *silently* range-checks after
+        a mesh replacement nobody asked this door about -- a survivor's
+        problem, not a caller's mistake to report; this is the door a person
+        or an agent calls directly, so a bad index is a refusal, not a quiet
+        drop.
+
+        Refuses (OpError, nothing pushed) a locked object -- one of the
+        locking doors the module docstring lists: a seam is authoring intent
+        about the object's own geometry, the same footing a mesh edit stands
+        on.
+        """
+        self._refuse_if_locked(uid)
+        obj = self.by_uid(uid)
+        normalized = _normalize_seams(seams)
+        n = len(obj.mesh.positions)
+        for a, b in normalized:
+            if not (0 <= a < n and 0 <= b < n):
+                raise el.OpError(
+                    f"Seam ({a}, {b}) names a vertex {obj.name!r}'s mesh does not "
+                    f"have -- it has {n}."
+                )
+        if normalized == obj.seams:
+            return False
+        before, obj.seams = obj.seams, normalized
+        self.history.push(ObjectPropsEdit(uid, {"seams": before}, {"seams": normalized}))
+        self.touch()
+        return True
+
+    # -- modifiers -----------------------------------------------------------
+
+    def evaluation(self, uid: int) -> Any:
+        """*uid*'s base mesh run through its modifier stack, errors and all.
+
+        Returns a :class:`~.modifiers.Evaluated`. Imported lazily -- see
+        :mod:`.modifiers`'s own docstring for why the import runs this
+        direction and not the other.
+        """
+        from . import modifiers as mod
+
+        return mod.evaluate(self, uid)
+
+    def evaluated(self, uid: int) -> bm.Mesh:
+        """:meth:`evaluation`'s mesh alone -- what display, export, measurement
+        and object-mode picking read; see the module docstring."""
+        return self.evaluation(uid).mesh
+
+    def set_modifiers(self, uid: int, stack: tuple[Any, ...]) -> bool:
+        """Replace one object's modifier stack, as one step.
+
+        Refuses -- :class:`~.elements.OpError`, nothing pushed -- a stack
+        naming an unknown kind, or one whose boolean targets would create a
+        dependency cycle anywhere in the document (:func:`~.modifiers.
+        would_cycle`), a self-target included. Both checks run *before* the
+        step is recorded, the same "refuse before the allocation" shape every
+        kernel refusal in this package follows -- there is nothing to undo a
+        refusal out of.
+
+        Also refuses (OpError, nothing pushed) a locked object -- one of the
+        locking doors the module docstring lists; ``set_props`` itself is
+        not one, so this checks before delegating to it.
+        """
+        self._refuse_if_locked(uid)
+        from . import modifiers as mod
+
+        stack = tuple(stack)
+        unknown = sorted({m.kind for m in stack} - set(mod.MODIFIERS))
+        if unknown:
+            raise el.OpError(
+                f"Unknown modifier kind {unknown[0]!r}. Choose one of "
+                f"{', '.join(sorted(mod.MODIFIERS))}."
+            )
+        if mod.would_cycle(self, uid, stack):
+            raise el.OpError(
+                "That modifier stack would create a boolean cycle -- an object "
+                "cannot depend, even indirectly, on its own result."
+            )
+        changed = self.set_props(uid, modifiers=stack)
+        if changed:
+            self._evaluated.pop(uid, None)
+        return changed
+
+    def apply_modifiers(self, uid: int, through_id: int | None = None) -> bool:
+        """Bake the stack's prefix through *through_id* into the base mesh.
+
+        ``through_id=None`` bakes the whole stack. A disabled modifier inside
+        the prefix is dropped without being applied -- it never contributed to
+        what the user saw, so baking it in would change the shape rather than
+        merely freeze it. A modifier inside the prefix that currently refuses
+        refuses the *whole* apply, with its own message: never bake a
+        half-result the user never saw on screen.
+
+        One ``CompoundEdit`` -- a ``MeshEdit`` when the baked geometry differs
+        from the base (a prefix of only-disabled modifiers does not), and an
+        ``ObjectPropsEdit`` that always drops the baked prefix from
+        ``modifiers`` and, when the object still claims a generator, freezes
+        that too -- the same claim :meth:`set_mesh` freezes and for the same
+        reason: geometry a modifier stack built is not what a generator would
+        build.
+
+        Refuses (OpError, nothing pushed) a locked object -- one of the
+        locking doors the module docstring lists.
+        """
+        self._refuse_if_locked(uid)
+        from . import modifiers as mod
+
+        obj = self.by_uid(uid)
+        stack = obj.modifiers
+        if not stack:
+            return False
+        if through_id is None:
+            cut = len(stack)
+        else:
+            ids = [m.id for m in stack]
+            if through_id not in ids:
+                raise el.OpError(f"This object has no modifier {through_id}.")
+            cut = ids.index(through_id) + 1
+        prefix, rest = stack[:cut], stack[cut:]
+
+        mesh = obj.mesh
+        ctx = mod.EvalContext(doc=self, obj=obj, visiting=frozenset({uid}))
+        for m in prefix:
+            if not m.enabled:
+                continue
+            kind_def = mod.MODIFIERS.get(m.kind)
+            if kind_def is None:
+                raise el.OpError(f"Unknown modifier kind {m.kind!r}.")
+            mesh = kind_def.apply(mesh, m.as_dict(), ctx)
+
+        edits: list[Any] = []
+        was_mesh = obj.mesh
+        if mesh is not was_mesh:
+            obj.mesh = mesh
+            edits.append(MeshEdit(uid, was_mesh, mesh))
+        props_before: dict[str, Any] = {"modifiers": stack}
+        props_after: dict[str, Any] = {"modifiers": rest}
+        if obj.generator is not None:
+            props_before["generator"], props_before["params"] = obj.generator, obj.params
+            props_after["generator"], props_after["params"] = None, {}
+        # Tranche 6: only when the bake actually changed the mesh (``mesh is
+        # not was_mesh``, checked above) -- a prefix of purely disabled
+        # modifiers leaves the mesh untouched, and an object's indices are
+        # then, trivially, still exactly what they were, the one case in this
+        # method where keeping the seams is not a guess. Once the bake *has*
+        # run, ``kind_def.apply`` is an arbitrary per-kind function (mirror,
+        # boolean, subdivide...) this method has no way to ask whether it
+        # kept old indices meaning the same vertex -- the same "cannot know,
+        # so dropped" answer :meth:`join_objects` gives its own target, for
+        # the same reason -- so every seam is dropped rather than kept by
+        # coincidence against an index that may no longer name the same edge.
+        if mesh is not was_mesh and obj.seams:
+            props_before["seams"] = obj.seams
+            props_after["seams"] = ()
+        for key, value in props_after.items():
+            setattr(obj, key, value)
+        edits.append(ObjectPropsEdit(uid, props_before, props_after))
+        self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
+        self._evaluated.pop(uid, None)
+        self.touch()
+        return True
+
+    # -- separate ------------------------------------------------------------
+
+    def separate(self, uid: int, pieces: Sequence[bm.Mesh]) -> list[Obj]:
+        """*uid* replaced by one new object per *pieces*, as **one** step.
+
+        Every piece keeps the source's parent, transform and modifier stack
+        -- the stack is *copied* onto each piece (a tuple, so sharing it is
+        free), unevaluated, not baked, so separating a mirrored object by
+        material keeps every piece mirrored. The generator is frozen (as
+        :meth:`set_mesh` freezes it): a piece of a sphere is not "sphere,
+        radius 1". Names are suffixed (:func:`~.ops.next_name`) and the
+        source object is removed.
+
+        Refuses (OpError, nothing pushed) a locked source -- same reasoning
+        as :meth:`remove_object`, which this is one step further than: the
+        source does not survive this either -- or fewer than two pieces,
+        which the kernel functions in :mod:`.separate` already refuse to
+        produce; this is the same refusal for a caller that built ``pieces``
+        some other way.
+
+        **Tranche 6: no piece keeps a seam.** :mod:`.separate`'s own
+        ``_piece`` compacts each piece's vertex array to only the vertices
+        its own faces use and remaps ``loops`` to match (its own docstring
+        says so plainly), so a piece's index 3 and the source's index 3 are,
+        in general, two different vertices -- this method receives only the
+        finished ``Mesh`` objects, never that remap, so there is no
+        correspondence here to restrict a seam pair against, honestly or
+        otherwise. Every other field a piece can meaningfully inherit
+        (parent, transform, material, modifiers, tags, role, collider_kind)
+        still does; seams alone start empty on every piece.
+        """
+        from . import ops as mesh_ops
+
+        pieces = list(pieces)
+        obj = self.by_uid(uid)
+        if obj.locked:
+            raise el.OpError(f"{obj.name!r} is locked.")
+        if len(pieces) < 2:
+            raise el.OpError("Nothing to separate: that would produce a single piece.")
+        for mesh in pieces:
+            bm.validate(mesh)
+
+        taken = {o.name for o in self.objects}
+        new_objs: list[Obj] = []
+        for mesh in pieces:
+            name = mesh_ops.next_name(obj.name, taken)
+            taken.add(name)
+            new_objs.append(
+                Obj(
+                    uid=new_uid(),
+                    name=name,
+                    mesh=mesh,
+                    translation=np.array(obj.translation, dtype="f8", copy=True),
+                    rotation=np.array(obj.rotation, dtype="f8", copy=True),
+                    scale=np.array(obj.scale, dtype="f8", copy=True),
+                    generator=None,
+                    params={},
+                    visible=obj.visible,
+                    material=obj.material,
+                    modifiers=obj.modifiers,
+                    parent=obj.parent,
+                    locked=False,
+                    tags=obj.tags,
+                    # seams=() (the field's own default): see this method's
+                    # own docstring for why no correspondence survives a split.
+                    role=obj.role,
+                    collider_kind=obj.collider_kind,
+                )
+            )
+
+        index = self.index_of(uid)
+        edits: list[Any] = []
+        for i, piece in enumerate(new_objs):
+            self.objects.insert(index + i, piece)
+            edits.append(ObjectAddEdit(index + i, piece))
+        # The source's own new position, now pushed forward by every piece
+        # inserted ahead of it -- the same re-lookup ``join_objects`` and
+        # ``remove_object`` use rather than hand computing ``index + len``.
+        removed_index = self.index_of(uid)
+        removed = self.objects.pop(removed_index)
+        self.selection.discard(uid)
+        self.selection.update(o.uid for o in new_objs)
+        self.element_sel.pop(uid, None)
+        self._mesh_stamps.pop(uid, None)
+        self._evaluated.pop(uid, None)
+        edits.append(ObjectRemoveEdit(removed_index, removed))
+        self.history.push(CompoundEdit(edits))
+        self.touch()
+        return new_objs
+
+    # -- colliders (tranche 7) -------------------------------------------------
+
+    def add_collider(self, source_uid: int, collider: colliders.Collider) -> Obj:
+        """Add *collider* -- already fit against *source_uid*'s evaluated
+        mesh by a caller through :mod:`.colliders` -- as a new child object
+        of *source_uid*, as **one** step. -> the new :class:`Obj`.
+
+        **A collider is an ordinary object with a role**, per the module
+        docstring's own tranche 7 paragraph: this constructs one directly
+        with ``parent=source_uid`` already set and its local TRS left at
+        the identity, rather than adding it as a root and then calling
+        :meth:`set_parent`. That is deliberate, not a shortcut --
+        :class:`~.colliders.Collider` says plainly that its ``mesh`` is
+        already expressed in the *source's own local frame* (there is no
+        separate transform to compose), so the correct placement is a local
+        identity under the source, not "wherever this object's world
+        transform used to be, reparented" -- which is the question
+        :meth:`set_parent`'s ``keep_world`` answers, and the wrong one here:
+        a brand-new root object's world transform *is* the identity, and
+        preserving that through a reparent would leave the collider sitting
+        at the scene origin instead of on the source.
+
+        The one thing actually validated: *collider.kind* must name an
+        entry in :data:`~.colliders.COLLIDER_KINDS`. Refused
+        (:class:`~.elements.OpError`, nothing pushed), naming the kind, the
+        same half-read-is-worse-than-refused doctrine :mod:`.serialize`
+        states for a loaded file, applied here at the door that first
+        creates a collider live -- a role/kind pair readiness and an
+        exporter cannot recognise is worse than one refused up front.
+
+        Named ``"<source name> <kind label>"``, disambiguated by
+        :func:`~.ops.next_name` exactly the way :meth:`group` disambiguates
+        a generated empty's name -- only when that name is already taken,
+        so the common case (one collider per source) is not needlessly
+        suffixed. Always visible: a collider draws as a translucent
+        wireframe rather than shaded geometry (the UI half of this tranche
+        owns that), so starting it hidden would cost an extra click just to
+        see the thing that was just fit.
+
+        **Not a locking door.** Unlike a mesh edit or a transform, adding a
+        collider changes nothing about the *source* object itself -- its
+        mesh, transform and every other field are untouched -- the same
+        "attaching a new child changes nothing about what the parent looks
+        like" reasoning :meth:`set_parent` and :meth:`group` are already
+        exempted under (see :meth:`set_parent`'s own docstring). A locked
+        source can still grow a collider child.
+        """
+        from . import ops as mesh_ops
+
+        if collider.kind not in colliders.COLLIDER_KINDS:
+            raise el.OpError(
+                f"Unknown collider kind {collider.kind!r}. Choose one of "
+                f"{', '.join(sorted(colliders.COLLIDER_KINDS))}."
+            )
+        source = self.by_uid(source_uid)  # KeyError names an unknown uid, the usual way
+        label = colliders.COLLIDER_KINDS[collider.kind][0]
+        taken = {o.name for o in self.objects}
+        name = f"{source.name} {label}"
+        if name in taken:
+            name = mesh_ops.next_name(name, taken)
+
+        new_obj = Obj(
+            uid=new_uid(),
+            name=name,
+            mesh=collider.mesh,
+            parent=source_uid,
+            role="collider",
+            collider_kind=collider.kind,
+            visible=True,
+        )
+        self.add_object(new_obj)
+        return new_obj
+
+    # -- checkpoints (agent-facing, not serialized) ---------------------------
+
+    def set_checkpoint(self, name: str) -> None:
+        """Remember the current history position under *name*.
+
+        Keyed on :attr:`history.head` -- the serial of the top done step, or
+        ``0`` for a document with nothing done -- **never a stack position**:
+        eviction pops from the front of the done list, and a redo replaces
+        the same edits it undid, so a position (a plain integer count of done
+        steps) drifts under both while a serial does not. Re-setting an
+        existing name overwrites it; there is only ever one position per name.
+        """
+        self.checkpoints[str(name)] = self.history.head
+
+    def _checkpoint_target(self, serial: int) -> int | None:
+        """The done-count :meth:`step_history` would need to reach *serial*,
+        or ``None`` if it is reachable from neither branch -- evicted out of
+        the done list, or discarded from the redo list by a push that
+        diverged past it. ``0`` (no edit ever has this serial: they start at
+        1) always resolves to "everything undone", which is always reachable
+        regardless of eviction.
+        """
+        if serial == 0:
+            return 0
+        return self.history.position_of(serial)
+
+    def checkpoint_status(self, name: str) -> str:
+        """``"current"`` | ``"reachable"`` | ``"gone"`` | ``"unknown"`` for
+        *name* -- unknown for a name nothing was ever set under."""
+        if name not in self.checkpoints:
+            return "unknown"
+        serial = self.checkpoints[name]
+        if serial == self.history.head:
+            return "current"
+        return "gone" if self._checkpoint_target(serial) is None else "reachable"
+
+    def restore_checkpoint(self, name: str) -> bool:
+        """Move the history to *name*'s position. -> whether it moved.
+
+        ``False`` for an unknown name, a checkpoint already current, or one
+        that is gone -- the same three cases :meth:`checkpoint_status`
+        reports, so a caller that only wants to know whether it worked never
+        has to check status first.
+        """
+        if name not in self.checkpoints:
+            return False
+        serial = self.checkpoints[name]
+        if serial == self.history.head:
+            return False
+        target = self._checkpoint_target(serial)
+        if target is None:
+            return False
+        return self.step_history(target)
 
     # -- palette -----------------------------------------------------------
 
@@ -1000,7 +1984,9 @@ def _submesh(mesh: bm.Mesh, faces: np.ndarray) -> bm.Mesh:
     )
 
 
-def to_primitives(obj: Obj, materials: Sequence[gltf.Material]) -> list[gltf.Primitive]:
+def to_primitives(
+    obj: Obj, materials: Sequence[gltf.Material], mesh: bm.Mesh | None = None
+) -> list[gltf.Primitive]:
     """One :class:`~gltf.Primitive` per material the object's faces use.
 
     A draw call carries one material, so a two-toned box has to be two
@@ -1011,8 +1997,13 @@ def to_primitives(obj: Obj, materials: Sequence[gltf.Material]) -> list[gltf.Pri
     Groups come out in palette-index order, so the same document produces the
     same primitive order every time -- an exporter's output is diffable, and a
     GPU cache keyed on position does not shuffle.
+
+    ``mesh`` defaults to ``obj.mesh`` -- the base -- for a caller with no
+    document in hand to ask for the evaluated one; :func:`to_model` is the
+    caller that has one, and passes ``doc.evaluated(obj.uid)`` explicitly.
     """
-    mesh = obj.mesh
+    if mesh is None:
+        mesh = obj.mesh
     if bm.face_count(mesh) == 0:
         return []
     prims = []
@@ -1117,30 +2108,64 @@ def preview_primitives(
 
 
 def to_model(doc: ClayDoc) -> gltf.Model:
-    """The document as a :class:`~gltf.Model`: one node per visible object.
+    """The document as a :class:`~gltf.Model`: real glTF hierarchy.
 
     Every consumer goes through here -- the viewport, the GLB writer, the
     render that gets handed to trellis -- so "what does this document look
-    like" has exactly one answer. The nodes are all roots: Clay has no
-    hierarchy, and a flat list of roots is what that *is* in glTF terms.
+    like" has exactly one answer.
 
-    **A hidden object is simply not here.** ``visible=False`` means it does not
-    render, does not export and cannot be picked, and one flag enforcing all
-    three in one place is the only way those three can never disagree.
+    **A node is emitted for an object that is visible, or that has a visible
+    descendant anywhere under it** -- the module docstring's "hiding is per
+    object, as in Blender" decision: a hidden parent still has to carry its
+    visible children's frame, so its node survives with no mesh
+    (``mesh=None``), while a hidden object with *no* visible descendant is
+    omitted entirely, subtree and all, because nothing under it will ever be
+    drawn either. ``children`` is wired from ``Obj.parent`` and ``roots`` is
+    every kept object with no kept parent -- by construction that is every
+    object whose own parent is ``None``, since a kept child's parent is
+    always kept too (see the ancestor-marking pass below); a dangling
+    ``parent`` naming a uid this document does not have (never written by
+    this package, but defensive against a hand-edited state) falls back to a
+    root rather than raising.
+
+    **Every visible object draws its evaluated mesh**, base run through its
+    modifier stack (``doc.evaluated``), not the base alone -- this is the one
+    conversion out of the document, so it is the one place a modifier stack
+    has to take effect for the viewport, the exporter and the trellis render
+    to agree about what the document looks like.
     """
+    keep: dict[int, bool] = {obj.uid: obj.visible for obj in doc.objects}
+    for obj in doc.objects:
+        if obj.visible:
+            for ancestor_uid in doc.ancestors(obj.uid):
+                keep[ancestor_uid] = True
+
+    kept = [obj for obj in doc.objects if keep.get(obj.uid, False)]
+    index_of_uid = {obj.uid: i for i, obj in enumerate(kept)}
+
     nodes: list[gltf.Node] = []
     meshes: list[list[gltf.Primitive]] = []
-    for obj in doc.objects:
-        if not obj.visible:
-            continue
-        meshes.append(to_primitives(obj, doc.materials))
+    for obj in kept:
+        mesh_index: int | None = None
+        if obj.visible:
+            meshes.append(to_primitives(obj, doc.materials, doc.evaluated(obj.uid)))
+            mesh_index = len(meshes) - 1
         nodes.append(
             gltf.Node(
                 name=obj.name,
                 translation=np.array(obj.translation, dtype="f8", copy=True),
                 rotation=np.array(obj.rotation, dtype="f8", copy=True),
                 scale=np.array(obj.scale, dtype="f8", copy=True),
-                mesh=len(meshes) - 1,
+                mesh=mesh_index,
             )
         )
-    return gltf.Model(nodes, list(range(len(nodes))), meshes, [])
+
+    for obj in kept:
+        if obj.parent is not None and obj.parent in index_of_uid:
+            nodes[index_of_uid[obj.parent]].children.append(index_of_uid[obj.uid])
+    roots = [
+        index_of_uid[obj.uid]
+        for obj in kept
+        if obj.parent is None or obj.parent not in index_of_uid
+    ]
+    return gltf.Model(nodes, roots, meshes, [])

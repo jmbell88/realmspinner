@@ -357,12 +357,20 @@ def clay(ctx: Any) -> dict[str, Column]:
     -- a column of one FILL slot has nothing to share against. An orphaned
     ``shares["clay-tools"]`` in a user's settings is inert, exactly as
     Plotter's is; see :func:`plotter` for why no migration is owed.
+
+    **``clay-uv`` (tranche 6) joins the right column below Properties**,
+    another SHARE slot rather than a fourth thing bolted onto the properties
+    pane: an island layout wants its own canvas the same reason the outliner
+    and the properties pane each already have theirs, and stacking it under
+    Properties keeps "what is selected" (name, transform, material) above
+    "what its uv looks like", nearest first.
     """
 
     from .modes.clay.ui.panes import bridge as clay_bridge
     from .modes.clay.ui.panes import outliner as clay_outliner
     from .modes.clay.ui.panes import props as clay_props
     from .modes.clay.ui.panes import tools as clay_tools
+    from .modes.clay.ui.panes import uv as clay_uv
 
     left = Column(
         "left",
@@ -397,6 +405,15 @@ def clay(ctx: Any) -> dict[str, Column]:
                 edge=_edge("left"),
                 sizing=SHARE,
                 share_key="clay-props",
+            ),
+            Slot(
+                "clay-uv",
+                "UV",
+                clay_uv.draw,
+                role=_role("inspector"),
+                edge=_edge("left"),
+                sizing=SHARE,
+                share_key="clay-uv",
             ),
             Slot(
                 "clay-bridge",

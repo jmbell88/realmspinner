@@ -2,8 +2,18 @@
 
 Split out of :mod:`~warlock.studio.modes.clay.ui.view` as pure code motion. The soundness
 argument is the viewport's own and is stated in its module docstring: an entry
-is keyed on ``(id(obj.mesh), materials, obj.material)``, and that identity works
+is keyed on ``(id(mesh), materials, obj.material)``, and that identity works
 precisely because ``Mesh`` is frozen and every op on it is ``Mesh -> Mesh``.
+
+**What is drawn is the evaluated mesh, not the base.** ``mesh`` above is
+``doc.evaluated(obj.uid)`` -- the base run through the object's modifier
+stack (:mod:`~.....kernels.mesh.modifiers`) -- not ``obj.mesh`` itself. The
+identity argument still holds: an object with no enabled modifiers evaluates
+to ``obj.mesh`` unchanged (``is``-identical, modifiers.py's own fast path),
+so an unmodified document keys and rebuilds exactly as it always has, and a
+document with a modifier stack rebuilds when *either* the base mesh or the
+stack's own output changes -- which ``ClayDoc.evaluated``'s own cache already
+tracks; this module never re-derives that.
 """
 
 from __future__ import annotations
@@ -49,11 +59,11 @@ def _materials_key(doc: Any) -> tuple[int, ...]:
     return tuple(id(m) for m in doc.materials)
 
 
-def _object_key(obj: Any, materials: tuple[int, ...]) -> tuple[Any, ...]:
-    # The mesh by identity -- see the module docstring. The transform is
-    # deliberately *not* in the key: it is a uniform, not a buffer, so moving
-    # an object must not rebuild it.
-    return (id(obj.mesh), materials, obj.material)
+def _object_key(mesh: Any, materials: tuple[int, ...], material: int) -> tuple[Any, ...]:
+    # The *evaluated* mesh by identity -- see the module docstring. The
+    # transform is deliberately *not* in the key: it is a uniform, not a
+    # buffer, so moving an object must not rebuild it.
+    return (id(mesh), materials, material)
 
 
 class CacheOps:
@@ -69,7 +79,12 @@ class CacheOps:
             if not obj.visible:
                 continue
             live.add(obj.uid)
-            key = _object_key(obj, materials)
+            # The evaluated mesh -- base run through the modifier stack, or
+            # ``obj.mesh`` itself when there is none to run (see the module
+            # docstring). This is what the GPU draws, so it is what the key
+            # and the build both read.
+            mesh = doc.evaluated(obj.uid)
+            key = _object_key(mesh, materials, obj.material)
             entry = self._cache.get(obj.uid)
             if entry is not None and entry.key == key:
                 continue
@@ -93,7 +108,7 @@ class CacheOps:
                 # dropped out until the cursor moved again.
                 if self.hover_element is not None and self.hover_element[0] == obj.uid:
                     self.hover_element = None
-            self._cache[obj.uid] = self._build(obj, doc, key)
+            self._cache[obj.uid] = self._build(obj, doc, key, mesh)
             self.rebuilds += 1
         for uid in [u for u in self._cache if u not in live]:
             # A hidden object's buffers go too: ``visible=False`` means it does
@@ -106,11 +121,14 @@ class CacheOps:
         for uid in [u for u in self._screens if u not in live]:
             self._screens.pop(uid)
 
-    def _build(self: ClayView, obj: Any, doc: Any, key: Any) -> _Entry:
-        prims = bd.to_primitives(obj, doc.materials)
+    def _build(self: ClayView, obj: Any, doc: Any, key: Any, mesh: Any) -> _Entry:
+        prims = bd.to_primitives(obj, doc.materials, mesh)
         node = gltf.Node(name=obj.name, mesh=0)
         model = gltf.Model([node], [0], [prims], [])
-        return _Entry(key, scenelib.GpuModel(self.ctx, model), model, obj.mesh)
+        # *mesh* -- the evaluated one, not ``obj.mesh`` -- is the entry's pin:
+        # see ``_Entry.mesh``'s own comment for why an id in the key must be
+        # held alive for as long as the entry claims to match it.
+        return _Entry(key, scenelib.GpuModel(self.ctx, model), model, mesh)
 
     def clear(self: ClayView) -> None:
         for entry in self._cache.values():

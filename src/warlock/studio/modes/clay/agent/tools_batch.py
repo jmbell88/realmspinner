@@ -511,7 +511,16 @@ class _ConditionAccess:
 
     def bounds(self, uid: int) -> tuple[Any, Any]:
         obj = self._by_uid(uid)
-        box = clay_geom_ops.world_box(obj)
+        # Evaluated, not the base -- a program's own assert reads the same
+        # box clay_scene/clay_render would show a person, not half of it
+        # from an object that carries a mirror or an array modifier.
+        # world=: tranche 3 -- a parented object's own TRS is local to its
+        # parent, not its world placement, so an assert against a parented
+        # object needs the ancestor-composed matrix the same way clay_scene's
+        # own bbox does.
+        box = clay_geom_ops.world_box(
+            obj, self.doc.evaluated(uid), world=self.doc.world_matrix(uid)
+        )
         if box is None:
             raise agent_program.ConditionError(f"{obj.name!r} has no geometry to measure.")
         return box
@@ -548,8 +557,13 @@ class _ConditionAccess:
             raise agent_program.ConditionError(f"no object with uid {uid}.") from None
 
     def _analyze(self, objects: list[Any], *, pairs_among: list[int] | None) -> Any:
+        # doc=self.doc: touches/grounded/floating/volume are all questions
+        # about what an object actually occupies, which a modifier stack (a
+        # solidify's own thickness, a mirror's own second half) changes as
+        # much as a transform does -- analyze.analyze's own ``doc`` kwarg
+        # swaps every object's mesh for its evaluated one before measuring.
         try:
-            return clay_analyze.analyze(objects, pairs_among=pairs_among)
+            return clay_analyze.analyze(objects, doc=self.doc, pairs_among=pairs_among)
         except OpError as error:
             raise agent_program.ConditionError(str(error)) from None
 

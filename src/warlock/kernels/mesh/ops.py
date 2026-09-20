@@ -116,7 +116,9 @@ def rotated_about_origin(obj: Obj, axis: int, degrees: float) -> Obj:
     )
 
 
-def mirror_world(obj: Obj, axis: int, offset: float) -> Obj:
+def mirror_world(
+    obj: Obj, axis: int, offset: float, world: np.ndarray | None = None
+) -> Obj:
     """*obj* reflected across the *world* plane ``axis = offset``.
 
     Where :func:`mirror` reflects an object about a plane through its *own*
@@ -161,16 +163,37 @@ def mirror_world(obj: Obj, axis: int, offset: float) -> Obj:
     Freezing the generator claim on the result is the caller's job, the same
     way :func:`mirror` leaves it to ``Document.set_mesh`` -- this is a bare
     geometry function and knows no document to freeze anything in.
+
+    ``world``, given, is *obj*'s own world matrix (tranche 3: scene
+    structure) -- a parented object's own translation/rotation are local to
+    its parent, not the world plane this reflects across, so the closed-form
+    derivation above (which needs the object's *world* ``T * R * S``) no
+    longer applies to *obj*'s own fields directly. This path reflects the
+    world matrix itself (``F @ world``) and decomposes the result, which is
+    exact for any ancestor chain rather than only for the root case the
+    closed form assumes. **The returned translation/rotation/scale then
+    describe the new *world* placement, not necessarily what a parented
+    object's own local fields should hold** -- a caller with a document
+    converts through ``doc.local_from_world`` before writing them back; an
+    unparented object's world *is* its local frame, so writing them back
+    directly is correct exactly as it always was.
     """
     if axis not in (0, 1, 2):
         raise ValueError(f"axis must be 0, 1 or 2 ({', '.join(_AXIS_NAMES)}), got {axis!r}")
-    translation = np.asarray(obj.translation, dtype="f8").copy()
-    translation[axis] = 2.0 * float(offset) - translation[axis]
-    rotation = np.asarray(obj.rotation, dtype="f8").copy()
-    for i in range(3):
-        if i != axis:
-            rotation[i] = -rotation[i]
-    return replace(mirror(obj, axis), translation=translation, rotation=rotation)
+    if world is None:
+        translation = np.asarray(obj.translation, dtype="f8").copy()
+        translation[axis] = 2.0 * float(offset) - translation[axis]
+        rotation = np.asarray(obj.rotation, dtype="f8").copy()
+        for i in range(3):
+            if i != axis:
+                rotation[i] = -rotation[i]
+        return replace(mirror(obj, axis), translation=translation, rotation=rotation)
+    reflect = np.eye(4)
+    reflect[axis, axis] = -1.0
+    reflect[axis, 3] = 2.0 * float(offset)
+    new_world = reflect @ np.asarray(world, dtype="f8")
+    translation, rotation, scale = m3.decompose(new_world)
+    return replace(mirror(obj, axis), translation=translation, rotation=rotation, scale=scale)
 
 
 def align_y(direction: Iterable[float]) -> tuple[float, float, float, float]:
@@ -264,7 +287,9 @@ def place_between(obj: Obj, a: Iterable[float], b: Iterable[float], *, fit: bool
     )
 
 
-def world_box(obj: Obj) -> tuple[np.ndarray, np.ndarray] | None:
+def world_box(
+    obj: Obj, mesh: bm.Mesh | None = None, world: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray] | None:
     """The object's axis-aligned box in *world* space, or ``None`` if it is empty.
 
     Measured by transforming the eight corners of the mesh's own box rather than
@@ -275,19 +300,34 @@ def world_box(obj: Obj) -> tuple[np.ndarray, np.ndarray] | None:
     and a readout that contradicts what the camera does is worse than one that
     is honestly an upper bound. It is also O(1) after the local bounds, which is
     what lets a properties panel ask for it every frame.
+
+    ``mesh`` overrides ``obj.mesh``. Pass ``doc.evaluated(obj.uid)`` for the
+    box of what is on screen -- what framing, align, drop-to-ground and the
+    scene report all measure once an object carries a modifier stack, since a
+    mirror modifier alone doubles the width the base mesh would report.
+
+    ``world`` overrides the matrix composed from *obj*'s own TRS -- pass
+    ``doc.world_matrix(obj.uid)`` for a parented object, whose own TRS is
+    local to its parent and not its world placement (tranche 3: scene
+    structure). Left ``None``, this composes *obj*'s own TRS exactly as it
+    always has, which is also a root's own world matrix, so a document with
+    no parenting reports exactly what it always did.
     """
-    if len(obj.mesh.positions) == 0:
+    mesh = obj.mesh if mesh is None else mesh
+    if len(mesh.positions) == 0:
         return None
-    lo, hi = bm.bounds(obj.mesh)
+    lo, hi = bm.bounds(mesh)
     corners = np.array(
         [[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
     )
-    matrix = m3.compose(obj.translation, obj.rotation, obj.scale)
-    world = (matrix @ np.hstack([corners, np.ones((8, 1))]).T).T[:, :3]
-    return world.min(axis=0), world.max(axis=0)
+    matrix = m3.compose(obj.translation, obj.rotation, obj.scale) if world is None else world
+    world_pts = (matrix @ np.hstack([corners, np.ones((8, 1))]).T).T[:, :3]
+    return world_pts.min(axis=0), world_pts.max(axis=0)
 
 
-def local_direction(obj: Obj, world_dir: Iterable[float]) -> np.ndarray:
+def local_direction(
+    obj: Obj, world_dir: Iterable[float], world: np.ndarray | None = None
+) -> np.ndarray:
     """*world_dir* expressed in *obj*'s local frame, as a unit vector.
 
     **This is the one that is easy to get wrong.** A position transforms by
@@ -319,20 +359,31 @@ def local_direction(obj: Obj, world_dir: Iterable[float]) -> np.ndarray:
     that carried all of it) -- a direction to test faces against is meaningless
     in either case, and a caller dividing by a length of zero is the wrong way
     to find that out.
+
+    ``world`` overrides *obj*'s own rotation/scale with those of a *world*
+    matrix, decomposed (:func:`~.viewer.math3d.decompose`) -- pass
+    ``doc.world_matrix(obj.uid)`` for a parented object, whose own rotation
+    and scale are local to its parent, not its world orientation. Left
+    ``None``, this reads *obj*'s own fields exactly as it always has.
     """
     d = np.asarray(world_dir, dtype="f8")
     if float(np.linalg.norm(d)) <= 1e-12:
         return np.zeros(3, dtype="f8")
-    r_inv = m3.quat_conjugate(np.asarray(obj.rotation, dtype="f8"))
+    if world is None:
+        rotation = np.asarray(obj.rotation, dtype="f8")
+        scale = np.asarray(obj.scale, dtype="f8")
+    else:
+        _t, rotation, scale = m3.decompose(world)
+    r_inv = m3.quat_conjugate(rotation)
     rotated = m3.quat_rotate(r_inv, d)
-    scaled = rotated * np.asarray(obj.scale, dtype="f8")
+    scaled = rotated * scale
     length = float(np.linalg.norm(scaled))
     if length <= 1e-12:
         return np.zeros(3, dtype="f8")
     return scaled / length
 
 
-def world_positions(obj: Obj) -> np.ndarray:
+def world_positions(obj: Obj, world: np.ndarray | None = None) -> np.ndarray:
     """Every vertex of *obj*'s mesh, transformed into world space. -> (V, 3) f8.
 
     **Not** :func:`world_box`'s eight-corner trick, and deliberately: that one
@@ -354,8 +405,13 @@ def world_positions(obj: Obj) -> np.ndarray:
     at O(V) after :func:`~.viewer.math3d.compose` -- for
     :func:`~.select.faces_in_bounds`, called with a world *lo*/*hi* and these
     as its *positions* argument.
+
+    ``world`` overrides the matrix composed from *obj*'s own TRS, the same
+    convention every world-space function in this module follows (tranche 3:
+    scene structure) -- pass ``doc.world_matrix(obj.uid)`` for a parented
+    object.
     """
-    matrix = m3.compose(obj.translation, obj.rotation, obj.scale)
+    matrix = m3.compose(obj.translation, obj.rotation, obj.scale) if world is None else world
     pts = np.asarray(obj.mesh.positions, dtype="f8")
     if len(pts) == 0:
         return np.zeros((0, 3), dtype="f8")
@@ -413,7 +469,7 @@ def snap_rotation(quat: Iterable[float], degrees: float) -> np.ndarray:
     return m3.quat_from_axis_angle(q[:3] / length, snapped)
 
 
-def bake_transform(obj: Obj) -> Obj:
+def bake_transform(obj: Obj, world: np.ndarray | None = None) -> Obj:
     """The object's TRS folded into its positions, and the TRS reset.
 
     What it is *for* is a mesh that has to be measured or exported in the frame
@@ -425,8 +481,16 @@ def bake_transform(obj: Obj) -> Obj:
     to leave one on a node -- a user can type one into the properties panel --
     and it is handled for free, because :func:`~.mesh.transformed` reverses the
     loops on any negative determinant, not just on a mirror it produced itself.
+
+    ``world`` folds a *world* matrix in instead of *obj*'s own TRS (tranche 3:
+    scene structure) -- for a parented object, :mod:`.objexport`'s format has
+    no hierarchy of its own, so every object has to be baked all the way to
+    its world placement, not merely to its parent's frame. The reset local
+    TRS is the identity regardless -- correct either way, since the returned
+    object's ``parent`` field (untouched by this function; it never reads or
+    writes it) is meaningless once its geometry has been baked to world space.
     """
-    matrix = m3.compose(obj.translation, obj.rotation, obj.scale)
+    matrix = m3.compose(obj.translation, obj.rotation, obj.scale) if world is None else world
     return replace(
         obj,
         mesh=bm.transformed(obj.mesh, matrix),
@@ -504,7 +568,9 @@ def duplicate(obj: Obj, uid: int, *, taken: Iterable[str] = ()) -> Obj:
 MAX_JOINED_CORNERS = 2_000_000
 
 
-def join(objs: Sequence[Obj], *, eps: float = 1e-4) -> bm.Mesh:
+def join(
+    objs: Sequence[Obj], *, eps: float = 1e-4, world: Sequence[np.ndarray | None] | None = None
+) -> bm.Mesh:
     """Several objects' geometry as one mesh, in the **first** one's frame.
 
     Every object after the first is carried through ``inv(first) @ own`` so it
@@ -548,6 +614,14 @@ def join(objs: Sequence[Obj], *, eps: float = 1e-4) -> bm.Mesh:
     do not: a mesh either has them or does not, so a set that disagrees is
     filled with zeros rather than dropped -- losing the coordinates one half
     already had would be the more destructive of the two answers.
+
+    ``world``, given, is one world matrix per entry of *objs* -- pass
+    ``doc.world_matrix(o.uid)`` per object for a document with parenting
+    (tranche 3: scene structure), since two objects under different parents
+    are not correctly related by composing their own TRS alone. ``None`` in
+    either the whole argument or one of its entries composes that object's
+    own TRS as this always has, which is exactly a root's world matrix, so
+    a document with no parenting joins exactly as it always did.
     """
     from .elements import OpError, empty
     from .ops_topo import weld
@@ -561,7 +635,11 @@ def join(objs: Sequence[Obj], *, eps: float = 1e-4) -> bm.Mesh:
             f"{MAX_JOINED_CORNERS:,} Clay can weld on the frame thread. "
             "Select fewer objects, or simplify them first."
         )
-    meshes = [objs[0].mesh] + [bm.transformed(o.mesh, _into(objs[0], o)) for o in objs[1:]]
+    worlds: Sequence[np.ndarray | None] = world if world is not None else [None] * len(objs)
+    meshes = [objs[0].mesh] + [
+        bm.transformed(o.mesh, _into(objs[0], o, target_world=worlds[0], other_world=w))
+        for o, w in zip(objs[1:], worlds[1:], strict=True)
+    ]
 
     offsets = np.cumsum([0] + [len(m.positions) for m in meshes[:-1]])
     corners = np.cumsum([0] + [len(m.loops) for m in meshes[:-1]])
@@ -591,22 +669,48 @@ def join(objs: Sequence[Obj], *, eps: float = 1e-4) -> bm.Mesh:
     )
     if eps <= 0.0:
         return merged
-    return weld(merged, empty(), eps=_local_eps(objs[0], eps))[0]
+    return weld(merged, empty(), eps=_local_eps(objs[0], eps, worlds[0]))[0]
 
 
-def _local_eps(target: Obj, eps: float) -> float:
-    """*eps* metres of world space, in *target*'s local units."""
-    scale = float(np.max(np.abs(np.asarray(target.scale, dtype="f8"))))
-    return float(eps) / scale if scale > 0.0 else float(eps)
+def _local_eps(target: Obj, eps: float, world: np.ndarray | None = None) -> float:
+    """*eps* metres of world space, in *target*'s local units.
+
+    ``world``, given, replaces *target*'s own scale with that of a world
+    matrix, decomposed -- the object's own ``scale`` is local to its parent
+    once parenting exists (tranche 3), and welding at a distance meant as
+    world metres needs the world-space scale to convert it correctly.
+    """
+    if world is None:
+        scale = np.asarray(target.scale, dtype="f8")
+    else:
+        _t, _r, scale = m3.decompose(world)
+    largest = float(np.max(np.abs(scale)))
+    return float(eps) / largest if largest > 0.0 else float(eps)
 
 
-def _into(target: Obj, other: Obj) -> np.ndarray:
+def _into(
+    target: Obj,
+    other: Obj,
+    *,
+    target_world: np.ndarray | None = None,
+    other_world: np.ndarray | None = None,
+) -> np.ndarray:
     """*other*'s world matrix expressed in *target*'s local frame.
 
     A degenerate target -- a scale someone typed a zero into -- has no inverse,
     and ``np.linalg.inv`` raises out of the frame loop rather than refusing.
+
+    ``target_world``/``other_world``, given, replace the matrix each object's
+    own TRS would compose to (tranche 3: scene structure) -- see :func:`join`
+    and :func:`.ops_boolean.boolean`, this function's two callers, for why:
+    two objects under different parents are not correctly related by their
+    own TRS alone.
     """
-    world = m3.compose(target.translation, target.rotation, target.scale)
+    world = (
+        m3.compose(target.translation, target.rotation, target.scale)
+        if target_world is None
+        else target_world
+    )
     try:
         inverse = np.linalg.inv(world)
     except np.linalg.LinAlgError as error:
@@ -615,4 +719,9 @@ def _into(target: Obj, other: Obj) -> np.ndarray:
         raise OpError(
             f"{target.name} has a zero scale, so nothing can be merged into it."
         ) from error
-    return inverse @ m3.compose(other.translation, other.rotation, other.scale)
+    other_matrix = (
+        m3.compose(other.translation, other.rotation, other.scale)
+        if other_world is None
+        else other_world
+    )
+    return inverse @ other_matrix

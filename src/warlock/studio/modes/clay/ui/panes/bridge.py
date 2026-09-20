@@ -24,7 +24,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import icons, tokens, verbs, widgets
+from ..... import icons, theme, tokens, verbs, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as clay_mode
@@ -63,6 +63,8 @@ def draw(ctx: Any) -> None:
     _history(ctx, tab)
     imgui.dummy((0, sp(tokens.SP_2)))
     _outputs(ctx, tab)
+    imgui.dummy((0, sp(tokens.SP_2)))
+    _game_check(ctx, tab)
     _recent(ctx)
 
 
@@ -88,7 +90,10 @@ def _history(ctx: Any, tab: Any) -> None:
 def _facts(tab: Any) -> None:
     doc = tab.doc
     visible = [obj for obj in doc.objects if obj.visible]
-    triangles = sum(_triangles(obj.mesh) for obj in visible)
+    # Evaluated: this is a count of what will actually export, not of the
+    # pre-modifier base mesh -- a mirror or an array changes how many
+    # triangles leave the document, and this line is a promise about that.
+    triangles = sum(_triangles(doc.evaluated(obj.uid)) for obj in visible)
     widgets.muted(
         f"{len(visible)} of {len(doc.objects)} objects visible  -  "
         f"{triangles:,} triangles  -  {len(doc.materials)} materials"
@@ -126,6 +131,47 @@ def _files(ctx: Any, tab: Any) -> None:
         save_as=lambda: clay_mode.save_as(ctx, tab),
     )
     imgui.dummy((0, sp(tokens.SP_2)))
+    _import_mesh(ctx, tab)
+    imgui.dummy((0, sp(tokens.SP_2)))
+
+
+#: Scale choices for "Import Mesh...", key is the multiplier ``import_file``
+#: takes -- a unit a modeller actually authors in, never a bare number a user
+#: would have to already know the conversion for.
+#: Keys are ``f"{value:g}"`` of the multiplier itself -- what :func:`_import_mesh`
+#: formats ``state.import_scale`` as to look the option up, so the two can
+#: never drift into two different spellings of the same number.
+IMPORT_SCALE_OPTIONS = (
+    ("1", "m"),
+    ("0.01", "cm"),
+    ("0.001", "mm"),
+    ("0.0254", "in"),
+    ("0.3048", "ft"),
+)
+IMPORT_UP_OPTIONS = (("y", "Y up"), ("z", "Z up"))
+
+
+def _import_mesh(ctx: Any, tab: Any) -> None:
+    """"Import Mesh...", plus the units/up-axis combo beside it a drop uses too.
+
+    ``ClayState.import_scale``/``import_up`` are what both this button and a
+    file dropped on the viewport read (``clay_mode.import_mesh_path``'s own
+    defaults) -- set here, remembered for the next import in either form.
+    """
+    state = clay_mode.ensure(ctx)
+    if widgets.disabled_button(
+        f"{icons.FOLDER_OPEN} Import Mesh...",
+        not tab.saving,
+        reason="Saving..." if tab.saving else "",
+    ):
+        clay_mode.ask_import_mesh(ctx)
+    imgui.same_line()
+    scale_key = f"{state.import_scale:g}"
+    picked = widgets.combo("##clay-import-scale", scale_key, IMPORT_SCALE_OPTIONS, sp(70))
+    if picked != scale_key:
+        state.import_scale = float(picked)
+    imgui.same_line()
+    state.import_up = widgets.combo("##clay-import-up", state.import_up, IMPORT_UP_OPTIONS, sp(90))
 
 
 def _outputs_why(doc: Any, saving: bool) -> str:
@@ -185,6 +231,23 @@ def _outputs(ctx: Any, tab: Any) -> None:
             "has surface detail nobody modelled."
         )
 
+    # Two labelled buttons rather than "Export File..." plus a bare "OBJ": the
+    # first spelling wrote GLB without saying so, and a format is exactly the
+    # thing a user reading the row needs to see before pressing.
+    tip = (
+        "Saves the document as a plain mesh file on disk, for handing straight "
+        "to another tool. The library never sees it."
+    )
+    if widgets.disabled_button(f"{icons.DOWNLOAD} Export GLB...", ready, reason=why):
+        clay_mode.export_mesh_file(ctx, tab, "glb")
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(tip)
+    imgui.same_line()
+    if widgets.disabled_button("Export OBJ...", ready, reason=why):
+        clay_mode.export_mesh_file(ctx, tab, "obj")
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(tip + " OBJ writes a .mtl of the same name beside it.")
+
     if tab.job_id:
         widgets.muted(f"Last exported as {tab.job_id}")
 
@@ -227,3 +290,89 @@ def _recent(ctx: Any) -> None:
         clay_mode.recent_paths(ctx),
         lambda path: clay_mode.open_path(ctx, Path(path)),
     )
+
+
+# --- Game check ---------------------------------------------------------------
+#
+# ``readiness.validate`` is the one function the panel, an agent tool and a
+# future warning badge all read (see that module's own docstring) -- what
+# belongs here is only the on-demand trigger, the "out of date" staleness
+# read and turning a ``Report`` into rows a "Fix" button can act on.
+
+_STATUS_COLOR: dict[str, str] = {
+    "pass": "OK",
+    "warn": "ACCENT",
+    "fail": "ERR",
+    "skip": "MUTED",
+}
+_STATUS_ICON: dict[str, str] = {
+    "pass": icons.CHECK,
+    "warn": icons.TRIANGLE_ALERT,
+    "fail": icons.X,
+    "skip": icons.CIRCLE_ALERT,
+}
+
+
+def validator_rows(report: Any) -> list[tuple[str, str, str, str, tuple[int, ...]]]:
+    """A ``readiness.Report`` as plain ``(status, label, message, fix, uids)``
+    row tuples -- the whole of what the section below draws, pulled into a
+    function that takes no imgui so "does this Report produce a Fix button
+    only where a check actually names one" is a plain assertion rather than a
+    screenshot.
+    """
+    return [
+        (check.status, check.label, check.message, check.fix, check.uids)
+        for check in report.checks
+    ]
+
+
+def _run_fix(ctx: Any, tab: Any, fix: str, uids: tuple[int, ...]) -> None:
+    """A row's "Fix" button: select what the check named (object mode, if it
+    named anything), then run the op at its declared defaults.
+
+    Defaults rather than the op's own param popup: reaching that popup from
+    here would need the menu's own open-a-dialog machinery
+    (``ClayState.pending_op``/``open_op_popup``), which is a keyboard/menu
+    affordance this row is not one of. A user who wants non-default numbers
+    still has the op's own row in the tools pane or the context menu, unaffected
+    by this shortcut existing.
+    """
+    from ... import ops as clay_ops
+
+    doc = tab.doc
+    if uids:
+        doc.set_element_mode("object")
+        doc.select([uid for uid in uids if any(o.uid == uid for o in doc.objects)])
+    clay_ops.run(ctx, doc, clay_ops.get(fix))
+
+
+def _game_check(ctx: Any, tab: Any) -> None:
+    """"Game check": a profile combo, a Check button, and one row per check."""
+    from ......kernels.mesh import readiness
+
+    if not widgets.header("Game check", default_open=False, persist_key="clay-game-check"):
+        return
+
+    profile = tab.readiness_profile or readiness.DEFAULT_PROFILE
+    options = [(key, prof.label) for key, prof in readiness.PROFILES.items()]
+    tab.readiness_profile = widgets.combo("##clay-readiness-profile", profile, options, sp(170))
+
+    imgui.same_line()
+    why = "Saving..." if tab.saving else ""
+    if widgets.disabled_button("Check", not tab.saving, reason=why):
+        clay_mode.check_readiness(ctx, tab, tab.readiness_profile)
+
+    report = tab.readiness_report
+    if report is None or report.profile != tab.readiness_profile:
+        widgets.muted("Not checked against this profile yet -- press Check.")
+        return
+    if tab.readiness_head != tab.doc.history.head:
+        widgets.muted("Out of date: the document has changed since this check ran.")
+
+    for status, label, message, fix, uids in validator_rows(report):
+        colour = getattr(theme, _STATUS_COLOR.get(status, "MUTED"))
+        widgets.text_colored(colour, f"{_STATUS_ICON.get(status, '?')} {label}")
+        imgui.same_line()
+        widgets.muted_wrapped(message)
+        if fix and widgets.disabled_button(f"Fix##{label}", not tab.saving, reason=why):
+            _run_fix(ctx, tab, fix, uids)

@@ -496,6 +496,140 @@ def faces_in_bounds(
     return np.flatnonzero(mask).astype("i4")
 
 
+# --- similar: a property of a seed set, matched across the whole mesh --------
+#
+# Tranche 5's "select similar" verbs. Every other verb in this module answers
+# from a *walk* (a loop, a ring, everything linked) or from an *absolute*
+# question (which slot, which direction, which box); these answer "what else
+# is like *this*", where "this" is a caller-supplied seed set -- in practice
+# the object's own current selection, handed in by whichever caller wires the
+# query up, exactly as ``by_material``'s ``slot`` or ``faces_by_normal``'s
+# ``direction`` are handed in rather than read off a document this module has
+# no notion of (see the module docstring: "nothing here touches a document, a
+# selection object or a view"). A seed set of several elements compares
+# against the *mean* of their own property, a single deterministic number
+# rather than a per-seed nearest-match search -- simpler, and it is what makes
+# two calls with the same seed set produce the same answer regardless of which
+# member happens to be "active".
+
+
+def similar_area(mesh: Mesh, faces: Sequence[int], tolerance: float = 0.1) -> np.ndarray:
+    """Faces whose area is within ``tolerance`` of the seed faces' own mean
+    area, as a fraction of that mean. -> face indices, the seed's own faces
+    included (they trivially match themselves).
+    """
+    n_faces = bm.face_count(mesh)
+    seed = np.unique(np.asarray(faces, dtype="i8").reshape(-1))
+    seed = seed[(seed >= 0) & (seed < n_faces)]
+    if n_faces == 0 or len(seed) == 0:
+        return np.zeros(0, dtype="i4")
+    areas = 0.5 * np.linalg.norm(bm.face_normals(mesh), axis=1)
+    ref = float(areas[seed].mean())
+    if ref <= 1e-12:
+        return np.flatnonzero(areas <= 1e-12).astype("i4")
+    within = np.abs(areas - ref) / ref <= float(tolerance)
+    return np.flatnonzero(within).astype("i4")
+
+
+def similar_normal(mesh: Mesh, faces: Sequence[int], tolerance: float = 5.0) -> np.ndarray:
+    """Faces whose normal points within ``tolerance`` degrees of the seed
+    faces' own mean unit normal. -> face indices.
+
+    Built on :func:`faces_by_normal`, so a seed whose own normals cancel to
+    (near) zero -- two seed faces pointing opposite ways -- matches nothing,
+    the same degenerate-direction behaviour that function's own docstring
+    states rather than hides.
+    """
+    n_faces = bm.face_count(mesh)
+    seed = np.unique(np.asarray(faces, dtype="i8").reshape(-1))
+    seed = seed[(seed >= 0) & (seed < n_faces)]
+    if n_faces == 0 or len(seed) == 0:
+        return np.zeros(0, dtype="i4")
+    normals = np.asarray(bm.face_normals(mesh), dtype="f8")
+    lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+    unit = np.divide(normals, lengths, out=np.zeros_like(normals), where=lengths > 1e-12)
+    mean = unit[seed].mean(axis=0)
+    return faces_by_normal(mesh, mean, max_angle=tolerance)
+
+
+def similar_material(mesh: Mesh, faces: Sequence[int]) -> np.ndarray:
+    """Every face sharing a material slot with any of the seed faces. -> face
+    indices. No tolerance: a slot is a discrete index, and "close to slot 3"
+    has no meaning ``by_material`` does not already give it directly.
+    """
+    n_faces = bm.face_count(mesh)
+    seed = np.unique(np.asarray(faces, dtype="i8").reshape(-1))
+    seed = seed[(seed >= 0) & (seed < n_faces)]
+    if n_faces == 0 or len(seed) == 0:
+        return np.zeros(0, dtype="i4")
+    slots = np.unique(np.asarray(mesh.material, dtype="i8")[seed])
+    return np.flatnonzero(np.isin(mesh.material, slots)).astype("i4")
+
+
+def similar_sides(mesh: Mesh, faces: Sequence[int], tolerance: int = 0) -> np.ndarray:
+    """Faces whose corner count is within ``tolerance`` of *any* arity
+    present in the seed faces. -> face indices.
+
+    Bucketed on the seed's own *set* of arities rather than their mean --
+    side count is discrete, and a seed selection spanning a triangle and a
+    quad has two legitimate reference counts, not one fractional one.
+    """
+    n_faces = bm.face_count(mesh)
+    seed = np.unique(np.asarray(faces, dtype="i8").reshape(-1))
+    seed = seed[(seed >= 0) & (seed < n_faces)]
+    if n_faces == 0 or len(seed) == 0:
+        return np.zeros(0, dtype="i4")
+    counts = _arity(mesh)
+    ref_counts = np.unique(counts[seed])
+    tol = abs(int(tolerance))
+    diffs = np.abs(counts[:, None] - ref_counts[None, :])
+    within = (diffs <= tol).any(axis=1)
+    return np.flatnonzero(within).astype("i4")
+
+
+def similar_length(mesh: Mesh, edges: np.ndarray, tolerance: float = 0.1) -> np.ndarray:
+    """Every mesh edge whose length is within ``tolerance`` of the seed
+    edges' own mean length, as a fraction of that mean. -> vertex pairs.
+    """
+    a = adjacency(mesh)
+    raw = np.asarray(edges, dtype="i4")
+    seed_pairs = raw.reshape(-1, 2) if raw.size else np.zeros((0, 2), dtype="i4")
+    ids = a.edge_ids(seed_pairs) if len(seed_pairs) else np.zeros(0, dtype="i4")
+    ids = ids[ids >= 0]
+    if a.n_edges == 0 or len(ids) == 0:
+        return np.zeros((0, 2), dtype="i4")
+    ends0 = mesh.positions[a.edge_verts[:, 0]].astype("f8")
+    ends1 = mesh.positions[a.edge_verts[:, 1]].astype("f8")
+    lengths = np.linalg.norm(ends0 - ends1, axis=1)
+    ref = float(lengths[ids].mean())
+    if ref <= 1e-12:
+        return _pairs(np.flatnonzero(lengths <= 1e-12), a)
+    within = np.abs(lengths - ref) / ref <= float(tolerance)
+    return _pairs(np.flatnonzero(within), a)
+
+
+def similar_valence(mesh: Mesh, verts: Sequence[int], tolerance: int = 0) -> np.ndarray:
+    """Every vertex whose incident-edge count is within ``tolerance`` of the
+    seed vertices' own set of valences. -> vertex indices.
+    """
+    n_verts = len(mesh.positions)
+    seed = np.unique(np.asarray(verts, dtype="i8").reshape(-1))
+    seed = seed[(seed >= 0) & (seed < n_verts)]
+    if n_verts == 0 or len(seed) == 0:
+        return np.zeros(0, dtype="i4")
+    a = adjacency(mesh)
+    valence = (
+        np.bincount(a.edge_verts.reshape(-1), minlength=n_verts)
+        if a.n_edges
+        else np.zeros(n_verts, dtype="i8")
+    )
+    ref_valences = np.unique(valence[seed])
+    tol = abs(int(tolerance))
+    diffs = np.abs(valence[:, None].astype("i8") - ref_valences[None, :].astype("i8"))
+    within = (diffs <= tol).any(axis=1)
+    return np.flatnonzero(within).astype("i4")
+
+
 # --- QUERIES: the fourth derived registry -------------------------------------
 #
 # ``OPS`` (``studio/modes/clay/ops.py``) is invocable verbs and the agent's derived tool
@@ -578,6 +712,30 @@ def _q_normal(mesh: Mesh, direction: Sequence[float], max_angle: float = 45.0) -
     return el.ElementSel(faces=faces_by_normal(mesh, direction, max_angle))
 
 
+def _q_similar_area(mesh: Mesh, faces: Sequence[int], tolerance: float = 0.1) -> el.ElementSel:
+    return el.ElementSel(faces=similar_area(mesh, faces, tolerance))
+
+
+def _q_similar_normal(mesh: Mesh, faces: Sequence[int], tolerance: float = 5.0) -> el.ElementSel:
+    return el.ElementSel(faces=similar_normal(mesh, faces, tolerance))
+
+
+def _q_similar_material(mesh: Mesh, faces: Sequence[int]) -> el.ElementSel:
+    return el.ElementSel(faces=similar_material(mesh, faces))
+
+
+def _q_similar_sides(mesh: Mesh, faces: Sequence[int], tolerance: int = 0) -> el.ElementSel:
+    return el.ElementSel(faces=similar_sides(mesh, faces, tolerance))
+
+
+def _q_similar_length(mesh: Mesh, edges: Sequence[int], tolerance: float = 0.1) -> el.ElementSel:
+    return el.ElementSel(edges=similar_length(mesh, np.asarray(edges), tolerance))
+
+
+def _q_similar_valence(mesh: Mesh, verts: Sequence[int], tolerance: int = 0) -> el.ElementSel:
+    return el.ElementSel(verts=similar_valence(mesh, verts, tolerance))
+
+
 def _q_bounds(mesh: Mesh, lo: Sequence[float], hi: Sequence[float]) -> el.ElementSel:
     """Both currencies at once: every vertex in the box, and every face all of
     whose corners are (:func:`faces_in_bounds`) -- the two things "select
@@ -639,5 +797,56 @@ QUERIES: dict[str, Query] = {
         args=("min", "max", "space"),
         run=_q_bounds,
         hint="Every vertex, and every face wholly, inside an axis-aligned box.",
+    ),
+    # Tranche 5's "select similar" family -- see the "similar" section above
+    # this dict's own module for why each takes a seed *set* (in practice the
+    # object's current selection) rather than one index the way loop/ring/
+    # face_loop/material do.
+    "similar_area": Query(
+        name="similar_area",
+        modes=("face",),
+        args=("faces", "tolerance"),
+        run=_q_similar_area,
+        hint="Faces whose area is within tolerance of the seed faces' own "
+        "mean area, as a fraction of it.",
+    ),
+    "similar_normal": Query(
+        name="similar_normal",
+        modes=("face",),
+        args=("faces", "tolerance"),
+        run=_q_similar_normal,
+        hint="Faces whose normal points within tolerance degrees of the "
+        "seed faces' own mean normal.",
+    ),
+    "similar_material": Query(
+        name="similar_material",
+        modes=("face",),
+        args=("faces",),
+        run=_q_similar_material,
+        hint="Every face sharing a material slot with any seed face.",
+    ),
+    "similar_sides": Query(
+        name="similar_sides",
+        modes=("face",),
+        args=("faces", "tolerance"),
+        run=_q_similar_sides,
+        hint="Faces whose corner count is within tolerance of any arity "
+        "present in the seed faces.",
+    ),
+    "similar_length": Query(
+        name="similar_length",
+        modes=("edge",),
+        args=("edges", "tolerance"),
+        run=_q_similar_length,
+        hint="Edges whose length is within tolerance of the seed edges' own "
+        "mean length, as a fraction of it.",
+    ),
+    "similar_valence": Query(
+        name="similar_valence",
+        modes=("vertex",),
+        args=("verts", "tolerance"),
+        run=_q_similar_valence,
+        hint="Vertices whose incident-edge count is within tolerance of any "
+        "valence present in the seed vertices.",
     ),
 }

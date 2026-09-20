@@ -607,12 +607,15 @@ def _uvd(mesh):
 
 
 def test_the_version_is_written_unconditionally() -> None:
-    """No "downgrade when nothing needs v2": a format that sometimes claims to
-    be v1 for the same code is a format with two readers."""
+    """No "downgrade when nothing needs v2/v3": a format that sometimes claims
+    to be v1 for the same code is a format with two readers. Clay tranche 2
+    bumped this to 3 (modifier stacks); an untextured, unmodified document is
+    still v1-shaped apart from the number itself."""
     plain = json.loads(ser.scene_json(_doc()))
-    assert plain["version"] == 2
+    assert plain["version"] == 3
     assert "textures" not in plain, "an untextured document stays v1-shaped"
     assert "textures" not in plain["materials"][0]
+    assert "modifiers" not in plain["objects"][0], "an unmodified object stays v1/v2-shaped"
 
 
 def test_uvs_survive_a_round_trip_and_absent_ones_stay_absent() -> None:
@@ -717,10 +720,14 @@ def test_a_version_1_file_still_opens_with_no_uvs_and_no_textures() -> None:
     assert all(m.base_color is None for m in out.materials)
 
 
-def test_a_version_3_file_is_refused() -> None:
-    v3 = _rewrite_version(ser.wblk_bytes(_doc()), 3)
+def test_a_version_past_the_current_one_is_refused() -> None:
+    """Written against ``ser.VERSION + 1`` rather than a literal number -- the
+    literal ``3`` this pinned before Clay tranche 2 became the *current*
+    version the day this file's own ``VERSION`` bumped, which is exactly the
+    kind of drift a version-relative bound does not have."""
+    future = _rewrite_version(ser.wblk_bytes(_doc()), ser.VERSION + 1)
     with pytest.raises(ValueError, match="newer version"):
-        ser.read_wblk(v3)
+        ser.read_wblk(future)
 
 
 def test_a_missing_texture_member_is_refused_rather_than_blanked() -> None:

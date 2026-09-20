@@ -49,8 +49,10 @@ two functions it always did, now living one file over.
 from __future__ import annotations
 
 import functools
+from collections.abc import Callable
 
-from .....kernels.mesh import presets
+from .....kernels.mesh import colliders, engines, presets, readiness
+from .....kernels.mesh import modifiers as clay_modifiers
 from .....kernels.mesh import primitives as bp
 from .....kernels.mesh import select as bsel
 from .. import ops as clay_ops
@@ -146,6 +148,12 @@ BATCH_EXCLUDED = frozenset(
         # inside the very run that is about to fold into one is incoherent.
         "clay_undo",
         "clay_redo",
+        # Tranche 3: a checkpoint restore moves the history head exactly the
+        # way clay_undo/clay_redo do (ClayDoc.restore_checkpoint is
+        # step_history under the hood) -- the identical incoherence, for the
+        # identical reason. clay_checkpoint itself pushes no step and reads
+        # nothing live, so it stays batchable.
+        "clay_restore",
     }
 )
 """Tools ``clay_batch`` refuses to run -- see ``agent_clay_tools_batch._h_batch``'s
@@ -227,6 +235,54 @@ ELEMENT_PAGE_DEFAULT = 256
 enough that the common case ("what did that extrude just make") comes back as
 a paragraph rather than a printout, and still a small fraction of
 ``ELEMENT_PAGE_MAX`` for the rarer caller that has to page through more."""
+
+SEPARATE_MODES = ("loose_parts", "material", "selection")
+"""``clay_separate``'s ``by`` enum -- :mod:`.separate`'s own three splitting
+functions (``by_loose_parts``/``by_material``/``by_selection``), named the
+way that module's own docstring does. A fixed tuple, not a live registry the
+way ``GENERATORS``/``OPS``/``QUERIES`` are derived from -- :mod:`.separate`
+is three functions, not an open-ended kind system, so there is nothing here
+for a bidirectional derivation gate to prove (the same reason
+``RENDER_SHADINGS`` above carries none)."""
+
+ORIGIN_MODES = ("bounds", "base", "selection", "world")
+"""``clay_set_origin``'s ``mode`` enum, when ``point`` is not given directly
+-- ``bounds`` (the object's own world-space box centre), ``base`` (the same
+box's horizontal centre at its lowest Y), ``selection`` (the mean world
+position of whatever is currently selected inside the object) and ``world``
+(the world origin). Fixed, for the same reason :data:`SEPARATE_MODES` is."""
+
+MEASURE_KINDS = ("distance", "angle", "area", "volume")
+"""``clay_measure``'s ``kind`` enum. Fixed, for the same reason
+:data:`SEPARATE_MODES` is -- see ``tools_structure._h_measure``'s own
+docstring for what each kind reads and in which space."""
+
+UV_ACTIONS: dict[str, str] = {
+    "pack": "shelf-pack every island into the unit square, preserving relative "
+    "scale [margin (0.0-0.5, default 0.005), rotate (boolean 0/1, default 0)]",
+    "density": "scale every island about its own centre to a target texel "
+    "density [target (px/m, required), texture_px (default 1024)]",
+    "unwrap_seams": "cut along the object's own marked seams and flatten each "
+    "island with LSCM, then pack -- refused with no seams marked []",
+    "mark_seam": "add edges to the object's marked seams [edges ([[vertex, "
+    "vertex], ...]); the object's current edge selection if omitted]",
+    "clear_seam": "remove edges from the object's marked seams [edges "
+    "([[vertex, vertex], ...]); the object's current edge selection if omitted]",
+}
+"""``clay_uv``'s ``action`` enum, one tool with an action argument rather than
+five, per ``dev/CLAY-PLAN.md`` tranche 6's own steer ("prefer one tool with
+an action enum here, because the catalogue is already too big"). A plain
+dict, the same shape :data:`SEPARATE_MODES`/:data:`ORIGIN_MODES`/
+:data:`MEASURE_KINDS` already are for the identical reason their own
+docstrings give -- five kernel doors (:func:`~.uvtools.pack_islands`,
+:func:`~.uvtools.normalize_density`, :func:`~.uvunwrap.unwrap_lscm`,
+:meth:`~.document.ClayDoc.set_seams` twice over), not an open-ended registry
+a bidirectional gate would have anything to prove about -- but a *dict*
+rather than a bare tuple, because :func:`_uv_action_catalog` (and
+``clay_uv``'s own tool description) both need each action's own params
+worded, not just its name, and writing that prose in two places would be the
+exact drift the catalogue-diet paragraph in ``studio/modes/clay/agent/dispatch.py``'s own module
+docstring rules out for everything else in this fold."""
 
 MAX_MESH_VERTICES = 50_000
 MAX_MESH_FACES = 50_000
@@ -326,6 +382,42 @@ _QUERY_ARG_SCHEMAS: dict[str, dict] = {
         "enum": ["world", "local"],
         "description": "Which frame 'min'/'max' are given in. Default 'world'.",
     },
+    # The "similar" queries' seeds. One name per element kind rather than a
+    # shared "seed", because a query declares the mode it answers in and the
+    # kind follows from it -- a face query cannot take a vertex seed, and a
+    # single name would have let one be passed with nothing to say no.
+    "faces": {
+        "type": "array",
+        "items": {"type": "integer", "minimum": 0},
+        "minItems": 1,
+        "description": "Face indices to match against -- the query returns the "
+        "faces like these. Pass what clay_elements reports as selected.",
+    },
+    "edges": {
+        "type": "array",
+        "items": {
+            "type": "array",
+            "items": {"type": "integer", "minimum": 0},
+            "minItems": 2,
+            "maxItems": 2,
+        },
+        "minItems": 1,
+        "description": "[vertex, vertex] pairs to match against -- the query "
+        "returns the edges like these.",
+    },
+    "verts": {
+        "type": "array",
+        "items": {"type": "integer", "minimum": 0},
+        "minItems": 1,
+        "description": "Vertex indices to match against -- the query returns "
+        "the vertices like these.",
+    },
+    "tolerance": {
+        "type": "number",
+        "minimum": 0.0,
+        "description": "How far from the seed's own measure still counts as "
+        "similar: a fraction for an area or a length, degrees for a normal.",
+    },
 }
 
 # The two query arguments that are optional -- ``max_angle`` (``_q_normal``'s
@@ -390,15 +482,72 @@ def _object_row_output_schema() -> dict:
     object -- what is in it depends on ``generator``, which this schema has
     no way to branch on. See the module comment above for why nothing here
     is ``required``.
+
+    **``bbox``/``size``/``center`` are measured off the object's *evaluated*
+    mesh** (``world_box(obj, doc.evaluated(uid))``) -- what a mirror or an
+    array modifier actually draws, not the half of it the base mesh alone
+    would report -- while ``faces``/``verts`` stay the *base* mesh's own
+    counts, exactly as they always were: an element edit acts on the base,
+    so a caller reshaping this object needs to know what it is actually
+    editing, not what a modifier stack turns it into on screen. ``modifiers``
+    and ``evaluated`` are present **only once the object carries a non-empty
+    modifier stack** -- an object with none never had either key before this,
+    and still does not, which is what keeps every pre-modifier document,
+    test and cache key behaving exactly as before (see :mod:`.modifiers`'s
+    own module docstring). ``modifiers`` is one row per stack entry, in
+    stack order: ``id``, ``kind``, ``enabled``, ``params`` (every value the
+    kind declares, already clamped) and, only for a modifier
+    :meth:`~.document.ClayDoc.evaluation` skipped this call, ``error`` (its
+    own refusal sentence -- see :mod:`.modifiers`'s "skipped, not fatal"
+    rule). ``evaluated`` is the stack's own result: ``vertices``/``faces``
+    the evaluated mesh's own counts, ``triangles`` what it would triangulate
+    to (``glbimport.MAX_TRIANGLES``'s own unit).
+
+    **Tranche 3: scene structure.** ``parent`` is a uid or ``null`` (a root);
+    ``locked``/``tags`` are :class:`~.document.Obj`'s own fields, verbatim.
+    ``translation``/``rotation``/``scale`` are now **world** space --
+    ancestor-composed through :meth:`~.document.ClayDoc.world_matrix`, which
+    is exactly an unparented object's own local TRS, so nothing here changed
+    for a document with no parenting. ``local`` carries the object's own
+    local TRS (what ``clay_transform`` writes) and is present **only** when
+    the object has a parent -- a root's local TRS already *is* its world
+    one, so a second, identical copy would say nothing a client does not
+    already have.
+
+    **Tranche 7: role/collider_kind.** :class:`~.document.Obj`'s own two
+    fields, verbatim -- "mesh"/"collider" and, for a collider, which of
+    :data:`colliders.COLLIDER_KINDS` it is (empty string otherwise). Always
+    present, the same as locked/tags, rather than gated the way
+    modifiers/evaluated are: every object already carries both fields at
+    the default for free, so there is no pre-tranche-7 document whose reply
+    this would change the shape of to protect.
+
+    **Tranche 6: uv.** Present only when the object's *base* mesh carries
+    texture coordinates -- the base mesh, not the evaluated one, because a
+    seam and an unwrap are both authoring concepts about the geometry an
+    edit would touch, the same reasoning faces/verts already follow.
+    islands and mean_stretch are always measured; overlapping_faces admits
+    null for a mesh past uvtools' own overlap ceilings -- clay_scene reads
+    every visible object's row on every call, so this is a read that must
+    degrade rather than refuse the whole reply for one dense mesh (see
+    agent_clay_validate._uv_facts).
     """
     vec3 = {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
     nullable_vec3 = {"anyOf": [{"type": "null"}, vec3]}
+    local_trs_schema = {
+        "type": "object",
+        "properties": {"translation": vec3, "rotation": vec3, "scale": vec3},
+    }
     return {
         "type": "object",
         "properties": {
             "uid": {"type": "integer"},
             "name": {"type": "string"},
             "visible": {"type": "boolean"},
+            "parent": {"anyOf": [{"type": "null"}, {"type": "integer"}]},
+            "locked": {"type": "boolean"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "local": local_trs_schema,
             "generator": {"type": "string"},
             "params": {"type": "object"},
             "faces": {"type": "integer"},
@@ -423,6 +572,45 @@ def _object_row_output_schema() -> dict:
             "verts": {"type": "integer"},
             "stamp": {"type": "integer"},
             "selected": _sel_counts_schema(),
+            "role": {"type": "string", "enum": ["mesh", "collider"]},
+            "collider_kind": {"type": "string"},
+            "uv": {
+                "anyOf": [
+                    {"type": "null"},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "islands": {"type": "integer"},
+                            "overlapping_faces": {
+                                "anyOf": [{"type": "null"}, {"type": "integer"}]
+                            },
+                            "mean_stretch": {"type": "number"},
+                            "texel_density": {"type": "number"},
+                        },
+                    },
+                ]
+            },
+            "modifiers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "kind": {"type": "string"},
+                        "enabled": {"type": "boolean"},
+                        "params": {"type": "object"},
+                        "error": {"type": "string"},
+                    },
+                },
+            },
+            "evaluated": {
+                "type": "object",
+                "properties": {
+                    "vertices": {"type": "integer"},
+                    "faces": {"type": "integer"},
+                    "triangles": {"type": "integer"},
+                },
+            },
         },
     }
 
@@ -679,12 +867,20 @@ def _param_prose(p: clay_ops.Param) -> str:
     return f"{p.name} ({p.low}-{p.high}, default {p.default})"
 
 
-def _op_catalog(names: list[str]) -> str:
+def _op_catalog() -> str:
     """Every op's params and bounds, folded into one sentence.
 
     Built from :data:`clay_ops.OPS` rather than written out, so a thirteenth
-    op -- with or without parameters -- appears here the next time ``tools()``
-    is called and nowhere needs editing for it to.
+    op -- with or without parameters -- appears here the next time it is asked
+    for and nowhere needs editing for it to.
+
+    **Took a ``names: list[str]`` argument until the catalogue diet
+    (``dev/CLAY-PLAN.md`` tranche 6/7).** ``clay_op``'s own tool description
+    passed ``op_names`` -- the very list :func:`tools` also built for its
+    schema's ``enum`` -- in, and this function never read it (``del names``,
+    the tell). Dropped rather than kept for a caller that no longer exists:
+    the one caller left, :data:`CATALOG_TOPICS`, needs nothing this function
+    cannot already read straight off ``clay_ops.OPS`` itself.
     """
     parts = []
     for op in clay_ops.OPS:
@@ -694,7 +890,6 @@ def _op_catalog(names: list[str]) -> str:
             parts.append(f"{op.name} [{modes}: {fields}]")
         else:
             parts.append(f"{op.name} [{modes}]")
-    del names
     return "; ".join(parts)
 
 
@@ -774,3 +969,142 @@ def _query_catalog() -> str:
         args = ", ".join(query.args)
         parts.append(f"{name} [{args}]: {query.hint}")
     return " ".join(parts)
+
+
+def _validate_profile_catalog() -> str:
+    """Every ``clay_validate`` profile's own label, folded into one sentence.
+
+    Built from :data:`readiness.PROFILES` rather than written out, so a
+    fourth profile appears here the next time ``tools()`` is called and
+    nowhere needs editing for it to -- the same rule :func:`_op_catalog`,
+    :func:`_generator_catalog` and :func:`_query_catalog` already follow for
+    their own registries.
+    """
+    parts = []
+    for name in sorted(readiness.PROFILES):
+        profile = readiness.PROFILES[name]
+        parts.append(f"{name} ({profile.label})")
+    return ", ".join(parts)
+
+
+def _modparam_prose(p: clay_modifiers.ModParam) -> str:
+    """One modifier parameter, worded for what it actually *is* -- the
+    modifier-kind counterpart of :func:`_param_prose`, which ``clay_op``'s
+    own params already use. A separate function rather than a shared one:
+    ``modifiers.ModParam`` is deliberately *not* ``clay_ops.Param`` (see that
+    class's own docstring for why kernels may not import that type), so the
+    two have no common base to write one prose function against, only a
+    common *shape* -- a number, a boolean, a named choice, or here, a fourth
+    kind neither ``Param`` has at all: a target object reference.
+    """
+    if p.target:
+        return f"{p.name} (another object's uid; 0 = none chosen)"
+    if p.boolean:
+        return f"{p.name} (boolean 0/1, default {int(p.default)})"
+    if p.choices:
+        named = ", ".join(f"{i}={choice}" for i, choice in enumerate(p.choices))
+        return f"{p.name} (choice: {named}, default {int(p.default)})"
+    return f"{p.name} ({p.low}-{p.high}, default {p.default})"
+
+
+def _modifier_catalog() -> str:
+    """Every modifier kind's own params and bounds, folded into one sentence.
+
+    Built from :data:`clay_modifiers.MODIFIERS` rather than written out, so
+    an eleventh kind appears here the next time ``tools()`` is called and
+    nowhere needs editing for it to -- the same rule :func:`_op_catalog`
+    already follows for ``clay_op``.
+    """
+    parts = []
+    for name, kind_def in clay_modifiers.MODIFIERS.items():
+        if kind_def.params:
+            fields = ", ".join(_modparam_prose(p) for p in kind_def.params)
+            parts.append(f"{name} [{fields}]")
+        else:
+            parts.append(f"{name} []")
+    return "; ".join(parts)
+
+
+def _collider_kind_catalog() -> str:
+    """Every collider kind's own label and extra params, folded into one
+    sentence.
+
+    Built from :data:`colliders.COLLIDER_KINDS` -- ``(label, fit function,
+    extra keyword defaults)`` per kind, the same registry shape
+    :data:`primitives.GENERATORS` already is -- rather than written out, so a
+    sixth kind appears here the next time it is asked for and nowhere needs
+    editing for it to, the same rule :func:`_op_catalog` already follows.
+    """
+    parts = []
+    for name in sorted(colliders.COLLIDER_KINDS):
+        label, _fit, defaults = colliders.COLLIDER_KINDS[name]
+        fields = ", ".join(f"{key}={value!r}" for key, value in defaults.items())
+        parts.append(f"{name} ({label}) [{fields}]" if fields else f"{name} ({label}) []")
+    return "; ".join(parts)
+
+
+def _engine_catalog() -> str:
+    """Every export engine's own label, readiness profile and notes.
+
+    Built from :data:`engines.ENGINES` rather than written out, so a fifth
+    engine appears here the next time it is asked for and nowhere needs
+    editing for it to. ``notes`` is each profile's own prose -- see
+    ``kernels/mesh/engines.py``'s module docstring for the confidence level
+    behind it -- repeated here rather than trimmed, since this catalogue is
+    read on demand rather than paid for by every session up front.
+    """
+    parts = []
+    for key in sorted(engines.ENGINES):
+        eng = engines.ENGINES[key]
+        header = f"{key} ({eng.label}, readiness profile {eng.readiness_profile!r})"
+        parts.append(f"{header}: {eng.notes}")
+    return " ".join(parts)
+
+
+def _uv_action_catalog() -> str:
+    """Every ``clay_uv`` action's own params, folded into one sentence.
+
+    Built from :data:`UV_ACTIONS` -- see that constant's own docstring for
+    why it is a plain dict rather than a registry :data:`clay_ops.OPS`-shaped
+    gate would have anything to prove about.
+    """
+    return "; ".join(f"{name}: {desc}" for name, desc in UV_ACTIONS.items())
+
+
+CATALOG_TOPICS: dict[str, Callable[[], str]] = {
+    "ops": _op_catalog,
+    "primitives": _generator_catalog,
+    "figures": lambda: _figure_part_catalog(tuple(sorted(presets.ASSEMBLIES))),
+    "queries": _query_catalog,
+    "modifiers": _modifier_catalog,
+    "collider_kinds": _collider_kind_catalog,
+    "validate_profiles": _validate_profile_catalog,
+    "engines": _engine_catalog,
+    "uv_actions": _uv_action_catalog,
+}
+"""``clay_catalog``'s own topic -> builder map -- the catalogue diet's whole
+point (``dev/CLAY-PLAN.md`` tranches 6/7's integration brief). Before this,
+five of these nine functions' output sat inline in a tool's own
+*description*, paid for by every agent session at ``tools/list`` whether or
+not it ever needed that particular registry's prose -- ``clay_op``'s alone
+was 3.8k characters of every session's fixed cost. Each one is now called
+**once, on demand**, by :func:`~studio.modes.clay.agent.tools_catalog._h_catalog`, from
+inside a tool *result* rather than a tool *description* -- the distinction
+that actually pays for the diet: a description is context every session
+carries from its first token, a result is context a session pays for only
+the session that asks.
+
+Every value here is the *exact same function* a tool description used to
+call directly (or, for ``collider_kinds``/``engines``/``uv_actions``, the
+identical shape those five already followed for their own registry) -- never
+a second, hand-kept copy of what any of them says. ``figures`` is wrapped in
+a lambda only because :func:`_figure_part_catalog` takes the sorted key
+tuple as its own memoisation key (see that function's own docstring for
+why); every other entry is the bare function.
+
+The dict's own keys are ``clay_catalog``'s published ``topic`` enum
+(``sorted(CATALOG_TOPICS)`` in :func:`~studio.modes.clay.agent.dispatch.tools`) -- one topic
+per registry that ever grew a tool-description catalogue, gated both
+directions by ``tests/modes/clay/test_agent_clay.py``'s own catalogue-diet
+tests: every topic here answers from a real registry, and every registry
+that used to grow a tool description now has a topic reaching it back."""

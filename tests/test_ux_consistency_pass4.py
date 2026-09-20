@@ -92,6 +92,15 @@ _ALLOW: dict[str, set[str]] = {
         # siblings above -- the axis letters are the label this pass asked
         # for, drawn a different way because there is one line, not three.
         "rotation##br",
+        # Tranche 3 (scene structure): a parented object's TRS is local, and
+        # ``_transform`` prefixes each field's own visible text with "local"
+        # the same way the section heading above it already does -- two
+        # literal calls per field rather than one f-string-built label, so
+        # this row stays a *visible*, accounted-for exception here rather
+        # than one an f-string would have made invisible to this scan.
+        "local position##bt",
+        "local scale##bs",
+        "local rotation##br",
     },
     "clay_header.py": set(),
     "clay_menu.py": set(),

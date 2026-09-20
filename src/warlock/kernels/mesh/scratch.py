@@ -103,6 +103,34 @@ def clone(doc: bd.ClayDoc) -> bd.ClayDoc:
             params=dict(obj.params),
             visible=obj.visible,
             material=obj.material,
+            # Shared: the stack is an immutable tuple of frozen modifiers. Left
+            # out, a batch preview drew every mirrored or arrayed object as its
+            # bare base mesh, and a transplant back wrote the stack away.
+            modifiers=obj.modifiers,
+            # Tranche 3's own fields -- ``parent`` (an int or ``None``),
+            # ``locked`` (a bool) and ``tags`` (an immutable tuple of str) --
+            # carried as-is rather than defensively copied: none of them is
+            # ever mutated in place the way the TRS arrays and ``params``
+            # dict are (every write to any of the three replaces the value
+            # wholesale, through ``set_parent``/``set_props``), so there is
+            # nothing here for a scratch edit to alias into the base. Left
+            # out until the 2026-09-19 field-sweep test in
+            # ``tests/modes/clay/test_scratch.py`` caught it: a scratch run
+            # previewing anything that reads a parented object's world
+            # matrix (``world_bounds``, a boolean modifier target, an
+            # ``add_collider`` fit) saw every object as a root, and a locked
+            # object's own doors happily let a preview edit it, only to have
+            # the *real* document's ``set_mesh``/``set_props`` refuse the
+            # transplant with no explanation pointing back at this gap.
+            parent=obj.parent,
+            locked=obj.locked,
+            tags=obj.tags,
+            # Tranche 6/7: same reasoning as the three above -- ``seams`` is
+            # an immutable tuple of int pairs, ``role``/``collider_kind`` are
+            # plain strings; nothing here mutates any of the three in place.
+            seams=obj.seams,
+            role=obj.role,
+            collider_kind=obj.collider_kind,
         )
         for obj in doc.objects
     ]
@@ -166,7 +194,34 @@ class PreviewDiff:
         )
 
 
-_PROP_FIELDS = ("name", "visible", "generator", "params", "material")
+# ``modifiers`` is a plain prop here: a stack is a tuple of frozen, value-equal
+# modifiers, so "the scratch run changed the stack" is an ``!=`` like a rename,
+# and ``set_props`` puts it back as one step. Missing, a batch that added a
+# mirror previewed nothing and transplanted nothing.
+#
+# ``tags``, ``locked``, ``seams``, ``role`` and ``collider_kind`` join it for
+# the same reason and by the same test: each is a value ``ClayDoc.set_props``
+# accepts and applies with a plain ``setattr`` (see that method's own
+# docstring -- it blocks exactly one field, ``parent``, because reparenting
+# is the one case here that needs cycle-checking generic ``set_props`` cannot
+# do), so transplanting one through it is exactly as sound as transplanting a
+# rename. ``seams`` in particular already went through :meth:`~.document.
+# ClayDoc.set_seams`'s own validation *inside the scratch run itself* before
+# ever reaching here -- the same "already validated by the door that ran it"
+# trust :meth:`transplant`'s own docstring states for ``modifiers`` and
+# ``set_modifiers``.
+#
+# ``parent`` is deliberately absent: :meth:`~.document.ClayDoc.set_props`
+# refuses it by name ("use set_parent"), so adding it here would make
+# :func:`transplant` raise on the very first scratch run that reparented
+# anything. A scratch-run reparent is consequently a known gap this module
+# does not close -- :func:`diff` never reports it and :func:`transplant`
+# never carries it over -- tracked for whoever gives ``transplant`` its own
+# ``set_parent`` path the way it already has one for ``set_transform``.
+_PROP_FIELDS = (
+    "name", "visible", "generator", "params", "material", "modifiers",
+    "tags", "locked", "seams", "role", "collider_kind",
+)
 
 
 def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:

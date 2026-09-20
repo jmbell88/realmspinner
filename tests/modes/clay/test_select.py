@@ -424,6 +424,12 @@ def test_every_query_names_modes_it_can_actually_answer_in():
         "face_loop": (grid, {"face": 0}),
         "material": (box, {"slot": 0}),
         "normal": (box, {"direction": (0.0, 1.0, 0.0)}),
+        "similar_area": (box, {"faces": [0], "tolerance": 0.1}),
+        "similar_normal": (box, {"faces": [0], "tolerance": 5.0}),
+        "similar_material": (box, {"faces": [0]}),
+        "similar_sides": (box, {"faces": [0], "tolerance": 0}),
+        "similar_length": (grid, {"edges": [edge], "tolerance": 0.5}),
+        "similar_valence": (grid, {"verts": [edge[0]], "tolerance": 0}),
     }
     for name, query in select.QUERIES.items():
         if name == "bounds":

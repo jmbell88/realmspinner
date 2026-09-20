@@ -55,6 +55,45 @@ conversion -- is free to call together as :func:`wblk_bytes` still does.
 **A missing texture member is refused**, exactly as a missing mesh is, and for
 the same reason: opening the file with a blank material would show the user a
 model that looks finished and is not, and let them save it over their work.
+
+**Version 3 adds modifier stacks.** Each object entry gains an optional
+``"modifiers"`` list -- omitted entirely for an object with none, which keeps
+the common document's JSON v2-shaped apart from the version number, the same
+rule the ``"textures"`` key already follows for an untextured one. Every
+value is read back through :mod:`.modifiers`' own registry (:func:`~.
+modifiers.make`), so a hand-edited or out-of-range number loads at the same
+clamp a live edit would produce rather than as a document holding a number
+nothing else in the app can. An unknown kind, a ``"modifiers"`` that is not a
+list, two modifiers on one object sharing an id, or an unknown parameter name
+is refused -- the half-read-is-worse-than-refused rule every other field on
+this entry already follows. A v1 or v2 file still opens: an object with no
+``"modifiers"`` key simply has none, exactly as one with no ``"uv"`` has none.
+
+**Version 3 also carries scene structure, without a second version bump.**
+Version 3 was unreleased at the time -- see ``dev/CLAY-PLAN.md`` -- so
+``"parent"`` (an object uid or absent, meaning a root), ``"locked"`` (absent
+means ``False``) and ``"tags"`` (absent means none) join it the same way
+``"modifiers"`` did: each omitted at its default, which keeps an ordinary
+document's JSON exactly as small as it always was. A ``"parent"`` naming a
+uid this file does not carry, or a cycle anywhere in the whole document's
+parenting (only detectable once every object has been read), is refused by
+name -- the same half-read-is-worse-than-refused rule, checked once over the
+whole set rather than per entry, because a forward reference to an object
+later in the file is not thereby invalid.
+
+**Version 3, again: tranches 6 and 7's own fields join it the same way.**
+Still no fourth version -- v3 remained unreleased through both -- so
+``"seams"``, ``"role"`` and ``"collider_kind"`` are each omitted at their
+default (no seams, a "mesh" role, an empty kind) exactly like ``"parent"``/
+``"locked"``/``"tags"`` above. A seam pair naming a vertex the *object's own*
+mesh does not have (checked against that object's already-read mesh, not the
+document as a whole -- a seam is local to one object), an unrecognised role,
+a ``"collider_kind"`` that names nothing in :data:`~.colliders.
+COLLIDER_KINDS`, or one present on an object whose role is not "collider" at
+all, are each refused by name -- the same half-read-is-worse-than-refused
+rule every field on this entry already follows, because a document that
+opened with a role or a kind nothing else in the app can produce is worse
+than one that did not open.
 """
 
 from __future__ import annotations
@@ -69,9 +108,10 @@ import numpy as np
 from ...core.safeio import npyguard, pixelguard, zipguard
 from ..geom3d import gltf
 from . import mesh as bm
-from .document import ClayDoc, Obj, reserve_uid
+from .colliders import COLLIDER_KINDS
+from .document import ClayDoc, Obj, _normalize_seams, _normalize_tags, reserve_uid
 
-VERSION = 2
+VERSION = 3
 SCENE = "scene.json"
 MESH_DIR = "meshes"
 TEXTURE_DIR = "textures"
@@ -189,8 +229,12 @@ def _material_json(
     return entry
 
 
+def _modifier_json(m: Any) -> dict[str, Any]:
+    return {"id": int(m.id), "kind": str(m.kind), "enabled": bool(m.enabled), "params": m.as_dict()}
+
+
 def _object_json(obj: Obj) -> dict[str, Any]:
-    return {
+    entry: dict[str, Any] = {
         "uid": int(obj.uid),
         "name": obj.name,
         "translation": [float(v) for v in obj.translation],
@@ -201,6 +245,26 @@ def _object_json(obj: Obj) -> dict[str, Any]:
         "visible": bool(obj.visible),
         "material": int(obj.material),
     }
+    if obj.modifiers:
+        entry["modifiers"] = [_modifier_json(m) for m in obj.modifiers]
+    # Tranche 3: scene structure. Omitted at the default -- a root, unlocked,
+    # untagged object -- the same "v1/v2-shaped JSON for the common case"
+    # rule ``modifiers``/``textures`` already follow.
+    if obj.parent is not None:
+        entry["parent"] = int(obj.parent)
+    if obj.locked:
+        entry["locked"] = True
+    if obj.tags:
+        entry["tags"] = list(obj.tags)
+    # Tranches 6/7: same "omitted at the default" rule -- see this module's
+    # own docstring paragraph for both.
+    if obj.seams:
+        entry["seams"] = [[int(a), int(b)] for a, b in obj.seams]
+    if obj.role != "mesh":
+        entry["role"] = obj.role
+    if obj.collider_kind:
+        entry["collider_kind"] = obj.collider_kind
+    return entry
 
 
 def _collect_textures(doc: ClayDoc) -> tuple[list[Any], dict[int, int]]:
@@ -595,6 +659,230 @@ def _generator(entry: dict[str, Any]) -> str | None:
     return generator
 
 
+def _modifiers_from(entry: dict[str, Any]) -> tuple[Any, ...]:
+    """An object entry's ``modifiers`` field, or a refusal by name.
+
+    Absent entirely -- every v1 and v2 file, and a v3 object with no stack --
+    reads as ``()``, which is the field's own default and what a v2 object
+    always meant. Present, each item is rebuilt through :mod:`.modifiers`'
+    own :func:`~.modifiers.make`, so a value past a parameter's ``low``/
+    ``high`` loads at the clamp exactly as a live edit would produce, rather
+    than as a document holding a number nothing else in the app can.
+    """
+    from dataclasses import replace as _replace
+
+    from . import elements as el
+    from . import modifiers as mod
+
+    raw = entry.get("modifiers")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("an object in this clay document has a modifiers that is not a list")
+    seen_ids: set[int] = set()
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("an object in this clay document has a malformed modifier")
+        try:
+            mid = int(item["id"])
+            kind = str(item["kind"])
+            enabled = bool(item.get("enabled", True))
+            params = item.get("params") or {}
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "an object in this clay document has a malformed modifier"
+            ) from exc
+        if not isinstance(params, dict):
+            raise ValueError(
+                "an object in this clay document has a modifier params that is not a mapping"
+            )
+        if mid in seen_ids:
+            raise ValueError(
+                f"this clay document has two modifiers sharing id {mid} on one object"
+            )
+        seen_ids.add(mid)
+        try:
+            built = mod.make(kind, params, id=mid)
+        except el.OpError as exc:
+            raise ValueError(
+                f"an object in this clay document has a malformed modifier: {exc}"
+            ) from exc
+        out.append(built if enabled else _replace(built, enabled=False))
+    return tuple(out)
+
+
+def _parent_from(entry: dict[str, Any]) -> int | None:
+    """An object entry's ``parent`` field, or a refusal by name.
+
+    ``None`` -- every v1/v2 file, and a v3 root -- reads as ``None``, the
+    field's own default. Existence (does this uid actually appear in the
+    file) and cycle-freedom are checked once, over the *whole* document, by
+    :func:`_validate_hierarchy` after every object has been read -- a
+    per-entry check here could only see uids already read, and a forward
+    reference to an object defined later in the file would wrongly look
+    malformed.
+    """
+    parent = entry.get("parent")
+    if parent is None:
+        return None
+    try:
+        return int(parent)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "an object in this clay document has a parent that is not a number or null"
+        ) from exc
+
+
+def _locked_from(entry: dict[str, Any]) -> bool:
+    return bool(entry.get("locked", False))
+
+
+def _tags_from(entry: dict[str, Any]) -> tuple[str, ...]:
+    """An object entry's ``tags`` field, or a refusal by name.
+
+    Run back through :func:`~.document._normalize_tags` -- the same
+    sorted/deduplicated/lower-cased shape a live tag edit already produces
+    -- so a hand-edited file naming ``["Prop", "prop"]`` loads exactly as
+    typing both into the tag editor would have left it, rather than as a
+    document holding a duplicate nothing else in the app can produce.
+    """
+    raw = entry.get("tags")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(t, str) for t in raw):
+        raise ValueError(
+            "an object in this clay document has a tags that is not a list of strings"
+        )
+    return _normalize_tags(raw)
+
+
+def _seams_from(entry: dict[str, Any], mesh: bm.Mesh) -> tuple[tuple[int, int], ...]:
+    """An object entry's ``seams`` field, or a refusal by name.
+
+    Absent reads as ``()``, the field's own default -- every v1/v2 file, and
+    a v3 object nothing ever marked a seam on. Present, each pair is run back
+    through :func:`~.document._normalize_seams` -- the same ordered/
+    deduplicated shape a live :meth:`~.document.ClayDoc.set_seams` call
+    already produces, the same reason :func:`_tags_from` re-normalizes tags
+    -- and then range-checked against *this object's own mesh*, already read
+    by the time this runs (``read_wblk`` calls this right after
+    :func:`_read_mesh`): a seam is local to one object, so it is that
+    object's own vertex count this checks against, never the document's. What
+    normalization cannot fix -- a vertex this mesh does not have -- is
+    refused, the half-read-is-worse-than-refused rule every other field on
+    this entry already follows.
+    """
+    raw = entry.get("seams")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("an object in this clay document has a seams that is not a list")
+    try:
+        pairs = [(int(item[0]), int(item[1])) for item in raw]
+    except (TypeError, ValueError, IndexError, KeyError) as exc:
+        raise ValueError(
+            "an object in this clay document has a seam that is not a pair of numbers"
+        ) from exc
+    normalized = _normalize_seams(pairs)
+    n = len(mesh.positions)
+    for a, b in normalized:
+        if not (0 <= a < n and 0 <= b < n):
+            raise ValueError(
+                f"this clay document names a seam ({a}, {b}) past the {n} vertices "
+                "its mesh carries"
+            )
+    return normalized
+
+
+def _role_from(entry: dict[str, Any]) -> str:
+    """An object entry's ``role`` field, or a refusal by name.
+
+    Absent reads as ``"mesh"``, the field's own default -- every v1/v2 file,
+    and every v3 object before tranche 7. This module does not import
+    :class:`~.document.Obj` as a live source of truth for the two names it
+    accepts (that would only be circular for the sake of not spelling out two
+    literals) -- the same "known shape, not a live registry" choice
+    :func:`_generator` already makes rather than checking against
+    ``primitives.GENERATORS``.
+    """
+    role = entry.get("role", "mesh")
+    if role not in ("mesh", "collider"):
+        raise ValueError(f"an object in this clay document has an unknown role {role!r}")
+    return role
+
+
+def _collider_kind_from(entry: dict[str, Any], role: str) -> str:
+    """An object entry's ``collider_kind`` field, or a refusal by name.
+
+    Only meaningful when *role* (already read by :func:`_role_from`) is
+    "collider": refused there if it names nothing in :data:`~.colliders.
+    COLLIDER_KINDS`, the same half-read rule every other field on this entry
+    follows. Refused just as firmly the other way -- a non-empty
+    ``collider_kind`` on a "mesh"-role object -- because :class:`~.document.
+    Obj`'s own field comment states "else empty" as part of what the field
+    *means*; a live edit can never produce that combination (:meth:`~.
+    document.ClayDoc.add_collider` always sets both together), so silently
+    round-tripping it would let this reader load a state nothing else in the
+    app can.
+    """
+    kind = entry.get("collider_kind", "")
+    if role == "collider":
+        if not isinstance(kind, str) or kind not in COLLIDER_KINDS:
+            raise ValueError(
+                f"this clay document names a collider kind {kind!r} that does not exist"
+            )
+        return kind
+    if kind:
+        raise ValueError(
+            "an object in this clay document has a collider_kind but its role is not "
+            "\"collider\""
+        )
+    return ""
+
+
+def _validate_hierarchy(objects: list[Obj]) -> None:
+    """Refuse a ``parent`` naming an absent uid, or a cycle anywhere in the
+    whole document's parenting -- by name, over the whole set at once.
+
+    Run once, after every object in the file has been read (not per entry,
+    on the way through: a ``parent`` naming an object defined *later* in the
+    file is a forward reference, not a defect, and this is the only point at
+    which every uid the file carries is known). The half-read-is-worse-
+    than-refused rule every other field on this entry already follows,
+    applied to the one field whose validity depends on the rest of the file
+    rather than on itself alone.
+    """
+    by_uid = {obj.uid: obj for obj in objects}
+    for obj in objects:
+        if obj.parent is not None and obj.parent not in by_uid:
+            raise ValueError(
+                f"this clay document names {obj.name!r}'s parent as uid {obj.parent}, "
+                "which this file does not carry"
+            )
+
+    # The same white/gray/black DFS ``modifiers.would_cycle`` uses for its
+    # own dependency graph -- a cycle here is unreachable through any live
+    # edit (``document.ClayDoc.set_parent`` refuses one going forward), so
+    # the only way one can appear is a hand-edited or corrupted file.
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = dict.fromkeys(by_uid, WHITE)
+
+    def visit(uid: int) -> bool:
+        color[uid] = GRAY
+        parent = by_uid[uid].parent
+        if parent is not None:
+            if color[parent] == GRAY:
+                return True
+            if color[parent] == WHITE and visit(parent):
+                return True
+        color[uid] = BLACK
+        return False
+
+    if any(color[uid] == WHITE and visit(uid) for uid in by_uid):
+        raise ValueError("this clay document's objects form a parenting cycle")
+
+
 def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
     """One material off the scene, refusing a malformed one by name.
 
@@ -780,6 +1068,11 @@ def read_wblk(data: bytes) -> ClayDoc:
                     f"this clay document has more than {MAX_TRIANGLES:,} "
                     "triangles, the most Clay can edit"
                 )
+            # Read once, ahead of the constructor call below: collider_kind's
+            # own validity depends on role, and a keyword argument list is no
+            # place to guarantee that ordering or avoid asking _role_from
+            # twice for the same entry.
+            role = _role_from(entry)
             objects.append(
                 Obj(
                     uid=uid,
@@ -792,8 +1085,22 @@ def read_wblk(data: bytes) -> ClayDoc:
                     params=_params(entry),
                     visible=bool(entry.get("visible", True)),
                     material=_material_index(entry),
+                    modifiers=_modifiers_from(entry),
+                    parent=_parent_from(entry),
+                    locked=_locked_from(entry),
+                    tags=_tags_from(entry),
+                    # Tranche 6/7: seams are checked against *this* object's
+                    # own mesh, already read above.
+                    seams=_seams_from(entry, mesh),
+                    role=role,
+                    collider_kind=_collider_kind_from(entry, role),
                 )
             )
+
+        # Every uid in the file is known only once the loop above has read
+        # them all -- see ``_validate_hierarchy``'s own docstring for why a
+        # forward-referencing ``parent`` cannot be checked per entry.
+        _validate_hierarchy(objects)
 
     # A scene with objects but no materials is a hand-edited or truncated
     # file: every face's material index would fall off the empty palette,

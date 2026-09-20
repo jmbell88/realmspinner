@@ -21,9 +21,11 @@ would be worse than saying so.
 
 ## Primitives
 
-Fifteen, in two groups. The primitives: box, plane, cylinder, cone, UV sphere, icosphere, torus,
-capsule and grid. The structures — shapes you would otherwise build out of several primitives —
-pyramid, arch, column, lathe, sweep and tube. Place one and its
+Twenty-one, in three groups. The primitives: box, plane, cylinder, cone, UV sphere, icosphere,
+torus, capsule and grid. The structures — shapes you would otherwise build out of several
+primitives — pyramid, arch, column, lathe, sweep and tube. The game shapes, for blocking a level
+out: wedge, ramp, rounded box, stairs, wall and doorway (the flat-headed opening, where the arch is
+the round-headed one). Place one and its
 parameters — radius, height, segments — stay live in the properties panel, so a cylinder can become
 a thinner cylinder without being rebuilt by hand. The exceptions are a lathe's `profile`, a
 sweep's `outline` and a tube's `path`: none has a widget of its own yet, so each shows in the

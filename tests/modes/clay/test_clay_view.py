@@ -1032,7 +1032,9 @@ def test_a_move_snaps_onto_the_vertex_under_the_cursor(view) -> None:
     screen = view.screen_of(doc, other.uid)
     index = int(np.argmin(screen.depth))
     at = (float(screen.xy[index][0]), float(screen.xy[index][1]))
-    world = (view._world(other) @ np.append(other.mesh.positions[index].astype("f8"), 1.0))[:3]
+    world = (
+        view._world(doc, other) @ np.append(other.mesh.positions[index].astype("f8"), 1.0)
+    )[:3]
 
     narrowed = view._narrow(doc, np.zeros(3), view.state, at)
     assert np.allclose(narrowed, world, atol=1e-6)
@@ -1055,7 +1057,7 @@ def test_a_move_never_snaps_onto_the_geometry_it_is_moving(view) -> None:
     # Something else may still be within the radius -- what must never happen is
     # landing on one of the vertices the drag is carrying.
     found = view._snap_vertex(doc, at)
-    matrix = view._world(doc.by_uid(uid))
+    matrix = view._world(doc, doc.by_uid(uid))
     carried = [
         (matrix @ np.append(doc.by_uid(uid).mesh.positions[int(v)].astype("f8"), 1.0))[:3]
         for v in moving
@@ -1131,11 +1133,11 @@ def test_an_object_rotation_snap_quantises_the_delta_not_the_orientation(view) -
     view.app_ctx.state.clay.snap = True
     view.app_ctx.state.clay.tool = "rotate"
 
-    view._apply(obj, was, m3.quat_identity(), view.state)
+    view._apply(doc, obj, was, m3.quat_identity(), view.state)
     assert np.allclose(obj.rotation, was[1]), "a zero delta moves nothing"
 
     delta = m3.quat_from_axis_angle(np.array([0.0, 1.0, 0.0]), np.radians(14.0))
-    view._apply(obj, was, delta, view.state)
+    view._apply(doc, obj, was, delta, view.state)
     snapped = m3.quat_mul(
         m3.quat_from_axis_angle(np.array([0.0, 1.0, 0.0]), np.radians(15.0)), was[1]
     )
@@ -1508,7 +1510,7 @@ def test_a_rotate_orbits_the_selection_median_rather_than_each_origin(view) -> N
     view._drag_origin = np.asarray(pivot, dtype="f8")
     half_turn = m3.quat_from_axis_angle(m3.vec3(0.0, 1.0, 0.0), np.pi)
     for uid, was in view._drag_start.items():
-        view._apply(doc.by_uid(uid), was, half_turn, view.state)
+        view._apply(doc, doc.by_uid(uid), was, half_turn, view.state)
 
     after = [np.array(doc.by_uid(uid).translation) for uid in uids]
     # A half turn about the median swaps two objects placed either side of it.
@@ -1527,7 +1529,7 @@ def test_a_rotate_of_one_object_about_its_own_centre_leaves_it_put(view) -> None
     view._begin_gizmo_drag(doc)
     view._drag_origin = before.astype("f8")
     turn = m3.quat_from_axis_angle(m3.vec3(0.0, 1.0, 0.0), 0.7)
-    view._apply(doc.by_uid(uid), view._drag_start[uid], turn, view.state)
+    view._apply(doc, doc.by_uid(uid), view._drag_start[uid], turn, view.state)
 
     assert np.allclose(doc.by_uid(uid).translation, before, atol=1e-9)
 
@@ -1543,7 +1545,7 @@ def test_a_scale_moves_the_objects_toward_the_pivot(view) -> None:
     view._begin_gizmo_drag(doc)
     view._drag_origin = pivot
     for uid, was in view._drag_start.items():
-        view._apply(doc.by_uid(uid), was, np.array([0.5, 0.5, 0.5]), view.state)
+        view._apply(doc, doc.by_uid(uid), was, np.array([0.5, 0.5, 0.5]), view.state)
 
     for uid, was in zip(uids, before, strict=True):
         assert np.allclose(

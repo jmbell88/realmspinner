@@ -43,7 +43,11 @@ def test_editing_a_transform_or_generator_field_by_keystroke_is_one_undo_step() 
     whole edit -- unlike ``_material``'s base colour/metallic/roughness
     fields in this same file, which already fold three times over."""
     transform_src = inspect.getsource(clay_props._transform)
-    for field in ('"position##bt"', '"scale##bs"', '"rotation##br"'):
+    # Without the leading quote: tranche 3 (scene structure) made each label an
+    # f-string with a "local " prefix for a parented object
+    # (``f"{prefix}position##bt"``), so the *literal* ``"position##bt"``
+    # (quote included) no longer appears verbatim -- the id suffix still does.
+    for field in ('position##bt"', 'scale##bs"', 'rotation##br"'):
         _fold_precedes(transform_src, field, "doc.set_transform(")
 
     generator_src = inspect.getsource(clay_props._generator)

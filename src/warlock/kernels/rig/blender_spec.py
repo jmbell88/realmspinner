@@ -388,3 +388,116 @@ def remesh_spec(
         "close_holes": bool(close_holes),
         "seed": int(seed),
     }
+
+
+#: Clamp range for the three Clay background ops' ``target_faces``. Lower
+#: than ``remesh.FACES_MIN`` (500): a Clay selection can be a single small
+#: prop, and 100 faces is still a mesh a quadriflow pass can act on, where
+#: ``remesh``'s floor is tuned for a whole-character reconstruction.
+CLAY_TARGET_FACES_MIN = 100
+CLAY_TARGET_FACES_MAX = 200_000
+
+#: Bake resolutions the Clay bake op accepts -- one entry finer than
+#: ``pipelines.remesh.TEXTURE_SIZES`` (256) for a small prop, and one entry
+#: coarser (4096) for a hero asset baked once rather than re-baked at a
+#: reconstruction's atlas size.
+CLAY_TEXTURE_SIZES = (256, 512, 1024, 2048, 4096)
+
+#: What ``clay_bake_spec`` accepts in ``maps``, and what ``op_clay_bake``
+#: bakes when none are named.
+CLAY_BAKE_MAPS = ("base_color", "roughness", "normal")
+
+
+def clay_retopo_spec(
+    source_glb: Path,
+    out_glb: Path,
+    result_dir: Path,
+    *,
+    target_faces: int,
+    close_holes: bool = False,
+    seed: int = 0,
+    keep_uvs: bool = False,
+) -> dict[str, Any]:
+    """The worker spec for Clay's "Retopologise" background op.
+
+    Independent of ``remesh_spec``'s reconstruction pipeline -- no unwrap, no
+    bake -- and every mesh object in ``source_glb`` keeps its own node rather
+    than being joined into one: Clay may send a multi-object selection and
+    expects the same shape back. ``target_faces`` is the *whole selection's*
+    budget; ``op_clay_retopo`` shares it out per object proportionally to
+    each one's own triangle count.
+    """
+    target = int(target_faces)
+    if not CLAY_TARGET_FACES_MIN <= target <= CLAY_TARGET_FACES_MAX:
+        raise ValueError(
+            f"target_faces must be between {CLAY_TARGET_FACES_MIN:,} and "
+            f"{CLAY_TARGET_FACES_MAX:,}"
+        )
+    return {
+        "op": "clay_retopo",
+        "source_glb": str(source_glb),
+        "out_glb": str(out_glb),
+        "result_path": str(result_dir / ".clay_retopo_result.json"),
+        "target_faces": target,
+        "close_holes": bool(close_holes),
+        "seed": int(seed),
+        "keep_uvs": bool(keep_uvs),
+    }
+
+
+def clay_unwrap_spec(
+    source_glb: Path,
+    out_glb: Path,
+    result_dir: Path,
+    *,
+    angle_limit: float = 66.0,
+    island_margin: float = 0.003,
+) -> dict[str, Any]:
+    """The worker spec for Clay's "Unwrap" background op: Smart UV Project
+    per object, geometry untouched. Defaults match ``op_remesh``'s own
+    unwrap pass."""
+    return {
+        "op": "clay_unwrap",
+        "source_glb": str(source_glb),
+        "out_glb": str(out_glb),
+        "result_path": str(result_dir / ".clay_unwrap_result.json"),
+        "angle_limit": float(angle_limit),
+        "island_margin": float(island_margin),
+    }
+
+
+def clay_bake_spec(
+    high_glb: Path,
+    low_glb: Path,
+    out_glb: Path,
+    result_dir: Path,
+    *,
+    texture_size: int,
+    cage_extrusion: float,
+    maps: Sequence[str] = CLAY_BAKE_MAPS,
+) -> dict[str, Any]:
+    """The worker spec for Clay's "Bake high to low" background op.
+
+    ``cage_extrusion`` is the caller's to set (a raw distance in the scene's
+    own units) rather than derived here the way ``op_remesh`` derives its own
+    from the mesh's bounding diagonal -- Clay knows its document's scale and
+    this function does not read either GLB to find out.
+    """
+    if texture_size not in CLAY_TEXTURE_SIZES:
+        raise ValueError(f"texture_size must be one of {CLAY_TEXTURE_SIZES}")
+    chosen = list(maps)
+    unknown = sorted(set(chosen) - set(CLAY_BAKE_MAPS))
+    if unknown:
+        raise ValueError(f"unknown bake map(s): {unknown}")
+    if not chosen:
+        raise ValueError("at least one bake map is required")
+    return {
+        "op": "clay_bake",
+        "high_glb": str(high_glb),
+        "low_glb": str(low_glb),
+        "out_glb": str(out_glb),
+        "result_path": str(result_dir / ".clay_bake_result.json"),
+        "texture_size": int(texture_size),
+        "cage_extrusion": float(cage_extrusion),
+        "maps": chosen,
+    }

@@ -1,7 +1,7 @@
 """Clay's agent tool surface, the selection/ops/inspection handler family:
 ``clay_select``, ``clay_element_mode``, ``clay_select_elements``,
 ``clay_select_by``, ``clay_elements``, ``clay_op``, ``clay_render``,
-``clay_diagnose``, ``clay_analyze`` and ``clay_export``.
+``clay_diagnose``, ``clay_analyze``, ``clay_validate`` and ``clay_export``.
 
 Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure (``dev/RESTRUCTURE.md``);
 see ``studio/modes/clay/agent/tools.py``'s own module docstring for where these handlers
@@ -11,10 +11,10 @@ exists as a second handler module beside it: ten object-level handlers plus
 these ten selection/inspection/render ones would have made one file well
 over the split's own ~2,000-line target, so the brief's suggested
 scene/selection/ops families became two files -- this one folding selection,
-element ops, render and the two read-only inspectors (diagnose, analyze)
-together, since all ten act on a selection or read the document rather than
-create or delete a whole object outright, and ``clay_export`` rides along as
-the one remaining handler with no better home.
+element ops, render and the read-only inspectors (diagnose, analyze, and now
+validate) together, since all of them act on a selection or read the
+document rather than create or delete a whole object outright, and
+``clay_export`` rides along as the one remaining handler with no better home.
 
 Like ``studio/modes/clay/agent/tools.py``, this file reaches ``fail``/``ok``/``_json``/
 ``Session``/``_tab``/the shared validators through ``agent_clay_validate``
@@ -41,6 +41,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -48,6 +49,7 @@ import numpy as np
 from .....kernels.mesh import analyze as clay_analyze
 from .....kernels.mesh import diagnose as clay_diagnose
 from .....kernels.mesh import elements as el
+from .....kernels.mesh import engines, readiness
 from .....kernels.mesh import mesh as bm
 from .....kernels.mesh import ops as clay_geom_ops
 from .....kernels.mesh import select as bsel
@@ -103,6 +105,16 @@ def _h_select(ctx: Any, session: Session, args: dict) -> dict:
     :data:`_OBJECT_SELECTION_DERIVED_REFUSAL` and :func:`_h_boolean`'s own
     comment (in ``studio/modes/clay/agent/tools.py``), which this shares the exact reason
     and the exact wording with.
+
+    Tranche 3: ``tag``, given, adds every object carrying that tag to the
+    result -- a union with ``uids``, never a replacement for it, which is
+    what keeps ``uids``' own "an empty list clears the selection" meaning
+    intact for a call that gives ``uids: []`` with no ``tag`` at all. Added
+    here rather than as a ``clay_select_by`` query: ``select.QUERIES`` (a
+    kernel registry this fold does not own -- see
+    ``tools_structure``'s own module docstring) has no ``tag`` row, and a tag
+    is whole-object metadata, not an element-mode query answerable from one
+    mesh's own vertices/edges/faces the way every real ``QUERIES`` entry is.
     """
     tab, failure = _tab(ctx, session)
     if failure:
@@ -110,6 +122,9 @@ def _h_select(ctx: Any, session: Session, args: dict) -> dict:
     doc = tab.doc
     if doc.element_mode != "object":
         return fail(_OBJECT_SELECTION_DERIVED_REFUSAL, recovery="switch_mode")
+    tag_arg = args.get("tag")
+    if tag_arg is not None and not isinstance(tag_arg, str):
+        return fail("tag must be a string.", field="tag")
     # The schema declares ``uids`` required, and ``_resolve_uids`` alone does
     # not enforce that: it treats a missing value the same as an explicit
     # empty list (``values or []``), because an empty list is this tool's own
@@ -123,7 +138,11 @@ def _h_select(ctx: Any, session: Session, args: dict) -> dict:
     uids, failure = _resolve_uids(doc, args.get("uids"), field="uids")
     if failure:
         return failure
-    doc.select(uids)
+    selected = set(uids)
+    if tag_arg:
+        needle = tag_arg.strip().lower()
+        selected |= {obj.uid for obj in doc.objects if needle in obj.tags}
+    doc.select(selected)
     return _json({"selection": sorted(doc.selection)})
 
 
@@ -337,7 +356,9 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
         # alone the moment the object carries a non-uniform scale. See
         # ``clay_geom_ops.local_direction``'s own docstring for the one that
         # is easy to get wrong.
-        values["direction"] = clay_geom_ops.local_direction(obj, values["direction"])
+        values["direction"] = clay_geom_ops.local_direction(
+            obj, values["direction"], world=doc.world_matrix(obj.uid)
+        )
 
     if name == "bounds":
         space = args.get("space", "world")
@@ -352,7 +373,11 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
         # passing ``clay_geom_ops.world_positions(obj)`` in for the mesh's
         # own local ``positions`` before the same box test ``_q_bounds`` and
         # ``select.faces_in_bounds`` already run.
-        positions = clay_geom_ops.world_positions(obj) if space == "world" else None
+        positions = (
+            clay_geom_ops.world_positions(obj, world=doc.world_matrix(obj.uid))
+            if space == "world"
+            else None
+        )
         pts = np.asarray(obj.mesh.positions if positions is None else positions, dtype="f8")
         if len(pts) == 0:
             sel = el.empty()
@@ -440,20 +465,61 @@ def _h_elements(ctx: Any, session: Session, args: dict) -> dict:
 class _OpCtx:
     """A sandboxed stand-in for the real app ``ctx``, handed to ``clay_ops.run``.
 
-    ``clay_ops`` reaches ``ctx`` in exactly three places (verified by reading
-    the module before writing this): ``toast`` -- a module-level helper every
-    refusal goes through -- and ``getattr(ctx, "clay_view", None)`` in
-    ``_frame`` (Frame Selection), and ``getattr(ctx, "state", None)`` in
-    ``_forget_manifold`` (the clay-08 manifold-cache pop). The absent
-    ``clay_view`` is what makes Frame Selection the no-op it should always
-    have been for an agent with no viewport of its own; ``state`` is passed
-    through for real because the manifold-cache pop is real work that still
-    has to happen. See ``studio/modes/clay/agent/dispatch.py``'s own module docstring's ``clay_op``
+    ``clay_ops`` reaches ``ctx`` in five places now, not the four this
+    docstring once counted: ``toast`` -- a module-level helper every refusal
+    goes through -- ``getattr(ctx, "clay_view", None)`` in ``_frame`` (Frame
+    Selection), ``getattr(ctx, "state", None)`` in ``_forget_manifold`` (the
+    clay-08 manifold-cache pop), ``getattr(ctx, "inline", False)``/
+    ``getattr(ctx, "gltfpack_exe", None)`` in decimate's own ``run``
+    (``studio/modes/clay/ops.py``), and, since tranche 4's Blender ops
+    (retopo/smart-unwrap/bake-detail) landed, ``getattr(ctx, "blender_
+    timeout", None)`` in ``_blender_timeout``. The absent ``clay_view`` is
+    what makes Frame Selection the no-op it should always have been for an
+    agent with no viewport of its own; ``state`` is passed through for real
+    because the manifold-cache pop is real work that still has to happen.
+    See ``studio/modes/clay/agent/dispatch.py``'s own module docstring's ``clay_op``
     paragraph for why the real ``ctx`` used to be handed over unsandboxed.
+
+    **``inline`` is a deliberate fourth departure, not a widening of the
+    sandbox's own rule.** Interactively, ``decimate``'s gltfpack child process
+    runs on a task thread -- the shape every blocking op in this codebase
+    takes (``CLAUDE.md``'s "heavy work is always a child process" rule) -- so
+    the button press returns immediately and the simplified mesh lands a
+    frame or two later. An MCP ``clay_op`` call has no such later frame to
+    land in: it returns once, from this call's own ``call()``, the identical
+    problem ``studio/modes/clay/agent/dispatch.py``'s own module docstring
+    already names for ``clay_export`` -- "there is no id to return from this
+    call if this fold goes through it as written" -- and the same fix applies
+    here. ``inline`` defaults ``True`` (unlike the interactive path, which
+    never sets it and so reads ``False`` through ``getattr``) so
+    ``decimate.run`` calls ``optimize.simplify_bytes`` synchronously, inside
+    ``clay_ops.run``, before this handler returns -- keeping an agent's
+    ``clay_op`` call to the one undo step every other op already is, at the
+    cost of a real subprocess run on the frame thread for this one call: a
+    deliberate one-shot cost, the same trade ``clay_export`` already makes
+    for its own disk and database work, never the per-frame stall the
+    task-thread split exists to prevent elsewhere. Retopologize/Smart
+    Unwrap/Bake Detail take the identical ``inline`` branch in their own
+    ``run`` functions, for the identical reason, against Blender rather than
+    gltfpack.
+
+    ``gltfpack_exe`` and ``blender_timeout`` are the two pieces of config
+    those subprocesses need that the real app ``ctx`` carries under
+    ``ctx.svc.config`` rather than as an attribute of its own (``ctx.svc.
+    config.gltfpack_exe``, ``ctx.svc.config.rig_timeout`` -- see
+    ``clay_ops._blender_timeout``'s own docstring for why the remesh job's
+    timeout is the number reused rather than a new Clay-only field).
+    :func:`_h_op` reads both through that chain, guarded against a test
+    double with no ``svc`` at all, and hands them in here rather than leave
+    each op's ``run`` to reach for ``ctx.svc`` itself the way no other op in
+    the registry ever has to.
     """
 
     state: Any = None
     messages: list[str] = field(default_factory=list)
+    inline: bool = True
+    gltfpack_exe: Path | None = None
+    blender_timeout: float | None = None
 
     def toast(self, message: str, level: str = "info") -> None:
         del level
@@ -509,7 +575,20 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     failure = _op_params_type_refusal(op, params)
     if failure:
         return failure
-    proxy = _OpCtx(state=getattr(ctx, "state", None))
+    # ``svc`` is absent on the test doubles several handler tests hand this
+    # function -- guarded rather than a bare ``ctx.svc.config.gltfpack_exe``,
+    # which would turn every one of those into the generic "failed
+    # unexpectedly" backstop the moment an op that reads it (``decimate``) is
+    # actually run against one. See ``_OpCtx``'s own docstring for why this
+    # is filled here rather than left to the op itself to reach for.
+    svc = getattr(ctx, "svc", None)
+    gltfpack_exe = getattr(getattr(svc, "config", None), "gltfpack_exe", None)
+    blender_timeout = getattr(getattr(svc, "config", None), "rig_timeout", None)
+    proxy = _OpCtx(
+        state=getattr(ctx, "state", None),
+        gltfpack_exe=gltfpack_exe,
+        blender_timeout=blender_timeout,
+    )
     # Snapshotted by identity, before the op runs -- ``Mesh`` is ``eq=False``
     # and every op is ``Mesh -> Mesh`` (``document.py``'s own rule, the same
     # one ``set_mesh`` and ``mesh_stamp`` both rely on identity for), so
@@ -653,7 +732,11 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
         if failure:
             return failure
         boxes = [
-            box for box in (clay_geom_ops.world_box(doc.by_uid(u)) for u in uids) if box is not None
+            box
+            for box in (
+                clay_geom_ops.world_box(doc.by_uid(u), world=doc.world_matrix(u)) for u in uids
+            )
+            if box is not None
         ]
         if boxes:
             lo = np.min([b[0] for b in boxes], axis=0)
@@ -852,6 +935,18 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
     named there: the object selection must not be set by hand, because in an
     element mode it is *derived*, and the clear is what stops this finding's
     selection landing beside a stale one on another object.
+
+    **Always reads the base mesh, never the evaluated one -- deliberately,
+    unlike ``clay_render``.** A finding is a defect in the mesh's own
+    topology (a hole, a non-manifold edge, a duplicate face) and its
+    ``select`` selects that mesh's own vertices/edges/faces, both of which
+    only make sense against the mesh an element edit would actually act on
+    -- the base, exactly as ``document.py``'s own module docstring states.
+    Running this against an evaluated mesh instead would report a hole a
+    modifier stack has already closed (or invent one it opened), and a
+    ``select`` naming indices into a mesh nothing in this document owns.
+    ``clay_scene``'s own ``evaluated`` field is where the stack's own result
+    is measured; this tool never touches it.
     """
     tab, failure = _tab(ctx, session)
     if failure:
@@ -953,6 +1048,13 @@ def _h_analyze(ctx: Any, session: Session, args: dict) -> dict:
     see :func:`~.analyze.analyze`'s own docstring for why a scoped call
     cannot answer that question. Omitted, every visible object takes part
     and ``floating`` is always present in the reply, even when empty.
+
+    Passes ``doc=doc`` through to :func:`~.analyze.analyze`, which swaps
+    every target's mesh for its evaluated one before measuring anything --
+    bounds, area, volume, ground contact, symmetry, and pairwise distance/
+    contact/overlap all then read what a mirror or an array modifier
+    actually built, the same rule ``clay_scene``'s own ``bbox`` already
+    follows.
     """
     tab, failure = _tab(ctx, session)
     if failure:
@@ -989,6 +1091,7 @@ def _h_analyze(ctx: Any, session: Session, args: dict) -> dict:
 
     result = clay_analyze.analyze(
         targets,
+        doc=doc,
         pairs_among=pairs_among,
         contact_tol=contact_tol,
         near=near,
@@ -1044,8 +1147,82 @@ def _h_analyze(ctx: Any, session: Session, args: dict) -> dict:
     return _json(payload)
 
 
+def _h_validate(ctx: Any, session: Session, args: dict) -> dict:
+    """Advisory readiness checks against one :data:`readiness.PROFILES`
+    entry -- see the tool's own description in ``agent_clay.tools`` for the
+    full contract.
+
+    A third read-only inspector beside ``clay_diagnose`` (mesh defects) and
+    ``clay_analyze`` (placement facts): this one measures against a target's
+    own import rules instead -- a triangle ceiling, a texture size, a
+    material count and the rest, none of which is a defect in the mesh
+    itself or a fact about where it sits. Pushes no undo step and selects
+    nothing, the identical shape those two already hold to, so it needs no
+    new paragraph in the undo enumeration.
+
+    An empty (or, with ``visible_only``, all-hidden) document is not a
+    refusal -- ``readiness.validate`` is handed a document with nothing to
+    check and answers a ``"fail"`` status the same way it would for any
+    other document that fails every check, because having nothing to check
+    *is* the finding an agent asked for, not a malformed call.
+    """
+    tab, failure = _tab(ctx, session)
+    if failure:
+        return failure
+    doc = tab.doc
+
+    profile = args.get("profile", readiness.DEFAULT_PROFILE)
+    if profile not in readiness.PROFILES:
+        return fail(
+            f"profile must be one of {', '.join(sorted(readiness.PROFILES))}.",
+            field="profile",
+        )
+
+    visible_only = args.get("visible_only", True)
+    # The schema declares this a boolean; checked the same way ``clay_render``'s
+    # own ``grid`` and ``clay_batch``'s own ``rollback_on_error`` already are,
+    # rather than a bare ``bool(...)`` coercion that would accept any truthy
+    # value with no refusal at all.
+    if not isinstance(visible_only, bool):
+        return fail("visible_only must be a boolean.", field="visible_only")
+
+    report = readiness.validate(doc, profile, visible_only=visible_only)
+    return _json(
+        {
+            "profile": report.profile,
+            "status": report.status,
+            "checks": [
+                {
+                    "key": c.key,
+                    "label": c.label,
+                    "status": c.status,
+                    "message": c.message,
+                    "measured": c.measured,
+                    "limit": c.limit,
+                    "fix": c.fix,
+                    "uids": list(c.uids or ()),
+                }
+                for c in report.checks
+            ],
+        }
+    )
+
+
 def _h_export(ctx: Any, session: Session, args: dict) -> dict:
-    del args
+    """Mint a finished model row from the document. See ``studio/modes/clay/agent/dispatch.py``'s
+    own module docstring for the two departures from ``clay_mode.save_to``/
+    ``export_asset`` this fold takes and why.
+
+    **``engine``, tranche 7 (``dev/CLAY-PLAN.md``), names the export profile
+    this row is written for** -- the collider naming an engine recognises,
+    and the axis/scale convention an OBJ needs. It is checked against
+    :data:`~.engines.ENGINES` so a bad value is refused by name rather than
+    silently ignored, passed to ``clay_mode.build_asset`` (which applies it
+    to the written file and never to the document's own names), and echoed
+    back in the reply so a caller is not left guessing whether it took.
+    Omitted, the person's own Settings choice stands: an agent that does not
+    care about engines does not have to learn what they are.
+    """
     tab, failure = _tab(ctx, session)
     if failure:
         return failure
@@ -1054,6 +1231,12 @@ def _h_export(ctx: Any, session: Session, args: dict) -> dict:
         return fail("A save for this document is already in progress.")
     if not any(obj.visible for obj in doc.objects):
         return fail("There is nothing visible to export.")
+
+    engine_arg = args.get("engine")
+    if engine_arg is not None and engine_arg not in engines.ENGINES:
+        return fail(
+            f"engine must be one of {', '.join(sorted(engines.ENGINES))}.", field="engine"
+        )
 
     # ``clay_mode.camera_of`` reads *whatever tab the interactive viewport is
     # currently showing*, which is never this one -- an agent's document is
@@ -1071,8 +1254,13 @@ def _h_export(ctx: Any, session: Session, args: dict) -> dict:
     # all runs right here, synchronously, before this handler returns -- a
     # deliberate one-shot cost, not the per-frame stall the task-thread split
     # exists to prevent.
-    job_id = clay_mode.build_asset(ctx.svc, doc, title=tab.title, view=tab.view)
+    job_id = clay_mode.build_asset(
+        ctx.svc, doc, title=tab.title, view=tab.view, engine=engine_arg
+    )
 
     tab.job_id = job_id
     ctx.cache.invalidate()
-    return _json({"job_id": job_id})
+    payload: dict[str, Any] = {"job_id": job_id}
+    if engine_arg is not None:
+        payload["engine"] = engine_arg
+    return _json(payload)

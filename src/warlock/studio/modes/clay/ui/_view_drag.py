@@ -74,6 +74,70 @@ SNAP_VERTEX_RADIUS = 14.0
 ALT_CLICK_SLOP = 4.0
 
 
+#: How far the pointer must travel, in screen pixels (Manhattan), for a knife
+#: press-drag-release to be a line rather than a click. Below it the gesture
+#: cancels instead of cutting -- ``ALT_CLICK_SLOP``'s identical reasoning: a
+#: mouse moves a pixel or two under the press of a finger, so zero would cut
+#: on every stray press-release, and a generous threshold would eat the start
+#: of a deliberately short cut.
+KNIFE_MIN_DRAG_PX = 2.0
+
+
+def _camera_forward(camera: Any) -> np.ndarray:
+    """The camera's own forward axis, in world space -- ``screen_ray``'s
+    identical read of ``camera.view()``'s rows, reused rather than copied a
+    second time so the two can never quietly disagree about which row is
+    which."""
+    return -np.asarray(camera.view(), dtype="f8")[2, :3]
+
+
+def _knife_image_point(
+    camera: Any, rect: tuple[float, float, float, float], local: tuple[float, float]
+) -> np.ndarray:
+    """Where *local* (viewport pixels) sits on the camera's own image plane,
+    ``camera.distance`` in front of the eye.
+
+    That depth is a fixed, reproducible reference -- not a claim about where
+    the geometry being cut actually sits -- because it does not need to be
+    one: two points built this way, at the *same* depth, differ only by the
+    on-screen drag translated into world space, which is exactly what
+    :meth:`DragOps._knife_world_plane` wants for the drag direction, and
+    either one is a point the resulting plane must pass through regardless of
+    which depth was chosen, since moving along the camera's forward axis
+    never leaves the plane (see that method's own docstring). An orbit
+    camera is framed on what the user is editing, so ``camera.distance`` also
+    happens to plant both points near the subject rather than at an
+    arbitrary depth nothing on screen sits at -- a convenience, not a
+    requirement of the maths.
+
+    Mirrors ``screen_ray``'s own perspective construction (``viewer/
+    camera.py``) rather than reusing it outright: that function returns a
+    *ray*, one shared origin and a direction, and this wants the actual
+    unprojected *point* at a fixed depth along it -- the same numbers, walked
+    the extra step.
+    """
+    import math
+
+    width = max(float(rect[2]), 1.0)
+    height = max(float(rect[3]), 1.0)
+    camera.aspect = width / height
+    ndc_x = (2.0 * local[0] / width) - 1.0
+    ndc_y = 1.0 - (2.0 * local[1] / height)
+    tan_half = math.tan(math.radians(camera.fov * 0.5))
+    depth = max(float(camera.distance), 1e-6)
+    half = depth * tan_half
+    wide = half * max(camera.aspect, 1e-6)
+    view = np.asarray(camera.view(), dtype="f8")
+    right, up = view[0, :3], view[1, :3]
+    forward = -view[2, :3]
+    return (
+        np.asarray(camera.position, dtype="f8")
+        + forward * depth
+        + right * (ndc_x * wide)
+        + up * (ndc_y * half)
+    )
+
+
 def _about(centre: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     """*matrix* conjugated to act about *centre* rather than about the origin."""
     to = m3.identity()
@@ -86,6 +150,42 @@ def _about(centre: np.ndarray, matrix: np.ndarray) -> np.ndarray:
 def _apply_affine(matrix: np.ndarray, points: np.ndarray) -> np.ndarray:
     homo = np.hstack([np.asarray(points, dtype="f8"), np.ones((len(points), 1))])
     return (np.asarray(matrix, dtype="f8") @ homo.T).T[:, :3]
+
+
+def _drag_lock_error(doc: Any, uids: Any, *, check_ancestors: bool) -> str | None:
+    """The document's own refusal for the first of *uids* a drag may not
+    move, or ``None`` if every one of them may be.
+
+    Read-only, and run *before* a single array is touched: ``ClayDoc.
+    set_transform``/``set_mesh`` would raise this same
+    :class:`~.elements.OpError` at the *commit*, but a drag has already
+    written every frame's live position onto the object in place by then
+    (``_commit_drag``'s own docstring states why) -- so the refusal has to
+    land at the press, with nothing moved yet, not at the release with a
+    gesture's worth of motion to discard.
+
+    Reuses :meth:`~.document.ClayDoc._refuse_if_locked` -- the exact check
+    ``set_transform``/``set_mesh`` themselves run -- rather than a second
+    copy of its wording, which is what lets this show "the document's own
+    message" (tranche 3's human-surface spec) verbatim. ``check_ancestors``
+    matches whichever door the caller is standing in for: ``True`` for the
+    object-transform path (dragging an object inside a locked group still
+    visibly rearranges the group, even though the group's own geometry never
+    changes -- the reason ``set_transform`` itself checks ancestors), and
+    ``False`` for the element path (``set_mesh`` does not: editing a child's
+    own geometry is unaffected by a locked *ancestor*, only by the child
+    being locked itself).
+    """
+    from .....kernels.mesh.elements import OpError
+
+    for uid in uids:
+        try:
+            doc._refuse_if_locked(uid, check_ancestors=check_ancestors)
+        except OpError as error:
+            return str(error)
+        except KeyError:
+            continue
+    return None
 
 
 def _rotation_hud(quat: Any, entry: Any) -> str:
@@ -135,8 +235,66 @@ class DragOps:
             return True
         return False
 
+    # -- the knife gesture (tranche 5 integration) --------------------------
+
+    def begin_knife(self: ClayView, doc: Any) -> bool:
+        """Arm the knife: the next press-drag-release draws the cut line.
+
+        -> whether it armed. Called from ``clay_ops._knife`` when the op
+        fires with no plane yet -- the menu, the tools pane and the keyboard
+        all fire a zero-``Param`` op the same bare way
+        (``clay_ops.run(ctx, doc, op)``), so ``ctx.clay_view`` is the one
+        door all three reach through, the same one ``clay_mode.handle_key``
+        already uses (``getattr(ctx, "clay_view", None)``).
+
+        Refuses while another grab already owns the mouse -- a live gizmo
+        drag, an open marquee, an orbit in progress -- rather than stomping
+        it: there is nothing sound an armed knife would mean underneath one
+        of those, and the caller's own refusal (the sentence ``_knife``
+        raises when this returns ``False``) is what a user sees instead.
+        """
+        del doc
+        if self._grab is not None or self._knife_armed:
+            return False
+        self._knife_armed = True
+        self._knife_from = None
+        self._knife_to = None
+        return True
+
+    def _press_knife(
+        self: ClayView, doc: Any, button: int, local: tuple[float, float]
+    ) -> bool:
+        """The knife's own press: button 1 starts the line, anything else
+        cancels rather than falling through to pan or the context menu --
+        the gesture owns the mouse until a line is drawn or it gives up.
+
+        ``self._rmb_at`` is deliberately left unset on a button-3 press here
+        (unlike the ordinary right-click branch in :meth:`_press`): the
+        module-level ``_rmb_release`` (``studio/_view_frame.py``) no-ops
+        with nothing recorded, which is what keeps a knife-cancelling
+        right-click from also opening the context menu on its release.
+        """
+        if button == 3:
+            self.cancel_drag(doc)
+            return True
+        if button != 1:
+            return True
+        self._grab = "knife"
+        self._knife_armed = False
+        self._knife_from = local
+        self._knife_to = local
+        return True
+
     def _press(self: ClayView, doc: Any, button: int, local: tuple[float, float]) -> bool:
         self._last_mouse = local
+        # The knife gesture owns the mouse from the moment it is armed --
+        # before ``_grab`` is even set, which is exactly why this has to be
+        # checked ahead of every branch below rather than folded into one of
+        # them: a bare button-3 press here must cancel, never open the
+        # context menu, and a bare button-1 press must start the line, never
+        # orbit or select.
+        if self._knife_armed or self._grab == "knife":
+            return self._press_knife(doc, button, local)
         # A keyboard drag has no button held, so a press is how it *ends*: the
         # left button commits it and the right cancels, which is Blender's
         # arrangement and the one a modeller's hand already knows.
@@ -183,7 +341,12 @@ class DragOps:
         gizmo = self.active_gizmo(doc)
         axis = gizmo.hit(origin, direction) if gizmo is not None else None
         if axis is not None and gizmo.begin(axis, origin, direction):
-            self._begin_gizmo_drag(doc)
+            if not self._begin_gizmo_drag(doc):
+                # Refused -- a toast is already showing why. ``gizmo.begin``
+                # has already flipped the gizmo's own internal drag flag, so
+                # it is put back rather than left claiming a drag is live
+                # that this view never started.
+                gizmo.end_drag()
             return True
 
         if doc.element_mode != "object":
@@ -210,14 +373,28 @@ class DragOps:
         self._grab = "orbit"
         return True
 
-    def _begin_gizmo_drag(self: ClayView, doc: Any) -> None:
-        """Record every selected object's transform at the press.
+    def _begin_gizmo_drag(self: ClayView, doc: Any) -> bool:
+        """Record every selected object's transform at the press. -> whether
+        the drag may proceed.
 
         Not read per frame: that is what ``set_transform``'s ``was`` argument
         takes, and reading it live would compare a value against itself and
         record an empty step.
+
+        Refuses -- nothing recorded, a toast shown with the document's own
+        message -- when what would be dragged is locked (tranche 3: scene
+        structure). Checked *before* ``_drag_uids``/``_drag_start`` are
+        populated and ``self._grab`` is set, which is what keeps a refused
+        press from leaving the view thinking a drag is live: see
+        ``_drag_lock_error`` for why this cannot wait until the commit.
         """
-        self._drag_uids = [o.uid for o in doc.objects if o.uid in doc.selection]
+        uids = [o.uid for o in doc.objects if o.uid in doc.selection]
+        targets = uids if doc.element_mode == "object" else list(doc.element_sel)
+        error = _drag_lock_error(doc, targets, check_ancestors=doc.element_mode == "object")
+        if error is not None:
+            self._toast(error)
+            return False
+        self._drag_uids = uids
         self._drag_start = {
             uid: tuple(np.array(v, copy=True) for v in doc.by_uid(uid).trs())
             for uid in self._drag_uids
@@ -234,6 +411,27 @@ class DragOps:
         self._snap_point = None
         if doc.element_mode != "object":
             self._begin_element_drag(doc)
+        return True
+
+    def _toast(self: ClayView, message: str) -> None:
+        """A refusal, shown -- or silently dropped when there is nothing to
+        show it to.
+
+        ``self.app_ctx`` is optional (a headless view, which is most of this
+        package's own test suite -- ``ClayView.state``'s own docstring states
+        the same tolerance), so this checks for a ``toast`` method rather
+        than assuming one. Routed through :func:`~.clay.ops.toast` rather
+        than a bare ``ctx.toast(message, "error")`` written out here, since
+        that is the one function every other refusal in this mode already
+        goes through -- a second copy here is a second place its shape
+        (``ctx.toast(text, level)``) could drift from.
+        """
+        ctx = self.app_ctx
+        if ctx is None or not hasattr(ctx, "toast"):
+            return
+        from .. import ops as clay_ops
+
+        clay_ops.toast(ctx, message)
 
     def begin_keyboard_drag(self: ClayView, doc: Any, kind: str) -> bool:
         """``G``/``R``/``S``: start a transform with no handle grabbed.
@@ -255,14 +453,21 @@ class DragOps:
         wrong values from.
         """
 
-        if self._grab is not None or not doc.selection:
+        # ``_knife_armed`` alongside ``_grab``: arming sets no ``_grab`` of its
+        # own until the first press lands (see ``begin_knife``), so the guard
+        # above alone would let G/S start a second gesture underneath a knife
+        # that is merely waiting for its line.
+        if self._grab is not None or self._knife_armed or not doc.selection:
             return False
         if doc.element_mode != "object" and not doc.element_sel:
             return False
         centre = self.selection_centre(doc)
         if centre is None:
             return False
-        self._begin_gizmo_drag(doc)
+        if not self._begin_gizmo_drag(doc):
+            # Refused -- a toast is already showing why; ``_grab`` was never
+            # set, so there is nothing here to put back.
+            return False
         # ``_begin_gizmo_drag`` reads the *gizmo's* origin, and Select draws no
         # gizmo -- so the pivot is taken from the selection directly, which is
         # the same point the gizmo would have been placed at.
@@ -338,7 +543,7 @@ class DragOps:
                 obj = doc.by_uid(uid)
             except KeyError:
                 continue
-            self._apply(obj, was, delta, state)
+            self._apply(doc, obj, was, delta, state)
         doc.touch()
 
     def _press_element(
@@ -400,6 +605,8 @@ class DragOps:
             self._settle_drag_tail(doc, was)
         elif was == "marquee":
             self._commit_marquee(doc)
+        elif was == "knife":
+            self._commit_knife(doc)
         return True
 
     def _settle_drag_tail(self: ClayView, doc: Any, was: str) -> None:
@@ -550,8 +757,20 @@ class DragOps:
         lock, the typed value, Esc to cancel. They differ in how they end, and
         nowhere else: a gizmo drag ends when its button comes up, and a keyboard
         drag has no button held, so it ends on a *press*.
+
+        A live knife line (``_grab == "knife"``) joins the two for the one
+        rule that matters here: ``clay_mode.handle_key``'s own
+        ``getattr(view, "dragging", False)`` gate is what routes a bare Esc
+        to :meth:`cancel_drag` and swallows every other key rather than
+        letting it fire a second op mid-line. **Not** while merely *armed*
+        (waiting for the press that starts the line) -- that state sets no
+        ``_grab`` at all, so it is deliberately outside this property; a
+        stray key before the first click falls through to whatever it
+        already did, and a click that goes nowhere (a zero-length drag)
+        cancels on its own release, which is the fallback for backing out
+        before anything has been drawn.
         """
-        return self._grab in ("gizmo", "keydrag")
+        return self._grab in ("gizmo", "keydrag", "knife")
 
     def _clear_drag_input(self: ClayView) -> None:
         from .....kernels.mesh import drag as bdrag
@@ -575,6 +794,14 @@ class DragOps:
         and the other two are measured from the press outright.
         """
         if not self.dragging:
+            return False
+        if self._grab == "knife":
+            # The knife takes no typed value and no G/R/S switch -- it is a
+            # line, not a transform -- so every key here is left for
+            # ``clay_mode.handle_key`` to swallow (``dragging``'s own
+            # docstring) rather than reaching ``drag_input`` or
+            # ``_drag_gizmo``, neither of which knows anything about a knife
+            # in progress.
             return False
         # ``G``/``R``/``S`` mid-drag switch which transform is running, which is
         # Blender's and is what makes "move it, no -- rotate it" one gesture
@@ -662,7 +889,21 @@ class DragOps:
         pane's own drag bookkeeping and left the view still holding the grab,
         so the objects stayed wherever the last motion put them with no history
         step to take them back.
+
+        Checked *ahead* of the ``dragging`` guard below rather than folded
+        into it: an *armed* knife (waiting for the press that starts the
+        line) sets no ``_grab`` at all (``begin_knife``'s own doc), so
+        ``dragging`` does not see it, and this is the one door -- a
+        right-click (``_press_knife``) or a direct call -- that still has to
+        cancel it. Nothing here reads ``doc``, since nothing about a knife
+        gesture has touched it yet.
         """
+        if self._knife_armed or self._grab == "knife":
+            self._knife_armed = False
+            self._grab = None
+            self._knife_from = self._knife_to = None
+            self._release_knife_overlay()
+            return True
         if not self.dragging:
             return False
         self._grab = None
@@ -731,8 +972,99 @@ class DragOps:
             if best is not None and depth >= best[0]:
                 continue
             local_pos = np.append(obj.mesh.positions[index].astype("f8"), 1.0)
-            best = (depth, (self._world(obj) @ local_pos)[:3])
+            best = (depth, (self._world(doc, obj) @ local_pos)[:3])
         return None if best is None else best[1]
+
+    def _snap_edge(self: ClayView, doc: Any, local: tuple[float, float]) -> np.ndarray | None:
+        """The nearest point *on* the edge under the cursor, in world space,
+        or ``None`` (tranche 3: scene structure).
+
+        Screen-space picks *which* edge under the cursor, ``_snap_vertex``'s
+        own reason; but the landing point is not one of that edge's own
+        endpoints, which is what makes this a different target rather than a
+        second way to reach the first: the world-space edge is a line
+        segment, and the point offered is wherever the cursor's own ray
+        passes closest to it (``viewer.picking.closest_on_axis``, the same
+        closest-approach-of-two-lines solve a translate gizmo's own arrow
+        uses to track a drag), clamped to the segment so a ray that grazes
+        past one end still lands *on* the edge rather than off the end of it.
+
+        The excluded set is *edges*, not vertices: an edge is excluded when
+        either endpoint is one this drag is moving, the same self-snap
+        ``_snap_vertex`` refuses and for the same reason -- an edge one of
+        whose own ends is tracking the cursor would report a snap on its own
+        moving geometry.
+        """
+        from .....kernels.mesh import pick as bp
+        from .....kernels.mesh.adjacency import adjacency
+        from ....viewer import picking
+
+        object_mode = doc.element_mode == "object"
+        origin, direction = self._ray(local)
+        best: tuple[float, np.ndarray] | None = None
+        for obj in doc.objects:
+            if not obj.visible:
+                continue
+            if object_mode and obj.uid in self._drag_start:
+                continue
+            edge_verts = adjacency(obj.mesh).edge_verts
+            if not len(edge_verts):
+                continue
+            drag = self._element_drags.get(obj.uid)
+            allowed = None
+            if drag is not None:
+                moving = np.zeros(len(obj.mesh.positions), dtype=bool)
+                moving[np.asarray(drag.verts, dtype="i8")] = True
+                allowed = ~(moving[edge_verts[:, 0]] | moving[edge_verts[:, 1]])
+            screen = self.screen_of(doc, obj.uid)
+            index = bp.nearest_edge(screen, edge_verts, local, radius=SNAP_VERTEX_RADIUS)
+            if index is None or (allowed is not None and not allowed[index]):
+                continue
+            world = self._world(doc, obj)
+            a_idx, b_idx = (int(v) for v in edge_verts[index])
+            a_world = (world @ np.append(obj.mesh.positions[a_idx].astype("f8"), 1.0))[:3]
+            b_world = (world @ np.append(obj.mesh.positions[b_idx].astype("f8"), 1.0))[:3]
+            axis = b_world - a_world
+            length = float(np.linalg.norm(axis))
+            if length < 1e-9:
+                point = a_world
+            else:
+                s, _distance = picking.closest_on_axis(origin, direction, a_world, axis)
+                point = a_world + axis / length * float(np.clip(s, 0.0, length))
+            depth = float(np.linalg.norm(point - np.asarray(self.camera.position, dtype="f8")))
+            if best is not None and depth >= best[0]:
+                continue
+            best = (depth, point)
+        return None if best is None else best[1]
+
+    def _snap_face(self: ClayView, doc: Any, local: tuple[float, float]) -> np.ndarray | None:
+        """The ray hit on the face under the cursor, in world space, or
+        ``None`` (tranche 3: scene structure).
+
+        Reuses :meth:`_pick_face_on` outright: "the point on a face under the
+        cursor" is exactly what an object-mode pick already answers, along
+        the same ray every other snap and pick in this class casts through
+        :meth:`_ray`. The objects a drag is moving are excluded wholesale --
+        ``_snap_vertex``'s own reason, at the coarser grain a face target
+        needs it at: a dragged object's own face tracking the cursor is the
+        same worst failure, "the feature looks like it is working."
+        """
+        origin, direction = self._ray(local)
+        object_mode = doc.element_mode == "object"
+        best: Any = None
+        for obj in doc.objects:
+            if not obj.visible:
+                continue
+            if object_mode and obj.uid in self._drag_start:
+                continue
+            if not object_mode and obj.uid in self._element_drags:
+                continue
+            hit = self._pick_face_on(doc, obj, origin, direction)
+            if hit is not None and (best is None or hit.t < best.t):
+                best = hit
+        if best is None:
+            return None
+        return np.asarray(origin, dtype="f8") + np.asarray(direction, dtype="f8") * best.t
 
     def _commit_marquee(self: ClayView, doc: Any) -> None:
         """Apply the swept rectangle, or clear the selection if it has no area.
@@ -776,6 +1108,67 @@ class DragOps:
             doc.set_element_sel(
                 obj.uid, el.combine(doc.element_sel_of(obj.uid), swept, how)
             )
+
+    def _knife_world_plane(
+        self: ClayView, frm: tuple[float, float], to: tuple[float, float]
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """The world-space ``(point, normal)`` the drag from *frm* to *to*
+        defines, or ``None`` for a drag too short to mean anything.
+
+        **The normal is perpendicular to both the drag direction and the
+        camera's forward axis** (the integration spec this gesture builds
+        against): the drag direction is measured on the camera's own image
+        plane -- ``_knife_image_point`` unprojects both screen points at the
+        *same* fixed depth, so their difference has no component along
+        ``forward`` at all -- rather than from two diverging ray directions,
+        which would tilt the plane by however far off-centre the drag sat on
+        screen. ``point`` is simply *frm*'s own unprojected position: moving
+        along ``forward`` or along the drag direction never leaves the plane
+        (both are perpendicular to the normal by construction), so any point
+        this gesture's own screen-space line passes through at that depth is
+        as good as any other for anchoring it.
+
+        Screen distance, not the 3-D vectors this produces, decides whether
+        the drag was "long enough" (``KNIFE_MIN_DRAG_PX``): a drag that
+        barely moved the cursor is a click the user did not mean as a cut,
+        and pixels are what the user judged the gesture by.
+        """
+        if (
+            abs(to[0] - frm[0]) < KNIFE_MIN_DRAG_PX
+            and abs(to[1] - frm[1]) < KNIFE_MIN_DRAG_PX
+        ):
+            return None
+        point = _knife_image_point(self.camera, self._rect, frm)
+        far = _knife_image_point(self.camera, self._rect, to)
+        forward = _camera_forward(self.camera)
+        normal = np.cross(far - point, forward)
+        length = float(np.linalg.norm(normal))
+        if length < 1e-9:
+            return None
+        return point, normal / length
+
+    def _commit_knife(self: ClayView, doc: Any) -> None:
+        """The knife's release: compute the plane once and fire the op it
+        arms, so a cut gets ``run``'s one-step-undo fold like every other op.
+
+        A zero-length drag (:meth:`_knife_world_plane` returning ``None``)
+        cancels rather than cutting -- a press and release in the same spot
+        is a click, not a line, and a knife plane with no direction to it is
+        not a plane at all.
+        """
+        frm, to = self._knife_from, self._knife_to
+        self._knife_armed = False
+        self._knife_from = self._knife_to = None
+        self._release_knife_overlay()
+        if frm is None or to is None:
+            return
+        plane = self._knife_world_plane(frm, to)
+        if plane is None:
+            return
+        point, normal = plane
+        from .. import ops as clay_ops
+
+        clay_ops.run(self.app_ctx, doc, clay_ops.get("knife"), point=point, normal=normal)
 
     def _commit_drag(self: ClayView, doc: Any) -> None:
         """**One drag, one Ctrl+Z**, recorded against where the drag began.
@@ -834,6 +1227,12 @@ class DragOps:
             start = self._marquee_from or local
             self.marquee = (start[0], start[1], local[0], local[1])
             return True
+        if self._grab == "knife":
+            # Only the second point moves -- the plane itself is computed
+            # once, on release (see ``_commit_knife``), so a mouse-move here
+            # does nothing heavier than remembering where the cursor is now.
+            self._knife_to = local
+            return True
         if self._grab == "orbit":
             self.camera.orbit(dx, dy, height)
         elif self._grab == "pan":
@@ -877,7 +1276,7 @@ class DragOps:
                 verts, weights = bdrag.proportional_set(
                     obj.mesh.positions, verts, radius / scale if scale > 0.0 else radius
                 )
-            matrix = self._world(obj)
+            matrix = self._world(doc, obj)
             try:
                 inverse = np.linalg.inv(matrix)
             except np.linalg.LinAlgError:
@@ -966,6 +1365,9 @@ class DragOps:
             return
         obj = doc.by_uid(uid)
         drag = self._element_drags.get(uid)
+        # Deliberately the *base* mesh, not ``doc.evaluated`` -- a drag moves
+        # base vertices, so the preview is exactly what is being dragged, not
+        # what a modifier stack would additionally build on top of it.
         base = obj.mesh if drag is None else drag.before
         # ``drag.verts`` is exactly the set written into ``positions`` above,
         # which is what makes the incremental normals safe; with no element drag
@@ -1055,13 +1457,13 @@ class DragOps:
                 obj = doc.by_uid(uid)
             except KeyError:
                 continue
-            self._apply(obj, was, delta, state)
+            self._apply(doc, obj, was, delta, state)
         doc.touch()
 
     def _narrow(
         self: ClayView, doc: Any, delta: Any, state: Any, local: tuple[float, float]
     ) -> Any:
-        """Axis lock, typed value and vertex snap, applied to one drag delta.
+        """Axis lock, typed value and a snap target, applied to one drag delta.
 
         One place for all three, above both the object path and the element
         path, so neither has to learn what a lock is -- the same argument that
@@ -1070,6 +1472,14 @@ class DragOps:
         beats a snap.** A user who has typed ``X 2`` has said exactly where the
         thing goes, and quietly moving it onto a nearby vertex instead would be
         the app overruling a number it was given.
+
+        **Vertex, then edge, then face** (tranche 3: scene structure) -- three
+        independent switches (``ClayState.snap_vertex``/``snap_edge``/
+        ``snap_face``, a user can have more than one on at once), tried in
+        that order because it is finest-to-coarsest: a vertex is the most
+        specific thing a cursor can be pointing at, and this is the same
+        "more specific answer wins" rule that already puts any of them ahead
+        of the grid (see :meth:`_element_world_transform`).
 
         The anchor for a translation is the same point the consumer measures
         against -- the element centroid in an element mode, the gizmo's own
@@ -1091,8 +1501,13 @@ class DragOps:
         anchor = self._element_centre if doc.element_mode != "object" else self._drag_origin
         target = np.asarray(delta, dtype="f8").reshape(3)
         self._snap_point = None
-        if not entry.active and bool(getattr(state, "snap_vertex", False)):
-            self._snap_point = self._snap_vertex(doc, local)
+        if not entry.active:
+            if bool(getattr(state, "snap_vertex", False)):
+                self._snap_point = self._snap_vertex(doc, local)
+            if self._snap_point is None and bool(getattr(state, "snap_edge", False)):
+                self._snap_point = self._snap_edge(doc, local)
+            if self._snap_point is None and bool(getattr(state, "snap_face", False)):
+                self._snap_point = self._snap_face(doc, local)
             if self._snap_point is not None:
                 target = self._snap_point
         moved = bdrag.constrain_translation(target - anchor, entry)
@@ -1127,8 +1542,8 @@ class DragOps:
             return self._drag_quat
         return delta
 
-    def _apply(self: ClayView, obj: Any, was: Any, delta: Any, state: Any) -> None:
-        """One object's transform under the live drag.
+    def _apply(self: ClayView, doc: Any, obj: Any, was: Any, delta: Any, state: Any) -> None:
+        """One object's transform under the live drag, written in **local** space.
 
         **A rotate and a scale orbit the pivot, not the object's own origin**,
         and that is a fix rather than a feature: the gizmo is drawn at
@@ -1147,6 +1562,21 @@ class DragOps:
         ``_drag_origin`` is that pivot -- the gizmo's own origin, captured at
         the press -- which the translation arm has always subtracted and the
         other two never read.
+
+        **Tranche 3: scene structure -- everything below the pivot maths is
+        computed in world space and only converted to local at the very end.**
+        ``was`` is the object's *local* TRS at the press (``set_transform``'s
+        own convention); ``obj.parent``'s world matrix, read fresh each call,
+        gives the frame ``was`` is local *to*, so ``before_t``/``before_r``/
+        ``before_s`` -- what the pivot maths below actually reads -- are the
+        object's **world** placement at the press, not its local one. For a
+        root that is the same number either way (a root's local TRS *is* its
+        world TRS -- ``document.py``'s module docstring), which is what keeps
+        this producing exactly what it always did for every document with no
+        parenting. ``doc.local_from_world`` is the one conversion back, at the
+        end, through the object's *current* parent -- so a reparent mid-drag
+        (not offered today, but nothing here assumes otherwise) would still
+        write a sound local value.
         """
         from .....kernels.mesh import ops
 
@@ -1157,10 +1587,15 @@ class DragOps:
             self._snap_point is not None or self.drag_input.active
         )
         pivot = np.asarray(self._drag_origin, dtype="f8")
-        before = np.array(was[0], dtype="f8")
+        parent = obj.parent
+        parent_world = m3.identity() if parent is None else doc.world_matrix(parent)
+        before_world = parent_world @ m3.compose(*was)
+        before_t, before_r, before_s = m3.decompose(before_world)
+
         if isinstance(delta, np.ndarray) and delta.shape == (3,) and self._is_scale(state):
-            obj.scale = np.array(was[2], dtype="f8") * delta
-            obj.translation = pivot + (before - pivot) * np.asarray(delta, dtype="f8")
+            world_s = before_s * delta
+            world_t = pivot + (before_t - pivot) * np.asarray(delta, dtype="f8")
+            world_r = before_r
         elif isinstance(delta, np.ndarray) and delta.shape == (4,):
             # The *delta* angle is what snaps, exactly as the element path does
             # in ``_element_world_transform`` and for ``ops.snap_rotation``'s
@@ -1170,13 +1605,19 @@ class DragOps:
             # moment the drag starts.
             if snap:
                 delta = ops.snap_rotation(delta, state.snap_rotate)
-            obj.rotation = m3.quat_normalize(m3.quat_mul(delta, np.array(was[1], dtype="f8")))
-            obj.translation = pivot + m3.quat_rotate(delta, before - pivot)
+            world_r = m3.quat_normalize(m3.quat_mul(delta, before_r))
+            world_t = pivot + m3.quat_rotate(delta, before_t - pivot)
+            world_s = before_s
         else:
             moved = np.asarray(delta, dtype="f8").reshape(3) - self._drag_origin
-            obj.translation = np.array(was[0], dtype="f8") + moved
+            world_t = before_t + moved
             if snap:
-                obj.translation = ops.snap_translation(obj.translation, state.snap_translate)
+                world_t = ops.snap_translation(world_t, state.snap_translate)
+            world_r, world_s = before_r, before_s
+
+        world_target = m3.compose(world_t, world_r, world_s)
+        t, r, s = doc.local_from_world(obj.uid, world_target)
+        obj.translation, obj.rotation, obj.scale = t, r, s
 
     def _is_scale(self: ClayView, state: Any) -> bool:
         return getattr(state, "tool", "") == "scale"

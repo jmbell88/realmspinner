@@ -118,11 +118,13 @@ from PIL import Image
 
 from warlock.kernels.geom3d import math3d as m3
 from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import modifiers as clay_modifiers
 from warlock.kernels.mesh import presets, serialize
 from warlock.kernels.mesh import primitives as bp
 from warlock.studio.modes.clay import mode as clay_mode
 from warlock.studio.modes.clay import ops as clay_ops
 from warlock.studio.modes.clay.agent import dispatch as agent_clay
+from warlock.studio.modes.clay.agent import schema as agent_clay_schema
 from warlock.studio.modes.clay.ui.panes import tools as pane_clay_tools
 
 # --- a ctx double, no imgui, no GL, no pygame --------------------------------
@@ -512,6 +514,31 @@ def test_every_query_argument_name_has_a_schema_fragment_and_vice_versa() -> Non
     assert all_args == set(agent_clay._QUERY_ARG_SCHEMAS)
 
 
+def test_every_modifier_kind_is_a_clay_modifier_add_enum_option_and_vice_versa() -> None:
+    tools = {t.name: t for t in agent_clay.tools()}
+    enum = set(tools["clay_modifier_add"].schema["properties"]["kind"]["enum"])
+    assert enum == set(clay_modifiers.MODIFIERS)
+
+
+def test_an_eleventh_modifier_kind_reaches_the_agent_surface_with_no_edit_here(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The live-gate half of the derivation claim, the same shape
+    ``test_a_thirteenth_generator_reaches_the_agent_surface_with_no_edit_here``
+    and its siblings already prove for their own registries: monkeypatch a
+    new entry into ``modifiers.MODIFIERS``, restored automatically, and
+    assert it shows up in ``clay_modifier_add``'s own enum with no code here
+    touched at all."""
+    from dataclasses import replace
+
+    existing = clay_modifiers.MODIFIERS["weld"]
+    fake = replace(existing, name="eleventh_kind")
+    monkeypatch.setitem(clay_modifiers.MODIFIERS, "eleventh_kind", fake)
+    tools = {t.name: t for t in agent_clay.tools()}
+    enum = tools["clay_modifier_add"].schema["properties"]["kind"]["enum"]
+    assert "eleventh_kind" in enum
+
+
 def test_every_tool_not_excluded_from_batching_is_in_the_batch_name_enum() -> None:
     tools = {t.name: t for t in agent_clay.tools()}
     call_schema = tools["clay_batch"].schema["properties"]["calls"]["items"]
@@ -642,6 +669,11 @@ _NEEDS_A_TAB = [
     ("clay_scene", {}),
     ("clay_transform", {}),
     ("clay_set_params", {}),
+    ("clay_modifier_add", {}),
+    ("clay_modifier_set", {}),
+    ("clay_modifier_remove", {}),
+    ("clay_modifier_move", {}),
+    ("clay_modifier_apply", {}),
     ("clay_material", {}),
     ("clay_boolean", {}),
     ("clay_select", {}),
@@ -653,24 +685,42 @@ _NEEDS_A_TAB = [
     ("clay_render", {}),
     ("clay_diagnose", {}),
     ("clay_analyze", {}),
+    ("clay_validate", {}),
     ("clay_export", {}),
     ("clay_undo", {}),
     ("clay_redo", {}),
     ("clay_delete", {}),
     ("clay_rename", {}),
+    ("clay_parent", {}),
+    ("clay_group", {}),
+    ("clay_ungroup", {}),
+    ("clay_lock", {}),
+    ("clay_tag", {}),
+    ("clay_separate", {}),
+    ("clay_set_origin", {}),
+    ("clay_measure", {}),
+    ("clay_checkpoint", {}),
+    ("clay_restore", {}),
     ("clay_batch", {"calls": [{"name": "clay_scene", "arguments": {}}]}),
+    ("clay_uv", {}),
+    ("clay_collider", {}),
 ]
 
 # The four reference tools hold no document at all -- requiring one in order
 # to hold a picture would be a rule with no reason behind it, since a
 # reference lives on the session (see the module docstring), never in the
 # ``ClayDoc``. Empty until B8 landed; now the whole set the dead-tab gate
-# above deliberately does not cover.
+# above deliberately does not cover. ``clay_catalog`` (tranches 6/7) joins
+# them for a related but distinct reason -- see ``tools_catalog.py``'s own
+# module docstring: every registry it reaches is process-wide, not document
+# state, so it is the one tool in this fold that never calls ``_tab`` at all
+# and needs no document, open or otherwise.
 _SESSION_ONLY = [
     "clay_reference_add",
     "clay_reference_list",
     "clay_reference_get",
     "clay_reference_remove",
+    "clay_catalog",
 ]
 
 # A hand-built tetrahedron -- four triangles, closed -- reused wherever a
@@ -753,6 +803,7 @@ _SESSION_ONLY_ARGS = {
     "clay_reference_list": {},
     "clay_reference_get": {"name": "ref1"},
     "clay_reference_remove": {"name": "exhaustive_ref"},
+    "clay_catalog": {"topic": "ops"},
 }
 
 
@@ -3106,27 +3157,86 @@ def test_a_session_whose_document_was_closed_can_start_another_via_clay_program(
     assert state.get(session.tab_uid) is not None
 
 
-def _clay_op_description() -> str:
-    tool = next(t for t in agent_clay.tools() if t.name == "clay_op")
-    return tool.description
+def _clay_ops_catalog() -> str:
+    """``clay_op``'s own prose catalogue -- moved off that tool's *description*
+    and behind ``clay_catalog(topic='ops')`` by the catalogue diet
+    (``dev/CLAY-PLAN.md`` tranches 6/7's integration brief); see
+    ``test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it``'s
+    own tranche 6/7 paragraph for why. These two tests used to read
+    ``clay_op``'s description directly -- rerouted here rather than deleted,
+    since the formatting claim they pin (``_op_catalog``'s own prose, not
+    where it is served from) is unchanged."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(ctx, session, "clay_catalog", {"topic": "ops"})
+    assert result["isError"] is False, result
+    return _payload(result)["catalogue"]
 
 
 def test_clay_op_catalog_describes_a_boolean_param_as_a_boolean():
     """``_op_catalog`` used to fold every param into "name (low-high, default
     x)" -- a bare range is a poor description of a checkbox, and this prose is
     the only thing a model is ever told about an op's arguments."""
-    description = _clay_op_description()
-    assert "fit (0.0-1.0, default 1.0)" not in description
-    assert "fit (boolean" in description
+    catalogue = _clay_ops_catalog()
+    assert "fit (0.0-1.0, default 1.0)" not in catalogue
+    assert "fit (boolean" in catalogue
 
 
 def test_clay_op_catalog_describes_axis_as_a_named_three_way_choice():
     """Not a boolean, and not a bare 0-2 range either: naming what each value
     means is the whole point, since a model reads only this sentence before
     its first call."""
-    description = _clay_op_description()
-    assert "axis (0.0-2.0, default" not in description
-    assert "0=X" in description and "1=Y" in description and "2=Z" in description
+    catalogue = _clay_ops_catalog()
+    assert "axis (0.0-2.0, default" not in catalogue
+    assert "0=X" in catalogue and "1=Y" in catalogue and "2=Z" in catalogue
+
+
+def test_clay_catalog_topics_are_a_bidirectional_gate_over_catalog_topics() -> None:
+    """The catalogue diet's own bidirectional gate (``dev/CLAY-PLAN.md``
+    tranches 6/7's integration brief): ``clay_catalog``'s published ``topic``
+    enum, ``agent_clay_schema.CATALOG_TOPICS``' own keys, and the nine
+    registries each topic actually reads are the same nine names checked
+    three different ways.
+
+    Direction one -- every published topic answers from its own registry,
+    with real content that survives a round trip through the tool call
+    itself, never merely calling the builder function directly (that alone
+    would only prove the function exists, not that ``clay_catalog`` actually
+    reaches it). Direction two -- every one of the nine registries this fold
+    ever grew a tool-description catalogue for has a topic reaching it back,
+    so a tenth registry landing without a topic (or a topic quietly losing
+    its registry) fails here rather than drifting unnoticed the way a
+    hand-kept second list always eventually does.
+    """
+    tool = next(t for t in agent_clay.tools() if t.name == "clay_catalog")
+    published_topics = set(tool.schema["properties"]["topic"]["enum"])
+    assert published_topics == set(agent_clay_schema.CATALOG_TOPICS)
+
+    # The nine registries this fold's own catalogue functions are built from
+    # -- named once here, as the *other* side of the gate, so a tenth
+    # registry's own catalogue function landing with no topic pointed at it
+    # is caught by the length/name check below rather than only by whichever
+    # tool's description happened to grow.
+    known_registries = {
+        "ops", "primitives", "figures", "queries", "modifiers",
+        "collider_kinds", "validate_profiles", "engines", "uv_actions",
+    }
+    assert published_topics == known_registries
+
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    for topic in published_topics:
+        result = agent_clay.call(ctx, session, "clay_catalog", {"topic": topic})
+        assert result["isError"] is False, (topic, result)
+        catalogue = _payload(result)["catalogue"]
+        assert isinstance(catalogue, str) and catalogue.strip(), topic
+        # Matches the registry's own builder byte for byte -- the same
+        # function, not a second copy of what it says.
+        assert catalogue == agent_clay_schema.CATALOG_TOPICS[topic](), topic
+
+    unknown = agent_clay.call(ctx, session, "clay_catalog", {"topic": "not_a_real_topic"})
+    assert unknown["isError"] is True
+    assert unknown["structuredContent"]["field"] == "topic"
 
 
 # ==============================================================================
@@ -4360,20 +4470,35 @@ def test_the_five_declared_output_schemas_describe_what_those_tools_actually_ret
     add_result = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
     add_structured = add_result.get("structuredContent") or {}
     assert add_structured, "clay_add_primitive answered with no structuredContent at all"
-    # Exact for the same reason: this tool answers with ``_scene_row``, whose
-    # every key is unconditional, so a row key added without touching the
-    # shared schema helper fails here.
-    assert set(add_structured) == set(add_schema["properties"])
+    # Exact but for three keys, for the same reason the rest is exact: this
+    # tool answers with ``_scene_row``, whose every *other* key is
+    # unconditional, so a row key added without touching the shared schema
+    # helper still fails here. ``modifiers``/``evaluated`` are present only
+    # once the object carries a non-empty modifier stack, and ``local`` only
+    # once it has a parent (see ``_object_row_output_schema``'s own
+    # docstring) -- a freshly placed primitive has neither.
+    assert set(add_structured) == set(add_schema["properties"]) - {
+        "modifiers", "evaluated", "local",
+    }
 
     mesh_schema = getattr(tools["clay_add_mesh"], "output_schema", None)
     assert mesh_schema is not None
     mesh_result = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
     mesh_structured = mesh_result.get("structuredContent") or {}
     assert mesh_structured, "clay_add_mesh answered with no structuredContent at all"
-    # Exact for the same reason ``clay_add_primitive``'s is: ``closed`` and
-    # ``findings`` are unconditional too, and both are declared on the
-    # composed schema (see ``_mesh_row_output_schema``), not left off it.
-    assert set(mesh_structured) == set(mesh_schema["properties"])
+    # Exact but for the same three keys ``clay_add_primitive``'s check
+    # already excludes, plus a fourth: ``closed`` and ``findings`` are
+    # unconditional (both declared on the composed schema, see
+    # ``_mesh_row_output_schema``), but ``modifiers``/``evaluated``/``local``
+    # are not -- a hand-built mesh placed fresh never carries a stack, or a
+    # parent, either -- and (tranche 6) neither does ``uv``, since
+    # ``_TETRA_MESH_ARGS`` gives no ``uv`` of its own and ``clay_add_mesh``
+    # never invents one. Contrast ``clay_add_primitive``'s own check just
+    # above, which needs no such exclusion for ``uv``: every generator this
+    # fold ships already carries one (a box's own ``box_unwrap``, at least).
+    assert set(mesh_structured) == set(mesh_schema["properties"]) - {
+        "modifiers", "evaluated", "local", "uv",
+    }
 
     diag_schema = getattr(tools["clay_diagnose"], "output_schema", None)
     assert diag_schema is not None
@@ -4485,7 +4610,7 @@ def test_every_refusal_says_whether_the_document_moved(svc) -> None:
     pass whatever a handler checks before it resolves a tab), so several of
     them succeed rather than refuse against a tab that already holds an
     object (``clay_scene``, ``clay_elements``,
-    ``clay_diagnose``, ``clay_export`` with a real ``svc``, ``clay_undo``/
+    ``clay_diagnose``, ``clay_validate``, ``clay_export`` with a real ``svc``, ``clay_undo``/
     ``clay_redo``, ``clay_batch``, ``clay_program``, all three ``_MINTS_A_TAB``
     creators, and every ``_SESSION_ONLY`` tool but ``clay_reference_get``
     naming a reference this session was never given). Those successes are
@@ -4751,11 +4876,131 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     7,565 chars = 54,942 chars total, over the 53,600 ceiling above by 1,342
     -- a whole new catalogue sentence, not drift. Raised to 55,000, just
     past this measurement.
+
+    A 29th tool, this session: ``clay_validate`` (advisory readiness checks
+    against ``kernels.mesh.readiness.PROFILES``) is a new registry-derived
+    tool with its own schema and profile catalogue, and
+    ``instructions()`` gained one sentence naming it plus one naming the new
+    ``clay_op`` ``decimate`` row's own background-subprocess behaviour.
+    Catalogue JSON 48,700 chars + instructions 8,023 chars = 56,723 chars
+    total, over the 55,000 ceiling above by 1,723 -- a whole new tool, the
+    same class of growth as ``clay_program``'s own entry above, not an
+    unnoticed drift. Raised to 56,800, just past this measurement.
+
+    The same day, a different session's own concurrent work landed three new
+    ``clay_op`` rows (``clean-mesh``, ``recalc-normals``, ``decimate``) --
+    ``clay_op``'s own description is built from ``_op_catalog(clay_ops.OPS)``
+    (see this module's own docstring's derivation gate), so three new rows
+    with real params grew that one tool's schema from 3,159 to 3,453 chars
+    with nothing here touched to make it happen. Catalogue JSON 48,994 chars
+    + instructions 8,023 chars = 57,017 chars total, over the 56,800 ceiling
+    above by 217 -- a registry growing exactly the way the derivation gate
+    promises it will, not drift. Raised to 57,100, just past this
+    measurement.
+
+    Tranche 2 (2026-09-19): the modifier stack. Five new tools --
+    ``clay_modifier_add``, ``_set``, ``_remove``, ``_move``, ``_apply``
+    (``studio/modes/clay/agent/tools_modifiers.py``) -- are the same class
+    of growth ``clay_program``'s and ``clay_validate``'s own entries above
+    already are, not drift: a whole new agent-visible capability, not an
+    unrelated registry ticking over. Their own schemas total 4,560 chars
+    (``clay_modifier_add`` alone is 2,040, most of it
+    ``_modifier_catalog()``'s per-kind params table -- the same "Known
+    kinds:" shape ``clay_op``'s own catalogue already uses). ``clay_scene``'s
+    shared row schema (``_object_row_output_schema``) also gained
+    ``modifiers``/``evaluated`` -- present only once an object's stack is
+    non-empty, but declared on every schema that composes that row
+    (``clay_scene``'s own items, ``clay_add_primitive``, ``clay_add_mesh``),
+    which is where most of the remaining schema growth sits.
+    ``instructions()`` gained one paragraph on the stack itself (base vs.
+    evaluated, which tools read which, a hidden boolean cutter still
+    cutting) -- trimmed once already, after the first measurement came in
+    over budget, rather than raising the ceiling to match it verbatim; see
+    this same commit's diff for the tighter wording. Catalogue JSON 55,642
+    chars + instructions 9,166 chars = 64,808 chars total, over the 57,100
+    ceiling above by 7,708. Raised to 64,900, just past this measurement.
+
+    Tranche 3 (``dev/CLAY-PLAN.md``): scene structure. Ten new tools --
+    ``clay_parent``, ``clay_group``, ``clay_ungroup``, ``clay_lock``,
+    ``clay_tag``, ``clay_separate``, ``clay_set_origin``, ``clay_measure``,
+    ``clay_checkpoint``, ``clay_restore`` (``studio/modes/clay/agent/
+    tools_structure.py``) -- the largest single tranche of new tools this
+    catalogue has taken, not drift: parenting, groups, locking, tags,
+    splitting an object apart, moving its origin, measuring it and naming a
+    history position are ten real capabilities an agent had no door onto
+    before this. ``clay_scene``'s shared row schema
+    (``_object_row_output_schema``) also gained ``parent``/``locked``/
+    ``tags``/``local`` -- declared on every schema that composes that row
+    (``clay_scene``'s own items, ``clay_add_primitive``, ``clay_add_mesh``),
+    the same multiplied-by-three growth tranche 2's own ``modifiers``/
+    ``evaluated`` fields already caused. ``clay_transform``, ``clay_delete``
+    and ``clay_select`` each grew a sentence or a property (LOCAL TRS, the
+    locked refusal, the ``tag`` filter). ``instructions()`` gained one
+    paragraph on parenting/locking/tags/checkpoints and widened its own
+    "one call, one undo step" paragraph to name ``clay_restore`` as a fourth
+    exception -- both trimmed once already, the same "tighter wording
+    before a wider ceiling" pass tranche 2's own entry above describes.
+    Catalogue JSON 66,718 chars + instructions 10,974 chars = 77,692 chars
+    total, over the 64,900 ceiling above by 12,792 -- ten new tools and a
+    scene-wide schema change, the same class of growth as tranche 2's own
+    entry, only larger because there are twice as many tools. Raised to
+    77,800, just past this measurement.
+
+    Tranches 6/7 (``dev/CLAY-PLAN.md``): UV/materials and collision/engine
+    profiles. This is the one entry in this pin's history that is not a
+    plain raise -- the brief that landed it ("Part 2 -- the catalogue diet")
+    found this test RED at ~78.5k against the 77,800 ceiling above *before*
+    three more tools were even added, because five registries' worth of
+    generated prose (every ``clay_op`` row's params, every ``clay_select_by``
+    query's arguments, every ``clay_modifier_add`` kind's params, every
+    ``clay_validate`` profile's label, and a second copy of every
+    generator's defaults beside the one ``instructions()`` already carries)
+    sat inline in a tool *description* -- context every session pays for at
+    ``tools/list`` whether or not it ever calls that tool. Fixed the shape,
+    not the number: those five moved behind a new ``clay_catalog(topic)``
+    tool, generated from the exact same registries
+    (``agent_clay_schema.CATALOG_TOPICS``) but returned only when a call
+    actually asks for a topic, at ~100-char pointer sentences left behind in
+    each tool's own description in their place. ``clay_op`` alone fell from
+    5,576 to 2,044 characters; ``clay_select_by`` from 4,742 to 3,464.
+    ``clay_add_figure``'s own part-name catalogue is deliberately **not**
+    moved -- ``test_clay_add_figure_description_names_every_part_of_every_
+    figure`` pins a real training-run incident (Run A of the Clay-assistant
+    fine-tune, 2026-09-12: 15 refusals from a model guessing figure part
+    names it was never told) that a one-call-away catalogue would
+    reintroduce for exactly the caller that never makes the second call.
+
+    Set against that, three new tools -- ``clay_uv`` (tranche 6, one door
+    over five uv actions), ``clay_collider`` (tranche 7, fits a box/sphere/
+    capsule/convex/compound proxy) and ``clay_catalog`` itself -- together
+    add 3,842 characters, ``clay_export`` gains an ``engine`` enum (+~250),
+    and ``clay_scene``'s shared object-row schema
+    (``agent_clay_schema._object_row_output_schema``) gains ``role``/
+    ``collider_kind``/``uv`` -- embedded three times over (``clay_scene``'s
+    own items, ``clay_add_primitive``, ``clay_add_mesh``), the same
+    multiplied-by-three growth tranches 2 and 3 already caused for their own
+    additions to that one shared shape. ``instructions()`` gains one
+    paragraph on ``clay_uv``/``clay_collider``/``clay_catalog``, offset by
+    dropping its own now-redundant nothing (the generator catalogue there is
+    the one deliberately-kept copy, so it does not shrink).
+
+    Catalogue JSON 65,803 chars + instructions 11,978 chars = 77,781 chars
+    total -- *under* the 77,800 ceiling above despite three new tools and a
+    scene-wide schema change, because the diet's own savings (~11k from the
+    four moved catalogues) outweighed everything this tranche pair added.
+    Raised anyway, to 78,000: 19 characters of headroom is not a ceiling
+    that buys the next tranche anything, and the point of fixing the shape
+    was to have room to spend, not to land exactly on the wire. The number
+    now buys a real margin (~220 characters) for a typo fix, a sentence
+    reworded for clarity, or a small schema tweak with nothing structural
+    behind it -- not a new tool or a new registry, which still has to raise
+    this ceiling and say why, the same rule every entry above already
+    follows.
     """
     from warlock.mcp import rpc
     from warlock.studio import agent_host
 
-    CEILING = 55_000
+    CEILING = 78_000
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

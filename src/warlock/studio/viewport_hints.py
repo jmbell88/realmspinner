@@ -275,12 +275,20 @@ def stats(doc: Any) -> str:
     Pure, and derived per call rather than cached. It walks the meshes, which
     is O(objects) in numpy shape reads -- the arrays are not touched, only
     their lengths -- so there is nothing to invalidate and nothing to go stale.
+
+    **Counts the evaluated mesh when the document can produce one.** A
+    ``ClayDoc`` carries ``.evaluated(uid)`` (:mod:`~.kernels.mesh.modifiers`);
+    this module imports nothing outward (its own docstring), so that is
+    duck-typed with ``hasattr`` rather than named, and a document with no such
+    method -- everything else this overlay might one day be asked to describe
+    -- is still counted on its own ``obj.mesh``, exactly as before.
     """
 
     objects = [obj for obj in doc.objects if getattr(obj, "visible", True)]
+    evaluate = getattr(doc, "evaluated", None)
     verts = edges = faces = tris = 0
     for obj in objects:
-        mesh = obj.mesh
+        mesh = obj.mesh if evaluate is None else evaluate(obj.uid)
         verts += int(len(mesh.positions))
         count = _faces_of(mesh)
         faces += count
@@ -364,6 +372,94 @@ def _faces_of(mesh: Any) -> int:
     if starts is None:
         return 0
     return max(0, int(len(starts)) - 1)
+
+
+# --- the measure readout (tranche 3: scene structure) -----------------------
+
+
+def _selected_vertex_points(doc: Any) -> list[np.ndarray]:
+    """World positions of every selected vertex, document order, one object
+    at a time -- capped at four: :func:`measure_line` only has an answer for
+    exactly two or exactly three, so a caller past that is already "".
+
+    ``doc.world_matrix`` is duck-typed with ``getattr`` for the reason
+    :func:`stats`'s own ``evaluated`` lookup is: this module imports nothing
+    outward, so a document with no such method measures in local space
+    rather than raising.
+    """
+    world_of = getattr(doc, "world_matrix", None)
+    points: list[np.ndarray] = []
+    sels = getattr(doc, "element_sel", {}) or {}
+    for obj in doc.objects:
+        sel = sels.get(obj.uid)
+        verts = None if sel is None else getattr(sel, "verts", None)
+        if verts is None or not len(verts):
+            continue
+        world = None if world_of is None else world_of(obj.uid)
+        positions = np.asarray(obj.mesh.positions, dtype="f8")
+        for idx in verts:
+            homo = np.append(positions[int(idx)], 1.0)
+            points.append(homo[:3] if world is None else (np.asarray(world, dtype="f8") @ homo)[:3])
+            if len(points) > 4:
+                return points
+    return points
+
+
+def measure_line(doc: Any) -> str:
+    """A live readout for the four selection shapes :mod:`~.kernels.mesh.
+    measure` answers: two selected vertices, three, a face selection, or a
+    plain object selection -- distance, angle, area and volume in turn.
+    ``""`` for anything else (an edge selection, an empty one, more than
+    three vertices...), which :func:`~.clay.ui.hud.hint_line` reads as "show
+    the ordinary hint instead."
+
+    World-space throughout, through ``doc.world_matrix`` -- see
+    :func:`_selected_vertex_points` for why that is a ``getattr`` rather than
+    a named import. Element indices are read against the *base* mesh
+    (``obj.mesh``), never the evaluated one: a selection is indices into the
+    base (``document.py``'s own module docstring), and measuring the
+    evaluated mesh at those same indices would be reading the wrong array
+    the moment an object carries a modifier.
+    """
+    from ..kernels.mesh import measure as bm_measure
+
+    mode = getattr(doc, "element_mode", "object")
+    if mode == "vertex":
+        points = _selected_vertex_points(doc)
+        if len(points) == 2:
+            return f"distance  {bm_measure.distance(points[0], points[1]):.4f} m"
+        if len(points) == 3:
+            return f"angle  {bm_measure.angle(points[0], points[1], points[2]):.2f}°"
+        return ""
+    if mode == "face":
+        world_of = getattr(doc, "world_matrix", None)
+        sels = getattr(doc, "element_sel", {}) or {}
+        total = 0.0
+        any_sel = False
+        for obj in doc.objects:
+            sel = sels.get(obj.uid)
+            faces = None if sel is None else getattr(sel, "faces", None)
+            if faces is None or not len(faces):
+                continue
+            any_sel = True
+            world = None if world_of is None else world_of(obj.uid)
+            total += bm_measure.face_area(obj.mesh, faces, world)
+        return f"area  {total:.4f} m²" if any_sel else ""
+    if mode == "object":
+        selection = getattr(doc, "selection", None) or ()
+        if not selection:
+            return ""
+        world_of = getattr(doc, "world_matrix", None)
+        total = 0.0
+        for uid in selection:
+            try:
+                obj = doc.by_uid(uid)
+            except (KeyError, AttributeError):
+                continue
+            world = None if world_of is None else world_of(uid)
+            total += bm_measure.volume(obj.mesh, world)
+        return f"volume  {total:.4f} m³"
+    return ""
 
 
 def _selected(doc: Any) -> str:
