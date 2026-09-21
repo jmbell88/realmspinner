@@ -193,6 +193,13 @@ anything.
   rig check. A LoRA run, which had no destination at all and landed on a blank Mesh stage,
   opens Settings on its Models page. Pasting a job id into the filter now finds the row even
   when it is older than the newest 200.
+- **Opening a sprite draft never marked which draft you came for.** The Sprite sheet panel
+  is meant to tag the draft that just landed as "just made", so arriving from a finished-job
+  toast or from the Library lands you on the right one of several. The marker was set on
+  arrival and then thrown away by the panel's own first draw, which read the arrival as a
+  switch to a different job and reset it — so it survived only for someone who was already
+  looking at that reference. Found by driving the real app, not by a test: the value was
+  `None` one frame after a double-click.
 
 **Work that ran with nothing stopping it.** Fourteen operations could stall the app for
 seconds with no refusal and nothing to cancel, each now measured and given a ceiling: a

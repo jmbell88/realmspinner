@@ -254,3 +254,10 @@ def open_asset(ctx: Any, job_or_id: Any) -> None:
         # ``store.list_sprite_drafts`` is documented oldest-first, so the new
         # one is at the *bottom* of a list the user did not watch grow.
         ctx.state.preview["sprite_focus"] = target.detail
+        # And say the panel is already *on* this job. ``sprite_panel._form``
+        # drops the focus marker whenever the job it draws for is not the one it
+        # last drew for -- so the first frame after this arrival read a switch,
+        # popped the marker this line had just set, and "just made" never showed
+        # for anyone who came from another asset, which is every arrival but the
+        # one from the reference's own panel.
+        ctx.state.preview["sprite_active_job"] = target.job_id

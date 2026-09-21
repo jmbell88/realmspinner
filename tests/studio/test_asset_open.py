@@ -283,3 +283,25 @@ def test_every_job_kind_is_either_an_asset_or_routed_by_kind():
 
     assets = {"text", "image", "tile_sheet", "music", "separate"}
     assert set(progress._PHASES_BY_KIND) == assets | set(asset_open.OPENS_ELSEWHERE)
+
+
+def test_arriving_at_a_sprite_draft_keeps_its_just_made_marker(monkeypatch):
+    """``open_asset`` sets ``sprite_focus``, and ``sprite_panel._form`` pops it
+    on the first draw for a job it was not already on -- which an arrival from
+    any other asset always is. Found driving the real app: the marker was None
+    one frame after a double-click on the draft's own Library row."""
+    from types import SimpleNamespace
+
+    from realmspinner.studio import widgets
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.panes import sprite_panel
+
+    monkeypatch.setattr(create_stages, "go", lambda *a, **k: None)
+    monkeypatch.setattr(widgets, "request_open", lambda key: None)
+    state = SimpleNamespace(preview={})
+    ctx = SimpleNamespace(state=state, cache=SimpleNamespace(get=lambda _i: None))
+
+    asset_open.open_asset(ctx, _done("sprite_synthesis", source_job="REF", draft_id="D1"))
+    sprite_panel._form(ctx, "REF")  # the panel's first draw for the reference
+
+    assert state.preview["sprite_focus"] == "D1"
