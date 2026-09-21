@@ -71,9 +71,12 @@ list also grows date headings — Today, Yesterday, This week, then by month.
 A **Usable** toggle sits beside Favourites: it shows only meshes graded at or above Review's own
 "usable" cut, covered next.
 
-**Opening** an asset is a click, or Enter on the selection. Where it lands depends on what it is: a
-reference opens on the Reference stage, a mesh on Mesh, a drawing in Inker, a tile map in Plotter, a
-character sheet in Poser. You do not choose the destination and you should not have to.
+**Opening** an asset is a double-click on its picture in the grid, Enter on the selection, or **Open**
+on the card, in the right-click menu or at the top of the inspector — a single click only selects.
+Where it lands depends on what it is: a reference opens on the Reference stage, a mesh on Mesh, a
+character sheet in Poser, a music take in Muse, a style LoRA run on the Models page of Settings. You
+do not choose the destination and you should not have to. A drawing or a tile map goes on to Inker or
+Plotter from the buttons under **Take it somewhere**.
 
 ## The four kinds of delete
 
@@ -129,8 +132,13 @@ sheet, a re-texture — each of these is a *product of another asset*. It has no
 and no directory of its own; it writes into the directory of the job it was made from.
 
 The app knows this and opens them onto the screen that actually shows them, rather than onto the
-blank screen their own stage would imply. It is worth knowing they exist so that a row without a
-picture does not look like a bug.
+blank screen their own stage would imply. **Open** works on them like any other row, the inspector's
+Details tab shows the pictures they made, and **Open folder** shows the source's folder, where the
+files really are. It is worth knowing they exist so that a row without a picture of its own does not
+look like a bug.
+
+Pasting a row's id — the twelve characters from a log line or a bug report — into the filter box finds
+it, even when it is far back in your history.
 
 ## What to read next
 

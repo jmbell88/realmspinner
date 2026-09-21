@@ -42,7 +42,7 @@ from typing import Any, NamedTuple
 class Route(NamedTuple):
     """Where one row opens. Pure data, so :func:`route` needs no ``ctx``."""
 
-    #: ``"create"``, ``"poser"`` or ``"muse"``.
+    #: ``"create"``, ``"poser"``, ``"muse"`` or ``"settings"``.
     mode: str
     #: A key of ``create_stages.STAGES``; ``""`` when the mode is not Create.
     stage: str
@@ -98,6 +98,26 @@ FOLLOWUP_DETAIL_KEYS: dict[str, str] = {
 }
 
 
+#: Kinds whose row is not drawn by the Create stage its ``stage`` column names,
+#: so the Library cannot leave "Open" to the ``model.glb``/``input.png`` ladder
+#: in ``state.primary_action``: a follow-up holds no file of its own, and a
+#: ``lora_train`` row holds a ``.safetensors`` that no viewer draws. Every one is
+#: routed by *kind* in :func:`route` -- the card, the menu, the inspector and a
+#: double-click all ask :func:`opens_elsewhere` rather than each keeping a list.
+OPENS_ELSEWHERE: frozenset[str] = frozenset({*FOLLOWUP_STAGES, "charsheet", "lora_train"})
+
+
+def opens_elsewhere(job: Any) -> bool:
+    """Whether ``job`` is a row that *only* :func:`open_asset` can take anywhere.
+
+    Kind-scoped, never ``source_job``-scoped, for the reason
+    ``asset_exits._mesh_for`` states: a bare "carries a ``source_job``" test
+    also matches rows this table deliberately does not own (``separate`` and
+    ``music`` route to Muse by their own arm above the follow-up one).
+    """
+    return isinstance(job, dict) and str(job.get("kind") or "") in OPENS_ELSEWHERE
+
+
 def route(job: Any) -> Route:
     """Where a "Show" or an "Open" on ``job`` lands.
 
@@ -112,6 +132,14 @@ def route(job: Any) -> Route:
     kind = str(job.get("kind") or "")
     source = str(params.get("source_job") or "")
     detail = str(params.get(FOLLOWUP_DETAIL_KEYS.get(kind, "")) or "")
+
+    if kind == "lora_train":
+        # Settings > Models, where the adapter this run registered is listed
+        # under "Your style LoRAs". Without an arm here the row fell through to
+        # ``stage_for`` and Enter landed on Create's Mesh stage holding a row
+        # with no mesh: the blank arrival this module exists to stop, for the one
+        # kind that has no Create surface at all.
+        return Route("settings", "", str(job.get("id") or ""), "", "")
 
     # A follow-up whose ``source_job`` is missing -- an old row, or a params
     # blob edited by hand -- falls through to the ordinary arm rather than
@@ -142,6 +170,20 @@ def route(job: Any) -> Route:
             return Route("create", stage, source, detail, FOLLOWUP_SECTIONS.get(kind, ""))
 
     return Route("create", create_stages.stage_for(job), str(job.get("id") or ""), "", "")
+
+
+def destination(job: Any) -> str:
+    """Where :func:`open_asset` will land, as words for a tooltip.
+
+    Derived from :func:`route` rather than a second table, so the sentence under
+    an Open button cannot say Create while the button goes to Poser.
+    """
+    target = route(job)
+    if target.mode == "create":
+        return f"Create, {target.stage} stage" if target.stage else "Create"
+    if target.mode == "settings":
+        return "Settings, Models"
+    return target.mode.capitalize()
 
 
 def open_asset(ctx: Any, job_or_id: Any) -> None:
@@ -179,6 +221,13 @@ def open_asset(ctx: Any, job_or_id: Any) -> None:
         return
 
     target = route(job)
+    if target.mode == "settings":
+        from .modes.settings.ui.panes import app_settings
+        from .state import set_mode
+
+        ctx.state.preview[app_settings.CATEGORY_SLOT] = "models"
+        set_mode(ctx.state, "settings")
+        return
     if target.mode == "muse":
         from .modes.muse import mode as muse_mode
         from .state import set_mode

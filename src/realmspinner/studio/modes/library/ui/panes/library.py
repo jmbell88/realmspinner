@@ -1071,13 +1071,20 @@ def _overflow(ctx: Any, job: Any) -> None:
         _trash_menu(ctx, job_id)
         imgui.end_popup()
         return
+    # The one item every finished row must have, first: a follow-up row holds no
+    # file of its own, so the card offered no button and this menu offered no
+    # Open -- the row could only be reached by pressing Enter on it, and nothing
+    # on screen said so. ``run_action``'s ``open`` arm is ``asset_open``'s door,
+    # the same one Enter and Home use, so the menu is not a fourth opinion.
+    if job.get("status") == "done" and controls.menu_item("Open", "Enter", False)[0]:
+        run_action(ctx, job, "open")
     # N115: the two "get me out of the app with this" actions, at the top
     # because they are the ones a user arrives at the menu already looking for.
     if controls.menu_item("Copy job id", "", False)[0]:
         imgui.set_clipboard_text(job_id)
         ctx.toast("Job id copied.", "success")
     if controls.menu_item("Open folder", "", False)[0]:
-        _open_folder(ctx, job_id)
+        _open_folder(ctx, job_id, job)
     widgets.divider()
     if controls.menu_item("Rename...", "", False)[0]:
         ctx.prompts.ask(
@@ -1174,7 +1181,7 @@ def _trash_menu(ctx: Any, job_id: str) -> None:
         )
 
 
-def _open_folder(ctx: Any, job_id: str) -> None:
+def _open_folder(ctx: Any, job_id: str, job: Any = None) -> None:
     """Show a job's directory in the OS file manager (N115).
 
     ``ctx.open_log``'s rule, applied to a directory: hand the path to the
@@ -1193,7 +1200,14 @@ def _open_folder(ctx: Any, job_id: str) -> None:
     """
     import os
 
-    path = ctx.job_dir(job_id)
+    from ..... import asset_open
+
+    # The directory that *holds the files*, which for a follow-up row is its
+    # source's: ``asset_open``'s docstring names the fact (a follow-up's own
+    # directory is never created), and asking for the row's own path toasted
+    # "not on disk" for every finished sprite sheet, rig and retexture.
+    holder = asset_open.route(job).job_id if isinstance(job, dict) else ""
+    path = ctx.job_dir(holder or job_id)
     if not path.exists():
         ctx.toast("That job's folder is not on disk.", "warn")
         return

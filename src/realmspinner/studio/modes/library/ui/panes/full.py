@@ -374,6 +374,21 @@ def _footer_height(ctx: Any) -> float:
     return imgui.get_frame_height_with_spacing() + imgui.get_style().item_spacing.y
 
 
+def should_open_on_double_click(job: Any) -> bool:
+    """Whether a double-click on this cell opens it. Pure, so it is a table test.
+
+    A finished, live row only: a queued or running one has nothing to open yet
+    (its card is about the progress), a failed one's answer is "try again", and
+    a trashed one's menu offers Restore and nothing else -- ``_overflow``'s
+    reasoning, applied to the gesture.
+    """
+    return (
+        isinstance(job, dict)
+        and job.get("status") == "done"
+        and not job.get("deleted_at")
+    )
+
+
 def _cell(ctx: Any, job: Any, size: tuple[float, float], thumb: float, pad: Any) -> None:
     """One asset: its picture, its state on top of it, its name under it.
 
@@ -430,6 +445,17 @@ def _cell(ctx: Any, job: Any, size: tuple[float, float], thumb: float, pad: Any)
         imgui.set_tooltip(name)
     if imgui.is_item_clicked():
         library.select(ctx, job_id)
+    if (
+        should_open_on_double_click(job)
+        and imgui.is_item_hovered()
+        and imgui.is_mouse_double_clicked(0)
+    ):
+        # This grid draws no card buttons, so Enter -- which nothing on screen
+        # mentions -- was the only way in for a row the inspector had nothing to
+        # offer. Selected first by the click that began the double-click, so
+        # ``open_selected`` acts on this cell and not on the previous one.
+        library.select(ctx, job_id)
+        library.open_selected(ctx)
     if selected:
         widgets.ring(
             imgui.ImVec2(origin.x, origin.y),

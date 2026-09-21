@@ -190,3 +190,96 @@ def test_every_kind_that_writes_into_another_jobs_directory_is_routed():
     # Only the kinds that actually carry source_job; the rest are assets.
     expected = {"rig", "sheet", "charsheet", "retexture"} & found
     assert expected <= routed, f"unrouted follow-up kinds: {expected - routed}"
+
+
+# --- the way in: every follow-up row must be *openable*, not merely routable ---
+#
+# ``route`` had an answer for a finished sprite sheet all along; what the Library
+# did not have was any control that asked it. The card's one button came from
+# ``state.primary_action``'s ``model.glb``/``input.png`` ladder, which a row that
+# writes into another job's directory can never satisfy, so the only door was
+# Enter -- which nothing on screen mentions.
+
+
+def _done(kind, **params):
+    return {
+        "id": "self",
+        "kind": kind,
+        "stage": "model",
+        "status": "done",
+        "files": [],
+        "params": dict(params),
+    }
+
+
+@pytest.mark.parametrize("kind", sorted(asset_open.OPENS_ELSEWHERE))
+def test_a_finished_row_that_holds_nothing_of_its_own_offers_open_on_its_card(kind):
+    from realmspinner.studio import state
+
+    assert state.primary_action(_done(kind, source_job="SRC")) == "open"
+
+
+def test_a_running_or_failed_follow_up_keeps_its_own_action():
+    """Open is for a finished row; the ladder above it is unchanged."""
+    from realmspinner.studio import state
+
+    running = {**_done("sprite_synthesis", source_job="SRC"), "status": "running"}
+    failed = {**_done("sprite_synthesis", source_job="SRC"), "status": "error"}
+    assert state.primary_action(running) == "cancel"
+    assert state.primary_action(failed) == "retry"
+
+
+def test_opens_elsewhere_is_kind_scoped_not_source_job_scoped():
+    """``separate`` and ``music`` carry a ``source_job``-shaped parent and are
+    routed to Muse by their own arm, which comes first -- so a bare "has a
+    ``source_job``" test would claim rows this table does not own."""
+    assert asset_open.opens_elsewhere(_done("sprite_synthesis"))
+    assert asset_open.opens_elsewhere(_done("lora_train"))
+    assert not asset_open.opens_elsewhere(_done("separate", source_job="TAKE"))
+    assert not asset_open.opens_elsewhere(_done("music"))
+    assert not asset_open.opens_elsewhere(_done("text", source_job="X"))
+    assert not asset_open.opens_elsewhere(None)
+
+
+def test_a_lora_run_opens_settings_models_and_not_a_blank_mesh_stage():
+    """It has no Create surface at all: the adapter it registered is listed in
+    Settings. With no arm it fell through to ``stage_for`` and Enter landed on a
+    Mesh stage holding a row with no mesh."""
+    target = asset_open.route(_done("lora_train"))
+    assert target == asset_open.Route("settings", "", "self", "", "")
+    assert asset_open.destination(_done("lora_train")) == "Settings, Models"
+
+
+def test_open_asset_switches_to_settings_on_the_models_page_for_a_lora_run():
+    from types import SimpleNamespace
+
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+
+    state = SimpleNamespace(mode="library", previous_mode="home", preview={})
+    ctx = SimpleNamespace(state=state, cache=SimpleNamespace(get=lambda _id: None))
+    asset_open.open_asset(ctx, _done("lora_train"))
+
+    assert state.mode == "settings"
+    assert state.preview[app_settings.CATEGORY_SLOT] == "models"
+
+
+def test_the_destination_sentence_is_derived_from_the_route():
+    assert (
+        asset_open.destination(_done("sprite_synthesis", source_job="R"))
+        == "Create, reference stage"
+    )
+    assert asset_open.destination(_done("charsheet", source_job="M")) == "Poser"
+    assert asset_open.destination(_done("music")) == "Muse"
+
+
+def test_every_job_kind_is_either_an_asset_or_routed_by_kind():
+    """The guard the AST test above cannot be: that one only sees kinds a
+    ``store.create`` call names as a literal, and only four of them. ``progress``
+    keeps the one table every kind must be in (an unregistered kind draws a bar
+    that never moves), so a new kind lands here and fails until somebody decides
+    whether its row is an asset or a product of one -- which is the decision
+    that gives it, or does not give it, a way to be opened."""
+    from realmspinner import progress
+
+    assets = {"text", "image", "tile_sheet", "music", "separate"}
+    assert set(progress._PHASES_BY_KIND) == assets | set(asset_open.OPENS_ELSEWHERE)

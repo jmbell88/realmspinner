@@ -529,3 +529,14 @@ def test_every_public_jobstore_method_guards_self_conn_with_self_lock():
         "JobStore methods touching self._conn outside self._lock: "
         f"{violations} -- add the guard, or allow-list with a reason in _LOCK_EXEMPT"
     )
+
+
+def test_a_pasted_job_id_is_found_past_the_loaded_window(store):
+    """``Filters.matches`` has always searched ``id`` -- a job id is how a row is
+    found from a bug report or a log line -- but ``search_ids``, the half that
+    reaches past the newest-200 window, only read ``name`` and ``prompt``. So an
+    id typed into the filter found nothing for any row that had scrolled out."""
+    wanted = store.create("text", "a plain barrel", {})
+    store.create("text", "a chest", {})
+    assert store.search_ids(wanted, limit=50) == [wanted]
+    assert store.search_ids(wanted[3:9], limit=50) == [wanted]

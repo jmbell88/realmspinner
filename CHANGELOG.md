@@ -179,6 +179,20 @@ anything.
   middle of an otherwise empty cell — on every direction of every animation, with the
   sheet's own validation reporting no problem, because the checks look for cells that are
   clipped or blank and a subject that small is neither.
+- **A finished sprite sheet, rig, retexture or LoRA run could not be opened from the
+  Library.** These rows are products of another asset: each writes into its source's
+  folder and never gets one of its own, so the card's one button — chosen by looking for a
+  `model.glb` or an `input.png` on the row — found neither and drew nothing. The right-click
+  menu had no Open, **Open folder** looked in the row's own (missing) folder and said it
+  was not on disk, the inspector offered no exits because a sprite sheet's source is a
+  picture and not a mesh, and clicking a picture in the full-window grid only selected it.
+  The one way in was pressing Enter, which nothing on screen mentions. **Open** is now on
+  the card, first in the right-click menu and at the top of the inspector, a double-click on
+  a picture opens it, **Open folder** shows the folder that actually holds the files, and
+  the Details tab of such a row shows what it made — both sprite candidates, the sheet, the
+  rig check. A LoRA run, which had no destination at all and landed on a blank Mesh stage,
+  opens Settings on its Models page. Pasting a job id into the filter now finds the row even
+  when it is older than the newest 200.
 
 **Work that ran with nothing stopping it.** Fourteen operations could stall the app for
 seconds with no refusal and nothing to cancel, each now measured and given a ceiling: a

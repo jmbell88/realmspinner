@@ -231,6 +231,10 @@ sheet** from there writes the atlas back out on the sheet's own fixed grid rathe
 so a walk cycle stays four rows of four and each cell's sidecar entry carries the direction and the
 frame. See [Inker: animation](29-inker-animation.md).
 
+A finished synthesis also appears in the Library as its own row. Select it and the inspector shows
+both candidates; **Open** — the button, the right-click item, or a double-click — takes you back to
+this section on the reference it was drawn from, with that draft marked.
+
 A synthesis is a queued job, so it waits its turn behind whatever else is generating. How much it
 costs depends on the type: a fixed atlas is one full image generation per candidate, and an action
 is one per direction per candidate — sixteen for a pair of eight-direction sheets, which is why a

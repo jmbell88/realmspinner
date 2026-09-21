@@ -125,3 +125,36 @@ def test_the_toolbar_and_the_inspector_agree_about_which_of_them_it_is(svc):
             ctx = FakeCtx(svc, mode, stage)
             offers = [overlay.offers_inker(ctx, job), inspector.offers_inker(ctx, job)]
             assert sum(offers) == 1, (mode, stage)
+
+
+# --- Open: the button a row with no exits still needs ---------------------------
+
+
+def _sprite_draft(status="done", **extra):
+    return {
+        "id": "DRAFT",
+        "kind": "sprite_synthesis",
+        "stage": "model",
+        "status": status,
+        "files": [],
+        "params": {"source_job": "REF", "draft_id": "D1"},
+        **extra,
+    }
+
+
+def test_the_library_inspector_offers_open_for_a_finished_row(svc):
+    """A sprite draft's source is a reference, so ``asset_exits.exits_for`` has
+    nothing for it: the inspector was a block of settings with no way onward."""
+    ctx = FakeCtx(svc, "library")
+    assert inspector.offers_open(ctx, _sprite_draft()) is True
+
+
+def test_open_is_not_offered_where_the_row_is_already_open_or_cannot_be(svc):
+    in_create = FakeCtx(svc, "create", "reference")
+    library = FakeCtx(svc, "library")
+
+    assert inspector.offers_open(in_create, _sprite_draft()) is False, "already there"
+    assert inspector.offers_open(library, _sprite_draft("running")) is False
+    assert inspector.offers_open(library, _sprite_draft("error")) is False
+    assert inspector.offers_open(library, _sprite_draft(deleted_at=1.0)) is False
+    assert inspector.offers_open(library, None) is False

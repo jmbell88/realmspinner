@@ -28,6 +28,11 @@ NO_HELP_BUTTON = {
     # per-item status readouts it used to carry moved into the top menu bar
     # (``menus.py``'s own status group, likewise not a pane with a (?)).
     "bottom_pane",
+    # A picture strip the inspector's Details tab draws above its own sections
+    # ("What this made", for a follow-up row). No heading of its own to hang a
+    # (?) beside: the inspector's button opens the Library chapter that
+    # describes it.
+    "followup_preview",
     "inker_canvas",  # the canvas itself; its tools are inker-tools
     # The three pieces T7 split off the canvas on 2026-09-04. Not panes: they
     # are the canvas's own drag, slice and multi-click-gesture halves, drawn

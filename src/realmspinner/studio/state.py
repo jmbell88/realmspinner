@@ -15,7 +15,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .. import vectors
-from . import verbs
+from . import asset_open, verbs
 
 # The prompt history the 2D pane offers. Twenty is what the browser kept: long
 # enough to find yesterday's phrasing, short enough to scan.
@@ -1634,6 +1634,16 @@ def primary_action(job: dict[str, Any], *, rigging_available: bool = True) -> st
     if status != "done":
         return None
     files = job.get("files") or []
+    if asset_open.opens_elsewhere(job):
+        # A follow-up row (rig, sheet, sprite draft, retexture, remesh, character
+        # sheet) and a LoRA run hold none of the files the ladder below reads --
+        # a follow-up writes into its source's directory, ``lora_train`` into an
+        # adapter -- so every arm below answered ``None`` and the card drew no
+        # button at all: a finished sprite sheet could only be opened by pressing
+        # Enter, which nothing on screen says. "Open" is ``asset_open``'s to
+        # place, which is what makes this and the manual's "anything else
+        # finished offers Open" one sentence.
+        return "open"
     if job.get("kind") == "separate":
         # Muse, and by way of the take rather than of this row: a split writes
         # into the source take's directory and has no artifacts of its own, so

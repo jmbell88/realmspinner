@@ -1155,8 +1155,8 @@ class JobStore:
     ) -> list[str]:
         """Ids matching what SQL can genuinely answer, newest first (A3).
 
-        ``text`` is a substring of ``name`` or ``prompt`` (case-insensitive),
-        exactly as before. ``tags`` and ``names`` are the ``tag:``/``name:``
+        ``text`` is a substring of ``name``, ``prompt`` or ``id``
+        (case-insensitive). ``tags`` and ``names`` are the ``tag:``/``name:``
         field terms ``state.parse_query`` pulls out of the filter box -- a
         real column and a comma-separated one, both indexable, unlike the
         rest of ``QUERY_FIELDS`` (``kind`` is a Python derivation over
@@ -1199,8 +1199,16 @@ class JobStore:
             conditions.append("favorite = 1")
         if text:
             pattern = f"%{_escape(text)}%"
-            conditions.append("(name LIKE ? ESCAPE '\\' OR prompt LIKE ? ESCAPE '\\')")
-            args.extend([pattern, pattern])
+            # ``id`` too, because ``Filters.matches`` searches it (name, prompt,
+            # tags *and* id) and a pasted job id is how a row is found from a
+            # bug report or a log line: without this an id only ever matched a
+            # row still inside the newest-200 window ``jobs_cache`` had loaded.
+            # The predicate is the same substring, so this is no more
+            # permissive than what it widens.
+            conditions.append(
+                "(name LIKE ? ESCAPE '\\' OR prompt LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')"
+            )
+            args.extend([pattern, pattern, pattern])
         for tag in tags:
             # Tags are stored comma-separated (`` tags`` column docstring
             # above): bracketing both the column and the pattern in commas

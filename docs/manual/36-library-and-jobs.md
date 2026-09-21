@@ -19,8 +19,11 @@ and only there when something is selected, because an empty column beside a grid
 Every control writes the same filters the sidebar's combos write, so switching between the two views
 never loses a filter, and every card offers the same actions and the same right-click menu.
 
-Arrow keys walk the grid: left and right by one, up and down by a row. Enter opens the highlighted
-asset in the pane that made it.
+Arrow keys walk the grid: left and right by one, up and down by a row. **Double-click** a picture, or
+press Enter, to open the highlighted asset in the pane that made it — a single click only selects.
+The same **Open** is the first item of the right-click menu and a button at the top of the inspector,
+so a row that offers nothing else can still be opened. A queued, running or failed row is not
+double-click-openable: it has nothing finished to open, and its card says what to do instead.
 
 Selecting a finished asset puts a **"Take it somewhere"** section at the top of the inspector, above
 its tabs, so it is visible whichever one you have open. It lists every workspace this particular
@@ -38,10 +41,18 @@ arrangement it came from, because the scene document is kept beside the mesh. Th
 fall-back — if the document has gone, the button says so rather than opening the merged mesh and
 calling it your scene.
 
-Selecting a **follow-up** row — a rig, a sprite sheet, a retexture, a remesh — offers the same list
-as the mesh it belongs to, not an empty one: a follow-up writes its files beside its source rather
-than into a directory of its own, so the destinations on offer are the source mesh's, and pressing
-one opens that mesh, not the row you selected.
+Selecting a **follow-up** row — a rig, a sprite sheet, a retexture, a remesh, a character sheet —
+does three things. Its **Open** goes to the asset whose folder holds what it made, at the surface
+that draws it: a sprite sheet lands on its reference's Sprite sheet section with that draft marked, a
+rig on the Rig stage, a character sheet in Poser. When the row belongs to a mesh, the inspector also
+offers the same "Take it somewhere" list as that mesh, and pressing one opens the mesh, not the row
+you selected. And the Details tab opens with **What this made** — the sprite draft's candidates, the
+sheet, the rig check picture — so you can see the thing without leaving the Library. **Open folder**
+on such a row shows the folder that holds its files, which is its source's, because a follow-up never
+gets a folder of its own.
+
+A **style LoRA run** is the other row with no picture. Its **Open** goes to Settings, on the Models
+page, where the adapter it produced is listed under your style LoRAs.
 
 ## The job lifecycle
 
@@ -78,7 +89,9 @@ obvious next step is always the button on offer:
 - A failed job offers **Try again**.
 - A finished reference offers **Make 3D**.
 - A finished mesh with no rig offers **Rig** (when Blender is available).
-- Anything else finished offers **Open**.
+- A finished follow-up (a rig, a sprite sheet, a character sheet, a retexture, a remesh) or a style
+  LoRA run offers **Open**. Any other finished row that the rungs above do not claim has no card
+  button, but **Open** is still the first item of its right-click menu.
 
 Everything else lives behind the card's overflow menu. Beside it are a checkbox for bulk selection
 and a star for favouriting.

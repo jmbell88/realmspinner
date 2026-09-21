@@ -26,6 +26,7 @@ from ..modes.create.ui import stages as create_stages
 from ..tokens import sp
 from . import (
     candidates_panel,
+    followup_preview,
     overlay,
     pose_panel,
     retarget_panel,
@@ -235,6 +236,22 @@ def offers_inker(ctx: Any, job: Any) -> bool:
     return not overlay.offers_inker(ctx, job)
 
 
+def offers_open(ctx: Any, job: Any) -> bool:
+    """Whether this pane draws **Open** for ``job``.
+
+    Not inside Create, where the row is already open and the button would
+    navigate to the screen the reader is looking at. Finished and live only,
+    the gate ``full.should_open_on_double_click`` applies to the same gesture:
+    a queued row has nothing to open, and a trashed one offers Restore.
+    """
+    return (
+        not create_stages.in_create(ctx.state)
+        and isinstance(job, dict)
+        and job.get("status") == "done"
+        and not job.get("deleted_at")
+    )
+
+
 def _edit_actions(ctx: Any, job: Any) -> None:
     """Take this asset somewhere it can be edited, from where it was made.
 
@@ -248,6 +265,14 @@ def _edit_actions(ctx: Any, job: Any) -> None:
     """
     from .. import asset_exits
 
+    # **Before the empty-exits return**, because the row that needs it most has
+    # none: a sprite draft's source is a reference, so ``exits_for`` answers
+    # nothing, and the inspector for a finished sprite sheet was a block of
+    # settings with no way onward.
+    if offers_open(ctx, job) and controls.button(
+        "Open", tooltip=f"Opens where this was made: {asset_open.destination(job)}."
+    ):
+        asset_open.open_asset(ctx, job)
     exits = asset_exits.exits_for(ctx, job)
     if not exits:
         return
@@ -351,6 +376,9 @@ def _readiness(ctx: Any, job: Any) -> None:
 
 
 def _details_tab(ctx: Any, job: Any) -> None:
+    # First: a follow-up row's own pictures are what the reader selected it to
+    # see, and everything below describes settings or the source's reference.
+    followup_preview.draw(ctx, job)
     _settings(ctx, job)
     _reference(ctx, job)
     _pixel(ctx, job)

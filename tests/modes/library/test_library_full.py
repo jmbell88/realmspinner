@@ -154,3 +154,63 @@ def test_library_full_grid_right_click_opens_the_menu_for_the_cell_under_the_cur
 
     assert calls == ["b"], calls
     assert ctx.state.selected == "b", ctx.state.selected
+
+
+def test_only_a_finished_live_cell_opens_on_double_click():
+    """A queued row has nothing to open, a failed one's answer is "try again" and
+    a trashed one's menu offers Restore only -- the gate ``_overflow`` applies to
+    its own Open item, applied to the gesture."""
+    ok = _job("a")
+    assert library_full.should_open_on_double_click(ok) is True
+    assert library_full.should_open_on_double_click({**ok, "status": "running"}) is False
+    assert library_full.should_open_on_double_click({**ok, "status": "error"}) is False
+    assert library_full.should_open_on_double_click({**ok, "deleted_at": 1.0}) is False
+    assert library_full.should_open_on_double_click(None) is False
+
+
+def test_double_clicking_a_grid_cell_opens_that_cell_and_a_single_click_only_selects(
+    monkeypatch,
+):
+    """Before, the grid's only affordance was selection: a click could not open
+    a row whose inspector had nothing to offer, and Enter -- which nothing on
+    screen mentions -- was the one way in."""
+    opened: list[str | None] = []
+    jobs = {"a": _job("a")}
+    ctx = _ctx(jobs)
+
+    with imgui_context(monkeypatch) as imgui:
+        monkeypatch.setattr(library, "_overflow", lambda _ctx, _job: None)
+        monkeypatch.setattr(
+            library, "open_selected", lambda c: opened.append(c.state.selected)
+        )
+        rects: dict[str, tuple[float, float]] = {}
+
+        def frame(pos, *, down):
+            io = imgui.get_io()
+            io.add_mouse_pos_event(pos[0], pos[1])
+            io.add_mouse_button_event(0, down)
+            imgui.new_frame()
+            imgui.set_next_window_pos((0.0, 0.0))
+            imgui.set_next_window_size((500.0, 300.0))
+            imgui.begin("##host")
+            imgui.begin_child("library-full/cells", (400.0, 200.0))
+            pad = imgui.get_style().window_padding
+            library_full._cell(ctx, jobs["a"], (150.0, 150.0), 130.0, pad)
+            mn, mx = imgui.get_item_rect_min(), imgui.get_item_rect_max()
+            rects["a"] = ((mn.x + mx.x) / 2, (mn.y + mx.y) / 2)
+            imgui.end_child()
+            imgui.end()
+            imgui.end_frame()
+
+        frame((-100.0, -100.0), down=False)
+        frame((-100.0, -100.0), down=False)
+        centre = rects["a"]
+
+        frame(centre, down=False)  # settle the hover over the cell
+        frame(centre, down=True)  # first press: a select, not an open
+        assert ctx.state.selected == "a"
+        assert opened == [], opened
+        frame(centre, down=False)
+        frame(centre, down=True)  # second press inside the double-click window
+
+    assert opened == ["a"], opened

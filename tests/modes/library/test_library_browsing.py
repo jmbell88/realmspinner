@@ -1206,3 +1206,43 @@ def test_dialogs_offers_a_filter_for_every_new_convert_suffix():
     for suffix in (".wav", ".flac", ".mp3", ".ogg", ".aiff", ".webp", ".jpg"):
         assert suffix in dialogs.ARTIFACT_FILTERS, suffix
         assert dialogs.ARTIFACT_FILTERS[suffix][1] == f"*{suffix}", suffix
+
+
+def test_a_follow_ups_folder_is_the_one_that_holds_its_files(tmp_path):
+    """A sprite draft, a rig or a retexture never gets a directory of its own
+    (``asset_open``'s docstring), so ``Open folder`` on the row asked for a path
+    that was never created and toasted "not on disk" for every finished one."""
+    asked: list[str] = []
+    ctx = _FolderCtx(tmp_path)
+    ctx.job_dir = lambda job_id: asked.append(job_id) or tmp_path
+    row = {"id": "DRAFT", "kind": "sprite_synthesis", "params": {"source_job": "SRC"}}
+
+    library._open_folder(ctx, "DRAFT", row)
+
+    assert asked == ["SRC"], asked
+    assert ctx.submitted and ctx.submitted[0][0] == "open-folder:DRAFT"
+    assert not ctx.toasts
+
+
+def test_an_ordinary_rows_folder_is_its_own(tmp_path):
+    asked: list[str] = []
+    ctx = _FolderCtx(tmp_path)
+    ctx.job_dir = lambda job_id: asked.append(job_id) or tmp_path
+
+    library._open_folder(ctx, "MESH", {"id": "MESH", "kind": "image", "params": {}})
+
+    assert asked == ["MESH"], asked
+
+
+def test_the_overflow_menu_offers_open_first_for_a_finished_row():
+    """The menu is one imgui popup and needs a live frame to draw, so this pins
+    the wiring rather than the pixels: an Open item, gated on ``done``, routed
+    through ``run_action`` (and so ``asset_open``), and ahead of every other
+    item -- a follow-up row had no way to open at all, from here or from its
+    card, and Enter was the only door."""
+    import inspect
+
+    source = inspect.getsource(library._overflow)
+    assert 'controls.menu_item("Open"' in source
+    assert source.index('controls.menu_item("Open"') < source.index("Copy job id")
+    assert 'run_action(ctx, job, "open")' in source
