@@ -67,8 +67,13 @@ def _palette_text(path: Path) -> str:
     """
     from ....service.files import MAX_UPLOAD_BYTES
 
-    return sizeguard.within_ceiling(path, MAX_UPLOAD_BYTES).read_text(
-        encoding="utf-8", errors="replace"
+    # Reads through read_bytes_within_ceiling rather than
+    # within_ceiling(path, N).read_text() -- the separate stat() and read
+    # that shape used left a window for a file that grows in between to
+    # sail past the ceiling it was meant to bound (shell-07, the 2026-09-18
+    # audit).
+    return sizeguard.read_bytes_within_ceiling(path, MAX_UPLOAD_BYTES).decode(
+        "utf-8", errors="replace"
     )
 
 

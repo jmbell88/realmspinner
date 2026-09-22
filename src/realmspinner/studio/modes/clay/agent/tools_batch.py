@@ -50,6 +50,18 @@ from .validate import (
     text,
 )
 
+# The 2026-09-22 audit, finding clay-14: unlike clay_program's
+# PROGRAM_DEADLINE_S, clay_batch had no wall-clock budget at all, so up to
+# BATCH_MAX synchronous, subprocess-backed clay_op calls ("decimate",
+# "retopo", "smart-unwrap", "bake-detail" -- see _OpCtx.inline's own
+# docstring for why those run inline rather than on a task thread) could be
+# folded into one call and block the frame thread for minutes. Kept local to
+# this handler, not in ``schema.py``, so it changes no published tool
+# description or schema byte (``derive_clay_card()`` reads those) -- a plain
+# handler-side deadline, exactly ``clay_program``'s own shape, checked
+# between entries the same way.
+BATCH_DEADLINE_S = 30.0
+
 
 def _core() -> Any:
     """``studio/modes/clay/agent/dispatch.py`` itself, imported lazily -- the same reach and the
@@ -402,7 +414,31 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     # ``redoable=False`` and the top-step label are all in :func:`_fold_run`
     # now -- entries here are plain ``(name, arguments)`` pairs, exactly the
     # shape it already knows how to run.
-    entries = [(entry["name"], entry.get("arguments") or {}) for entry in calls]
+    # Deadline checked between entries, exactly ``clay_program``'s own
+    # ``_make_entry`` shape (the 2026-09-22 audit, finding clay-14): the
+    # first entry always runs regardless of how close the budget already is,
+    # and a call already running is never cut off, so a chain of several
+    # subprocess-backed ``clay_op`` calls (decimate/retopo/smart-unwrap/
+    # bake-detail) refuses partway through rather than blocking the frame
+    # thread for the whole batch with no ceiling at all.
+    deadline = time.monotonic() + BATCH_DEADLINE_S
+
+    def _make_entry(index: int, name: str, arguments: dict) -> Any:
+        def _run(doc: Any, session: Session) -> dict:
+            if index > 0 and time.monotonic() > deadline:
+                return fail(
+                    f"clay_batch exceeded its {BATCH_DEADLINE_S:g}s deadline "
+                    "before this call ran; split the batch into smaller "
+                    "clay_batch calls.",
+                )
+            return _resolve_and_call(ctx, session, doc, name, arguments)
+
+        return _run
+
+    entries = [
+        _make_entry(i, entry["name"], entry.get("arguments") or {})
+        for i, entry in enumerate(calls)
+    ]
     results, stopped_at, rolled_back, changed = _fold_run(
         ctx, session, doc, entries, rollback=rollback_on_error, label="Agent batch",
     )

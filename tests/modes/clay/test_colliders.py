@@ -393,6 +393,40 @@ def test_oriented_box_fit_falls_back_rather_than_refuses_past_the_hull_point_cei
 # --- compound -----------------------------------------------------------------
 
 
+def test_compound_refuses_a_mesh_with_more_loose_parts_than_the_part_ceiling_before_hulling_any(
+    monkeypatch,
+):
+    """The 2026-09-22 audit's clay-12: `compound` already bounds each part's
+    own point count (`MAX_HULL_POINTS`), but nothing bounded how many *parts*
+    it would hull -- a mesh with thousands of loose pieces ran `_quickhull_core`
+    once per shell, in a Python loop, on the frame thread. Reproduced (audit's
+    own probe): 0.89s at 1,000 parts, 5.3s at 6,000; re-measured at merge on a
+    distinct-cube-per-part mesh: 0.67s at 700, 0.77s at 800, 0.86s at 900.
+
+    Driven here with the ceiling lowered and `_quickhull_core` replaced with
+    an assertion failure, on a handful of trivial one-face `face_groups`
+    (cheap to build, never valid enough to actually hull) -- proving the
+    refusal fires before any group reaches the hull step at all, rather than
+    building thousands of real loose parts.
+    """
+
+    def _boom(points, eps):
+        raise AssertionError("_quickhull_core ran past the part ceiling")
+
+    monkeypatch.setattr(cl, "_quickhull_core", _boom)
+    monkeypatch.setattr(cl, "MAX_COMPOUND_PARTS", 3)
+
+    mesh = bp.box((1.0, 1.0, 1.0))
+    n_faces = bm.face_count(mesh)
+    face_groups = [[i % n_faces] for i in range(4)]  # 4 groups, past the lowered ceiling
+    with pytest.raises(OpError, match="loose parts, past the"):
+        cl.compound(mesh, face_groups=face_groups)
+
+
+def test_compound_part_ceiling_has_not_crept_down_onto_ordinary_use():
+    assert cl.MAX_COMPOUND_PARTS >= 500
+
+
 def test_compound_on_two_separated_boxes_gives_two_hulls():
     a = bp.box((1.0, 1.0, 1.0))
     b = _translated(bp.box((1.0, 1.0, 1.0)), (5.0, 0.0, 0.0))

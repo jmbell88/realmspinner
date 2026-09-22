@@ -1089,7 +1089,12 @@ class DragOps:
         if self._marquee_add == "replace":
             doc.clear_element_sel()
         for obj in doc.objects:
-            if not obj.visible:
+            # The 2026-09-22 audit, finding clay-02: same door as
+            # ``pick_element`` in ``_view_pick.py`` -- a locked object's
+            # elements were still sweepable into the selection, the other
+            # way a locked object reached ``delete_selected``'s element-mode
+            # branch with nothing to stop it.
+            if not obj.visible or obj.locked:
                 continue
             screen = self.screen_of(doc, obj.uid)
             if mode == "vertex":

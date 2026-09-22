@@ -272,12 +272,8 @@ def test_mason_library_asset_bake_runs_on_the_task_thread_not_on_landing(
     model = gltf.Model([node], [0], [[prim]], [])
     monkeypatch.setattr(mason_assets.gltf, "load", lambda data: model)
 
-    class _FakePath:
-        def read_bytes(self) -> bytes:
-            return b""
-
     monkeypatch.setattr(
-        mason_assets.sizeguard, "within_ceiling", lambda path, ceiling: _FakePath()
+        mason_assets.sizeguard, "read_bytes_within_ceiling", lambda path, ceiling: b""
     )
 
     job_dir = tmp_path / "job5"

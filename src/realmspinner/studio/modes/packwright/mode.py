@@ -1067,7 +1067,7 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any] | None:
     from .engine import rpack
 
     try:
-        doc = rpack.read_rpack(packwright_io._within_ceiling(Path(path)).read_bytes())
+        doc = rpack.read_rpack(packwright_io._within_ceiling(Path(path)))
     except Exception:
         log.exception("could not reopen the recovered atlas at %s", path)
         return None

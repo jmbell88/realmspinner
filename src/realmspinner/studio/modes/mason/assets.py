@@ -272,7 +272,9 @@ class AssetSource:
             from ....service.validation import MAX_MESH_BYTES
 
             path = self.ctx.svc.config.job_dir(job_id) / artifact
-            data = sizeguard.within_ceiling(path, MAX_MESH_BYTES).read_bytes()
+            # shell-07 (the 2026-09-18 audit): the bounded read closes the
+            # stat/read_bytes race the split call used to leave open.
+            data = sizeguard.read_bytes_within_ceiling(path, MAX_MESH_BYTES)
             model = gltf.load(data)
             return _bake_model(model)
 

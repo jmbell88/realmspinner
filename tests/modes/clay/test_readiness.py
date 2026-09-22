@@ -334,3 +334,46 @@ def test_validate_refuses_or_backgrounds_past_a_document_wide_object_ceiling():
     under = _doc(*objects[:-1])
     report = readiness.validate(under)
     assert report.status in ("pass", "warn", "fail", "skip")
+
+
+# --- clay-13 (2026-09-22 audit): a document-wide corner ceiling --------------
+
+
+def test_validate_bounds_total_cost_when_many_objects_are_each_individually_under_the_clean_corner_ceiling(  # noqa: E501
+    monkeypatch,
+):
+    """``MAX_VALIDATE_OBJECTS`` (clay-05, 2026-09-20) bounds object *count*,
+    not total *size* -- a document of objects each just under
+    ``ops_clean.MAX_CLEAN_CORNERS`` still pays a full ``survey`` call per
+    object with nothing before this fix to sum that cost, so a document just
+    under the object ceiling could run for minutes (the 2026-09-22 audit's
+    clay-13 measured ~465 ms/object, 9.3 s at 20 objects, ~8 min extrapolated
+    to 1,000). A box is 24 corners; with ``MAX_CLEAN_CORNERS`` patched to 30
+    each box stays individually under it (so ``geometry``/``normals``/
+    ``closed`` do not skip), and with ``MAX_VALIDATE_CORNERS`` patched to 100
+    four boxes (96 corners) pass but five (120) must refuse before any
+    ``survey`` call runs."""
+    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 30)
+    monkeypatch.setattr(readiness, "MAX_VALIDATE_CORNERS", 100)
+
+    # At or under the ceiling, nothing changes -- ``survey`` still runs per
+    # object, same as any ordinary document (each box is individually under
+    # the patched ``MAX_CLEAN_CORNERS``, so none of the three checks skip).
+    under = _doc(*[_grounded_box() for _ in range(4)])  # 96 corners
+    report = readiness.validate(under)
+    assert report.status in ("pass", "warn", "fail", "skip")
+
+    # Past the ceiling, ``validate`` must refuse before it pays for a single
+    # ``survey`` call -- the same "known cheaply, refused before it is paid
+    # for" shape as ``MAX_VALIDATE_OBJECTS``.
+    called = []
+    monkeypatch.setattr(
+        oc, "survey",
+        lambda *a, **k: called.append(1) or (_ for _ in ()).throw(
+            AssertionError("survey should not run once the corner ceiling is exceeded")
+        ),
+    )
+    over = _doc(*[_grounded_box() for _ in range(5)])  # 120 corners
+    with pytest.raises(el.OpError, match=f"{readiness.MAX_VALIDATE_CORNERS:,}"):
+        readiness.validate(over)
+    assert not called

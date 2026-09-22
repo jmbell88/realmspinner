@@ -363,7 +363,16 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
     try:
         for uid in diff_.removed:
             if uid in {o.uid for o in doc.objects}:
-                doc.remove_object(uid)
+                # The 2026-09-22 audit's clay-17: this loop ran first, ahead
+                # of the mesh/transform/props loops below that all gained
+                # ``contextlib.suppress(el.OpError)`` under the 2026-09-19
+                # audit's clay-19 and the 2026-09-20 audit's clay-13 for the
+                # identical reason -- the base object may have been locked
+                # after the preview was built -- but this one, running
+                # first, was left to raise and abort the whole Apply before
+                # any of its siblings got a chance to tolerate anything.
+                with contextlib.suppress(el.OpError):
+                    doc.remove_object(uid)
 
         if diff_.added:
             added_objs = [scratch.by_uid(uid) for uid in diff_.added]

@@ -343,7 +343,14 @@ def _run_fix(ctx: Any, tab: Any, fix: str, uids: tuple[int, ...]) -> None:
     if uids:
         doc.set_element_mode("object")
         doc.select([uid for uid in uids if any(o.uid == uid for o in doc.objects)])
-    clay_ops.run(ctx, doc, clay_ops.get(fix))
+    # The 2026-09-22 audit's clay-05: with an empty ``uids`` (a check that ran
+    # against nothing selectable) this used to fall through and run the op on
+    # whatever was already selected -- the wrong object, or nothing at all
+    # with no toast either way. ``clay_ops.run`` returns ``False`` when it
+    # refused or had nothing to do; say so rather than pretending the press
+    # did something.
+    if not clay_ops.run(ctx, doc, clay_ops.get(fix)):
+        ctx.toast("Nothing to fix.", "warn")
 
 
 def _game_check(ctx: Any, tab: Any) -> None:

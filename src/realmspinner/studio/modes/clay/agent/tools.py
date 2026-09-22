@@ -809,8 +809,20 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
         # material) through the same two-case rule this fold now shares
         # rather than reimplements, which is exactly how the two doors
         # built two different meshes for the same edit before this.
+        #
+        # ``changed_keys=params`` -- the 2026-09-22 audit's clay-06: this is
+        # the one caller that can change more than one of a generator's own
+        # parameters in a single rebuild (``params`` is whatever the agent
+        # passed, not the whole merged dict), which is exactly the shape
+        # that can trigger ``carry_over``'s face-reordering risk (torus's
+        # ``segments``/``sides`` swapped, same face count, every face
+        # transposed). ``props.py``'s own call changes one field per
+        # keystroke and does not need to pass this.
         mesh = regen.carry_over(
-            obj.mesh, bp.GENERATORS[obj.generator][1](**merged), material=obj.material
+            obj.mesh,
+            bp.GENERATORS[obj.generator][1](**merged),
+            material=obj.material,
+            changed_keys=params,
         )
         changed = doc.set_generator_params(obj.uid, merged, mesh, was=was)
         # Reported back rather than echoed: a caller that asked for
@@ -970,6 +982,20 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
             "Select at least two visible objects.",
             field="uids",
             uids=targets,
+        )
+    # The 2026-09-22 audit, finding clay-22: a locked target or absorbed
+    # object already refuses the merge with no partial mutation --
+    # ``join_objects`` (``document.py``) checks every uid before touching
+    # anything -- but the ``OpError`` it raises reached this handler
+    # uncaught and fell through to ``call()``'s generic backstop, which
+    # carries no ``field``/``uids``, unlike ``_h_delete``/``_h_material``/
+    # ``_h_set_params``. Pre-checked here instead, the same shape as the
+    # material-assign lock check just above, so the refusal names
+    # ``field="uids"`` like its siblings.
+    locked = [obj for obj in (doc.by_uid(u) for u in targets) if obj.locked]
+    if locked:
+        return fail(
+            f"{locked[0].name!r} is locked.", field="uids", uids=[o.uid for o in locked]
         )
     # Evaluated, not the base -- a boolean must consume what a mirror or an
     # array modifier actually built, the same rule the interactive ops will

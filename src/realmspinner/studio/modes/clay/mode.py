@@ -313,8 +313,8 @@ def new_document(ctx: Any) -> ClayTab:
     return adopt(ctx, bd.ClayDoc(), title="Untitled")
 
 
-def _within_ceiling(path: Path) -> Path:
-    """Refuse a document too big to open, before a byte of it is read.
+def _within_ceiling(path: Path) -> bytes:
+    """Refuse and read a document too big to open, in one bounded call.
 
     Clay had **no size ceiling anywhere**, though
     ``service.files.MAX_CLAY_SOURCE_BYTES`` has existed since the format did --
@@ -322,29 +322,38 @@ def _within_ceiling(path: Path) -> Path:
     a user reaches. The ceiling is that same number rather than a second one
     invented here, for ``plotter_io``'s reason: "how big may a clay document
     be" has one answer, and two would drift the first time either moved.
+
+    Reads through :func:`sizeguard.read_bytes_within_ceiling` rather than
+    ``sizeguard.within_ceiling(path, N).read_bytes()`` -- the separate
+    ``stat()`` and ``read_bytes()`` that shape used left a window for a file
+    that grows in between to sail past the ceiling it was meant to bound
+    (shell-07, the 2026-09-18 audit).
     """
     from ....service.files import MAX_CLAY_SOURCE_BYTES
 
-    return sizeguard.within_ceiling(path, MAX_CLAY_SOURCE_BYTES)
+    return sizeguard.read_bytes_within_ceiling(path, MAX_CLAY_SOURCE_BYTES)
 
 
-def _within_mesh_ceiling(path: Path) -> Path:
+def _within_mesh_ceiling(path: Path) -> bytes:
     """The same question about a GLB, which is a different number.
 
     ``MAX_MESH_BYTES`` and not the document ceiling: an imported mesh is what
     the service already accepts as an *uploaded* mesh, and a hundred-thousand
     triangle ``model.glb`` is the ordinary case rather than the extreme one.
+
+    Reads through :func:`sizeguard.read_bytes_within_ceiling`, same reason as
+    :func:`_within_ceiling` above (shell-07, the 2026-09-18 audit).
     """
     from ....service.validation import MAX_MESH_BYTES
 
-    return sizeguard.within_ceiling(path, MAX_MESH_BYTES)
+    return sizeguard.read_bytes_within_ceiling(path, MAX_MESH_BYTES)
 
 
 def _load(path: Path) -> dict[str, Any]:
     """Blocking; task thread only. Raises rather than returning a broken tab."""
     from ....kernels.mesh import serialize
 
-    data = _within_ceiling(Path(path)).read_bytes()
+    data = _within_ceiling(Path(path))
     doc = serialize.read_rblk(data)
     return {
         "doc": doc,
@@ -455,7 +464,7 @@ def import_mesh_path(
     def run() -> dict[str, Any]:
         from ....kernels.mesh import meshimport
 
-        data = _within_mesh_ceiling(path).read_bytes()
+        data = _within_mesh_ceiling(path)
         mtl = _sibling_mtl(path, data) if path.suffix.lower() == ".obj" else None
         doc = meshimport.import_file(
             data, path.suffix, path.stem, scale=use_scale, up=use_up, mtl=mtl
@@ -494,7 +503,7 @@ def ask_import_mesh(ctx: Any) -> None:
         path = dialogs.open_file("Import mesh", IMPORT_MESH_FILTER)
         if path is None:
             return None
-        data = _within_mesh_ceiling(path).read_bytes()
+        data = _within_mesh_ceiling(path)
         # The 2026-09-19 audit (clay-07): this picker never read the sibling
         # ``.mtl``, so an OBJ Clay itself exported came back grey through this
         # button while drag-and-drop (``import_mesh_path``, which has always
@@ -534,7 +543,7 @@ def edit_asset_in_clay(ctx: Any, job: Any) -> None:
         mesh = ctx.svc.config.job_dir(job_id) / "model.glb"
         if not mesh.exists():
             raise FileNotFoundError(f"{job_id} has no mesh to edit")
-        return _parse_glb(_within_mesh_ceiling(mesh).read_bytes(), name)
+        return _parse_glb(_within_mesh_ceiling(mesh), name)
 
     ctx.submit(f"clay-import:{job_id}", run)
 
@@ -1680,7 +1689,7 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any]:
     from ....kernels.mesh import serialize
 
     try:
-        doc = serialize.read_rblk(_within_ceiling(path).read_bytes())
+        doc = serialize.read_rblk(_within_ceiling(path))
     except Exception:
         # ``None`` rather than a raise: the landing turns it into the one
         # sentence every provider says (``journal.adopt_failed``), where a

@@ -29,6 +29,7 @@ from _ui_context import imgui_context
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import mesh as bm
 from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import regen
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
 
@@ -143,3 +144,42 @@ def test_both_generator_rebuild_doors_go_through_clay_regen() -> None:
             f"{path.name}:{func_name} rebuilds with a bare auto_smooth(...) "
             "instead of going through regen.carry_over(...)"
         )
+
+
+def test_carry_over_does_not_mispaint_a_torus_when_segments_and_sides_are_swapped_in_one_rebuild() -> None:  # noqa: E501
+    """The 2026-09-22 audit's clay-06: ``carry_over`` copied ``material``
+    and ``smooth`` verbatim whenever the rebuilt mesh's face count matched
+    the old one's, on the assumption that "same count" means "same faces in
+    the same order" -- true for a radius or position change, false when
+    ``torus``'s ``segments`` and ``sides`` trade places in one
+    ``clay_set_params`` call: the product stays the same so the face count
+    matches, but every face is transposed to a different index. Face 7,
+    hand-painted, landed on whatever face happened to be at index 7 after
+    the swap -- not the same physical patch of the ring.
+    """
+    from dataclasses import replace
+
+    old = bp.torus(segments=8, sides=4)
+    rebuilt = bp.torus(segments=4, sides=8)
+    assert bm.face_count(old) == bm.face_count(rebuilt) == 32
+
+    painted = np.array(old.material, copy=True)
+    painted[7] = 1
+    old_painted = replace(old, material=painted)
+
+    # A caller that does not say which parameters changed keeps the old,
+    # trusting (and here wrong) verbatim behaviour -- this is what the
+    # properties panel's single-field-per-keystroke door still gets, safely,
+    # since it can never trigger a two-parameter swap.
+    naive = regen.carry_over(old_painted, rebuilt, material=0)
+    assert naive.material[7] == 1  # the un-warned verbatim copy, still reachable on purpose
+
+    # ``clay_set_params`` changed two parameters in the one rebuild that
+    # produced ``rebuilt`` -- naming them is what lets carry_over refuse to
+    # trust "same face count" and re-derive instead, rather than silently
+    # relocating face 7's paint to whatever face sits at index 7 now.
+    warned = regen.carry_over(
+        old_painted, rebuilt, material=0, changed_keys={"segments", "sides"}
+    )
+    assert not np.array_equal(warned.material, old_painted.material)
+    assert set(np.unique(warned.material).tolist()) == {0}

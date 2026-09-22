@@ -81,7 +81,7 @@ def add_tileset_path(
 
         try:
             if path.suffix.lower() == ".tsx":
-                data = _within_ceiling(path).read_bytes()
+                data = _within_ceiling(path)
                 image = tsxlib.tsx_source(data)
                 tileset = tsxlib.read_tsx(data, _decode(_resolve_source(path.parent, image)))
             else:
@@ -838,7 +838,7 @@ def ask_add_tileset(ctx: Any) -> None:
             return None
         try:
             if path.suffix.lower() == ".tsx":
-                data = _within_ceiling(path).read_bytes()
+                data = _within_ceiling(path)
                 image = tsxlib.tsx_source(data)
                 tileset = tsxlib.read_tsx(data, _decode(_resolve_source(path.parent, image)))
             else:

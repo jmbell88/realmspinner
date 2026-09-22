@@ -130,8 +130,15 @@ def new_document(ctx: Any) -> MasonTab:
     return adopt(ctx, md.MasonDoc(), title="Untitled")
 
 
-def _within_ceiling(path: Path) -> Path:
-    return sizeguard.within_ceiling(Path(path), mason_io.MAX_RSCN_BYTES)
+def _within_ceiling(path: Path) -> bytes:
+    """Refuse and read a scene too big to open, in one bounded call.
+
+    Reads through :func:`sizeguard.read_bytes_within_ceiling` rather than the
+    separate ``stat()``-then-``read_bytes()`` shape, which left a window for a
+    file that grows in between to sail past the ceiling it was meant to bound
+    (shell-07, the 2026-09-18 audit).
+    """
+    return sizeguard.read_bytes_within_ceiling(Path(path), mason_io.MAX_RSCN_BYTES)
 
 
 def ask_open(ctx: Any) -> None:
@@ -356,7 +363,7 @@ def import_glb_path(ctx: Any, path: Path) -> None:
         from ....service import jobs as svc_jobs
         from ....service.validation import MAX_MESH_BYTES
 
-        data = sizeguard.within_ceiling(path, MAX_MESH_BYTES).read_bytes()
+        data = sizeguard.read_bytes_within_ceiling(path, MAX_MESH_BYTES)
         result = svc_jobs.import_mesh(ctx.svc, data, name=path.stem, prompt=path.stem)
         return {"job_id": result["id"], "name": path.stem}
 
@@ -1023,7 +1030,7 @@ def edit_asset_in_mason(ctx: Any, job: Any) -> None:
         from .engine import serialize
 
         path = svc_files.mason_source_path(ctx.svc, job_id)
-        data = _within_ceiling(Path(path)).read_bytes()
+        data = _within_ceiling(Path(path))
         try:
             doc = serialize.read_rscn(data)
         except ValueError as exc:
@@ -1372,7 +1379,7 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any] | None:
     from .engine import serialize
 
     try:
-        doc = serialize.read_rscn(_within_ceiling(path).read_bytes())
+        doc = serialize.read_rscn(_within_ceiling(path))
     except Exception:
         log.exception("could not reopen the recovered scene at %s", path)
         return None

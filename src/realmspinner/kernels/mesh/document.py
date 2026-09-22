@@ -2,10 +2,23 @@
 
 A Clay document is a flat list of objects, each carrying a TRS and, since
 tranche 3, an optional ``parent`` uid (see the "hierarchy" section below for
-what that buys and what it costs). The one conversion out of here --
-:func:`to_model` -- is what the viewport draws, what the exporter writes and
-what the trellis render photographs; there is exactly one of it, so those
-three can never disagree about what the document *is*.
+what that buys and what it costs). :func:`to_model` is the one conversion
+that builds real glTF hierarchy from a whole document, and the GLB writer is
+its only consumer. **The viewport and the trellis render do not call it** --
+each builds its per-object primitives straight from :func:`to_primitives`
+(the viewport's own cache, ``studio/modes/clay/ui/_view_cache.py``, and
+``render_png``/``render_ids`` in ``studio/modes/clay/ui/view.py``) rather
+than through a node tree, because neither wants a flattened scene: the
+viewport indexes its GPU buffers per object uid and the render needs a
+colour table keyed the same way. The 2026-09-22 audit's clay-21 found the
+"exactly one of it" claim this paragraph used to make false for those two --
+:func:`to_primitives` is the one conversion the three consumers actually
+share, and ``tests/modes/clay/test_document.py``'s
+``test_the_viewports_per_object_cache_agrees_with_to_model_for_a_hidden_parent_with_a_visible_child``
+pins that the two building paths -- ``to_model``'s per-object
+``to_primitives`` call and the viewport cache's own -- still agree on which
+objects get a node/entry and what each one draws, since nothing enforces
+that agreement structurally.
 
 **Materials are ``viewer.gltf.Material`` objects, not a new type.** They are
 already pure data, they already carry ``base_color_factor`` /
@@ -592,10 +605,17 @@ class ClayDoc:
         *uid* to itself or to one of its own descendants: a document has no
         way to compose a cycle's world matrix.
 
-        Not a locking door (see the module docstring's locking paragraph and
-        its own list): reparenting with ``keep_world`` moves nothing on
-        screen, so it is a re-framing rather than a change to what the object
-        looks like, the same reasoning :meth:`set_origin` is exempted under.
+        Not a locking door **when** ``keep_world`` (see the module
+        docstring's locking paragraph and its own list): reparenting with
+        ``keep_world`` moves nothing on screen, so it is a re-framing rather
+        than a change to what the object looks like, the same reasoning
+        :meth:`set_origin` is exempted under. ``keep_world=False`` does not
+        hold that reasoning -- the object's local TRS is left untouched
+        while its parent changes, so it visibly jumps to wherever the new
+        parent's frame puts it -- so that call *is* gated by
+        :meth:`_refuse_if_locked`, the 2026-09-22 audit's clay-04: an agent
+        calling ``clay_parent`` with ``keep_world=False`` moved a locked
+        object with no refusal at all.
 
         With ``keep_world`` (the default) the object's local TRS is
         recomputed from its *current* world matrix before the parent changes,
@@ -614,6 +634,8 @@ class ClayDoc:
                 )
         if obj.parent == parent:
             return False
+        if not keep_world:
+            self._refuse_if_locked(uid)
 
         old_parent = obj.parent
         edits: list[Any] = []
@@ -2196,9 +2218,16 @@ def kept_objects(doc: ClayDoc) -> list[Obj]:
 def to_model(doc: ClayDoc) -> gltf.Model:
     """The document as a :class:`~gltf.Model`: real glTF hierarchy.
 
-    Every consumer goes through here -- the viewport, the GLB writer, the
-    render that gets handed to trellis -- so "what does this document look
-    like" has exactly one answer.
+    The GLB writer goes through here. **The viewport and the trellis render
+    do not** -- see the module docstring's 2026-09-22 audit note, clay-21:
+    they build their own per-object primitives from :func:`to_primitives`
+    directly, because neither wants a flattened node tree. What the three
+    consumers do share is :func:`to_primitives` itself and
+    :func:`kept_objects`'s "visible, or has a visible descendant" rule,
+    which the viewport cache and ``render_png``/``render_ids`` each
+    re-derive rather than call -- pinned to agree by
+    ``tests/modes/clay/test_document.py``'s
+    ``test_the_viewports_per_object_cache_agrees_with_to_model_for_a_hidden_parent_with_a_visible_child``.
 
     **A node is emitted for an object that is visible, or that has a visible
     descendant anywhere under it** -- the module docstring's "hiding is per

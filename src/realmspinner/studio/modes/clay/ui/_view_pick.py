@@ -222,7 +222,14 @@ class PickOps:
 
         best: tuple[float, int, int] | None = None
         for obj in doc.objects:
-            if not obj.visible:
+            # The 2026-09-22 audit, finding clay-02: unlike ``pick_face``
+            # (above), this loop picked a locked object's elements straight
+            # into ``doc.element_sel``, and locking is a click-through door
+            # ("viewport clicks pass through it") only for the object pick,
+            # not this one -- an element belongs to one object, so leaving a
+            # locked object's elements pickable let Delete land a refusal
+            # that reads as "nothing happened" for the rest of the selection.
+            if not obj.visible or obj.locked:
                 continue
             screen = self.screen_of(doc, obj.uid)
             if mode == "vertex":

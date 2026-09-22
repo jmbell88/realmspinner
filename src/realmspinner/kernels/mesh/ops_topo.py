@@ -840,6 +840,11 @@ def collapse(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
 # --- fill hole --------------------------------------------------------------
 
 
+#: The most boundary edges one ``fill_hole`` call will walk -- see the
+#: refusal inside the function for the measurements this sits under.
+MAX_FILL_HOLE_SEEDS = 50_000
+
+
 def fill_hole(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     """Cap the boundary ring each selected edge belongs to, with one n-gon.
 
@@ -870,6 +875,22 @@ def fill_hole(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     """
     if len(sel.edges) == 0:
         raise OpError("Select an edge on the boundary of a hole to fill it.")
+    # The 2026-09-22 audit, clay-10: MAX_DISSOLVED_RING just below bounds only
+    # the *largest* ring this call caps, which stays small when the selection
+    # spans many disjoint small holes rather than one big one -- reproduced at
+    # 2.9 s for 39,601 holes and 37.8 s for 89,401 (worse than linear, from the
+    # per-seed O(mesh) scan `boundary_ring_from` also fixed in this change).
+    # Refusing on the seed count itself, before any ring is walked, catches the
+    # "many small holes" shape the per-ring ceiling cannot see. Re-measured
+    # after both fixes on a mesh of disjoint 4-corner holes: 0.685 s at 40,000
+    # seeds, 0.828 s at 50,000, roughly linear -- this ceiling keeps one call
+    # under a second.
+    if len(sel.edges) > MAX_FILL_HOLE_SEEDS:
+        raise OpError(
+            f"That selection touches {len(sel.edges):,} boundary edges, past the "
+            f"{MAX_FILL_HOLE_SEEDS:,} Fill Hole can walk in one call without "
+            "stalling. Fill fewer holes at once."
+        )
 
     a = adjacency(mesh)
     ids = a.edge_ids(sel.edges)

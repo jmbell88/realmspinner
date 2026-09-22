@@ -65,7 +65,11 @@ def load(path: Path) -> dict[str, Any]:
     """
     from .engine import serialize
 
-    data = sizeguard.within_ceiling(path, MAX_RSCN_BYTES).read_bytes()
+    # Reads through read_bytes_within_ceiling rather than the separate
+    # stat()-then-read_bytes() shape, which left a window for a file that
+    # grows in between to sail past the ceiling it was meant to bound
+    # (shell-07, the 2026-09-18 audit).
+    data = sizeguard.read_bytes_within_ceiling(path, MAX_RSCN_BYTES)
     doc = serialize.read_rscn(data)
     return {
         "doc": doc,

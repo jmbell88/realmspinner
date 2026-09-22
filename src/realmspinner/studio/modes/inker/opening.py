@@ -269,7 +269,7 @@ def _load_aseprite(path: Path) -> dict[str, Any]:
 
     path = Path(path)
     doc, warnings = asein.document_from_aseprite(
-        sizeguard.within_ceiling(path, MAX_INKER_BYTES).read_bytes()
+        sizeguard.read_bytes_within_ceiling(path, MAX_INKER_BYTES)
     )
     return {
         "doc": doc,

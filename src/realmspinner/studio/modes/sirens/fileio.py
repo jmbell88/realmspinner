@@ -53,8 +53,8 @@ _start = docmodes.start_save
 # --- opening ------------------------------------------------------------------
 
 
-def _within_ceiling(path: Path) -> Path:
-    """Refuse a file too big to open, before a byte of it is read.
+def _within_ceiling(path: Path) -> bytes:
+    """Refuse and read a file too big to open, in one bounded call.
 
     ``rsng.MAX_DECOMPRESSED_BYTES`` is the engine's door on what the archive
     *claims*; this is the door on what it *weighs*, and the two are different
@@ -65,10 +65,16 @@ def _within_ceiling(path: Path) -> Path:
     A ``ServiceError`` rather than a ``ValueError``: this is the *mode's*
     refusal about a file the user picked, and its text reaches the user
     verbatim through the task classifier.
+
+    Reads through :func:`sizeguard.read_bytes_within_ceiling` rather than
+    ``sizeguard.within_ceiling(path, N).read_bytes()`` -- the separate
+    ``stat()`` and ``read_bytes()`` that shape used left a window for a file
+    that grows in between to sail past the ceiling it was meant to bound
+    (shell-07, the 2026-09-18 audit).
     """
     from .engine import rsng
 
-    return sizeguard.within_ceiling(path, rsng.MAX_DECOMPRESSED_BYTES)
+    return sizeguard.read_bytes_within_ceiling(path, rsng.MAX_DECOMPRESSED_BYTES)
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -76,9 +82,10 @@ def _load(path: Path) -> dict[str, Any]:
     from ....service.errors import invalid_from
     from .engine import rsng
 
-    path = _within_ceiling(Path(path))
+    path = Path(path)
+    data = _within_ceiling(path)
     try:
-        doc = rsng.read_rsng(path.read_bytes())
+        doc = rsng.read_rsng(data)
     except ValueError as exc:
         raise invalid_from(exc, "This song could not be opened", field="file") from exc
     return {"doc": doc, "path": str(path), "title": sirens_state.title_for(path)}
@@ -123,8 +130,8 @@ def open_path(ctx: Any, path: Path) -> None:
 SAMPLE_PREFIX = "sirens-sample:"
 
 
-def _sample_ceiling(path: Path) -> Path:
-    """Refuse a file too big to be a sample, before a byte of it is read.
+def _sample_ceiling(path: Path) -> bytes:
+    """Refuse and read a file too big to be a sample, in one bounded call.
 
     ``wavout.MAX_SAMPLE_FRAMES`` is the engine's door on how many frames it will
     decode; this is the door on what the file *weighs*, which is a different
@@ -132,10 +139,13 @@ def _sample_ceiling(path: Path) -> Path:
     file has to be read to reach. The number is the engine's own, times the
     widest frame this build decodes (stereo 32-bit), rather than a second
     figure invented here.
+
+    Reads through :func:`sizeguard.read_bytes_within_ceiling` rather than
+    stat-then-``read_bytes()`` -- shell-07, the 2026-09-18 audit.
     """
     from ....kernels.audio import wavout
 
-    return sizeguard.within_ceiling(path, wavout.MAX_SAMPLE_FRAMES * 8)
+    return sizeguard.read_bytes_within_ceiling(path, wavout.MAX_SAMPLE_FRAMES * 8)
 
 
 def _decode_sample(path: Path, instrument: int | None, switch: bool = False) -> dict[str, Any]:
@@ -158,9 +168,10 @@ def _decode_sample(path: Path, instrument: int | None, switch: bool = False) -> 
     from ....service.errors import invalid_from
     from .engine import synth
 
-    path = _sample_ceiling(Path(path))
+    path = Path(path)
+    data = _sample_ceiling(path)
     try:
-        pcm = wavout.read_wav(path.read_bytes(), synth.SAMPLE_RATE)
+        pcm = wavout.read_wav(data, synth.SAMPLE_RATE)
     except ValueError as exc:
         raise invalid_from(exc, "This sample could not be loaded", field="file") from exc
     if not pcm.size:

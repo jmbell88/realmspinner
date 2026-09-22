@@ -19,6 +19,7 @@ directly with no headless frame at all.
 
 from __future__ import annotations
 
+import inspect
 import math
 
 import numpy as np
@@ -505,6 +506,7 @@ def test_uv_pane_switching_the_selected_object_mid_live_transform_closes_the_ope
         def __init__(self, doc, view_state) -> None:
             self.doc = doc
             self.uv_view = view_state
+            self.saving = False
 
     class _State:
         def __init__(self, tab) -> None:
@@ -538,12 +540,13 @@ def test_uv_pane_apply_buttons_at_their_own_identity_value_push_no_undo_step(
     doc, obj = _doc_with_two_islands()
     view_state = clay_uv.UvPaneState(selected_islands=frozenset({0, 1}))
     monkeypatch.setattr(clay_uv.widgets, "disabled_button", lambda *a, **kw: True)
+    tab = _FakeTab(doc)
 
     def click() -> None:
         ui.new_frame()
         ui.begin("##host")
         try:
-            clay_uv._toolbar(ctx=None, doc=doc, obj=obj, view_state=view_state)
+            clay_uv._toolbar(ctx=None, tab=tab, doc=doc, obj=obj, view_state=view_state)
         finally:
             ui.end()
             ui.end_frame()
@@ -592,6 +595,79 @@ def test_uv_pane_measurements_are_memoised_on_the_mesh_and_not_recomputed_every_
     assert len(calls) == 2, "a genuinely different mesh still gets measured"
 
 
+def test_uv_pane_island_ids_are_memoised_on_the_mesh_and_not_recomputed_every_frame(
+    monkeypatch,
+) -> None:
+    """The 2026-09-22 audit's clay-20: ``_canvas`` used to call
+    ``uvtools.islands(mesh)`` fresh every single frame, right beside the
+    :func:`clay_uv._measurements` memo the 2026-09-19 audit's clay-12 added
+    for overlap/stretch -- island ids are exactly as much a pure function of
+    mesh identity, so this folds them into that same cache (measured at
+    3.6-6.9 ms/frame in the audit's own reproduction) rather than keeping a
+    second, unmemoised call.
+    """
+    mesh = _two_island_mesh()
+    calls = []
+    original = uvtools.islands
+
+    def counting(m):
+        calls.append(1)
+        return original(m)
+
+    monkeypatch.setattr(clay_uv.uvtools, "islands", counting)
+    view_state = clay_uv.UvPaneState()
+
+    clay_uv._measurements(view_state, mesh)
+    clay_uv._measurements(view_state, mesh)
+    clay_uv._measurements(view_state, mesh)
+    assert len(calls) == 1, "the same mesh object's islands must be computed once, not every call"
+
+    other = _two_island_mesh()
+    clay_uv._measurements(view_state, other)
+    assert len(calls) == 2, "a genuinely different mesh still gets its islands computed"
+
+
+def test_uv_pane_editing_controls_are_disabled_while_the_tab_is_saving(
+    ui, monkeypatch
+) -> None:
+    """The 2026-09-22 audit's clay-19: every other Clay pane greys out while
+    a save is in flight (``saving`` gates every control that changes the
+    document, ``mode.py``'s own module docstring) but this pane never read
+    ``tab.saving`` at all -- Apply rotate/scale, Pack, drag-move and E/R all
+    stayed live. ``_toolbar`` now wraps its whole body in
+    ``imgui.begin_disabled(tab.saving)``; ``_canvas``'s live-transform/
+    drag/box-select dispatch (the part ``begin_disabled`` cannot reach, since
+    it drives off raw mouse/key state rather than imgui widgets) is instead
+    skipped outright while saving.
+    """
+    source = inspect.getsource(clay_uv._toolbar)
+    assert "imgui.begin_disabled(tab.saving)" in source, "the toolbar must grey out while saving"
+    assert "imgui.end_disabled()" in source
+
+    doc, obj = _doc_with_two_islands()
+    view_state = clay_uv.UvPaneState(drag_mode="rotate", for_uid=obj.uid)
+    calls: list[int] = []
+    monkeypatch.setattr(clay_uv, "_drive_live_transform", lambda *a, **kw: calls.append(1))
+    tab = _FakeTab(doc)
+
+    def frame() -> None:
+        ui.new_frame()
+        ui.begin("##host")
+        try:
+            clay_uv._canvas(ctx=None, tab=tab, doc=doc, obj=obj, view_state=view_state)
+        finally:
+            ui.end()
+            ui.end_frame()
+
+    tab.saving = True
+    frame()
+    assert calls == [], "a live transform must not be driven onto the mesh while the tab is saving"
+
+    tab.saving = False
+    frame()
+    assert calls == [1], "and resumes once the save is done"
+
+
 def test_live_rotate_keeps_the_generator() -> None:
     doc = bd.ClayDoc()
     mesh = bmuv.box_unwrap(bp.box())
@@ -621,6 +697,7 @@ class _FakeTab:
     def __init__(self, doc: bd.ClayDoc) -> None:
         self.doc = doc
         self.uv_view = clay_uv.UvPaneState()
+        self.saving = False
 
 
 class _FakeState:

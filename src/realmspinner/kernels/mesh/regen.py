@@ -33,6 +33,7 @@ its own re-derive case below).
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import replace
 
 import numpy as np
@@ -42,7 +43,13 @@ from . import shading
 from .mesh import Mesh
 
 
-def carry_over(old: Mesh, rebuilt: Mesh, *, material: int = 0) -> Mesh:
+def carry_over(
+    old: Mesh,
+    rebuilt: Mesh,
+    *,
+    material: int = 0,
+    changed_keys: Collection[str] | None = None,
+) -> Mesh:
     """*rebuilt*, with the per-face attributes a generator rebuild must not silently lose.
 
     Two cases, because "the same faces" is only sometimes true of a rebuild:
@@ -68,8 +75,27 @@ def carry_over(old: Mesh, rebuilt: Mesh, *, material: int = 0) -> Mesh:
       slot 0 is simply whichever palette entry happens to be first, with no
       relationship to what this object was wearing, and stamping it is how a
       painted box came back grey the moment its segment count moved.
+
+    **``changed_keys``** -- the 2026-09-22 audit's clay-06: "same face count"
+    is not "same face order". A generator can hold its face count constant
+    while still reordering every face, when two of its own parameters trade
+    places against each other -- ``torus(segments, sides)`` swapped keeps
+    ``segments * sides`` faces but transposes the whole grid, so face 7's
+    hand-painted slot lands on a face 15 degrees round the ring from where
+    the user put it, with no face-count mismatch to catch it. A caller that
+    changes exactly one parameter at a time (the properties panel, one
+    field per keystroke) cannot trigger this -- there is no second parameter
+    to trade against -- so the face-count check alone is still trusted when
+    ``changed_keys`` is left unset or has at most one member. A caller that
+    can change several parameters in one rebuild (``clay_set_params``'s
+    multi-key ``params``) passes the keys it actually changed; more than one
+    forfeits the verbatim branch and re-derives instead, exactly as an
+    actual face-count change already does, because there is no cheap way
+    from here to know whether *this* generator's specific pair reorders
+    without asking every generator's own loop structure.
     """
-    if bm.face_count(rebuilt) == bm.face_count(old):
+    reorder_risk = changed_keys is not None and len(changed_keys) > 1
+    if bm.face_count(rebuilt) == bm.face_count(old) and not reorder_risk:
         return replace(rebuilt, smooth=old.smooth, material=old.material)
     smoothed = shading.auto_smooth(rebuilt)
     return replace(smoothed, material=np.full(bm.face_count(rebuilt), material, dtype="i4"))

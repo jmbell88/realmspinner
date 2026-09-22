@@ -66,3 +66,73 @@ def test_a_multi_object_delete_refuses_only_the_object_that_did_not_cover_a_face
     assert refusals == ["Select at least one face to delete."]
     assert len(a.mesh.starts) - 1 == a_faces_before - 1, "A's whole-face selection was deleted"
     assert len(b.mesh.starts) - 1 == b_faces_before, "B's partial selection was refused"
+
+
+# --- 2026-09-22 audit, findings clay-01 and clay-02 -------------------------
+
+
+def test_delete_selected_refuses_a_locked_object_in_object_mode_instead_of_removing_it() -> (
+    None
+):
+    """``selection.delete_selected``'s object-mode branch popped straight out
+    of ``doc.objects`` rather than going through ``ClayDoc.remove_object``,
+    which is the only place that had ever checked ``obj.locked`` -- so
+    select-then-Delete on a locked object (the outliner still selects one by
+    design) removed it with no refusal at all, the same hole the 2026-09-20
+    audit's clay-01 closed for Join and Boolean.
+    """
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A"))
+    doc.set_props(a.uid, locked=True)
+    doc.select([a.uid])
+    depth = len(doc.history)
+
+    refusals = selection.delete_selected(doc)
+
+    assert refusals == ["'A' is locked."]
+    assert doc.by_uid(a.uid) is a, "the locked object must still be in the document"
+    assert len(doc.history) == depth, "a total refusal records no undo step"
+
+
+def test_delete_selected_in_object_mode_removes_unlocked_objects_and_refuses_the_locked_one() -> (
+    None
+):
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A"))
+    b = doc.add_object(_obj("B"))
+    doc.set_props(b.uid, locked=True)
+    doc.select([a.uid, b.uid])
+
+    refusals = selection.delete_selected(doc)
+
+    assert refusals == ["'B' is locked."]
+    assert a.uid not in {o.uid for o in doc.objects}
+    assert doc.by_uid(b.uid) is b
+
+
+def test_element_mode_delete_with_a_locked_object_in_the_selection_does_not_delete_geometry_from_other_selected_objects() -> None:  # noqa: E501
+    """One locked object in a multi-object *element*-mode selection used to
+    make ``delete_faces``/``set_mesh`` run for the objects processed before it
+    and then raise, uncaught, straight out of the loop when it reached the
+    locked one -- so with A processed first and B (locked) second, A's faces
+    were already gone by the time the crash produced one "'B' is locked."
+    toast, which reads as "nothing happened" when in fact A was just silently
+    emptied. The fix keeps the *other* objects' deletions -- refusing B is not
+    supposed to abandon A's, the same "a refusal on one object does not
+    abandon the others" contract this module's own docstring promises for
+    every other ``OpError`` -- while B itself, the one actually named in the
+    refusal, must be untouched rather than a casualty of the same crash.
+    """
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A"))
+    b = doc.add_object(_obj("B"))
+    doc.set_element_mode("face")
+    doc.set_element_sel(a.uid, el.select_all(a.mesh, "face"))
+    doc.set_element_sel(b.uid, el.select_all(b.mesh, "face"))
+    doc.set_props(b.uid, locked=True)
+
+    refusals = selection.delete_selected(doc)
+
+    assert refusals == ["'B' is locked."]
+    assert len(a.mesh.starts) - 1 == 0, "A's unlocked faces must still be deleted"
+    assert len(b.mesh.starts) - 1 == 6, "B is locked, so its own faces must be untouched"

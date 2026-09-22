@@ -1140,14 +1140,20 @@ class _Reader:
             base_color_factor=_factor(
                 pbr.get("baseColorFactor", (1.0, 1.0, 1.0, 1.0)), 4, (1.0, 1.0, 1.0, 1.0)
             ),
-            metallic_factor=float(pbr.get("metallicFactor", 1.0)),
-            roughness_factor=float(pbr.get("roughnessFactor", 1.0)),
+            # clay-16 (the 2026-09-22 audit): these three went through a bare
+            # ``float()``, unlike every sibling numeric field on this loader
+            # (a node's TRS aside, which refuses on purpose) -- a list or
+            # ``null`` here raised an unnamed ``TypeError`` instead of falling
+            # back like ``_number``'s own docstring says a cosmetic material
+            # field should.
+            metallic_factor=_number(pbr.get("metallicFactor", 1.0), 1.0),
+            roughness_factor=_number(pbr.get("roughnessFactor", 1.0), 1.0),
             emissive_factor=_factor(
                 mat.get("emissiveFactor", (0.0, 0.0, 0.0)), 3, (0.0, 0.0, 0.0)
             ),
             double_sided=bool(mat.get("doubleSided", False)),
             alpha_mode=mat.get("alphaMode", "OPAQUE"),
-            alpha_cutoff=float(mat.get("alphaCutoff", 0.5)),
+            alpha_cutoff=_number(mat.get("alphaCutoff", 0.5), 0.5),
         )
         out.base_color = self.texture(pbr.get("baseColorTexture"))
         out.metallic_roughness = self.texture(pbr.get("metallicRoughnessTexture"))

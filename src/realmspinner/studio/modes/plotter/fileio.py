@@ -66,8 +66,8 @@ TMJ_FILTER = ["Tiled map (*.tmj)", "*.tmj"]
 _decode = docmodes.decode_rgba
 
 
-def _within_ceiling(path: Path) -> Path:
-    """Refuse a file too big to open, before a byte of it is read.
+def _within_ceiling(path: Path) -> bytes:
+    """Refuse and read a file too big to open, in one bounded call.
 
     The ceiling is ``service.files.MAX_MAP_SOURCE_BYTES`` -- the same number the
     service already refuses an *uploaded* ``map.rmap`` at -- rather than a second
@@ -88,10 +88,16 @@ def _within_ceiling(path: Path) -> Path:
     default only warns between one and two times itself -- so a 200 KB PNG
     decoding to 715 MB passed under this ceiling and under Pillow's. See
     :mod:`.pixelguard`, which ``_decode`` goes through now.
+
+    Reads through :func:`sizeguard.read_bytes_within_ceiling` rather than
+    ``sizeguard.within_ceiling(path, N).read_bytes()`` -- the separate
+    ``stat()`` and ``read_bytes()`` that shape used left a window for a file
+    that grows in between to sail past the ceiling it was meant to bound
+    (shell-07, the 2026-09-18 audit).
     """
     from ....service.files import MAX_MAP_SOURCE_BYTES
 
-    return sizeguard.within_ceiling(path, MAX_MAP_SOURCE_BYTES)
+    return sizeguard.read_bytes_within_ceiling(path, MAX_MAP_SOURCE_BYTES)
 
 
 def _resolve_source(base: Path, source: str) -> Path:
@@ -184,8 +190,8 @@ def _loaders(base: Path):
         return _decode(_resolve_source(base, source))
 
     def tsx_loader(source: str) -> Any:
-        target = _within_ceiling(_resolve_source(base, source))
-        data = target.read_bytes()
+        target = _resolve_source(base, source)
+        data = _within_ceiling(target)
         # **The host decides which spelling this is**, because the host is the
         # only thing that read the bytes. The engine hands over a reference and
         # has no way to tell a ``.tsj`` from a ``.tsx`` that is not the very
@@ -234,8 +240,8 @@ def _load(path: Path) -> dict[str, Any]:
     from .engine import rmap as rmaplib
     from .engine import tmx as tmxlib
 
-    path = _within_ceiling(Path(path))
-    data = path.read_bytes()
+    path = Path(path)
+    data = _within_ceiling(path)
     suffix = path.suffix.lower()
     # Only the two Tiled formats can drop or fall back on anything: ``.rmap``
     # is this editor's own container, so there is nothing it declines to

@@ -309,6 +309,7 @@ def obj_to_claydoc(
     tri_budget = 0
     object_budget = 1  # the implicit first object, before any "o"/"g" line
     vertex_budget = 0
+    material_names: set[str] = {""}  # the implicit unnamed material
     for line in lines:
         head = line.split(None, 1)[0]
         if head == "f":
@@ -318,6 +319,10 @@ def obj_to_claydoc(
             object_budget += 1
         elif head in ("v", "vt"):
             vertex_budget += 1
+        elif head == "usemtl":
+            parts = line.split(None, 1)
+            if len(parts) > 1:
+                material_names.add(parts[1].strip())
     if tri_budget > MAX_TRIANGLES:
         raise OpError(
             f"This OBJ has {tri_budget:,} triangles (n-gons counted by corners "
@@ -333,6 +338,16 @@ def obj_to_claydoc(
             f"This OBJ declares {vertex_budget:,} vertex/texture-coordinate "
             f"lines, past the {MAX_VERTEX_LINES:,} Clay will parse before it "
             "has seen how many of them a face actually uses."
+        )
+    # clay-15 (the 2026-09-22 audit): usemtl names build an unbounded palette
+    # in pass 2 (one entry per distinct name), the same gap clay-05 closed for
+    # "v"/"vt" lines one field over -- count them here, before that palette
+    # is built.
+    if len(material_names) > gltf.MAX_MATERIALS:
+        raise OpError(
+            f"This OBJ declares at least {len(material_names):,} distinct "
+            f"materials (usemtl names), past the {gltf.MAX_MATERIALS:,} "
+            "Clay will build a palette for."
         )
 
     # --- pass 2: the real parse.

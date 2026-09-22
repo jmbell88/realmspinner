@@ -204,6 +204,23 @@ def test_set_parent_is_not_gated_by_a_lock() -> None:
     assert doc.by_uid(b.uid).locked is True
 
 
+def test_set_parent_with_keep_world_false_refuses_a_locked_object_because_it_visibly_moves() -> None:  # noqa: E501
+    """The 2026-09-22 audit's clay-04: ``keep_world=False`` does not hold
+    the "moves nothing on screen" reasoning the test right above this one
+    exercises -- the object's local TRS is left untouched while its parent
+    changes, so it jumps to wherever the new parent's frame puts it.
+    ``clay_parent`` exposes ``keep_world`` to an agent, and used to move a
+    locked object with no refusal at all.
+    """
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A", translation=(10.0, 0.0, 0.0)))
+    b = _locked(doc, "B")
+    with pytest.raises(OpError):
+        doc.set_parent(b.uid, a.uid, keep_world=False)
+    assert doc.by_uid(b.uid).parent is None
+    assert doc.by_uid(b.uid).locked is True
+
+
 def test_set_origin_is_not_gated_by_a_lock() -> None:
     doc = bd.ClayDoc()
     a = _locked(doc)
@@ -229,3 +246,89 @@ def test_separate_refuses_a_locked_object() -> None:
     pieces = separate.by_loose_parts(two_boxes)
     with pytest.raises(OpError, match="locked"):
         doc.separate(a.uid, pieces)
+
+
+# --- 2026-09-22 audit, finding clay-02: element picking is a locking door too
+
+
+def test_pick_element_never_returns_an_index_into_a_locked_object(gl) -> None:
+    """``pick_face`` (object mode) has always skipped a locked object --
+    "viewport clicks pass through it" -- but ``pick_element`` did not, so a
+    click in face mode over a locked box's only object on screen still
+    selected one of its faces, the hole that let ``delete_selected`` reach a
+    locked object without going through the outliner at all.
+    """
+    from realmspinner.kernels.geom3d import math3d as m3
+    from realmspinner.studio.modes.clay.ui import view as clay_view
+
+    class _State:
+        def __init__(self) -> None:
+            self.tool = "select"
+            self.snap = False
+            self.snap_translate = 0.125
+            self.snap_rotate = 15.0
+            self.snap_vertex = False
+
+    class _Ctx:
+        def __init__(self) -> None:
+            self.state = type("S", (), {"clay": _State()})()
+
+    doc = bd.ClayDoc()
+    _locked(doc, "A")
+    doc.set_element_mode("face")
+
+    view = clay_view.ClayView(gl, _Ctx())
+    try:
+        view._rect = (0.0, 0.0, 128.0, 96.0)
+        view.camera.set_target(m3.vec3())
+        view.camera.set_position(m3.vec3(0.0, 0.0, 8.0))
+        view.camera.aspect = view._rect[2] / view._rect[3]
+        centre = (view._rect[2] * 0.5, view._rect[3] * 0.5)
+
+        assert view.pick_face(doc, centre) is None, "object picking already skips it"
+        assert view.pick_element(doc, centre) is None
+    finally:
+        view.release()
+
+
+def test_commit_marquee_never_selects_elements_on_a_locked_object(gl) -> None:
+    """Same hole as :func:`test_pick_element_never_returns_an_index_into_a_locked_object`,
+    reached through a drag rather than a click: a marquee that sweeps the
+    whole viewport used to add a locked box's faces to ``doc.element_sel``
+    just the same."""
+    from realmspinner.kernels.geom3d import math3d as m3
+    from realmspinner.studio.modes.clay.ui import view as clay_view
+
+    class _State:
+        def __init__(self) -> None:
+            self.tool = "select"
+            self.snap = False
+            self.snap_translate = 0.125
+            self.snap_rotate = 15.0
+            self.snap_vertex = False
+
+    class _Ctx:
+        def __init__(self) -> None:
+            self.state = type("S", (), {"clay": _State()})()
+
+    doc = bd.ClayDoc()
+    locked = _locked(doc, "A")
+    doc.set_element_mode("face")
+
+    view = clay_view.ClayView(gl, _Ctx())
+    try:
+        view._rect = (0.0, 0.0, 128.0, 96.0)
+        view.camera.set_target(m3.vec3())
+        view.camera.set_position(m3.vec3(0.0, 0.0, 8.0))
+        view.camera.aspect = view._rect[2] / view._rect[3]
+
+        view.marquee = (0.0, 0.0, view._rect[2], view._rect[3])
+        view._marquee_from = (0.0, 0.0)
+        view._marquee_add = "replace"
+        view._commit_marquee(doc)
+
+        from realmspinner.kernels.mesh import elements as el
+
+        assert el.is_empty(doc.element_sel_of(locked.uid))
+    finally:
+        view.release()

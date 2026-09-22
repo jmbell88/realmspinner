@@ -17,6 +17,7 @@ from realmspinner.core.undo import CompoundEdit
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import modifiers as mod
 from realmspinner.kernels.mesh import ops_topo, selection
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh.edits import MeshEdit, TransformEdit, _texture_bytes, mesh_bytes
@@ -285,6 +286,61 @@ def test_a_hidden_object_is_not_in_the_model() -> None:
     assert [n.name for n in model.nodes] == ["A"]
     assert len(model.meshes) == 1
     assert model.roots == [0]
+
+
+def test_the_viewports_per_object_cache_agrees_with_to_model_for_a_hidden_parent_with_a_visible_child() -> None:  # noqa: E501
+    """The 2026-09-22 audit's clay-21: ``to_model``'s docstring and the
+    INVARIANTS paragraph used to claim the viewport and the trellis render
+    go through ``to_model``; only the GLB writer does. ``_view_cache.py``'s
+    ``CacheOps._build`` and ``view.py``'s ``render_png``/``render_ids``
+    build their own per-object primitives straight from ``to_primitives``
+    instead. The claim is narrowed in both docstrings now; this pins the
+    thing that narrowing depends on staying true -- that ``to_model``'s own
+    per-object node content (built the same way, ``to_primitives(obj,
+    doc.materials, doc.evaluated(obj.uid))``) is exactly what the viewport's
+    own per-object cache would build for the same object, including through
+    a modifier stack and a hidden parent with a visible child. If either
+    path ever started reading ``obj.mesh`` (the base) instead of
+    ``doc.evaluated(obj.uid)``, or dropped the hidden-parent-carries-its-
+    visible-child's-frame rule, this catches the drift the docstring note
+    now warns about instead of finding out from a mismatched render.
+    """
+    doc = bd.ClayDoc()
+    parent = doc.add_object(_obj("parent", visible=False))
+    child = doc.add_object(_obj("child", bp.box()))
+    doc.set_parent(child.uid, parent.uid)
+    # A modifier stack so ``doc.evaluated(child.uid)`` differs from
+    # ``child.mesh`` -- the thing that would expose either path quietly
+    # falling back to the base mesh instead of the evaluated one.
+    doc.set_modifiers(child.uid, (mod.make("triangulate", {}, id=1),))
+
+    model = bd.to_model(doc)
+    names = [n.name for n in model.nodes]
+    assert names == ["parent", "child"]
+    parent_node = model.nodes[names.index("parent")]
+    child_node = model.nodes[names.index("child")]
+
+    # The parent carries its visible child's frame but draws nothing -- the
+    # same thing the viewport's own ``sync`` does by never building a cache
+    # entry for a hidden object at all (see ``_view_cache.CacheOps.sync``'s
+    # ``if not obj.visible: continue``).
+    assert parent_node.mesh is None
+
+    # The viewport cache's own build call, exactly as ``CacheOps._build``
+    # makes it, for the same visible child.
+    cache_prims = bd.to_primitives(child, doc.materials, doc.evaluated(child.uid))
+    model_prims = model.meshes[child_node.mesh]
+    assert len(cache_prims) == len(model_prims) == 1
+    for cache_prim, model_prim in zip(cache_prims, model_prims, strict=True):
+        assert np.array_equal(cache_prim.positions, model_prim.positions)
+        assert np.array_equal(cache_prim.indices, model_prim.indices)
+        assert cache_prim.material is model_prim.material
+    # Neither path silently fell back to the un-evaluated base mesh: the
+    # triangulate modifier changes the index count, so the base mesh's own
+    # primitive would disagree on shape.
+    assert not np.array_equal(
+        bd.to_primitives(child, doc.materials)[0].indices, cache_prims[0].indices
+    )
 
 
 def test_to_model_de_duplicates_materials_by_identity() -> None:

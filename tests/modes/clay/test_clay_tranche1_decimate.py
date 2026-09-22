@@ -350,3 +350,64 @@ def test_decimate_with_the_real_gltfpack_actually_reduces_a_uv_sphere() -> None:
 
     after = clay_ops._tri_count(doc.by_uid(obj.uid).mesh)
     assert after <= before * 0.7, f"{before} -> {after} triangles, expected at least a 30% drop"
+
+
+# --- clay-03 (2026-09-22 audit): a locked target must not wedge the undo stack ----
+
+
+def test_decimate_apply_skips_a_locked_object_by_name_and_still_folds_and_closes_the_gesture_for_the_rest_of_the_batch(  # noqa: E501
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A locked object reaches ``_decimate_apply`` because ``has_objects``
+    (the op's ``enabled`` predicate) never checks ``locked`` -- so no race
+    with an interactive lock toggle is needed to hit this. Before the fix,
+    ``doc.set_mesh`` raised ``OpError`` straight out of the open
+    ``history.mark()``: ``collapse_since`` never ran, so
+    ``UndoStack._open_gestures`` stayed at 1 forever and every later gesture
+    in the document's life stopped evicting -- the 2026-09-19 audit's
+    clay-16 leak shape, reproduced here for Decimate's own landing.
+    """
+    doc, locked_uid = _two_material_box()
+    doc.by_uid(locked_uid).locked = True
+    other = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Other", mesh=bp.box()))
+    doc.select([locked_uid, other.uid])
+
+    # The real glb round trip is decimate's own business, already covered
+    # above; this test is only about what ``_decimate_apply`` does once it
+    # has a mesh in hand, so the glb decode is stubbed to hand back a fresh
+    # mesh -- a distinct object identity from what is already on each
+    # target, which matters because ``set_mesh`` decides "did anything
+    # happen" by identity (its own docstring), not equality.
+    monkeypatch.setattr(
+        clay_ops, "_decimate_mesh_from_glb", lambda data, material: bp.box()
+    )
+
+    ctx = _Ctx()
+    result = {
+        "items": [
+            {
+                "uid": locked_uid,
+                "name": doc.by_uid(locked_uid).name,
+                "stamp": doc.mesh_stamp(locked_uid),
+                "glb_out": doc.by_uid(locked_uid).mesh,
+                "material": 0,
+                "before": 12,
+            },
+            {
+                "uid": other.uid,
+                "name": other.name,
+                "stamp": doc.mesh_stamp(other.uid),
+                "glb_out": doc.by_uid(other.uid).mesh,
+                "material": 0,
+                "before": 12,
+            },
+        ],
+        "ratio": 0.5,
+    }
+
+    depth = len(doc.history)
+    clay_ops._decimate_apply(ctx, doc, result)
+
+    assert doc.history._open_gestures == 0, "the gesture must close even when one item refuses"
+    assert len(doc.history) == depth + 1, "the other object's decimate still folds into one step"
+    assert doc.history.top.label == "Decimate"

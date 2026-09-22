@@ -229,6 +229,32 @@ def test_dissolve_verts_refuses_an_empty_or_foreign_selection() -> None:
         dis.dissolve_verts(prim.box(), el.ElementSel(verts=[99]))
 
 
+def test_dissolve_verts_refuses_or_stays_fast_past_a_selection_size_ceiling_on_a_large_interior_selection(  # noqa: E501
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-22 audit's clay-11: unlike every other walking op in this
+    package, ``dissolve_verts`` had no ceiling at all on the size of the
+    *selection* itself -- ``MAX_DISSOLVED_RING`` bounds only the merged
+    n-gon's own outline, which stays small for a large *interior* selection
+    (a k-vertex-square block's boundary has only ~4k corners, not k^2), so it
+    cannot see this shape of cost. Reproduced (audit's own probe): 2.6s at
+    249,000 vertices, linear; re-measured at merge on a contiguous interior
+    block, the shape that keeps the output ring small: 0.65s at 40,000
+    vertices, 3.9s at 250,000.
+
+    Driven here with the ceiling lowered, on a selection that never reaches
+    ``adjacency()`` at all (the refusal is the very first thing the function
+    does past the empty check), rather than building a mesh anywhere near
+    the real ceiling.
+    """
+    # The ceiling itself must not have crept down onto ordinary use.
+    assert dis.MAX_DISSOLVED_VERTS >= 20_000
+    m = prim.box()
+    monkeypatch.setattr(dis, "MAX_DISSOLVED_VERTS", 4)
+    with pytest.raises(el.OpError, match=r"5.*past the.*4"):
+        dis.dissolve_verts(m, el.ElementSel(verts=np.arange(5, dtype="i8")))
+
+
 # --- shared behaviour -------------------------------------------------------
 
 

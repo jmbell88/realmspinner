@@ -13,6 +13,7 @@ from __future__ import annotations
 from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
+from realmspinner.kernels.mesh import modifiers as mod
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio import viewport_hints as clay_hints
 
@@ -91,6 +92,21 @@ def test_distance_is_measured_in_world_space_through_a_parent():
     doc.set_element_sel(child.uid, el.ElementSel(verts=[0, 1]))
 
     assert clay_hints.measure_line(doc) == "distance  6.0000 m"
+
+
+def test_measure_lines_object_mode_volume_reads_the_evaluated_mesh_not_the_base():
+    """The 2026-09-22 audit (clay-07): a unit box with three Array copies
+    (default offset_x=1.0, so the copies sit at x=0, 1, 2 with no overlap)
+    has a true evaluated volume of 3 m^3, but the HUD used to pass
+    ``obj.mesh`` -- the base, unmodified box -- to ``measure.volume`` and
+    read "volume 1.0000 m^3" instead, exactly as ``stats()`` had already
+    been fixed to avoid by reading ``doc.evaluated(uid)``.
+    """
+    doc, obj = _doc_with_box()
+    doc.set_modifiers(obj.uid, (mod.make("array", {"count": 3}, id=1),))
+    doc.select([obj.uid])
+
+    assert clay_hints.measure_line(doc) == "volume  3.0000 m³"
 
 
 def test_volume_sums_every_selected_object():

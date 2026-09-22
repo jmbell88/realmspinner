@@ -857,6 +857,55 @@ def test_a_file_past_the_byte_ceiling_is_refused_before_it_is_read(tmp_path, mon
         sirens_io._decode_sample(path, None)
 
 
+def test_a_sample_that_grows_after_the_stat_is_still_refused(tmp_path, monkeypatch):
+    """shell-07, the 2026-09-18 audit: ``_sample_ceiling`` used to be
+    ``sizeguard.within_ceiling(path, N)`` -- a ``stat()`` -- followed by a
+    *separate* ``path.read_bytes()`` a moment later, in ``_decode_sample``.
+    A file that grows between those two syscalls (a concurrent writer, a
+    symlink swapped underfoot) would pass the stat-time check and then hand
+    the decoder more than the ceiling on the read the check was supposed to
+    bound. ``_sample_ceiling`` now reads through
+    ``sizeguard.read_bytes_within_ceiling``, which bounds the read itself
+    rather than trusting an earlier stat, so growth after the stat cannot
+    let an oversized file through -- there is no separate stat left for it
+    to happen after.
+
+    Reproduced the way the shell-07 case was: ``Path.stat`` is monkeypatched
+    to keep reporting the small, original size (what a real TOCTOU race
+    would have looked like to a caller that only ever stats once), while the
+    file on disk has actually grown past the ceiling by the time it is read.
+    """
+    from pathlib import Path as _Path
+
+    from realmspinner.kernels.audio import wavout
+    from realmspinner.service.errors import ServiceError
+
+    path = _wav(tmp_path / "grows.wav")
+    small_stat = path.stat()
+    # ``MAX_SAMPLE_FRAMES`` set well above the file's real frame count (a
+    # 0.05s tone), so the engine's own frame-count door -- a different
+    # question, answered from the header once the read has happened -- stays
+    # out of this test; only the byte ceiling in ``_sample_ceiling`` is
+    # exercised.
+    monkeypatch.setattr(wavout, "MAX_SAMPLE_FRAMES", 100_000)
+    ceiling = 100_000 * 8
+    assert small_stat.st_size < ceiling
+    # Grown past the ceiling on disk, after the stat above was taken -- the
+    # window shell-07 named. ``Path.stat`` is then pinned to the pre-growth
+    # result, standing in for a stat that ran a moment before a concurrent
+    # writer (or a swapped symlink) grew the file underneath it.
+    path.write_bytes(path.read_bytes() + b"\x00" * (ceiling + 1 - small_stat.st_size))
+    real_stat = _Path.stat
+
+    def _stale_stat(self, *args, **kwargs):
+        return small_stat if self == path else real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(_Path, "stat", _stale_stat)
+
+    with pytest.raises(ServiceError):
+        sirens_io._decode_sample(path, None)
+
+
 def test_an_imported_sample_is_resampled_to_the_render_rate(tmp_path):
     """``read_wav`` is the whole conversion and the only one: the synth advances
     a sample's phase in output samples, so a 22 kHz source would otherwise play

@@ -532,7 +532,7 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
 
     ensure(ctx)
     try:
-        doc = rsng.read_rsng(sirens_io._within_ceiling(Path(path)).read_bytes())
+        doc = rsng.read_rsng(sirens_io._within_ceiling(Path(path)))
     except Exception:
         log.exception("could not reopen the recovered song at %s", path)
         journal.adopt_failed(ctx, "song")

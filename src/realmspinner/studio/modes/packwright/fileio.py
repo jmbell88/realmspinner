@@ -54,8 +54,8 @@ _start = docmodes.start_save
 # --- opening ------------------------------------------------------------------
 
 
-def _within_ceiling(path: Path) -> Path:
-    """Refuse a file too big to open, before a byte of it is read.
+def _within_ceiling(path: Path) -> bytes:
+    """Refuse and read a file too big to open, in one bounded call.
 
     The ceiling is ``service.files.MAX_PACK_SOURCE_BYTES`` -- the same number
     the service already refuses an *uploaded* ``pack.rpack`` at -- rather than a
@@ -70,10 +70,16 @@ def _within_ceiling(path: Path) -> Path:
     contents, and its text reaches the user verbatim through the task
     classifier. ``read_rpack``'s own decompressed-bytes ceiling is the second
     door, on what the archive claims rather than on what it weighs.
+
+    Reads through :func:`sizeguard.read_bytes_within_ceiling` rather than
+    ``sizeguard.within_ceiling(path, N).read_bytes()`` -- the separate
+    ``stat()`` and ``read_bytes()`` that shape used left a window for a file
+    that grows in between to sail past the ceiling it was meant to bound
+    (shell-07, the 2026-09-18 audit).
     """
     from ....service.files import MAX_PACK_SOURCE_BYTES
 
-    return sizeguard.within_ceiling(path, MAX_PACK_SOURCE_BYTES)
+    return sizeguard.read_bytes_within_ceiling(path, MAX_PACK_SOURCE_BYTES)
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -87,9 +93,10 @@ def _load(path: Path) -> dict[str, Any]:
     from ....service.errors import invalid_from
     from .engine import rpack
 
-    path = _within_ceiling(Path(path))
+    path = Path(path)
+    data = _within_ceiling(path)
     try:
-        doc = rpack.read_rpack(path.read_bytes())
+        doc = rpack.read_rpack(data)
     except ValueError as exc:
         raise invalid_from(exc, "This atlas could not be opened", field="file") from exc
     return {
@@ -378,7 +385,7 @@ def edit_asset_in_packwright(ctx: Any, job: Any) -> None:
         if not path.exists():
             raise Invalid("This asset has no atlas document beside it.", field="file")
         try:
-            doc = rpack.read_rpack(_within_ceiling(path).read_bytes())
+            doc = rpack.read_rpack(_within_ceiling(path))
         except ValueError as exc:
             raise invalid_from(exc, "This atlas could not be opened", field="file") from exc
         return {"doc": doc, "path": "", "title": name}

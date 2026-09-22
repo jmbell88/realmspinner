@@ -402,3 +402,40 @@ def test_transplant_does_not_abort_the_rest_of_the_apply_when_a_locked_objects_m
     assert (doc.by_uid(other_uid).translation == [0.0, 5.0, 0.0]).all(), (
         "a locked object aborting its own mesh/transform must not stop the rest of the transplant"
     )
+
+
+def test_transplant_does_not_abort_the_rest_of_the_apply_when_a_removed_objects_lock_changed_before_apply():  # noqa: E501
+    """The 2026-09-22 audit's clay-17: the ``removed`` loop is the first
+    thing ``transplant`` does, and unlike the mesh/transform/props loops
+    below it (the 2026-09-19 audit's clay-19 and the 2026-09-20 audit's
+    clay-13), it called ``doc.remove_object`` with no
+    ``contextlib.suppress(el.OpError)`` around it. Running first, an
+    uncaught refusal here aborted the *whole* Apply before any of the
+    changes queued behind it -- including an unrelated object's own
+    transform change -- ever landed, which is exactly the "state can move
+    between preview and apply" gap clay-19/clay-13 closed for their own
+    doors.
+    """
+    doc = _doc(2)
+    removed_uid = doc.objects[0].uid
+    other_uid = doc.objects[1].uid
+    scratch = clay_scratch.clone(doc)
+
+    scratch.remove_object(removed_uid)
+    scratch.set_transform(other_uid, translation=[3.0, 0.0, 0.0])
+
+    result = clay_scratch.diff(doc, scratch)
+    assert removed_uid in result.removed
+
+    # Locked on the real document only after the preview was built -- the
+    # scratch run had no way to know.
+    doc.set_props(removed_uid, locked=True)
+
+    changed = clay_scratch.transplant(doc, scratch, result)
+
+    assert changed, "the other object's transform change must still push a step"
+    live_uids = {o.uid for o in doc.objects}
+    assert removed_uid in live_uids, "a locked object must not be removed"
+    assert (doc.by_uid(other_uid).translation == [3.0, 0.0, 0.0]).all(), (
+        "a locked removal aborting its own delete must not stop the rest of the transplant"
+    )

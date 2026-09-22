@@ -107,6 +107,7 @@ __all__ = [
     "CHECKS",
     "DEFAULT_PROFILE",
     "FIX_OPS",
+    "MAX_VALIDATE_CORNERS",
     "MAX_VALIDATE_OBJECTS",
     "PROFILES",
     "Check",
@@ -143,6 +144,24 @@ clay-05), so this ceiling is not a frame-stall guard the way
 cannot tie up a task-pool worker for double-digit seconds on a document this
 disproportionate, and so a user who somehow ends up with one is told why
 rather than waiting it out."""
+
+
+MAX_VALIDATE_CORNERS = 2_500_000
+"""The most corners, summed across every visible object, one :func:`validate`
+call may face at once -- the axis :data:`MAX_VALIDATE_OBJECTS` leaves open.
+The 2026-09-20 audit's clay-05 bounded object *count*; the 2026-09-22 audit's
+clay-13 found that bound alone still lets a document of objects each just
+under :data:`~.ops_clean.MAX_CLEAN_CORNERS` run for minutes, because
+``geometry``/``normals``/``closed`` pay a ``survey`` call per object and
+nothing before this ceiling summed that cost across the document. Measured
+on this machine (``godot-desktop``, objects each just under the corner
+ceiling): ~465 ms/object, 9.3 s at 20 objects (5.83M corners), ~8 min
+extrapolated to 1,000 objects at :data:`MAX_VALIDATE_OBJECTS`. This ceiling
+sits below that 20-object, 9.3 s measurement (2.5M vs. 5.83M corners) so one
+Check press stays in the low seconds even in the worst case the per-object
+corner ceiling alone allows through, matching :data:`MAX_VALIDATE_OBJECTS`'s
+own "sits close to the few-seconds measurement, not the double-digit one"
+reasoning."""
 
 
 CHECKS: tuple[str, ...] = (
@@ -815,7 +834,7 @@ def _check_scale(bounds: tuple[np.ndarray, np.ndarray] | None, profile: Profile)
 _PIVOT_TOL_M = 0.001  # 1 mm
 
 
-def _check_pivot(bounds: tuple[np.ndarray, np.ndarray] | None) -> Check:
+def _check_pivot(bounds: tuple[np.ndarray, np.ndarray] | None, objects: list[Any]) -> Check:
     if bounds is None:
         return _skip("pivot", "No geometry to measure.")
     lo, _hi = bounds
@@ -827,14 +846,24 @@ def _check_pivot(bounds: tuple[np.ndarray, np.ndarray] | None) -> Check:
             "its own origin (y=0)."
         )
         fix = "drop-to-ground"
+        # The 2026-09-22 audit's clay-05: this check is document-wide (`bounds`
+        # is the union over every visible object), but used to report no uids
+        # at all, which left the panel's "Fix" button (`bridge._run_fix`)
+        # nothing to select -- it ran `drop-to-ground` on whatever was already
+        # selected instead, grounding an unrelated object or, with nothing
+        # selected, silently doing nothing. Naming every object this check
+        # measured lets the caller select them before running the fix, the
+        # same shape every other check with a fix already uses.
+        uids = tuple(obj.uid for obj in objects)
     else:
         status = "pass"
         tol_mm = _PIVOT_TOL_M * 1000
         message = f"Lowest point sits at y={min_y:.4f} m, within {tol_mm:.0f} mm of the ground."
         fix = ""
+        uids = ()
     return Check(
         key="pivot", label=_LABELS["pivot"], status=status, message=message,
-        measured=min_y, limit=0.0, fix=fix, uids=(),
+        measured=min_y, limit=0.0, fix=fix, uids=uids,
     )
 
 
@@ -1045,6 +1074,26 @@ def validate(doc: Any, profile: str = DEFAULT_PROFILE, *, visible_only: bool = T
         ]
         return Report(profile=prof.key, checks=tuple(checks), status=_worst(checks))
 
+    # The 2026-09-22 audit's clay-13: `MAX_VALIDATE_OBJECTS` bounds how many
+    # objects one call can face, but not how big each one is -- an object
+    # just under `ops_clean.MAX_CLEAN_CORNERS` pays the full `survey` cost
+    # below (geometry/normals/closed) and the ceiling above lets 1,000 of
+    # them through at once. Measured on this machine (`godot-desktop`,
+    # objects each just under the corner ceiling): ~465 ms/object, 9.3 s at
+    # 20 objects, ~8 min extrapolated to 1,000 -- the same shape as the
+    # 2026-09-20 audit's clay-05 measurement table, one axis over (total
+    # corners rather than object count). Summed here, before the survey loop
+    # runs, the same "known cheaply, refused before it is paid for" shape as
+    # `MAX_VALIDATE_OBJECTS` above -- `len(obj.mesh.loops)` is already read
+    # for free by the `oversized` computation just below.
+    total_corners = sum(len(obj.mesh.loops) for obj in objects)
+    if total_corners > MAX_VALIDATE_CORNERS:
+        raise OpError(
+            f"This document has {total_corners:,} corners across its visible "
+            f"objects, past the {MAX_VALIDATE_CORNERS:,} Game check works "
+            "with at once. Hide or delete some before checking readiness."
+        )
+
     used_material_indices = _used_material_indices(objects)
     used_materials = {
         i: doc.materials[i] for i in used_material_indices if 0 <= i < len(doc.materials)
@@ -1092,7 +1141,7 @@ def validate(doc: Any, profile: str = DEFAULT_PROFILE, *, visible_only: bool = T
         closed,
         _check_transforms(objects),
         _check_scale(bounds, prof),
-        _check_pivot(bounds),
+        _check_pivot(bounds, objects),
         _check_collider_present(collider_objs),
         _check_collider_triangles(collider_objs, collider_meshes, prof),
         _check_collider_convex_cap(collider_objs, collider_meshes, prof),

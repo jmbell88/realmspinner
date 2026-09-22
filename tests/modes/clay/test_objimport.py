@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from realmspinner.kernels.geom3d import gltf
 from realmspinner.kernels.mesh import mesh as bm
 from realmspinner.kernels.mesh import objimport
 from realmspinner.kernels.mesh.elements import OpError
@@ -55,6 +56,26 @@ def test_many_unreferenced_vertex_lines_are_bounded_before_they_are_all_parsed_i
     monkeypatch.setattr(objimport, "MAX_VERTEX_LINES", 5)
     text = "\n".join(f"v {i} 0 0" for i in range(50)) + "\nf 1 2 3\n"
     with pytest.raises(OpError, match="vertex/texture-coordinate lines"):
+        objimport.obj_to_claydoc(text)
+
+
+def test_many_distinct_usemtl_names_are_bounded_before_the_palette_is_built_unbounded(
+    monkeypatch,
+) -> None:
+    """The 2026-09-22 audit, finding clay-15: pass 1 budgeted ``f``/``o``/``g``/
+    ``v``/``vt`` lines but never ``usemtl``, so pass 2's material palette
+    (one entry per distinct name) was unbounded -- reproduced with 500,000
+    distinct names giving a 500,001-entry palette, 4.1 s and 185 MB, no
+    refusal. Monkeypatched low so the fixture stays small: the refusal must
+    name the material budget, not the (satisfied) triangle/object/vertex one.
+    """
+    monkeypatch.setattr(gltf, "MAX_MATERIALS", 5)
+    lines = ["v 0 0 0", "v 1 0 0", "v 0 1 0"]
+    for i in range(50):
+        lines.append(f"usemtl mat{i}")
+        lines.append("f 1 2 3")
+    text = "\n".join(lines) + "\n"
+    with pytest.raises(OpError, match="materials"):
         objimport.obj_to_claydoc(text)
 
 

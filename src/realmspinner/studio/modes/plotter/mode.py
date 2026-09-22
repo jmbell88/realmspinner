@@ -280,7 +280,7 @@ def edit_asset_in_plotter(ctx: Any, job: Any) -> None:
 
         path = svc_files.plotter_source_path(ctx.svc, job_id)
         try:
-            doc = rmaplib.read_rmap(_within_ceiling(Path(path)).read_bytes())
+            doc = rmaplib.read_rmap(_within_ceiling(Path(path)))
         except ValueError as exc:
             raise invalid_from(exc, "This map could not be reopened", field="file") from exc
         return {"doc": doc, "path": "", "title": "Map", "format": "rmap"}
@@ -1474,7 +1474,7 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
 
     ensure(ctx)
     try:
-        doc = rmaplib.read_rmap(_within_ceiling(Path(path)).read_bytes())
+        doc = rmaplib.read_rmap(_within_ceiling(Path(path)))
     except Exception:
         log.exception("could not reopen the recovered map at %s", path)
         journal.adopt_failed(ctx, "map")

@@ -864,6 +864,58 @@ def test_filling_a_small_hole_does_not_pay_for_every_other_holes_boundary_walk(
     )
 
 
+def test_fill_hole_refuses_or_stays_fast_when_one_call_fills_many_small_holes_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-22 audit's clay-10: `MAX_DISSOLVED_RING` bounds only the
+    *largest* ring one `fill_hole` call caps, which stays tiny (3 corners)
+    when the selection spans many small disjoint holes instead of one big
+    one -- reproduced at 2.9s for 39,601 holes and 37.8s for 89,401, worse
+    than linear because `boundary_ring_from`'s own per-seed corner lookup was
+    an O(the whole mesh) scan repeated per seed (fixed in the same change,
+    see its own docstring). `MAX_FILL_HOLE_SEEDS` refuses on the seed count
+    itself, before any ring is walked at all.
+
+    Two checks. The refusal fires with the ceiling lowered on a handful of
+    disjoint triangle holes (cheap to build), rather than tens of thousands
+    of real ones. And a selection under the *real* ceiling is proven to
+    still reach `boundary_ring_from` at all -- so the refusal above is not
+    gaming a low-vertex-count test while secretly always refusing.
+    """
+    assert ops.MAX_FILL_HOLE_SEEDS >= 10_000
+    m = _open_tube(6)
+    n_extra = 5
+    base_v = len(m.positions)
+    padded = _padded_with_disjoint_triangles(m, n_extra=n_extra)
+    seeds = np.array(
+        [[base_v + 3 * i, base_v + 3 * i + 1] for i in range(n_extra)], dtype="i8"
+    )
+
+    calls = 0
+    original = adj.boundary_ring_from
+
+    def counting_ring_from(mesh, seed_edges):
+        nonlocal calls
+        calls += 1
+        return original(mesh, seed_edges)
+
+    monkeypatch.setattr(adj, "boundary_ring_from", counting_ring_from)
+    monkeypatch.setattr(ops, "boundary_ring_from", counting_ring_from, raising=False)
+
+    # Under the real ceiling: every hole is still capped, and the walk runs.
+    out, sel = ops.fill_hole(padded, el.ElementSel(edges=seeds))
+    bm.validate(out)
+    assert len(sel.faces) == n_extra
+    assert calls > 0, "a selection under the ceiling must still reach the walk"
+
+    # Past a lowered ceiling: refused before any ring is walked at all.
+    calls = 0
+    monkeypatch.setattr(ops, "MAX_FILL_HOLE_SEEDS", 3)
+    with pytest.raises(el.OpError, match="boundary edges, past the"):
+        ops.fill_hole(padded, el.ElementSel(edges=seeds))
+    assert calls == 0, "the seed-count refusal must fire before any ring is walked"
+
+
 def test_fill_hole_refuses_a_ring_past_the_dissolve_sized_ceiling(monkeypatch) -> None:
     """The 2026-09-08 audit's clay-01: ``fill_hole`` caps a boundary ring with
     one n-gon and had no ceiling analogous to ``ops_dissolve``'s

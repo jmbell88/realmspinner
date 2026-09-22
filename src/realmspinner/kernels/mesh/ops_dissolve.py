@@ -380,10 +380,31 @@ def dissolve_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     return merge_groups(mesh, groups)
 
 
+#: The most vertices one ``dissolve_verts`` call will walk.
+#:
+#: The 2026-09-22 audit, clay-11: unlike its siblings, `dissolve_verts` has a
+#: Python loop over the selection itself (below) with no ceiling at all, and
+#: `MAX_DISSOLVED_RING` cannot catch it -- a large *interior* selection
+#: dissolves down to one small n-gon (a k-vertex square block's boundary has
+#: only ~4k corners, not k^2), so the ring stays well under that ceiling no
+#: matter how many vertices were walked to build it. Reproduced (audit's own
+#: probe): 2.6 s at 249k vertices, linear. Re-measured at merge on a
+#: contiguous interior block (the shape that keeps the output ring small):
+#: 0.65 s at 40,000 vertices, 3.9 s at 250,000, roughly linear at ~15 us/vertex
+#: -- this ceiling keeps one call under a second.
+MAX_DISSOLVED_VERTS = 60_000
+
+
 def dissolve_verts(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     """Merge the fan of faces around each selected vertex into one face."""
     if len(sel.verts) == 0:
         raise OpError("Select a vertex to dissolve.")
+    if len(sel.verts) > MAX_DISSOLVED_VERTS:
+        raise OpError(
+            f"That selection has {len(sel.verts):,} vertices, past the "
+            f"{MAX_DISSOLVED_VERTS:,} Dissolve Vertices can walk without "
+            "stalling. Dissolve a smaller selection."
+        )
     a = adjacency(mesh)
     n_faces = face_count(mesh)
     touched = np.zeros(n_faces, dtype=bool)

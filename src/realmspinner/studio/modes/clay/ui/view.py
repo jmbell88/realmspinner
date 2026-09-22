@@ -1040,7 +1040,13 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         ``_view_cache.CacheOps.sync``) -- so every uid this method reports on
         is one the picture could actually have coloured, and a uid entirely
         occluded in this particular view still gets its row, at ``px=0``:
-        "hidden from this view", not "does not exist".
+        "hidden from this view", not "does not exist". A collider is filtered
+        out of that table too: ``_composite`` (below) already skips
+        ``role == "collider"`` objects entirely, so a collider was never one
+        the picture could have coloured, and its row read ``px=0`` no
+        differently from a genuinely occluded object -- indistinguishable in
+        the table, which is what the 2026-09-22 audit (clay-08) found. A
+        collider row is simply not drawable here, so it is not offered one.
         """
         self.sync(doc)
         saved, _lo, _hi = self._frame_camera(
@@ -1048,7 +1054,11 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         )
         target = glctx.Viewport(self.ctx, (size, size), samples=1)
         try:
-            colors = {obj.uid: _id_color(obj.uid) for obj in doc.objects if obj.visible}
+            colors = {
+                obj.uid: _id_color(obj.uid)
+                for obj in doc.objects
+                if obj.visible and getattr(obj, "role", None) != "collider"
+            }
             self.renderer.draw_ids(target, self.camera, self._composite(doc), id_colors=colors)
             png = capture.png_bytes(target)
             pixels = target.read_rgba()[..., :3]

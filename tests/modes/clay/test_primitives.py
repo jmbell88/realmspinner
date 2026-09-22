@@ -1120,6 +1120,36 @@ def test_clamp_params_mirrors_rounded_boxs_own_radius_clamp() -> None:
     assert list(from_raw.starts) == list(from_clamped.starts)
 
 
+def test_clamp_params_mirrors_doorways_own_opening_clamps() -> None:
+    """The 2026-09-22 audit's clay-18: ``doorway`` clamps its own opening
+    width/offset/height internally (``ow``/``ox``/``oh`` at :func:`doorway`)
+    and its own docstring cites this function's reasoning for doing so --
+    but ``clamp_params`` had no ``doorway`` branch at all, the same
+    torus/column/sweep/arch/rounded_box class of clay-04/clay-05 defect
+    fixed four times before.
+    """
+    raw = {
+        "wall_length": 2.0,
+        "wall_height": 2.0,
+        "wall_thickness": 0.2,
+        "opening_width": 100.0,
+        "opening_height": 100.0,
+        "opening_offset": 100.0,
+    }
+    clamped = bp.clamp_params("doorway", raw)
+    length_ = abs(raw["wall_length"])
+    assert clamped["opening_width"] <= max(length_ - 1e-4, 0.0) + 1e-9
+    half_gap = max((length_ - clamped["opening_width"]) * 0.5, 0.0)
+    assert -half_gap - 1e-9 <= clamped["opening_offset"] <= half_gap + 1e-9
+    assert clamped["opening_height"] <= max(abs(raw["wall_height"]) - 1e-4, 0.0) + 1e-9
+    # Not cosmetic: building from the clamped numbers must be the same mesh
+    # ``doorway`` already silently builds from the raw ones.
+    from_raw = bp.doorway(**raw)
+    from_clamped = bp.doorway(**clamped)
+    assert np.array_equal(from_raw.positions, from_clamped.positions)
+    assert list(from_raw.starts) == list(from_clamped.starts)
+
+
 def test_clamp_params_caps_an_absurd_segment_count() -> None:
     clamped = bp.clamp_params(
         "cylinder", {"radius": 0.5, "height": 1.0, "segments": 50_000_000}

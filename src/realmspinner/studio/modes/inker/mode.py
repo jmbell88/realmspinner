@@ -2132,7 +2132,7 @@ def import_tileset(ctx: Any, tab: InkerDoc | None = None) -> None:
         if path is None:
             return None
         try:
-            data = _within_ceiling(path).read_bytes()
+            data = _within_ceiling(path)
             image_name = tsxlib.tsx_source(data)
             image = docmodes.decode_rgba(_resolve_source(path.parent, image_name))
             tileset = tsxlib.read_tsx(data, image)

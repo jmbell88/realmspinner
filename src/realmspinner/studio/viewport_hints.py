@@ -493,14 +493,22 @@ def measure_line(doc: Any) -> str:
         if not selection:
             return ""
         world_of = getattr(doc, "world_matrix", None)
+        # The 2026-09-22 audit (clay-07): this used to read ``obj.mesh``, the
+        # base mesh, so a box with three Array modifiers read "volume 1.0000
+        # m³" instead of the true 3.0 -- ``stats()`` above already evaluates
+        # the modifier stack the same duck-typed way; the HUD is "what is
+        # shown, exported and measured is ClayDoc.evaluated(uid)"
+        # (dev/INVARIANTS.md), and volume had been left reading the wrong one.
+        evaluate = getattr(doc, "evaluated", None)
         total = 0.0
         for uid in selection:
             try:
                 obj = doc.by_uid(uid)
             except (KeyError, AttributeError):
                 continue
+            mesh = obj.mesh if evaluate is None else evaluate(uid)
             world = None if world_of is None else world_of(uid)
-            total += bm_measure.volume(obj.mesh, world)
+            total += bm_measure.volume(mesh, world)
         return f"volume  {total:.4f} m³"
     return ""
 

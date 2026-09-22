@@ -930,7 +930,7 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
         material = fresh
 
     _texture_slots(ctx, tab, doc, index, material)
-    _material_library(ctx, doc, obj)
+    _material_library(ctx, tab, doc, obj)
 
 
 def _palette_remove_reason(material_count: int, users: int) -> str:
@@ -1037,6 +1037,69 @@ def _assign_texture(ctx: Any, tab: Any, index: int, slot: str) -> None:
         ctx.toast("A file dialog is already open.", "info")
 
 
+def _on_matlib_save_done(done: Any) -> None:
+    """Land a material shelf Save (:data:`MATLIB_SAVE_TASK_PREFIX`).
+
+    Nothing in the document changes -- the save only wrote files under
+    ``REALMSPINNER_HOME`` -- so the one thing to do here is invalidate the
+    listing cache the way the old inline call did, and only on success: a
+    failed write (an ``OSError``, say) already surfaces through the task
+    runner's own toast (``tasks.py``'s ``CARRIES_ITS_OWN_MESSAGE`` path), and
+    invalidating a cache that still matches what is on disk would only force
+    a pointless re-read.
+    """
+    if done.error is not None:
+        return
+    home = done.tag
+    if home is not None:
+        _invalidate_material_library(home)
+
+
+def _on_matlib_apply_done(ctx: Any, done: Any) -> None:
+    """Land a material shelf Apply (:data:`MATLIB_APPLY_TASK_PREFIX`).
+
+    Same staleness reading as the texture-assign branch below: the tab can
+    have closed, or the object removed, while ``load_material`` was decoding
+    PNGs off-thread, and either is a quiet no-op rather than a toast.
+    """
+    if done.error is not None:
+        return
+    rest = done.key[len(MATLIB_APPLY_TASK_PREFIX) + 1 :]
+    parts = rest.split(":", 2)
+    if len(parts) != 3:
+        return
+    tab_uid, uid_text, _entry_id = parts
+    state = clay_mode.ensure(ctx)
+    tab = state.get(tab_uid)
+    if tab is None:
+        return
+    try:
+        uid = int(uid_text)
+    except ValueError:
+        return
+    material = done.result
+    if material is None:
+        from ... import ops as clay_ops
+
+        # A local rather than the literal inline: ``clay_ops.toast`` takes no
+        # level (its own docstring -- it always raises through ``ctx.toast``
+        # at ``"error"``), but ``tests/test_ux_todo_fixes.py``'s toast-level
+        # sweep parses *any* ``.toast(x, <string literal>)`` call as if its
+        # second argument were a level name, so a literal message here reads
+        # as an unknown level. Every sibling ``clay_ops.toast`` call in this
+        # package already passes a non-literal (``str(error)`` or a local) for
+        # exactly this reason.
+        message = "That material could not be read."
+        clay_ops.toast(ctx, message)
+        return
+    doc = tab.doc
+    try:
+        doc.by_uid(uid)
+    except KeyError:
+        return
+    _apply_library_material(doc, [uid], material)
+
+
 def on_task_done(ctx: Any, done: Any) -> None:
     """Land a texture picked for a material slot -- ``clay-mattex:<tab uid>:
     <material index>:<slot>``, dispatched here by ``shell/tasks.py`` rather
@@ -1048,7 +1111,18 @@ def on_task_done(ctx: Any, done: Any) -> None:
     open, and none of those is a failure worth a toast over -- the user asked
     for a file, or didn't pick one, and either way nothing here was promised
     to still exist by the time the answer comes back.
+
+    Checked first, since both are also ``clay-mattex:``-prefixed (see their
+    own docstrings): the material shelf's Save (:data:`MATLIB_SAVE_TASK_PREFIX`)
+    and Apply (:data:`MATLIB_APPLY_TASK_PREFIX`) buttons, the 2026-09-22
+    audit's clay-09.
     """
+    if done.key.startswith(f"{MATLIB_SAVE_TASK_PREFIX}:"):
+        _on_matlib_save_done(done)
+        return
+    if done.key.startswith(f"{MATLIB_APPLY_TASK_PREFIX}:"):
+        _on_matlib_apply_done(ctx, done)
+        return
     parts = done.key.split(":", 3)
     if len(parts) != 4:
         return
@@ -1162,15 +1236,40 @@ def _invalidate_material_library(home: Path) -> None:
     _matlib_cache.pop(home, None)
 
 
-def _material_library(ctx: Any, doc: Any, obj: Any) -> None:
+#: This pane's task-key prefixes for the material shelf's Save and Apply
+#: buttons -- the 2026-09-22 audit's clay-09: ``matlib.save_material`` and
+#: ``load_material`` encode/decode PNGs (up to five slots, each potentially
+#: 4096^2) and were called inline from this function, on the frame thread,
+#: measured at 11.1 s for a save and 1.8 s for a load at that size. Off the
+#: frame thread the same way :data:`TEXTURE_TASK_PREFIX` already sends the
+#: texture-assign picker: submitted here, landed in :func:`on_task_done`.
+#: Both are still nested under ``TEXTURE_TASK_PREFIX`` itself (not a sibling
+#: prefix) so ``shell/tasks.py``'s existing ``key.startswith("clay-mattex:")``
+#: check keeps routing them here without that file needing a third branch.
+MATLIB_SAVE_TASK_PREFIX = f"{TEXTURE_TASK_PREFIX}:save"
+MATLIB_APPLY_TASK_PREFIX = f"{TEXTURE_TASK_PREFIX}:apply"
+
+
+def _matlib_save_key(tab_uid: str) -> str:
+    return f"{MATLIB_SAVE_TASK_PREFIX}:{tab_uid}"
+
+
+def _matlib_apply_key(tab_uid: str, uid: int, entry_id: str) -> str:
+    return f"{MATLIB_APPLY_TASK_PREFIX}:{tab_uid}:{uid}:{entry_id}"
+
+
+def _material_library(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
     """Named materials saved under ``REALMSPINNER_HOME`` (``matlib.py``): save the
     selected object's current material, list what is saved, apply one back,
-    delete one. See ``matlib.py``'s own module docstring for the on-disk
-    shape and why it is synchronous unlike :func:`_pick_texture` above.
+    delete one. Save and Apply both encode or decode texture PNGs, so both
+    are submitted off the frame thread and landed in :func:`on_task_done`
+    (the 2026-09-22 audit's clay-09) -- see :data:`MATLIB_SAVE_TASK_PREFIX`.
+    Delete only unlinks files it already knows the names of, no PNG decoded,
+    so it stays synchronous like every other button here.
 
     The list itself is cached (see :data:`_matlib_cache`'s own comment) --
     read through :func:`_cached_materials` and invalidated by hand after
-    either write this function makes.
+    every write this function makes, including the two now made off-thread.
     """
     widgets.field_label("material library")
     home = ctx.svc.config.home
@@ -1182,8 +1281,16 @@ def _material_library(ctx: Any, doc: Any, obj: Any) -> None:
         "##matlibsave", "", max_length=60, hint="save the current material as...", commit=True
     )
     if typed.strip():
-        clay_matlib.save_material(home, typed.strip(), doc.materials[index])
-        _invalidate_material_library(home)
+        key = _matlib_save_key(tab.uid)
+        # ``tag=home`` rather than reaching back through ``ctx.svc.config.home``
+        # in :func:`on_task_done`: that function's own texture-assign branch
+        # takes no ``ctx`` besides the one ``clay_mode.ensure`` needs, and a
+        # bare ``ctx=None`` (as the regression tests already call it) must
+        # still be able to invalidate the right home's cache entry.
+        if not ctx.submit(
+            key, clay_matlib.save_material, home, typed.strip(), doc.materials[index], tag=home
+        ):
+            ctx.toast("A material is already being saved.", "info")
 
     entries = _cached_materials(home)
     if not entries:
@@ -1194,13 +1301,9 @@ def _material_library(ctx: Any, doc: Any, obj: Any) -> None:
         widgets.muted(entry.name)
         imgui.same_line()
         if controls.small_button(f"{icons.CHECK}##matlibapply", tooltip=f"Apply {entry.name!r}"):
-            material = clay_matlib.load_material(home, entry.id)
-            if material is None:
-                from ... import ops as clay_ops
-
-                clay_ops.toast(ctx, f"{entry.name!r} could not be read.")
-            else:
-                _apply_library_material(doc, [obj.uid], material)
+            key = _matlib_apply_key(tab.uid, obj.uid, entry.id)
+            if not ctx.submit(key, clay_matlib.load_material, home, entry.id):
+                ctx.toast("A material is already being applied.", "info")
         imgui.same_line()
         if controls.small_button(f"{icons.TRASH}##matlibdel", tooltip=f"Delete {entry.name!r}"):
             clay_matlib.delete_material(home, entry.id)

@@ -339,6 +339,33 @@ def test_hiding_a_collider_drops_its_translucent_draw_and_gl_state(view) -> None
     assert collider.uid not in view._collider_overlays
 
 
+def test_render_ids_excludes_collider_objects_from_its_colour_table_and_pixel_rows(
+    view,
+) -> None:
+    """The 2026-09-22 audit (clay-08): ``_composite`` (used just above this
+    test) already skips ``role == "collider"`` objects from the opaque path
+    ``render_ids`` draws through ``draw_ids``, so a collider was never
+    actually colour-picked -- but ``render_ids``'s colour table used to be
+    built from every visible object with no such filter, so a collider got a
+    row that could never be anything but ``px=0``, indistinguishable from an
+    object genuinely occluded in this view. The table must therefore omit
+    collider uids entirely rather than offer a row it can never fill in.
+    """
+    from realmspinner.kernels.mesh import colliders as cl
+
+    doc = _doc(count=1)
+    source = doc.objects[0]
+    collider = doc.add_collider(source.uid, cl.fit_box(source.mesh))
+
+    _png, rows = view.render_ids(doc, size=64)
+    rowed_uids = {uid for uid, _color, _count in rows}
+
+    assert source.uid in rowed_uids
+    assert collider.uid not in rowed_uids, (
+        "a collider can never be colour-picked, so it must not get a px=0 row"
+    )
+
+
 def test_release_forgets_the_texture_before_freeing_it(gl, monkeypatch) -> None:
     v = clay_view.ClayView(gl, _Ctx())
     order: list[str] = []

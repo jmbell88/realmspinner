@@ -197,8 +197,12 @@ class UvPaneState:
     # about the mesh had changed at all (panning, zooming, hovering).
     # ``None`` before anything has been measured.
     measured_mesh: Any = None
-    measured_result: tuple[np.ndarray | None, np.ndarray | None, str] = field(
-        default_factory=lambda: (None, None, "")
+    # The 2026-09-22 audit's clay-20: island ids joined this same cache
+    # (``_measurements``'s own docstring) rather than staying a second,
+    # unmemoised ``uvtools.islands(mesh)`` call in ``_canvas`` -- both are
+    # exactly as much a pure function of mesh identity as overlap/stretch.
+    measured_result: tuple[np.ndarray, np.ndarray | None, np.ndarray | None, str] = field(
+        default_factory=lambda: (np.empty(0, dtype=np.int64), None, None, "")
     )
 
 #: The uv unit square is treated as a texture this many pixels on a side, for
@@ -560,20 +564,27 @@ def _selected_object(doc: Any) -> Any:
 
 def _measurements(
     view_state: UvPaneState, mesh: Any
-) -> tuple[np.ndarray | None, np.ndarray | None, str]:
-    """``(overlap, stretch, refusal)`` for *mesh* -- ``uvtools.overlap_faces``/
-    ``stretch``, computed once here rather than by the caller so both a
-    refusal (a mesh past ``uvtools.MAX_OVERLAP_TRIANGLES``) and the ordinary
-    answer share one call site. ``refusal`` is ``""`` on success.
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, str]:
+    """``(ids, overlap, stretch, refusal)`` for *mesh* -- ``uvtools.islands``
+    plus ``overlap_faces``/``stretch``, computed once here rather than by the
+    caller so both a refusal (a mesh past ``uvtools.MAX_OVERLAP_TRIANGLES``)
+    and the ordinary answer share one call site. ``refusal`` is ``""`` on
+    success.
 
     Memoised on *view_state* keyed by ``mesh`` identity (see
     :attr:`UvPaneState.measured_mesh`): the 2026-09-19 audit's clay-12 found
-    this recomputed on every single frame the pane was open, including every
-    frame that panned, zoomed or merely hovered with the mesh completely
-    unchanged -- only an actual edit replaces ``obj.mesh`` with a new object.
+    the overlap/stretch half of this recomputed on every single frame the
+    pane was open, including every frame that panned, zoomed or merely
+    hovered with the mesh completely unchanged -- only an actual edit
+    replaces ``obj.mesh`` with a new object. The 2026-09-22 audit's clay-20
+    found ``_canvas`` still calling ``uvtools.islands(mesh)`` fresh every
+    frame right beside this memo -- island ids are exactly as much a
+    function of mesh identity as overlap/stretch are, so they are folded
+    into the same cache rather than kept as a second, unmemoised call.
     """
     if view_state.measured_mesh is mesh:
         return view_state.measured_result
+    ids = uvtools.islands(mesh)
     try:
         overlap = uvtools.overlap_faces(mesh)
     except el.OpError as error:
@@ -584,10 +595,10 @@ def _measurements(
         # log line is for whoever is chasing why the tint never lights up on
         # one object.
         log.debug("uv pane: overlap/stretch not shown (%s)", error)
-        result = (None, None, str(error))
+        result = (ids, None, None, str(error))
     else:
         stretch = uvtools.stretch(mesh)
-        result = (overlap, stretch, "")
+        result = (ids, overlap, stretch, "")
     view_state.measured_mesh = mesh
     view_state.measured_result = result
     return result
@@ -654,14 +665,22 @@ def _body(ctx: Any) -> None:
         view_state.selected_islands = frozenset()
         view_state.drag_mode = ""
 
-    _toolbar(ctx, doc, obj, view_state)
-    _canvas(ctx, doc, obj, view_state)
+    _toolbar(ctx, tab, doc, obj, view_state)
+    _canvas(ctx, tab, doc, obj, view_state)
     _legend()
 
 
-def _toolbar(ctx: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
+def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
     from imgui_bundle import imgui
 
+    # The 2026-09-22 audit's clay-19: every other Clay pane greys out while a
+    # save is in flight ("saving gates every control that changes the
+    # document", mode.py's own module docstring) but this one never read
+    # tab.saving at all, so Apply rotate/scale, Pack and the live drag/E/R
+    # gestures in _canvas below stayed live during a save. No corruption --
+    # the save took its own snapshot and the tab just stays dirty -- but it
+    # is the one pane in the app where editing during a save looked allowed.
+    imgui.begin_disabled(tab.saving)
     selected = view_state.selected_islands
     count = len(selected)
     # A live rotate/scale owns ``obj.mesh`` until it commits or cancels
@@ -730,9 +749,10 @@ def _toolbar(ctx: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
 
     if controls.small_button(f"{icons.SQUARE} Pack islands##uvpack", enabled=not live):
         apply_pack(doc, obj.uid)
+    imgui.end_disabled()
 
 
-def _canvas(ctx: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
+def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
     from imgui_bundle import imgui
 
     avail = imgui.get_content_region_avail()
@@ -764,10 +784,21 @@ def _canvas(ctx: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
     hovered = imgui.is_item_hovered()
     mouse = imgui.get_mouse_pos()
     mesh = obj.mesh
-    ids = uvtools.islands(mesh)
+    # ``ids`` is wanted immediately below, for the drag dispatch -- fetched
+    # from the same memo the overlap/stretch tint reads further down (see
+    # :func:`_measurements`'s own docstring, the 2026-09-22 audit's clay-20),
+    # rather than a second, unmemoised ``uvtools.islands(mesh)`` call here.
+    ids, overlap, stretch, refusal = _measurements(view_state, mesh)
     uv_here = _to_uv(view, origin, mouse.x, mouse.y)
 
-    if view_state.drag_mode in ("rotate", "scale"):
+    # The 2026-09-22 audit's clay-19: this whole dispatch -- live rotate/scale,
+    # arming E/R, drag-move and box-select -- is the canvas half of the same
+    # "greys out while a save is in flight" rule ``_toolbar`` now enforces
+    # above; ungated, dragging an island mid-save left the tab dirty against
+    # a save the user believed had just captured that drag (see module docstring).
+    if tab.saving:
+        pass
+    elif view_state.drag_mode in ("rotate", "scale"):
         _drive_live_transform(doc, obj.uid, view_state, uv_here, hovered)
     else:
         # E/R arm a live rotate/scale -- only while nothing else already
@@ -817,7 +848,6 @@ def _canvas(ctx: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
         (origin[0], origin[1]), (origin[0] + region[0], origin[1] + region[1]), True
     )
     _backdrop(draw_list, view, origin)
-    overlap, stretch, refusal = _measurements(view_state, mesh)
     covered = touched_islands(mesh, ids, doc.element_sel.get(obj.uid))
     _faces(draw_list, view, origin, mesh, ids, overlap, stretch)
     _edges(draw_list, view, origin, mesh, obj.seams)

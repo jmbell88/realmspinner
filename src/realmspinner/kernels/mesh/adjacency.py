@@ -377,18 +377,32 @@ def boundary_ring_from(
     the whole mesh's boundary length on the frame thread. Each seed edge is
     confirmed boundary by the caller before this runs, so it costs O(its own
     ring), not O(the mesh).
+
+    The 2026-09-22 audit, clay-10: finding each seed's own corner used to be
+    ``np.flatnonzero(a.corner_edge == edge)``, an O(the mesh's whole corner
+    array) scan repeated *per seed edge* -- cheap for one hole, but a caller
+    filling many disjoint small holes in one selection (``ops_topo.fill_hole``
+    over a selection spanning thousands of them) paid for the whole mesh once
+    per hole, not once per call: 2.9 s at 39,601 holes, 37.8 s at 89,401 --
+    worse than linear, because the scan itself grows with the mesh while the
+    number of scans grows with the hole count. ``owner`` below is the same
+    one-shot scatter ``ops_topo._boundary_owner`` already uses for the same
+    fact: a boundary edge (``edge_uses == 1``) has exactly one corner leaving
+    along it, so ``owner[edge]`` names it in O(1) after one O(corners) build,
+    shared across every seed in the call.
     """
     a = adjacency(mesh)
     ids = a.edge_ids(seed_edges)
+    owner = np.full(a.n_edges, -1, dtype="i8")
+    owner[a.corner_edge.astype("i8")] = np.arange(len(mesh.loops), dtype="i8")
     seeds: list[int] = []
     seen_edges: set[int] = set()
     for edge in ids.tolist():
         if edge < 0 or edge in seen_edges:
             continue
         seen_edges.add(edge)
-        corner = np.flatnonzero(a.corner_edge == edge)
-        if len(corner) == 1 and int(a.edge_uses[edge]) == 1:
-            seeds.append(int(corner[0]))
+        if int(a.edge_uses[edge]) == 1:
+            seeds.append(int(owner[edge]))
 
     rings: list[np.ndarray] = []
     pinched: set[int] = set()

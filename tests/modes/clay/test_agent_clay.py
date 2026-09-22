@@ -1135,6 +1135,36 @@ def test_a_refused_boolean_leaves_the_selection_it_found() -> None:
     assert _history_len(ctx, session) == history_before
 
 
+def test_clay_boolean_names_field_uids_when_a_target_or_absorbed_object_is_locked() -> None:
+    """The 2026-09-22 audit, finding clay-22: a locked target or absorbed
+    object already refuses the merge with no partial mutation --
+    ``document.join_objects`` checks every uid before touching anything --
+    but before this fix the ``OpError`` it raised reached ``call()``'s
+    generic backstop uncaught, which carries no ``field``/``uids``, unlike
+    ``_h_delete``/``_h_material``/``_h_set_params``. Pre-checked in
+    ``_h_boolean`` now, the same shape as its own material-assign lock
+    check just above it."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session, "box")
+    added = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
+    uid2 = _payload(added)["uid"]
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    tab.doc.by_uid(uid2).locked = True
+    history_before = _history_len(ctx, session)
+
+    result = agent_clay.call(
+        ctx, session, "clay_boolean", {"kind": "union", "uids": [uid1, uid2]}
+    )
+
+    assert result["isError"] is True
+    structured = result.get("structuredContent") or {}
+    assert structured.get("field") == "uids", structured
+    assert uid2 in (structured.get("uids") or [])
+    assert _history_len(ctx, session) == history_before, "no partial mutation"
+
+
 # --- clamping is reported, never silent ---------------------------------------
 
 

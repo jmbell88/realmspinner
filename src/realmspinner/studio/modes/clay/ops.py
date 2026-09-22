@@ -2073,6 +2073,8 @@ def _decimate_apply(ctx: Any, doc: Any, result: Any) -> None:
     if "error" in result:
         ctx.toast(result["error"], "error")
         return
+    from ....kernels.mesh.elements import OpError
+
     items = result.get("items", [])
     ratio = float(result.get("ratio", 1.0))
     mark = doc.history.mark()
@@ -2096,7 +2098,19 @@ def _decimate_apply(ctx: Any, doc: Any, result: Any) -> None:
             skipped.append(obj.name)
             continue
         mesh = _decimate_mesh_from_glb(item["glb_out"], item["material"])
-        doc.set_mesh(uid, mesh)
+        # A locked object still reaches this point -- ``has_objects`` doesn't
+        # check ``locked`` -- and ``set_mesh`` refuses it. Without this catch
+        # the raise escapes the open ``history.mark()`` below: ``collapse_since``
+        # never runs, ``UndoStack._open_gestures`` is stuck open, and every
+        # later gesture in the document stops evicting (the 2026-09-22 audit,
+        # finding clay-03, the same leak shape as the 2026-09-19 audit's
+        # clay-16). Skip this item by name and keep folding the rest of the
+        # batch, matching ``run_mesh_op``'s own per-item refusal handling.
+        try:
+            doc.set_mesh(uid, mesh)
+        except OpError:
+            skipped.append(obj.name)
+            continue
         total_before += item["before"]
         total_after += _tri_count(mesh)
         applied.append(obj.name)
@@ -2542,6 +2556,8 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
     if "error" in result:
         ctx.toast(result["error"], "error")
         return
+    from ....kernels.mesh.elements import OpError
+
     meta = result.get("meta") or []
     glb_out = result.get("glb_out")
     meshes = _blender_objects_from_glb(glb_out, meta) if glb_out else {}
@@ -2565,7 +2581,14 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
         mesh = meshes.get(uid)
         if mesh is None:
             continue
-        doc.set_mesh(uid, mesh)
+        # Same ``set_mesh`` refusal guard as ``_decimate_apply`` -- the
+        # 2026-09-22 audit's clay-03: an uncaught refusal here escapes the
+        # open ``history.mark()`` and wedges the undo stack's eviction shut.
+        try:
+            doc.set_mesh(uid, mesh)
+        except OpError:
+            skipped.append(obj.name)
+            continue
         applied.append(obj.name)
     doc.history.collapse_since(mark)
     top = doc.history.top
@@ -2585,6 +2608,8 @@ def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
     if "error" in result:
         ctx.toast(result["error"], "error")
         return
+    from ....kernels.mesh.elements import OpError
+
     meta = result.get("meta") or []
     glb_out = result.get("glb_out")
     meshes = _blender_objects_from_glb(glb_out, meta) if glb_out else {}
@@ -2605,7 +2630,13 @@ def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
         mesh = meshes.get(uid)
         if mesh is None:
             continue
-        doc.set_mesh(uid, mesh, keep_generator=True)
+        # Same ``set_mesh`` refusal guard as ``_decimate_apply`` -- the
+        # 2026-09-22 audit's clay-03.
+        try:
+            doc.set_mesh(uid, mesh, keep_generator=True)
+        except OpError:
+            skipped.append(obj.name)
+            continue
         applied.append(obj.name)
     doc.history.collapse_since(mark)
     top = doc.history.top

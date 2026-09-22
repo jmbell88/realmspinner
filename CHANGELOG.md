@@ -239,6 +239,21 @@ attacking omitted five importers. `THIRD-PARTY-NOTICES.md`'s own arithmetic did 
 A batch of internal notes still described Troupe as a separate mode two days after it was
 folded into Poser, and still named files by their pre-rename spellings.
 
+**A lock now means locked everywhere in Clay.** A second Clay audit (2026-09-22) found the
+doors the first one missed: Delete removed a locked object outright, and in element mode one
+locked object in the selection deleted geometry from the others and then reported that
+nothing had happened; a locked object could still be swept into an element selection;
+Decimate, Retopologize and Smart Unwrap landing on a locked object quietly switched off undo
+trimming for the rest of the session; and reparenting without keeping the world position
+moved a locked object. Each now refuses by name. Game check's pivot **Fix** grounds the
+object it flagged, not whatever happened to be selected. Rebuilding a torus with two
+parameters swapped no longer paints the wrong faces, the measure readout reports the volume
+you can see (modifiers included), and saving a textured material to the library no longer
+freezes the window for seconds. Fill Hole over many holes, Dissolve Vertices, a compound
+collider over thousands of parts, Check mesh over a heavy scene and an agent's batch of
+Blender-backed ops each gained a measured ceiling, and every mode now checks a file's size
+on the read itself rather than on a moment-earlier look at the disk.
+
 ## 0.0.51 — 2026-09-18
 
 Two audit passes over the whole app in one day, 130 findings closed, every one

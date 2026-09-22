@@ -161,6 +161,20 @@ _CAPSULE_RINGS = 3
 MAX_HULL_POINTS = 5_000
 
 
+#: The most loose parts one :func:`compound` call will hull.
+#:
+#: The 2026-09-22 audit, clay-12: ``compound`` already bounds each part's own
+#: point count via ``MAX_HULL_POINTS``/``_refuse_hull_complexity``, but not how
+#: many parts ``_face_shells`` can hand it -- a kitbashed or boolean-separated
+#: mesh with thousands of small loose pieces hulls every one of them in a
+#: Python loop on the frame thread (``ops.py``'s ``_collider_op``), with
+#: ``clay_collider`` reaching the same door. Reproduced (audit's own probe,
+#: one shell each): 0.89 s at 1,000 parts, 5.3 s at 6,000. Re-measured at
+#: merge on a distinct-cube-per-part mesh: 0.67 s at 700, 0.77 s at 800,
+#: 0.86 s at 900 -- this ceiling keeps one call under a second.
+MAX_COMPOUND_PARTS = 800
+
+
 # --- geometry, reused from primitives.py -------------------------------------
 
 
@@ -802,6 +816,16 @@ def compound(
                     f"A compound face group names a face index outside 0..{n_faces - 1}."
                 )
             groups.append(arr)
+
+    # See MAX_COMPOUND_PARTS's own comment: refuse on the part *count* before
+    # any hull runs, the same "cheap count read before the expensive call"
+    # shape _refuse_hull_complexity already uses per part.
+    if len(groups) > MAX_COMPOUND_PARTS:
+        raise OpError(
+            f"Compound would hull {len(groups):,} loose parts, past the "
+            f"{MAX_COMPOUND_PARTS:,} Clay works with. Merge or simplify the "
+            "mesh first, or select fewer parts."
+        )
 
     parts: list[Collider] = []
     for g in groups:

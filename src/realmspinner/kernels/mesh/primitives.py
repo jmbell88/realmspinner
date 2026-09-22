@@ -642,6 +642,24 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
         sx, _sy, sz = (abs(float(s)) for s in out["size"])
         hx, hz = sx * 0.5, sz * 0.5
         out["radius"] = min(abs(float(out["radius"])), hx, hz)
+    if generator == "doorway" and "wall_length" in out and "opening_width" in out:
+        # The 2026-09-22 audit's clay-18: the same torus/column/sweep/arch/
+        # rounded_box class of clay-04/clay-05 defect -- ``doorway`` clamps
+        # its own opening width and offset internally (see :func:`doorway`'s
+        # ``ow``/``ox``) so both pillars keep a non-negative width, and its
+        # own docstring cites this function's reasoning for doing so, but
+        # this function never got the mirror -- so a saved document's
+        # ``opening_width``/``opening_offset`` could permanently disagree
+        # with the wall the generator actually built.
+        length_ = abs(float(out["wall_length"]))
+        ow = min(abs(float(out["opening_width"])), max(length_ - 1e-4, 0.0))
+        out["opening_width"] = ow
+        if "opening_offset" in out:
+            half_gap = max((length_ - ow) * 0.5, 0.0)
+            out["opening_offset"] = max(-half_gap, min(half_gap, float(out["opening_offset"])))
+        if "wall_height" in out and "opening_height" in out:
+            height_ = abs(float(out["wall_height"]))
+            out["opening_height"] = min(abs(float(out["opening_height"])), max(height_ - 1e-4, 0.0))
     return out
 
 

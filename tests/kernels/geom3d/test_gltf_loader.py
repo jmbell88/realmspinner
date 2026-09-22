@@ -266,6 +266,43 @@ def test_a_malformed_base_color_factor_is_defaulted_rather_than_crashing_the_ren
     assert material.emissive_factor == pytest.approx((0.0, 0.0, 0.0))
 
 
+def test_a_non_numeric_metallic_roughness_or_alphacutoff_falls_back_to_default_not_a_bare_typeerror():  # noqa: E501
+    """clay-16, the 2026-09-22 audit: ``metallicFactor``, ``roughnessFactor``
+    and ``alphaCutoff`` went through a bare ``float()`` -- unlike every other
+    numeric material field this loader validates through ``_number``/
+    ``_factor`` -- so a list or ``null`` raised an unnamed ``TypeError``
+    instead of falling back to the glTF default the way a malformed
+    baseColorFactor already does, just above. ``gltf.load`` is shared by
+    Clay import, Poser, Library and Mason, so this crashed all four callers
+    on one malformed field.
+    """
+    positions = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype="<f4")
+    binary = positions.tobytes()
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}],
+        "materials": [
+            {
+                "pbrMetallicRoughness": {
+                    "metallicFactor": [1.0, 2.0],
+                    "roughnessFactor": None,
+                },
+                "alphaCutoff": "opaque",
+            }
+        ],
+        "buffers": [{"byteLength": len(binary)}],
+        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+    }
+    material = gltf.load(_glb(doc, binary)).meshes[0][0].material
+    assert material.metallic_factor == pytest.approx(1.0)
+    assert material.roughness_factor == pytest.approx(1.0)
+    assert material.alpha_cutoff == pytest.approx(0.5)
+
+
 # --- skins ------------------------------------------------------------------
 
 
