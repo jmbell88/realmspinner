@@ -58,6 +58,14 @@ NO_EFFECT = "The active layer is not part of a Flourish effect."
 BUSY = "The document is busy -- a save, an export or playback is still running."
 RENDERING = "A render of this effect is still running."
 NO_CONFLICTS = "No cells of this effect are flagged."
+#: The 2026-09-23 (second run) audit, finding inker-02: ``bake.tags()`` names
+#: one tag per phase *per facing* once ``directions`` is more than one
+#: (``phase/E``, ``phase/SE``, ...), but ``_phase_span`` matched the first tag
+#: whose name was ``phase`` or started with ``phase/`` -- so Restyle rendered
+#: and landed only the ``E`` facing's span while the toast claimed the whole
+#: phase and the other facings kept their procedural frames untouched. Refused
+#: at the door rather than silently landing a partial restyle.
+MULTI_FACING_RESTYLE = "Restyle only works on a One-facing effect."
 NO_SELECTION = "Select the pixels to use as a texture first."
 NO_TEXTURE_SLOT = "This layer has no texture parameter to take one."
 TEXTURE_PENDING = "A texture is already being generated."
@@ -1024,12 +1032,34 @@ def land_prompt(ctx: Any, state: Any, done: Any, *, now: float) -> bool:
 # -- restyled keyframes -----------------------------------------------------------------------
 
 
+def _restyle_facing_reason(state: Any, tab: Any) -> str:
+    """"" unless the active effect has more than one facing -- see
+    MULTI_FACING_RESTYLE for why Restyle refuses those rather than landing
+    only the first."""
+    group = active_group(state, tab)
+    if group is None:
+        return ""
+    held = tab.doc.flourish_state(group)
+    if held is None:
+        return ""
+    if int(getattr(held.recipe, "directions", 1)) > 1:
+        return MULTI_FACING_RESTYLE
+    return ""
+
+
 def can_restyle(state: Any, tab: Any) -> bool:
-    return has_effect(state, tab) and not getattr(tab, "busy", False)
+    return (
+        has_effect(state, tab)
+        and not getattr(tab, "busy", False)
+        and not _restyle_facing_reason(state, tab)
+    )
 
 
 def restyle_reason(state: Any, tab: Any) -> str:
-    return regenerate_reason(state, tab)
+    reason = regenerate_reason(state, tab)
+    if reason:
+        return reason
+    return _restyle_facing_reason(state, tab)
 
 
 def phase_names(state: Any, tab: Any) -> list[str]:
@@ -1077,6 +1107,12 @@ def submit_restyle(
     held = tab.doc.flourish_state(group)
     anim = tab.doc.anim
     if held is None or anim is None:
+        return False
+    if int(getattr(held.recipe, "directions", 1)) > 1:
+        # The button is greyed with MULTI_FACING_RESTYLE already, but the
+        # door refuses too rather than trust the pane never to call through
+        # -- see MULTI_FACING_RESTYLE for the incident.
+        state.say(MULTI_FACING_RESTYLE)
         return False
     span = _phase_span(held, anim, phase)
     if span is None:

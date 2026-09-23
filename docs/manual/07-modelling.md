@@ -112,7 +112,7 @@ Every primitive already has sensible UVs. **Box Unwrap** re-projects an object p
 dominant axis — quick and not conformal, which is the right trade for a blockout and the wrong one
 for a hero asset.
 
-**Shade Smooth**, **Flat** and **Auto** control normals. Auto splits on an angle. Be aware that a
+**Shade Smooth**, **Shade Flat** and **Shade Auto** control normals. Auto splits on an angle. Be aware that a
 capped cylinder shades entirely flat under some settings, which looks like a bug and is the angle
 rule doing what it was told.
 

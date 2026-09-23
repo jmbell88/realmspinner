@@ -1474,7 +1474,20 @@ class LayerOps:
             # Through ``_move_row_edit`` rather than ``move_layer``: the public
             # one pushes a step of its own and would also re-derive the
             # membership from the destination, undoing the line above.
-            edits.append(self._move_row_edit(index, to))
+            try:
+                edits.append(self._move_row_edit(index, to))
+            except ValueError:
+                # The 2026-09-23 (second run) audit, finding inker-01:
+                # ``LayerStack.move`` refuses a reorder that would leave a
+                # background layer off the bottom row (inker-02, 90af9bba),
+                # and ``move_layer`` already catches that and refuses in
+                # kind. This door set the membership *before* attempting the
+                # move, so the same ValueError escaped here, leaving the
+                # background layer's ``group_of`` changed with no undo step
+                # pushed for it -- the document altered with nothing to
+                # undo. Roll the membership back and refuse the same way.
+                self._set_membership(member, before)
+                return False
         edits.extend(self._prune_group(before))
         self.history.push(CompoundEdit(edits) if len(edits) > 1 else edits[0])
         return True

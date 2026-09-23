@@ -477,7 +477,16 @@ class JobsCache:
             return False
         if key == self._search_key:
             return False
-        if not self.can_load_more():
+        # The 2026-09-23 audit's shell-04: this used to be ``if not
+        # can_load_more()``, which also skips the widen once ``limit`` hits
+        # ``MAX_LIST_LIMIT`` (5000) -- but a store past that ceiling still has
+        # rows outside the window, and ``can_load_more`` cannot tell "the
+        # window covers the whole store" from "the window is as wide as it is
+        # ever allowed to get". ``len(self.jobs) >= self.total`` is the real
+        # question: whether anything is left outside the window at all.
+        # ``total`` is 0 until the first read lands, which says nothing about
+        # the store yet, so only a known total may skip the widen.
+        if self.total and len(self.jobs) >= self.total:
             # The window already holds everything the store has -- there is
             # nothing outside it left to widen with.
             self._search_key = key

@@ -257,6 +257,16 @@ class MusicClient:
             )
         except OSError as exc:
             raise ChildFailed(f"could not start the music worker: {exc}") from exc
+        # Published the moment Popen returns, not after winjob/the reader are
+        # set up -- the 2026-09-23 (second run) audit, finding pipelines-04,
+        # same incident and fix as ``t2i_client._start_child``: ``close()``
+        # reads ``self._proc`` with no lock, so a quit landing in the window
+        # between Popen and this assignment killed nothing and then blocked
+        # on ``self._lock`` for up to ``READY_TIMEOUT``. A single attribute
+        # assignment is atomic under the GIL, so this needs no lock of its
+        # own -- only to happen before anything below can block or take real
+        # wall-clock time.
+        self._proc = proc
         winjob.assign(proc.pid)
         winjob.track(proc.pid, f"music {self.spec.key}")
 
@@ -278,7 +288,7 @@ class MusicClient:
             target=_pump, args=(proc.stdout,), name="music-worker", daemon=True
         )
         reader.start()
-        self._proc, self._lines = proc, lines
+        self._lines = lines
 
         from .music_worker import MARKER
 

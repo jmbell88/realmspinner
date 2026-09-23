@@ -295,6 +295,58 @@ class MasonDoc:
                 "MAX_PLACED ceiling; refusing rather than building past it"
             )
 
+    def _check_resolved_placed(self, nodes: Iterable[Node]) -> None:
+        """Refuse an attach that would push the document's *resolved* size --
+        what :func:`scene.resolve` actually expands to -- past
+        :data:`sc.MAX_PLACED`, even when the tree-side count
+        :meth:`_check_max_placed` sees stays comfortably under it.
+
+        The 2026-09-23 audit's docs-01 (the first run's mason-01
+        remainder): a placed :class:`~.nodes.PrefabNode` instance costs the
+        scene *tree* exactly one node, but expands into its whole template
+        subtree every time the scene draws, exports or is picked
+        (:meth:`resolved_growth`'s own docstring). Only ``mode.place_prefab``
+        ever charged that expanded size -- :meth:`add_node` and
+        :meth:`add_nodes` did not, so any *other* door that attaches a prefab
+        instance straight through them (a duplicate, an array copy of one, a
+        hand-rolled tool or agent call) could still push what the scene
+        resolves to past the ceiling while this class's own tree-side guard
+        saw nothing wrong, leaving the document save-clean but unable to ever
+        resolve again. Charged here, once, so every door that reaches
+        :meth:`add_node`/:meth:`add_nodes` -- present or future -- agrees with
+        :func:`scene.resolve`'s own ceiling, the same argument
+        :meth:`_check_max_placed` already makes for the tree-side count.
+
+        **Skipped entirely when nothing being attached is a
+        :class:`~.nodes.PrefabNode`.** Without a prefab instance among
+        ``nodes``, resolved size and tree size are the same number --
+        :meth:`_check_max_placed` above already covers it -- and
+        :meth:`resolved_total` walks the *whole document*, not just what is
+        being added. The 2026-09-18 audit's mason-04 (``_check_max_placed``
+        re-walking ``all_nodes()`` on every call) is exactly the cost this
+        would reintroduce for the common case -- ``duplicate_selected`` and
+        the Array tool both loop :meth:`add_node`/:meth:`add_nodes` once per
+        gesture over ordinary nodes -- if this ran unconditionally.
+        """
+        nodes = list(nodes)
+        if not any(
+            isinstance(entry, nd.PrefabNode)
+            for node in nodes
+            for entry, _parent, _index, _depth in nd.walk([node])
+        ):
+            return
+        growth = self.resolved_growth(nodes)
+        if growth == 0:
+            return
+        total = self.resolved_total() + growth
+        if total > sc.MAX_PLACED:
+            raise ValueError(
+                f"attaching these node(s) would bring this document's "
+                f"resolved size to {total}, past the {sc.MAX_PLACED} "
+                "MAX_PLACED ceiling; refusing rather than leaving the scene "
+                "unable to ever resolve, draw or export again"
+            )
+
     def add_node(
         self, node: Node, *, parent_uid: int | None = None, index: int | None = None
     ) -> Node:
@@ -303,9 +355,12 @@ class MasonDoc:
 
         ``node`` may itself carry a subtree (a duplicated group), so the
         ceiling counts the whole thing being attached, not just ``node``
-        itself -- see :meth:`_check_max_placed`.
+        itself -- see :meth:`_check_max_placed`. :meth:`_check_resolved_placed`
+        is the companion check for what a placed prefab instance among
+        ``node``'s own subtree expands to -- see its own docstring.
         """
         self._check_max_placed(len(list(nd.walk([node]))))
+        self._check_resolved_placed([node])
         siblings = self.children_of(parent_uid)
         at = len(siblings) if index is None else max(0, min(int(index), len(siblings)))
         self.history.push(ed.NodeAddEdit(parent_uid, at, node))
@@ -347,6 +402,10 @@ class MasonDoc:
         # :meth:`add_node` already counts a single subtree, over every node
         # being added.
         self._check_max_placed(sum(len(list(nd.walk([node]))) for node in added))
+        # The 2026-09-23 audit's docs-01: the tree-side check above undercounts
+        # a prefab instance among ``added`` the same way ``add_node``'s own
+        # did -- see :meth:`_check_resolved_placed`'s docstring.
+        self._check_resolved_placed(added)
         made: list[Edit] = []
         for node in added:
             siblings = self.children_of(parent_uid)
@@ -577,9 +636,39 @@ class MasonDoc:
     def _prefab_refers_to(self, node: Node, target: str, visited: frozenset[str]) -> bool:
         """Whether ``node`` places ``target`` -- directly, or through a chain
         of prefabs it in turn places. ``visited`` stops this from re-walking a
-        prefab already checked on the current path; ``nodes.walk``'s own depth
-        ceiling (reached through :func:`nodes.walk` inside this walk) is what
-        stops a chain that is not actually a cycle but is absurdly long.
+        prefab already checked on the *current path*; ``nodes.walk``'s own
+        depth ceiling (reached through :func:`nodes.walk` inside this walk) is
+        what stops a chain that is not actually a cycle but is absurdly long.
+
+        Delegates to :meth:`_prefab_refers_to_memo`, which adds the one thing
+        ``visited`` alone cannot give this: a memo keyed by template name, good
+        for the lifetime of one top-level call. The 2026-09-23 audit's
+        mason-01: without it, a *diamond* of references -- two prefabs each
+        placing a third -- re-walked that third prefab's whole subtree once
+        per parent that reaches it, and a chain of diamonds nested ``k`` levels
+        deep re-walks the bottom template ``2**k`` times: 2.5 s at nesting
+        depth 20, 20.2 s at 23, on the frame thread (``define_prefab`` runs
+        synchronously). A template's own "does it reach ``target``" answer
+        does not depend on which parent asked -- graph reachability is a
+        property of the template, not of the path taken to it -- so it is
+        computed once per name and read back on every later encounter.
+        """
+        return self._prefab_refers_to_memo(node, target, visited, {})
+
+    def _prefab_refers_to_memo(
+        self, node: Node, target: str, visited: frozenset[str], memo: dict[str, bool]
+    ) -> bool:
+        """The memoised worker behind :meth:`_prefab_refers_to`.
+
+        ``memo`` is shared across the whole call tree rooted at the original
+        :meth:`_prefab_refers_to` call, so a template reached a second time
+        through a different parent answers from the dict instead of walking
+        its subtree again. A name still being explored on the *current* path
+        (``visited``) is checked first and skipped rather than memoised --
+        the standard "back edge contributes nothing new" rule for reachability
+        under a cycle that does not happen to pass through ``target`` -- so a
+        genuine prefab cycle among names other than ``target`` still
+        terminates instead of recursing forever.
         """
         for entry, _parent, _index, _depth in nd.walk([node]):
             if not isinstance(entry, nd.PrefabNode):
@@ -588,10 +677,20 @@ class MasonDoc:
                 return True
             if entry.template in visited:
                 continue
+            cached = memo.get(entry.template)
+            if cached is not None:
+                if cached:
+                    return True
+                continue
             referenced = self.prefabs.get(entry.template)
-            if referenced is not None and self._prefab_refers_to(
-                referenced, target, visited | {entry.template}
-            ):
+            if referenced is None:
+                memo[entry.template] = False
+                continue
+            result = self._prefab_refers_to_memo(
+                referenced, target, visited | {entry.template}, memo
+            )
+            memo[entry.template] = result
+            if result:
                 return True
         return False
 

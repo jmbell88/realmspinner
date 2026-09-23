@@ -1298,7 +1298,14 @@ def _paste(ctx: Any, tab: Any, *, as_layer: bool) -> Any:
 
     inker_mode.paste_from_os(ctx, tab)
     if as_layer:
-        return tab.doc.paste_as_layer()
+        result = tab.doc.paste_as_layer()
+        if result is False:
+            # The 2026-09-23 (second run) audit, finding inker-05:
+            # Ctrl+Shift+V on an empty clipboard fell straight through here
+            # with no toast, while plain Paste (below) already says why it
+            # did nothing. Same refusal, same sentence.
+            ctx.state.inker.say("There is nothing on the clipboard.")
+        return result
     result = tab.doc.paste()
     if result is False:
         # ``enabled`` cannot see the clipboard, so this is the only place the

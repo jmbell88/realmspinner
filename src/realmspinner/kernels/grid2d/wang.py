@@ -193,10 +193,11 @@ class WangSet:
     def wangid_of(self, local_id: int) -> tuple[int, ...]:
         """One tile's wangid, or all-unset for a tile the set says nothing about.
 
-        No studio caller yet -- the wang tests exercise it directly. It is the
-        per-tile read a ``field_of`` callback for :func:`constraints_from` is
-        built from, which is why it stays published rather than folding into
-        ``matching``.
+        The tileset editor has called this since 2026-08-30 (the 2026-09-23
+        audit, second run, plotter-02, corrected a docstring that still said
+        "no studio caller yet"). It is the per-tile read a ``field_of``
+        callback for :func:`constraints_from` is built from, which is why it
+        stays published rather than folding into ``matching``.
         """
         return self.tiles.get(int(local_id), (0,) * POSITIONS)
 

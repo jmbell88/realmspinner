@@ -26,6 +26,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from ..pipelines import lora_train
 from . import files
 from .core import RealmspinnerService
 from .errors import Invalid
@@ -50,6 +51,25 @@ PRIMARY = {
     # that one with mesh-verdict semantics, and a music row picking those up
     # would be graded against a scale that has no meaning for audio.
     "music": "track.wav",
+}
+
+#: :data:`PRIMARY`'s companion, keyed on *kind* instead, and checked first.
+#:
+#: ``service.loras.train_lora`` mints its row with ``svc.store.create(
+#: "lora_train", ...)`` and no ``stage`` of its own, so it keeps
+#: ``JobStore.create``'s default, ``"model"`` -- and until the 2026-09-23
+#: (second run) audit's finding service-02, ``PRIMARY["model"]`` then checked
+#: it for ``model.glb``, a file no LoRA run ever writes. Every finished
+#: ``lora_train`` job was reported ``missing_artifacts`` forever.
+#:
+#: Fixed by checking *kind* before *stage* rather than by minting a new stage
+#: (a new stage is a sweep of every stage-keyed table -- ``CLAUDE.md``'s rule
+#: -- and this finding does not need one) and without a stage rewrite for
+#: existing rows: a legacy ``lora_train`` row minted with stage ``"model"``
+#: is verified correctly too, because kind wins over stage regardless of
+#: which stage string happens to be on the row.
+PRIMARY_BY_KIND = {
+    "lora_train": lora_train.WEIGHTS_NAME,
 }
 
 #: How many rows one page of the walk reads. The same keyset-cursor shape
@@ -128,7 +148,9 @@ def verify(svc: RealmspinnerService) -> dict[str, Any]:
         if not job_dir.is_dir():
             missing_dirs.append(_row(job))
             continue
-        name = PRIMARY.get(job.get("stage") or "")
+        name = PRIMARY_BY_KIND.get(job.get("kind") or "") or PRIMARY.get(
+            job.get("stage") or ""
+        )
         if name is not None and not files.ready(job, job_dir, name):
             missing_artifacts.append({**_row(job), "artifact": name})
 

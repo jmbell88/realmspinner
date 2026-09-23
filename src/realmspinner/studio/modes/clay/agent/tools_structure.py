@@ -43,12 +43,20 @@ bug, the serial the name pointed at is simply no longer on any branch
 ``remove_object`` already refuse a locked object with ``OpError("<name> is
 locked.")`` -- see ``document.py``'s own locking paragraph -- and
 ``tools.py``'s own ``_h_transform``/``_h_delete`` are what map that refusal
-onto a field-named one. ``clay_group``/``clay_separate`` do reach a locking
-door (``ClayDoc.separate`` refuses a locked source the same way), and their
-own OpError is let through to ``call()``'s generic handling rather than
-re-wrapped, because unlike a transform or a delete there is exactly one
-object in play and nothing else in the same call could be mistaken for what
-refused.
+onto a field-named one. Of this file's two, only ``clay_separate`` reaches a
+locking door (``ClayDoc.separate`` refuses a locked source the same way);
+``clay_group`` does not, because ``ClayDoc.group`` reparents every member
+with ``keep_world=True``, and ``set_parent``'s own docstring is explicit
+that a ``keep_world`` reparent is exempt from ``_refuse_if_locked`` (it moves
+nothing on screen) -- so a locked object can be grouped. Both handlers
+(:func:`_h_group`, :func:`_h_separate`) catch the ``OpError`` and return it
+through ``fail()``, the same as every other handler in this file, rather
+than letting it through to ``call()``'s generic handling unwrapped.
+
+(The 2026-09-23 audit, second run, finding clay-19: this paragraph
+previously claimed the opposite of both -- that ``clay_group`` reaches a
+locking door and that the ``OpError`` from either is let through unwrapped.
+Neither held; corrected here.)
 """
 
 from __future__ import annotations

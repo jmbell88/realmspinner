@@ -646,6 +646,17 @@ def _queued(ctx: Any, state: Any, done: Any, *, job_key: str, noun: str) -> None
     pending = state.generate_pending
     if pending is None:
         return
+    # clay-05 (the 2026-09-23 audit, second run): the first run's clay-04
+    # added a tab-uid check to ``_landed`` alone -- a cancelled tab's task
+    # still lands here (queueing is not stoppable either), and without the
+    # same check this wrote the late task's job id into whatever tab
+    # ``generate_pending`` now names, even a newer tab that opened Generate
+    # after the cancel. Compare against the key's own tab uid, not the
+    # pending tab's: a stale queue task naming a cancelled tab must never
+    # overwrite a newer tab's pending job id.
+    _, _, key_tab_uid = done.key.partition(":")
+    if key_tab_uid != pending.get("tab_uid"):
+        return
     result = done.result
     if result is None:
         # A cancelled picker (the image flow's own dialog) or an empty
@@ -742,9 +753,17 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     state = ctx.state.clay
     if state is None:
         return
-    name = done.key.split(":", 1)[0]
+    name, _, key_tab_uid = done.key.partition(":")
     pending = state.generate_pending
     if pending is None:
+        return
+    # clay-05 (the 2026-09-23 audit, second run): the same stale-task guard
+    # ``_queued`` above now carries -- a cancelled tab's task can still fail
+    # after ``cancel()`` has already moved ``generate_pending`` on to a
+    # newer tab, and without this a late failure from the old tab cleared
+    # (or, worse, bounced back to the preview stage) the newer tab's live
+    # pending request.
+    if key_tab_uid != pending.get("tab_uid"):
         return
     tab_uid = pending.get("tab_uid", "")
     if (

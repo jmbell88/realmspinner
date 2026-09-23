@@ -1124,10 +1124,10 @@ BASE_MODELS: dict[str, BaseModel] = _table(
         description=(
             "The default: full CFG, so structure is actually controllable.\n\n"
             "No extra download -- the same base weights as the entry above, run "
-            "the way SDXL was trained. It is the only family that takes "
-            "ControlNet, and the only one where the negative prompt carries full "
-            "weight. Slower than the distilled options and measurably better at "
-            "holding a silhouette."
+            "the way SDXL was trained, with ControlNet and a full-weight "
+            "negative prompt, the way this registry's other full-CFG bases "
+            "(Playground, PAG and the fine-tunes) also run. Slower than the "
+            "distilled options and measurably better at holding a silhouette."
         ),
         license="OpenRAIL++-M",
         commercial=True,

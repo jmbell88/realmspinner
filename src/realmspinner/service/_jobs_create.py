@@ -967,7 +967,15 @@ def import_mesh(
         try:
             from .. import meshreport
 
-            params["mesh_report"] = meshreport.build(model, target_size_m=size_m)
+            # No custom triangle budget applies here -- an uploaded mesh is
+            # never retargeted or remeshed at import time -- so the module
+            # default is the right ceiling; passed explicitly for the same
+            # reason as its sibling in service/characters.py: this is one of
+            # the four call sites the 2026-09-23 audit's finding pipelines-01
+            # names.
+            params["mesh_report"] = meshreport.build(
+                model, target_size_m=size_m, triangle_budget=meshreport.TRIANGLE_BUDGET
+            )
         except Exception as exc:
             log.exception("mesh report failed for built asset %s", job_id)
             note_degraded(

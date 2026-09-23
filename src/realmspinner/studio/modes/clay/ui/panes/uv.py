@@ -396,17 +396,48 @@ def drag_scale(
 # --- pure edits: one undo step each -----------------------------------------
 
 
+def _set_mesh_or_toast(doc: Any, uid: int, mesh: Any, *, ctx: Any = None) -> bool:
+    """The four apply doors' shared refusal path (the 2026-09-23 audit's
+    clay-04).
+
+    ``doc.set_mesh`` raises ``OpError`` (nothing pushed) for a locked object
+    or one with a locked ancestor -- this pane never read ``obj.locked``
+    anywhere, so that refusal reached imgui uncaught and the whole UV pane
+    fell over to the "stopped drawing" placeholder instead of applying
+    nothing and saying why, the same shape ``clay_props._set_parent`` guards
+    against for its own door.
+
+    ``ctx`` is optional and keyword-only, defaulting to ``None``, so the
+    four ``apply_*`` doors below keep the positional ``(doc, uid, ...)``
+    shape their existing headless callers (``tests/modes/clay/
+    test_uv_pane.py``, driving these doors straight without a pane) already
+    use. With no ``ctx`` to toast through, the refusal is re-raised rather
+    than swallowed -- silently eating it would hide the same defect this
+    fix closes, just for a caller this module does not own.
+    """
+    from ......kernels.mesh.elements import OpError
+    from ... import ops as clay_ops
+
+    try:
+        return doc.set_mesh(uid, mesh, keep_generator=True)
+    except OpError as error:
+        if ctx is None:
+            raise
+        clay_ops.toast(ctx, str(error))
+        return False
+
+
 def apply_translate(
-    doc: Any, uid: int, island_ids: Any, translate: tuple[float, float]
+    doc: Any, uid: int, island_ids: Any, translate: tuple[float, float], *, ctx: Any = None
 ) -> bool:
     """Slide the chosen islands by *translate*, as one step. -> whether it moved."""
     obj = doc.by_uid(uid)
     mesh = uvtools.transform_islands(obj.mesh, list(island_ids), translate=translate)
-    return doc.set_mesh(uid, mesh, keep_generator=True)
+    return _set_mesh_or_toast(doc, uid, mesh, ctx=ctx)
 
 
 def apply_rotate(
-    doc: Any, uid: int, island_ids: Any, degrees: float, *, base: Any = None
+    doc: Any, uid: int, island_ids: Any, degrees: float, *, base: Any = None, ctx: Any = None
 ) -> bool:
     """Rotate the chosen islands (each about its own centre) by *degrees*.
 
@@ -420,11 +451,11 @@ def apply_rotate(
     obj = doc.by_uid(uid)
     source = obj.mesh if base is None else base
     mesh = uvtools.transform_islands(source, list(island_ids), rotate_deg=degrees)
-    return doc.set_mesh(uid, mesh, keep_generator=True)
+    return _set_mesh_or_toast(doc, uid, mesh, ctx=ctx)
 
 
 def apply_scale(
-    doc: Any, uid: int, island_ids: Any, factor: float, *, base: Any = None
+    doc: Any, uid: int, island_ids: Any, factor: float, *, base: Any = None, ctx: Any = None
 ) -> bool:
     """Scale the chosen islands (each about its own centre) by *factor*.
 
@@ -433,14 +464,16 @@ def apply_scale(
     obj = doc.by_uid(uid)
     source = obj.mesh if base is None else base
     mesh = uvtools.transform_islands(source, list(island_ids), scale=factor)
-    return doc.set_mesh(uid, mesh, keep_generator=True)
+    return _set_mesh_or_toast(doc, uid, mesh, ctx=ctx)
 
 
-def apply_pack(doc: Any, uid: int, *, margin: float = 0.005, rotate: bool = False) -> bool:
+def apply_pack(
+    doc: Any, uid: int, *, margin: float = 0.005, rotate: bool = False, ctx: Any = None
+) -> bool:
     """Pack every island of *uid*'s mesh into the unit square, as one step."""
     obj = doc.by_uid(uid)
     mesh = uvtools.pack_islands(obj.mesh, margin=margin, rotate=rotate)
-    return doc.set_mesh(uid, mesh, keep_generator=True)
+    return _set_mesh_or_toast(doc, uid, mesh, ctx=ctx)
 
 
 # --- the live rotate/scale gesture: begin, one frame, commit, cancel --------
@@ -481,7 +514,7 @@ def begin_live_transform(
 
 
 def update_live_transform(
-    doc: Any, uid: int, view_state: UvPaneState, now: tuple[float, float]
+    doc: Any, uid: int, view_state: UvPaneState, now: tuple[float, float], *, ctx: Any = None
 ) -> bool:
     """One frame of an armed live rotate/scale. -> whether the mesh changed.
 
@@ -491,13 +524,21 @@ def update_live_transform(
     mesh the gesture began with -- never to whatever ``doc`` holds this
     frame. That is the whole of what keeps this exact instead of drifting:
     see the module docstring for why re-reading the live mesh would not be.
+
+    ``ctx`` is optional and keyword-only for the same reason
+    :func:`_set_mesh_or_toast` gives -- ``tests/modes/clay/test_uv_pane.py``
+    drives this door straight, with no pane and no ``ctx`` to toast through.
     """
     if view_state.drag_mode == "rotate":
         degrees = drag_angle(view_state.drag_pivot, view_state.drag_start, now)
-        return apply_rotate(doc, uid, view_state.drag_islands, degrees, base=view_state.drag_base)
+        return apply_rotate(
+            doc, uid, view_state.drag_islands, degrees, base=view_state.drag_base, ctx=ctx
+        )
     if view_state.drag_mode == "scale":
         factor = drag_scale(view_state.drag_pivot, view_state.drag_start, now)
-        return apply_scale(doc, uid, view_state.drag_islands, factor, base=view_state.drag_base)
+        return apply_scale(
+            doc, uid, view_state.drag_islands, factor, base=view_state.drag_base, ctx=ctx
+        )
     return False
 
 
@@ -730,7 +771,7 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
         widgets.disabled_button("Apply##uvrotate", bool(selected) and not live)
         and view_state.pending_rotate != 0.0
     ):
-        apply_rotate(doc, obj.uid, selected, view_state.pending_rotate)
+        apply_rotate(doc, obj.uid, selected, view_state.pending_rotate, ctx=ctx)
         view_state.pending_rotate = 0.0
 
     widgets.field_label("scale")
@@ -744,11 +785,11 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
         )
         and view_state.pending_scale != 1.0
     ):
-        apply_scale(doc, obj.uid, selected, view_state.pending_scale)
+        apply_scale(doc, obj.uid, selected, view_state.pending_scale, ctx=ctx)
         view_state.pending_scale = 1.0
 
     if controls.small_button(f"{icons.SQUARE} Pack islands##uvpack", enabled=not live):
-        apply_pack(doc, obj.uid)
+        apply_pack(doc, obj.uid, ctx=ctx)
     imgui.end_disabled()
 
 
@@ -799,17 +840,23 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     if tab.saving:
         pass
     elif view_state.drag_mode in ("rotate", "scale"):
-        _drive_live_transform(doc, obj.uid, view_state, uv_here, hovered)
+        _drive_live_transform(ctx, doc, obj.uid, view_state, uv_here, hovered)
     else:
         # E/R arm a live rotate/scale -- only while nothing else already
         # owns the mouse over this canvas and there is a selection to turn,
         # and never while a text field (the rotate/scale spinners just
         # above, in ``_toolbar``) is the one taking keystrokes, or typing
         # "-45" into the degrees box would also arm a rotate underneath it.
+        # ``not obj.locked`` (the 2026-09-23 audit's clay-04): arming the
+        # drag on a locked object used to succeed -- only the eventual
+        # ``doc.set_mesh`` refused -- so every mouse-move frame re-raised
+        # ``OpError`` until Escape. Refusing to arm at all means there is
+        # nothing left to re-raise.
         if (
             hovered
             and not imgui.is_item_active()
             and view_state.selected_islands
+            and not obj.locked
             and not imgui.get_io().want_text_input
         ):
             if imgui.is_key_pressed(imgui.Key.e):
@@ -827,7 +874,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
             if view_state.drag_mode == "move" and view_state.selected_islands:
                 delta = (uv_here[0] - view_state.drag_last[0], uv_here[1] - view_state.drag_last[1])
                 if delta != (0.0, 0.0):
-                    apply_translate(doc, obj.uid, view_state.selected_islands, delta)
+                    apply_translate(doc, obj.uid, view_state.selected_islands, delta, ctx=ctx)
                 view_state.drag_last = uv_here
             else:
                 rect = (view_state.drag_start[0], view_state.drag_start[1], uv_here[0], uv_here[1])
@@ -858,6 +905,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
 
 
 def _drive_live_transform(
+    ctx: Any,
     doc: Any,
     uid: int,
     view_state: UvPaneState,
@@ -889,7 +937,7 @@ def _drive_live_transform(
     if hovered and imgui.is_mouse_clicked(0):
         commit_live_transform(doc, view_state)
         return
-    update_live_transform(doc, uid, view_state, uv_here)
+    update_live_transform(doc, uid, view_state, uv_here, ctx=ctx)
 
 
 def _handle_pan_zoom(

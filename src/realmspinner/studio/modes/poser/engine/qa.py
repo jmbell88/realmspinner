@@ -104,8 +104,14 @@ class CellScore:
 @dataclass(frozen=True)
 class SheetScore:
     cells: tuple[CellScore, ...]
-    #: ``(metric, value, cell)`` of the cell furthest past its bad threshold,
-    #: or None when no cell is flagged.
+    #: ``(metric, value, cell)`` of the single worst-scoring flagged cell --
+    #: ranked bad severity over warn, and by ratio within a tie -- or None
+    #: when no cell is flagged. Despite the name, this can be a warn-level
+    #: cell: a sheet with no cell past its *bad* threshold still has a
+    #: ``worst`` when at least one is at warn (see ``score_sheet``'s own
+    #: ``(severity, ratio)`` comparison below). The 2026-09-23 audit, finding
+    #: poser-07: this docstring used to claim "past the bad threshold"
+    #: unconditionally.
     worst: tuple[str, float, int] | None
     flagged: int
 

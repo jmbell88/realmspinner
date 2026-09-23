@@ -2734,8 +2734,14 @@ def _glyph_button(
     # cursor. ``nav_visible`` is imgui's own "the user is navigating by
     # keyboard right now", which is exactly the audience this is for.
     named = hovered or (imgui.is_item_focused() and imgui.get_io().nav_visible)
-    if tooltip and named:
-        imgui.set_tooltip(tooltip)
+    # The 2026-09-23 audit's shell-05: this always showed ``tooltip``, even
+    # disabled, so a disabled icon button never surfaced its ``reason`` --
+    # the one explanation the icon tier has once a control collapses to it.
+    # ``_button_with_note`` already picks the disabled reason over the live
+    # tooltip; this is the same rule.
+    note = reason if not enabled else tooltip
+    if note and named:
+        imgui.set_tooltip(note)
     # The 2026-09-23 audit (finding shell-05) found this button both dropped
     # a disabled ``reason`` on the floor -- there was nowhere to pass one --
     # and was invisible to the control census: its ``imgui.button`` call was

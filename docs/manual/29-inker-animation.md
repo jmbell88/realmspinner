@@ -279,7 +279,7 @@ drawn on the west view can be offered to the east one flipped. Switch on **Previ
 canvas shows which pixels the other side would take; the count beside it says how many, and how many
 the **face** box is holding back. The face is excluded because a face is not symmetric -- measured on
 the reference sheets, mirroring left onto right differs only there -- and the slider decides how much
-of the sprite, from the top, counts as face. **Apply to right** writes one cell; **Apply whole run**
+of the sprite, from the top, counts as face. **Apply to right** writes one cell; **Apply whole *{direction}* run**
 writes every frame of the direction onto its counterpart.
 
 Every one of these is a single `Ctrl+Z` however many cells it touched, a linked cel is written once,

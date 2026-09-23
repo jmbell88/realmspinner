@@ -413,10 +413,19 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
     imgui.dummy((0, sp(tokens.SP_1)))
     _slice_preview(ctx, pixels, state.tileset_cell)
 
+    # The 2026-09-23 audit (second run, packwright-03): this used to disable
+    # only on ``problem`` or ``computing``, never on the *target* tab being
+    # busy -- ``import_tileset`` resolves its target from
+    # ``tileset_import_uid`` rather than whatever tab is active, so a save
+    # elsewhere in the app did not grey this button at all.
+    requesting = state.get(state.tileset_import_uid)
+    busy = bool(requesting is not None and requesting.busy)
     imgui.dummy((0, sp(tokens.SP_1)))
-    imgui.begin_disabled(bool(problem) or computing)
+    imgui.begin_disabled(bool(problem) or computing or busy)
     if controls.button("Import", (sp(90), 0)) and packwright_mode.import_tileset(ctx):
         imgui.close_current_popup()
+    if busy and imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_disabled.value):
+        imgui.set_tooltip(widgets.DOCUMENT_SAVING_WHY)
     imgui.end_disabled()
     imgui.same_line()
     if controls.button("Cancel##tileset", (sp(90), 0)):
@@ -443,7 +452,15 @@ def _from_inker(ctx: Any, tab: Any, editable: bool) -> None:
         frames = len(doc.doc.anim.frames) if doc.doc.anim is not None else len(doc.doc.stack)
         what = "frame" if doc.doc.anim is not None else "layer"
         label = f"{doc.title} ({frames} {what}{'s' if frames != 1 else ''})"
-        if widgets.disabled_button(f"{icons.FILM} {label}##ink-{doc.uid}", editable, (-1, 0)):
+        # reason=: the 2026-09-23 audit (second run, packwright-04) found this
+        # button greying with no ``reason``, unlike its two siblings above
+        # (the same 2026-09-18 packwright-02 fault, left in place here).
+        if widgets.disabled_button(
+            f"{icons.FILM} {label}##ink-{doc.uid}",
+            editable,
+            (-1, 0),
+            reason=widgets.DOCUMENT_SAVING_WHY,
+        ):
             packwright_mode.add_inker_document(ctx, doc)
 
 

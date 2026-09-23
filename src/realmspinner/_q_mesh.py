@@ -71,6 +71,27 @@ def _note_degraded(params: dict[str, Any], step: str, detail: str) -> None:
     params[ARTIFACT_HEALTH] = {**health, step: detail}
 
 
+def _effective_triangle_budget(params: dict[str, Any]) -> int | None:
+    """The triangle ceiling this job's own generate pipeline actually built to.
+
+    The 2026-09-23 audit, finding pipelines-01: ``_audit_mesh`` called
+    ``meshreport.build`` with no ``triangle_budget``, so a mesh retargeted or
+    lowpoly-remeshed to a custom budget above the module's 150k default was
+    recorded as over budget in the very report meant to describe it.
+    ``params["lowpoly"]["requested"]`` and ``params["optimize"]["requested"]``
+    are both already triangle counts (``_lowpoly`` and ``optimize.run`` record
+    them that way), so no quad conversion is needed here the way ``_remesh``'s
+    own call site needs one. Lowpoly wins when both ran: it is the last,
+    stricter remesh the shipped mesh was actually built to.
+    """
+    for record in (params.get("lowpoly"), params.get("optimize")):
+        if isinstance(record, dict):
+            requested = record.get("requested")
+            if isinstance(requested, int) and requested > 0:
+                return requested
+    return None
+
+
 class MeshPostOps:
     """Mesh post-processing, mixed into :class:`~.queue.Worker`."""
 
@@ -332,7 +353,15 @@ class MeshPostOps:
             self.store.merge_params, source_id, changes, remove=tuple(drop)
         )
         # The audit and the report describe the mesh that is now on disk.
-        await self._audit_published(source_id, model_glb, source_params.get("size_m"))
+        # ``triangles`` is this remesh's own requested budget -- ``target`` is
+        # Blender's quad count (target_faces = triangles // 2), and the 2026-09-23
+        # audit (finding pipelines-01) is what a report judged against the
+        # quad figure, or against no figure at all, would get wrong: the
+        # module default (150k) rather than the up-to-200k ceiling this mesh
+        # was actually built to.
+        await self._audit_published(
+            source_id, model_glb, source_params.get("size_m"), triangle_budget=triangles
+        )
         log.info(
             "remeshed job %s from %s: %s faces via %s, tiercheck %s",
             source_id, job_id, report.get("faces"), report.get("method"),
@@ -340,7 +369,12 @@ class MeshPostOps:
         )
 
     async def _audit_published(
-        self: Worker, source_id: str, glb_path: Path, size_m: Any
+        self: Worker,
+        source_id: str,
+        glb_path: Path,
+        size_m: Any,
+        *,
+        triangle_budget: int | None = None,
     ) -> None:
         """Re-measure a mesh another job just published over, by merge.
 
@@ -348,6 +382,12 @@ class MeshPostOps:
         which is right for a job's own row mid-run and wrong for a *source*
         row another writer may be touching -- so this is the same two
         measurements, merged in.
+
+        ``triangle_budget``, when given, is the budget the publishing job
+        actually built this mesh to -- see :func:`_remesh`'s call site and the
+        2026-09-23 audit, finding pipelines-01: with nothing passed here this
+        report fell back to ``meshreport.TRIANGLE_BUDGET`` (150k) even for a
+        mesh remeshed to a larger, explicitly accepted budget.
         """
         try:
             from . import meshaudit, meshreport
@@ -361,7 +401,11 @@ class MeshPostOps:
             summary = {k: audit[k] for k in ("worst", "mean", "faces", "resolution")}
             report = await asyncio.to_thread(
                 functools.partial(
-                    meshreport.build, glb_path, target_size_m=size_m, silhouette=summary
+                    meshreport.build,
+                    glb_path,
+                    target_size_m=size_m,
+                    silhouette=summary,
+                    triangle_budget=triangle_budget,
                 )
             )
         except Exception:
@@ -736,6 +780,7 @@ class MeshPostOps:
                     glb_path,
                     target_size_m=params.get("size_m"),
                     silhouette=params["mesh_audit"],
+                    triangle_budget=_effective_triangle_budget(params),
                 )
             )
         except Exception as exc:

@@ -485,7 +485,14 @@ class LlamaServer:
 
     async def ensure_started(self, *, expected_card_sha: str | None = None) -> None:
         async with self._lock:
-            self._reap_if_dead()
+            # Off the loop thread -- the 2026-09-23 audit (familiar-03):
+            # _reap_if_dead -> stop() can run proc.terminate()/wait(),
+            # proc.kill()/wait() and _reader.join(timeout=5) in sequence, the
+            # same class of blocking call ``_check_manifest`` was moved off
+            # this thread for by the 2026-09-18 audit (familiar-01, see that
+            # method's own docstring) -- this call was missed then because it
+            # sat one line above, still directly on the loop thread.
+            await asyncio.to_thread(self._reap_if_dead)
             if self.running:
                 return
             if self._leased:
@@ -554,6 +561,18 @@ class LlamaServer:
             deadline = time.monotonic() + STARTUP_TIMEOUT
             async with httpx.AsyncClient() as client:
                 while time.monotonic() < deadline:
+                    # The 2026-09-23 audit (familiar-02): ``last_used`` was
+                    # only stamped at spawn (above) and on a healthy 200, so a
+                    # cold start slow enough to run several poll ticks still
+                    # read as idle "since boot" to
+                    # ``Worker._maybe_evict_idle`` -- which then stopped this
+                    # same server it was still starting, and the "was stopped
+                    # during startup" sentence that produced got misread by
+                    # ``service.familiar._reason_for`` as a GPU lease (the
+                    # only *other* caller that clears ``_proc`` mid-poll).
+                    # Touching it every tick keeps a poll in progress from
+                    # ever looking idle.
+                    self.last_used = time.monotonic()
                     proc = self._proc
                     if proc is None:
                         raise RuntimeError("llama-server was stopped during startup")

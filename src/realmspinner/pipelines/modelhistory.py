@@ -233,12 +233,25 @@ def keep(
 ) -> list[dict[str, Any]]:
     """:func:`stage` then :func:`commit` in one call.
 
-    For a caller with no failure path of its own to guard -- ``revert_model``
-    only reaches this after the version being restored is already known good,
-    so there is nothing here for it to back out of on failure the way
-    ``optimize_job`` and ``_publish_model_version`` must (2026-09-23 audit,
-    findings service-01 and service-03): see :func:`stage` for why those two
-    call ``stage``/``commit`` directly instead of this.
+    Not currently called by anything in this tree -- every caller here writes
+    ``model.glb`` in a step that can itself fail (``optimize.run``, a Blender
+    replace, a ``shutil.copyfile`` of a kept version's bytes onto the served
+    name) and so needs to stage *before* attempting that write and only
+    commit (which is where eviction happens) once it has actually succeeded,
+    calling :func:`discard_last` instead on failure. ``revert_model`` used to
+    be cited here as the one exception -- the claim was that it reaches this
+    only after the version being restored is already known good, so there
+    was "nothing here for it to back out of" on failure. That was false: the
+    write that follows (copying the kept version's bytes over ``model.glb``)
+    can still fail on its own account (disk full, a permissions error), and
+    the old combined ``keep()`` had already evicted the oldest kept version
+    -- unconditionally, before that write was even attempted -- by the time
+    such a failure happened (2026-09-23, second run, audit finding
+    service-01). ``revert_model`` now calls :func:`stage`/:func:`commit`
+    directly, the same shape as :func:`~.mesh._publish_model_version` and
+    ``optimize_job``. This function is kept only because a future caller with
+    a genuinely unguarded write may still want the one-call form; a fixture
+    or a hand test is the most likely remaining user.
     """
     return commit(job_dir, stage(
         job_dir, entries, params, kind=kind, geometry=geometry, detail=detail, now=now

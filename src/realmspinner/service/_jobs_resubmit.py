@@ -357,12 +357,14 @@ def rerun_job(
         # Every one of the seven kinds that carries ``params["source_job"]``
         # (``followups.PRODUCTS``: retexture, remesh, rig, sheet, pixel_sheet,
         # charsheet, sprite_synthesis) writes onto that mesh's served
-        # artifacts when it finishes -- and the four dedicated doors onto
+        # artifacts when it finishes -- and the five dedicated doors onto
         # them (``optimize_job``, ``retexture_job``, ``remesh_job``,
-        # ``separate_job``) all hold ``_require_no_dependents`` before
-        # queuing or running one. This reroll is a fifth door onto the same
-        # write, reachable from the generic Reroll control every rework card
-        # offers, and it walked straight past that gate (the 2026-09-08
+        # ``separate_job``, ``revert_model``, added in ea7ba4b6 -- the
+        # 2026-09-23 (second run) audit, finding service-07, caught this
+        # comment still saying "four") all hold ``_require_no_dependents``
+        # before queuing or running one. This reroll is a sixth door onto the
+        # same write, reachable from the generic Reroll control every rework
+        # card offers, and it walked straight past that gate (the 2026-09-08
         # audit, service-01): rerolling a finished retexture while a sibling
         # rework for the same mesh is queued or running raced two writers
         # onto one directory with no ordering between them, exactly the

@@ -723,7 +723,16 @@ def _play_from(ctx: Any, one: Any, seconds: float) -> None:
             return
         if sirens_audio.play(buffer, rate, tag=one.job, loops=-1):
             one.play_offset = seconds
-            one.loop_anchor = seconds
+            # muse-03 (2026-09-23 audit, second run). ``cut`` is ``phase``
+            # quantised to a sample count and can round *up* to
+            # ``len(body)`` -- at which point ``body[cut:]`` is empty and the
+            # buffer above is unrotated, identical to ``cut == 0``. Naming
+            # ``loop_anchor`` after the raw, unquantised ``seconds`` (as
+            # opposed to what the buffer actually starts at) named the wrong
+            # point in that case: the buffer began at ``loop_start``, not
+            # near the region's far edge. ``cut % len(body)`` collapses the
+            # rounded-up case onto 0, agreeing with the buffer it names.
+            one.loop_anchor = one.loop_start + (cut % len(body)) / rate
             ensure(ctx).playing_job = one.job
         else:
             ctx.toast(sirens_audio.unavailable_reason() or "could not play that take", "warn")

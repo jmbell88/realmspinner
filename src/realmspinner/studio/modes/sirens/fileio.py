@@ -272,6 +272,13 @@ def save_to(ctx: Any, tab: SongTab, path: Path) -> None:
         return {"head": head, "path": str(path), "retitle": True}
 
     _start(ctx, tab, f"sirens-save:{tab.uid}", run)
+    # P65 item 2 ("sirens-02"): mirrors ``tab.saving``/``.busy`` onto the
+    # document itself, so a mutator like ``set_song`` can refuse a mid-save
+    # change even from a caller that never goes through this tab's own
+    # doors. ``_start`` may have already reverted ``tab.saving`` (a save
+    # already in flight for this key), so this reads back what actually
+    # happened rather than assuming the submit landed.
+    tab.doc.busy = tab.saving
 
 
 def save(ctx: Any, tab: SongTab | None = None) -> None:
@@ -302,6 +309,7 @@ def save_as(ctx: Any, tab: SongTab | None = None) -> None:
         return {"head": head, "path": str(path), "retitle": True}
 
     _start(ctx, tab, f"sirens-saveas:{tab.uid}", run)
+    tab.doc.busy = tab.saving
 
 
 # --- exporting ----------------------------------------------------------------

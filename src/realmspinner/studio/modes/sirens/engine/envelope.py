@@ -146,7 +146,18 @@ def toggled(sequence: inst.Sequence, grip: str) -> inst.Sequence:
     if not sequence.values:
         return sequence
     if grip == "loop":
-        return replace(sequence, loop=0)
+        # sirens-02 (2026-09-23 audit, second run). Step 0 is inside the loop's
+        # own bounds *except* when ``release == 0``, which the module docstring
+        # says makes the whole sequence release tail -- ``marker_bounds``
+        # answers ``(0, -1)`` there, the same "no room" ``moved`` already
+        # refuses a drag into. This used to land the loop at 0 unconditionally,
+        # putting an invisible marker inside a release-only tail: never drawn,
+        # never reached by the engine, and rediscovered as if untouched on the
+        # next save.
+        low, high = marker_bounds(sequence, "loop")
+        if high < low:
+            return sequence
+        return replace(sequence, loop=low)
     if len(sequence.values) < 2:
         # A one-step sequence has no held half to split off, so there is
         # nowhere legal for a release to land. Refused rather than put at 0.

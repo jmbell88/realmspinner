@@ -1185,6 +1185,31 @@ class ClayDoc:
                 setattr(obj, key, value)
             edits.append(ObjectPropsEdit(target_uid, props_before, props_after))
         for uid in doomed:
+            # The 2026-09-23 audit's clay-01: this loop used to pop each
+            # doomed object without re-parenting its children, unlike
+            # remove_object (above) which re-parents onto the removed
+            # object's own parent before popping it. A child of an absorbed
+            # object then kept a ``parent`` uid the document no longer
+            # carried -- it jumped in world space with no undo step, and
+            # serialize._validate_hierarchy refused to reload the saved
+            # file at all. Same fix as remove_object: re-parent onto the
+            # doomed object's own parent, keeping world placement, computed
+            # from each child's current world matrix before the object it
+            # is relative to is gone, in the same compound.
+            new_parent = self.by_uid(uid).parent
+            for c in self.children_of(uid):
+                child = self.by_uid(c)
+                child_world = self.world_matrix(c)
+                t, r, s = self._local_relative(child_world, new_parent)
+                before = {"parent": child.parent}
+                child.parent = new_parent
+                edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
+                before_trs = tuple(np.array(v, copy=True) for v in child.trs())
+                after_trs = (t, r, s)
+                moved = zip(before_trs, after_trs, strict=True)
+                if not all(np.array_equal(a, b) for a, b in moved):
+                    child.translation, child.rotation, child.scale = after_trs
+                    edits.append(TransformEdit(c, before_trs, after_trs))
             index = self.index_of(uid)
             gone = self.objects.pop(index)
             self.selection.discard(uid)
@@ -1633,6 +1658,27 @@ class ClayDoc:
 
         index = self.index_of(uid)
         edits: list[Any] = []
+        # The 2026-09-23 audit's clay-02: the source used to be popped below
+        # without re-parenting its children, the same orphaning join_objects
+        # had through its own doomed-object loop -- a child's ``parent``
+        # named a uid the document no longer carried, and serialize refused
+        # to reload the saved file. Re-parent onto the source's own parent,
+        # keeping world placement, before any piece is inserted or the
+        # source is popped, exactly as remove_object does.
+        new_parent = obj.parent
+        children = self.children_of(uid)
+        child_worlds = {c: self.world_matrix(c) for c in children}
+        for c in children:
+            child = self.by_uid(c)
+            t, r, s = self._local_relative(child_worlds[c], new_parent)
+            before = {"parent": child.parent}
+            child.parent = new_parent
+            edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
+            before_trs = tuple(np.array(v, copy=True) for v in child.trs())
+            after_trs = (t, r, s)
+            if not all(np.array_equal(a, b) for a, b in zip(before_trs, after_trs, strict=True)):
+                child.translation, child.rotation, child.scale = after_trs
+                edits.append(TransformEdit(c, before_trs, after_trs))
         for i, piece in enumerate(new_objs):
             self.objects.insert(index + i, piece)
             edits.append(ObjectAddEdit(index + i, piece))

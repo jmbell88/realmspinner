@@ -1016,6 +1016,39 @@ def _boundary_owner(mesh: Mesh, sel: ElementSel, what: str) -> tuple[Any, np.nda
     return a, ids, owner[ids]
 
 
+#: The most boundary edges :func:`extrude_edges` will grow a quad from. The
+#: 2026-09-23 audit's clay-10: every sibling growth op in this module
+#: (``MAX_EXTRUDE_CORNERS`` right above, ``MAX_INSET_CORNERS``,
+#: ``MAX_COLLAPSED_PAIRS``, ``MAX_BRIDGED_RING``) refuses before building new
+#: geometry; this one had no ceiling at all, measured at 2.05s at 2,000,000
+#: boundary edges -- ``extrude_faces``'s own selected-corner extrude is the
+#: closer sibling in shape (one quad minted per boundary element, no
+#: connected-components pass) than a per-part op like inset, so this ceiling
+#: is stated in the same "new corners built" unit ``MAX_EXTRUDE_CORNERS``
+#: uses -- one quad (4 corners) per boundary edge -- and set at that same
+#: value: at the audit's own linear rate (2.05s / 2,000,000 edges = 8,000,000
+#: corners), 800,000 corners (200,000 edges) lands around 205ms, comfortably
+#: under the "well under a second" bar every ceiling in this module keeps.
+MAX_EXTRUDE_EDGE_CORNERS = 800_000
+
+
+def _refuse_extrude_edges_size(n_edges: int) -> None:
+    """Refuse from the selection's own edge count, **before**
+    :func:`_boundary_owner` builds :func:`~.adjacency.adjacency` -- the same
+    "refuse before the allocation" shape :func:`_refuse_extrude_size` and
+    :func:`_refuse_inset_size` already follow. See
+    :data:`MAX_EXTRUDE_EDGE_CORNERS` for the measurement.
+    """
+    n_corners = 4 * n_edges
+    if n_corners > MAX_EXTRUDE_EDGE_CORNERS:
+        raise OpError(
+            f"Extruding this selection means building {n_corners:,} new "
+            f"corners, past the {MAX_EXTRUDE_EDGE_CORNERS:,} extrude works "
+            "with before it would stall the frame it runs on. Extrude fewer "
+            "edges."
+        )
+
+
 def extrude_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     """Grow one quad outward from each selected boundary edge.
 
@@ -1047,6 +1080,7 @@ def extrude_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     UV **inherited**: each new quad copies its source corners' two uvs, twice
     over, exactly as an extruded wall does.
     """
+    _refuse_extrude_edges_size(len(sel.edges))
     a, _ids, corners = _boundary_owner(mesh, sel, "extrude")
     nxt = a.next_corner[corners].astype("i8")
     v_a, v_b = mesh.loops[corners].astype("i8"), mesh.loops[nxt].astype("i8")

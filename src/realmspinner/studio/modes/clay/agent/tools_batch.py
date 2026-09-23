@@ -425,13 +425,27 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
 
     def _make_entry(index: int, name: str, arguments: dict) -> Any:
         def _run(doc: Any, session: Session) -> dict:
+            nonlocal deadline
             if index > 0 and time.monotonic() > deadline:
                 return fail(
                     f"clay_batch exceeded its {BATCH_DEADLINE_S:g}s deadline "
                     "before this call ran; split the batch into smaller "
                     "clay_batch calls.",
                 )
-            return _resolve_and_call(ctx, session, doc, name, arguments)
+            started = time.monotonic()
+            result = _resolve_and_call(ctx, session, doc, name, arguments)
+            # clay-16 (the 2026-09-23 audit, second run): mirrors
+            # ``_h_program``'s own push-out (finding agents-02, fixed the same
+            # day) -- BATCH_DEADLINE_S is meant to bound the *idle* gap
+            # between entries, not an entry's own run time, but a
+            # subprocess-backed entry (decimate/retopo/smart-unwrap/
+            # bake-detail) can by itself take seconds to minutes. Left
+            # unpushed, the very next entry would find the deadline already
+            # gone and, with ``rollback_on_error``, discard the work that
+            # entry had just finished along with the rest of the run even
+            # though nothing was idle.
+            deadline += time.monotonic() - started
+            return result
 
         return _run
 

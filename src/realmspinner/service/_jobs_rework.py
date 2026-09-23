@@ -310,7 +310,21 @@ def revert_model(
 
         # The mesh being replaced is kept too, exactly like every other
         # rework's publish -- so a restore can itself be undone.
-        entries = modelhistory.keep(
+        #
+        # stage() only, not keep() -- 2026-09-23 (second run) audit, finding
+        # service-01: this used to call the combined keep(), which evicted the
+        # oldest kept version unconditionally *before* the restore's own
+        # staged write to model.glb had even been attempted. A write that then
+        # failed (disk full, a permissions error) left the restore refused but
+        # the evicted version already gone -- and model_history was never
+        # merged on that path either, so the row went on listing the entry
+        # that no longer existed, and the retry was refused with "version N is
+        # no longer available" from the dangling-entry check above. Eviction
+        # now happens in commit(), called only once the write below has
+        # actually succeeded; discard_last() undoes exactly this stage() call
+        # on failure, with no eviction to undo because none has happened yet
+        # -- the same shape optimize_job already uses, for the same reason.
+        entries = modelhistory.stage(
             job_dir,
             entries,
             params,
@@ -323,7 +337,22 @@ def revert_model(
         def _write(tmp: Path) -> None:
             shutil.copyfile(version_glb, tmp)
 
-        _staged(job_dir, "model.glb", _write)
+        try:
+            _staged(job_dir, "model.glb", _write)
+        except OSError as exc:
+            # model.glb is untouched on this path -- _staged writes through a
+            # temp sibling and os.replace's it only once ``write`` returns --
+            # so the version just staged describes a replacement that never
+            # happened. Back it out, and merge the un-evicted entries back
+            # onto the row so a retry never meets a "no longer available"
+            # entry for a version this failure never touched.
+            entries = modelhistory.discard_last(job_dir, entries)
+            svc.store.merge_params(job_id, {"model_history": entries})
+            raise Failed(f"could not restore version {version}: {exc}") from exc
+        # The write succeeded: model.glb now is the restored mesh, so the
+        # version just staged really does describe what it replaced. Only now
+        # is it safe to evict past the cap.
+        entries = modelhistory.commit(job_dir, entries)
 
         # Geometry crossed means every derived export describes a mesh that
         # no longer exists, the same rule optimize_job and remesh_job follow;

@@ -245,8 +245,17 @@ def walk(
     expand_prefabs: bool = True,
     enter: VisitFn | None = None,
     max_items: int | None = None,
+    roots: Sequence[Node] | None = None,
 ) -> None:
     """The single traversal every other function in this module is built on.
+
+    ``roots`` defaults to ``doc.roots`` -- every call site but
+    :func:`resolved_count` wants the document's own scene tree. That function
+    wants an arbitrary, possibly-unattached sequence instead (see its own
+    docstring: "how much would attaching these add"), and the 2026-09-23
+    audit's mason-02 is why it now asks for that through this parameter rather
+    than calling :func:`_walk_segment` on its own: see this function's
+    ``max_items`` paragraph below for what going around it used to cost.
 
     See the module docstring for the five combination rules, the prefab
     expansion rule, the ``owner`` deviation, and the hidden-subtree trade.
@@ -281,7 +290,14 @@ def walk(
     items through those two paths while ``resolve`` itself correctly refused.
     Counted here, once, so every caller of this traversal -- present or
     future -- inherits the same refusal ``resolve`` always had, rather than
-    each consumer needing to remember to ask for it.
+    each consumer needing to remember to ask for it. :func:`resolved_count`
+    used to sidestep this same door by calling :func:`_walk_segment` on its
+    own, which is the 2026-09-23 audit's mason-02: the pre-flight a scene
+    op's write side calls *before* attaching anything counted an exponential
+    prefab expansion all the way to completion -- 45.9 s at 8.4 million items
+    -- instead of refusing quickly the way every other caller of this
+    traversal already does. It is routed through here now (with ``roots``
+    naming what it is counting) so it inherits the same bounded refusal.
     """
     # Read off the module global at call time rather than bound as the
     # parameter default: a caller (or a test) that adjusts ``MAX_PLACED`` at
@@ -291,7 +307,7 @@ def walk(
     counted = _bounded(visit, ceiling)
     counted_enter = _bounded(enter, ceiling) if enter is not None else None
     _walk_segment(
-        doc.roots,
+        doc.roots if roots is None else roots,
         doc,
         counted,
         include_hidden=include_hidden,
@@ -461,6 +477,18 @@ def resolved_count(doc: MasonDoc, roots: Sequence[Node]) -> int:
     nothing, export and picking stop, on a document that still saves and
     reopens clean. This function gives a write-side caller the same count
     ``walk`` would enforce, before anything is attached.
+
+    The 2026-09-23 audit's mason-02: this used to call :func:`_walk_segment`
+    directly, bypassing :func:`walk`'s own ``max_items`` refusal (``_bounded``)
+    entirely -- so the very pre-flight this docstring's previous paragraph
+    describes counted an exponential prefab expansion (nested branching
+    references) all the way to completion instead of refusing once it was
+    already well past :data:`MAX_PLACED`: 45.9 s at 8.4 million items. Routed
+    through :func:`walk` now, with ``max_items=MAX_PLACED`` explicit (a
+    caller-adjusted module :data:`MAX_PLACED` -- a test's ``monkeypatch``,
+    say -- must still bound this the same way it bounds every other caller),
+    so a runaway count raises the same refusal :func:`resolve` always has
+    rather than counting to the end.
     """
     count = 0
 
@@ -468,18 +496,13 @@ def resolved_count(doc: MasonDoc, roots: Sequence[Node]) -> int:
         nonlocal count
         count += 1
 
-    _walk_segment(
-        list(roots),
+    walk(
         doc,
         visit,
         include_hidden=False,
         expand_prefabs=True,
-        parent_path=(),
-        owner=None,
-        prefab="",
-        inherited=_IDENTITY_STATE,
-        prefab_chain=frozenset(),
-        prefab_depth=0,
+        roots=list(roots),
+        max_items=MAX_PLACED,
     )
     return count
 

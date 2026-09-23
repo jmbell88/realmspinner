@@ -432,6 +432,11 @@ def on_task_done(ctx: Any, done: Any) -> None:
         return
 
     tab.saving = False
+    # P65 item 2 ("sirens-02"): the save that just landed is what set
+    # ``tab.doc.busy`` in the first place (``fileio.save_to``/``save_as``);
+    # cleared here alongside ``tab.saving`` so ``set_song`` unlocks the
+    # moment the door does.
+    tab.doc.busy = False
     if not isinstance(result, dict):
         return  # a cancelled dialog
 
@@ -481,6 +486,10 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     if tab is None:
         return
     tab.saving = False
+    # P65 item 2 ("sirens-02"): a failed save must not leave ``set_song``
+    # locked out forever, the same reason ``tab.saving`` itself is cleared
+    # here rather than left set.
+    tab.doc.busy = False
     if done.key.startswith(sirens_play.RENDER_PREFIX):
         tab.rendering = False
         tab.render_error = done.message or "That song did not render."

@@ -452,19 +452,28 @@ def _exe_check(config: Config) -> Check:
     """
     path = config.resolve_trellis_exe()
     if path.is_file():
-        # M04's zero-byte downgrade, done directly on the one file this row
-        # names rather than through ``fetch.suspect_files`` -- that helper
-        # checks the *downloaded* location (``engine_dir``), which is not
-        # where this row is looking once an override or the checkout's
-        # ``vendor/`` is in play. Treated as ``pending_install`` rather than a
-        # plain warning: a zero-byte binary is what a killed download or a
-        # killed unpack leaves behind, and the fix is the same "go install
-        # it" as an absent one, not a filesystem repair.
-        if path.stat().st_size == 0:
+        # M04's zero-byte downgrade, folded over the *whole* probe list
+        # (the 2026-09-23 (second run) audit, finding pipelines-03) rather
+        # than the exe alone. ``fetch.suspect_files``'s "engine" branch looks
+        # in ``fetch.engine_probe_dir``, which for a ``runtime`` spec is
+        # exactly ``config.resolve_trellis_exe().parent`` -- the same
+        # override/download/vendor resolution this row already used, so this
+        # is not a second lookup that could disagree with the first. Before
+        # this, a zero-byte sibling DLL (``cublas64_13.dll`` et al, the eight
+        # CUDA/ggml libraries the exe cannot run without) left this row
+        # reporting OK -- the exe itself was intact -- while the same probe
+        # list in Settings -> Models reported the row broken; both read
+        # ``fetch.suspect_files`` now, so they cannot disagree again.
+        # Treated as ``pending_install`` rather than a plain warning: a
+        # zero-byte file is what a killed download or a killed unpack
+        # leaves behind, and the fix is the same "go install it" as an
+        # absent one, not a filesystem repair.
+        bad = fetch.suspect_files(config, "engine", models.ENGINE_MODELS["trellis_runtime"])
+        if bad:
             return Check(
                 "trellis-server.exe",
                 False,
-                f"{path} is 0 bytes and will not run -- remove it and "
+                f"{bad[0]} is 0 bytes and will not run -- remove it and "
                 f"reinstall. {_trellis_runtime_hint(config)}",
                 fatal=False,
                 pending_install=True,

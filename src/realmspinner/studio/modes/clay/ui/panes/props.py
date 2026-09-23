@@ -94,9 +94,9 @@ def _body(ctx: Any) -> None:
     imgui.dummy((0, sp(tokens.SP_2)))
     _tags(doc, obj)
     imgui.dummy((0, sp(tokens.SP_2)))
-    _transform(doc, obj)
+    _transform(doc, obj, ctx=ctx)
     imgui.dummy((0, sp(tokens.SP_2)))
-    _generator(doc, obj)
+    _generator(doc, obj, ctx=ctx)
     imgui.dummy((0, sp(tokens.SP_2)))
     _modifiers(ctx, doc, obj)
     imgui.dummy((0, sp(tokens.SP_2)))
@@ -277,7 +277,7 @@ def _tags(doc: Any, obj: Any) -> None:
         doc.set_props(obj.uid, tags=tuple(obj.tags) + tuple(added.split(",")))
 
 
-def _transform(doc: Any, obj: Any) -> None:
+def _transform(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     # Tranche 3: scene structure. TRS is local to the parent now, and a root's
     # local TRS *is* its world TRS (``document.py``'s module docstring) --
     # which is what keeps an unparented object's fields, and their labels,
@@ -348,13 +348,34 @@ def _transform(doc: Any, obj: Any) -> None:
         # "before" off the object here would compare a value against itself and
         # record an empty step -- which is the trap ``set_transform``'s ``was``
         # argument exists for.
-        doc.set_transform(
-            obj.uid,
-            translation=translation,
-            rotation=rotation,
-            scale=scale,
-            was=was,
-        )
+        # The 2026-09-23 audit's clay-03: a locked object was never greyed
+        # here (only its own Locked toggle reads ``obj.locked``), so typing
+        # into a position/rotation/scale field of a locked object reached
+        # ``set_transform``'s own refusal (``OpError``, nothing pushed)
+        # uncaught -- the pane's guard replaces Properties with "stopped
+        # drawing" for the rest of the frame, and the edit silently does not
+        # apply. Same shape as ``_set_parent`` and ``_set_modifier_stack``
+        # in this file: catch it, toast it, leave the field showing the
+        # value the user typed. ``ctx`` is keyword-only and optional --
+        # several tests in ``tests/modes/clay/`` drive this door straight
+        # with a bare ``(doc, obj)``, no pane and no ``ctx`` to toast
+        # through, so with none given the refusal is re-raised rather than
+        # swallowed.
+        from ......kernels.mesh.elements import OpError
+        from ... import ops as clay_ops
+
+        try:
+            doc.set_transform(
+                obj.uid,
+                translation=translation,
+                rotation=rotation,
+                scale=scale,
+                was=was,
+            )
+        except OpError as error:
+            if ctx is None:
+                raise
+            clay_ops.toast(ctx, str(error))
 
 
 def _dimensions(doc: Any, obj: Any) -> None:
@@ -398,7 +419,7 @@ def _dimensions(doc: Any, obj: Any) -> None:
     )
 
 
-def _generator(doc: Any, obj: Any) -> None:
+def _generator(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     if obj.generator is None:
         # A frozen object: edited topology, or imported. The panel says what
         # the object is rather than pretending it still has parameters that
@@ -493,7 +514,22 @@ def _generator(doc: Any, obj: Any) -> None:
     # ``set_generator_params`` also implies ``keep_generator``: this mesh is
     # precisely what the generator builds from the edited parameters, which is
     # the one case where the object's generator claim is still true.
-    doc.set_generator_params(obj.uid, edited, mesh, was={"params": params})
+    # The 2026-09-23 audit's clay-03: same gap as ``_transform`` above --
+    # a locked object's generator fields were never greyed, so an edit here
+    # reached ``set_generator_params``'s own refusal uncaught and the pane
+    # fell over to "stopped drawing" instead of applying nothing and saying
+    # why. ``ctx`` is keyword-only and optional for the same reason
+    # ``_transform``'s own catch gives: several tests drive this door with a
+    # bare ``(doc, obj)`` and no ``ctx``.
+    from ......kernels.mesh.elements import OpError
+    from ... import ops as clay_ops
+
+    try:
+        doc.set_generator_params(obj.uid, edited, mesh, was={"params": params})
+    except OpError as error:
+        if ctx is None:
+            raise
+        clay_ops.toast(ctx, str(error))
 
 
 def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:

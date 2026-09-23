@@ -245,9 +245,10 @@ small **[1]**, **[2]**… link under the reply
 for each section it actually used; clicking one opens the Manual at that section. If the Manual has nothing on the
 question, Familiar says so plainly rather than guessing. Familiar can also take you somewhere — say "open Mason" or
 "take me to Settings" and it switches modes, opens the right Settings page, opens the Manual, a tour, the keyboard
-shortcuts list or the workspace layout picker, whichever you asked for — and it can draft a brief in **Create**: say
-"make me a reference image of a lantern" and it fills in the asset type and prompt and takes you to Create's Reference
-stage, exactly where typing it yourself would have left you. It never presses **Generate** for you; you check the
+shortcuts list, the workspace layout picker or the trash, whichever you asked for — and it can draft
+a brief in **Create**: say "make me a reference image of a lantern" and it fills in the asset type
+and prompt and takes you to Create's Reference stage, exactly where typing it yourself would have
+left you. It never presses **Generate** for you; you check the
 brief and do that yourself. Neither door goes anywhere or does anything you could not already reach by hand — a mode
 that is not ready yet says why, the same sentence its greyed rail item shows, and a request to draft in Create when
 Create itself is not ready says that instead of opening a form that could not generate anything. Ask Familiar for a

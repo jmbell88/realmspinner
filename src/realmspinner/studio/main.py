@@ -673,9 +673,12 @@ def _offer_store_reset(exc: Any) -> bool:
     What is lost is the history -- prompts, settings, verdicts, favourites --
     which is real and is why this is a question rather than a repair.
 
-    Native, because it runs before the window exists; ``instance.ask`` answers
-    No to anything that is not an explicit Yes, which is the right default for
-    a button that moves somebody's library index.
+    Native, because by the time this runs the window has already been created
+    and torn down (the 2026-09-23 (second run) audit, finding shell-08: this
+    docstring used to say "runs before the window exists", which was never
+    true); ``instance.ask`` answers No to anything that is not an explicit
+    Yes, which is the right default for a button that moves somebody's
+    library index.
     """
     from .. import db, instance
 

@@ -28,7 +28,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ... import dialogs, docmodes, journal
+from ... import dialogs, docmodes, journal, widgets
 from ...state import set_mode
 from . import fileio as packwright_io
 from . import state as packwright_state
@@ -64,6 +64,17 @@ from .state import (  # noqa: F401
 )
 
 log = logging.getLogger(__name__)
+
+# The 2026-09-23 audit (second run, docs-01 item 4): every busy
+# refusal in this file used to return silently -- the shape ``remove_source``/
+# ``rename_source``/``set_settings`` set and ``add_source_paths``/
+# ``add_job_source``/``add_rendered_sheet`` copied when packwright-01 (first
+# run) gave them a ``tab.busy`` check but no way to tell the caller why
+# nothing happened. One sentence for the whole file, the same one the sources
+# pane's own greyed buttons already show (``widgets.DOCUMENT_SAVING_WHY``), so
+# a refusal here and a greyed control there never drift into saying two
+# different things about the same wait.
+_BUSY_WHY = widgets.DOCUMENT_SAVING_WHY
 
 
 # The three recents wrappers every document mode carries, over the one
@@ -110,6 +121,14 @@ def ask_add_sources(ctx: Any) -> None:
     tab = active(ctx)
     if tab is None:
         docmodes.refuse(ctx, "Start or open an atlas first.")
+        return
+    if tab.busy:
+        # The 2026-09-23 audit (second run, packwright-02): the pane's own Add
+        # button is gated on ``editable = not tab.busy`` (sources.py), but the
+        # empty-canvas overlay's "Add sources" action calls this directly and
+        # ungated, so a save in flight did not stop a picker opening and a
+        # decode landing mid-encode.
+        docmodes.refuse(ctx, _BUSY_WHY)
         return
     uid = tab.uid
 
@@ -168,9 +187,10 @@ def add_rendered_sheet(ctx: Any, job_id: str, sheet_id: str, *, pixel: bool = Fa
         # buttons are greyed (``editable = not tab.busy``) while a save is
         # writing, but a hand-off from outside the pane -- Poser's sheet
         # export lands here -- went straight through with no such guard, so a
-        # sheet could be spliced into a document mid-encode. Silent, the
-        # ``remove_source``/``rename_source``/``set_settings`` shape: there is
-        # nothing to tell the sender that a busy tab did not already know.
+        # sheet could be spliced into a document mid-encode. Toasted rather
+        # than silent (the 2026-09-23 audit, second run, docs-01): the sender has no
+        # other way to learn a busy tab did not already know.
+        docmodes.refuse(ctx, _BUSY_WHY)
         return
     uid = tab.uid
 
@@ -240,6 +260,16 @@ def import_tileset(ctx: Any) -> bool:
         state.tileset_preview_key = None
         state.tileset_import_open = False
         docmodes.refuse(ctx, "That atlas was closed before the tile set was imported.")
+        return False
+    if tab.busy:
+        # The 2026-09-23 audit (second run, packwright-03): the popup's own
+        # Import button disables only on ``problem`` or ``computing`` (the
+        # preview pane), never on ``tab.busy`` -- so pressing Import while a
+        # save was writing spliced the sliced tiles into the document
+        # mid-encode. Nothing is dropped: the popup stays open with its
+        # pending sheet and cell size, so Import can be pressed again once the
+        # save lands.
+        docmodes.refuse(ctx, _BUSY_WHY)
         return False
     path, stem, pixels = state.tileset_import
     tile = state.tileset_cell
@@ -355,8 +385,9 @@ def add_source_paths(ctx: Any, paths: list[Path]) -> None:
         # busy check at all, unlike the sources pane's own Add buttons
         # (greyed for exactly this case, ``widgets.DOCUMENT_SAVING_WHY``) --
         # so a drag onto the window while a save was writing spliced new
-        # sources into a document mid-encode. Silent, the
-        # ``remove_source``/``rename_source``/``set_settings`` shape.
+        # sources into a document mid-encode. Toasted rather than silent
+        # (the 2026-09-23 audit, second run, docs-01).
+        docmodes.refuse(ctx, _BUSY_WHY)
         return
     from .engine.sources import file_key
 
@@ -396,8 +427,9 @@ def add_job_source(ctx: Any, job: Any) -> None:
     elif tab.busy:
         # The 2026-09-23 audit, packwright-01: the Library's "Add to
         # Packwright" reached this with no busy check, unlike the sources
-        # pane's own Add buttons (greyed for exactly this case). Silent, the
-        # ``remove_source``/``rename_source``/``set_settings`` shape.
+        # pane's own Add buttons (greyed for exactly this case). Toasted
+        # rather than silent (the 2026-09-23 audit, second run, docs-01).
+        docmodes.refuse(ctx, _BUSY_WHY)
         return
     job_id = job["id"] if isinstance(job, dict) else str(job)
     name = (job.get("name") or job_id) if isinstance(job, dict) else job_id
@@ -435,6 +467,17 @@ def add_inker_document(ctx: Any, inker_tab: Any) -> None:
         tab = new_document(ctx)
         if ctx.state.mode != "packwright":
             set_mode(ctx.state, "packwright")
+    elif tab.busy:
+        # The 2026-09-23 audit (second run, packwright-01): Inker's "Add to
+        # Packwright" is gated only on the Inker tab's own menu -- it does not
+        # know whether the *target* atlas is mid-save -- and this is the one
+        # add door among its siblings (``add_source_paths``,
+        # ``add_job_source``, ``add_rendered_sheet``, all fixed by the first
+        # run of this finding) that never checked ``tab.busy`` at all, so
+        # frames were spliced into a document mid-encode with no guard and no
+        # word about it.
+        docmodes.refuse(ctx, _BUSY_WHY)
+        return
     prefix = Path(inker_tab.title).stem or inker_tab.uid
     try:
         sprites = sprites_from_document(inker_tab.doc, prefix=prefix)
@@ -534,7 +577,13 @@ def _added_sentence(added: int, replaced: int, *, noun: str = "sprite") -> str:
 
 def remove_source(ctx: Any, uid: int, tab: PackTab | None = None) -> None:
     tab = tab or active(ctx)
-    if tab is None or tab.busy:
+    if tab is None:
+        return
+    if tab.busy:
+        # The 2026-09-23 audit (second run, docs-01 item 4): this
+        # refused silently, the shape the file's other add doors used to
+        # copy. Toasted, the same sentence every busy door in this file gives.
+        docmodes.refuse(ctx, _BUSY_WHY)
         return
     if tab.doc.source(uid) is None:
         # A uid goes stale for ordinary reasons -- an undone add is the one that
@@ -556,7 +605,12 @@ def rename_source(ctx: Any, tab: PackTab | None, uid: int, name: str) -> None:
     until something else happened to dirty the pack. An export in between
     carried a name nothing on screen still showed."""
     tab = tab or active(ctx)
-    if tab is None or tab.busy:
+    if tab is None:
+        return
+    if tab.busy:
+        # The 2026-09-23 audit (second run, docs-01 item 4): silent,
+        # the same fault; toasted the same shared sentence.
+        docmodes.refuse(ctx, _BUSY_WHY)
         return
     try:
         tab.doc.rename_source(uid, name)
@@ -570,7 +624,12 @@ def set_settings(ctx: Any, tab: PackTab | None = None, **values: Any) -> None:
     """Every settings edit goes through here, so ``pack_dirty`` cannot be
     forgotten at one of six call sites."""
     tab = tab or active(ctx)
-    if tab is None or tab.busy:
+    if tab is None:
+        return
+    if tab.busy:
+        # The 2026-09-23 audit (second run, docs-01 item 4): silent,
+        # the same fault; toasted the same shared sentence.
+        docmodes.refuse(ctx, _BUSY_WHY)
         return
     try:
         tab.doc.set_settings(**values)

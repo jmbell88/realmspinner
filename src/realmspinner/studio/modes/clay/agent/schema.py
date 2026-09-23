@@ -161,29 +161,6 @@ docstring for the derivation, and the comments above for why each one is
 excluded. See ``REFERENCE_TOOLS``'s own docstring for why the other three
 reference tools stay off this particular list."""
 
-PROGRAM_DEADLINE_S = 4.0
-"""The wall-clock budget one ``clay_program`` call gets, measured from the
-moment its compiled calls start running and checked between them (never
-mid-call, so one already-running call is never cut off) -- past it, the run
-rolls back and refuses rather than keep going into a second, third frame.
-``clay_program`` is deliberately not chunked across frames the way ``pump``'s
-own queued-job budget chunks ordinary calls (see ``dev/INVARIANTS.md``'s
-agent paragraph): a program's whole point is that it is one MCP round trip,
-and a caller that needs more than this buys should split the program into
-several smaller ``clay_program`` calls rather than have this tool silently
-spread one across an unbounded number of frames.
-
-Defined here, in the schema module, but read by
-``agent_clay_tools_batch._h_program`` through ``agent_clay.PROGRAM_DEADLINE_S``
--- qualified, at call time -- rather than imported by name: two of this
-file's own tests (``tests/modes/clay/test_agent_clay.py``) monkeypatch it on
-``agent_clay`` itself to shrink a program's deadline for a timeout test, and
-that only works if every reader looks it up through the same name at call
-time. See ``studio/modes/clay/agent/dispatch.py``'s own module docstring for the constant's actual
-value and that reasoning in full; it is a schema-module constant re-exported
-there, not the other way around, only because ``studio/modes/clay/agent/dispatch.py`` is what the
-test patches by name."""
-
 MAX_REFERENCES = 8
 """How many pictures one session may hold at once. A session's references
 live in memory for the session's whole life (``agent_clay_validate.Session.

@@ -460,19 +460,21 @@ def load(path: Path | bytes) -> Model:
             "this GLB requires glTF extensions this viewer does not implement: "
             + ", ".join(sorted(required))
         )
-    declared = len(gltf.get("nodes", []))
+    declared = len(_check_list_field(gltf.get("nodes", []), "this GLB's \"nodes\""))
     if declared > MAX_NODES:
         raise ValueError(f"this GLB declares {declared} nodes, more than this viewer will load")
     # The 2026-09-05 audit, finding clay-05: these two used to be iterated with
     # no ceiling of their own -- an *unreferenced* material or an
     # accessor-less mesh never reaches ``_charge``, so the byte budget never
     # trips no matter how many are declared. See ``MAX_MATERIALS`` above.
-    declared_materials = len(gltf.get("materials", []))
+    declared_materials = len(
+        _check_list_field(gltf.get("materials", []), "this GLB's \"materials\"")
+    )
     if declared_materials > MAX_MATERIALS:
         raise ValueError(
             f"this GLB declares {declared_materials} materials, more than this viewer will load"
         )
-    declared_meshes = len(gltf.get("meshes", []))
+    declared_meshes = len(_check_list_field(gltf.get("meshes", []), "this GLB's \"meshes\""))
     if declared_meshes > MAX_MESHES:
         raise ValueError(
             f"this GLB declares {declared_meshes} meshes, "
@@ -491,13 +493,15 @@ def load(path: Path | bytes) -> Model:
     declared_primitives = 0
     for mesh in gltf.get("meshes", []):
         _check_dict_entry(mesh, "a mesh in this GLB's \"meshes\" array")
-        declared_primitives += len(mesh.get("primitives") or [])
+        declared_primitives += len(
+            _check_list_field(mesh.get("primitives") or [], "a mesh's \"primitives\" array")
+        )
     if declared_primitives > MAX_PRIMITIVES:
         raise ValueError(
             f"this GLB declares {declared_primitives} primitives, "
             "more than this viewer will load"
         )
-    declared_cameras = len(gltf.get("cameras", []))
+    declared_cameras = len(_check_list_field(gltf.get("cameras", []), "this GLB's \"cameras\""))
     if declared_cameras > MAX_CAMERAS:
         raise ValueError(
             f"this GLB declares {declared_cameras} cameras, more than this viewer will load"
@@ -567,15 +571,30 @@ def _roots(gltf: dict, nodes: list[Node]) -> list[int]:
         # a non-integer "scene" (a string, say) reached the ``<=`` comparison
         # as a bare TypeError instead of this same refusal.
         _check_int_index(index, "the document's scene index")
-        if 0 <= index < len(scenes) and "nodes" in scenes[index]:
-            roots = scenes[index]["nodes"]
-            # Same gap, one field over: a scene's own "nodes" root list is
-            # returned straight off the JSON with no check at all, so a
-            # non-integer entry reached Model.update_world's bare
-            # ``0 <= index < len(self.nodes)`` comparison as a TypeError.
-            for root in roots:
-                _check_int_index(root, "a scene's root node index")
-            return list(roots)
+        if 0 <= index < len(scenes):
+            # The 2026-09-23 audit's clay-14: ``scenes[index]`` and its own
+            # ``"nodes"`` field were both indexed straight off the JSON with
+            # no check on either shape -- three distinct bare exceptions,
+            # depending on the file: ``scenes[index]`` not a mapping (a
+            # string/list/number/null scene entry) raised on the ``"nodes"
+            # in scenes[index]`` membership test below; ``scenes[index]
+            # ["nodes"]`` not a list (an object, say) either misread
+            # silently or raised once ``for root in roots`` hit a
+            # non-iterable; and a non-list held under valid JSON was never
+            # even given the chance to fail loudly. ``_check_dict_entry``
+            # and ``_check_list_field`` are the same two guards
+            # ``load()``'s own array-of-entries reads already use.
+            scene = scenes[index]
+            _check_dict_entry(scene, f"scene {index} in this GLB's \"scenes\" array")
+            if "nodes" in scene:
+                roots = _check_list_field(scene["nodes"], f"scene {index}'s \"nodes\"")
+                # Same gap, one field over: a scene's own "nodes" root list is
+                # returned straight off the JSON with no check at all, so a
+                # non-integer entry reached Model.update_world's bare
+                # ``0 <= index < len(self.nodes)`` comparison as a TypeError.
+                for root in roots:
+                    _check_int_index(root, "a scene's root node index")
+                return list(roots)
     parented = {child for node in nodes for child in node.children}
     return [i for i in range(len(nodes)) if i not in parented]
 
@@ -596,6 +615,26 @@ def _check_int_index(value: Any, what: str) -> None:
     """
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"{what} must be a whole number, got {value!r}")
+
+
+def _check_list_field(value: Any, what: str) -> list:
+    """Refuse a top-level array field that is not a JSON array before
+    ``len()`` or a ``for`` loop reads it.
+
+    The 2026-09-23 audit's finding clay-13: ``load()`` called ``len()`` on
+    ``gltf.get("nodes"/"materials"/"meshes"/"cameras", [])`` and on a mesh
+    entry's own ``"primitives"`` straight off the JSON, with no check that a
+    *present* value was a list rather than, say, an object or a string --
+    Python's default-on-missing (``.get(key, [])``) only ever covers the key
+    being *absent*, never it holding the wrong shape. A GLB with
+    ``"nodes": {}`` reached ``len()`` as a bare, un-messaged ``TypeError``
+    instead of the named ``ValueError`` :func:`_check_dict_entry` (the same
+    shape, one level up -- a whole array rather than one of its entries)
+    already gives every other malformed shape in this loader.
+    """
+    if not isinstance(value, list):
+        raise ValueError(f"{what} must be a JSON array, got {value!r}")
+    return value
 
 
 def _check_dict_entry(value: Any, what: str) -> None:

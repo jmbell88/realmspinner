@@ -511,7 +511,8 @@ that corner stays exactly where it is and the rest of the shape swings around it
 the resize handles are square, because the two do different things. A point object and a polygon get
 no grip: a point has no extent to turn, and a polygon is reshaped by its vertices.
 
-**Snap objects to** in the View block decides where a drag lands: *Off*, *Grid* (the cell corner) or
+The snap pills, beside the **View** popover button on the toolbar rather than inside it, decide
+where a drag lands: *Off*, *Grid* (the cell corner) or
 *Pixel* (the whole map pixel, for objects smaller than a tile). `Ctrl+Shift+G` and `Ctrl+Shift+P` are
 the same two, as chords. **Holding Ctrl inverts whatever is set** — so at the default *Off*, Ctrl
 snaps this one drag to the grid, exactly as it always did, and with snapping on, Ctrl is how you put

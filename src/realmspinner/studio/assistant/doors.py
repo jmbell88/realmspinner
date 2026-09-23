@@ -133,6 +133,14 @@ def draft_in_create(
     (``palette._mode_commands``), so a Familiar-drafted request never opens
     a form the click path already knows cannot generate anything yet.
 
+    Callers that must tell a landed draft from a refused one (T7's plan card,
+    ``open_character_in_create`` -- see the 2026-09-23 audit's familiar-01)
+    check ``model_gate.mode_gate`` themselves first, the same read this
+    function makes; ``mode_gate`` has no side effect, so calling it twice per
+    press costs nothing and keeps this function's return shape -- the
+    sentence alone -- unchanged for its other caller (``_run_door``'s
+    ``"draft"`` action, and the test that monkeypatches this whole function).
+
     *character_fields* exists for T7's character-plan card: applied the way
     ``poser_mode.vary_in_create`` applies a recipe's own fields -- written,
     then marked ``character_engine.touched`` so the next prompt edit

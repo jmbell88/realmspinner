@@ -351,6 +351,13 @@ class _Job:
     error: BaseException | None = None
     state: str = QUEUED
     owner: str = PIPE_OWNER
+    tool: str | None = None
+    """The character tool name this job runs, or ``None`` for a job that
+    is not a named tool call (a dynamic-resource read, a frame-lane job).
+    Read only by :attr:`AgentHost.busy_tools` -- the 2026-09-23 (second
+    run) audit, finding agents-01, found the quit chain had no way to name
+    an in-flight ``character_export`` because nothing on ``_Job`` recorded
+    which tool it was running."""
     """Which lane owner queued this job (:data:`PIPE_OWNER` or an in-app
     session's own token from :meth:`AgentHost.open_session`) -- read only by
     :meth:`AgentHost._fail_pending`/:meth:`_drop_queued_service_jobs`, which
@@ -778,6 +785,24 @@ class AgentHost:
     def connected(self) -> bool:
         """Whether a bridge is attached right now, for the status bar chip."""
         return self._connected
+
+    @property
+    def busy_tools(self) -> tuple[str, ...]:
+        """Names of the character tools running on the service lane right now.
+
+        The 2026-09-23 (second run) audit, finding agents-01: character-tool
+        calls (``character_export`` and the rest) run on this host's own
+        ``TaskRunner``, never on ``ctx.tasks`` -- so ``_quit_summary``, which
+        only reads ``ctx.tasks.busy_keys``, warned nothing while a quit would
+        have interrupted one mid-write. This is the read-only door
+        ``_quit_summary`` calls instead; a resource read or any other
+        untagged service job (``tool is None``) is left out, the same as an
+        untagged frame-lane job is left out of ``ctx.tasks.busy_keys``.
+        """
+        with self._job_lock:
+            return tuple(
+                sorted({job.tool for job in self._service_jobs.values() if job.tool})
+            )
 
     def _acquire_lanes(self, owner: str) -> None:
         """Register *owner* as holding the frame/service lanes open,
@@ -1530,6 +1555,7 @@ class AgentHost:
                     getattr(self.ctx, "svc", None), calls.character, name, arguments
                 ),
                 owner=owner,
+                tool=name,
             )
         else:
             job, result, error, state = self._run_on_frame_job(
@@ -1935,7 +1961,8 @@ class AgentHost:
             job = self._queue_service_job_nowait(
                 lambda: agent_character.call(
                     getattr(self.ctx, "svc", None), calls.character, name, arguments
-                )
+                ),
+                tool=name,
             )
         else:
             job = self._queue_job_nowait(
@@ -2179,7 +2206,11 @@ class AgentHost:
                 self._service_jobs.pop(id(job), None)
 
     def _run_on_service_job(
-        self, run: Any, timeout: float = CALL_TIMEOUT, owner: str = PIPE_OWNER
+        self,
+        run: Any,
+        timeout: float = CALL_TIMEOUT,
+        owner: str = PIPE_OWNER,
+        tool: str | None = None,
     ) -> tuple[_Job | None, Any, Any, str]:
         """As :meth:`_run_on_frame_job`, but for the service lane: *run*
         goes to :meth:`_submit_service` (a small ``TaskRunner`` pool)
@@ -2197,7 +2228,7 @@ class AgentHost:
 
         if self._service is None:
             return None, rpc.fail("Realmspinner's agent server was switched off."), None, DROPPED
-        job = _Job(run, owner=owner)
+        job = _Job(run, owner=owner, tool=tool)
         if not self._submit_service(job):
             return None, rpc.fail("Realmspinner's agent server was switched off."), None, DROPPED
         if job.event.wait(timeout):
@@ -2208,13 +2239,15 @@ class AgentHost:
                 job.state = DROPPED
             return job, job.result, job.error, job.state
 
-    def _queue_service_job_nowait(self, run: Any, owner: str = PIPE_OWNER) -> _Job | None:
+    def _queue_service_job_nowait(
+        self, run: Any, owner: str = PIPE_OWNER, tool: str | None = None
+    ) -> _Job | None:
         """As :meth:`_queue_job_nowait`, but for the service lane: mints a
         ``_Job``, hands it to :meth:`_submit_service`, and returns at once --
         never blocks. ``None`` if the service lane refused it (the agent
         server is off), the same early-out the frame lane's own
         :meth:`_queue_job_nowait` gives."""
-        job = _Job(run, owner=owner)
+        job = _Job(run, owner=owner, tool=tool)
         if not self._submit_service(job):
             return None
         return job

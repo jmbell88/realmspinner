@@ -984,15 +984,27 @@ def suspect_files(config: Config, kind: str, spec: Any) -> list[str]:
     candidates: list[Path] = []
     if kind == "lora":
         candidates = [root / "loras" / spec.filename]
-    elif base.is_dir():
-        candidates = [
-            p
-            for p in base.rglob("*")
-            # ``.pt`` for the separation checkpoint, which is one file and
-            # nothing else -- so a zero-length one is the whole model missing
-            # while every presence probe says it is installed.
-            if p.is_file() and p.suffix in (".safetensors", ".gguf", ".bin", ".pt")
-        ]
+    else:
+        # The kind's own marker/config file -- ``model_index.json`` for a
+        # diffusers checkpoint, ``config.json`` for everything else that has
+        # one. The 2026-09-23 (second run) audit, finding pipelines-02: the
+        # scan below only ever matched weight-file suffixes, so a zero-byte
+        # marker (``base_model_state`` checks it with a bare ``is_file()``,
+        # which is true at any size) read as present and un-suspect while the
+        # checkpoint it belongs to could not load. A kind with no top-level
+        # marker (music's subfolders, separation's bare ``.pt``) simply never
+        # matches this candidate, same as today.
+        marker = "model_index.json" if kind == "base" else "config.json"
+        candidates.append(base / marker)
+        if base.is_dir():
+            candidates += [
+                p
+                for p in base.rglob("*")
+                # ``.pt`` for the separation checkpoint, which is one file and
+                # nothing else -- so a zero-length one is the whole model missing
+                # while every presence probe says it is installed.
+                if p.is_file() and p.suffix in (".safetensors", ".gguf", ".bin", ".pt")
+            ]
     for path in candidates:
         try:
             if _is_file(path) and path.stat().st_size == 0:

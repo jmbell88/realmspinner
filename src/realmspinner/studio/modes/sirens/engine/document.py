@@ -312,6 +312,15 @@ class SongDoc:
         self.samples = dict(samples or {})
         self.history = UndoStack()
         self.saved_head = 0
+        # P65 item 2 ("sirens-02" in the plan). Mirrors ``DocTab.saving`` /
+        # ``.busy`` (``studio/docmodes.py``) -- set and cleared by whichever
+        # studio module starts and lands a save (``studio/modes/sirens/
+        # fileio.py``, ``mode.py``) -- so a mutator down here can refuse a
+        # mid-save change even from a caller that never goes through the tab
+        # a pane greys. A plain bool, not an import of anything from
+        # ``studio``: this package stays headless (module docstring), and the
+        # studio layer only ever writes a bool onto an object it already owns.
+        self.busy = False
 
     # --- identity and state ---------------------------------------------------
 
@@ -927,6 +936,12 @@ class SongDoc:
 
     def set_song(self, **values: Any) -> bool:
         """Title, author, tempo, speed or loop point. Only the keys that moved."""
+        # P65 item 2 ("sirens-02"). "Loop the song" is greyed at its one door
+        # while a save is running, but the setter itself took a change from
+        # any caller regardless -- refused here so that stays true no matter
+        # what reaches it.
+        if self.busy:
+            raise ValueError("a save is running")
         fields = {"title", "author", "tempo", "speed", "loop_order"}
         unknown = set(values) - fields
         if unknown:

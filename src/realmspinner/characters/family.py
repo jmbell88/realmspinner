@@ -54,12 +54,6 @@ __all__ = [
     "silhouettes",
 ]
 
-#: The four body plans. Named as a tuple as well as a registry so a caller can
-#: check membership without building the registry -- a resolver's vocabulary
-#: table is built at import time and has no business constructing dataclasses.
-ARCHETYPE_KEYS: tuple[str, ...] = ("humanoid", "quadruped", "winged", "amorphous")
-
-
 @dataclass(frozen=True, slots=True)
 class Channel:
     """One continuous appearance control, in channel units.
@@ -411,6 +405,15 @@ _ARCHETYPES: dict[str, Archetype] = {
         package="amorphous",
     ),
 }
+
+#: The four body plans. Named as a tuple as well as a registry so a caller can
+#: check membership without building the registry -- a resolver's vocabulary
+#: table is built at import time and has no business constructing dataclasses.
+# Derived from ``_ARCHETYPES`` rather than hand-duplicated: the 2026-09-23
+# audit, finding poser-06, found this tuple hand-listed with no pin, so a
+# fifth archetype's registry row could ship with this vocabulary table still
+# naming only the first four.
+ARCHETYPE_KEYS: tuple[str, ...] = tuple(_ARCHETYPES)
 
 
 # --- themes ------------------------------------------------------------------

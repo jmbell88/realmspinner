@@ -289,6 +289,19 @@ class Text2ImageClient:
             )
         except OSError as exc:
             raise ChildFailed(f"could not start the image worker: {exc}") from exc
+        # Published the moment Popen returns, not after winjob/the reader are
+        # set up. The 2026-09-23 (second run) audit, finding pipelines-04:
+        # ``close()`` reads ``self._proc`` with no lock (see its own
+        # docstring for why) so an in-flight quit can find and kill it -- but
+        # until this line ran, that read saw the *previous* value (``None``,
+        # for a first spawn), so a quit landing in the winjob/reader/
+        # READY_TIMEOUT window below killed nothing and then blocked on
+        # ``self._lock`` for the rest of this method, up to ``READY_TIMEOUT``
+        # plus whatever ``_request`` it was racing against was doing. A
+        # single attribute assignment is atomic under the GIL, so this needs
+        # no lock of its own -- only to happen before anything in this
+        # method can block or take real wall-clock time.
+        self._proc = proc
         winjob.assign(proc.pid)
         winjob.track(proc.pid, f"text2image {self.spec.key}")
 
@@ -310,7 +323,7 @@ class Text2ImageClient:
             target=_pump, args=(proc.stdout,), name="t2i-worker", daemon=True
         )
         reader.start()
-        self._proc, self._lines = proc, lines
+        self._lines = lines
 
         from .text2image_worker import MARKER
 

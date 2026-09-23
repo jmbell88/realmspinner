@@ -217,20 +217,29 @@ class DragOps:
         """
         import pygame
 
-        # Any event that reaches the viewport can move the picture: a press
-        # starts a drag or a marquee, motion re-hovers an element, a wheel
-        # dollies. Cheaper to redraw one frame than to enumerate which.
-        self._render_dirty = True
+        # clay-15 (the 2026-09-23 audit, second run): this used to mark every
+        # event dirty unconditionally, on the reasoning that any event
+        # reaching the viewport can move the picture -- but a bare hover (no
+        # button down, nothing dragging) reaches here on *every* mouse-move
+        # frame and usually changes nothing the picture depends on, so that
+        # blanket assignment defeated the redraw skip ``viewer_embed`` was
+        # built for (2026-09-02). A press, a release and a wheel dolly always
+        # change something, so those still mark dirty here; motion's own
+        # dirtiness is decided in :meth:`_motion`, which knows whether a drag
+        # is live or the hover state actually moved.
         local = self._local(event)
         if event.type == pygame.MOUSEBUTTONDOWN and hovered:
+            self._render_dirty = True
             return self._press(doc, event.button, local)
         if event.type == pygame.MOUSEBUTTONUP:
+            self._render_dirty = True
             if event.button == 3:
                 return self._rmb_release(local)
             return self._release_drag(doc, event.button)
         if event.type == pygame.MOUSEMOTION:
             return self._motion(doc, local)
         if event.type == pygame.MOUSEWHEEL and hovered:
+            self._render_dirty = True
             self.camera.dolly(event.y)
             return True
         return False
@@ -1228,13 +1237,24 @@ class DragOps:
         height = int(max(self._rect[3], 1))
         if self._grab is None:
             gizmo = self.active_gizmo(doc)
+            prev_gizmo_hover = None if gizmo is None else gizmo.hover
             if gizmo is not None:
                 origin, direction = self._ray(local)
                 gizmo.hover = gizmo.hit(origin, direction)
+            prev_hover_element = self.hover_element
             self.hover_element = (
                 None if doc.element_mode == "object" else self.pick_element(doc, local)
             )
+            # clay-15 (the 2026-09-23 audit, second run): only a real change
+            # to what the cursor is over -- which gizmo arm lit up, which
+            # element it now sits over -- earns a redraw; see
+            # ``handle_event``'s own comment for why a bare hover must not.
+            if (gizmo is not None and gizmo.hover != prev_gizmo_hover) or (
+                self.hover_element != prev_hover_element
+            ):
+                self._render_dirty = True
             return False
+        self._render_dirty = True
         if self._grab == "marquee":
             start = self._marquee_from or local
             self.marquee = (start[0], start[1], local[0], local[1])

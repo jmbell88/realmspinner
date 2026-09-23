@@ -30,9 +30,11 @@ CHAPTER = Path(__file__).resolve().parents[2] / "docs" / "manual" / "38-shortcut
 # than a string match: the judging pass is a mode of Review, not a mode.
 SECTIONS = {
     "Everywhere": "Everywhere",
+    "Home and the Library": "Home and the Library",
     "Create": "Create",
     "Review": "Review",
     "Review - a judging pass": "Review — a judging pass",
+    "Review - a labelling pass": "Review — labelling images",
     "Clay": "Clay",
     "Mason": "Mason",
     "Inker": "Inker",
@@ -277,6 +279,34 @@ def test_clay_shortcuts_table_lists_every_bare_letter_the_registry_binds():
         f"clay_ops.OPS binds {missing} to a bare letter in an element mode "
         f"and the Ctrl+/ sheet's Clay table does not list them"
     )
+
+
+def test_the_sheet_has_a_group_for_home_and_the_library():
+    """The 2026-09-23 (second run) audit, finding shell-02: chapter 38 has
+    always documented Home's Resume-row arrows and the Library's grid
+    arrows/Enter (``shell/events.py``'s key handling for ``state.mode in
+    ("home", "library")``), but the Ctrl+/ sheet had no group for either --
+    and ``test_every_mode_the_chapter_gives_a_section_has_a_group_in_the_sheet``
+    could not catch it, since its heading equals neither mode label.
+    """
+    groups = {title for title, _ in shortcut_sections()}
+    assert "Home and the Library" in groups
+    home_lib = dict(shortcut_sections())["Home and the Library"]
+    keys = {k for k, _ in home_lib}
+    assert {"Up / Down", "Left / Right", "Enter"} <= keys
+
+
+def test_the_sheet_has_a_group_for_the_labelling_pass():
+    """The 2026-09-23 (second run) audit, finding shell-03: Review's
+    labelling pass (``_label_key`` in ``modes/review/mode.py``) takes over
+    A/R/S/Left/Right/Esc exactly like the judging pass does, and the sheet
+    had a group for the judging pass but none for its sibling.
+    """
+    groups = {title for title, _ in shortcut_sections()}
+    assert "Review - a labelling pass" in groups
+    labelling = dict(shortcut_sections())["Review - a labelling pass"]
+    keys = {k for k, _ in labelling}
+    assert {"A", "R", "S", "Left / Right", "Esc"} <= keys
 
 
 def test_the_chapter_does_not_send_the_reader_to_a_control_that_was_deleted():

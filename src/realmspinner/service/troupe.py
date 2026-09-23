@@ -1004,9 +1004,24 @@ def send_to_troupe(
         # for a refusal to ring (``tests/test_field_error_wiring.py``).
         from .rig import rig_in_flight
 
-        if rig_in_flight(svc, job_id) is not None:
-            raise Conflict("a rig for this mesh is already running")
-        new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
+        # Nested under ``svc.convert_lock(job_id, "rig")`` too, not only
+        # "sheets" -- 2026-09-23 (second run) audit, finding service-03:
+        # ``rig.create_rig`` guards "no second rig" under the "rig" key while
+        # this branch guarded it under "sheets", so the two doors did not
+        # exclude each other. A concurrent ``character_rig`` (create_rig) and
+        # ``character_sheet_create`` (this door) on one mesh could each pass
+        # their own ``rig_in_flight`` check before either had inserted a row,
+        # and both mint one. Safe to nest -- "rig" only, no site anywhere in
+        # the tree takes "rig" and then calls into this "sheets" hold, so
+        # there is no reverse-order path back to this lock and nothing here
+        # already holds "rig" on entry (``threading.Lock`` is not
+        # re-entrant; a caller that did would deadlock itself).
+        with svc.convert_lock(job_id, "rig"):
+            if rig_in_flight(svc, job_id) is not None:
+                raise Conflict("a rig for this mesh is already running")
+            new_id = svc.store.create(
+                "rig", source["prompt"], params, uuid.uuid4().hex[:12]
+            )
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id, "rigged": False}
 

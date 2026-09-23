@@ -97,18 +97,37 @@ def _effective_triangle_budget(report: dict[str, Any], params: dict[str, Any]) -
     budget" forever, with this row's own repair button pointing back at the
     very panel that had already done exactly what it asked. The budget a
     mesh was actually built to is recorded on the job that built it --
-    ``optimize.run``'s ``"requested"`` or ``remesh``'s ``"target_faces"`` --
+    ``optimize.run``'s ``"requested"`` or ``remesh``'s ``"target_triangles"`` --
     so that is read first; ``report["triangle_budget"]`` (set by a caller of
     ``meshreport.build`` that already knew the budget) is the next fallback,
     and the module default is last, for a raw reconstruction that was never
     retargeted or a report recorded before either field existed.
+
+    The 2026-09-23 (second run) audit, finding pipelines-01: a remesh
+    record's ``target_faces`` is Blender's own quad count, not a triangle
+    budget -- ``pipelines.remesh.target_faces`` halves the triangle budget
+    before handing it to quadriflow, and ``_q_mesh.py`` records both:
+    ``target_faces`` always, ``target_triangles`` (the real budget) only when
+    the job was queued through the modern ``target_triangles`` ladder rather
+    than a legacy ``target_faces`` request. Reading ``target_faces`` as the
+    triangle budget flagged a remesh that landed exactly on its 5,000
+    default -- "4,996 triangles is above the 2,500 budget". A legacy row
+    that has only ``target_faces`` is doubled back into a triangle count
+    instead, since that field was never anything but a quad count.
     """
-    for record, key in (
-        (params.get("optimize"), "requested"),
-        (params.get("remesh"), "target_faces"),
-    ):
-        if isinstance(record, dict) and isinstance(record.get(key), int) and record[key] > 0:
-            return record[key]
+    optimize_record = params.get("optimize")
+    if isinstance(optimize_record, dict):
+        requested = optimize_record.get("requested")
+        if isinstance(requested, int) and requested > 0:
+            return requested
+    remesh_record = params.get("remesh")
+    if isinstance(remesh_record, dict):
+        triangles = remesh_record.get("target_triangles")
+        if isinstance(triangles, int) and triangles > 0:
+            return triangles
+        faces = remesh_record.get("target_faces")
+        if isinstance(faces, int) and faces > 0:
+            return faces * 2
     stored = report.get("triangle_budget")
     if isinstance(stored, int) and stored > 0:
         return stored

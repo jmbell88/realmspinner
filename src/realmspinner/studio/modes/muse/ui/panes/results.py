@@ -464,6 +464,17 @@ def _derive_field(
             value = min(value, high)
         elif task == "loop":
             high = parent_duration / 2.0
+            # The 2026-09-23 audit (second run), muse-01: the extend branch
+            # above clamps its opening value against its own ``high``, but
+            # this branch only computed ``high`` and left ``value`` -- the
+            # popup's untouched default, 8.0 s -- alone. A take of 10-16 s
+            # has ``high`` under 8.0, so the untouched first "Queue it" press
+            # sent the door a span it always refuses
+            # (``service/_jobs_music.py``'s ``MIN_WINDOW <= span <=
+            # parent_duration / 2.0``), even though nothing on screen looked
+            # wrong -- the slider draws clamped, but ``derive_form`` itself
+            # was never brought down to match until the user dragged it.
+            value = min(value, high)
         else:
             high = parent_duration
     if task == "loop" and name == "repaint_end":

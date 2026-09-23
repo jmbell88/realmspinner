@@ -653,6 +653,19 @@ DEFRINGE_MAX = 8
 #: ``grow`` uncapped exactly like ``fringe``, same linear full-canvas cost.
 MATTE_GROW_MAX = 8
 
+#: :func:`remove_orphans` has no parameter the way :data:`DESPECKLE_MAX` and
+#: :data:`OUTLINE_MAX_SIZE` bound one -- it is a toggle, not a slider -- so
+#: the cost that needs bounding is not a parameter but the *data*: how many
+#: lonely pixels the per-pixel Python loop at the end has to vote a colour
+#: for. The 2026-09-23 (second run) audit, finding inker-04: uncapped like
+#: those two were before their ceilings, and it runs on the frame thread
+#: through ``Document.preview_filter`` exactly like them -- 0.5s at 512^2 and
+#: 2.06s at 1024^2 on a busy layer, where most pixels are lonely. Past this
+#: many lonely pixels in one call, the loop stops after fixing this many
+#: (in a fixed, deterministic order) and leaves the rest as they are, rather
+#: than let a noisy layer's preview stall the frame thread.
+REMOVE_ORPHANS_MAX_LONELY = 50_000
+
 
 def defringe(pixels: np.ndarray, *, fringe: float = 0.0) -> np.ndarray:
     """Semi-transparent pixels take the colour of the nearest opaque one.
@@ -775,7 +788,14 @@ def remove_orphans(pixels: np.ndarray, *, orphans: float = 0.0) -> np.ndarray:
     lonely = opaque & ~(stack == code[..., None]).any(axis=-1)
     if not lonely.any():
         return out
-    for y, x in zip(*(a.tolist() for a in np.nonzero(lonely)), strict=True):
+    ys, xs = (a.tolist() for a in np.nonzero(lonely))
+    if len(ys) > REMOVE_ORPHANS_MAX_LONELY:
+        # See REMOVE_ORPHANS_MAX_LONELY: a busy layer can make almost every
+        # opaque pixel lonely, and voting a colour for each one in Python is
+        # the cost that needs a ceiling, not the vectorised detection above.
+        ys = ys[:REMOVE_ORPHANS_MAX_LONELY]
+        xs = xs[:REMOVE_ORPHANS_MAX_LONELY]
+    for y, x in zip(ys, xs, strict=True):
         values = [v for v in stack[y, x].tolist() if v >= 0]
         if not values:
             continue

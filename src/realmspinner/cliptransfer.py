@@ -850,6 +850,21 @@ def _transfer_action(
         raise ClipTransferError(
             f"frames must be 1-{MAX_CLIP_FRAMES}, not {n_frames}", field="frames"
         )
+    if n_frames == 1 and not closed:
+        # The 2026-09-23 audit, finding poser-02: ``frames=1`` on an open clip
+        # used to sample only phase 0 (``_resample``'s ``frames > 1`` branch
+        # never runs), silently dropping every frame of motion after the
+        # first -- and the panel never passes ``frames`` itself, so this was
+        # only reachable through the API, which then refused it downstream
+        # with "needs at least 2 keys" rather than naming what caused it. A
+        # closed loop is exempt: one sampled frame is a legitimate single-pose
+        # cycle there, not a truncation.
+        raise ClipTransferError(
+            "frames=1 on an open clip samples only its first frame and drops "
+            "every other frame of motion; ask for at least 2 frames, or "
+            'loop="on" for a single held pose',
+            field="frames",
+        )
     resampled_bones, resampled_roots = _resample(
         bone_names, per_frame_bones, per_frame_roots, n_frames, closed
     )
@@ -861,6 +876,18 @@ def _transfer_action(
     keep = {0}
     if closed:
         _rdp(bone_names, resampled_bones, resampled_roots, n_frames, 0, n_frames, keep)
+        if len(keep) < 2 and n_frames > 1:
+            # The 2026-09-23 audit, finding poser-01: a closed loop whose
+            # motion never exceeds KEY_TOLERANCE_DEG/ROOT_TOLERANCE leaves
+            # ``_rdp`` with nothing to add, so ``keep`` stays {0} -- one key.
+            # ``analyse`` previews that clip as ordinary (closed clips are
+            # allowed one key there), but ``service.clips``' own MIN_KEYS
+            # refuses any clip, closed or not, under two keys, so saving it
+            # failed with "needs at least 2 keys" naming no cause. A second
+            # key at the clip's midpoint keeps the wrap segment's own
+            # near-zero motion (RDP already decided it was negligible) while
+            # satisfying the save door's floor.
+            keep.add(n_frames // 2)
     else:
         keep.add(n_frames - 1)
         if n_frames > 1:

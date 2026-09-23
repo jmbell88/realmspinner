@@ -1913,4 +1913,14 @@ def _manifest(ctx: Any, job_id: str) -> dict[str, Any] | None:
     # Still in flight, or a submit just went out this frame: answer with
     # whatever the cache held before this mtime changed rather than None, so
     # a fast derivation does not flash the panel empty for one frame.
-    return cached[1] if cached is not None else None
+    #
+    # But only when that cache is an earlier read of *this same job*: the
+    # 2026-09-23 (second run) audit, finding shell-07, found this fallback
+    # returned ``cached`` unconditionally, so selecting a different job
+    # while a previous job's manifest read was still in flight (or had just
+    # been submitted) served the previous job's provenance for a frame or
+    # two -- the right answer to the wrong question, which is worse than no
+    # answer at all.
+    if cached is not None and cached[0][0] == job_id:
+        return cached[1]
+    return None

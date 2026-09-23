@@ -305,7 +305,12 @@ def advance(ctx: Any, delta: int = 1) -> None:
     state = ctx.state.tour
     tour = find_tour(state.key)
     if tour is None:
-        state.stop()
+        # Routed through ``stop(ctx)``, not ``state.stop()`` directly: the
+        # 2026-09-23 (second run) audit, finding tour-01, found this branch
+        # skipped ``_clear_card()`` -- the exact stale-hole bug the
+        # 2026-09-15 audit's tour-01 fixed for the off-the-end path below,
+        # left in place here.
+        stop(ctx)
         return
     index = state.index + delta
     if index >= len(tour):
@@ -493,7 +498,10 @@ def draw(ctx: Any) -> None:
     tour = find_tour(state.key)
     step = tour.step(state.index) if tour is not None else None
     if tour is None or step is None:
-        state.stop()
+        # Same fix as ``advance``'s own branch above: routed through
+        # ``stop(ctx)`` so ``_clear_card()`` runs here too (the 2026-09-23
+        # (second run) audit, finding tour-01).
+        stop(ctx)
         _was_open[0] = False
         return
 

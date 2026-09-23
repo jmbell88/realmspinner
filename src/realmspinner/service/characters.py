@@ -516,7 +516,15 @@ def create_character(
                 f"pivot and scale are the engine's",
             )
         try:
-            params["mesh_report"] = meshreport.build(model, target_size_m=fam.height_m)
+            # No custom triangle budget applies here -- a generated character
+            # is a procedural mesh, never retargeted or remeshed at this door
+            # -- so the module default is genuinely the right ceiling; passed
+            # explicitly (rather than omitted) only so this call site matches
+            # its three siblings the 2026-09-23 audit's finding pipelines-01
+            # covers, and stays correct if a per-family budget is ever added.
+            params["mesh_report"] = meshreport.build(
+                model, target_size_m=fam.height_m, triangle_budget=meshreport.TRIANGLE_BUDGET
+            )
         except Exception as exc:
             log.exception("mesh report failed for character %s", job_id)
             note_degraded(
@@ -923,6 +931,23 @@ def export_frames(
         )
     pixel_art = bool(raw_pixel_art)
 
+    # The 2026-09-23 audit, finding service-04: a run's span was fed straight
+    # into ``range()`` (and then a set comprehension) with no ceiling at all,
+    # before the "does this sheet even have these cells" refusal below ever
+    # ran -- so a sidecar naming, say, ``end=10**18`` tried to materialise
+    # that many ints rather than being refused. Checked arithmetically first,
+    # against ``charsheet.MAX_CELLS`` (the most a sheet's atlas can ever hold,
+    # same ceiling ``troupe.send_to_troupe`` enforces on the way in), the same
+    # "arithmetic before allocation" rule ``sheet_preview_png`` already keeps
+    # for its own frame count (2026-09-15 audit, finding troupe-03).
+    for run in runs:
+        span = int(run["end"]) - int(run["start"]) + 1
+        if not 0 < span <= charsheet.MAX_CELLS:
+            raise Invalid(
+                "this sheet's layout is corrupted (a run's frame span is invalid)",
+                field="sheet_id",
+            )
+
     # **Refused, not crashed.** A sheet with no ``"troupe"`` block whose cells
     # do not happen to match the closed legacy 256-cell table (a hand-drawn
     # sheet, or one from a format ``sheet.sidecar`` also writes) fell through
@@ -984,7 +1009,20 @@ def export_frames(
 
         clips_meta: dict[str, Any] = {}
         for clip, directions in clip_directions.items():
-            movement = movements[clip]
+            # The 2026-09-23 audit, finding poser-04: a bare ``movements[clip]``
+            # raised ``KeyError`` (not ``Invalid``) for a sidecar whose run
+            # names a movement the ``troupe`` layout's own ``movements`` table
+            # no longer has -- a rig's clip library can rename or drop a clip
+            # after a sheet naming it was already rendered, the same "layout
+            # has moved on" case ``_sheet_movements_by_key`` already guards
+            # for a movement entry that lost its own ``"key"`` field.
+            movement = movements.get(clip)
+            if movement is None:
+                raise Invalid(
+                    f"this sheet's layout is corrupted ({clip!r} is not one of "
+                    "its movements)",
+                    field="sheet_id",
+                )
             duration_ms = int(movement["duration_ms"])
             fps = float(layout_fps) if layout_fps is not None else 1000.0 / duration_ms
             clips_meta[clip] = {

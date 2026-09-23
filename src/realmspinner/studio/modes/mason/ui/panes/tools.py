@@ -1,17 +1,27 @@
-"""Mason's Tools column: which transform tool is in hand, its pivot and its
-snap, and the placement ops that move or multiply a selection.
+"""Mason's Tools column: which transform tool is in hand, its snap, and the
+placement ops that move or multiply a selection.
 
 Clay's Tools panel split its old grab-bag of switches between the viewport
 header (what changes *between* clicks) and the sidebar (what wants the
 height, read down rather than flicked between) -- see that pane's own module
-docstring for the argument. Mason's transform tools, pivot and snap are
-exactly that same kind of between-clicks setting and belong on
-``mason_header`` instead; what earns a *sidebar* row here is what Clay's
-sidebar kept for the identical reason -- a list of operations invoked once
-per press, not a switch flicked every few seconds. Align, distribute and the
-two array ops are exactly that list, one level over from Clay's Duplicate,
-Bake and Mirror: they read the selection's world boxes and write a batch of
-new transforms or a batch of new nodes, in one press.
+docstring for the argument. Only Mason's pivot actually made that move, onto
+``mason_header`` (``header.py``'s ``_pivot_field``); what earns a *sidebar*
+row here is what Clay's sidebar kept for the identical reason -- a list of
+operations invoked once per press, not a switch flicked every few seconds.
+Align, distribute and the two array ops are exactly that list, one level over
+from Clay's Duplicate, Bake and Mirror: they read the selection's world boxes
+and write a batch of new transforms or a batch of new nodes, in one press.
+The transform tool grid and snap are between-clicks settings by the same
+argument and belong on the header too, but that move has not happened --
+both are still drawn here, below.
+
+The 2026-09-23 audit's mason-04 found this docstring's previous wording
+naming the tool grid together with pivot and snap as all belonging on
+``mason_header``, describing a three-item move only one item of which had
+actually happened -- and the pivot control drawn *here* besides its new home
+in ``header.py``, so it appeared twice in the same frame. Corrected to
+describe what this module actually draws, and the duplicate pivot control
+removed below.
 
 **Every op here is a pure function of ``mason.ops`` plus the document's own
 mutators.** This file decides which axis, which mode, which count; the
@@ -73,8 +83,9 @@ def _body(ctx: Any) -> None:
     imgui.begin_disabled(tab.saving)
     _tool_grid(ctx, state)
     imgui.dummy((0, sp(8)))
-    _pivot(ctx, state)
-    imgui.dummy((0, sp(8)))
+    # Pivot itself is not drawn here -- it moved to ``mason_header``
+    # (``header.py``'s ``_pivot_field``); see this module's own docstring for
+    # why drawing it here too (the 2026-09-23 audit's mason-04) was wrong.
     _snap(ctx, state)
     imgui.dummy((0, sp(8)))
     _placement(ctx, state, tab)
@@ -94,19 +105,6 @@ def _tool_grid(ctx: Any, state: Any) -> None:
             state.tool = key
         if index < len(mason_state.TOOLS) - 1:
             imgui.same_line()
-    del ctx
-
-
-def _pivot(ctx: Any, state: Any) -> None:
-    widgets.field_label("pivot")
-    options = [(key, key.title()) for key in mason_state.PIVOTS]
-    changed, picked = controls.segmented_choice("mason-pivot", options, state.pivot)
-    if changed:
-        state.pivot = picked
-    widgets.help_marker(
-        "Where a multi-node drag's gizmo sits: the selection's own centre, "
-        "the last node clicked, or the world origin."
-    )
     del ctx
 
 
@@ -203,16 +201,28 @@ def _placement(ctx: Any, state: Any, tab: Any) -> None:
     uids = list(doc.selection)
     width = widgets.grid_width(2)
     align_ok = len(uids) >= 2
-    if widgets.disabled_button("Align##masonalign", align_ok, (width, 0)):
+    if widgets.disabled_button(
+        "Align##masonalign",
+        align_ok,
+        (width, 0),
+        reason="Select at least 2 nodes to align.",
+    ):
         boxes = _world_boxes(ctx, doc, uids)
         _apply_deltas(doc, mops.align(boxes, axis, mode_key))
     imgui.same_line()
     distribute_ok = len(uids) >= 3
-    if widgets.disabled_button("Distribute##masondistribute", distribute_ok, (width, 0)):
+    if widgets.disabled_button(
+        "Distribute##masondistribute",
+        distribute_ok,
+        (width, 0),
+        reason="Select at least 3 nodes to distribute.",
+    ):
         boxes = _world_boxes(ctx, doc, uids)
         _apply_deltas(doc, mops.distribute(boxes, axis))
     if widgets.disabled_button(
-        f"{icons.ARROW_DOWN} Drop selection to ground##masondrop", bool(uids)
+        f"{icons.ARROW_DOWN} Drop selection to ground##masondrop",
+        bool(uids),
+        reason="Select at least 1 node to drop.",
     ):
         boxes = _world_boxes(ctx, doc, uids)
         _apply_deltas(doc, mops.drop_to_ground(boxes, terrain=doc.terrain))
@@ -268,7 +278,13 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
     _PENDING["offset"] = list(offset)
 
     width = widgets.grid_width(1)
-    if widgets.disabled_button("Array (linear)##masonarraylinear", one, (width, 0)) and node:
+    array_reason = "Select exactly 1 node to array."
+    if (
+        widgets.disabled_button(
+            "Array (linear)##masonarraylinear", one, (width, 0), reason=array_reason
+        )
+        and node
+    ):
         over = _over_max_placed(doc, node, _PENDING["count"] - 1)
         if over is not None:
             ctx.toast(
@@ -287,7 +303,12 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
     _, degrees = controls.input_float("##masonarraydegrees", float(_PENDING["degrees"]), 5.0)
     _PENDING["degrees"] = degrees
 
-    if widgets.disabled_button("Array (radial)##masonarrayradial", one, (width, 0)) and node:
+    if (
+        widgets.disabled_button(
+            "Array (radial)##masonarrayradial", one, (width, 0), reason=array_reason
+        )
+        and node
+    ):
         over = _over_max_placed(doc, node, _PENDING["count"] - 1)
         if over is not None:
             ctx.toast(

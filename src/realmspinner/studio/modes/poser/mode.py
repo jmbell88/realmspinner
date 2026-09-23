@@ -3887,12 +3887,24 @@ def apply_key(ctx: Any) -> None:
     # so the rest have to go back to rest first, or loading "walk contact"
     # after "attack strike" leaves the sword arm up. It is one undo step, which
     # is right for a discrete "go to this key".
-    editor.apply_preset(
-        {"bones": _to_node(editor, dict(pose.get("bones") or {}), _clip_space(state))}
-    )
-    root = pose.get("root_translation")
-    if root:
-        editor.set_root_translation([float(v) for v in root])
+    #
+    # The 2026-09-23 audit, finding poser-01: ``apply_preset`` is itself
+    # undoable and pushes its own step, but the ``set_root_translation`` call
+    # below it was not bracketed at all -- so the root offset landed on the
+    # live armature with no history entry of its own. Redoing the
+    # ``apply_preset`` step then restored the *pre-offset* snapshot it
+    # recorded, putting the bones back but leaving the root offset at zero.
+    # ``editor.record()`` is re-entrant (create-02 fixed the same gap at two
+    # other call sites the same day), so wrapping both in one outer record()
+    # folds the whole "select this key" gesture into the single undo step it
+    # already reads as.
+    with editor.record():
+        editor.apply_preset(
+            {"bones": _to_node(editor, dict(pose.get("bones") or {}), _clip_space(state))}
+        )
+        root = pose.get("root_translation")
+        if root:
+            editor.set_root_translation([float(v) for v in root])
     # Loading a key is not an unsaved edit: the pose it put on the armature is
     # the clip's own, stored in the working copy. ``apply_preset`` marks the
     # editor dirty because in the pose library that is what it means; here

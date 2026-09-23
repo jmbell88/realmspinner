@@ -98,7 +98,7 @@ A drawing much smaller than the pane stays inside it altogether.
 ## Zooming
 
 The wheel zooms in steps of 5% (`Ctrl` and the wheel does the same), and it rounds to that step
-first: come out of a **Fit view** at some awkward 83% and the first notch takes you to 85, not to 88.
+first: come out of a **Fit in window** at some awkward 83% and the first notch takes you to 85, not to 88.
 That is what makes 100% a place you can reach from either direction rather than a number you have
 to type. The zoom stops at 5% and at
 6400% — far enough out to see any page whole, far enough in to place single pixels, and no
@@ -1210,12 +1210,14 @@ Committing over a **timeline range** carries the pivot with it: every frame in t
 the point you chose, not about its own middle. That is the difference between a pose that rotates
 and a pose that wobbles, and it only shows up when the frames are played.
 
-The tool options panel adds typed **X**, **Y**, **W**, **H**, **Angle** and **Slant** fields while
-a transform is running. Slant is an italic: two numbers in degrees, horizontal then vertical. It is
-applied after the scale and before the rotation, so the two slant axes are always the page's, and
-in this build it has numeric fields only — there are no slant handles on the box. Two large slants
-the same way fight each other — at 45° each they would squash the picture onto a line — so a pair
-that extreme comes back unslanted rather than as a sliver.
+The canvas toolbar adds typed **Angle**, **X**, **Y**, a **Link** checkbox, **H** and **V** fields
+while a transform is running. X and Y are the scale multipliers for each axis, shown as a factor
+(`1.00x`) rather than a percentage; **Link** scales both axes together, the same thing Shift does on
+a handle. H and V are the shear in degrees, horizontal then vertical, applied after the scale and
+before the rotation, so the two shear axes are always the page's, and in this build it has numeric
+fields only — there are no shear handles on the box. Two large shears the same way fight each other
+— at 45° each they would squash the picture onto a line — so a pair that extreme comes back
+unsheared rather than as a sliver.
 
 ## Regenerating a selection
 

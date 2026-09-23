@@ -174,9 +174,14 @@ def claydoc_to_obj(
         # result as a second step) keeps this a single :func:`~.mesh.
         # transformed` call, the same one :func:`~.ops.bake_transform` was
         # always going to make -- and gets a negative-determinant conversion
-        # (none of today's do, but nothing here assumes that) the same loop
-        # reversal :func:`~.mesh.transformed` already applies to a mirrored
-        # object, for free.
+        # the same loop reversal :func:`~.mesh.transformed` already applies to
+        # a mirrored object, for free. **Unity's does**: ``_unity_obj_
+        # conversion`` (``engines.py``) negates one axis to correct
+        # handedness, determinant -1, so a Unity export is exactly the
+        # "mirrored object" case this composition was written to cover, not
+        # a hypothetical one -- the 2026-09-23 audit's clay-18 found this
+        # comment claiming otherwise ("none of today's do"), which was false
+        # the day it was written; the behaviour itself was always correct.
         world = doc.world_matrix(obj.uid)
         baked = ops.bake_transform(
             replace(obj, mesh=doc.evaluated(obj.uid)),

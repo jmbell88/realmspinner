@@ -777,7 +777,15 @@ class TasksMixin:
             # sheet stayed on screen with live-looking buttons.
             self._refresh_rig_side_data()
             return
-        if key.startswith(("cancel:", "rerun:", "remesh:", "retry:", "rig:", "joints:", "sheet:")):
+        if key.startswith(
+            ("cancel:", "rerun:", "remesh:", "retexture:", "retry:", "rig:", "joints:", "sheet:")
+        ):
+            # "retexture:" joined this tuple for the 2026-09-23 audit's
+            # shell-01: a queued re-texture job (texture_panel.py's
+            # ``_submit`` keys it "retexture:<job_id>") never dropped
+            # ``ctx.cache``, so the job stayed invisible until the 3 s idle
+            # backstop caught up with it -- the same cache-drop "remesh:"
+            # already got.
             ctx.cache.invalidate()
             if key.startswith("sheet:"):
                 # A rendered sheet is side data, not a job-row change, so the

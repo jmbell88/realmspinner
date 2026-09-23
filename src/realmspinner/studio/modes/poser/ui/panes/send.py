@@ -41,6 +41,12 @@ from ..... import controls, tokens, widgets
 from .....tokens import sp
 from ... import mode as poser_mode
 
+# The 2026-09-23 audit, finding poser-08: this pane carried its own byte-
+# identical copy of sheet.py's ``_camera_helper``, untested and free to drift
+# from the one the sheet pane actually exercises. Shared rather than
+# reproduced again.
+from .sheet import _camera_helper
+
 TITLE = "Send to Poser"
 
 #: The floor ``widgets.modal_bounds`` is given. The combos are full-width, so
@@ -381,13 +387,6 @@ def _front_helper(front_yaw: float) -> str:
     if not front_yaw:
         return "This mesh has no front set; sheets are rendered from yaw 0."
     return f"This mesh's front is set to {front_yaw:.0f} degrees; sheets are rendered from it."
-
-
-def _camera_helper(presets: dict[str, Any], key: str) -> str:
-    entry = presets.get(key) or {}
-    if "elevation" not in entry:
-        return ""
-    return f"{float(entry['elevation']):g} degrees above the horizon"
 
 
 def _actions(ctx: Any, state: PoserSend, form: dict[str, Any]) -> None:

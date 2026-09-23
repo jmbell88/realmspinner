@@ -1530,6 +1530,16 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
         # reload. Decoding per slot would give equal pixels in separate objects,
         # and the break would only show on the next stroke.
         planes: dict[str, Layer] = {}
+        # The 2026-09-23 (second run) audit, finding inker-03: every sibling
+        # list in this member is capped (``tracks``, ``frames``, the per-frame
+        # palette above) but this one was not -- a 2,000,000-entry ``cels``
+        # list naming one plane cost 2.9s before the loop below even started
+        # allocating. Refused up front, in the same try this function's caller
+        # already wraps in a degrade-to-flat-read, exactly like every sibling.
+        if len(payload["cels"]) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"animation.json names more than {MAX_ORA_METADATA_ENTRIES} cels"
+            )
         cels: dict[tuple[int, int], Layer] = {}
         cel_opacity: dict[tuple[int, int], float] = {}
         cel_notes: dict[tuple[int, int], Note] = {}

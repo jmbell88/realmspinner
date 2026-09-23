@@ -263,12 +263,23 @@ def spin(
     angle_f = float(angle)
     if angle_f == 0.0:
         raise OpError("The spin angle must not be zero.")
-    order, closed_profile = _validate_profile(mesh, sel)
-
     remainder = abs(angle_f) % 360.0
     full_turn = (remainder < 1e-6 or remainder > 360.0 - 1e-6) and abs(angle_f) > 1e-9
     n_copies = steps if full_turn else steps + 1
     n_bands = n_copies if full_turn else n_copies - 1
+    # The 2026-09-23 audit's clay-11: this refusal used to run only after
+    # `_validate_profile` -> `_profile_order` had already walked the whole
+    # selection in a plain Python loop (0.68s wasted on a 500k-edge profile
+    # before the refusal below ever fired). A profile's edge count *is* its
+    # eventual `len(pairs)` -- an open chain of k vertices has k-1 edges and
+    # k-1 pairs, a closed loop of k vertices has k of each -- so the raw
+    # selection size is a cheap, exact stand-in for the walk's own result,
+    # checked here before that walk runs at all. The check below (after the
+    # walk) stays as the authoritative one for a selection this cheap check
+    # let through.
+    _refuse_spin_size(n_bands, len(sel.edges), "Spinning")
+    order, closed_profile = _validate_profile(mesh, sel)
+
     pairs = _profile_pairs(order, closed_profile)
     _refuse_spin_size(n_bands, len(pairs), "Spinning")
     owner_faces = _profile_owner_faces(mesh, adjacency(mesh), order, pairs)
@@ -347,9 +358,13 @@ def screw(
     angle_f = float(angle)
     if angle_f == 0.0 and float(height) == 0.0:
         raise OpError("The screw angle and height cannot both be zero.")
+    n_copies = steps + 1
+    # See the matching comment in spin(): the same clay-11 fix, refusing on
+    # the raw selection's edge count -- an exact stand-in for `len(pairs)`,
+    # see spin()'s comment -- before `_validate_profile` walks the selection.
+    _refuse_spin_size(n_copies - 1, len(sel.edges), "Screwing")
     order, closed_profile = _validate_profile(mesh, sel)
 
-    n_copies = steps + 1
     pairs = _profile_pairs(order, closed_profile)
     _refuse_spin_size(n_copies - 1, len(pairs), "Screwing")
     owner_faces = _profile_owner_faces(mesh, adjacency(mesh), order, pairs)

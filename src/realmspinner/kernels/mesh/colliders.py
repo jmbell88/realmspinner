@@ -175,6 +175,26 @@ MAX_HULL_POINTS = 5_000
 MAX_COMPOUND_PARTS = 800
 
 
+#: The most faces :func:`_face_shells` will BFS-walk on ``compound``'s
+#: auto-grouping path (``face_groups=None``) before it even starts.
+#:
+#: The 2026-09-23 audit's clay-12: :data:`MAX_COMPOUND_PARTS` above refuses on
+#: the *shell count* ``_face_shells`` hands back, but a single-shell mesh --
+#: one loose part, however many faces it has -- always reports ``n_shells ==
+#: 1``, so that refusal never fires no matter how large the mesh is, and
+#: ``_face_shells`` itself (a plain BFS in Python, one ``deque`` pop per face)
+#: still walks every face before returning: 0.28s at 131,000 faces, linear, no
+#: refusal. Measured 0.28s / 131,000 faces gives roughly 2.1us/face, so the
+#: "well under a second" bar every ceiling in this module holds itself to
+#: lands around 470,000 faces; this sits at roughly half that, the same
+#: margin :data:`MAX_COMPOUND_PARTS`'s own re-measured table keeps (700-900
+#: comfortably under the point its BFS-adjacent cost stops being sub-second),
+#: and the same order of magnitude as this package's other per-face ceilings
+#: (``ops_subdiv.MAX_SUBDIVIDED_FACES`` is 1,000,000, but that op is a single
+#: vectorised numpy pass rather than a Python BFS).
+MAX_COMPOUND_SHELL_FACES = 250_000
+
+
 # --- geometry, reused from primitives.py -------------------------------------
 
 
@@ -793,6 +813,18 @@ def compound(
     shape, one indexed convex node per part (see ``engines.py``).
     """
     if face_groups is None:
+        # See MAX_COMPOUND_SHELL_FACES's own comment: a single-shell mesh
+        # never trips MAX_COMPOUND_PARTS below (n_shells == 1, whatever the
+        # face count), so the BFS itself needs its own cheap-count refusal,
+        # checked before it walks a single face.
+        n_faces = len(mesh.starts) - 1
+        if n_faces > MAX_COMPOUND_SHELL_FACES:
+            raise OpError(
+                f"Compound would scan {n_faces:,} faces to find loose parts, "
+                f"past the {MAX_COMPOUND_SHELL_FACES:,} it works with before "
+                "stalling the frame it runs on. Select fewer faces, or pass "
+                "explicit face groups instead of grouping by connectivity."
+            )
         shell, n_shells = _face_shells(mesh)
         if n_shells == 0:
             raise OpError("Compound needs at least one face to group into parts.")

@@ -93,12 +93,23 @@ SUFFIXES: tuple[tuple[str, str], ...] = (
 #: Every path variable that can point at something inside the legacy home.
 #: Checked rather than assumed: a user who pointed one at ``~/.warlock/models``
 #: by hand gets their home left alone rather than moved out from under them.
+#:
+#: Not derived from ``config.SETTINGS``: that table also carries non-path
+#: settings (ports, timeouts, booleans), so it is hand-curated here the same
+#: way ``config.SETTINGS`` itself is (see that table's own comment on why it
+#: is a table and not a derivation). ``REALMSPINNER_EXPORT_DIR`` and
+#: ``REALMSPINNER_TRELLIS_EXE`` were missing -- the 2026-09-23 audit, finding
+#: service-06 -- so a user who pointed either inside ``~/.warlock`` had it
+#: moved out from under them the moment this rename ran, exactly the failure
+#: every other entry here already exists to prevent.
 _ROOT_VARS: tuple[str, ...] = (
     "REALMSPINNER_DATA_DIR",
     "REALMSPINNER_DB",
     "REALMSPINNER_BENCH_DIR",
     "REALMSPINNER_EVIDENCE_DIR",
     "REALMSPINNER_PALETTE_DIR",
+    "REALMSPINNER_EXPORT_DIR",
+    "REALMSPINNER_TRELLIS_EXE",
     "REALMSPINNER_T2I_ROOT",
     "REALMSPINNER_T2I_DIR",
     "REALMSPINNER_TRELLIS_MODELS",

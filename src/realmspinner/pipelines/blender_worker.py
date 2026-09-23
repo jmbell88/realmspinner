@@ -3070,7 +3070,20 @@ def main() -> int:
     except ImportError as exc:
         print(f"Blender (bpy) is not installed: {exc}", file=sys.stderr)
         return 3
-    result = op(bpy, spec)
+    try:
+        result = op(bpy, spec)
+    except Exception as exc:  # noqa: BLE001 - deliberately broad
+        # The 2026-09-23 audit, finding poser-05: ``op`` used to run unwrapped
+        # here, so a routine refusal (an ``op_rig`` "no mesh to rig at ..."
+        # ValueError, say) reached the job as a full traceback -- breaking the
+        # "a sentence and an exit code" contract this function's own docstring
+        # states for a malformed spec. A distinct exit code (never 0, 2 or 3,
+        # which already mean success, a bad spec and no bpy) keeps this
+        # failure mode tellable apart from those, and the printed sentence
+        # lands in run_worker's captured tail exactly like a bad-spec refusal
+        # does.
+        print(f"{spec.get('op')} failed: {exc}", file=sys.stderr)
+        return 4
     # Staged and renamed, like every other write onto a name something else
     # reads: the host polls for this file's existence, so a partial write is a
     # result it would parse as a failure of the op rather than of the write.

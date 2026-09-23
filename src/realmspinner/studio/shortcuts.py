@@ -47,6 +47,23 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("F10", "Toggle the frame-rate readout"),
         ],
     )
+    # Added for the 2026-09-23 audit's shell-02: chapter 38 has always
+    # documented Home's Resume-row arrows and the Library's grid arrows and
+    # Enter (both live in shell/events.py's key handling), but the sheet had
+    # no group for either -- and the guard test only matched a heading equal
+    # to one mode label, so "Home and the Library" (the chapter's own
+    # heading, one section for both) passed it silently.
+    table(
+        "Home and the Library",
+        [
+            ("Up / Down", "Move through the Resume rows / up and down a row of cards"),
+            ("Left / Right", "Move one card (the Library only)"),
+            (
+                "Enter",
+                "Open the highlighted row -- a Library asset opens at the stage that made it",
+            ),
+        ],
+    )
     # One heading, because there is one mode (the UI redesign, wave 5). The
     # rows that used to be split "2D" from "3D" are the same keys either
     # way -- what changed is which stage of Create you are standing on,
@@ -86,6 +103,20 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("R", "Reject - files -3, rather than arming a negative"),
             ("S", "Skip, staying in the pass"),
             ("Esc", "End the pass and show its report"),
+        ],
+    )
+    # Added for the 2026-09-23 audit's shell-03: a labelling pass takes over
+    # the keyboard exactly like the judging pass above (``_label_key`` in
+    # modes/review/mode.py), and had no group here even though the judging
+    # pass -- its sibling -- did.
+    table(
+        "Review - a labelling pass",
+        [
+            ("A", "Good"),
+            ("R", "Bad -- no reason step"),
+            ("S", "Skip to the next unanswered image"),
+            ("Left / Right", "Previous / next image"),
+            ("Esc", "Close the pass"),
         ],
     )
     from .modes.clay.mode import TOOL_KEYS as CLAY_KEYS

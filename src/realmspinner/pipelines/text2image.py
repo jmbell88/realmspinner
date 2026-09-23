@@ -1029,6 +1029,22 @@ class Text2Image:
                 f"{self.spec.label} cannot generate a seamless tile; "
                 f"it is not an SDXL-family checkpoint"
             )
+        if conditioning and self.spec.family != models.FAMILY_SDXL:
+            # The 2026-09-23 (second run) audit, finding pipelines-05: this
+            # refusal used to run only inside ``_conditioned``
+            # (:meth:`_attach_conditioning`'s own family check, still there
+            # as belt and braces for a caller that reaches it directly), which
+            # this method does not call until after ``self.load(on_state)``
+            # has already paid for a full checkpoint load -- pipelines-07's
+            # fix for the ``tile`` refusal just above, applied to its sibling.
+            # Depends on nothing ``load`` produces either, so it moves up
+            # beside it: a caller who mis-set both ``conditioning`` and the
+            # family should not pay for a load this method was always going
+            # to refuse anyway.
+            raise RuntimeError(
+                f"{self.spec.label} cannot take conditioning; "
+                f"it is not an SDXL-family checkpoint"
+            )
         self.load(on_state)
         assert self._pipe is not None
         # load()/download() have no interruption point of their own; check

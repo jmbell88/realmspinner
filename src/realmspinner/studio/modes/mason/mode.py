@@ -282,10 +282,19 @@ def place_prefab(ctx: Any, name: str) -> int | None:
         # subtree every time the scene draws, exports or is picked, so a
         # run of placements that each stayed comfortably under the tree-side
         # ceiling could still leave the document unable to ever resolve
-        # again. Charged here, on the write side, against the same
-        # MAX_PLACED ceiling, so the refusal is a toast rather than
-        # MasonDoc.add_node's own downstream resolve() blowing up uncaught.
-        resolved_total = tab.doc.resolved_total() + tab.doc.resolved_growth([node])
+        # again. Charged here first so the refusal is a friendly toast
+        # naming the real count, rather than the generic ``ValueError``
+        # ``MasonDoc.add_node``'s own ``_check_resolved_placed`` now raises
+        # as its backstop (docs-01, same audit day -- see that method's
+        # docstring).
+        try:
+            resolved_total = tab.doc.resolved_total() + tab.doc.resolved_growth([node])
+        except ValueError:
+            # scene.resolved_count (mason-02, this same audit) now refuses
+            # rather than counting an oversized walk to completion once
+            # either half alone would already exceed MAX_PLACED -- treat
+            # that refusal the same as "over", since it is.
+            resolved_total = msc.MAX_PLACED + 1
         over = resolved_total if resolved_total > msc.MAX_PLACED else None
     if over is not None:
         _toast_over_max_placed(ctx, over)

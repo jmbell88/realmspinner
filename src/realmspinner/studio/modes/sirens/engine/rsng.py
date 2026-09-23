@@ -273,7 +273,8 @@ def read_rsng(data: bytes) -> D.SongDoc:
 
         channels = _channels_from(manifest)
         instruments, remap = _instruments_from(manifest)
-        patterns = _patterns_from(zf, manifest, len(channels), remap)
+        valid_instruments = frozenset(one.uid for one in instruments)
+        patterns = _patterns_from(zf, manifest, len(channels), remap, valid_instruments)
         samples = _samples_from(zf, manifest)
         known = {one.uid for one in patterns}
         order = [int(one) for one in _list(manifest, "order")][: D.MAX_ORDER]
@@ -435,7 +436,11 @@ def _instruments_from(manifest: dict) -> tuple[list[inst.Instrument], dict[int, 
 
 
 def _patterns_from(
-    zf: Any, manifest: dict, channels: int, remap: dict[int, int] | None = None
+    zf: Any,
+    manifest: dict,
+    channels: int,
+    remap: dict[int, int] | None = None,
+    valid_instruments: frozenset[int] | None = None,
 ) -> list[D.Pattern]:
     out: list[D.Pattern] = []
     # **A duplicate uid is refused (the 2026-09-16 audit).** See
@@ -494,7 +499,21 @@ def _patterns_from(
             plane[:] = notes.EMPTY
             for old, new in remap.items():
                 plane[stored == old] = new
-        np.clip(plane, notes.EMPTY, D.MAX_INSTRUMENTS - 1, out=plane)
+        else:
+            # sirens-01 (2026-09-23 audit, second run). With a legal
+            # instrument list (every stored uid already in range, so
+            # ``remap`` above is empty and ids are unchanged), ``np.clip``
+            # used to fold any cell value past the real instrument count
+            # onto ``MAX_INSTRUMENTS - 1`` -- slot 127 -- which plays whatever
+            # real instrument happens to sit there instead of nothing, unlike
+            # the renumbered branch above, which already blanks a cell
+            # naming no instrument. Clip stays for the *range* (an int16 can
+            # hold anything), but a legal-range id that names no instrument
+            # in this file's own list is now blanked too, on both paths.
+            np.clip(plane, notes.EMPTY, D.MAX_INSTRUMENTS - 1, out=plane)
+            if valid_instruments is not None:
+                unknown = ~np.isin(plane, np.fromiter(valid_instruments, dtype=plane.dtype))
+                plane[unknown] = notes.EMPTY
         # sirens-02 (the 2026-09-20 audit): see ``_channels_from``.
         uid = _int(entry, "uid", D.new_uid())
         if uid in seen:

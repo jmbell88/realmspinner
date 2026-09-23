@@ -44,6 +44,16 @@ BUILD_KEY = "familiar/build"
 #: and the two must be free to overlap the way any two independent
 #: ``ctx.submit`` keys already are.
 CHARACTER_KEY = "familiar/character"
+#: The rows a "missing" refusal (:data:`service.familiar.REASONS`) names --
+#: Familiar has no ``ServiceError.rows`` of its own the way a form-field
+#: refusal does (there is no field to hang them off), so :func:`draw_expanded`
+#: offers exactly these three rather than reading ``ctx.state.field_error_rows``.
+#: The 2026-09-23 audit (familiar-05): ``ui.reason`` was set on every refusal
+#: but never read anywhere, contrary to this module's own docstring and
+#: ``service.familiar``'s ("the pane can choose an icon or an action -- an
+#: Install... button"), so a missing engine/weights refusal offered no way
+#: back to Settings -> Models short of the palette.
+MISSING_FAMILIAR_ROWS = ("familiar_runtime", "familiar_runtime_cudart", "familiar_gguf")
 #: The batch itself -- landing a build's ``clay_batch`` run, split off
 #: ``CHAT_KEY``/``BUILD_KEY`` by the 2026-09-17 audit (familiar-01): up to
 #: ``agent_clay.BATCH_MAX`` calls, booleans included, used to run inline
@@ -1118,24 +1128,60 @@ def submit_character(ctx: Any) -> bool:
 def open_character_in_create(ctx: Any) -> None:
     """Draft the pending plan's character into Create instead of minting it
     -- :func:`~.familiar_doors.draft_in_create`'s own ``character_fields``
-    door, the one T8 built exactly for this caller. Clears the plan and
-    appends the door's own sentence to the transcript, the same landing
-    every other routed action already gets."""
+    door, the one T8 built exactly for this caller. Clears the plan only
+    once the draft actually lands and appends the door's own sentence to the
+    transcript, the same landing every other routed action already gets.
+
+    The 2026-09-23 audit (familiar-01): this used to clear ``ui.plan``
+    unconditionally, so a gated Create (``model_gate.mode_gate`` refusing)
+    dropped the proposed plan along with the refusal sentence -- the user
+    was left with neither a drafted brief nor the card to retry from.
+    :func:`submit_character` already only clears on acceptance; this now
+    matches it. The gate is read here rather than through ``draft_in_create``'s
+    own return value -- a side-effect-free read, so checking it twice per
+    press is free -- to leave that function's return shape (the sentence
+    alone) untouched for its other caller and for the tests that monkeypatch
+    it as a plain string-returning function.
+    """
     ui = ensure(ctx)
     if ui.plan is None:
         return
     action = ui.plan
+    from ..panes import model_gate
     from . import doors as familiar_doors
 
+    where, _blocked = model_gate.mode_gate(ctx, "create")
     text = familiar_doors.draft_in_create(
         ctx, "character", action["prompt"], character_fields=_character_fields(action["plan"])
     )
-    ui.plan = None
+    if not where:
+        ui.plan = None
     threads_obj = getattr(ctx, "familiar_threads", None)
     if threads_obj is not None:
         from ...familiar import threads
 
         threads_obj.append(thread_key(ctx), threads.Turn("familiar", text))
+
+
+def install_missing_familiar(ctx: Any) -> None:
+    """The Install... action behind a "missing" refusal's expanded card.
+
+    familiar-05 (the 2026-09-23 audit): ``ui.reason`` was set on every
+    refusal but never read anywhere, contrary to this module's own docstring
+    and ``service.familiar``'s ("the pane can choose an icon or an action --
+    an Install... button"). A missing engine or weights refusal is the one
+    reason Settings can actually fix, so this ticks Familiar's three rows
+    (``MISSING_FAMILIAR_ROWS``) and takes the user to Settings -> Models --
+    ``model_gate.request_install``, the same door a missing-weights Create
+    gate already uses, rather than a copy of its two-line body.
+
+    A plain function, not inlined in :func:`draw_expanded`'s ``if`` --
+    headless-testable the way :func:`submit_chat`/:func:`follow_citation`
+    already are, since ``draw_expanded`` itself needs a live imgui frame.
+    """
+    from ..panes import model_gate
+
+    model_gate.request_install(ctx, MISSING_FAMILIAR_ROWS)
 
 
 def discard_character_plan(ctx: Any) -> None:
@@ -1276,6 +1322,13 @@ def draw_expanded(ctx: Any) -> None:
 
     if ui.message:
         imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.WARN)), ui.message)
+        # familiar-05 (2026-09-23 audit): the one reason an Install door
+        # actually exists for -- the other reasons (lease, vram, backoff,
+        # unhealthy, ...) describe a state Settings cannot fix.
+        if ui.reason == "missing" and controls.small_button(
+            "Install...##familiar/install-missing"
+        ):
+            install_missing_familiar(ctx)
 
     pending = ui.preview_calls is not None
     if pending:

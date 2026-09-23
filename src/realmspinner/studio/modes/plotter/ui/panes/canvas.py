@@ -3560,7 +3560,15 @@ def _object_at(
             if _inside_polygon(local_x, local_y, obj.shape.points):
                 return obj
         elif obj.kind == "polyline":
-            if _near_polyline(local_x, local_y, obj.shape.points):
+            # Screen-space tolerance, converted into the object's local (map)
+            # units by dividing out the zoom -- ``_object_local`` only rotates
+            # and translates, so distances scale by zoom alone. The 2026-09-23
+            # audit (second run, plotter-01): this compared against a fixed 8
+            # *map pixel* tolerance, the same fault the 2026-09-13 audit
+            # (plotter-01) fixed for the point arm just above but left in
+            # place here. Zoomed out, 8 map pixels was a couple of screen
+            # pixels and a click visibly on the line missed it.
+            if _near_polyline(local_x, local_y, obj.shape.points, tolerance=sp(7) / view.zoom):
                 return obj
         elif obj.kind == "capsule":
             if _inside_capsule(local_x, local_y, obj.w, obj.h):

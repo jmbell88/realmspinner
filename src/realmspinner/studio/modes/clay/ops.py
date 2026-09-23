@@ -354,6 +354,15 @@ def run_mesh_op(
     again -- and a refusal on one object does not abandon the others, which is
     what a user selecting faces across two objects means by pressing the button
     once.
+
+    **``doc.set_mesh`` is guarded too, not only the kernel call above it**
+    (the 2026-09-23 audit's clay-07). A locked object can reach this loop --
+    lock, unlock, select, then an undo that relocks -- with an already-armed
+    element selection: the kernel call succeeds (it never touches the
+    document), but ``set_mesh`` itself refuses (``OpError``, nothing
+    pushed). Ungated here, that refusal used to fly past this function's own
+    "a refusal on one object does not abandon the others" promise and
+    abandon every object still queued behind the locked one.
     """
     from ....kernels.mesh.elements import OpError
 
@@ -368,7 +377,11 @@ def run_mesh_op(
         except OpError as error:
             toast(ctx, str(error))
             continue
-        doc.set_mesh(uid, mesh, select=sel)
+        try:
+            doc.set_mesh(uid, mesh, select=sel)
+        except OpError as error:
+            toast(ctx, str(error))
+            continue
         ran = True
     return ran
 
@@ -1199,9 +1212,20 @@ def _world_boxes(doc: Any, uids: Iterable[int]) -> dict[int, tuple[np.ndarray, n
     return out
 
 
-def _apply_deltas(doc: Any, deltas: dict[int, np.ndarray]) -> bool:
+def _apply_deltas(ctx: Any, doc: Any, deltas: dict[int, np.ndarray]) -> bool:
     """Add each world-space delta to its object's own translation. -> whether
     any object actually moved.
+
+    **One locked object in the selection does not abort the batch
+    (the 2026-09-23 audit's clay-06).** ``doc.set_transform`` refuses
+    (``OpError``, nothing pushed) a locked object or one with a locked
+    ancestor; this loop used to let that refusal fly straight out of Align,
+    Distribute or Drop to ground, abandoning every object still to be
+    written -- including ones ordered *after* the locked one purely by
+    ancestor depth, which have nothing to do with the lock. Caught and
+    toasted per object instead, the same "toast; continue" shape
+    :func:`run_mesh_op` and :func:`run_object_op` already give their own
+    loops.
 
     One call per object rather than one ``set_transform`` per axis: ``run``'s
     own ``_one_step`` folds however many of these land into the single undo
@@ -1236,22 +1260,28 @@ def _apply_deltas(doc: Any, deltas: dict[int, np.ndarray]) -> bool:
     already reached its own final position, so the conversion lands on the
     frozen target exactly once, however ``deltas`` happened to iterate.
     """
+    from ....kernels.mesh.elements import OpError
+
     ran = False
     world_before = {uid: np.array(doc.world_matrix(uid), dtype="f8", copy=True) for uid in deltas}
     order = sorted(deltas, key=lambda uid: len(doc.ancestors(uid)))
     for uid in order:
         delta = deltas[uid]
         obj = doc.by_uid(uid)
-        if obj.parent is None:
-            translation = np.asarray(obj.translation, dtype="f8") + delta
-            if doc.set_transform(uid, translation=translation):
+        try:
+            if obj.parent is None:
+                translation = np.asarray(obj.translation, dtype="f8") + delta
+                if doc.set_transform(uid, translation=translation):
+                    ran = True
+                continue
+            world = world_before[uid].copy()
+            world[:3, 3] = world[:3, 3] + np.asarray(delta, dtype="f8")
+            t, r, s = doc.local_from_world(uid, world)
+            if doc.set_transform(uid, translation=t, rotation=r, scale=s):
                 ran = True
+        except OpError as error:
+            toast(ctx, str(error))
             continue
-        world = world_before[uid].copy()
-        world[:3, 3] = world[:3, 3] + np.asarray(delta, dtype="f8")
-        t, r, s = doc.local_from_world(uid, world)
-        if doc.set_transform(uid, translation=t, rotation=r, scale=s):
-            ran = True
     return ran
 
 
@@ -1274,10 +1304,9 @@ def _align(ctx: Any, doc: Any, axis: float = 0.0, mode: float = 1.0, **_: Any) -
     """
     from ..mason.engine import ops as mason_ops
 
-    del ctx
     boxes = _world_boxes(doc, doc.selection)
     deltas = mason_ops.align(boxes, int(axis), _ALIGN_MODES[int(mode)])
-    return _apply_deltas(doc, deltas)
+    return _apply_deltas(ctx, doc, deltas)
 
 
 def _distribute(ctx: Any, doc: Any, axis: float = 0.0, **_: Any) -> bool:
@@ -1287,10 +1316,9 @@ def _distribute(ctx: Any, doc: Any, axis: float = 0.0, **_: Any) -> bool:
     """
     from ..mason.engine import ops as mason_ops
 
-    del ctx
     boxes = _world_boxes(doc, doc.selection)
     deltas = mason_ops.distribute(boxes, int(axis))
-    return _apply_deltas(doc, deltas)
+    return _apply_deltas(ctx, doc, deltas)
 
 
 def _drop_to_ground(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1305,10 +1333,9 @@ def _drop_to_ground(ctx: Any, doc: Any, **_: Any) -> bool:
     """
     from ..mason.engine import ops as mason_ops
 
-    del ctx
     boxes = _world_boxes(doc, doc.selection)
     deltas = mason_ops.drop_to_ground(boxes, ground=0.0)
-    return _apply_deltas(doc, deltas)
+    return _apply_deltas(ctx, doc, deltas)
 
 
 def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> None:
@@ -2100,6 +2127,13 @@ def _decimate_apply(ctx: Any, doc: Any, result: Any) -> None:
     total_after = 0
     applied: list[str] = []
     skipped: list[str] = []
+    # Separate from ``skipped`` (the 2026-09-23 audit's clay-09): a stamp
+    # mismatch and a lock refusal are different reasons, and lumping a
+    # locked object into ``skipped`` reported "it changed while decimating"
+    # for an object that never changed at all -- it just could not be
+    # written to while locked. ``_decimate_report`` gives this list its own
+    # sentence.
+    locked: list[str] = []
     for item in items:
         uid = item["uid"]
         try:
@@ -2126,7 +2160,7 @@ def _decimate_apply(ctx: Any, doc: Any, result: Any) -> None:
         try:
             doc.set_mesh(uid, mesh)
         except OpError:
-            skipped.append(obj.name)
+            locked.append(obj.name)
             continue
         total_before += item["before"]
         total_after += _tri_count(mesh)
@@ -2135,13 +2169,14 @@ def _decimate_apply(ctx: Any, doc: Any, result: Any) -> None:
     top = doc.history.top
     if top is not None and doc.history.head != head:
         top.label = "Decimate"
-    _decimate_report(ctx, applied, skipped, total_before, total_after, ratio)
+    _decimate_report(ctx, applied, skipped, locked, total_before, total_after, ratio)
 
 
 def _decimate_report(
     ctx: Any,
     applied: list[str],
     skipped: list[str],
+    locked: list[str],
     before: int,
     after: int,
     ratio: float,
@@ -2154,6 +2189,8 @@ def _decimate_report(
             parts.append("That is more than asked for -- try Aggressive.")
     for name in skipped:
         parts.append(f"Skipped {name}: it changed while decimating.")
+    for name in locked:
+        parts.append(f"Skipped {name}: it is locked.")
     if not parts:
         parts.append("Nothing to decimate.")
     ctx.toast(" ".join(parts))
@@ -2476,12 +2513,23 @@ def _blender_bake_reason(doc: Any) -> str:
     return reason if reason else _has_two_visible_reason(doc)
 
 
-def _blender_op_report(ctx: Any, verb: str, applied: list[str], skipped: list[str]) -> None:
+def _blender_op_report(
+    ctx: Any, verb: str, applied: list[str], skipped: list[str], locked: list[str] = ()
+) -> None:
+    """``locked`` (the 2026-09-23 audit's clay-09), separate from
+    ``skipped``: ``_retopo_apply`` and ``_unwrap_apply`` used to lump a
+    locked object's ``set_mesh`` refusal into the same list as a stamp
+    mismatch, so a locked object was reported "it changed while running" --
+    false, it never changed at all. ``locked`` defaults to ``()`` so a
+    caller with nothing locked to report needs no new argument.
+    """
     parts: list[str] = []
     if applied:
         parts.append(f"{verb}: {', '.join(applied)}.")
     for name in skipped:
         parts.append(f"Skipped {name}: it changed while running.")
+    for name in locked:
+        parts.append(f"Skipped {name}: it is locked.")
     if not parts:
         parts.append("Nothing to do.")
     ctx.toast(" ".join(parts))
@@ -2582,6 +2630,9 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
     head = doc.history.head
     applied: list[str] = []
     skipped: list[str] = []
+    # See ``_blender_op_report``'s own docstring (the 2026-09-23 audit's
+    # clay-09): a locked object's refusal is not "it changed while running".
+    locked: list[str] = []
     for item in meta:
         uid = item["uid"]
         try:
@@ -2604,14 +2655,14 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
         try:
             doc.set_mesh(uid, mesh)
         except OpError:
-            skipped.append(obj.name)
+            locked.append(obj.name)
             continue
         applied.append(obj.name)
     doc.history.collapse_since(mark)
     top = doc.history.top
     if top is not None and doc.history.head != head:
         top.label = "Retopologize"
-    _blender_op_report(ctx, "Retopologized", applied, skipped)
+    _blender_op_report(ctx, "Retopologized", applied, skipped, locked)
 
 
 def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
@@ -2634,6 +2685,9 @@ def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
     head = doc.history.head
     applied: list[str] = []
     skipped: list[str] = []
+    # See ``_blender_op_report``'s own docstring (the 2026-09-23 audit's
+    # clay-09): a locked object's refusal is not "it changed while running".
+    locked: list[str] = []
     for item in meta:
         uid = item["uid"]
         try:
@@ -2652,14 +2706,14 @@ def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
         try:
             doc.set_mesh(uid, mesh, keep_generator=True)
         except OpError:
-            skipped.append(obj.name)
+            locked.append(obj.name)
             continue
         applied.append(obj.name)
     doc.history.collapse_since(mark)
     top = doc.history.top
     if top is not None and doc.history.head != head:
         top.label = "Smart Unwrap"
-    _blender_op_report(ctx, "Unwrapped", applied, skipped)
+    _blender_op_report(ctx, "Unwrapped", applied, skipped, locked)
 
 
 def _blender_bake_material(data: bytes | None) -> Any:
@@ -3074,7 +3128,16 @@ def _knife(ctx: Any, doc: Any, point: Any = None, normal: Any = None, **_: Any) 
         except OpError as error:
             toast(ctx, str(error))
             continue
-        doc.set_mesh(uid, mesh, select=sel)
+        # The 2026-09-23 audit's clay-08: the same gap ``run_mesh_op``'s own
+        # loop had -- the kernel call above is guarded, but ``set_mesh``
+        # itself was not, so a later object in the selection was abandoned
+        # once an earlier one turned out to be locked (``doc.set_mesh``'s
+        # own refusal, ``OpError``, nothing pushed).
+        try:
+            doc.set_mesh(uid, mesh, select=sel)
+        except OpError as error:
+            toast(ctx, str(error))
+            continue
         ran = True
     return ran
 

@@ -18,48 +18,80 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
-## 0.0.52 — 2026-09-19
+## 0.0.53 — 2026-09-23
 
-**Warlock Studio is now Realmspinner.** The old name was already taken as a
-product name, so the whole app has been renamed: the window, the installer, the
-Manual, the `realmspinner` command, the `REALMSPINNER_*` environment variables,
-the data directory, the document files and the name written into every mesh it
-exports. Nothing about what the app *does* changed in this release; it is the
-same program under a name it can keep.
-
-Two things move on your disk, and both are worth knowing about before you
-upgrade:
-
-- **Your library moves itself, once.** Everything under `%USERPROFILE%\.warlock`
-  — assets, the job history, downloaded models, palettes, the engines — moves to
-  `%USERPROFILE%\.realmspinner` the first time you run Realmspinner. It is a
-  rename on the same drive, so it is instant no matter how large the library is,
-  and it happens before the app opens a window. If you had pointed
-  `WARLOCK_HOME` (or any of the other `WARLOCK_*` path variables) somewhere of
-  your own, nothing is moved and nothing is assumed: set the matching
-  `REALMSPINNER_*` variable instead, and the app says on startup why it left
-  your data where it is. A `MIGRATED.txt` in the new folder records what moved.
-- **Documents get new extensions, and the old ones no longer open.** A Mason
-  scene is now `.rscn`, a Clay document `.rblk`, a Packwright atlas `.rpack`, a
-  Plotter map `.rmap` and a Sirens song `.rsng` — the leading `w` stood for
-  Warlock. **Documents saved inside your library are renamed for you** by the
-  same one-time move. Documents you saved anywhere else are not: rename the file
-  by hand — the contents are unchanged, so an `.rblk` that used to be a `.wblk`
-  opens exactly as it did. Inker is unaffected: it writes ordinary `.ora` files,
-  and one saved under the old name still opens with its layers, slices and
-  timeline intact.
-
-Everything else is a change of wording. Every `WARLOCK_*` environment variable
-is now `REALMSPINNER_*`; any script or shortcut that set one needs updating, as
-the old names are not read. The log file is `realmspinner.log`. An agent driving
-the app over MCP connects to a server now called `realmspinner`, so an MCP
-client configured against the old name needs its entry renamed. Exported meshes
-record `Realmspinner` as their generator rather than `Warlock Studio`; files you
-exported before this release are unaffected and keep the old string.
-
-Releases before this one were published as Warlock Studio. The entries below
-are left exactly as they were written — they are the record of what shipped
-under that name.
+- **Join and Separate no longer make a Clay document impossible to open.** Joining
+  objects, or a boolean Union, Difference or Intersection, dropped the absorbed objects
+  without handing their children on, and Separate did the same to the object it split.
+  The children jumped somewhere else in the scene with nothing to undo, and the saved file
+  then refused to load at all: the whole document was lost at the next open or crash
+  recovery. Both now re-parent the children onto the removed object's own parent, keeping
+  where they stand, inside the same undo step.
+- **Dragging a layer onto an Inker group folder could change the document with nothing to
+  undo.** When the drag would have lifted the background layer off the bottom row, the
+  layer was put into the group first and the move refused second, so the refusal escaped,
+  the timeline panel stopped drawing, and the layer stayed inside the group. The drag is now
+  refused before anything changes.
+- **Typing into a locked Clay object's fields, or dragging its UVs, no longer breaks the
+  panel.** Position, rotation, scale and generator fields, and every UV-pane door (drag an
+  island, rotate, scale, pack, the E/R live drag) raised inside the panel and replaced it
+  with "stopped drawing". They now say the object is locked. Align, Distribute, Drop to
+  ground, the element ops and Knife skip a locked object and carry on with the rest instead
+  of abandoning the whole selection, and Decimate, Retopologize and Smart Unwrap now say a
+  skip was "locked" rather than claiming the object "changed while running".
+- **Restoring an earlier mesh version can no longer destroy the oldest kept one.** The
+  restore evicted the oldest kept version before its own write ran, so a failed restore at
+  the version cap lost a version for nothing and left the history listing it, and a retry
+  was refused as "no longer available". It now stages, writes, and only then evicts.
+- **Library verify stopped reporting every finished LoRA run as missing its mesh.** A LoRA
+  run never writes `model.glb`; verify now checks each kind's own primary file.
+- **An agent could mint two rigs for one mesh.** `character_rig` and
+  `character_sheet_create` on the same unrigged mesh guarded "no second rig" under two
+  different locks, so both could pass on the agent's two-worker lane. They now share one.
+- **A remesh that landed on its budget was flagged over it.** The Export stage's "Ready for
+  an engine?" read Blender's quad count as the triangle budget, so a mesh remeshed to the new
+  5,000-triangle default was reported as "4,996 triangles is above the 2,500 budget". The
+  job's own mesh report now records the custom budget it was built to, as well.
+- **Flourish Restyle on a four- or eight-facing effect restyled only the first facing**
+  and said nothing about the rest. It is now greyed, with the reason, until the effect has
+  one facing.
+- **Mason's prefab checks no longer freeze on deeply nested prefabs.** Make Prefab's cycle
+  check re-walked every template with no memory (20 s at 23 levels) and the placement
+  pre-flight counted an exponential expansion to completion (46 s at 8.4 M items); both
+  now stop early. A prefab attached by any door, not only Place, is charged at its full
+  size against the scene ceiling, and Align, Distribute, Drop to ground and both Array
+  buttons say why they are greyed.
+- **Busy documents say why they refuse.** Packwright's add, import-tileset, remove, rename
+  and settings doors refused silently while an atlas was saving, and Inker → Add to
+  Packwright, the empty-canvas "Add sources" and Import tileset did not refuse at all. Every
+  one now refuses with the same sentence the greyed buttons show. A Sirens song refuses a
+  song-level change while it saves.
+- **Doctor and Settings agree about broken weights and engines.** A zero-byte
+  `model_index.json` or `config.json` passed as healthy, and doctor checked the TRELLIS
+  executable but not the eight CUDA libraries beside it.
+- **Quitting during a first model start no longer hangs for minutes.** Closing the app
+  while the image or music worker was mid-spawn killed nothing and then waited on it; the
+  child is now killable the instant it exists. Quitting while an agent's character export
+  is running now warns you, like every other in-flight write.
+- **Smaller fixes.** Make it loop refused its own untouched first press on any take shorter
+  than 16 s. A Sirens song naming an instrument that does not exist played an unrelated one.
+  Re-texture jobs appeared in the Library only after a three-second delay. Library search
+  found nothing past the newest 5,000 jobs. Disabled icon buttons showed their tooltip, not
+  why they were disabled. Clicking a polyline in Plotter needed a pixel-perfect hit when
+  zoomed out. Paste as new layer on an empty clipboard said nothing. Open in Create threw
+  away Familiar's plan when it refused, and a missing Familiar now offers Install…. A slow
+  Familiar cold start was misreported as the GPU being busy. Import clip refused a gentle
+  loop it had just previewed, and redo after selecting a clip key dropped the root offset.
+  The Blender worker reports a refusal as a sentence rather than a traceback. The Ctrl+/
+  sheet gained Home and Library, and Review's labelling pass.
+- **Ceilings on work that could stall the window.** Extrude edges, Spin and Screw on a long
+  profile, a compound collider on one huge shell, Remove orphans on a noisy layer, a crafted
+  `.ora` animation table, and Character export frames on a corrupted sheet each refuse or
+  bound themselves before the expensive pass, and malformed GLB node and scene arrays are
+  refused by name.
+- **The Manual.** Chapter 37 counts nineteen sweep axes and names Game-ready triangles;
+  chapter 28 describes the transform row where it actually is, on the canvas toolbar; and
+  five labels in chapters 07, 20, 28, 29 and 32 now match the screen.
 
 - **New meshes come out game-ready, at 5,000 triangles, instead of ~300,000.**
   The reconstruction engine has no flag to lower its own simplify target, so
@@ -262,10 +294,10 @@ were in code that change wrote. What follows is what you would actually have run
   them. And the Godot collider suffix was given as `-colonly` where the exporter only
   ever writes `-convcolonly`.
 
-**A full audit of every subsystem, and the 104 things it found.** Seventy-four readers went
-over the whole tree — every mode, the shell, the service layer, the pipelines, the agent
-surface, Familiar, the tour and the documentation — and what they found has been built.
-Every fix carries a regression test that was proven to fail against the old code first.
+- **A full audit of every subsystem, and the 104 things it found.** Seventy-four readers went
+  over the whole tree — every mode, the shell, the service layer, the pipelines, the agent
+  surface, Familiar, the tour and the documentation — and what they found has been built.
+  Every fix carries a regression test that was proven to fail against the old code first.
 
 The seven worst were all silent: each destroyed work or crashed the app without saying
 anything.
@@ -329,58 +361,101 @@ anything.
   looking at that reference. Found by driving the real app, not by a test: the value was
   `None` one frame after a double-click.
 
-**Work that ran with nothing stopping it.** Fourteen operations could stall the app for
-seconds with no refusal and nothing to cancel, each now measured and given a ceiling: a
-single many-cornered face being triangulated for the screen (10.7 s at 12,800 corners),
-Extrude, Separate — which turned out to be doing the same expensive scan twice over, 26 s
-for a mesh in many pieces — Solidify's rim, Check mesh over a whole scene (15 s at 3,200
-objects, and it ran on the frame thread), and the object-ID render, which walked the entire
-picture once per object. Check mesh now runs in the background like every other long press.
+- **Work that ran with nothing stopping it.** Fourteen operations could stall the app for
+  seconds with no refusal and nothing to cancel, each now measured and given a ceiling: a
+  single many-cornered face being triangulated for the screen (10.7 s at 12,800 corners),
+  Extrude, Separate — which turned out to be doing the same expensive scan twice over, 26 s
+  for a mesh in many pieces — Solidify's rim, Check mesh over a whole scene (15 s at 3,200
+  objects, and it ran on the frame thread), and the object-ID render, which walked the entire
+  picture once per object. Check mesh now runs in the background like every other long press.
 
-**Fixes that were applied to some places and not others.** A recurring shape this pass:
-the quit warning knew about six modes' exports and missed Clay's, Mason's and every mode's
-*save*; a Delete in Plotter's right-click menu was the one of three delete paths never
-wired to the shared fix; the reference-image step corrupted soft edges with a `paste` misuse
-already fixed twice elsewhere, and it did it to the file every mesh is reconstructed from;
-Create's Engine panel clamped two of its five fields; Muse's **Queue it** skipped the
-model check its two siblings make; and two agent tools could half-apply a change to several
-objects and then report that nothing had happened.
+- **Fixes that were applied to some places and not others.** A recurring shape this pass:
+  the quit warning knew about six modes' exports and missed Clay's, Mason's and every mode's
+  *save*; a Delete in Plotter's right-click menu was the one of three delete paths never
+  wired to the shared fix; the reference-image step corrupted soft edges with a `paste` misuse
+  already fixed twice elsewhere, and it did it to the file every mesh is reconstructed from;
+  Create's Engine panel clamped two of its five fields; Muse's **Queue it** skipped the
+  model check its two siblings make; and two agent tools could half-apply a change to several
+  objects and then report that nothing had happened.
 
-**Honest controls.** Sirens' **Add to the order** stayed clickable at its 256-step limit
-and broke the panel when pressed — its own greyed-out reason already knew better, and the
-two had simply drifted apart. Mason's **Make prefab** looked pressable over the ground or
-an existing prefab and did nothing. Clay's Scale gizmo has had a centre handle for uniform
-scale all along; it was never drawn. Three live Clay shortcuts were in no list anywhere.
-Packwright said "add some images" while it was busy packing the ones you had just added.
+- **Honest controls.** Sirens' **Add to the order** stayed clickable at its 256-step limit
+  and broke the panel when pressed — its own greyed-out reason already knew better, and the
+  two had simply drifted apart. Mason's **Make prefab** looked pressable over the ground or
+  an existing prefab and did nothing. Clay's Scale gizmo has had a centre handle for uniform
+  scale all along; it was never drawn. Three live Clay shortcuts were in no list anywhere.
+  Packwright said "add some images" while it was busy packing the ones you had just added.
 
-**Quieter correctness.** Spin and Screw painted new geometry with the palette's first
-material instead of the profile's own. Shift+click in Clay's outliner selected by the
-document's internal order rather than the order on screen, so a range across a reparented
-object took the wrong set. Editing a saved pose moved it to the end of the list. A rig or
-pose file with a misspelled `space` field applied every pose in the wrong frame, silently —
-the same class of bug as the one that once left a character lying down. Library **Clean**
-could delete a job's folder while a newly submitted job was writing into it.
+- **Quieter correctness.** Spin and Screw painted new geometry with the palette's first
+  material instead of the profile's own. Shift+click in Clay's outliner selected by the
+  document's internal order rather than the order on screen, so a range across a reparented
+  object took the wrong set. Editing a saved pose moved it to the end of the list. A rig or
+  pose file with a misspelled `space` field applied every pose in the wrong frame, silently —
+  the same class of bug as the one that once left a character lying down. Library **Clean**
+  could delete a job's folder while a newly submitted job was writing into it.
 
-**The manual and the record.** Chapter 16 told you Muse has no loop points, while chapter
-35 documents the four controls that make one. `SECURITY.md`'s list of formats worth
-attacking omitted five importers. `THIRD-PARTY-NOTICES.md`'s own arithmetic did not add up.
-A batch of internal notes still described Troupe as a separate mode two days after it was
-folded into Poser, and still named files by their pre-rename spellings.
+- **The manual and the record.** Chapter 16 told you Muse has no loop points, while chapter
+  35 documents the four controls that make one. `SECURITY.md`'s list of formats worth
+  attacking omitted five importers. `THIRD-PARTY-NOTICES.md`'s own arithmetic did not add up.
+  A batch of internal notes still described Troupe as a separate mode two days after it was
+  folded into Poser, and still named files by their pre-rename spellings.
 
-**A lock now means locked everywhere in Clay.** A second Clay audit (2026-09-22) found the
-doors the first one missed: Delete removed a locked object outright, and in element mode one
-locked object in the selection deleted geometry from the others and then reported that
-nothing had happened; a locked object could still be swept into an element selection;
-Decimate, Retopologize and Smart Unwrap landing on a locked object quietly switched off undo
-trimming for the rest of the session; and reparenting without keeping the world position
-moved a locked object. Each now refuses by name. Game check's pivot **Fix** grounds the
-object it flagged, not whatever happened to be selected. Rebuilding a torus with two
-parameters swapped no longer paints the wrong faces, the measure readout reports the volume
-you can see (modifiers included), and saving a textured material to the library no longer
-freezes the window for seconds. Fill Hole over many holes, Dissolve Vertices, a compound
-collider over thousands of parts, Check mesh over a heavy scene and an agent's batch of
-Blender-backed ops each gained a measured ceiling, and every mode now checks a file's size
-on the read itself rather than on a moment-earlier look at the disk.
+- **A lock now means locked everywhere in Clay.** A second Clay audit (2026-09-22) found the
+  doors the first one missed: Delete removed a locked object outright, and in element mode one
+  locked object in the selection deleted geometry from the others and then reported that
+  nothing had happened; a locked object could still be swept into an element selection;
+  Decimate, Retopologize and Smart Unwrap landing on a locked object quietly switched off undo
+  trimming for the rest of the session; and reparenting without keeping the world position
+  moved a locked object. Each now refuses by name. Game check's pivot **Fix** grounds the
+  object it flagged, not whatever happened to be selected. Rebuilding a torus with two
+  parameters swapped no longer paints the wrong faces, the measure readout reports the volume
+  you can see (modifiers included), and saving a textured material to the library no longer
+  freezes the window for seconds. Fill Hole over many holes, Dissolve Vertices, a compound
+  collider over thousands of parts, Check mesh over a heavy scene and an agent's batch of
+  Blender-backed ops each gained a measured ceiling, and every mode now checks a file's size
+  on the read itself rather than on a moment-earlier look at the disk.
+
+## 0.0.52 — 2026-09-19
+
+**Warlock Studio is now Realmspinner.** The old name was already taken as a
+product name, so the whole app has been renamed: the window, the installer, the
+Manual, the `realmspinner` command, the `REALMSPINNER_*` environment variables,
+the data directory, the document files and the name written into every mesh it
+exports. Nothing about what the app *does* changed in this release; it is the
+same program under a name it can keep.
+
+Two things move on your disk, and both are worth knowing about before you
+upgrade:
+
+- **Your library moves itself, once.** Everything under `%USERPROFILE%\.warlock`
+  — assets, the job history, downloaded models, palettes, the engines — moves to
+  `%USERPROFILE%\.realmspinner` the first time you run Realmspinner. It is a
+  rename on the same drive, so it is instant no matter how large the library is,
+  and it happens before the app opens a window. If you had pointed
+  `WARLOCK_HOME` (or any of the other `WARLOCK_*` path variables) somewhere of
+  your own, nothing is moved and nothing is assumed: set the matching
+  `REALMSPINNER_*` variable instead, and the app says on startup why it left
+  your data where it is. A `MIGRATED.txt` in the new folder records what moved.
+- **Documents get new extensions, and the old ones no longer open.** A Mason
+  scene is now `.rscn`, a Clay document `.rblk`, a Packwright atlas `.rpack`, a
+  Plotter map `.rmap` and a Sirens song `.rsng` — the leading `w` stood for
+  Warlock. **Documents saved inside your library are renamed for you** by the
+  same one-time move. Documents you saved anywhere else are not: rename the file
+  by hand — the contents are unchanged, so an `.rblk` that used to be a `.wblk`
+  opens exactly as it did. Inker is unaffected: it writes ordinary `.ora` files,
+  and one saved under the old name still opens with its layers, slices and
+  timeline intact.
+
+Everything else is a change of wording. Every `WARLOCK_*` environment variable
+is now `REALMSPINNER_*`; any script or shortcut that set one needs updating, as
+the old names are not read. The log file is `realmspinner.log`. An agent driving
+the app over MCP connects to a server now called `realmspinner`, so an MCP
+client configured against the old name needs its entry renamed. Exported meshes
+record `Realmspinner` as their generator rather than `Warlock Studio`; files you
+exported before this release are unaffected and keep the old string.
+
+Releases before this one were published as Warlock Studio. The entries below
+are left exactly as they were written — they are the record of what shipped
+under that name.
 
 ## 0.0.51 — 2026-09-18
 

@@ -138,6 +138,22 @@ class QuitMixin:
         # all, unlike every other in-flight rewrite this method already names.
         if any(k.startswith(("retarget:", "model-revert:")) for k in busy):
             lines.append("The mesh is still being reworked and will be interrupted.")
+        # agents-01 (2026-09-23, second run, audit): a character-pipeline
+        # tool call (``character_export`` and the rest) runs on AgentHost's
+        # own service-lane ``TaskRunner``, never on ``ctx.tasks`` -- so this
+        # summary warned about nothing while quitting mid ``character_export``
+        # would have interrupted it, unlike every other in-flight write named
+        # above. ``AgentHost.busy_tools`` is the read-only door onto that
+        # lane's occupancy; ``getattr`` because a headless app stub (most
+        # tests here, and a setup that failed before the host was built)
+        # carries no ``agent_host`` attribute at all.
+        agent_host = getattr(self, "agent_host", None)
+        busy_tools = agent_host.busy_tools if agent_host is not None else ()
+        if busy_tools:
+            lines.append(
+                f"An agent tool call ({', '.join(busy_tools)}) is still running "
+                "and will be interrupted."
+            )
         return "\n".join(lines)
 
     def _ask_quit(self) -> None:
