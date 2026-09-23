@@ -100,7 +100,7 @@ where there is one, and on Y=0 where there is not.
 
 ### Align, distribute and array
 
-Four buttons that do in one press what a lot of dragging does badly.
+Five buttons that do in one press what a lot of dragging does badly.
 
 Pick an axis and a mode — **Min**, **Centre** or **Max** — then press **Align** to bring at least two
 selected nodes into line on that axis, or **Distribute** to space at least three of them evenly

@@ -1037,6 +1037,13 @@ def validate(doc: Any, profile: str = DEFAULT_PROFILE, *, visible_only: bool = T
     keep = [obj for obj in doc.objects if getattr(obj, "role", "mesh") != "collider"]
     visible = [obj for obj in keep if obj.visible] if visible_only else keep
 
+    # The collider objects the pass above dropped, gathered here (before any
+    # evaluation) for the three ``collider_*`` rows below -- the mirror-image
+    # filter, so a hidden collider is excluded from a ``visible_only`` report
+    # the same way a hidden mesh object already is.
+    collider_src = [obj for obj in doc.objects if getattr(obj, "role", "mesh") == "collider"]
+    collider_objs = [obj for obj in collider_src if obj.visible] if visible_only else collider_src
+
     # The 2026-09-20 audit's clay-05: checked here, against the raw count,
     # before a single ``_evaluated_world`` call runs -- every check below
     # walks every object at least once (a ``survey`` call apiece for three of
@@ -1046,33 +1053,21 @@ def validate(doc: Any, profile: str = DEFAULT_PROFILE, *, visible_only: bool = T
     # ceilings. See :data:`MAX_VALIDATE_OBJECTS` for the measurements behind
     # the number and why this is the one refusal in an otherwise
     # measure-only module.
-    if len(visible) > MAX_VALIDATE_OBJECTS:
+    #
+    # The 2026-09-23 audit's clay-08: this ceiling used to count only
+    # ``visible`` (render) objects, so a document made mostly or entirely of
+    # collider-role objects sailed through with no refusal at all, however
+    # many colliders it had -- every one of them is still evaluated
+    # (``doc.evaluated``) and walked by ``collider_triangles``/
+    # ``collider_convex`` below. Collider objects are folded into the same
+    # count here so the ceiling actually bounds what the call pays for.
+    total_object_count = len(visible) + len(collider_objs)
+    if total_object_count > MAX_VALIDATE_OBJECTS:
         raise OpError(
-            f"This document has {len(visible)} visible objects, past the "
-            f"{MAX_VALIDATE_OBJECTS:,} Game check works with at once. Hide "
-            "or delete some before checking readiness."
+            f"This document has {total_object_count} visible objects (including "
+            f"colliders), past the {MAX_VALIDATE_OBJECTS:,} Game check works with "
+            "at once. Hide or delete some before checking readiness."
         )
-
-    objects = [_evaluated_world(obj, doc) for obj in visible]
-
-    # The collider objects the pass above dropped, read back for the three
-    # ``collider_*`` rows below -- the mirror-image filter, so a hidden
-    # collider is excluded from a ``visible_only`` report the same way a
-    # hidden mesh object already is. ``doc.evaluated`` rather than
-    # ``obj.mesh`` for the same reason every check above reads evaluated
-    # meshes (a collider carries no modifiers today, but the fast path in
-    # :mod:`.modifiers` makes this free when it does not); world placement is
-    # not needed here, since triangle and vertex *counts* do not depend on
-    # where an object sits.
-    collider_src = [obj for obj in doc.objects if getattr(obj, "role", "mesh") == "collider"]
-    collider_objs = [obj for obj in collider_src if obj.visible] if visible_only else collider_src
-    collider_meshes = {obj.uid: doc.evaluated(obj.uid) for obj in collider_objs}
-
-    if not objects:
-        checks = [_check_objects(objects)] + [
-            _skip(key, "Skipped: no visible objects.") for key in CHECKS[1:]
-        ]
-        return Report(profile=prof.key, checks=tuple(checks), status=_worst(checks))
 
     # The 2026-09-22 audit's clay-13: `MAX_VALIDATE_OBJECTS` bounds how many
     # objects one call can face, but not how big each one is -- an object
@@ -1082,16 +1077,65 @@ def validate(doc: Any, profile: str = DEFAULT_PROFILE, *, visible_only: bool = T
     # objects each just under the corner ceiling): ~465 ms/object, 9.3 s at
     # 20 objects, ~8 min extrapolated to 1,000 -- the same shape as the
     # 2026-09-20 audit's clay-05 measurement table, one axis over (total
-    # corners rather than object count). Summed here, before the survey loop
-    # runs, the same "known cheaply, refused before it is paid for" shape as
-    # `MAX_VALIDATE_OBJECTS` above -- `len(obj.mesh.loops)` is already read
-    # for free by the `oversized` computation just below.
-    total_corners = sum(len(obj.mesh.loops) for obj in objects)
+    # corners rather than object count).
+    #
+    # The 2026-09-23 audit's clay-07: this used to be summed only after
+    # ``_evaluated_world`` had already run for every visible object -- and
+    # that call evaluates the object's whole modifier stack (``doc.evaluated``
+    # -> ``modifiers.evaluate``), the same "evaluate before refusing" shape
+    # :func:`~.analyze.analyze` fixed twice (clay-22, clay-19). Summed here
+    # against each object's own **unevaluated** mesh -- the same "known
+    # cheaply, refused before it is paid for" trick, applied one module over
+    # -- so a document already too big before any modifier runs is refused
+    # before paying to evaluate one. This does not bound a modifier that
+    # *inflates* corner count from a small base; the check below (against the
+    # evaluated mesh) still runs afterwards as a backstop for exactly that
+    # case, mirroring :func:`~.analyze.analyze`'s own two-check shape.
+    #
+    # The same clay-08 fold applies here: collider corners are summed in too,
+    # since a document of enormous colliders is evaluated and walked by the
+    # collider checks below just as surely as an oversized render object is.
+    base_corners = sum(len(obj.mesh.loops) for obj in visible) + sum(
+        len(obj.mesh.loops) for obj in collider_objs
+    )
+    if base_corners > MAX_VALIDATE_CORNERS:
+        raise OpError(
+            f"This document has {base_corners:,} corners across its visible "
+            f"objects (including colliders), past the {MAX_VALIDATE_CORNERS:,} "
+            "Game check works with at once. Hide or delete some before "
+            "checking readiness."
+        )
+
+    objects = [_evaluated_world(obj, doc) for obj in visible]
+
+    # ``doc.evaluated`` rather than ``obj.mesh`` for the same reason every
+    # check above reads evaluated meshes (a collider carries no modifiers
+    # today, but the fast path in :mod:`.modifiers` makes this free when it
+    # does not); world placement is not needed here, since triangle and
+    # vertex *counts* do not depend on where an object sits.
+    collider_meshes = {obj.uid: doc.evaluated(obj.uid) for obj in collider_objs}
+
+    if not objects:
+        checks = [_check_objects(objects)] + [
+            _skip(key, "Skipped: no visible objects.") for key in CHECKS[1:]
+        ]
+        return Report(profile=prof.key, checks=tuple(checks), status=_worst(checks))
+
+    # The backstop half of clay-07/clay-13 above: when evaluation grew the
+    # corner count past what the unevaluated check saw (a modifier that adds
+    # corners), this still catches it -- after paying for evaluation, same as
+    # before this fix, because nothing this module owns can know that cost in
+    # advance without evaluating. `len(obj.mesh.loops)` is already read for
+    # free by the `oversized` computation just below.
+    total_corners = sum(len(obj.mesh.loops) for obj in objects) + sum(
+        len(mesh.loops) for mesh in collider_meshes.values()
+    )
     if total_corners > MAX_VALIDATE_CORNERS:
         raise OpError(
             f"This document has {total_corners:,} corners across its visible "
-            f"objects, past the {MAX_VALIDATE_CORNERS:,} Game check works "
-            "with at once. Hide or delete some before checking readiness."
+            f"objects (including colliders), past the {MAX_VALIDATE_CORNERS:,} "
+            "Game check works with at once. Hide or delete some before "
+            "checking readiness."
         )
 
     used_material_indices = _used_material_indices(objects)

@@ -68,8 +68,21 @@ def build(
     *,
     target_size_m: float | None = None,
     silhouette: dict[str, Any] | None = None,
+    triangle_budget: int | None = None,
 ) -> dict[str, Any]:
-    """Measure a finished GLB and classify it ready / review / invalid."""
+    """Measure a finished GLB and classify it ready / review / invalid.
+
+    ``triangle_budget`` defaults to :data:`TRIANGLE_BUDGET` -- the 150k figure
+    below is not measurement-backed (see its own comment) and does not agree
+    with the custom budgets the retarget and remesh panels accept
+    (``pipelines.optimize.CUSTOM_MAX`` 250k, ``pipelines.remesh.FACES_MAX``
+    200k), so a caller that already knows the budget a *particular* mesh was
+    built to should pass it here rather than let a mesh optimized to its own
+    accepted budget be flagged over a smaller, unrelated default forever (the
+    2026-09-23 audit, finding pipelines-01). Recorded on the returned report
+    (``"triangle_budget"``) so a reader with no params of its own -- a stored
+    report reloaded later -- still knows which ceiling this verdict used.
+    """
     import numpy as np
     import trimesh
 
@@ -90,6 +103,7 @@ def build(
         }
 
     reasons: list[str] = []
+    budget = triangle_budget if triangle_budget is not None else TRIANGLE_BUDGET
 
     # Topology. trimesh's own predicates, not a reimplementation: they are what
     # every other consumer of this format uses to decide the same questions.
@@ -139,8 +153,8 @@ def build(
         reasons.append(f"{nonmanifold_edges} non-manifold edge(s)")
     if degenerate:
         reasons.append(f"{degenerate} degenerate triangle(s)")
-    if triangles > TRIANGLE_BUDGET:
-        reasons.append(f"{triangles:,} triangles is above the {TRIANGLE_BUDGET:,} budget")
+    if triangles > budget:
+        reasons.append(f"{triangles:,} triangles is above the {budget:,} budget")
     if not has_uvs:
         reasons.append("no UV coordinates")
     if not textures["base_color"]:
@@ -183,6 +197,7 @@ def build(
         "grounded": grounded,
         "bytes": _size(glb_path),
         "silhouette": silhouette,
+        "triangle_budget": budget,
     }
 
 

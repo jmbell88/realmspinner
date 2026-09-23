@@ -278,15 +278,15 @@ def write_gif(
 
     planes = list(indices) if indices is not None else [None] * len(frames)
     tables = list(palettes) if palettes is not None else [None] * len(frames)
-    images = []
-    for plane, slots, own in zip(frames, planes, tables, strict=True):
-        # The frame's own table wins, then the document's, then the adaptive
-        # quantiser. A table too long for the format falls through rather than
-        # dropping swatches, exactly as the global one always has.
-        table = own or palette
-        usable = bool(table) and len(table) <= MAX_PALETTE
-        images.append(map_to_palette(plane, table, slots) if usable else quantise(plane))
+    images: list[Any] = []
     try:
+        for plane, slots, own in zip(frames, planes, tables, strict=True):
+            # The frame's own table wins, then the document's, then the adaptive
+            # quantiser. A table too long for the format falls through rather than
+            # dropping swatches, exactly as the global one always has.
+            table = own or palette
+            usable = bool(table) and len(table) <= MAX_PALETTE
+            images.append(map_to_palette(plane, table, slots) if usable else quantise(plane))
         images[0].save(
             path,
             "GIF",
@@ -304,5 +304,11 @@ def write_gif(
             optimize=False,
         )
     finally:
+        # The 2026-09-23 audit, finding inker-07: the old ``try`` opened only
+        # around ``.save()``, so a mid-build failure -- an odd-shaped frame,
+        # a bad palette entry, ``tick_durations`` refusing a duration -- left
+        # every PIL image already appended to ``images`` unclosed. Wrapping
+        # the whole build-and-save keeps this the one place that opens and
+        # the one place that closes.
         for image in images:
             image.close()

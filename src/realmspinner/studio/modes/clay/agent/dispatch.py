@@ -534,6 +534,7 @@ from .tools import (
     _h_transform,
 )
 from .tools_batch import (
+    BATCH_DEADLINE_S,
     _h_batch,
     _h_program,
     _h_redo,
@@ -631,7 +632,16 @@ refusal without a real 4-second wait -- ``agent_clay_tools_batch._h_program``
 reads this value back through a lazy ``from . import agent_clay`` rather
 than importing the name directly, which is what lets that patch actually
 change the handler's behaviour rather than being shadowed by an
-already-bound copy."""
+already-bound copy.
+
+Only the gap *between* entries counts against this budget -- the 2026-09-23
+audit, finding agents-02: a subprocess-backed step (retopo/smart-unwrap/
+bake-detail, each a synchronous Blender spawn) could by itself run past 4s,
+and because ``clay_program`` always rolls back, the next entry then found
+the deadline already gone and discarded that finished Blender work along
+with the rest of the run even though nothing was idle. ``_h_program``'s own
+``_make_entry`` now pushes the deadline out by exactly what each entry took
+to run, so a call that is actually running is never what trips this."""
 
 RECOVERY = frozenset(
     {
@@ -2202,7 +2212,10 @@ def tools() -> list[Any]:
                 "when that entry runs -- so an earlier entry can name an "
                 "object (clay_add_primitive/clay_add_figure/clay_add_mesh's "
                 "own name argument) and a later one can address it by that "
-                "name, with no clay_scene read in between. rollback_on_error "
+                "name, with no clay_scene read in between. "
+                f"{BATCH_DEADLINE_S:g}s wall-clock deadline, checked between "
+                "entries; past it the batch stops, keeping the prefix. "
+                "rollback_on_error "
                 "(default false): when true and the batch stops at a "
                 "refusal, the folded step is undone -- not left for a later "
                 "clay_undo, and not redoable -- before this call returns, so "
@@ -2247,7 +2260,9 @@ def tools() -> list[Any]:
                 "program' -- like clay_batch but built from a program "
                 "rather than assembled call by call, and always atomic: "
                 "any failure rolls the whole attempt back rather than "
-                "keeping a prefix. 'variables' seeds named numbers; "
+                "keeping a prefix. "
+                f"{PROGRAM_DEADLINE_S:g}s wall-clock deadline between steps; "
+                "past it the run rolls back. 'variables' seeds named numbers; "
                 "'steps' is a list, each entry exactly one kind: add "
                 "(generator/params/translation/rotation/scale/id/material, "
                 "like clay_add_primitive), figure (key/translation/yaw/"

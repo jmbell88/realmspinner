@@ -1998,7 +1998,13 @@ class AgentHost:
             status = TASK_STATUS[final_state]
         else:
             body = op.result if isinstance(op.result, bytes) else b"{}"
+        # The 2026-09-23 audit (agents-01): this method set `fetched` but
+        # left `delivered` False forever, so `_status`'s "still waiting"
+        # note kept firing for an operation whose result had already gone
+        # out over this very RPC. `delivered` is what that note actually
+        # reads (see `_status`'s docstring), so it has to move here too.
         op.fetched = True
+        op.delivered = True
         return rpc.encode_reply({"operation_id": operation_id, "status": status}, body)
 
     def _cancel_task(self, calls: _Calls, operation_id: str) -> bytes:

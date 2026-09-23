@@ -139,7 +139,7 @@ eighteen, and they fall into three groups:
   engine sees it) and Background removal (which matting model cuts the subject out). A wrong matte
   is the most common cause of a mesh with a slab behind it.
 - **The mesh** — Resolution, Profile and Custom triangles (the budget the reconstruction is held
-  to), Size in metres, and the six engine flags: band width, texture resolution, the two guidance
+  to), Size in metres, and the seven engine flags: band width, texture resolution, the two guidance
   strengths, the token budget, decimation and atlas size. Anything named `trellis_` restarts the
   engine once per value, so a six-value sweep over one of them is six engine launches.
 

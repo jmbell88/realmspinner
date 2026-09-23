@@ -54,6 +54,30 @@ Rect = tuple[int, int, int, int]
 Falloff = Literal["smooth", "linear"]
 
 
+def validate_terrain_size(size_x: float, size_z: float) -> None:
+    """Refuse a non-positive extent -- the one rule both a fresh
+    :class:`Terrain` and an edit to an existing one's ``size_x``/``size_z``
+    must obey, in one place so the two cannot drift.
+
+    The 2026-09-23 audit's mason-03: ``Terrain.__post_init__`` checked this,
+    but ``MasonDoc.set_terrain_config`` writes ``size_x``/``size_z`` straight
+    onto an already-constructed ``Terrain`` with ``setattr`` (see
+    ``document.py``'s ``_apply_terrain_config``), which never re-runs
+    ``__post_init__`` -- so the setter validated nothing, and a caller could
+    save a ``.rscn`` with a zero or negative size that ``read_rscn`` (which
+    reconstructs a ``Terrain`` from scratch, running this same check) then
+    refused to ever reopen. The one caller in this tree, ``ui/panes/props.py``'s
+    terrain block, happened to ``max(0.01, ...)`` its input first, but that
+    is the caller defending the setter, not the setter defending itself --
+    and its own comment claimed the setter already raised here, which it did
+    not.
+    """
+    if not (size_x > 0 and size_z > 0):
+        raise ValueError(
+            f"a terrain's size_x and size_z must both be positive, got {size_x!r}, {size_z!r}"
+        )
+
+
 @dataclass(eq=False)
 class Terrain:
     """A regular height-field grid, in local (unrotated, unscaled-by-anything-
@@ -109,11 +133,7 @@ class Terrain:
             raise ValueError(
                 f"a terrain side of {side} cells exceeds MAX_TERRAIN_SIDE ({MAX_TERRAIN_SIDE})"
             )
-        if not (self.size_x > 0 and self.size_z > 0):
-            raise ValueError(
-                f"a terrain's size_x and size_z must both be positive, got "
-                f"{self.size_x!r}, {self.size_z!r}"
-            )
+        validate_terrain_size(self.size_x, self.size_z)
         if not np.isfinite(arr).all():
             raise ValueError("a terrain's heights must all be finite")
         # Coerce to f4 *and* own the buffer in one copy, unconditionally --

@@ -257,7 +257,19 @@ def instantiate(recipe: Recipe, out_dir: Any) -> Instance:
     appearance = dict(recipe.appearance)
     positions = _displaced(positions, arrays, appearance)
 
-    joint_points = _to_gltf(_displaced_joints(arrays["joints"].astype("f8"), arrays, appearance))
+    # The 2026-09-23 audit, finding poser-01: ``arrays["joints"]`` is stored in
+    # Blender axes (this module's own docstring on ``Instance.joints`` says
+    # so) but ``jdisp/*`` is baked in glTF axes -- the same frame ``disp/*``
+    # already displaces the mesh in, with no further transform. ``_to_gltf``
+    # is linear, so it distributes over the sum, but that is exactly the
+    # problem: this line used to add the glTF-axis ``jdisp`` field onto the
+    # Blender-axis base and then run the whole (already axis-mismatched) sum
+    # through ``_to_gltf``, which axis-permutes ``jdisp`` a *second* time on
+    # top of the base's first, correct conversion. Converting the base to
+    # glTF axes first and adding the already-glTF-axis displacement after --
+    # never converting it -- matches the mesh-vertex path (``_displaced``
+    # above), which does exactly that.
+    joint_points = _displaced_joints(_to_gltf(arrays["joints"].astype("f8")), arrays, appearance)
     # One transform for both, derived from the mesh: a skeleton grounded against
     # its own bounding box rather than the body's would sit a few millimetres off
     # in every pose, and the error would look like bad weights.

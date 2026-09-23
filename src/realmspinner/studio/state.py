@@ -460,11 +460,14 @@ class Filters:
 
     text: str = ""
     status: str = "all"  # all | done | running | error
-    # all | reference | tile | model | rig | sheet | sprite -- the same seven
-    # the library's combo offers, in its order. ``tile`` is a reference the
-    # seamless path produced, and it is a kind of its own because its next step
-    # is an export rather than a mesh (see ``card_kind``/``card_action``);
-    # ``sprite`` is a sprite-sheet draft, which is 2D and goes to Inker.
+    # One of the values in the library's own KIND_OPTIONS
+    # (studio/modes/library/ui/panes/library.py), in its order -- the 2026-09-23
+    # audit (shell-07) found this comment's hand-copied list of seven had
+    # drifted from KIND_OPTIONS' nine, so it now points at the source instead
+    # of restating it. ``tile`` is a reference the seamless path produced, and
+    # it is a kind of its own because its next step is an export rather than a
+    # mesh (see ``card_kind``/``card_action``); ``sprite`` is a sprite-sheet
+    # draft, which is 2D and goes to Inker.
     kind: str = "all"
     favorites_only: bool = False
     # A3: hide anything below the same cut Review's own scale states --
@@ -973,11 +976,17 @@ class TourState:
     clickable -- which is why nothing here reaches ``App._modal_open`` and why
     the overlay's scrim takes no input.
 
-    ``index`` can outlive the tour it counted: it comes back from settings, and
-    a tour that lost a step between releases would otherwise take the frame that
-    restored it. ``Tour.step`` returns ``None`` past the end rather than
-    raising, and :meth:`current` is where that is turned into "the tour is
-    over".
+    ``index`` can outlive the tour it counted: only ``finished`` is persisted
+    (as the ``tours_finished`` setting, in ``panes/tour.py``), ``index`` is
+    plain in-memory session state that starts back at 0 whenever
+    :meth:`start` runs -- but a tour script can still be edited out from under
+    a *running* one between one frame and the next while the app is open, so
+    ``Tour.step`` (``tour/steps.py``) still clamps and returns ``None`` past
+    the end rather than raising, rather than assuming ``index`` still points
+    at a real step. The 2026-09-23 audit (tour-01) found this docstring
+    describing a settings-restored index and a ``current()`` method that
+    ``TourState`` has never had; ``panes/tour.py`` reads ``tour.step(state.index)``
+    directly and turns a ``None`` result into "the tour is over" itself.
     """
 
     #: Which tour, or ``""`` for none running.

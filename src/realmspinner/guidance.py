@@ -290,8 +290,14 @@ def _lookup(field: str, value: Any) -> Any | None:
     table = _TABLES[field]
     option = table.get(_canonical(field, str(value)))
     if option is None:
+        # service-05 (the 2026-09-23 audit): this used to `sorted(table)`
+        # straight over the live `models.STYLE_LORAS` mapping to build the
+        # "expected one of" list, so a plain unknown-style-name lookup could
+        # race the same import-thread mutation service-04 hit in fetch.py --
+        # a refusal message must never itself risk crashing.
+        names = models.style_loras_snapshot() if table is models.STYLE_LORAS else table
         raise GuidanceError(
-            f"unknown {field} {value!r}; expected one of {sorted(table)}", field=field
+            f"unknown {field} {value!r}; expected one of {sorted(names)}", field=field
         )
     return option
 

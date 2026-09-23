@@ -229,6 +229,22 @@ def region_boundary_corners(mesh: Mesh, faces: np.ndarray) -> np.ndarray:
     also where the uv to inherit lives. Ordered by corner index, so a region's
     border comes back grouped by face and in each face's own traversal order,
     which is what makes the wall quads' winding follow the region's.
+
+    **An edge is the region's boundary if some face touching it is not
+    selected, or if no other face touches it at all.** The 2026-09-23 audit,
+    finding clay-18: a non-manifold edge shared by three faces -- two
+    selected, one not -- used to be missed. The old rule compared only the
+    *selected* corner count on an edge against 1, which is right on an
+    ordinary manifold edge (at most two faces ever share one, so "1 selected
+    corner" and "a face across it is unselected" are the same fact) but
+    wrong here: two selected corners share the edge, so the old count read
+    2 and the edge was read as interior, even though the third, unselected
+    face means it plainly is not -- extrude then left that edge unwalled.
+    Comparing the selected count against ``edge_uses`` (the *total* face
+    count on that edge, non-manifold included) instead of a hardcoded 1
+    covers both that edge and the ordinary open-boundary case (one face
+    total, itself selected, where the counts are equal but there is no
+    companion face to close the gap against).
     """
     faces = np.asarray(faces, dtype="i8").reshape(-1)
     a = adjacency(mesh)
@@ -238,4 +254,6 @@ def region_boundary_corners(mesh: Mesh, faces: np.ndarray) -> np.ndarray:
     selected[faces] = True
     mine = np.flatnonzero(selected[a.corner_face])
     per_edge = np.bincount(a.corner_edge[mine], minlength=a.n_edges)
-    return mine[per_edge[a.corner_edge[mine]] == 1]
+    edges = a.corner_edge[mine]
+    boundary = (per_edge[edges] < a.edge_uses[edges]) | (a.edge_uses[edges] == 1)
+    return mine[boundary]

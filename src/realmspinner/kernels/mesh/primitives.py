@@ -632,6 +632,16 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
         # had no mirror here at all.
         r_out = abs(float(out["width"])) * 0.5
         out["thickness"] = min(max(abs(float(out["thickness"])), r_out * 0.02), r_out * 0.9)
+    if generator == "arch" and "height" in out and "width" in out:
+        # The 2026-09-23 audit's clay-11: the same clay-04/clay-05 class of
+        # defect as the thickness mirror just above -- ``arch`` also raises
+        # ``height`` to at least half of ``width`` internally (see
+        # :func:`arch`'s own ``h = max(abs(height), r_out)``, because a
+        # height below the head's radius leaves no leg to stand on), but
+        # this function mirrored the thickness floor without noticing its
+        # own sibling, so a saved document's ``height`` could permanently
+        # disagree with the mesh the generator actually built.
+        out["height"] = max(abs(float(out["height"])), abs(float(out["width"])) * 0.5)
     if generator == "rounded_box" and "radius" in out and "size" in out:
         # The 2026-09-19 audit's clay-06: the same torus/column/sweep/arch
         # class of clay-04/clay-05 defect -- ``rounded_box`` clamps its own

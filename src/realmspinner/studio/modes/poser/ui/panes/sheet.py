@@ -353,10 +353,15 @@ def _logical_size(form: dict[str, Any], form_ui: forms.Form, options: dict[str, 
             "logical_size", "Custom size (px)", int(form["logical_size"])
         )
         form["logical_size"] = max(int(lo), min(int(hi), int(value)))
-        if form["logical_size"] and charsheet.RENDER_SIZE % form["logical_size"] != 0:
-            widgets.muted_wrapped(
-                "Sizes that don't divide 512 are resized with nearest-neighbour."
-            )
+    # Outside the custom-only branch on purpose: the 2026-09-23 audit
+    # (poser-07) found this hint gated on ``logical_size_custom``, so a
+    # preset that also fails to divide 512 -- 24, 48 and 96 among the
+    # ladder's own choices -- was NEAREST-resized with no warning at all,
+    # while typing that same number by hand got one.
+    if form["logical_size"] and charsheet.RENDER_SIZE % form["logical_size"] != 0:
+        widgets.muted_wrapped(
+            "Sizes that don't divide 512 are resized with nearest-neighbour."
+        )
 
 
 def _camera_helper(presets: dict[str, Any], key: str) -> str:
@@ -838,6 +843,12 @@ def _pixel_report_lines(report: dict[str, Any]) -> list[str]:
     lines = [f"{report.get('colors', '?')} colours ({palette})"]
     if report.get("orphans"):
         lines.append(f"{report['orphans']} stray pixels cleaned")
+    if report.get("exact_stride") is False:
+        # The 2026-09-23 audit (poser-04): this branch never read the same
+        # key the HD branch above already checks, so a 24/48/96 px sheet
+        # whose render size does not divide evenly was NEAREST-resized with
+        # no line on screen saying so -- only the HD branch spoke up.
+        lines.append("frame size is not an exact stride of the render")
     return lines
 
 

@@ -37,7 +37,7 @@ from .adjacency import adjacency
 from .earclip import corner_triangles
 from .elements import OpError
 from .mesh import Mesh, face_count, face_normals
-from .uvtools import _isin_pairs, edge_keys, islands_by_seams, pack_islands
+from .uvtools import MAX_UV_ISLANDS, _isin_pairs, edge_keys, islands_by_seams, pack_islands
 
 __all__ = ["MAX_LSCM_VERTICES", "unwrap_lscm"]
 
@@ -378,6 +378,21 @@ def unwrap_lscm(
         return mesh
 
     island_ids = islands_by_seams(mesh, seams)
+    labels = np.unique(island_ids).tolist()
+
+    # The 2026-09-23 audit's clay-05: MAX_UV_ISLANDS was checked only inside
+    # pack_islands, which runs *after* every island below has already been
+    # solved with LSCM -- 16,000 islands took 33s to solve before the refusal
+    # ever fired (clay-mesh-uv-01 probe). Counting islands is O(faces), the
+    # same cost islands_by_seams already paid, so refusing here is free next
+    # to the solve it is skipping; this is the same shape as clay-13's fix
+    # below, just one level up the call stack.
+    if len(labels) > MAX_UV_ISLANDS:
+        raise OpError(
+            f"This mesh has {len(labels)} uv islands, past the {MAX_UV_ISLANDS} "
+            f"an unwrap by seams reads -- check a smaller selection instead of "
+            f"the whole mesh."
+        )
 
     # The 2026-09-19 audit's clay-13: this ceiling used to be checked only
     # inside _solve_island, which ran *after* the whole mesh had already
@@ -388,7 +403,7 @@ def unwrap_lscm(
     # ever fire). _corner_mask is now vectorised (see its own docstring),
     # so counting each island's vertices is cheap enough to do here, before
     # corner_triangles ever touches the mesh.
-    for label in np.unique(island_ids).tolist():
+    for label in labels:
         faces = np.flatnonzero(island_ids == label)
         corner_idx = np.flatnonzero(_corner_mask(mesh, faces))
         n_verts = len(np.unique(mesh.loops[corner_idx]))
@@ -403,7 +418,7 @@ def unwrap_lscm(
     tri_corners, tri_face = corner_triangles(mesh.positions, mesh.loops, mesh.starts, normals)
 
     new_uv = np.zeros((len(mesh.loops), 2), dtype="f4")
-    for label in np.unique(island_ids).tolist():
+    for label in labels:
         faces = np.flatnonzero(island_ids == label)
         tris = tri_corners[np.isin(tri_face, faces)]
         _solve_island(mesh, faces, tris, seams, new_uv, pins)

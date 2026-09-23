@@ -86,10 +86,22 @@ def test_resetting_the_image_form_restores_every_default():
 
 
 def test_resetting_the_image_form_drops_the_stale_preview():
-    """The preview describes the form that produced it."""
+    """The preview describes the form that produced it -- but ``state.preview``
+    is a dict shared with the Pose stage (poses/sheets/bones/library_poses)
+    and the Mesh pane (``_LAST_AUTO_MATTE_SLOT``), so a 2D Reset must pop only
+    the keys ``settings_2d`` itself writes (the 2026-09-23 audit, finding
+    create-01) and leave everything else in the dict alone.
+    """
     ctx = _Ctx()
+    ctx.state.preview[settings_2d.CLEARED_KEY] = ["a base-model note"]
+    ctx.state.preview[settings_2d.TILE_MODE_CLEARED_KEY] = ["a tile-mode note"]
+    ctx.state.preview["library_poses"] = ["unrelated pose data"]
+
     settings_2d._reset(ctx)
-    assert ctx.state.preview == {}
+
+    assert settings_2d.CLEARED_KEY not in ctx.state.preview
+    assert settings_2d.TILE_MODE_CLEARED_KEY not in ctx.state.preview
+    assert ctx.state.preview["library_poses"] == ["unrelated pose data"]
 
 
 # --- both are behind a confirm ----------------------------------------------

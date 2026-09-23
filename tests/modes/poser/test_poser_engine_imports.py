@@ -1,13 +1,16 @@
 """What ``modes/poser/engine/`` is allowed to reach for, pinned exactly.
 
-Poser's engine arrived by relocation, not by a stage landing: P9 of
-``dev/RESTRUCTURE.md`` folds Troupe into Poser as a stage, and this package --
-the frame table (``spec``), the animation-quality scorer (``qa``) and the ULPC
-reference reader (``ulpc``) -- moved here verbatim from ``modes/troupe/engine/``
-as its first step. ``tests/modes/troupe/test_troupe_imports.py`` still pins the
-same three modules by their old address (it is what this move made point at
-the new one) and is left in place rather than deleted until the rest of Troupe
-folds in too.
+Poser's engine arrived by relocation, not by a stage landing: P9 (2026-09-18)
+folded Troupe into Poser as a stage, and this package -- the frame table
+(``spec``), the animation-quality scorer (``qa``) and the ULPC reference
+reader (``ulpc``) -- moved here verbatim from ``modes/troupe/engine/`` as its
+first step. Troupe's own pin, ``tests/modes/troupe/test_troupe_imports.py``,
+pinned the same three modules by their old address; it was deleted along with
+the rest of ``modes/troupe/`` once the fold-in finished, and this file is what
+now pins them at their new one. (The 2026-09-23 audit, finding poser-08,
+found this docstring and a citation of the same deleted path in
+``tests/test_audit_2026_09_15_troupe.py`` still describing it as "left in
+place.")
 
 Written the same shape as ``tests/modes/create/test_create_engine_imports.py``
 and ``tests/modes/mason/test_mason_imports.py``: an exact ``OUTWARD_IMPORTS``

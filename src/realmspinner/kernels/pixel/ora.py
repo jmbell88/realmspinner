@@ -1848,6 +1848,17 @@ def _read_flourish(doc, payload: dict, nodes: list) -> None:
             offset = entry.get("offset") or [0, 0]
             state.offset = (int(offset[0]), int(offset[1]))
             members = entry.get("assets") or {}
+            # The 2026-09-23 audit, finding inker-01: "assets" had no ceiling,
+            # unlike the "tracks"/"digests"/"conflicts" siblings capped just
+            # above for the same amplification shape (the 2026-09-19 audit,
+            # finding inker-05) -- one real PNG named under many ids costs
+            # one decode and one RGBA copy per id in _read_flourish_assets,
+            # so an uncapped map exhausts memory on open.
+            if len(members) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"a flourish entry names more than {MAX_ORA_METADATA_ENTRIES}"
+                    " assets"
+                )
             state._asset_members = {  # noqa: SLF001 -- consumed by _read_flourish_assets
                 str(k): str(v) for k, v in dict(members).items() if str(v).startswith("data/")
             }

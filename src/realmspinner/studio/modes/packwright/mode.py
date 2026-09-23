@@ -163,6 +163,15 @@ def add_rendered_sheet(ctx: Any, job_id: str, sheet_id: str, *, pixel: bool = Fa
         # that cannot be taken back later, so one is simply made.
         tab = new_document(ctx)
         set_mode(ctx.state, "packwright")
+    elif tab.busy:
+        # The 2026-09-23 audit, packwright-01: the sources pane's own Add
+        # buttons are greyed (``editable = not tab.busy``) while a save is
+        # writing, but a hand-off from outside the pane -- Poser's sheet
+        # export lands here -- went straight through with no such guard, so a
+        # sheet could be spliced into a document mid-encode. Silent, the
+        # ``remove_source``/``rename_source``/``set_settings`` shape: there is
+        # nothing to tell the sender that a busy tab did not already know.
+        return
     uid = tab.uid
 
     def run() -> dict[str, Any] | None:
@@ -341,6 +350,14 @@ def add_source_paths(ctx: Any, paths: list[Path]) -> None:
         # ``add_job_source``'s rule.
         tab = new_document(ctx)
         set_mode(ctx.state, "packwright")
+    elif tab.busy:
+        # The 2026-09-23 audit, packwright-01: a drop reaches this with no
+        # busy check at all, unlike the sources pane's own Add buttons
+        # (greyed for exactly this case, ``widgets.DOCUMENT_SAVING_WHY``) --
+        # so a drag onto the window while a save was writing spliced new
+        # sources into a document mid-encode. Silent, the
+        # ``remove_source``/``rename_source``/``set_settings`` shape.
+        return
     from .engine.sources import file_key
 
     wanted = [Path(p) for p in paths]
@@ -376,6 +393,12 @@ def add_job_source(ctx: Any, job: Any) -> None:
         # open is a background addition and does not move them, but a brand new
         # empty atlas they cannot see is the same dead end by another route.
         set_mode(ctx.state, "packwright")
+    elif tab.busy:
+        # The 2026-09-23 audit, packwright-01: the Library's "Add to
+        # Packwright" reached this with no busy check, unlike the sources
+        # pane's own Add buttons (greyed for exactly this case). Silent, the
+        # ``remove_source``/``rename_source``/``set_settings`` shape.
+        return
     job_id = job["id"] if isinstance(job, dict) else str(job)
     name = (job.get("name") or job_id) if isinstance(job, dict) else job_id
     uid = tab.uid

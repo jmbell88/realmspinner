@@ -790,12 +790,13 @@ def _staleness_refusal(
     refusing. Checking identity and head *here*, against the phase-one
     snapshot, closes that window before the diff is ever computed.
     """
-    if tab is None or tab_uid != state.active_uid:
-        # The tab this build was requested against closed, or the user
-        # switched to another tab, while Familiar was thinking -- the same
-        # "preview again" sentence every other familiar_preview refusal uses,
-        # for the same reason: there is nothing left to preview against.
-        #
+    if tab is None:
+        # The tab this build was requested against closed while Familiar
+        # was thinking -- the same "preview again" sentence every other
+        # familiar_preview refusal uses, for the same reason: there is
+        # nothing left to preview against.
+        return "the document changed -- preview again"
+    if tab_uid != state.active_uid:
         # The 2026-09-15 audit's agents-01: this used to check only that the
         # tab still existed, not that it was still the one on screen. ``set_
         # preview``/``_ghost_draws`` carry no document identity of their own
@@ -804,7 +805,14 @@ def _staleness_refusal(
         # Apply already refused a stale base at that point, but the display
         # never did. Landing now refuses the same way Apply always has,
         # rather than showing a ghost for a document nobody is looking at.
-        return "the document changed -- preview again"
+        # The 2026-09-23 audit (familiar-01): this branch used to fall
+        # through to the generic "the document changed" sentence above, even
+        # though nothing about the document changed -- only which tab is on
+        # screen. ``preview.py``'s ``apply()`` refuses the identical
+        # situation (tab still open, just not the active one) with its own,
+        # more specific sentence; this now matches it instead of telling the
+        # user to preview again against a document that never moved.
+        return "that document is not the one in front -- switch to it, then preview again"
     if refine is not None and (ui.preview_scratch is not refine or ui.preview_tab_uid != tab_uid):
         # Applied or discarded while the model was thinking: these calls were
         # written against a ghost that is gone, and on the real document they

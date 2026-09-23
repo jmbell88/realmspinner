@@ -208,6 +208,10 @@ def play(pcm: Any, rate: int = RATE, *, tag: str = "", loops: int = 0) -> bool:
         log.warning("sirens: refusing to play a buffer shaped %s", (buffer.shape,))
         return False
     if buffer.shape[0] == 0:
+        # Logged like every sibling refusal in this function (the 2026-09-23
+        # audit, finding sirens-04): the callers' toasts all say "see the
+        # log", and this was the one refusal that left it empty.
+        log.warning("sirens: refusing to play a zero-length buffer")
         return False
     try:
         _sound = pygame.sndarray.make_sound(buffer)

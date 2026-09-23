@@ -549,8 +549,19 @@ def _draw(ui, ctx):
 
 
 def test_the_panel_draws_its_controls_only_while_a_session_is_open(ui):
+    """The panel's own controls -- Bake, Cancel, the setting rows -- appear
+    only once a session is open. The section's help glyph is not one of
+    them: ``pane.draw`` calls ``manual_render.help_button`` before it even
+    checks whether a session exists (every section header does), so it is
+    on screen with no session too. Before the 2026-09-23 audit (finding
+    shell-05) that glyph drew through a raw, unrecorded ``imgui.button`` and
+    so never reached this census at all; now that ``_glyph_button`` records
+    itself, the census is truthful about it being there and this assertion
+    is narrowed to the session-only controls the test's name actually
+    claims, rather than reverting the recording."""
     ctx, tab = _scene()
-    assert _draw(ui, ctx) == []
+    closed = [c for c in _draw(ui, ctx) if "help" not in c.label.lower()]
+    assert closed == []
     _rigged(ctx, tab)
     labels = {control.label for control in _draw(ui, ctx)}
     assert any("Bake" in label for label in labels)

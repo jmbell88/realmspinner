@@ -783,7 +783,16 @@ def _dispatch_one(
         name = params.get("name")
         if not isinstance(name, str) or not name:
             return _error_bytes(msg_id, -32602, "tools/call needs a string 'name'")
-        arguments = params.get("arguments", {}) or {}
+        # The 2026-09-23 audit (agents-03): `or {}` coerced any falsy
+        # `arguments` -- `[]`, `0`, `""` -- into `{}` instead of falling
+        # through to the isinstance refusal below, unlike every sibling
+        # arguments-validation site in this file (see the `None`-only
+        # default a few lines above and at line 909), so a malformed
+        # task-mode `tools/call` silently ran with empty arguments rather
+        # than being refused with -32602.
+        arguments = params.get("arguments", {})
+        if arguments is None:
+            arguments = {}
         if not isinstance(arguments, dict):
             return _error_bytes(msg_id, -32602, "'arguments' must be an object")
         try:

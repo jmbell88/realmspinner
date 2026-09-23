@@ -278,6 +278,44 @@ def remove_slot_or_say(state: Any, doc: Any, slot: int) -> bool:
         return False
 
 
+def add_slot_or_say(state: Any, doc: Any, colour: Any) -> bool:
+    """``doc.add_slot`` from the palette pane, with a toast where it refuses.
+
+    The 2026-09-23 audit, finding inker-04: ``add_slot`` raises ``ValueError``
+    through ``_check_room`` at the 256-colour cap, same class as
+    ``remove_slot``'s (2026-09-13, inker-06) -- and this door had no ``try``
+    around it either, so a click at or near the cap unwound the pane's own
+    guard and tripped the toast breaker for the rest of the session instead
+    of saying the palette was full.
+    """
+    try:
+        return doc.add_slot(colour)
+    except ValueError as exc:
+        state.say(str(exc))
+        return False
+
+
+def insert_ramp_or_say(ctx: Any, state: Any, doc: Any, a: int, b: int, steps: int) -> bool:
+    """``doc.insert_ramp`` from the palette pane, with a toast where it refuses.
+
+    The 2026-09-23 audit, finding inker-04: ``insert_ramp`` raises
+    ``ValueError`` through the same ``_check_room`` cap as ``add_slot``, and
+    this door had no ``try`` around it either -- three clicks near the
+    256-colour cap tripped the pane's toast breaker instead of saying the
+    palette was full. Owns both toasts (the capacity refusal and the "already
+    in the palette" no-op) so the caller cannot show the wrong one for a
+    refusal it did not itself detect.
+    """
+    try:
+        moved = doc.insert_ramp(a, b, steps)
+    except ValueError as exc:
+        state.say(str(exc))
+        return False
+    if not moved:
+        ctx.toast("That ramp is already in the palette.")
+    return moved
+
+
 def _hole_marker(at: Any, side: float) -> None:
     """A small notch on the transparent slot's top-left corner."""
     draw = imgui.get_window_draw_list()
@@ -353,7 +391,7 @@ def _slots(ctx: Any, state: Any, tab: Any) -> None:
     controls.fold_undo(doc.history)
     if changed and doc.recolour_slot(slot, _to_rgba(value)):
         state.palette_moved()
-    if controls.button(f"{icons.PLUS} from colour") and doc.add_slot(state.fg):
+    if controls.button(f"{icons.PLUS} from colour") and add_slot_or_say(state, doc, state.fg):
         state.palette_slot = len(doc.palette) - 1
         state.palette_usage = None
     imgui.same_line()
@@ -480,12 +518,9 @@ def _sort_and_ramp(ctx: Any, state: Any, tab: Any, counts: list[int] | None) -> 
         len(selection) >= 2,
         reason="Ctrl-click or Shift-click two slots to ramp between them.",
         tooltip="Interpolated colours between the two, inserted between them.",
-    ):
-        if doc.insert_ramp(min(selection), max(selection), state.palette_ramp):
-            # Inserted *between* two slots, so every index after them moved.
-            state.palette_moved()
-        else:
-            ctx.toast("That ramp is already in the palette.")
+    ) and insert_ramp_or_say(ctx, state, doc, min(selection), max(selection), state.palette_ramp):
+        # Inserted *between* two slots, so every index after them moved.
+        state.palette_moved()
 
 
 def _usage(state: Any, tab: Any, slots: int) -> list[int] | None:

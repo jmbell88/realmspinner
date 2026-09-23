@@ -74,7 +74,25 @@ _COLOUR_SLOTS: dict[str, tuple[tuple[str, int], ...]] = {
 #: silently adding a slot keeps the wording honest: this app does not treat
 #: smoke's tint as a hot/cool pair worth exposing to the keyword mapper, and
 #: the difference from a plain unknown word is that this one names smoke.
-_NO_COLOUR_SLOT = {"smoke"}
+#:
+#: ``distortion`` was missing here until the 2026-09-23 audit, finding
+#: inker-06: it has no colour of its own (it warps the frame beneath it, see
+#: ``prims/distortion.py``) and no entry in ``_COLOUR_SLOTS`` either, so
+#: "green shimmer" fell all the way through to "No words I know" instead of
+#: naming distortion the way "green smoke" already named smoke.
+_NO_COLOUR_SLOT = {"smoke", "distortion"}
+
+# Every primitive kind this vocabulary knows must be reachable through one of
+# the two tables above: either a colour word can repaint it, or this module
+# says by name that it can't. The 2026-09-23 audit, finding inker-06, found
+# ``distortion`` in neither -- the gap read as "no words I know" rather than
+# "distortion has no colour to change". A kind added to ``prims.KINDS``
+# without a matching entry here fails this assertion at import time instead
+# of failing silently the first time someone colours it.
+assert set(_COLOUR_SLOTS) | _NO_COLOUR_SLOT == set(prims.KINDS), (
+    "every primitive kind must have a colour slot or be listed in "
+    "_NO_COLOUR_SLOT (the 2026-09-23 audit, finding inker-06)"
+)
 
 #: Size-ish parameters a "bigger"/"smaller" word scales.
 _SIZE_PARAMS = {"radius", "width", "height", "size", "spawn_radius", "thickness", "length"}
@@ -84,6 +102,13 @@ _SPEED_PARAMS = {"speed", "rise", "drift", "noise_speed", "pulse_hz", "spin", "f
 _COUNT_PARAMS = {"count"}
 #: Brightness-ish parameters.
 _BRIGHT_PARAMS = {"intensity", "strength", "alpha", "opacity"}
+#: Kinds excluded from "brighter"/"stronger"/"dimmer"/"softer" even though one
+#: of their own parameters happens to share a name in ``_BRIGHT_PARAMS``. The
+#: 2026-09-23 audit, finding inker-03: ``distortion``'s "strength" is the
+#: warp's pixel displacement (``prims/distortion.py``), not a light level, so
+#: "brighter" was silently doubling a shimmer layer's warp while the toast
+#: reported only the layers it meant to touch.
+_NO_BRIGHTNESS = {"distortion"}
 
 _SCALE_WORDS: dict[str, tuple[str, float]] = {
     "bigger": ("size", 1.3),
@@ -217,6 +242,16 @@ def apply(recipe: Recipe, text: str) -> tuple[Recipe, list[str]]:
             "turbulence": {"turbulence", "noise", "raggedness", "unevenness"},
         }[what]
         for j, layer in enumerate(layers):
+            if what == "bright" and layer.kind in _NO_BRIGHTNESS:
+                # The 2026-09-23 audit, finding inker-03: "brighter"/"stronger"
+                # scale every parameter literally named ``strength`` because
+                # that is how most primitives spell their brightness knob --
+                # but ``distortion``'s own "strength" is the warp's pixel
+                # displacement (see ``prims/distortion.py``), not a light
+                # level, so "brighter" silently doubled a shimmer layer's warp
+                # while the toast reported only "brighter: x1.3" as if
+                # nothing else had moved.
+                continue
             for name in names & set(prims.params_of(layer.kind)):
                 layers[j] = _scaled(layers[j], name, factor)
         notes.append(f"{word}: x{factor}")

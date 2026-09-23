@@ -1026,7 +1026,13 @@ def request_from_legacy(form: Mapping[str, Any]) -> GenerationRequest:
         negative_prompt=str(form.get("negative_prompt") or ""),
         quality=str(form.get("quality") or "quality"),
         model_mode=str(form.get("model_mode") or "auto"),
-        model_override=str(form["model_override"] or form["base_model"])
+        # ``.get()`` on both keys, not bare indexing: an advanced form is
+        # allowed to carry only one of the two (the 2026-09-23 audit,
+        # create-04, found a form with ``base_model`` but no
+        # ``model_override`` key at all raising ``KeyError`` here -- the
+        # guard above only checks that *one* of them is truthy, so the bare
+        # ``form["model_override"]`` still ran when it was the other one).
+        model_override=str(form.get("model_override") or form.get("base_model"))
         if form.get("model_mode") == "advanced"
         and (form.get("model_override") or form.get("base_model"))
         else None,

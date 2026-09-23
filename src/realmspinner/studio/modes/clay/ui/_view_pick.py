@@ -74,7 +74,12 @@ class PickOps:
             # ``check_ancestors``), a click on a child of a locked group is
             # still a legitimate way to *select* that child, even though
             # dragging it is refused a layer up (see ``_drag_lock_error``).
-            if not obj.visible or obj.locked:
+            # The 2026-09-23 audit, finding clay-06: a collider is drawn as a
+            # translucent overlay, never through the opaque path ``_composite``
+            # draws objects through (view.py's own skip, clay-09) -- but this
+            # loop still cast a ray at its geometry, so a click meant for the
+            # object it fits landed on the enclosing collider instead.
+            if not obj.visible or obj.locked or obj.role == "collider":
                 continue
             mesh = doc.evaluated(obj.uid) if evaluated else None
             hit = self._pick_face_on(doc, obj, origin, direction, mesh=mesh)
@@ -229,7 +234,10 @@ class PickOps:
             # not this one -- an element belongs to one object, so leaving a
             # locked object's elements pickable let Delete land a refusal
             # that reads as "nothing happened" for the rest of the selection.
-            if not obj.visible or obj.locked:
+            # clay-06 (2026-09-23 audit): same door as ``pick_face`` above --
+            # a collider's elements are not on screen either, so hovering or
+            # selecting through it should not be possible.
+            if not obj.visible or obj.locked or obj.role == "collider":
                 continue
             screen = self.screen_of(doc, obj.uid)
             if mode == "vertex":

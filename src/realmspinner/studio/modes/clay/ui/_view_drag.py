@@ -949,7 +949,10 @@ class DragOps:
         object_mode = doc.element_mode == "object"
         best: tuple[float, np.ndarray] | None = None
         for obj in doc.objects:
-            if not obj.visible:
+            # clay-06 (2026-09-23 audit): a collider is not drawn on screen
+            # (view.py's ``_composite`` skips it), so snapping onto its
+            # geometry would land the drag on a surface the user cannot see.
+            if not obj.visible or obj.role == "collider":
                 continue
             # In object mode the whole object rides the drag, so every one of
             # its vertices -- reprojected at the live transform -- would track
@@ -1003,7 +1006,8 @@ class DragOps:
         origin, direction = self._ray(local)
         best: tuple[float, np.ndarray] | None = None
         for obj in doc.objects:
-            if not obj.visible:
+            # clay-06 (2026-09-23 audit): same door as ``_snap_vertex`` above.
+            if not obj.visible or obj.role == "collider":
                 continue
             if object_mode and obj.uid in self._drag_start:
                 continue
@@ -1053,7 +1057,8 @@ class DragOps:
         object_mode = doc.element_mode == "object"
         best: Any = None
         for obj in doc.objects:
-            if not obj.visible:
+            # clay-06 (2026-09-23 audit): same door as ``_snap_vertex`` above.
+            if not obj.visible or obj.role == "collider":
                 continue
             if object_mode and obj.uid in self._drag_start:
                 continue
@@ -1093,8 +1098,10 @@ class DragOps:
             # ``pick_element`` in ``_view_pick.py`` -- a locked object's
             # elements were still sweepable into the selection, the other
             # way a locked object reached ``delete_selected``'s element-mode
-            # branch with nothing to stop it.
-            if not obj.visible or obj.locked:
+            # branch with nothing to stop it. A collider joins the skip here
+            # too (clay-06, 2026-09-23 audit) for the same reason the pick
+            # and snap loops do: it is not drawn on screen to sweep over.
+            if not obj.visible or obj.locked or obj.role == "collider":
                 continue
             screen = self.screen_of(doc, obj.uid)
             if mode == "vertex":

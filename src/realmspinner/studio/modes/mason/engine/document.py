@@ -44,6 +44,7 @@ from .....kernels.geom3d import gltf
 from . import edits as ed
 from . import nodes as nd
 from . import scene as sc
+from . import terrain as terrain_mod
 from .nodes import Node
 from .refs import Ref, ref_key
 from .terrain import Rect, Terrain
@@ -230,6 +231,32 @@ class MasonDoc:
         return node
 
     # -- structure -------------------------------------------------------------
+
+    def resolved_total(self) -> int:
+        """What :func:`scene.resolve` (by way of :func:`scene.walk`'s own
+        counting) would currently visit over this document's roots --
+        prefabs expanded, groups included. See
+        :meth:`resolved_growth`'s docstring for why this is not
+        ``len(self.all_nodes())``.
+        """
+        return sc.resolved_count(self, self.roots)
+
+    def resolved_growth(self, nodes: Iterable[Node]) -> int:
+        """How many items attaching ``nodes`` would add to
+        :meth:`resolved_total` -- a :class:`~.nodes.PrefabNode` among them
+        expands into its whole template subtree (and, transitively,
+        whatever prefab that template itself places), while every other
+        node counts as itself, same as :meth:`_check_max_placed`'s tree-side
+        count.
+
+        The 2026-09-23 audit's mason-01: ``place_prefab`` charged a placed
+        instance as the one tree node it is, never as what it expands to,
+        so a scene could be built, one guarded placement at a time, past
+        what it can ever resolve -- exposed here so the write side (a
+        controller, before it calls :meth:`add_node`) can charge the real
+        cost instead.
+        """
+        return sc.resolved_count(self, list(nodes))
 
     def _check_max_placed(self, adding: int, *, base: int | None = None) -> None:
         """Refuse growing past :data:`sc.MAX_PLACED` **before** anything is
@@ -681,12 +708,26 @@ class MasonDoc:
         self.touch()
 
     def set_terrain_config(self, **values: Any) -> bool:
-        """The terrain's ``size_x``, ``size_z`` and/or ``material``, as one step."""
+        """The terrain's ``size_x``, ``size_z`` and/or ``material``, as one step.
+
+        Validates ``size_x``/``size_z`` the same way :class:`~.terrain.Terrain`
+        itself does on construction (:func:`~.terrain.validate_terrain_size`),
+        before anything is written -- the 2026-09-23 audit's mason-03: this
+        setter writes straight onto an already-built ``Terrain`` with
+        ``setattr`` (:meth:`_apply_terrain_config`), which never re-runs
+        ``Terrain.__post_init__``, so a non-positive size used to save clean
+        and then refuse to ever reopen (``read_rscn`` rebuilds a ``Terrain``
+        from scratch, and its own ``__post_init__`` catches it there instead).
+        """
         if self.terrain is None:
             raise ValueError("this document has no terrain to configure")
         unknown = set(values) - {"size_x", "size_z", "material"}
         if unknown:
             raise ValueError(f"unknown terrain config field(s): {sorted(unknown)}")
+        size_x = values.get("size_x", self.terrain.size_x)
+        size_z = values.get("size_z", self.terrain.size_z)
+        if "size_x" in values or "size_z" in values:
+            terrain_mod.validate_terrain_size(size_x, size_z)
         before = {key: getattr(self.terrain, key) for key in values}
         if before == values:
             return False

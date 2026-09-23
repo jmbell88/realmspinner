@@ -2,9 +2,14 @@
 
 ``inker_mode._write_atomic``, promoted. It was factored out for three writers
 in one module and the argument it was factored out *for* is not about Inker at
-all: there are twenty-two ``dialogs.save_file`` sites in ``studio/``, every one
-of them writes to a destination **the user picked**, and a destination the user
-picked is one they may well have picked before. ``Path.write_bytes`` truncates
+all: there are dozens of ``dialogs.save_file`` sites across the package (the
+count drifts as modules move and export doors are added -- the 2026-09-23
+audit's packwright-03 found the old fixed figure this docstring used to cite
+already stale against ``tests/test_atomic_writes.py``'s own sweep, which
+counts every one of them rather than citing a number that goes wrong the next
+time a call site is added), every one of them writes to a destination **the
+user picked**, and a
+destination the user picked is one they may well have picked before. ``Path.write_bytes`` truncates
 before it writes a byte, so a crash, a full disk or a yanked drive halfway
 through an export destroys the file that was there and leaves nothing in its
 place -- and the file that was there is, by construction, one the user cared

@@ -42,10 +42,24 @@ class Camera:
         self.min_distance = 0.01
         self.max_distance = 1000.0
         self.auto_rotate = False
+        # Bumped by every camera change that snaps rather than eases --
+        # ``look_angles`` (so ``look_along``) and the ``orthographic`` setter
+        # below. The 2026-09-23 audit's create-03: an axis-view key (Ctrl+1/
+        # 3/7) or the orthographic toggle (Ctrl+5) reaches ``settled()``
+        # instantly, since nothing is left to damp toward, so
+        # ``FrameOps._frame_unchanged`` saw an unmoved camera and kept the old
+        # texture on screen until an unrelated input forced a redraw. A
+        # counter compared there fixes every viewport this mixin serves --
+        # Clay, Mason and Poser -- in one place instead of each mode.py caller
+        # having to remember to set ``_render_dirty`` by hand.
+        self.revision = 0
         # Orthographic rather than perspective. Off everywhere except where a
         # mode turns it on: the asset viewer shows what an engine will show,
-        # and an engine uses a perspective camera.
-        self.orthographic = False
+        # and an engine uses a perspective camera. A property so every path
+        # that flips it -- the Ctrl+5 shortcut and the header menu's own
+        # direct assignment alike -- bumps ``revision`` without each caller
+        # having to remember to.
+        self._orthographic = False
         # Damping works on a *goal* the input moves and the camera chases.
         self._goal_theta = self.theta
         self._goal_phi = self.phi
@@ -53,6 +67,17 @@ class Camera:
         self._goal_target = self.target.copy()
 
     # -- derived state -----------------------------------------------------
+
+    @property
+    def orthographic(self) -> bool:
+        return self._orthographic
+
+    @orthographic.setter
+    def orthographic(self, value: bool) -> None:
+        value = bool(value)
+        if value != self._orthographic:
+            self._orthographic = value
+            self.revision += 1
 
     @property
     def position(self) -> np.ndarray:
@@ -124,6 +149,10 @@ class Camera:
         """
         self.theta, self.phi = theta, phi
         self._goal_theta, self._goal_phi = theta, phi
+        # See ``revision``'s docstring in ``__init__``: a snap that lands
+        # already-settled needs its own signal since ``settled()`` cannot
+        # tell "just arrived" from "never left".
+        self.revision += 1
 
     # -- framing -----------------------------------------------------------
 

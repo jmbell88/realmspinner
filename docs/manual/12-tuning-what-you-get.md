@@ -98,8 +98,8 @@ not offered rather than being offered and disappointing.
 
 ## Re-texturing
 
-A finished mesh can be repainted. Describe the surface you want, and six sampling passes around two
-Blender renders produce a new texture on the same geometry.
+A finished mesh can be repainted. Describe the surface you want, and ten sampling passes, one per rendered view,
+produce a new texture on the same geometry.
 
 Two settings matter. **Restyle strength** — from 0.30 to 0.85, defaulting to 0.65 — is how far it
 departs from what is there. And **Anchor to geometry (depth)**, which is **on by default and should stay on**: it

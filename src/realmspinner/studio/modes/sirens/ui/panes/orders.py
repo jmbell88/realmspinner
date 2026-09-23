@@ -273,7 +273,14 @@ def _order(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
                 sirens_mode.request_rerender(ctx, tab)
             break
 
-    changed, value = controls.checkbox("Loop the song", looping)
+    # ``enabled=editable`` (the 2026-09-23 audit, finding sirens-02): every
+    # other control in this pane refuses while the song is mid-save
+    # (``pattern_room``, the reorder/retarget/drop buttons, "Loop from" below),
+    # but this checkbox had no such gate, so toggling it while ``set_song`` was
+    # already in flight raced the in-flight write.
+    changed, value = controls.checkbox(
+        "Loop the song", looping, enabled=editable, reason=_BUSY_WHY
+    )
     if changed and doc.set_song(loop_order=0 if value else -1):
         sirens_mode.request_rerender(ctx, tab)
     if not looping:

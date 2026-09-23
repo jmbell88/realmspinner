@@ -170,6 +170,12 @@ class PreviewDiff:
     mesh_changed: set[int] = field(default_factory=set)
     transform_changed: set[int] = field(default_factory=set)
     props_changed: dict[int, set[str]] = field(default_factory=dict)
+    # The 2026-09-23 audit's clay-02: kept apart from ``props_changed`` rather
+    # than folded into ``_PROP_FIELDS`` because ``set_props`` refuses
+    # ``parent`` by name -- see that tuple's own comment -- so this needs its
+    # own leg through ``set_parent`` in :func:`transplant`. Maps a reparented
+    # uid to its *new* parent (``None`` for "became a root").
+    parent_changed: dict[int, int | None] = field(default_factory=dict)
     order_changed: bool = False
     materials_changed: bool = False
 
@@ -181,7 +187,13 @@ class PreviewDiff:
     @property
     def changed(self) -> set[int]:
         """Every uid the preview touches at all, added ones included."""
-        return self.added | self.mesh_changed | self.transform_changed | set(self.props_changed)
+        return (
+            self.added
+            | self.mesh_changed
+            | self.transform_changed
+            | set(self.props_changed)
+            | set(self.parent_changed)
+        )
 
     @property
     def empty(self) -> bool:
@@ -191,6 +203,7 @@ class PreviewDiff:
             or self.mesh_changed
             or self.transform_changed
             or self.props_changed
+            or self.parent_changed
             or self.order_changed
             or self.materials_changed
         )
@@ -220,13 +233,21 @@ class PreviewDiff:
 # ``_refuse_if_locked`` and could overwrite a locked object's seams or
 # modifier stack from an agent preview.
 #
-# ``parent`` is deliberately absent: :meth:`~.document.ClayDoc.set_props`
+# ``parent`` is deliberately absent from this tuple: :meth:`~.document.ClayDoc.set_props`
 # refuses it by name ("use set_parent"), so adding it here would make
 # :func:`transplant` raise on the very first scratch run that reparented
-# anything. A scratch-run reparent is consequently a known gap this module
-# does not close -- :func:`diff` never reports it and :func:`transplant`
-# never carries it over -- tracked for whoever gives ``transplant`` its own
-# ``set_parent`` path the way it already has one for ``set_transform``.
+# anything. :func:`diff` tracks a reparent separately, in its own
+# ``parent_changed`` field, and :func:`transplant` carries it through
+# :meth:`~.document.ClayDoc.set_parent` -- see :func:`diff`'s and
+# :func:`transplant`'s own docstrings. Until the 2026-09-23 audit's clay-02,
+# this was a known, undocumented gap instead: a scratch run that reparented
+# an object under ``keep_world=True`` recomputes the object's local TRS
+# relative to its *new* parent's frame (see ``document.set_parent``'s own
+# docstring), and that recomputed TRS *did* flow through
+# ``transform_changed``/``set_transform`` below, landing the new-parent-
+# relative numbers on an object Apply left under its *old* parent -- the
+# object jumped the instant Apply ran, even though the preview picture the
+# user approved showed it standing still.
 _PROP_FIELDS = (
     "name", "visible", "generator", "params", "material", "modifiers",
     "tags", "locked", "seams", "role", "collider_kind",
@@ -252,6 +273,7 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
     mesh_changed: set[int] = set()
     transform_changed: set[int] = set()
     props_changed: dict[int, set[str]] = {}
+    parent_changed: dict[int, int | None] = {}
     for uid in common:
         b, s = base.by_uid(uid), scratch.by_uid(uid)
         if b.mesh is not s.mesh:
@@ -265,6 +287,11 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
         changed_fields = {f for f in _PROP_FIELDS if getattr(b, f) != getattr(s, f)}
         if changed_fields:
             props_changed[uid] = changed_fields
+        # The 2026-09-23 audit's clay-02: tracked apart from ``props_changed``
+        # -- see ``_PROP_FIELDS``'s own comment for why ``parent`` cannot sit
+        # in that tuple.
+        if b.parent != s.parent:
+            parent_changed[uid] = s.parent
 
     order_changed = [u for u in base_uids if u in common] != [
         u for u in scratch_uids if u in common
@@ -279,6 +306,7 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
         mesh_changed=mesh_changed,
         transform_changed=transform_changed,
         props_changed=props_changed,
+        parent_changed=parent_changed,
         order_changed=order_changed,
         materials_changed=materials_changed,
         base_head=base.history.head,
@@ -377,6 +405,30 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
         if diff_.added:
             added_objs = [scratch.by_uid(uid) for uid in diff_.added]
             doc.add_objects(added_objs)
+
+        for uid, new_parent in diff_.parent_changed.items():
+            if uid in diff_.added:
+                # An added object already carries its final ``parent`` --
+                # ``add_objects`` above placed it there directly, so there is
+                # no existing document link for ``set_parent`` to move.
+                continue
+            # The 2026-09-23 audit's clay-02: reparenting here with
+            # ``keep_world=False`` moves only the ``parent`` link, leaving
+            # the object's local TRS exactly as it sits on the real document
+            # right now -- the transform_changed loop just below then
+            # overwrites that TRS with the scratch's own local numbers, which
+            # were computed relative to this *same* new parent (the scratch
+            # run reparented under ``keep_world=True``, see ``_PROP_FIELDS``'s
+            # comment above). Doing both in this order reproduces exactly
+            # what the preview showed; doing only the transform half, as
+            # before this fix, landed the new parent's local numbers on an
+            # object that was still hanging under its old parent and the
+            # object visibly jumped. Tolerated the same way a removed or
+            # relocked base object is elsewhere in this function: the base
+            # object, or the intended new parent, may have been locked or
+            # removed since the preview was shown.
+            with contextlib.suppress(el.OpError):
+                doc.set_parent(uid, new_parent, keep_world=False)
 
         touched = (diff_.mesh_changed | set(diff_.props_changed)) - diff_.added
         for uid in touched:

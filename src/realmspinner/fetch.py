@@ -157,7 +157,19 @@ def entries() -> list[Entry]:
     """
     out: list[Entry] = []
     for kind in KINDS:
-        for key, spec in kind.table.items():
+        # The 2026-09-15 audit's service-04 fixed doctor's own copy of this
+        # bug but not this one: ``models.STYLE_LORAS`` mutates in place from
+        # whichever thread runs a LoRA import while this door (and the frame
+        # thread drawing the download panel through it) reads it, so walking
+        # ``kind.table.items()`` live risked "dict changed size during
+        # iteration" (the 2026-09-23 audit, finding service-04). Snapshot
+        # only the one table that is actually mutated live, by identity
+        # rather than by key name, so a future live table needs no second
+        # special case here.
+        table = (
+            models.style_loras_snapshot() if kind.table is models.STYLE_LORAS else kind.table
+        )
+        for key, spec in table.items():
             out.append(Entry(kind.key, key, spec.label, spec))
     return out
 

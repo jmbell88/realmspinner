@@ -239,6 +239,15 @@ class IndexedOps:
             return False
         frame = anim.frames[index]
         wanted = None if not colours else [tuple(c) for c in colours]
+        # The 2026-09-23 audit, finding inker-05: unlike set_palette (above),
+        # this door had no MAX_COLOURS ceiling, so an oversized table saved
+        # here would round-trip through a save/load and only crash later, on
+        # the scrub that materialises it. Not reachable through the UI today
+        # -- the palette panel already caps what it offers, and ora.py/asein.py
+        # cap on read -- but a caller off the UI (an agent tool, a script) had
+        # no refusal at the door itself.
+        if wanted is not None and len(wanted) > ixp.MAX_COLOURS:
+            raise ValueError(f"a palette holds at most {ixp.MAX_COLOURS} colours")
         before = anim.frame_palette(frame.uid)
         if wanted == before:
             return False

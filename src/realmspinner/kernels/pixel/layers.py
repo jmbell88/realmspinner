@@ -361,8 +361,22 @@ class LayerStack:
 
     def move(self, index: int, to: int) -> int:
         to = max(0, min(int(to), len(self.layers) - 1))
-        layer = self.layers.pop(index)
-        self.layers.insert(to, layer)
+        # The 2026-09-23 audit, finding inker-02: this docstring's own class
+        # comment ("Only the bottom layer may carry it; LayerStack is the one
+        # place that rule is enforced") was aspirational -- nothing here
+        # actually checked it, so a drag could leave a background layer
+        # mid-stack (still forced opaque by the composite) or push another
+        # layer to the bottom out from under it, displacing the background
+        # layer to a row that no longer reads ``has_background``. Simulated
+        # first so a refused move leaves ``self.layers`` untouched, the same
+        # atomicity ``insert``/``remove`` give their own refusals.
+        simulated = list(self.layers)
+        layer = simulated.pop(index)
+        simulated.insert(to, layer)
+        for row_index, row in enumerate(simulated):
+            if row_index != 0 and getattr(row, "background", False):
+                raise ValueError("a background layer must stay at the bottom of the stack")
+        self.layers = simulated
         self.active_index = to
         return to
 

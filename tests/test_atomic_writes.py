@@ -1,7 +1,12 @@
 """A destination the user picked is never truncated to write it.
 
-``core/safeio/atomic.py``, and the rule it exists for. There are twenty-two
-``dialogs.save_file`` sites in ``studio/``; every one writes to a path the user
+``core/safeio/atomic.py``, and the rule it exists for. There are dozens of
+``dialogs.save_file`` sites across the package -- the exact count is this
+file's own job to hold, not a number written into a docstring: the 2026-09-23
+audit's packwright-03 found the fixed figure ``atomic.py`` used to cite
+already stale against this module's parametrized sweep, which counted 31 the
+day that was noticed. A citation nobody re-checks is worse than no citation,
+so neither docstring names a count any more; every one writes to a path the user
 named, and a path the user named is one they may well have named before --
 "export it again over the last one" is the ordinary case, not the odd one.
 ``Path.write_bytes`` and ``Image.save`` both truncate before they write a byte,

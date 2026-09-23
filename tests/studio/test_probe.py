@@ -32,7 +32,13 @@ from realmspinner.studio import controls, probe
 #: had nowhere to route a disabled ``reason`` through -- now it takes one and
 #: goes through ``_button_with_note`` like its two siblings, so its click is
 #: self-recorded rather than raw.
-RAW_IMGUI_CONTROLS = 9
+#:
+#: Lowered 8 <- 9 by the 2026-09-23 audit (finding shell-05):
+#: ``widgets._glyph_button`` drew its own raw ``imgui.button`` with no
+#: ``probe.record`` at all, which is how an ICON-tier toolbar item's disabled
+#: ``reason`` had nowhere to go -- now it takes one and records itself, so its
+#: click is self-recorded rather than raw.
+RAW_IMGUI_CONTROLS = 8
 
 _RAW_WIDGETS = {
     "button",

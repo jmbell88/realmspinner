@@ -79,6 +79,19 @@ MAX_RENDER_SECONDS = 600
 #: is its loop point, and samples past it would make the seam audible.
 TAIL_SECONDS = 2.0
 
+#: The widest a voice's note is allowed to drift before it is clamped -- far
+#: past the playable range (``notes.MAX_NOTE`` is 119) but well under where
+#: ``notes.frequency``'s ``2 ** x`` stops being finite in a float64 (empirically
+#: around note 12300; ``math.pow`` starts raising ``OverflowError`` outright
+#: around note 100000). The 2026-09-23 audit, finding sirens-01: a persistent
+#: slide or portamento (``1xx``/``2xx``/``3xx``) left running for about 80
+#: seconds pushed ``voice.note`` past that point, ``notes.frequency()`` returned
+#: ``inf``, the phase accumulator built from it went non-finite, and
+#: ``math.fmod`` raised on the next tick -- aborting every render and export of
+#: that song, permanently, since the effect is baked into every row after the
+#: one that set it.
+_NOTE_CLAMP = 2000.0
+
 #: What the noise channel's note column means. The 2A03 has sixteen fixed noise
 #: rates and no way to play a scale; with those limits gone the useful thing is
 #: for the keyboard to sweep the timbre, so a note picks the register clock as a
@@ -298,6 +311,14 @@ def _advance(voice: Voice) -> None:
             voice.note = min(voice.target, voice.note + step)
         else:
             voice.note = max(voice.target, voice.note - step)
+    # Clamped every tick, not just where it is set: a slide is persistent (see
+    # the module docstring) and a target left un-clamped by a hand-edited
+    # ``.rsng`` would otherwise carry the same overflow through portamento.
+    # See sirens-01's comment on ``_NOTE_CLAMP`` above.
+    if voice.note > _NOTE_CLAMP:
+        voice.note = _NOTE_CLAMP
+    elif voice.note < -_NOTE_CLAMP:
+        voice.note = -_NOTE_CLAMP
     if voice.volume_slide:
         voice.column_volume = max(
             0.0, min(float(inst.MAX_VOLUME), voice.column_volume + voice.volume_slide)

@@ -1004,11 +1004,23 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
     # stack in the same step: its modifiers are now baked into what this
     # absorbed, so leaving them in place would apply them a second time the
     # next time the target was drawn.
-    mesh = ops_boolean.boolean(
-        [replace(doc.by_uid(u), mesh=doc.evaluated(u)) for u in targets],
-        kind,
-        world=[doc.world_matrix(u) for u in targets],
-    )
+    # The 2026-09-23 audit, finding clay-17: ``ops_boolean.boolean`` raises
+    # ``OpError`` when a target is not a closed solid, and left uncaught that
+    # reached ``call()``'s generic backstop (``dispatch.py``'s
+    # ``except OpError as error: return fail(str(error))``), which carries no
+    # ``field``/``uids`` -- unlike this same handler's lock refusal just
+    # above (clay-22, 2026-09-22) and ``_h_delete``/``_h_material``/
+    # ``_h_set_params``. Caught here and re-raised the same shape, so an
+    # agent gets the same "which control" pointer every other boolean
+    # refusal already gives it.
+    try:
+        mesh = ops_boolean.boolean(
+            [replace(doc.by_uid(u), mesh=doc.evaluated(u)) for u in targets],
+            kind,
+            world=[doc.world_matrix(u) for u in targets],
+        )
+    except OpError as error:
+        return fail(str(error), field="uids", uids=targets)
     doc.join_objects(targets[0], mesh, targets[1:])
     # clay-08 (2026-09-08 audit), the same pop ``clay_ops._join``/``_union``
     # make: the objects a boolean absorbs must not leave their manifold-check

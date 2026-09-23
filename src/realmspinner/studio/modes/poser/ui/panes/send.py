@@ -360,10 +360,15 @@ def _size(state: PoserSend, options: dict[str, Any]) -> None:
         lo, hi = options.get("logical_size_range") or (8, 256)
         _changed, value = controls.input_int("##poser-send-size", int(state.logical_size))
         state.logical_size = max(int(lo), min(int(hi), int(value)))
-        if state.logical_size and charsheet.RENDER_SIZE % state.logical_size != 0:
-            widgets.muted_wrapped(
-                "Sizes that don't divide 512 are resized with nearest-neighbour."
-            )
+    # Outside the custom-only branch on purpose: the 2026-09-23 audit
+    # (poser-07) found this hint gated on ``state.custom_size``, so a preset
+    # that also fails to divide 512 -- 24, 48 and 96 among the ladder's own
+    # choices -- was NEAREST-resized with no warning at all, while typing
+    # that same number by hand got one.
+    if state.logical_size and charsheet.RENDER_SIZE % state.logical_size != 0:
+        widgets.muted_wrapped(
+            "Sizes that don't divide 512 are resized with nearest-neighbour."
+        )
 
 
 def _front_helper(front_yaw: float) -> str:

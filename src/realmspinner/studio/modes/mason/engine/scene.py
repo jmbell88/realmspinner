@@ -177,6 +177,7 @@ __all__ = [
     "NodePool",
     "Placed",
     "resolve",
+    "resolved_count",
     "resolved_for",
     "walk",
     "world_bounds",
@@ -439,6 +440,50 @@ def _walk_segment(
         )
 
 
+def resolved_count(doc: MasonDoc, roots: Sequence[Node]) -> int:
+    """How many items :func:`walk` would visit over ``roots`` under ``doc``'s
+    current prefab table -- groups included, since that is the exact basis
+    ``walk``'s own ``max_items`` ceiling (``_bounded``) counts from, not the
+    smaller, group-filtered count :func:`resolve` returns. ``roots`` need not
+    already be attached to ``doc``: prefab expansion only ever reads
+    ``doc.prefabs``, never ``doc.roots``, so this also answers "how much
+    would attaching these add" -- see :meth:`~.document.MasonDoc.resolved_growth`.
+
+    The 2026-09-23 audit's mason-01: a placed :class:`~.nodes.PrefabNode`
+    instance costs the scene *tree* exactly one node, but it expands into its
+    whole template subtree (and, transitively, whatever prefab that template
+    itself places) every time the scene draws, exports or is picked. Nothing
+    on the write side ever charged that expanded size, so a run of
+    individually-guarded placements -- each comfortably under
+    :data:`MAX_PLACED` on the tree side -- could still push what the scene
+    *resolves to* past the ceiling, at which point ``resolve`` (and every
+    other caller of :func:`walk`) refuses for good: the viewport draws
+    nothing, export and picking stop, on a document that still saves and
+    reopens clean. This function gives a write-side caller the same count
+    ``walk`` would enforce, before anything is attached.
+    """
+    count = 0
+
+    def visit(*_args: Any) -> None:
+        nonlocal count
+        count += 1
+
+    _walk_segment(
+        list(roots),
+        doc,
+        visit,
+        include_hidden=False,
+        expand_prefabs=True,
+        parent_path=(),
+        owner=None,
+        prefab="",
+        inherited=_IDENTITY_STATE,
+        prefab_chain=frozenset(),
+        prefab_depth=0,
+    )
+    return count
+
+
 def resolve(
     doc: MasonDoc, *, include_hidden: bool = False, max_items: int = MAX_PLACED
 ) -> list[Placed]:
@@ -462,6 +507,15 @@ def resolve(
     real sentence naming the count and the ceiling, not a scene that is
     quietly missing its last few thousand props with nothing on screen to say
     so.
+
+    The 2026-09-23 audit's mason-02: this used to call :func:`walk` with no
+    ``max_items`` of its own, so ``walk``'s own default -- the module's
+    :data:`MAX_PLACED`, not whatever this function was handed -- was what
+    actually bounded the traversal. A caller that raised its own ceiling
+    above the module default (a batch export with a deliberately larger
+    budget, say) was refused at the *lower*, module number instead, with a
+    sentence naming the number it never asked for. Forwarded here so this
+    function's own parameter is the one that governs.
     """
     out: list[Placed] = []
 
@@ -492,7 +546,7 @@ def resolve(
             )
         )
 
-    walk(doc, visit, include_hidden=include_hidden, expand_prefabs=True)
+    walk(doc, visit, include_hidden=include_hidden, expand_prefabs=True, max_items=max_items)
     return out
 
 

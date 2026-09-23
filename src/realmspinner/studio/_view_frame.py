@@ -139,15 +139,27 @@ class FrameOps:
     def _frame_unchanged(self: Any, key: Any) -> bool:
         """Whether this frame can be skipped and the last texture reused (B13).
 
-        Four questions, and all four have to answer: the caller's key covers
+        Five questions, and all five have to answer: the caller's key covers
         everything about the document and the view settings that decides the
         picture, ``_render_dirty`` covers the input that does not show up in a
         key (hover, marquee, a live drag), the camera answers for itself
         because an eased move is still moving after the edit that started it,
-        and a viewport with no texture yet has nothing to return.
+        a viewport with no texture yet has nothing to return, and the
+        camera's ``revision`` catches the moves ``settled()`` cannot: the
+        2026-09-23 audit's create-03 found an axis-view key (Ctrl+1/3/7) and
+        the orthographic toggle (Ctrl+5) both *snap* rather than ease, so
+        ``settled()`` is true again the instant they land and the frame read
+        as unmoved -- the shortcut did nothing on screen until an unrelated
+        input forced a redraw. Comparing ``revision`` here, once, fixes it for
+        every viewport this mixin serves instead of each caller remembering
+        to set ``_render_dirty`` by hand.
         """
+        revision = self.camera.revision
+        moved = revision != getattr(self, "_last_camera_revision", revision)
+        self._last_camera_revision = revision
         return (
-            not self._render_dirty
+            not moved
+            and not self._render_dirty
             and key == self._last_render_key
             and self.camera.settled()
             and self.viewport.texture is not None

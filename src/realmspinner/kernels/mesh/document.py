@@ -2107,6 +2107,17 @@ def to_primitives(
 _PLANS: weakref.WeakKeyDictionary[bm.Mesh, list[tuple[int, bm.RenderLayout]]] = (
     weakref.WeakKeyDictionary()
 )
+# The 2026-09-23 audit's clay-12: unsynchronized on the same false premise
+# ``mesh.py``'s ``_RAW_CACHE`` carried before the 2026-09-12 audit's clay-04
+# gave it a lock -- that every caller runs on the frame thread. A ``Mesh`` is
+# shared, not copied, between the live document and a Familiar scratch
+# preview (``kernels/mesh/scratch.py``'s ``clone``), and the scratch batch
+# runs off the frame thread on ``realmspinner-task``, so a call to
+# :func:`render_plan` for the same mesh from both sides can race this dict's
+# get/set. Mirrors ``adjacency._CACHE_LOCK``: an uncontended acquire around a
+# dict lookup, next to the numpy pass this function already does when it
+# actually builds something.
+_PLANS_LOCK = threading.Lock()
 
 
 def render_plan(mesh: bm.Mesh) -> list[tuple[int, bm.RenderLayout]]:
@@ -2121,22 +2132,27 @@ def render_plan(mesh: bm.Mesh) -> list[tuple[int, bm.RenderLayout]]:
     duration, so this is built on the first preview frame and reused by every
     frame after it.
     """
-    got = _PLANS.get(mesh)
-    if got is None:
-        got = [
-            (int(index), bm.render_layout(_submesh(mesh, np.flatnonzero(mesh.material == index))))
-            for index in np.unique(mesh.material)
-        ]
-        for _index, layout in got:
-            # Read-only for ``cached_triangulation``'s reason: this is handed
-            # to a different caller on every frame of a drag, and the index
-            # buffer in particular goes straight out in a ``Primitive``.
-            for field in fields(layout):
-                value = getattr(layout, field.name)
-                if isinstance(value, np.ndarray):
-                    value.setflags(write=False)
-        _PLANS[mesh] = got
-    return got
+    with _PLANS_LOCK:
+        got = _PLANS.get(mesh)
+        if got is None:
+            got = [
+                (
+                    int(index),
+                    bm.render_layout(_submesh(mesh, np.flatnonzero(mesh.material == index))),
+                )
+                for index in np.unique(mesh.material)
+            ]
+            for _index, layout in got:
+                # Read-only for ``cached_triangulation``'s reason: this is
+                # handed to a different caller on every frame of a drag, and
+                # the index buffer in particular goes straight out in a
+                # ``Primitive``.
+                for field in fields(layout):
+                    value = getattr(layout, field.name)
+                    if isinstance(value, np.ndarray):
+                        value.setflags(write=False)
+            _PLANS[mesh] = got
+        return got
 
 
 def preview_primitives(

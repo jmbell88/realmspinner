@@ -780,7 +780,17 @@ class _Reader:
             raise ValueError(
                 f"{what} is {index}, but this GLB declares {len(accessors)} accessor(s)"
             )
-        return accessors[index]
+        entry = accessors[index]
+        # The 2026-09-23 audit's clay-09: an in-range index into ``accessors``
+        # still let a non-dict entry (``null``, a string, a list) through to
+        # every caller's ``.get(...)``/subscript reads, raising a bare
+        # ``AttributeError``/``TypeError`` instead of the named ``ValueError``
+        # this loader's every other malformed-shape boundary raises
+        # (``_check_dict_entry``, already used by ``primitive()``/
+        # ``material()``/``skin()``/``node()`` for the same reason one layer
+        # up).
+        _check_dict_entry(entry, f"accessor {index} in this GLB's \"accessors\" array")
+        return entry
 
     def _decode_accessor(self, index: int) -> np.ndarray:
         acc = self._accessor_entry(index)
@@ -857,6 +867,12 @@ class _Reader:
                 f"declares {len(buffer_views)} bufferView(s)"
             )
         view = buffer_views[bv]
+        # The 2026-09-23 audit's clay-09: a non-dict ``bufferViews`` entry
+        # reached ``_check_buffer``'s ``view.get(...)`` as a bare
+        # ``AttributeError`` instead of the named ``ValueError`` this
+        # boundary otherwise raises (see ``_accessor_entry`` just above for
+        # the same gap one layer up).
+        _check_dict_entry(view, f"bufferView {bv} in this GLB's \"bufferViews\" array")
         self._check_buffer(view)
         # The 2026-09-20 audit, finding clay-17: these three fields used to
         # reach arithmetic with no numeric type check at all. A string
@@ -1005,7 +1021,19 @@ class _Reader:
 
     def primitive(self, prim: dict, materials: list[Material]) -> Primitive:
         _check_dict_entry(prim, "a primitive in a mesh's \"primitives\" array")
+        # The 2026-09-23 audit's clay-10: read with no isinstance check, so a
+        # primitive whose "attributes" is legal JSON but not an object (a
+        # list, a string, null) reached the "POSITION" membership test and
+        # every ``attrs["..."]`` read below on the wrong-shaped value -- for
+        # a list, that surfaces as a confusing "POSITION" not being a member
+        # rather than the missing-POSITION refusal just below; for most other
+        # shapes it is a bare ``TypeError``. Falls back to ``{}`` the same
+        # way ``camera()``/``light()`` already do for their own sub-blocks
+        # (``persp``/``spot``), so a primitive with no attributes at all and
+        # one with a malformed "attributes" are refused by the same,
+        # already-named "no POSITION" message.
         attrs = prim.get("attributes", {})
+        attrs = attrs if isinstance(attrs, dict) else {}
         if "POSITION" not in attrs:
             raise ValueError("a primitive with no POSITION is not renderable")
         if prim.get("mode", 4) != 4:
@@ -1134,7 +1162,13 @@ class _Reader:
 
     def material(self, mat: dict) -> Material:
         _check_dict_entry(mat, "a material in this GLB's \"materials\" array")
+        # The 2026-09-23 audit's clay-10: read with no isinstance check, so a
+        # material whose "pbrMetallicRoughness" is legal JSON but not an
+        # object reached every ``pbr.get(...)`` read below as a bare
+        # ``AttributeError``. Falls back to ``{}`` the same way
+        # ``camera()``/``light()`` already do for their own sub-blocks.
         pbr = mat.get("pbrMetallicRoughness", {})
+        pbr = pbr if isinstance(pbr, dict) else {}
         out = Material(
             name=mat.get("name", ""),
             base_color_factor=_factor(
@@ -1202,6 +1236,12 @@ class _Reader:
                     f"declares {len(buffer_views)} bufferView(s)"
                 )
             view = buffer_views[bv]
+            # The 2026-09-23 audit's clay-09: a non-dict ``bufferViews`` entry
+            # reached ``.get(...)`` a few lines down (this function's own
+            # ``view.get("byteOffset", 0)``) and inside ``_check_buffer`` as a
+            # bare ``AttributeError`` instead of the named ``ValueError``
+            # this loader's every other malformed-shape boundary raises.
+            _check_dict_entry(view, f"bufferView {bv} in this GLB's \"bufferViews\" array")
             try:
                 self._check_buffer(view)
             except Exception as exc:
@@ -1269,6 +1309,11 @@ class _Reader:
                 f"declares {len(textures)} texture(s)"
             )
         tex = textures[index]
+        # The 2026-09-23 audit's clay-09: a non-dict ``textures`` entry
+        # reached ``"source" not in tex``/``tex["source"]`` just below as a
+        # bare ``TypeError`` instead of the named ``ValueError`` this
+        # loader's every other malformed-shape boundary raises.
+        _check_dict_entry(tex, f"texture {index} in this GLB's \"textures\" array")
         # The 2026-09-08 audit's clay-04: a textures[] entry with no "source"
         # key is legal per the glTF 2.0 schema (a texture may carry only a
         # sampler), and indexing straight into it used to raise a bare
@@ -1293,6 +1338,12 @@ class _Reader:
         if source in self._images:
             return self._images[source]
         image = images[source]
+        # The 2026-09-23 audit's clay-09: a non-dict ``images`` entry reached
+        # ``_image_bytes``'s ``"bufferView" in image``/``.get(...)`` reads as
+        # a bare ``TypeError``/``AttributeError`` instead of the named
+        # ``ValueError`` this loader's every other malformed-shape boundary
+        # raises.
+        _check_dict_entry(image, f"image {source} in this GLB's \"images\" array")
         data = self._image_bytes(image)
         if data is None:
             self._images[source] = None

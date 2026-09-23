@@ -720,11 +720,19 @@ def _reset(ctx: Any) -> None:
     added later is reset by having been added rather than by somebody
     remembering this function -- and so the seed is *rerolled* rather than
     zeroed, which is what that default does and why it is a function.
+
+    ``state.preview`` is a shared dict, not a 2D-owned one: the Pose stage
+    keeps poses/sheets/bones/``library_poses`` there and the Mesh pane keeps
+    ``_LAST_AUTO_MATTE_SLOT`` there. The 2026-09-23 audit (create-01) found
+    this function doing ``ctx.state.preview = {}``, which wiped all of that
+    on a Reset the confirm dialog promises is 2D-only ("The 3D form is
+    untouched"). Pop only the keys this pane itself writes.
     """
     from .....state import default_form_2d
 
     ctx.state.form_2d = default_form_2d()
-    ctx.state.preview = {}
+    ctx.state.preview.pop(TILE_MODE_CLEARED_KEY, None)
+    ctx.state.preview.pop(CLEARED_KEY, None)
     ctx.toast("The image settings are back to their defaults.")
 
 def _history(ctx: Any, form: dict[str, Any]) -> None:

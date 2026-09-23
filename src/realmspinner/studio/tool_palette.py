@@ -131,5 +131,13 @@ def icon_grid(
             imgui.set_tooltip(tooltip)
         if index % columns != columns - 1:
             imgui.same_line()
-    imgui.new_line()
+    # The 2026-09-23 audit (finding shell-11): when the last row is full
+    # (``len(items)`` a clean multiple of ``columns``), that row's final item
+    # never called ``same_line``, so the cursor is already on the line below
+    # it by the time the loop ends -- and an unconditional ``new_line()``
+    # here opened a second, blank one under that. Only a *partial* last row
+    # leaves the cursor parked mid-line (the last ``same_line`` call with no
+    # item to follow it) and needs this to close it out.
+    if items and len(items) % columns != 0:
+        imgui.new_line()
     return clicked

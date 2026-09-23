@@ -663,7 +663,18 @@ def _layouts(ctx: Any) -> None:
             )
         )
     imgui.same_line()
-    if controls.button("Reset", (width, 0)):
+    if widgets.disabled_button(
+        "Reset",
+        library.layouts[library.active].readable,
+        (width, 0),
+        reason=(
+            # 2026-09-23 audit, shell-01: this button was always enabled and
+            # library.reset() had no readable check, so one press silently
+            # rewrote a newer build's layout with a fresh built-in one.
+            f'"{library.active}" was saved by a newer version of Realmspinner '
+            "and can't be reset here -- update to change it."
+        ),
+    ):
         library.reset()
         ctx.toast(f"{library.active} is back to the built-in arrangement.")
     if widgets.disabled_button(

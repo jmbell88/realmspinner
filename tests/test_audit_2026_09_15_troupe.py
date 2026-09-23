@@ -4,9 +4,15 @@ One module for the findings whose fix is a behaviour change with no existing
 test file of its own to sit beside (troupe-03, troupe-05, troupe-08,
 service-07). troupe-01, troupe-02 and troupe-04 have their regressions beside
 the code they fix (``tests/modes/troupe/test_ulpc.py``,
-``tests/service/test_pixel_sheet_service.py`` and ``tests/modes/troupe/test_troupe_imports.py``
-respectively); troupe-06, troupe-07 and troupe-09 are docstring-only and carry
-no regression test, per the orchestrator's note for this batch.
+``tests/service/test_pixel_sheet_service.py`` and
+``tests/modes/troupe/test_troupe_imports.py`` respectively, at the time this
+was written); troupe-06, troupe-07 and troupe-09 are docstring-only and carry
+no regression test, per the orchestrator's note for this batch. P9
+(2026-09-18) folded Troupe into Poser as a stage and deleted
+``modes/troupe/``, so the first and third of those paths now live at
+``tests/modes/poser/test_ulpc.py`` and
+``tests/modes/poser/test_poser_engine_imports.py`` (the 2026-09-23 audit,
+finding poser-08).
 """
 
 from __future__ import annotations

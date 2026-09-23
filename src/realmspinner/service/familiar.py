@@ -74,6 +74,34 @@ def _reason_for(message: str) -> str:
         return "missing"
     if "did not become healthy in time" in message:
         return "unhealthy"
+    if "was stopped during startup" in message:
+        # The 2026-09-23 audit (familiar-02): ``ensure_started``'s health
+        # poll raises this exact sentence when it finds ``self._proc`` gone
+        # mid-poll -- and the only thing that clears ``_proc`` out from under
+        # a poll in progress is ``stop_for_gpu_job`` (see that method's own
+        # docstring), which sets ``_leased = True`` first. That is a lease
+        # taken, not an http-shaped failure; unmatched, it fell to "http" and
+        # the pane offered a retry instead of the lease story.
+        return "lease"
+    if "exited during startup" in message:
+        # The 2026-09-23 audit (familiar-02): the child process dying on its
+        # own during the health poll is the same "never became healthy"
+        # story as the timeout branch just above, and was unmatched here for
+        # the same reason -- the exact sentence only exists in
+        # ``ensure_started``'s poll loop, never in the timeout path.
+        return "unhealthy"
+    if "probably by an orphaned llama-server.exe" in message or (
+        "is held by" in message and "llama-server" in message
+    ) or "is still held after terminating pid" in message:
+        # The 2026-09-23 audit (familiar-02): every sentence ``_reclaim_port``
+        # raises (port already in use by an orphan, held by a foreign
+        # process, held by a llama-server this Realmspinner did not start,
+        # held by another still-running Realmspinner, or still held after
+        # terminating the orphan) means the same thing to a caller as
+        # "did not become healthy in time" -- the server could not be
+        # reached -- but matched none of the substrings above and fell to
+        # the generic "http" bucket.
+        return "unhealthy"
     if "has no key file" in message:
         # The 2026-09-20 audit (familiar-02): llama_client._headers raises
         # this RuntimeError when a chat lands after LlamaServer.stop() has

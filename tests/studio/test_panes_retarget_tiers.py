@@ -193,6 +193,9 @@ def test_a_retarget_warns_before_it_discards_a_remesh_report(monkeypatch):
     monkeypatch.setattr(
         retarget_panel.widgets, "text_colored", lambda *a, **k: calls.append(a)
     )
+    monkeypatch.setattr(
+        retarget_panel.widgets, "muted_wrapped", lambda *a, **k: None
+    )
     job = {
         "id": "job-1",
         "files": ["source.glb", "model.glb"],
@@ -208,6 +211,9 @@ def test_no_remesh_report_means_no_remesh_warning(monkeypatch):
     calls: list[tuple] = []
     monkeypatch.setattr(
         retarget_panel.widgets, "text_colored", lambda *a, **k: calls.append(a)
+    )
+    monkeypatch.setattr(
+        retarget_panel.widgets, "muted_wrapped", lambda *a, **k: None
     )
     job = {"id": "job-1", "files": ["source.glb", "model.glb"], "params": {}}
 

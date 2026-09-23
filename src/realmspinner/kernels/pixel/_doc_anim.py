@@ -217,8 +217,24 @@ class AnimOps:
 
     def _move_track(self: Document, track_uid: int, to: int) -> None:
         anim = self._require_anim()
-        track = anim.tracks.pop(anim.track_index(track_uid))
-        to = max(0, min(to, len(anim.tracks)))
+        index = anim.track_index(track_uid)
+        # The 2026-09-23 audit, finding inker-02 (follow-up): ``LayerStack.move``
+        # refuses a reorder that would leave a background track off the bottom
+        # row, but ``Document.move_layer`` calls this method directly for an
+        # animated document (``_move_row_edit``) rather than routing through
+        # ``self.stack.move`` -- so the still-document fix never reached the
+        # animated path and a drag on a Track Grid track could still strand a
+        # background track mid-stack. Simulated first, the same way
+        # ``LayerStack.move`` is, so a refused move leaves ``anim.tracks``
+        # untouched.
+        simulated = list(anim.tracks)
+        track = simulated.pop(index)
+        to = max(0, min(to, len(simulated)))
+        simulated.insert(to, track)
+        for row_index, row in enumerate(simulated):
+            if row_index != 0 and row.background:
+                raise ValueError("a background track must stay at the bottom of the grid")
+        anim.tracks.pop(index)
         anim.tracks.insert(to, track)
         self._anim_changed(active=to)
 

@@ -56,10 +56,12 @@ from typing import Any
 
 from . import verbs
 
-#: Every document-mode module lives flat under this package today. Isolating
-#: the prefix here is what changes, and only here, the day these modules fold
-#: into ``studio.modes.<name>`` (RESTRUCTURE.md's own future shape for this
-#: file: one manifest per mode package).
+#: Every document-mode module already lives nested, under
+#: ``studio.modes.<name>`` (see the ``module=`` entries below, each spelled
+#: ``"modes.<name>.mode"``) -- the 2026-09-23 audit (shell-08) found this
+#: docstring still describing the pre-restructure flat layout it predates.
+#: Isolating the prefix here is still what changes, and only here, the day
+#: that package boundary moves again.
 _PACKAGE = "realmspinner.studio"
 
 
@@ -70,8 +72,8 @@ class ModeManifest:
 
     #: The mode key, one of ``modes.KEYS``.
     key: str
-    #: The module (flat under :data:`_PACKAGE`) that owns ``active``,
-    #: ``JOURNAL`` and (for six of the seven) ``persist``.
+    #: The module (nested under :data:`_PACKAGE`, e.g. ``"modes.inker.mode"``)
+    #: that owns ``active``, ``JOURNAL`` and (for six of the seven) ``persist``.
     module: str
     #: The journal/document kind string. Equal to ``key`` for six of the
     #: seven; Poser's is ``"pose"`` -- a pose is authored in Poser, but

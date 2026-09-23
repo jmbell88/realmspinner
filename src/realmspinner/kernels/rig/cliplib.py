@@ -90,6 +90,19 @@ _user_clip_errors: dict[str, str] | None = None
 MAX_CLIP_LIBRARY_POSES = 1024
 MAX_CLIP_KEYS = 64
 
+#: A step's frame count, mirrored from ``service.clips.MIN_SEGMENT``/
+#: ``MAX_SEGMENT`` -- the write door's own numbers -- the same way
+#: :data:`MAX_CLIP_KEYS` above already tracks ``service.clips.MAX_KEYS``.
+#: The 2026-09-23 audit, finding poser-05: this read door checked neither a
+#: clip's segment *count* against its keys nor each segment's range, so a
+#: hand-edited or externally produced library with a ``segments`` list too
+#: short, too long, zero-length or absurdly large parsed clean and reached
+#: ``sheet.interpolate_clip`` only for whichever movement a layout happened
+#: to name -- everything else sat parsed-but-wrong until something rendered
+#: it.
+MIN_CLIP_SEGMENT = 1
+MAX_CLIP_SEGMENT = 64
+
 #: The versions :func:`parse_clip_library` understands. 2 is the shipped shape
 #: (no ``duration_ms``; timing lived in ``kernels.charsheet.ANIMATIONS``
 #: instead) and 3 adds it per clip -- see :data:`LEGACY_CLIP_DURATION_MS``.
@@ -307,6 +320,35 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
         missing = [k for k in keys if k not in poses]
         if missing:
             raise ValueError(f"clip {clip['name']!r} names {missing}")
+        # The 2026-09-23 audit, finding poser-05: ``service.clips._check_shape``
+        # (the write door) has always refused a segments list whose length
+        # does not match its keys and a segment outside 1-64 frames; this
+        # read door -- the one both the shipped files and a hand-edited or
+        # externally produced one pass through -- checked neither, so a file
+        # that never went through the editor's save could carry a mismatched
+        # or out-of-range ``segments`` and parse clean. Gated on
+        # ``len(keys) >= 2``, like the write door's own ``MIN_KEYS`` gate
+        # (this parser does not repeat ``MIN_KEYS`` itself -- a sub-2-key
+        # clip is a legal, if useless, filler shape several read-door tests
+        # already rely on, and ``sheet.interpolate_clip`` refuses one by name
+        # ("a clip needs at least two keyframes") the moment it is actually
+        # expanded, so nothing reaches the renderer unchecked).
+        closed = bool(clip.get("closed", False))
+        raw_segments = clip["segments"]
+        if len(keys) >= 2:
+            wanted = len(keys) if closed else len(keys) - 1
+            if len(raw_segments) != wanted:
+                raise ValueError(
+                    f'clip {name!r} is {"closed" if closed else "open"} with {len(keys)} keys, '
+                    f"so it needs {wanted} segment lengths, not {len(raw_segments)}"
+                )
+        segments = [int(n) for n in raw_segments]
+        for n in segments:
+            if not MIN_CLIP_SEGMENT <= n <= MAX_CLIP_SEGMENT:
+                raise ValueError(
+                    f"clip {name!r} has a segment of {n} frames; each is "
+                    f"{MIN_CLIP_SEGMENT}-{MAX_CLIP_SEGMENT}"
+                )
         if version >= 3:
             if "duration_ms" not in clip:
                 raise ValueError(f'clip {name!r} needs "duration_ms" in a version 3 library')
@@ -317,8 +359,8 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
         record: dict[str, Any] = {
             "name": name,
             "keys": keys,
-            "segments": [int(n) for n in clip["segments"]],
-            "closed": bool(clip.get("closed", False)),
+            "segments": segments,
+            "closed": closed,
             "easing": str(clip.get("easing") or "linear"),
             "space": space,
             "duration_ms": duration_ms,

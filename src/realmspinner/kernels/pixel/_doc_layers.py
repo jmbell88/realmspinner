@@ -380,7 +380,15 @@ class LayerOps:
         # A reorder can carry a row across a group boundary, and the tree has
         # to follow or the span it lands in stops being contiguous. Both are
         # one gesture and therefore one step.
-        edits: list[Any] = [self._move_row_edit(index, to)]
+        try:
+            edits: list[Any] = [self._move_row_edit(index, to)]
+        except ValueError:
+            # The 2026-09-23 audit, finding inker-02: LayerStack.move now
+            # refuses a reorder that would leave a background layer off the
+            # bottom row. Refuse the same way every other geometry refusal
+            # in this door already does -- False, nothing pushed, nothing
+            # changed -- rather than let the ValueError surface here.
+            return False
         if self.groups:
             order = self.member_uids()
             member = order[to]

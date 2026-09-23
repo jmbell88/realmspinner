@@ -129,7 +129,21 @@ def analyse(
     try:
         spec = blender_spec.clip_sample_spec(source, key, result_path, max_actions=MAX_ACTIONS)
         try:
-            payload = blender_run.run_worker(spec, timeout=svc.config.pose_timeout)
+            # The 2026-09-23 audit, finding poser-06: ``pose_timeout`` is
+            # sized (its own docstring in ``config.py`` says so) for one
+            # inline pose bake -- seconds, not minutes -- but a clip import
+            # samples up to ``MAX_ACTIONS`` actions of up to 900 frames each
+            # (``blender_spec.clip_sample_spec``'s own ``max_frames``) in the
+            # same subprocess call, the muse-02 shape: a job that can
+            # legitimately run long wearing a ceiling sized for a different,
+            # much smaller job. Scaled by the action ceiling rather than a
+            # second invented constant -- the true multiplier needs a card
+            # sampling a MAX_ACTIONS-action source to calibrate, the same way
+            # ``separation_timeout``'s own value was card-measured rather than
+            # guessed.
+            payload = blender_run.run_worker(
+                spec, timeout=svc.config.pose_timeout * MAX_ACTIONS
+            )
         except blender_run.BlenderError as exc:
             log.error("sampling %s for %s failed: %s", source, key, exc)
             raise Failed("That file could not be read by Blender") from exc

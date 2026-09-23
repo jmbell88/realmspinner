@@ -533,9 +533,21 @@ def _row(ctx: Any, state: Any, tab: Any, source: Any, editable: bool) -> None:
                 state.renaming = source.uid
         if imgui.begin_popup_context_item("src-menu"):
             widgets.popup_chrome(_imgui=imgui)
-            if controls.menu_item_simple(f"{icons.PENCIL} Rename") and editable:
+            # ``enabled=editable``, not ``and editable`` on the click: the
+            # 2026-09-23 audit's packwright-02 found these two menu items drawn
+            # fully enabled while a save was writing -- so a click during a
+            # save looked like it worked (the item highlighted, the popup
+            # closed) and silently did nothing, the exact "greyed with a
+            # reason" contract ``widgets.disabled_button`` already gives the
+            # Add buttons above. ``menu_item_simple`` folds ``enabled`` into
+            # its own return, so nothing else here has to gate the effect.
+            if controls.menu_item_simple(
+                f"{icons.PENCIL} Rename", enabled=editable, reason=widgets.DOCUMENT_SAVING_WHY
+            ):
                 state.renaming = source.uid
-            if controls.menu_item_simple("Remove") and editable:
+            if controls.menu_item_simple(
+                "Remove", enabled=editable, reason=widgets.DOCUMENT_SAVING_WHY
+            ):
                 packwright_mode.remove_source(ctx, source.uid, tab)
             imgui.end_popup()
     if selected and editable:

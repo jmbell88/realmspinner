@@ -528,7 +528,20 @@ def write_rmap_properties(props: dict[str, Prop]) -> dict[str, Any]:
     return {name: _rmap_record(props[name]) for name in sorted(props)}
 
 
-def _rmap_prop(name: str, record: Any) -> Prop:
+# A ``class``/``list`` property nests through Python recursion, one call frame
+# per level. The 2026-09-23 audit (finding plotter-01) found a hand-crafted
+# ``.rmap`` a few thousand levels deep raising a bare ``RecursionError`` out of
+# ``read_rmap`` -- and Library's "Edit in Plotter" door caught only
+# ``ValueError``, so opening the file crashed the window instead of toasting.
+# The cap is generous (well past anything a Tiled-authored property tree would
+# ever reach) but finite, so the read refuses cleanly instead of unwinding the
+# interpreter's own stack.
+_MAX_PROPERTY_DEPTH = 200
+
+
+def _rmap_prop(name: str, record: Any, depth: int = 0) -> Prop:
+    if depth > _MAX_PROPERTY_DEPTH:
+        raise ValueError(f"property {name!r} is nested too deeply")
     if not isinstance(record, dict):
         raise ValueError(f"property {name!r} is malformed")
     kind = str(record.get("type", "string"))
@@ -539,7 +552,10 @@ def _rmap_prop(name: str, record: Any) -> Prop:
             raise ValueError(f"property {name!r} is malformed")
         return Prop(
             "class",
-            {str(key): _rmap_prop(f"{name}.{key}", item) for key, item in raw.items()},
+            {
+                str(key): _rmap_prop(f"{name}.{key}", item, depth + 1)
+                for key, item in raw.items()
+            },
             propertytype=propertytype,
         )
     if kind == "list":
@@ -547,7 +563,10 @@ def _rmap_prop(name: str, record: Any) -> Prop:
             raise ValueError(f"property {name!r} is malformed")
         return Prop(
             "list",
-            [_rmap_prop(f"{name}[{index}]", item) for index, item in enumerate(raw)],
+            [
+                _rmap_prop(f"{name}[{index}]", item, depth + 1)
+                for index, item in enumerate(raw)
+            ],
             propertytype=propertytype,
         )
     if kind == "object":

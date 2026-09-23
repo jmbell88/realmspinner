@@ -186,6 +186,9 @@ class PoseEditor:
         # declines to push, because its 'before' describes a skeleton that is
         # no longer here.
         self._generation = 0
+        # A ``history.mark()`` token, open between ``begin_pose_load`` and
+        # ``end_pose_load``. See both methods below.
+        self._pending_pose_load_mark: int | None = None
 
     # -- binding -----------------------------------------------------------
 
@@ -358,6 +361,40 @@ class PoseEditor:
 
     def redo(self) -> bool:
         return self.history.redo(self)
+
+    def begin_pose_load(self) -> None:
+        """Open a merge window for a saved pose's several mutations.
+
+        The 2026-09-23 audit (create-02): ``Viewer.set_pose`` and
+        ``Viewer.set_root_translation`` used to call ``editor.apply`` and
+        ``editor.set_root_translation`` with no ``record()`` around either,
+        so neither pushed a step at all -- the only step a "load a saved
+        pose" gesture recorded was the ``reset_all`` its two callers
+        (``pose_panel._apply_saved_pose`` and
+        ``poser.mode.apply_asset_pose``) run first, and redoing that step
+        replayed only the reset, not the bones or the root offset loaded
+        after it. Both callers run ``set_pose`` immediately followed by
+        ``set_root_translation``, nothing else touching the editor between
+        them, so this call (from ``set_pose``) and :meth:`end_pose_load`
+        (from ``set_root_translation``) bracket exactly that pair into one
+        ``history.mark()``/``collapse_since`` fold -- one undo step for the
+        load, distinct from the ``reset_all`` step before it.
+
+        A stale mark left open by an earlier call that never reached
+        ``end_pose_load`` is folded (a no-op when it covers under two
+        steps) before a new one opens, so a forgotten close can only ever
+        swallow its own call's step, never a later, unrelated one.
+        """
+        if self._pending_pose_load_mark is not None:
+            self.history.collapse_since(self._pending_pose_load_mark)
+        self._pending_pose_load_mark = self.history.mark()
+
+    def end_pose_load(self) -> None:
+        """Close the window :meth:`begin_pose_load` opened. See its docstring."""
+        if self._pending_pose_load_mark is None:
+            return
+        mark, self._pending_pose_load_mark = self._pending_pose_load_mark, None
+        self.history.collapse_since(mark)
 
     # -- rotations ---------------------------------------------------------
 

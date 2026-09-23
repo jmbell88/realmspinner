@@ -787,6 +787,7 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
 
     def _make_entry(index: int, compiled_call: tuple[Any, ...]) -> Any:
         def _run(doc: Any, session: Session) -> dict:
+            nonlocal deadline
             # Checked between calls, never mid-call -- a call already running
             # is never cut off, and the very first call always gets to run
             # regardless of how close the budget already is, so a run that
@@ -797,11 +798,29 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
                     "deadline before this step ran; split the program into "
                     "smaller clay_program calls.",
                 )
+            started = time.monotonic()
             if compiled_call[0] == "live":
                 kind, arguments = compiled_call[1], compiled_call[2]
-                return _run_live_step(ctx, session, doc, kind, arguments, compiled.groups)
-            name, arguments, _path = compiled_call
-            return _resolve_and_call(ctx, session, doc, name, arguments)
+                result = _run_live_step(ctx, session, doc, kind, arguments, compiled.groups)
+            else:
+                name, arguments, _path = compiled_call
+                result = _resolve_and_call(ctx, session, doc, name, arguments)
+            # The 2026-09-23 audit, finding agents-02: PROGRAM_DEADLINE_S is a
+            # 4s budget meant to bound how long an *idle* agent leaves the
+            # frame thread waiting between round trips, but a subprocess-
+            # backed clay_op row (retopo/smart-unwrap/bake-detail, each a
+            # synchronous Blender spawn -- seconds for a simple prop, minutes
+            # for something dense) can by itself blow straight through it.
+            # Because clay_program always rolls back, the very next entry
+            # then found the deadline already passed and discarded the
+            # Blender step that had just finished along with everything
+            # else, even though nothing was idle -- the whole 4s went to a
+            # call actually running. Pushing the deadline out by exactly what
+            # this entry took keeps the budget measuring the thing it was
+            # meant to measure (time between calls) without giving a program
+            # of many cheap calls a longer leash than before.
+            deadline += time.monotonic() - started
+            return result
 
         return _run
 

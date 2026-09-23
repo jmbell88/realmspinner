@@ -237,12 +237,21 @@ def preview_note(ctx: Any, note: int) -> bool:
 
     def run() -> dict[str, Any]:
         from ....kernels.audio import wavout
+        from ....service.errors import invalid_from
         from .engine import synth
 
-        doc = rsng.read_rsng(data)
-        samples = synth.render_note(
-            doc, uid, value, kind=kind, rows=PREVIEW_ROWS
-        )
+        try:
+            doc = rsng.read_rsng(data)
+            samples = synth.render_note(
+                doc, uid, value, kind=kind, rows=PREVIEW_ROWS
+            )
+        except ValueError as exc:
+            # ``audition``'s and ``request_render``'s siblings both frame this
+            # (the 2026-09-23 audit, finding sirens-01): a preview's own render
+            # can raise for the same reasons theirs can, and this one had no
+            # catch at all, so a bad preview aborted the task with nothing
+            # shown to the player -- worse than the toast a courtesy earns.
+            raise invalid_from(exc, "That note did not preview") from exc
         return {"pcm": wavout.to_int16(samples)}
 
     state.play_request += 1

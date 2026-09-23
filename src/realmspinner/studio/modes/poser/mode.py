@@ -4237,13 +4237,27 @@ def _insert_key(ctx: Any, name: str) -> None:
 
 
 def new_key(ctx: Any, name: str) -> None:
-    """Author a brand-new key pose from the armature and add it to the clip."""
+    """Author a brand-new key pose from the armature and add it to the clip.
+
+    Refused while scrubbing, by name, for the same reason ``capture_key``
+    refuses it: the 2026-09-23 audit (finding poser-03) found the button
+    that calls this checked only ``posing``, so scrubbing to an in-between
+    frame and then naming a new key silently authored the *interpolated*
+    pose as if it were a real one. Checked here too, not only at the button
+    -- ``capture_key``'s sibling refusal lives at the call site it protects
+    rather than only at the button that reaches it, and this follows suit.
+    """
     from ....service import clips as svc_clips
 
     state = ensure(ctx)
     editor = _viewer_editor(ctx)
     label = str(name or "").strip()
     if editor is None or not label:
+        return
+    if state.frame >= 0:
+        ctx.toast(
+            "That is an in-between frame, not a key. Pick a key first.", "warn"
+        )
         return
     if state.key_pose(label) is not None:
         ctx.toast(f'a key pose named "{label}" already exists', "warn")

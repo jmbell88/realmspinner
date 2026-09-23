@@ -50,6 +50,7 @@ which want the whole picture rather than one op's opinion of it.
 
 from __future__ import annotations
 
+import threading
 import weakref
 from collections import defaultdict
 from dataclasses import dataclass, fields
@@ -219,6 +220,21 @@ def _build(mesh: Mesh) -> Adjacency:
     return out
 
 
+# The 2026-09-23 audit's clay-12: these three caches were unsynchronized on
+# the same premise ``mesh.py``'s ``_RAW_CACHE`` was before the 2026-09-12
+# audit's clay-04 gave it a lock -- that every caller runs on the frame
+# thread -- and that premise is just as false here. Familiar's agent batch
+# runs a scratch preview (``kernels/mesh/scratch.py``) off the frame thread,
+# on ``Mesh`` objects shared with the live document (meshes are immutable and
+# deliberately shared, not copied, by ``scratch.clone``), and any of
+# ``adjacency``/``cached_positions_f8``/``cached_triangulation`` reached from
+# that batch races the frame thread reading or filling the same
+# ``WeakKeyDictionary`` entry for the same mesh. One lock guards all three:
+# they are never held across another lock and each critical section is only
+# a dict get/set, so contention costs an uncontended acquire, same as
+# ``_RAW_CACHE_LOCK`` there.
+_CACHE_LOCK = threading.Lock()
+
 _CACHE: weakref.WeakKeyDictionary[Mesh, Adjacency] = weakref.WeakKeyDictionary()
 
 
@@ -229,11 +245,12 @@ def adjacency(mesh: Mesh) -> Adjacency:
     what lets a caller key a GPU buffer or a memo on ``id(adj)``; a mesh that
     becomes unreachable takes its entry with it.
     """
-    got = _CACHE.get(mesh)
-    if got is None:
-        got = _build(mesh)
-        _CACHE[mesh] = got
-    return got
+    with _CACHE_LOCK:
+        got = _CACHE.get(mesh)
+        if got is None:
+            got = _build(mesh)
+            _CACHE[mesh] = got
+        return got
 
 
 _F8: weakref.WeakKeyDictionary[Mesh, np.ndarray] = weakref.WeakKeyDictionary()
@@ -247,12 +264,13 @@ def cached_positions_f8(mesh: Mesh) -> np.ndarray:
     mesh that is frozen and cannot have changed. Cheap next to the ray cast
     itself, but it is a full copy of an array the cast then only reads.
     """
-    got = _F8.get(mesh)
-    if got is None:
-        got = mesh.positions.astype("f8")
-        _freeze(got)
-        _F8[mesh] = got
-    return got
+    with _CACHE_LOCK:
+        got = _F8.get(mesh)
+        if got is None:
+            got = mesh.positions.astype("f8")
+            _freeze(got)
+            _F8[mesh] = got
+        return got
 
 
 _TRIS: weakref.WeakKeyDictionary[Mesh, tuple[np.ndarray, np.ndarray]] = weakref.WeakKeyDictionary()
@@ -265,13 +283,14 @@ def cached_triangulation(mesh: Mesh) -> tuple[np.ndarray, np.ndarray]:
     list within one frame, and re-fanning a 200k-corner mesh three times per
     frame is the difference between an interactive viewport and a slideshow.
     """
-    got = _TRIS.get(mesh)
-    if got is None:
-        tris, tri_face = triangulate(mesh)
-        _freeze(tris, tri_face)
-        got = (tris, tri_face)
-        _TRIS[mesh] = got
-    return got
+    with _CACHE_LOCK:
+        got = _TRIS.get(mesh)
+        if got is None:
+            tris, tri_face = triangulate(mesh)
+            _freeze(tris, tri_face)
+            got = (tris, tri_face)
+            _TRIS[mesh] = got
+        return got
 
 
 # --- boundary rings ---------------------------------------------------------

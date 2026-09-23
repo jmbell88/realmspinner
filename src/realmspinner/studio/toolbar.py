@@ -360,6 +360,12 @@ def toolbar(
                 enabled=item.enabled,
                 borderless=item.role is not controls.ButtonRole.PRIMARY,
                 selected=item.selected,
+                # The 2026-09-23 audit (finding shell-05): the FULL-tier branches
+                # below already threaded ``reason`` through; this ICON-tier one
+                # dropped it, so a reasoned item collapsed to a glyph lost its
+                # explanation at exactly the size where the tooltip is the only
+                # place left to read one.
+                reason=item.reason,
             )
         elif item.selected:
             hit = controls.button(

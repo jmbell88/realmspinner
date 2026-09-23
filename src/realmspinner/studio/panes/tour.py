@@ -174,6 +174,14 @@ def _count(arg: str | None) -> int | None:
         return None
 
 
+#: Memoises :func:`_notes` on the song's edit generation, keyed by document
+#: identity so switching tabs does not read a stale count. A single entry --
+#: the tour only ever has one active step -- cleared whenever the key
+#: changes rather than grown, so a document that is closed and its id reused
+#: cannot serve a stale hit either.
+_notes_cache: tuple[int, int, int] | None = None
+
+
 def _notes(ctx: Any) -> int:
     """How many real pitches the active song holds, over every pattern.
 
@@ -184,11 +192,34 @@ def _notes(ctx: Any) -> int:
     Swallows the three shapes of missing attribute rather than raising --
     ``sfx_at_least``'s rule, and its reason: a traceback in the frame loop is
     worse than a tour that will not advance.
+
+    Memoised on ``(id(doc), doc.history.head)`` -- the 2026-09-23 audit
+    (tour-02) found this ran an unmemoised numpy pass over every pattern in
+    the whole song, every single frame, for as long as a Sirens tour step
+    showing "notes_at_least" stayed on screen. ``history.head`` moves on
+    every push, undo and redo, so it is the song's edit generation for free;
+    a frame that changes nothing about the song now costs a dict lookup
+    instead of a full re-scan.
     """
+    global _notes_cache
     sirens = getattr(ctx.state, "sirens", None)
     tab = getattr(sirens, "active", None) if sirens is not None else None
     if tab is None:
         return 0
+    doc = getattr(tab, "doc", None)
+    history = getattr(doc, "history", None)
+    head = getattr(history, "head", None)
+    # A real SongDocument always has ``history``; only a test stub (or some
+    # other shape ``_notes`` already tolerates below) does not. Falling
+    # through to an uncached scan there, rather than caching on a made-up
+    # key, keeps this an optimisation and not a second place that has to
+    # agree with what "the same song" means.
+    if head is not None:
+        key = (id(doc), int(head))
+        if _notes_cache is not None and _notes_cache[:2] == key:
+            return _notes_cache[2]
+    else:
+        key = None
     try:
         import numpy as np
 
@@ -196,12 +227,14 @@ def _notes(ctx: Any) -> int:
         from ..modes.sirens.engine import notes as N
 
         total = 0
-        for pattern in tab.doc.patterns:
+        for pattern in doc.patterns:
             column = np.asarray(pattern.cells)[:, :, D.NOTE]
             total += int(np.count_nonzero((column >= 0) & (column <= N.MAX_NOTE)))
-        return total
     except (AttributeError, TypeError, ValueError, IndexError):
-        return 0
+        total = 0
+    if key is not None:
+        _notes_cache = (key[0], key[1], total)
+    return total
 
 
 #: The names :func:`satisfied` answers. Written out rather than derived from the

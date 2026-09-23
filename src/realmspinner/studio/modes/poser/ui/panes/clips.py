@@ -100,15 +100,30 @@ def _update_key_reason(posing: bool, frame: int, *, error: str = "", asset_error
     return "That is an in-between frame, not a key. Pick a key first."
 
 
-def _new_key_reason(posing: bool, *, error: str = "", asset_error: str = "") -> str:
+def _new_key_reason(
+    posing: bool, frame: int = -1, *, error: str = "", asset_error: str = ""
+) -> str:
     """Why "New key from pose..." is disabled right now. -> the sentence.
 
     The 2026-09-11 audit (poser-07): this button stated its reason as a
     literal inline string rather than through a testable function at all,
     unlike its neighbour above -- given the same treatment here so a build or
     load failure says so instead of "still loading" on this button too.
+
+    ``frame`` was added by the 2026-09-23 audit (poser-03): the button was
+    gated on bare ``posing``, never on ``frame``, so scrubbing to an
+    in-between frame and pressing it authored the *interpolated* pose as a
+    brand-new key -- "Update key" next to it already refused the same state.
+    Checked after ``posing`` for the reason ``_update_key_reason`` picks its
+    own order: a build or load failure has to say so before anything about
+    the scrubber, or the button would blame scrubbing while the real cause is
+    that the preview never came up at all.
     """
-    return _not_posing_reason(error, asset_error)
+    if not posing:
+        return _not_posing_reason(error, asset_error)
+    if frame >= 0:
+        return "That is an in-between frame, not a key. Pick a key first."
+    return ""
 
 
 def _import_clip_reason(
@@ -380,9 +395,11 @@ def _keys(ctx: Any, state: Any) -> None:
             imgui.set_tooltip("Pose differs from this key")
     if widgets.disabled_button(
         "New key from pose...",
-        posing,
+        posing and state.frame < 0,
         (-1, 0),
-        reason=_new_key_reason(posing, error=state.error, asset_error=state.asset_error),
+        reason=_new_key_reason(
+            posing, state.frame, error=state.error, asset_error=state.asset_error
+        ),
         tooltip=(
             "Add the joints as they are now as a brand-new key pose, after "
             "the selected one."

@@ -769,6 +769,70 @@ def export_package(
 _CLIP_FOLDER_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 
 
+def _sheet_movements_by_key(layout: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Index a sheet's ``troupe`` layout's ``movements`` list by key.
+
+    The 2026-09-23 audit, finding service-02: both ``export_frames`` and
+    ``sheet_preview_png`` used to build this table with a bare
+    ``m["key"]`` subscript, so a hand-edited sidecar whose movement entry
+    lost its ``"key"`` field raised ``KeyError`` here, before either door's
+    own "refused, not crashed" guard ever ran. A sidecar is not always this
+    module's own write -- an agent can name a job id it does not own, or the
+    file can simply be corrupted -- so every field it is read for gets
+    checked before it is used, the same rule the rest of this module already
+    keeps for cell indices and frame sizes.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for entry in layout.get("movements") or []:
+        if not isinstance(entry, Mapping) or "key" not in entry:
+            raise Invalid(
+                "this sheet's layout is corrupted (a movement is missing its key)",
+                field="sheet_id",
+            )
+        out[str(entry["key"])] = dict(entry)
+    return out
+
+
+def _sheet_cells_by_index(record: Mapping[str, Any]) -> dict[int, dict[str, Any]]:
+    """Index a sheet sidecar's ``cells`` list by cell index -- see
+    :func:`_sheet_movements_by_key`; same finding, same reasoning. ``x``/
+    ``y``/``w``/``h`` are required too: ``export_frames``'s crop box
+    (``cell["x"]``, ``cell["w"]``, ...) is bare and sits inside the same
+    cited line range as the index lookup itself."""
+    out: dict[int, dict[str, Any]] = {}
+    for entry in record.get("cells") or []:
+        if not isinstance(entry, Mapping) or not {"index", "x", "y", "w", "h"} <= set(entry):
+            raise Invalid(
+                "this sheet's layout is corrupted (a cell is missing a field)",
+                field="sheet_id",
+            )
+        try:
+            out[int(entry["index"])] = dict(entry)
+        except (TypeError, ValueError) as exc:
+            raise invalid_from(
+                exc, "this sheet's layout is corrupted", field="sheet_id"
+            ) from exc
+    return out
+
+
+def _sheet_runs(layout: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """A sheet sidecar's ``runs`` list, validated to carry the fields every
+    reader of it indexes bare -- see :func:`_sheet_movements_by_key`; same
+    finding, same reasoning. ``"direction"`` is read with ``.get`` by
+    ``sheet_preview_png`` already, so it is not required here."""
+    out: list[dict[str, Any]] = []
+    for entry in layout.get("runs") or []:
+        if not isinstance(entry, Mapping) or not {"movement", "start", "end", "yaw"} <= set(
+            entry
+        ):
+            raise Invalid(
+                "this sheet's layout is corrupted (a run is missing a field)",
+                field="sheet_id",
+            )
+        out.append(dict(entry))
+    return out
+
+
 def export_frames(
     svc: RealmspinnerService,
     job_id: str,
@@ -830,12 +894,11 @@ def export_frames(
         if isinstance(troupe_block, Mapping)
         else charsheet.resolve_layout(None).as_dict()
     )
-    runs = layout.get("runs") or []
-    movements = {m["key"]: m for m in (layout.get("movements") or [])}
+    runs = _sheet_runs(layout)
+    movements = _sheet_movements_by_key(layout)
     layout_fps = layout.get("fps")
 
-    cells = record.get("cells") or []
-    cell_by_index = {int(c["index"]): c for c in cells}
+    cell_by_index = _sheet_cells_by_index(record)
     frame_size = int(record.get("frame_size") or 0)
     if not frame_size:
         # Every 3D character sheet is square by construction (``charsheet.plan``
@@ -1352,9 +1415,9 @@ def sheet_preview_png(
         if isinstance(troupe_block, Mapping)
         else charsheet.resolve_layout(None).as_dict()
     )
-    runs = layout.get("runs") or []
-    movements = {str(m["key"]): m for m in (layout.get("movements") or [])}
-    cell_by_index = {int(c["index"]): c for c in (record.get("cells") or [])}
+    runs = _sheet_runs(layout)
+    movements = _sheet_movements_by_key(layout)
+    cell_by_index = _sheet_cells_by_index(record)
 
     if direction is not None and movement is None:
         raise Invalid("choose a movement before a direction", field="movement")

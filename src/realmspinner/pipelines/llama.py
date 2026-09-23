@@ -364,12 +364,16 @@ class LlamaServer:
         """Refuse to start when the caller's expected prompt-card hash isn't
         one this weights pin was validated against.
 
-        T3 (``familiar/contract.py``) is what will supply a real
-        ``expected_card_sha`` and populate ``FamiliarModel.card_shas``; until
-        it lands, the registry's ``card_shas`` is empty for the base pin, so
-        any caller that *does* pass an expected sha is refused -- there is
-        nothing yet to match. A caller that passes ``None`` (no card in play)
-        is never refused here.
+        The 2026-09-23 audit (familiar-04): this docstring used to describe
+        T3 (``familiar/contract.py``) as future work still to come, ahead of
+        the real ``expected_card_sha`` and a populated ``FamiliarModel.
+        card_shas`` it was said to eventually bring. T3 has since landed --
+        ``contract.card_sha("clay")`` is what
+        ``service.familiar.clay_build`` passes as *expected_card_sha*, and
+        ``models.FamiliarModel.card_shas`` for the Clay-trained pin already
+        holds the matching hash (see ``models.py``'s registry row and
+        ``contract.CARDS``). A caller that passes ``None`` (no card in
+        play -- the router card, or plain chat) is never refused here.
         """
         if expected_card_sha is None:
             return

@@ -138,6 +138,9 @@ def test_texture_panel_warn_does_not_touch_the_filesystem_from_the_frame_thread(
         texture_panel.widgets, "text_colored", lambda *a, **k: calls.append(a)
     )
     monkeypatch.setattr(texture_panel.widgets, "muted", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(
+        texture_panel.widgets, "muted_wrapped", lambda *a, **k: calls.append(a)
+    )
 
     def _boom(job_id):
         raise AssertionError("_warn touched the filesystem via ctx.svc.job_dir")

@@ -5,11 +5,14 @@ Everything here is *about* documents rather than tiles -- the engine under
 that knows about both. The panes draw; this decides.
 
 The rule that shapes the file is the one Clay and the raster editor already
-follow: **no file dialog and no encode ever runs on the frame thread.** A native
+follow: **no file dialog and no write ever runs on the frame thread.** A native
 picker is modal to the OS and blocks until dismissed; a document of any size is
 a zip to build, and a ``.tmx`` export is a zip's worth of PNG encoding besides.
 Both go through ``ctx.submit``, which is why saving is a *state*
-(``PlotterDoc.saving``) rather than a call that returns.
+(``PlotterDoc.saving``) rather than a call that returns. Encoding itself is
+the deliberate exception -- ``fileio._encode``'s own docstring says why it
+runs on the frame thread instead (the 2026-09-23 audit, finding plotter-04,
+found this docstring claiming otherwise).
 
 Two consequences, both of which were bugs elsewhere before they were rules here.
 **A failed save must clear that state**, or ``busy`` leaves the tab read-only
@@ -282,6 +285,14 @@ def edit_asset_in_plotter(ctx: Any, job: Any) -> None:
         try:
             doc = rmaplib.read_rmap(_within_ceiling(Path(path)))
         except ValueError as exc:
+            raise invalid_from(exc, "This map could not be reopened", field="file") from exc
+        except RecursionError as exc:
+            # The 2026-09-23 audit (finding plotter-01) found a deeply nested
+            # ``.rmap`` property tree raising this past the door instead of
+            # the ``ValueError`` every other malformed file gets: props.py now
+            # caps the nesting itself, but this door is the second guard --
+            # a future reader that nests some other way should still toast
+            # rather than crash the window.
             raise invalid_from(exc, "This map could not be reopened", field="file") from exc
         return {"doc": doc, "path": "", "title": "Map", "format": "rmap"}
 
@@ -758,7 +769,13 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
     object no layer holds.
     """
     moved = tab.doc.step_history(index)
-    ensure(ctx).select_object(None)
+    # The 2026-09-23 audit (finding plotter-02) found this clearing the whole
+    # selection while undo/redo -- the other two surfaces onto the same stack
+    # -- only prune the ghosts, and this function's own docstring says all
+    # three match. A history jump is just an undo/redo compressed into one
+    # hop, so it gets the same treatment: an object that survives the jump
+    # stays selected.
+    _prune_object_selection(ctx, tab)
     return moved
 
 

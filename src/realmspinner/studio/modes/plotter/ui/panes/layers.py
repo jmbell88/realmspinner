@@ -224,6 +224,22 @@ def _opacity_row(doc: Any, layer: Any, editable: bool) -> None:
         doc.set_layer_props(layer.uid, opacity=float(opacity))
 
 
+def _shift_reason(editable: bool, uid: int | None) -> str:
+    """Why Raise/Lower is greyed, in the same order the button checks it.
+
+    Pulled out to its own function so the wording can be asserted without a
+    real imgui frame. The 2026-09-23 audit (finding plotter-03) found the
+    "already at the end of its group" sentence shown even with no layer
+    selected at all -- true of the *other* reason a click would do nothing,
+    but not this one.
+    """
+    if not editable:
+        return _BUSY_WHY
+    if uid is None:
+        return "Select a layer first."
+    return "This layer is already at the end of its group."
+
+
 def _layer_bar(ctx: Any, state: Any, doc: Any, layer: Any, editable: bool) -> None:
     """Add, duplicate, raise, lower, lock, delete -- the strip under the list.
 
@@ -258,12 +274,11 @@ def _layer_bar(ctx: Any, state: Any, doc: Any, layer: Any, editable: bool) -> No
         (icons.ARROW_DOWN, -1, "Lower"),
     ):
         can = editable and plotter_mode.can_shift_layer(doc, uid, delta)
+        reason = _shift_reason(editable, uid)
         if widgets.disabled_button(
             f"{glyph}##plotter-layer-{verb.lower()}",
             can,
-            reason=_BUSY_WHY
-            if not editable
-            else "This layer is already at the end of its group.",
+            reason=reason,
             tooltip=f"{verb} this layer",
         ):
             plotter_mode.shift_layer(doc, uid, delta)

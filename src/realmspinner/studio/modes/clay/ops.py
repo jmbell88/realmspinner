@@ -675,7 +675,7 @@ def _duplicate(ctx: Any, doc: Any, **_: Any) -> None:
     selection.duplicate_selected(doc)
 
 
-def _bake(ctx: Any, doc: Any, **_: Any) -> None:
+def _bake(ctx: Any, doc: Any, **_: Any) -> bool:
     """Fold each selected object's transform into its geometry.
 
     Two ``doc`` calls -- ``set_mesh`` then ``set_transform`` -- because the mesh
@@ -710,6 +710,17 @@ def _bake(ctx: Any, doc: Any, **_: Any) -> None:
     from ....kernels.mesh import ops as clay_ops_geom
 
     def one(doc: Any, obj: Any) -> None:
+        # The 2026-09-23 audit, finding clay-01: an unlocked child of a
+        # locked parent used to reach ``set_mesh`` (which checks only the
+        # object's own lock) before ``set_transform(check_ancestors=True)``
+        # ever ran, so the world-baked mesh landed first and the refusal
+        # that followed left the parent's transform applied twice -- once
+        # baked into the geometry here, once still live on the still-parented
+        # object. Checking the whole ancestor chain up front, before any
+        # ``doc`` write, is the same door ``set_transform`` itself already
+        # guards; a bake must refuse exactly where that guard would, not
+        # after quietly writing the mesh first.
+        doc._refuse_if_locked(obj.uid, check_ancestors=True)
         had_parent = obj.parent is not None
         baked = clay_ops_geom.bake_transform(obj, world=doc.world_matrix(obj.uid))
         doc.set_mesh(obj.uid, baked.mesh)
@@ -722,7 +733,13 @@ def _bake(ctx: Any, doc: Any, **_: Any) -> None:
         if had_parent:
             doc.set_parent(obj.uid, None, keep_world=False)
 
-    run_object_op(ctx, doc, one)
+    # Returning ``run_object_op``'s own result (rather than discarding it,
+    # as this function did before the 2026-09-23 audit's clay-01) is what
+    # makes ``run``'s own ``ran`` honest when every selected object refused:
+    # without it, ``run`` saw a bare ``None`` from this function, which is
+    # not ``False``, so it reported a clean ``ran=True`` over a toast that
+    # said the opposite -- the reproduction that first surfaced clay-01.
+    return run_object_op(ctx, doc, one)
 
 
 def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:

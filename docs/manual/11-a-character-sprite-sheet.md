@@ -195,7 +195,8 @@ the whole of it.
 
 - Swappable or layered equipment.
 - AI restyling of a rendered sheet, or a learned pixel refiner.
-- Any animation beyond idle, walk, run, attack and jump.
+- Any animation beyond the ten clips the four shipped body plans carry — and five of those
+  (attack_02, cast, fall, hit, death) are still provisional.
 - A species the registry does not carry. There are thirty-one, and the resolver will tell you when
   yours is not one of them rather than approximating it.
 

@@ -61,6 +61,57 @@ Releases before this one were published as Warlock Studio. The entries below
 are left exactly as they were written — they are the record of what shipped
 under that name.
 
+The 2026-09-23 audit read the whole app, all sixteen areas at once, and found 96 things.
+Every one that could be built without a graphics card or a design decision is fixed, each
+with a regression test proven to fail against the unfixed code. These are the ones you
+would actually have run into.
+
+- **Bake Transform could corrupt an object under a locked parent.** It wrote the baked
+  mesh first and only then noticed the parent was locked, so the parent's offset ended up
+  applied twice — behind a message that read like a clean refusal. It now refuses before
+  touching anything.
+- **Applying a Familiar preview that reparented an object moved it somewhere else.** The
+  preview showed the object staying put under its new parent; Apply left it under the old
+  one wearing the new parent's offset. Apply now does exactly what the preview showed.
+- **Opening a crafted `.ora` file could exhaust memory.** One list inside an effect layer
+  had no size limit while its three neighbours did; it has the same limit now.
+- **Every non-human character's skeleton was bent the wrong way.** A coordinate mix-up
+  added each species' joint adjustments along the wrong axis — a lifted hip came out
+  pushed backwards. Joints now follow the mesh.
+- **Clicking an object that had a collider selected the collider.** Picking, hovering,
+  snapping and box-selecting all skip colliders now, the way drawing already did.
+- **Ctrl+1/3/7 and Ctrl+5 did nothing on screen** in Clay, Poser and Mason until some
+  other input happened to redraw the view.
+- **Undo, redo and a loaded pose disagreed.** Redo after applying a saved pose landed on
+  the rest pose; loading a pose is now one step that redoes to the pose.
+- **Reset in Create's command bar also threw away the selected asset's poses and sheets**,
+  though it promised to touch only the image form. It now resets only what it said.
+- **"brighter" in a Flourish prompt also strengthened the heat-shimmer warp**, and a colour
+  word aimed at the shimmer said "No words I know". Both now do what they say.
+- **The Colour panel's "+ from colour" and "Insert" ramp could switch the panel off for the
+  session** near 256 colours; they say the palette is full instead.
+- **Dragging Inker's background layer off the bottom** left a mid-stack layer forced
+  opaque and saved it that way; a background layer now stays at the bottom, in still and
+  animated documents alike.
+- **Mason let a run of prefab placements push a scene past what it can draw** — the
+  viewport went blank with no reason given. Placement now refuses first.
+- **Clip libraries for the quadruped, bird and blob skeletons could be saved missing a
+  clip a character sheet needs**; only the humanoid was checked. All four are now.
+- **"New key from pose…" while scrubbing turned an in-between frame into a key.** It now
+  refuses the same way "Update key from pose" always has.
+- **A pitch slide held for about eighty seconds broke a Sirens song for good**: every render
+  and export after that failed. Notes are clamped and the song renders.
+- **Unwrap (Seams) on a heavily seamed mesh could freeze the app for half a minute** before
+  refusing; it refuses first now.
+- **Settings → Workspace layouts → Reset destroyed a layout saved by a newer build.** It
+  leaves it alone and says why.
+- **An agent was told to resend a finished task to get its result back** — which in task
+  mode runs the tool a second time — and `clay_program` threw away finished Blender work
+  when a later step ran past its time limit. Neither happens now.
+- **A mesh retargeted to a custom triangle budget above 150,000 was flagged over budget
+  forever**, with a repair button that sent you back to the panel you had just used. The
+  checklist now judges a mesh against the budget it was built to.
+
 The 2026-09-19 audit of Clay found 38 things, and closing them found 3 more. All 41 are
 fixed, each with a regression test proven to fail against the unfixed code. Clay had just
 been rewritten — cleanup and decimation, a modifier stack, UV seams, colliders, parenting

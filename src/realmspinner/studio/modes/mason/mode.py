@@ -271,9 +271,22 @@ def place_prefab(ctx: Any, name: str) -> int | None:
     if tab is None or tab.saving or name not in tab.doc.prefabs:
         return None
     from .engine import nodes as nd
+    from .engine import scene as msc
 
     node = nd.PrefabNode(uid=nd.new_uid(), name=name, template=name)
     over = _over_max_placed(tab.doc, len(list(nd.walk([node]))))
+    if over is None:
+        # The 2026-09-23 audit's mason-01: the tree-side check above counts
+        # this instance as the one node it is in the scene tree -- but
+        # scene.resolve expands a PrefabNode into its whole template
+        # subtree every time the scene draws, exports or is picked, so a
+        # run of placements that each stayed comfortably under the tree-side
+        # ceiling could still leave the document unable to ever resolve
+        # again. Charged here, on the write side, against the same
+        # MAX_PLACED ceiling, so the refusal is a toast rather than
+        # MasonDoc.add_node's own downstream resolve() blowing up uncaught.
+        resolved_total = tab.doc.resolved_total() + tab.doc.resolved_growth([node])
+        over = resolved_total if resolved_total > msc.MAX_PLACED else None
     if over is not None:
         _toast_over_max_placed(ctx, over)
         return None

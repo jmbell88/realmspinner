@@ -390,8 +390,13 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # displaces the playhead's reading of what the song is doing.
         if not _still_wanted(state, done):
             return
-        if isinstance(result, dict):
-            sirens_audio.play(result["pcm"], tag="preview")
+        if isinstance(result, dict) and not sirens_audio.play(result["pcm"], tag="preview"):
+            # Toasted like its two siblings just above and below (the
+            # 2026-09-23 audit, finding sirens-03): this branch used to drop
+            # ``play()``'s ``False`` on the floor, so a device refusal during
+            # note preview -- typing while the device dropped, say -- made
+            # every keystroke silently mute with nothing said about why.
+            docmodes.refuse(ctx, "That note could not be played; see the log.")
         return
 
     if name == "sirens-audition":

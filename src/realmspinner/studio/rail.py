@@ -12,7 +12,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from . import anchors, fonts, modes, motion, theme, tokens
+from . import anchors, fonts, modes, motion, probe, theme, tokens
 from . import layout as layout_mod
 from .tokens import sp
 
@@ -179,6 +179,19 @@ def _item(
     # asked where it went -- and every rail item is a thing a tour can point
     # at, so this is one mark rather than eleven at the call sites.
     anchors.mark(f"rail/{key}")
+    # The 2026-09-23 audit (finding shell-06): a raw ``invisible_button`` is
+    # invisible to the per-frame control census *and* uncounted by
+    # ``test_probe.RAW_IMGUI_CONTROLS``'s pinned blind-spot scan, since that
+    # scan only watches the names in ``_RAW_WIDGETS`` and ``invisible_button``
+    # was never one of them -- so a driver pressing every control the probe
+    # can see never reached a mode's own rail entry at all.
+    probe.record(
+        label=f"{label}##rail/{key}",
+        kind="rail_item",
+        enabled=enabled,
+        selected=selected,
+        tooltip=tooltip or purpose,
+    )
     hovered = imgui.is_item_hovered()
     focused = imgui.is_item_focused() and imgui.get_io().nav_visible
     lit = motion.value(

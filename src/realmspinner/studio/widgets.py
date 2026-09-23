@@ -2628,6 +2628,7 @@ def _glyph_button(
     enabled: bool = True,
     borderless: bool = False,
     selected: bool = False,
+    reason: str = "",
 ) -> bool:
     """A square button holding one glyph, centred in it.
 
@@ -2735,6 +2736,22 @@ def _glyph_button(
     named = hovered or (imgui.is_item_focused() and imgui.get_io().nav_visible)
     if tooltip and named:
         imgui.set_tooltip(tooltip)
+    # The 2026-09-23 audit (finding shell-05) found this button both dropped
+    # a disabled ``reason`` on the floor -- there was nowhere to pass one --
+    # and was invisible to the control census: its ``imgui.button`` call was
+    # raw, so an item collapsed to the toolbar's ICON tier lost its
+    # explanation exactly when compacting it made the tooltip the only place
+    # left to read one. Recording here also moves this call out of
+    # ``test_probe.RAW_IMGUI_CONTROLS``'s pinned blind-spot count, since it
+    # now hands the census its own press instead of leaving it raw.
+    probe.record(
+        label=icon,
+        kind="icon_button",
+        enabled=enabled,
+        reason=reason,
+        selected=selected,
+        tooltip=tooltip,
+    )
     return clicked and enabled
 
 
@@ -2746,6 +2763,7 @@ def icon_button(
     enabled: bool = True,
     borderless: bool = False,
     selected: bool = False,
+    reason: str = "",
 ) -> bool:
     """A square glyph button with its meaning in the tooltip.
 
@@ -2754,6 +2772,11 @@ def icon_button(
     tooltip is the only thing that ever says what it does. Every call site
     already passed one -- making it mandatory is what stops the twenty-fourth
     from being the exception.
+
+    ``reason``, added by the 2026-09-23 audit (finding shell-05): a toolbar
+    item collapsed to the ICON tier still disables itself with an
+    explanation (Inker's "Delete frame"), and before this parameter existed
+    that explanation had no way to reach this button at all.
     """
     return _glyph_button(
         icon,
@@ -2763,6 +2786,7 @@ def icon_button(
         enabled=enabled,
         borderless=borderless,
         selected=selected,
+        reason=reason,
     )
 
 

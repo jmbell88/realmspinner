@@ -1,11 +1,14 @@
 """Plotter's file layer: what a map is read from and written to.
 
 Split out of ``plotter_mode`` because it is the half that touches a disk, and
-the rules that shape it are all about that. **No file dialog and no encode ever
+the rules that shape it are all about that. **No file dialog and no write ever
 runs on the frame thread** -- a native picker is modal to the OS and blocks until
 dismissed, and a document of any size is a zip to build -- so both go through
 ``ctx.submit``, which is why saving is a *state* (``PlotterDoc.saving``) rather
-than a call that returns. **The head a save records is captured before the
+than a call that returns. Encoding itself is the deliberate exception --
+:func:`_encode`'s own docstring says why it runs on the frame thread instead
+(the 2026-09-23 audit, finding plotter-04, found this docstring claiming
+otherwise). **The head a save records is captured before the
 submit**, at exactly one place: a head read after an unbounded modal dialog
 describes whatever the user did while it was open. And **every write is staged**
 through a dotfile and an ``os.replace``, cleaned up in a ``finally``.

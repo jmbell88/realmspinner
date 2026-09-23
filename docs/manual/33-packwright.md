@@ -32,7 +32,7 @@ this exactly as a hostile file can.
 
 ## Sources
 
-Five ways in.
+Six ways in, counting a drop on the window as its own.
 
 **Add an image...** takes one file. Dropping images on the window adds them too — several at once,
 and one that is already in the atlas is skipped rather than refusing the whole batch.

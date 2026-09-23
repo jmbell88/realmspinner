@@ -106,7 +106,15 @@ class PoseOps:
     def set_pose(
         self: Viewer, bones: dict[str, Any], *, pose_id: str | None = None, dirty=True
     ) -> None:
-        self.editor.apply(bones, pose_id=pose_id, dirty=dirty)
+        # Bracketed in ``record()`` and paired with ``set_root_translation``'s
+        # own bracket via ``begin_pose_load``/``end_pose_load`` -- the
+        # 2026-09-23 audit (create-02) found this call bare, so applying a
+        # saved pose's bones pushed no undo step at all. See
+        # ``PoseEditor.begin_pose_load``'s docstring for why the two calls
+        # fold into one step rather than each pushing its own.
+        self.editor.begin_pose_load()
+        with self.editor.record():
+            self.editor.apply(bones, pose_id=pose_id, dirty=dirty)
         self._after_pose_change()
 
     def apply_preset(self: Viewer, preset: dict[str, Any]) -> None:
@@ -126,7 +134,15 @@ class PoseOps:
         self._after_pose_change()
 
     def set_root_translation(self: Viewer, v: Any, *, dirty: bool = True) -> None:
-        self.editor.set_root_translation(v, dirty=dirty)
+        # Same fix as ``set_pose`` above (create-02, the 2026-09-23 audit):
+        # bracketed in ``record()`` rather than mutating the editor bare, and
+        # ``end_pose_load`` closes the window ``set_pose`` opened, folding the
+        # two into the single step a saved-pose load is. A no-op when nothing
+        # opened it, so a caller that uses this alone (nothing else does
+        # today) still just gets its own single step.
+        with self.editor.record():
+            self.editor.set_root_translation(v, dirty=dirty)
+        self.editor.end_pose_load()
         self._after_pose_change()
 
     def _after_pose_change(self: Viewer) -> None:

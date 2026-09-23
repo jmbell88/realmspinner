@@ -438,8 +438,8 @@ yourself.
 thing about the first is that **most of it is not written down**: the shapes an agent may place come
 from `primitives.GENERATORS`, the figures from `presets.ASSEMBLIES`, the operations from
 `clay_ops.OPS`, and the selection questions `clay_select_by` can answer from `select.QUERIES` — the
-same tables the add panel, the context menu and the selection menu are drawn from. A thirteenth
-generator, a new op or a seventh query added to Clay appears in the agent's tool list with no edit
+same tables the add panel, the context menu and the selection menu are drawn from. A new
+generator, op or query added to Clay appears in the agent's tool list with no edit
 here at all, and a test asserts that in both directions, so the two cannot drift apart.
 
 So adding a *shape* or an *operation* is not an edit to the agent surface. Only a genuinely new
@@ -618,7 +618,7 @@ polling the rig job and its follow-up sheet job, then a preview, then the three 
 
 **Derived, not hand-listed, the same rule the tool catalogue follows.** `agent_resources`'s
 generators and operations resources are built by walking `primitives.GENERATORS` and `clay_ops.OPS`
-the same way `agent_clay`'s own prose already does for its instructions text — a thirteenth
+the same way `agent_clay`'s own prose already does for its instructions text — a new
 primitive or a new op needs no edit here either. A prompt's own prose names tools by constants at
 the top of `agent_prompts.py` rather than by retyping the string in several places, but the
 regression that actually matters is `tests/mcp/test_rpc_studio.py`'s scan of every prompt's

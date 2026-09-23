@@ -87,21 +87,49 @@ def rows_for(job: Any) -> list[Row]:
     return rows
 
 
+def _effective_triangle_budget(report: dict[str, Any], params: dict[str, Any]) -> int:
+    """The triangle ceiling this particular mesh was actually built against.
+
+    The 2026-09-23 audit, finding pipelines-01: ``meshreport.TRIANGLE_BUDGET``
+    (150k) is below the custom budgets the retarget and remesh panels accept
+    (``pipelines.optimize.CUSTOM_MAX`` 250k, ``pipelines.remesh.FACES_MAX``
+    200k), so a mesh optimized to its own accepted budget was flagged "over
+    budget" forever, with this row's own repair button pointing back at the
+    very panel that had already done exactly what it asked. The budget a
+    mesh was actually built to is recorded on the job that built it --
+    ``optimize.run``'s ``"requested"`` or ``remesh``'s ``"target_faces"`` --
+    so that is read first; ``report["triangle_budget"]`` (set by a caller of
+    ``meshreport.build`` that already knew the budget) is the next fallback,
+    and the module default is last, for a raw reconstruction that was never
+    retargeted or a report recorded before either field existed.
+    """
+    for record, key in (
+        (params.get("optimize"), "requested"),
+        (params.get("remesh"), "target_faces"),
+    ):
+        if isinstance(record, dict) and isinstance(record.get(key), int) and record[key] > 0:
+            return record[key]
+    stored = report.get("triangle_budget")
+    if isinstance(stored, int) and stored > 0:
+        return stored
+    return meshreport.TRIANGLE_BUDGET
+
+
 def _report_rows(report: dict[str, Any], params: dict[str, Any], prompt: Any) -> list[Row]:
     rows: list[Row] = []
 
     triangles = report.get("triangles")
     if isinstance(triangles, int):
-        over = triangles > meshreport.TRIANGLE_BUDGET
+        budget = _effective_triangle_budget(report, params)
+        over = triangles > budget
         rows.append(
             Row(
                 "Triangles",
                 "attention" if over else "ok",
                 (
-                    f"{triangles:,} triangles is above the "
-                    f"{meshreport.TRIANGLE_BUDGET:,} budget"
+                    f"{triangles:,} triangles is above the {budget:,} budget"
                     if over
-                    else f"{triangles:,} of the {meshreport.TRIANGLE_BUDGET:,} triangle budget"
+                    else f"{triangles:,} of the {budget:,} triangle budget"
                 ),
                 # The over-budget mesh is exactly what a Rig-stage remesh (or a
                 # cheaper retarget) exists to fix -- ``panes.remesh_panel`` and

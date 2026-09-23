@@ -302,8 +302,11 @@ def _terrain_block(doc: Any) -> None:
     controls.fold_undo(doc.history)
     if changed_x or changed_z:
         # ``max`` and not a refusal: ``set_terrain_config`` raises on a
-        # non-positive size, and a spinbox that can be dragged to zero must not
-        # be able to raise out of a draw call.
+        # non-positive size (the 2026-09-23 audit's mason-03 made this true --
+        # it used to validate nothing and this clamp was the only thing
+        # standing between a dragged-to-zero spinbox and an unreopenable
+        # ``.rscn``), and a spinbox that can be dragged to zero must not be
+        # able to raise out of a draw call.
         doc.set_terrain_config(size_x=max(0.01, size_x), size_z=max(0.01, size_z))
 
 

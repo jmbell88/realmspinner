@@ -345,6 +345,15 @@ class Library:
         if name not in self.layouts:
             return False
         if name in BUILT_IN:
+            # The 2026-09-23 audit (shell-04): unreadable (future-version)
+            # built-ins were coerced to a fresh Layout unconditionally, the
+            # same rewrite-by-an-older-build bug as ``reset`` below. The
+            # button that reaches this branch is disabled while the active
+            # layout is built-in, so this path is presently unreachable from
+            # the UI -- but the guard belongs on the data method, not on the
+            # one caller that happens to exist today.
+            if not self.layouts[name].readable:
+                return False
             self.layouts[name] = Layout(name=name)
         else:
             del self.layouts[name]
@@ -354,12 +363,22 @@ class Library:
         return True
 
     def reset(self, name: str = "") -> None:
-        """Put a layout back to the built-in arrangement."""
+        """Put a layout back to the built-in arrangement.
+
+        Early-returns on an unreadable (future-version) layout rather than
+        replacing it: the 2026-09-23 audit (shell-01) found this method had
+        no ``readable`` check at all, so pressing the always-enabled Reset
+        button on a newer build's layout silently rewrote it with a fresh
+        one -- the exact "older build rewrites a newer layout" case the
+        module docstring's "kept verbatim" rule exists to prevent, just
+        reached from a different button than the ones already guarded.
+        """
 
         wanted = name or self.active
-        if wanted in self.layouts:
-            self.layouts[wanted] = Layout(name=wanted)
-            self.save()
+        if wanted not in self.layouts or not self.layouts[wanted].readable:
+            return
+        self.layouts[wanted] = Layout(name=wanted)
+        self.save()
 
     def save(self) -> None:
         # An explicit edit is the migration boundary.  Readable v1 layouts are
