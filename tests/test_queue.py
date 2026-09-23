@@ -1672,6 +1672,39 @@ async def test_trellis_output_is_kept_as_source_glb(worker, monkeypatch):
     assert worker.store.get(job_id)["params"]["optimize"]["achieved"] == 50_000
 
 
+async def test_a_legacy_row_without_profile_is_optimized_as_raw(worker, monkeypatch):
+    """dev/measurements/2026-09-23-default-mesh-budget.md: a row with no
+    "profile" key predates ``resolve_profile`` recording one on every submit,
+    and it ran raw when it ran -- so ``_q_mesh._optimize``'s own fallback must
+    not reinterpret that row against *today's* config default, which this
+    test pins to "standard" specifically so a fallback of
+    ``self.config.mesh_profile`` (rather than the literal ``"raw"``) would be
+    caught: it would ask for a 50,000-triangle budget instead of none.
+    """
+    import realmspinner.pipelines.optimize as optimize_mod
+
+    worker.config.mesh_profile = "standard"
+    seen: dict[str, object] = {}
+
+    def fake_run(source, dest, *, target_triangles, **k):
+        seen["target_triangles"] = target_triangles
+        dest.write_bytes(source.read_bytes())
+        return {
+            "requested": target_triangles,
+            "achieved": 1,
+            "source_triangles": 1,
+            "bytes": 1,
+        }
+
+    monkeypatch.setattr(optimize_mod, "run", fake_run)
+    job_id = _make_image_job(worker)  # params carry no "profile" key at all
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "done")
+    await worker.shutdown()
+
+    assert seen["target_triangles"] is None
+
+
 async def test_a_failing_optimize_still_ships_the_reconstruction(worker, monkeypatch):
     # The reconstruction is on disk and usable; losing the budget costs file
     # size, and failing the job would cost the user the mesh.
@@ -1703,6 +1736,111 @@ async def test_a_failing_optimize_still_ships_the_reconstruction(worker, monkeyp
     # And the failure is *recorded* rather than only logged, so a user can see
     # why this mesh is at full density (ART-01).
     assert "optimize" in job["params"]["degraded"]
+
+
+# --- _lowpoly: the in-job game-ready remesh ---------------------------------
+
+
+async def test_lowpoly_publishes_over_model_glb_before_apply_scale(worker, monkeypatch):
+    """``_lowpoly`` runs between ``_optimize`` and ``_apply_scale`` in
+    ``_q_generate``'s loop: the mesh ``_apply_scale`` grounds is the lowpoly
+    remesh's own output, not the optimizer's, and the report lands on the
+    row before the job finishes."""
+    from pathlib import Path
+
+    import realmspinner.pipelines.blender_run as blender_run_mod
+    from realmspinner.pipelines import postprocess as postprocess_mod
+    from realmspinner.pipelines import remesh
+
+    # The fake GLB the lowpoly step "writes" is bytes, not a real glTF;
+    # grounding is not the subject here, so it is stubbed the way
+    # test_remesh.py's _no_normalize fixture stubs it for the same reason.
+    monkeypatch.setattr(postprocess_mod, "normalize_glb", lambda *a, **k: {"scale": 1.0})
+
+    calls: list[dict] = []
+
+    def fake_run_worker(spec, *, on_progress=None, on_start=None, timeout=0.0):
+        calls.append(spec)
+        Path(spec["out_glb"]).write_bytes(b"lowpoly-mesh")
+        return {
+            "ok": True, "method": "decimate", "faces": 4996, "faces_before": 268642,
+            "quads": 0.0, "texture_size": spec["texture_size"], "metallic": 0.0,
+        }
+
+    monkeypatch.setattr(blender_run_mod, "run_worker", fake_run_worker)
+
+    job_id = worker.store.create(
+        "image", None, {"seed": 1, "resolution": 512, "lowpoly_triangles": 5000}
+    )
+    job_dir = worker.config.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "input.png").write_bytes(b"fake-png")
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "done")
+    await worker.shutdown()
+
+    assert len(calls) == 1, "the Blender remesh ran a different number of times than once"
+    assert calls[0]["target_faces"] == remesh.target_faces(5000)
+    assert calls[0]["close_holes"] is True
+    assert (job_dir / "model.glb").read_bytes() == b"lowpoly-mesh"
+    report = worker.store.get(job_id)["params"]["lowpoly"]
+    assert report["requested"] == 5000
+    assert report["achieved"] == 4996
+    assert report["method"] == "decimate"
+    assert "tiercheck" in report
+
+
+async def test_a_failing_lowpoly_keeps_the_optimized_mesh_and_notes_it(worker, monkeypatch):
+    """The rule every mesh post-processing step in ``_q_mesh.py`` follows:
+    the optimized mesh is already on disk and usable, so a lowpoly failure
+    costs the user a larger file, never the asset."""
+    import realmspinner.pipelines.blender_run as blender_run_mod
+
+    monkeypatch.setattr(
+        blender_run_mod,
+        "run_worker",
+        lambda *a, **k: (_ for _ in ()).throw(blender_run_mod.BlenderError("boom")),
+    )
+
+    job_id = worker.store.create(
+        "image", None, {"seed": 1, "resolution": 512, "lowpoly_triangles": 5000}
+    )
+    job_dir = worker.config.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "input.png").write_bytes(b"fake-png")
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "done")
+    await worker.shutdown()
+
+    row = worker.store.get(job_id)
+    assert "lowpoly" not in row["params"]
+    assert "lowpoly" in row["params"]["degraded"]
+    # The mesh is still on disk and non-empty -- the optimized (here, raw)
+    # reconstruction the failed lowpoly step never touched.
+    assert (job_dir / "model.glb").stat().st_size > 0
+
+
+async def test_a_legacy_row_with_no_lowpoly_triangles_key_runs_no_lowpoly(worker, monkeypatch):
+    """A row with no ``lowpoly_triangles`` key at all predates
+    ``resolve_lowpoly`` recording one on every submit (or Blender was not on
+    the host that submitted it) -- either way, nothing here should ever call
+    Blender for it."""
+    import realmspinner.pipelines.blender_run as blender_run_mod
+
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        blender_run_mod, "run_worker", lambda spec, **k: calls.append(spec) or {}
+    )
+
+    job_id = _make_image_job(worker)  # params carry no "lowpoly_triangles" key
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "done")
+    await worker.shutdown()
+
+    assert calls == []
+    assert "lowpoly" not in worker.store.get(job_id)["params"]
 
 
 async def test_finished_job_carries_a_mesh_report(worker, monkeypatch):

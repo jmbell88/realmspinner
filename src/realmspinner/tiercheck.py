@@ -1,15 +1,26 @@
 """Whether a gltfpack tier preserved what it had to. Pure, and the bar is data.
 
-Tier qualification's automated half
-(``dev/measurements/2026-08-13-tier-qualification.md`` records the run).
+Tier qualification's automated half, and until 2026-09-23 the only way this
+module was reached: a named tier stayed out of the generate forms until it had
+been run, by hand, against a chest, a sword and a rock
+(``dev/measurements/2026-08-13-tier-qualification.md`` records that attempt).
 ``vendor/gltfpack/gltfpack.exe`` has been present since 2026-08-07, so
-``draft``/``standard``/``detailed`` are live code rather than dormant -- which
-changed the shape of the constraint instead of removing it. A named tier is no
-longer a button that *fails*; it is a button that silently ships a worse mesh,
-and that is harder to notice. The bar therefore stands unchanged: a tier stays
-out of the generate forms until it has been run against a chest, a sword and a
-rock and shown to keep UVs, both PBR maps and material assignment. This module
-is that sentence, made checkable.
+``draft``/``standard``/``detailed`` were live code rather than dormant -- which
+changed the shape of the constraint instead of removing it. A named tier was no
+longer a button that *fails*; it was a button that silently ships a worse mesh,
+and that is harder to notice.
+
+**That three-subject sample is retired.** The corpus run never produced a
+usable result (0 of 20 accepted on 2026-08-13, a single reconstruction in the
+library on 2026-09-23), and the invariant's real fear -- a tier that silently
+ships a worse mesh -- is exactly what :func:`compare` already measures.
+``dev/measurements/2026-09-23-default-mesh-budget.md`` replaces the sample with
+a check on **every** job instead: ``pipelines.optimize.run`` now calls
+:func:`compare` on its own output before publishing it, on every gltfpack
+pass, not just three hand-picked subjects. That is strictly stronger --
+it cannot pass on a sword and then fail unseen on a chest. :func:`qualify`
+stays as a harness for a deliberate, wider sweep (a new tier, a corpus
+health check); nothing in the generate forms waits on it any more.
 
 **Pure in the ``vram.py``/``meshreport`` sense.** Stdlib plus ``glbio``, no
 imports from ``service``/``queue``/``studio``, and a file it cannot read is

@@ -106,9 +106,17 @@ class ClayViewport:
         from .... import icons, tokens
         from ....main import TARGET_FPS
         from ....panes import overlay
+        from .. import generate as clay_generate
         from .panes import header as clay_header
         from .panes import hud as clay_hud
         from .panes import menu as clay_menu
+
+        # "Generate into the current tab": cheap (a store lookup, at most,
+        # once every ``GEN_POLL_S``) and has to run every frame Clay is drawn
+        # regardless of which tab is active -- a pending request can be for a
+        # tab the user has since switched away from, and it still has to land
+        # there when it is ready.
+        clay_generate.poll(ctx)
 
         self._clay_tabs(ctx, clay_mode)
         tab = clay_mode.active(ctx)

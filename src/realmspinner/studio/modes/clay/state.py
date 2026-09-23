@@ -129,6 +129,16 @@ class ClayTab(docmodes.HistoryTab):
     # ``_new_uv_view``'s above for why the default factory imports it lazily.
     uv_view: UvPaneState = field(default_factory=_new_uv_view)
 
+    # The size of this document's own ``.rblk`` the last time it was measured
+    # -- at open (``clay_mode._load`` already reads the whole file, so the
+    # length is free) and at save (the encode ``clay_mode.save_to``/
+    # ``save_as`` already do). 0 means "never measured" (a brand-new or
+    # imported document with no save yet), and ``.generate``'s own ceiling
+    # check reads that as "unknown" rather than as zero bytes -- a document
+    # this module has never seen the size of is not one it can refuse a
+    # generate landing in for being too big.
+    rblk_bytes: int = 0
+
 
 def title_for(path: Path | None) -> str:
     """The stem, not the name -- the one mode that differs from
@@ -331,6 +341,24 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # edit's holes. Keeping the mesh alive is the price, and it is one mesh per
     # object the user has actually asked about.
     manifold: dict[int, tuple[Any, list[Any]]] = field(default_factory=dict)
+
+    # "Generate into the current tab" (``.generate``): one request in flight
+    # for the whole app, never per tab -- the popup that starts it is modal,
+    # so there is only ever one to hold. ``None`` means nothing is under way.
+    # ``.generate.poll``/``.on_task_done``/``.on_task_failed`` are the only
+    # writers; the bridge pane and ``.generate``'s own status line are the
+    # only readers. A dict rather than a dataclass, the same shape Inker's
+    # own ``inpaint_pending`` and ``flourish_texture_pending`` take -- the
+    # keys carried at each stage differ enough (a prompt only while text is
+    # rerollable, a decoded landing only while one is deferred) that a fixed
+    # set of fields would be mostly unused at any one stage.
+    generate_pending: dict[str, Any] | None = None
+    # The popup's own text field and budget choice -- widget state, not
+    # part of any request until Generate is pressed, ``ClayState.tool``'s
+    # own reasoning: it belongs to the *app*, the same way Inker's
+    # ``inpaint_prompt`` does, so it is not reset by a tab switch.
+    generate_prompt: str = ""
+    generate_budget: str = "standard"
 
     # -- documents ---------------------------------------------------------
 

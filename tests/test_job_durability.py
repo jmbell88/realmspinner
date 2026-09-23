@@ -228,12 +228,31 @@ PUBLISHERS = [
     # ``_discard_artifacts``'s fallback branch, never a different job's served
     # artifact. Neither site joins this list because neither is the point of
     # no return ``_remesh``'s rename is.
-    ("realmspinner._q_mesh", "_remesh", "os.replace"),
+    # Since 2026-09-22 both rows publish through
+    # ``MeshPostOps._publish_model_version`` rather than a bare
+    # ``os.replace`` -- it keeps the mesh being overwritten under
+    # ``model_history`` before renaming the new one into place, so the scan's
+    # own text search has to look for the new call instead of the old one.
+    # ``revert_model`` (``service/_jobs_rework.py``) is deliberately *not* a
+    # row here: it is an inline door like ``optimize_job``, with no cancel
+    # token to commit -- there is nothing queued to cancel out from under it.
+    # ``MeshPostOps._lowpoly`` (added 2026-09-23) is the same shape as
+    # ``_optimize``/``_apply_scale``/the ``_q_generate`` promotion stage
+    # above, not ``_remesh``'s: it ``os.replace``s a game-ready remesh onto
+    # ``glb_path``, but that path is *this still-running job's own*
+    # ``model.glb`` -- the model job that called it, not a different,
+    # already-``done`` job's served artifact. A cancel racing it can only
+    # discard this job's own half-finished work through
+    # ``_discard_artifacts``'s fallback branch, exactly as a cancel racing
+    # ``_optimize`` can; nothing else has been told this row is done yet, so
+    # there is no served name for the rename to be a point of no return
+    # against. It joins this comment rather than the table.
+    ("realmspinner._q_mesh", "_remesh", "_publish_model_version"),
     ("realmspinner._q_rig", "_rig", "finalize_rig"),
     ("realmspinner._q_rig", "_sheet", "_publish_text"),
     ("realmspinner._q_sprite", "_pixel_sheet", "_publish_text"),
     ("realmspinner._q_sprite", "_sprite_synthesis", "_publish_text"),
-    ("realmspinner._q_sprite", "_retexture", "os.replace"),
+    ("realmspinner._q_sprite", "_retexture", "_publish_model_version"),
     ("realmspinner._q_tilesheet", "_tile_sheet", "_publish_text"),
     ("realmspinner._q_tileset", "_tile_set", "_publish_text"),
     ("realmspinner._q_troupe", "_charsheet", "_publish_text"),

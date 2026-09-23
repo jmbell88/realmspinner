@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from imgui_bundle import imgui
 
-from .... import fonts, icons, motion, theme, tokens
+from .... import fonts, icons, motion, probe, theme, tokens
 from ....tokens import sp
 
 
@@ -236,6 +236,16 @@ def stage_rail(
             # carry its tooltip, so it is clicked and the click is dropped,
             # rather than not drawn as a button at all.
             hit = imgui.invisible_button(f"{rail_id}/{key}", (width, height))
+            # The 2026-09-23 audit, finding create-08: shell-06 fixed the
+            # same raw-invisible_button blind spot for studio/rail.py but
+            # left this separate module's own breadcrumb uncensused.
+            probe.record(
+                label=f"{label}##{rail_id}/{key}",
+                kind="rail_item",
+                enabled=reason is None,
+                selected=key == current,
+                tooltip=reason or "",
+            )
             hovered = imgui.is_item_hovered()
             if hit and reason is None:
                 picked = key

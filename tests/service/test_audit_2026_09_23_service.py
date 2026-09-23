@@ -251,7 +251,7 @@ def test_a_mesh_optimized_to_its_own_custom_budget_is_not_flagged_over_budget():
 
 def test_a_mesh_remeshed_to_its_own_custom_face_target_is_not_flagged_over_budget():
     """Same finding, the remesh panel's own field name
-    (``remesh.FACES_MAX`` is 200,000, also above ``TRIANGLE_BUDGET``):
+    (``remesh.TRIANGLES_MAX`` is 200,000, also above ``TRIANGLE_BUDGET``):
     ``params["remesh"]["target_faces"]`` is the accepted budget for a
     remeshed job, recorded by ``_q_mesh.py``'s ``_remesh`` stage.
     """

@@ -65,6 +65,7 @@ FIELD_LABELS: dict[str, str] = {
     "resolution": "Resolution",
     "profile": "Profile",
     "custom_triangles": "Custom triangles",
+    "lowpoly_triangles": "Game-ready triangles",
     "size_m": "Size in metres",
 }
 
@@ -366,6 +367,34 @@ def sprite_plan(form: dict[str, Any]) -> dict[str, Any]:
         "sizes": sizes,
         "logical_size": _sprite_logical(form, sizes),
     }
+
+def tileset_generation_plan(form: dict[str, Any]) -> dict[str, Any]:
+    """What this form's tile arm will actually draw: the mode and the count.
+
+    :func:`sprite_plan`'s sibling for the other Sheet arm. The 2026-09-23
+    audit, finding create-06: ``plan_for``'s tileset branch hardcoded
+    ``generations = 1`` no matter what was asked for, while the door
+    (``service.tilesheets.create_tile_sheet``) and the worker
+    (``_q_tileset._tile_set``, ``count = len(subjects)``) run one SDXL pass
+    per material line x variant in the default ``materials`` mode and two in
+    ``terrain`` -- only ``grid`` is genuinely one. Read through the same
+    helpers the door and its own pane validation use (:func:`tile_mode_of`,
+    :func:`material_lines`, the ``variants`` field), so this can never show a
+    count the door would refuse or clamp differently.
+    """
+    mode = tile_mode_of(form)
+    if mode == svc_tilesheets.MODE_MATERIALS:
+        lines = max(1, len(material_lines(form)))
+        variants = max(1, safe_int(form.get("variants"), 1))
+        generations = lines * variants
+    elif mode == svc_tilesheets.MODE_TERRAIN:
+        # Two seamless materials, inner and outer -- never the forty-seven
+        # composited cells, which are arithmetic over these two rather than
+        # generations of their own.
+        generations = 2
+    else:
+        generations = 1
+    return {"mode": mode, "generations": generations}
 
 def sprite_cost(plan: dict[str, Any]) -> str:
     """The one sentence under the sprite controls, from :func:`sprite_plan`."""

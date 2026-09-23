@@ -24,6 +24,7 @@ from imgui_bundle import imgui
 
 from ...... import guidance, vectors
 from ......bench import findings as findings_lib
+from ......pipelines import remesh
 from ......service import findings as svc_findings
 from ......service import jobs as svc_jobs
 from ......service import sheets as svc_sheets
@@ -32,7 +33,7 @@ from ......service.validation import MAX_MESH_CANDIDATES, MAX_UPLOAD_BYTES, rand
 from ..... import controls, dialogs, focus, forms, matte_preview, theme, widgets
 from .....formvalues import coerce_form_value
 from .....manual import render as manual_render
-from .....panes import stage_rig
+from .....panes import remesh_panel, retarget_panel, stage_rig
 from .....tokens import sp
 from ...engine import mesh as create_mesh
 from .. import stages as create_stages
@@ -69,16 +70,21 @@ MATTE_SOURCES = {
     "flood": "Corner fill (BiRefNet's weights are not installed)",
 }
 
-# The only tier the UI offers. gltfpack is vendored now, so the named tiers can
-# run -- but none of them has been qualified (kept UVs, both PBR maps and
-# material assignment on a chest, a sword and a rock), and an unqualified tier
-# on a generate form is a button that silently degrades a mesh. The retarget
-# control in the inspector is the qualification path: it offers the whole list
-# once the binary is present, so a tier can be exercised before it is exposed
-# here.
-# "As reconstructed", not "no decimation": the engine itself simplifies to
-# ~300k faces at res 1024 before Realmspinner sees the mesh (config.trellis_decim).
-PROFILES = [("raw", "Raw (as reconstructed, ~300k faces)")]
+# Every gltfpack tier, not "raw" alone: dev/measurements/
+# 2026-09-23-default-mesh-budget.md retired the per-tier corpus qualification
+# that used to hold this list to one entry (0 of 20 subjects ever passed it,
+# dev/measurements/2026-08-13-tier-qualification.md) in favour of a check on
+# every job instead of a sample of three -- tiercheck.compare now guards every
+# gltfpack pass (pipelines/optimize.run), so a tier that silently ships a
+# worse mesh is refused there rather than merely kept off this form.
+#
+# Derived from retarget_panel.TIERS rather than restated, the same argument
+# ``tier_label`` itself makes: ``optimize.PROFILES`` is the one authority on
+# the numbers. This is the gltfpack half of the Budget combo only --
+# :func:`_budget_options` is what assembles the whole thing, Game-ready rungs
+# and Raw/Custom included; see its own comment for why the ladder moved off a
+# single static list.
+PROFILES = list(retarget_panel.TIERS)
 
 
 def draw(ctx: Any) -> None:
@@ -376,25 +382,144 @@ def _size_suggestion(ctx: Any, form: dict[str, Any]) -> None:
         form["size_m"] = float(metres)
 
 
-def _budget(ctx: Any, form: dict[str, Any]) -> None:
-    """The triangle budget -- drawn only when there is a choice to make.
+def _stale_lowpoly_entry(form: dict[str, Any] | None) -> tuple[str, str] | None:
+    """An explicit combo entry for a stored ``lowpoly_triangles`` that
+    matches no ``remesh.TRIANGLE_PROFILES`` rung, or None.
 
-    While :data:`PROFILES` has one entry there is nothing here a user can do.
-    It used to be drawn anyway, disabled, with three lines explaining why: the
-    argument was that a combo with a single entry looks broken, so saying
-    "unqualified tier, not missing binary" beats saying nothing. But the
-    control and its note are five lines of the densest form in the app, spent
-    entirely on explaining their own inertness -- and the note's own answer is
-    that the *inspector's* retarget control is where a tier gets tried. Send
-    the user there by not putting a dead affordance in front of them here.
-
-    The form key is untouched either way, so the door (``profile`` at submit)
-    is unchanged: this stops drawing a control, it does not stop sending one.
+    The 2026-09-23 audit, finding create-07: a form saved before a ladder
+    edit (or any other writer) has nothing in the plan's normal list to
+    highlight -- ``_budget_current`` used to fall through to "raw", which
+    read back as a silent choice to drop the stored budget rather than as
+    what it actually is: a real value this build's ladder just does not name.
+    Gated on the value actually being stored, so the offered list is
+    unchanged for every form that matches a rung.
     """
-    if len(PROFILES) == 1:
+    if form is None:
+        return None
+    triangles = int(form.get("lowpoly_triangles") or 0)
+    if triangles <= 0 or triangles in remesh.TRIANGLE_PROFILES.values():
+        return None
+    return (f"lowpoly:stale:{triangles}", f"Game-ready ({triangles:,})")
+
+
+def _budget_options(ctx: Any, form: dict[str, Any] | None = None) -> list[tuple[str, str]]:
+    """Every Budget entry this host can currently offer, in the plan's own
+    order: Game-ready rungs (the in-job remesh, needs Blender), then the
+    gltfpack tiers under "Simplify:" (needs gltfpack, "raw" excluded -- it
+    gets its own explicit entry below), then Raw, then Custom.
+
+    Each family draws no entries at all when its binary is missing, the same
+    collapse ``retarget_panel.draw`` (lines 77-82) and this pane's own
+    now-removed single-family version used -- a combo full of options the
+    door would refuse is worse than fewer, working ones. "Raw" and "Custom"
+    always appear: Raw needs nothing to run, and Custom is the gltfpack
+    tier's free-form entry, gated by the same gltfpack availability the
+    "Simplify:" rungs are (validate/_budget's early return handles a host with
+    neither binary before this is ever called).
+
+    ``form`` is optional and used only to add :func:`_stale_lowpoly_entry`'s
+    one extra row when the caller has a form to check -- every existing
+    caller that passes none gets exactly the list it always has.
+    """
+    options: list[tuple[str, str]] = []
+    if remesh_panel.blender_available(ctx):
+        options += [
+            (f"lowpoly:{key}", f"Game-ready ({key})") for key in remesh.TRIANGLE_PROFILES
+        ]
+        stale = _stale_lowpoly_entry(form)
+        if stale is not None:
+            options.append(stale)
+    if retarget_panel.gltfpack_available(ctx):
+        options += [
+            (key, f"Simplify: {key.capitalize()}")
+            for key, _ in retarget_panel.TIERS
+            if key not in ("raw", "custom")
+        ]
+        options.append(("custom", "Custom..."))
+    options.append(("raw", "Raw"))
+    return options
+
+
+def _budget_current(form: dict[str, Any]) -> str:
+    """The Budget combo's own key for the form's current
+    ``profile``/``lowpoly_triangles`` pair -- the inverse of
+    :func:`_apply_budget_choice`, which an entry's selection runs."""
+    triangles = int(form.get("lowpoly_triangles") or 0)
+    if triangles > 0:
+        for key, count in remesh.TRIANGLE_PROFILES.items():
+            if triangles == count:
+                return f"lowpoly:{key}"
+        # A lowpoly budget that does not match a named rung (a hand-edited
+        # settings.json, or a row saved against a ladder this build has since
+        # changed): the 2026-09-23 audit, finding create-07 -- this used to
+        # fall through to the gltfpack/raw half, which read as "raw" and, with
+        # no gesture gate in ``_budget``, zeroed the stored value on the very
+        # next draw. ``_stale_lowpoly_entry`` gives it a real key to match.
+        return f"lowpoly:stale:{triangles}"
+    return str(form.get("profile") or "raw")
+
+
+def _apply_budget_choice(form: dict[str, Any], choice: str) -> None:
+    """Write ``profile`` and ``lowpoly_triangles`` for one Budget entry.
+
+    Both keys, always -- a Game-ready rung sets ``lowpoly_triangles`` and
+    forces ``profile`` to "raw" (``resolve_lowpoly``'s own rule: it bakes
+    from the full-detail reconstruction, so a gltfpack pass in front of it
+    would simplify twice for nothing), and every other entry clears
+    ``lowpoly_triangles`` -- an explicit 0, not an omission, so switching away
+    from a Game-ready rung actually turns the remesh off rather than leaving
+    the door to silently keep running the last one picked.
+    """
+    if choice.startswith("lowpoly:stale:"):
+        # Re-affirming the combo's own honest entry for an unmatched stored
+        # value (create-07): keep the number rather than snapping it onto the
+        # nearest named rung, which would be a silent change of its own.
+        form["lowpoly_triangles"] = int(choice.split(":", 2)[2])
+        form["profile"] = "raw"
         return
-    form["profile"] = widgets.labeled_combo("Budget", form["profile"], PROFILES)
+    if choice.startswith("lowpoly:"):
+        key = choice.split(":", 1)[1]
+        form["lowpoly_triangles"] = remesh.TRIANGLE_PROFILES.get(key, 0)
+        form["profile"] = "raw"
+        return
+    form["lowpoly_triangles"] = 0
+    form["profile"] = choice
+
+
+def _budget(ctx: Any, form: dict[str, Any]) -> None:
+    """The mesh budget: a game-ready remesh, a gltfpack tier, Raw, or Custom.
+
+    dev/measurements/2026-09-23-default-mesh-budget.md retired the corpus
+    qualification that used to make the gltfpack half of this a dead
+    single-entry combo -- ``tiercheck.compare`` (``pipelines.optimize.run``)
+    guards every pass instead of a three-subject sample. The same document
+    adds the Game-ready rungs: every generated mesh lands at ~270k-300k
+    triangles (trellis-server's own quadric simplify, no second pass), which
+    is a source mesh rather than a game asset, and a whole-character remesh
+    to 5,000 triangles is now the default rather than an option nobody sees.
+
+    What is still conditional is each family's *binary*: without gltfpack
+    there is no second pass for tiercheck to guard, and without Blender there
+    is no remesh to run, so :func:`_budget_options` draws no entries for
+    either that is missing. With *neither* present this collapses to Raw and
+    forces the form key the same way ``retarget_panel.draw`` (lines 77-82)
+    does, and draws nothing rather than a combo with one dead choice in it.
+    """
+    if not remesh_panel.blender_available(ctx) and not retarget_panel.gltfpack_available(ctx):
+        form["profile"] = "raw"
+        form["lowpoly_triangles"] = 0
+        return
+    current = _budget_current(form)
+    picked = widgets.labeled_combo("Budget", current, _budget_options(ctx, form))
+    # Gated on an actual gesture (the 2026-09-23 audit, finding create-07):
+    # ``widgets.combo`` returns the value it was handed, unchanged, on an
+    # untouched draw, so calling ``_apply_budget_choice`` unconditionally
+    # here zeroed a stored budget that matched no rung the first frame this
+    # pane was merely drawn, with no click at all.
+    if picked != current:
+        _apply_budget_choice(form, picked)
     widgets.field_error(ctx.state, "profile")
+    widgets.field_error(ctx.state, "lowpoly_triangles")
     _hint(ctx, form, "profile", form["profile"])
     if form["profile"] == "custom":
         # The same control the retarget panel draws, appearing under exactly

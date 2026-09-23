@@ -92,7 +92,7 @@ def _effective_triangle_budget(report: dict[str, Any], params: dict[str, Any]) -
 
     The 2026-09-23 audit, finding pipelines-01: ``meshreport.TRIANGLE_BUDGET``
     (150k) is below the custom budgets the retarget and remesh panels accept
-    (``pipelines.optimize.CUSTOM_MAX`` 250k, ``pipelines.remesh.FACES_MAX``
+    (``pipelines.optimize.CUSTOM_MAX`` 250k, ``pipelines.remesh.TRIANGLES_MAX``
     200k), so a mesh optimized to its own accepted budget was flagged "over
     budget" forever, with this row's own repair button pointing back at the
     very panel that had already done exactly what it asked. The budget a

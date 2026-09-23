@@ -159,19 +159,70 @@ def test_a_measured_footer_is_stored_in_design_pixels():
 # --- K94 / K95 / K96: the 3D form's three controls ---------------------------
 
 
-def test_the_one_option_budget_is_not_drawn_at_all():
-    """K94, settled the other way. A combo with a single entry looks broken --
-    but drawing it disabled costs five lines of the densest form in the app to
-    explain its own inertness, and the explanation's own answer is that the
-    *inspector's* retarget control is where a tier gets tried. So while
-    ``PROFILES`` has one entry there is nothing here, and the form key is
-    untouched either way: this stops drawing a control, not sending one."""
-    assert len(settings_3d.PROFILES) == 1
+def test_the_budget_combo_offers_game_ready_rungs_and_gltfpack_tiers(monkeypatch):
+    """K94, settled a second time, 2026-09-23. dev/measurements/
+    2026-09-23-default-mesh-budget.md adds a Game-ready family (the in-job
+    remesh) beside the gltfpack tiers ``tiercheck.compare`` already guards --
+    ``_budget_options`` is what assembles the whole combo now, and this pins
+    its shape rather than a single static list.
+    """
+    from types import SimpleNamespace
+
+    from realmspinner.pipelines import remesh
+    from realmspinner.studio.panes import remesh_panel, retarget_panel
+
+    ctx = SimpleNamespace()
+    monkeypatch.setattr(remesh_panel, "blender_available", lambda _ctx: True)
+    monkeypatch.setattr(retarget_panel, "gltfpack_available", lambda _ctx: True)
+    options = settings_3d._budget_options(ctx)
+
+    keys = [key for key, _ in options]
+    assert keys[: len(remesh.TRIANGLE_PROFILES)] == [
+        f"lowpoly:{k}" for k in remesh.TRIANGLE_PROFILES
+    ], "the Game-ready rungs are not first"
+    assert "custom" in keys and "raw" in keys
+    for key, _ in retarget_panel.TIERS:
+        if key not in ("raw", "custom"):
+            assert key in keys, f"gltfpack tier {key!r} missing from the combo"
+
     source = inspect.getsource(settings_3d._budget)
-    assert "if len(PROFILES) == 1:" in source
-    assert "begin_disabled" not in source
-    # And nothing is left explaining a control that is not on screen.
-    assert "not installed" not in source
+    assert "gltfpack_available" in source
+    assert "blender_available" in source
+    assert "labeled_combo" in source
+
+
+def test_the_budget_combo_collapses_to_raw_with_neither_binary():
+    """The one thing still conditional on the binaries: without gltfpack
+    there is no second pass for tiercheck to guard, and without Blender there
+    is no remesh to run, so with *neither* present the combo collapses to Raw
+    and the form key is pinned to it -- the same shape ``retarget_panel.draw``
+    already falls back to (lines 77-82) rather than a dead, disabled control.
+    """
+    source = inspect.getsource(settings_3d._budget)
+    assert 'form["profile"] = "raw"' in source
+    assert 'form["lowpoly_triangles"] = 0' in source
+    assert "blender_available" in source and "gltfpack_available(ctx)" in source
+
+
+def test_default_form_3d_agrees_with_the_config_defaults(monkeypatch):
+    """The form and the door must not drift: a Make 3D press with the Budget
+    control untouched has to submit exactly what ``resolve_lowpoly`` and
+    ``resolve_profile`` would default the job to on their own -- Game-ready
+    5k (``profile="raw"``, ``lowpoly_triangles=5000``), the common case this
+    form's own default assumes (bpy installed).
+
+    Both env vars are cleared first, ``Config()``'s own ``default_factory``
+    reads them, so a host environment that happens to set either must not
+    make this comparison spuriously fail (or spuriously pass on a
+    coincidence).
+    """
+    monkeypatch.delenv("REALMSPINNER_MESH_PROFILE", raising=False)
+    monkeypatch.delenv("REALMSPINNER_LOWPOLY_TRIANGLES", raising=False)
+    from realmspinner.config import Config
+    from realmspinner.studio.state import DEFAULT_FORM_3D
+
+    assert DEFAULT_FORM_3D["profile"] == "raw"
+    assert DEFAULT_FORM_3D["lowpoly_triangles"] == Config().lowpoly_triangles == 5000
 
 
 def test_custom_triangles_finally_has_a_widget():
@@ -180,6 +231,28 @@ def test_custom_triangles_finally_has_a_widget():
     source = inspect.getsource(settings_3d._budget)
     assert 'form["profile"] == "custom"' in source
     assert "custom_triangles" in source
+
+
+def test_a_game_ready_pick_sets_both_the_lowpoly_and_the_profile_keys():
+    """settings_3d._apply_budget_choice: a Game-ready rung has to write both
+    keys the door reads, and force profile to "raw" -- resolve_lowpoly's own
+    rule, so the remesh bakes from the full-detail reconstruction rather than
+    an already gltfpack-simplified one."""
+    from realmspinner.pipelines import remesh
+
+    form = {"profile": "standard", "lowpoly_triangles": 0}
+    settings_3d._apply_budget_choice(form, "lowpoly:10k")
+    assert form["lowpoly_triangles"] == remesh.TRIANGLE_PROFILES["10k"]
+    assert form["profile"] == "raw"
+
+    settings_3d._apply_budget_choice(form, "draft")
+    assert form["lowpoly_triangles"] == 0, "switching away must turn the remesh off"
+    assert form["profile"] == "draft"
+
+    raw_form = {"profile": "raw", "lowpoly_triangles": 5000}
+    assert settings_3d._budget_current(raw_form) == "lowpoly:5k"
+    draft_form = {"profile": "draft", "lowpoly_triangles": 0}
+    assert settings_3d._budget_current(draft_form) == "draft"
 
 
 def test_the_size_field_is_an_unbounded_drag_that_carries_its_unit():

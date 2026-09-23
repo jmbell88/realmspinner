@@ -149,11 +149,42 @@ and small, a 3D one in a scene. Higher resolutions cost more VRAM and more time,
 hold both models at once they may need the exclusive VRAM mode (`REALMSPINNER_VRAM_EXCLUSIVE=1`), which
 stops the reconstruction engine while the image model runs.
 
-There is deliberately no **Budget** control here. Only "Raw (as reconstructed, ~300k faces)" has been qualified, so
-the triangle-reduction tier is not something this form can offer a choice about, and a control that
-exists to explain its own inertness is worse than no control. See
-[Triangle budget](#triangle-budget) for where a budget can actually be chosen today. Once a tier is
-qualified the select appears here, and picking *Custom* reveals a triangle count beside it.
+**Budget** picks how the finished mesh gets to a game-sized triangle count, and it offers up to four
+families of entry, each drawn only when this machine can actually run it:
+
+- **Game-ready — 2k, 5k, 10k or 20k** remeshes the surface itself inside the model job: a voxel
+  pass, a fresh unwrap, and the old colour, roughness and normals baked onto the new geometry. This
+  is what turns the engine's ~300k-face output into something an engine actually budgets for, and
+  **5k is the default** — Crash-Bandicoot-range fidelity on a whole-character reconstruction, per
+  `dev/measurements/2026-09-23-default-mesh-budget.md`. It needs Blender (the `rig` extra); without
+  it, this family does not appear.
+- **Simplify: Draft/Standard/Detailed** are the gltfpack tiers (20k/50k/100k) — a plain triangle
+  reduction of the reconstruction's own surface, no rebake. They need `gltfpack`
+  (a one-time manual drop into `vendor/gltfpack/`, or a downloaded engine copy — see
+  [Installation](40-installation.md#gltfpack)); without it, this family does not appear either.
+  **Without Blender, Standard is the fallback** — the mesh still gets a second pass, just not the
+  in-Blender remesh.
+- **Raw** ships the reconstruction as the engine wrote it, ~300k faces. Always offered.
+- **Custom** takes a triangle count directly; it appears once `gltfpack` is present, alongside the
+  Simplify tiers.
+
+With neither Blender nor `gltfpack` on this machine, the combo collapses to Raw alone and
+`realmspinner doctor` says why.
+
+A saved Game-ready budget that is not one of the four rungs, say 7,500 from before the ladder
+last changed, is kept as it is. It shows as its own **Game-ready (7,500)** entry until you pick
+something else, because opening the pane never changes the budget by itself.
+
+Every gltfpack pass (Simplify, Raw excepted, and Custom) checks its own output before publishing —
+did it keep the UVs, both PBR maps and the material assignment, and add no extension the source
+lacked — so picking a Simplify tier here does not risk a silently worse mesh: if the check fails,
+the job ships the raw reconstruction instead and the mesh's status line names the reason
+("the triangle budget was not applied…"). A Game-ready remesh is checked the same way, against the
+mesh it replaced, and a failure there keeps the optimized (pre-remesh) mesh instead. What neither
+check catches is silhouette damage — no number here scores a mangled blade or a lost finger, so look
+at the result. Whatever a job recorded is always recoverable: rebuild at **Raw** from
+[Triangle budget](#triangle-budget) in the inspector and the mesh comes back from `source.glb`,
+which no tier in this control ever touches.
 
 **Size** is the physical size the finished GLB is scaled to, along its largest dimension. Drag it —
 about a centimetre per pixel — or double-click to type a figure; the readout carries the unit, and at
@@ -232,14 +263,18 @@ Five tiers exist in the code: Raw (as reconstructed — the engine has already s
 300k faces at resolution 1024, 150k at 512, unless `REALMSPINNER_TRELLIS_DECIM=0` is set), Draft (20k),
 Standard (50k), Detailed (100k) and
 Custom. `gltfpack` — the binary every decimating tier runs through — is a one-time manual drop into
-`vendor/gltfpack/` like the reconstruction engine, not something the checkout brings with it; see
-[Installation](40-installation.md#gltfpack). When it is there this panel offers the whole list, and
-Custom gains a triangle-count field with its own valid range. When it is not, `realmspinner doctor` says
-so and every tier ships the engine's own output instead of failing.
-**The generate form still offers Raw alone**, because none of the decimating tiers has been
-qualified yet: a tier is only exposed there once it has been run against a chest, a sword and a rock
-and shown to keep UVs, both PBR maps and material assignment. This panel is where that qualifying
-happens, on a mesh that already exists rather than on a job you are about to wait two minutes for.
+`vendor/gltfpack/` like the reconstruction engine, or a downloaded engine copy, not something the
+checkout brings with it; see [Installation](40-installation.md#gltfpack). When it is there this panel
+offers the whole list, and Custom gains a triangle-count field with its own valid range. When it is
+not, `realmspinner doctor` says so and every tier ships the engine's own output instead of failing.
+This is the gltfpack half of the same ladder **Budget**, described under
+[Mesh parameters](#mesh-parameters), offers on the generate form under "Simplify:" — Standard is
+this panel's default, and it is also what a new job falls back to when Blender is missing and no
+Game-ready remesh can run. This panel is where you change your mind about a tier after the fact, on
+a mesh that already exists rather than on a job you are about to wait two minutes for — and where an
+old job that predates this default, or ran with gltfpack absent, gets a budget applied for the first
+time. It does not offer the Game-ready rungs; those are [Game-ready remesh](#game-ready-remesh)'s
+own control, further down this same stage.
 
 Two things the panel will not hide from you. A retarget refuses to run on a job that is still queued
 or running, because its write would collide with the worker's. And a retarget makes a rig, its saved
@@ -248,9 +283,11 @@ work, so they are reported rather than deleted, and the warning is shown *before
 than after. Everything else derived from the mesh (STL, OBJ, FBX, collision, textures) is deleted,
 because those describe the old geometry exactly. A retarget rebuilds from the original
 reconstruction, so it also undoes a remesh: the warning says so beforehand, and the Remesh panel's
-"Last remesh" line is cleared once it lands. The button also greys pre-emptively when a rig, a
-sheet, or a sibling remesh or re-texture is already queued or running against this same mesh — the
-same collision the service refuses, now stated before the press rather than after it.
+"Last remesh" line is cleared once it lands — but the mesh a retarget replaces is not gone. It is
+kept under [Earlier meshes](#earlier-meshes), and a Restore there puts it back. The button also
+greys pre-emptively when a rig, a sheet, or a sibling remesh or re-texture is already queued or
+running against this same mesh — the same collision the service refuses, now stated before the
+press rather than after it.
 
 Press **Rebuild mesh** to apply. The served `model.glb` is never written in place: the new mesh is
 staged and swapped, so nothing reading the old one sees a truncated file.
@@ -258,40 +295,62 @@ staged and swapped, so nothing reading the old one sees a truncated file.
 ## Game-ready remesh
 
 A triangle budget keeps the reconstruction's surface and thins it. A remesh replaces the surface:
-the mesh is rebuilt as **quads** at a face budget, unwrapped afresh, and the old colour, roughness
-and normals are baked onto the new geometry. This is the step that turns the engine's ~300k-face
-output into something an engine budgets for, and it is what every commercial generator
-calls "game-ready". Because the high-resolution geometry ends up in a tangent-space normal map,
-a 2k-quad prop keeps most of the detail the budget threw away.
+the mesh is rebuilt at a **triangle** budget — quadriflow where the input allows it, a decimate
+fallback where it does not, both described below — unwrapped afresh, with the old colour, roughness
+and normals baked onto the new geometry. This is the step that turns the engine's ~300k-triangle
+output into something an engine budgets for, and it is what every commercial generator calls
+"game-ready". Because the high-resolution geometry ends up in a tangent-space normal map, even a
+2k-triangle prop keeps most of the detail the budget threw away.
+
+**This is now the default, not an extra step.** Create's **Budget** combo (see
+[Mesh parameters](#mesh-parameters)) offers Game-ready 2k/5k/10k/20k, and 5k runs automatically on
+every new mesh whenever Blender (the `rig` extra) is installed — measured on a full reconstruction
+to keep silhouette, face markings and other small detail intact
+(`dev/measurements/2026-09-23-default-mesh-budget.md`). It runs inside the model job itself, between
+the triangle-budget step and grounding, so a rig queued for the same mesh sees the final, remeshed
+geometry rather than the ~300k-triangle reconstruction. The panel below is for **reworking an
+existing mesh** — trying a different budget, or remeshing a mesh that predates this default.
 
 The control is in the inspector at the **Rig** stage, under the collapsed **Game-ready remesh**
 header, between the triangle budget and the surface texture. It runs in Blender, so it needs the
 `rig` extra; without it the header says so and offers nothing.
 
-**Quads** is the budget: Low (2k), Medium (8k), High (30k) or Custom. **Bake at** is the texture
-resolution, matching the mesh's own atlas by default. **Close holes first** runs a voxel pass
-before the remesh, which seals the gaps a reconstruction leaves at the cost of slightly rounding
-sharp edges — worth trying on a mesh whose audit shows holes, and worth leaving off on a sword.
+**Triangles** is the budget: 2k, 5k, 10k, 20k or Custom. **Bake at** is the texture resolution,
+matching the mesh's own atlas by default. **Close holes first** runs a voxel pass before the remesh,
+which seals the gaps a reconstruction leaves at the cost of slightly rounding sharp edges, and
+defaults **on** — every trellis reconstruction is non-manifold to begin with (hundreds of thousands
+of vertices, on a real character), and without the voxel pass the decimate fallback below collapses
+the mesh instead of producing something usable. Leave it on unless you have measured a reason not
+to.
 
-A remesh is a queued job, like a re-texture, and its product lands over the source job's
-`model.glb`; `source.glb` is never touched. Two things follow. A later **Rebuild mesh** at a
-triangle budget rebuilds from the reconstruction and discards the remesh — `model.glb` is derived
-and `source.glb` is the authority, always. And a remesh changes geometry, so every derived export
-is deleted and a rig, its poses and its sheets are reported stale before the button, exactly as a
-retarget reports them.
+A remesh from this panel is a queued job, like a re-texture, and its product lands over the source
+job's `model.glb`; `source.glb` is never touched. Two things follow. A later **Rebuild mesh** at a
+triangle budget rebuilds from the reconstruction, which replaces the remesh — `model.glb` is derived
+and `source.glb` is the authority, always — but the remeshed mesh is kept under
+[Earlier meshes](#earlier-meshes) rather than lost, and a Restore there brings it back. And a remesh
+changes geometry, so every derived export is deleted and a rig, its poses and its sheets are
+reported stale before the button, exactly as a retarget reports them.
 
 Coincident vertices are welded before the remesh runs, and that is not a detail. glTF stores one
 position per texture coordinate, so *every* GLB splits its vertices along each UV seam — which makes
-a mesh non-manifold before anything is actually wrong with it, and the quad remesher refuses
-non-manifold input. Until 2026-08-30 that weld was missing, so every remesh silently took the
-triangle fallback below.
+a mesh non-manifold before anything is actually wrong with it. Until 2026-08-30 that weld was
+missing, so every remesh silently took the decimate fallback below without the voxel pass making up
+for it.
 
-The last remesh's result is printed under the button: faces, the quad fraction, and the bake
-size. If Blender's quad remesher still refused the surface — a reconstruction is often not manifold
-enough on its own merits — the line says the mesh was **decimated** instead, in triangles at the
-same budget, so a triangle mesh is never presented as a quad one. The result also records whether anything the
-mesh had before (UVs, both PBR maps, material assignment) was lost, in the same terms the triangle
-tiers are qualified in.
+**Quadriflow almost never runs on a trellis reconstruction, even after the weld and the voxel pass.**
+It refuses non-manifold input, and it *returns* a cancelled result rather than raising when it does —
+a bug fixed on 2026-09-23, since which a refusal correctly falls through to the fallback instead of
+silently shipping the untouched reconstruction under a "quadriflow" label. Measured on a real
+character: the voxel pass does make the surface manifold and single-shell, and quadriflow refuses it
+anyway ("the mesh needs face normals that point in a consistent direction"). Why it refuses a surface
+that measures manifold is unresolved — see `dev/TODO.md`. In practice, expect the decimate fallback
+to be what runs.
+
+The last remesh's result is printed under the button: triangles, the method (`quadriflow` or
+`decimate`), and the bake size. A decimated mesh is not reported as a failure of a quad path it was
+never promised — the line reads "N triangles (remeshed and re-baked)" either way, and it also records
+whether anything the mesh had before (UVs, both PBR maps, material assignment) was lost, in the same
+terms a triangle tier's own `tiercheck.compare` measures.
 
 ## Surface texture
 
@@ -352,6 +411,27 @@ same thing, and the line names which kind of run produced it.
 
 `source.glb` is never touched. A re-texture is a derivation, exactly as a retarget is, so the
 reconstruction stays the thing both of them rebuild from.
+
+## Earlier meshes
+
+A retarget, a remesh and a re-texture all write over the same `model.glb`, so each one used to
+throw away whatever the last one built — remesh, then re-texture, and the quad mesh was gone the
+moment the new skin landed; retarget after either, and both were gone. That is no longer true. Each
+one keeps a copy of the mesh it is about to replace before it publishes, and the collapsed
+**Earlier meshes** header — in the inspector at the **Rig** stage, below Surface texture — is where
+those copies live.
+
+Each row names what replaced that version (triangle budget, game-ready remesh, surface texture, or
+an earlier restore), when, and a one-line detail — a quad count, a view count, a file size. Press
+**Restore** on a row to put that mesh back. The panel names what goes stale first: restoring across
+a triangle budget or a remesh changes geometry, so the rig, its poses and its sheets describe the
+old mesh again, the same warning a retarget gives; restoring only across a re-texture changes
+nothing but the surface. A restore is itself kept, so restoring is not a one-way trip either — you
+can always go back to what you had before pressing it.
+
+Up to four earlier meshes are kept per asset; keeping a fifth drops the oldest, file and row both.
+Deleting the asset deletes its earlier meshes with it, the same as every other file in its folder,
+and they are never offered as a download — they exist only so a Restore has something to restore.
 
 ## Mesh audit and mesh report
 

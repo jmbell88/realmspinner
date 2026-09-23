@@ -53,6 +53,16 @@ def test_command_uses_the_documented_flags(tmp_path, monkeypatch):
     monkeypatch.setattr(
         optimize, "_triangles", lambda p: 100_000 if p.name == "source.glb" else 50_000
     )
+    # This test is about the argv/flags/triangle-count plumbing, not about
+    # tier preservation -- and b"optimised"/b"glb" are not real GLBs for
+    # tiercheck.survey to read. tests/pipelines/test_optimize_tiercheck.py
+    # owns the preservation check itself; here the verdict is stubbed to
+    # "kept everything" so this test still exercises the argv it always did.
+    monkeypatch.setattr(
+        optimize.tiercheck,
+        "compare",
+        lambda before, after: optimize.tiercheck.Verdict(True, (), ()),
+    )
     exe = tmp_path / "gltfpack.exe"
     exe.write_bytes(b"")
     src = tmp_path / "source.glb"
@@ -155,6 +165,49 @@ def test_staged_copy_replaces_the_dest_atomically(tmp_path):
     assert not list(tmp_path.glob("*.tmp"))
 
 
+def test_gltfpack_is_asked_for_a_glb_because_it_refuses_any_other_output_extension(
+    tmp_path, monkeypatch
+):
+    """The staging file was ``.model.glb.opt.tmp``, and gltfpack picks its writer
+    from the output extension: the vendored 1.2 exits 4 with "unsupported output
+    extension '.tmp'". Every real retarget failed that way, unseen because every
+    test stubs gltfpack -- until a 2026-09-23 run against a real reconstruction.
+    Still a dotfile, so the staged-writes rule and ``files.LISTED`` both hold."""
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        from pathlib import Path
+
+        out = Path(argv[argv.index("-o") + 1])
+        seen["out"] = out
+        if out.suffix not in (".glb", ".gltf"):
+            return subprocess.CompletedProcess(
+                argv, 4, "", f"Error: unsupported output extension '{out.suffix}'"
+            )
+        out.write_bytes(b"optimised")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(winjob, "run", fake_run)
+    monkeypatch.setattr(
+        optimize, "_triangles", lambda p: 100_000 if p.name == "source.glb" else 50_000
+    )
+    monkeypatch.setattr(
+        optimize.tiercheck,
+        "compare",
+        lambda before, after: optimize.tiercheck.Verdict(True, (), ()),
+    )
+    exe = tmp_path / "gltfpack.exe"
+    exe.write_bytes(b"")
+    src = tmp_path / "source.glb"
+    src.write_bytes(b"glb")
+    dest = tmp_path / "model.glb"
+    optimize.run(src, dest, target_triangles=50_000, exe=exe)
+    assert dest.read_bytes() == b"optimised"
+    assert seen["out"].suffix == ".glb"
+    assert seen["out"].name.startswith(".")
+    assert seen["out"].parent == dest.parent
+
+
 def test_resolve_maps_names_and_validates_custom():
     assert optimize.resolve("draft") == 20_000
     assert optimize.resolve("raw") is None
@@ -166,7 +219,7 @@ def test_resolve_maps_names_and_validates_custom():
 
 
 def test_an_unmeasurable_output_leaves_no_staging_file_behind(tmp_path, monkeypatch):
-    """Every other exit from run() unlinks the .glb.opt.tmp; the tail did not.
+    """Every other exit from run() unlinks the .model.opt.glb; the tail did not.
     A gltfpack output trimesh cannot parse raised straight past it and left the
     staging file sitting beside the served model."""
     def fake_run(argv, **kwargs):
@@ -193,4 +246,4 @@ def test_an_unmeasurable_output_leaves_no_staging_file_behind(tmp_path, monkeypa
     with pytest.raises(ValueError, match="not a mesh"):
         optimize.run(src, dest, target_triangles=50_000, exe=exe)
     assert not dest.exists()
-    assert list(tmp_path.glob("*.opt.tmp")) == []
+    assert list(tmp_path.glob(".*.opt*")) == []

@@ -395,9 +395,9 @@ def remesh_spec(
 
 
 #: Clamp range for the three Clay background ops' ``target_faces``. Lower
-#: than ``remesh.FACES_MIN`` (500): a Clay selection can be a single small
-#: prop, and 100 faces is still a mesh a quadriflow pass can act on, where
-#: ``remesh``'s floor is tuned for a whole-character reconstruction.
+#: than ``remesh.TRIANGLES_MIN`` (1,000): a Clay selection can be a single
+#: small prop, and 100 faces is still a mesh a quadriflow pass can act on,
+#: where ``remesh``'s floor is tuned for a whole-character reconstruction.
 CLAY_TARGET_FACES_MIN = 100
 CLAY_TARGET_FACES_MAX = 200_000
 

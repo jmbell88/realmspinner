@@ -86,16 +86,20 @@ def draw(ctx: Any, job: Any) -> None:
     # ``resolve_profile``, ``service/_jobs_create.py``) raises
     # ``field="profile"`` for both an unusable tier and an unusable custom
     # count -- ``remesh_job``'s own door, not this one, is what raises
-    # ``field="remesh_profile"``/``field="custom_faces"``. This panel used to
-    # borrow that pair on the theory that it named "the other pane over the
+    # ``field="remesh_profile"``/``field="custom_triangles"``. This panel used
+    # to borrow that pair on the theory that it named "the other pane over the
     # same service call", which was wrong on two counts: the calls are
     # different (``optimize_job`` here, ``remesh_job`` there) and neither
     # spelling is what this door actually raises -- so even with ``errors``
     # wired the ring had nothing to land on, the defect this panel's own prior
     # comment claimed to have fixed (the 2026-09-07 audit, finding create-04).
-    # ``profile`` and ``custom_triangles`` below are the door's own field
+    # ``profile`` and ``custom_triangles`` below are *this* door's own field
     # names, and also its parameter names, so the form dict keys need no
-    # second vocabulary.
+    # second vocabulary -- ``remesh_job`` raising the identical
+    # ``"custom_triangles"`` string for its own, unrelated custom count is
+    # exactly why ``remesh_panel._FIELD_PREFIX`` relabels that one to
+    # ``"remesh_custom_triangles"`` before it ever reaches this shared,
+    # unnamespaced dict.
     with forms.Form(
         "retarget-settings",
         errors=ctx.state.field_errors,
@@ -161,7 +165,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
 _gltfpack_seen: dict[str, bool] = {}
 
 
-def _gltfpack_available(ctx: Any) -> bool:
+def gltfpack_available(ctx: Any) -> bool:
     try:
         path = ctx.svc.config.gltfpack_exe
     except Exception:  # noqa: BLE001 - a ctx with no config answers "no tiers"
@@ -187,6 +191,15 @@ def _gltfpack_available(ctx: Any) -> bool:
     return found
 
 
+# The private spelling stayed importable, the ``resolve_profile`` pattern
+# (``service/_jobs_create.py``): settings_3d._budget (2026-09-23, dev/
+# measurements/2026-09-23-default-mesh-budget.md) needs this answer to decide
+# whether Create's own Budget combo offers every tier or collapses to Raw, and
+# this module's own callers and tests already spell the name with the
+# underscore.
+_gltfpack_available = gltfpack_available
+
+
 def _warn_stale(ctx: Any, job: Any) -> None:
     """Name the user work a retarget will invalidate, before it happens.
 
@@ -194,12 +207,13 @@ def _warn_stale(ctx: Any, job: Any) -> None:
     rig and its poses are minutes of work and must not be destroyed over a
     triangle count -- but reporting after the fact is only half of it.
 
-    The remesh half is not reported at all: ``optimize_job`` rebuilds
-    model.glb from source.glb, which silently overwrites whatever a prior
-    remesh baked onto it, and drops the stale ``params["remesh"]`` report as
-    part of that same rewrite (the 2026-09-18 audit, finding service-01). A
-    submit here loses that quad budget and rebake with no confirmation
-    otherwise, so it gets its own line before the button.
+    The remesh half is not reported as a plain warning any more: ``optimize_job``
+    rebuilds model.glb from source.glb, which replaces whatever a prior remesh
+    baked onto it and drops the stale ``params["remesh"]`` report as part of
+    that same rewrite (the 2026-09-18 audit, finding service-01) -- but since
+    ``pipelines.modelhistory`` landed (2026-09-22) that mesh is kept
+    under Earlier meshes rather than lost, and a submit here still gets its
+    own line before the button, worded for that.
     """
     files = set(job.get("files") or [])
     if "rig.glb" in files:
@@ -209,9 +223,21 @@ def _warn_stale(ctx: Any, job: Any) -> None:
     if (job.get("params") or {}).get("remesh"):
         widgets.text_colored(
             theme.WARN,
-            "The game-ready remesh will be discarded and rebuilt from the raw "
-            "reconstruction.",
+            "The game-ready remesh will be replaced and rebuilt from the raw "
+            "reconstruction. It is kept under Earlier meshes below.",
         )
+    # create-05 (2026-09-23 audit): the line above only fired when a prior
+    # remesh existed, so a retarget with no remesh behind it said nothing at
+    # all about the mesh it was about to replace -- but ``optimize_job``
+    # snapshots the replaced mesh under Earlier meshes unconditionally
+    # (``pipelines.modelhistory``, 2026-09-22), the same guarantee
+    # ``remesh_panel`` and ``texture_panel`` already state with no such
+    # caveat. Unconditional here too, so the reassurance matches what
+    # actually happens on every retarget, not just the ones that follow a
+    # remesh.
+    widgets.muted_wrapped(
+        "The current mesh is kept under Earlier meshes below, so this can be undone."
+    )
 
 
 def dependent_job_reason(jobs: list[dict[str, Any]], job_id: str) -> str | None:

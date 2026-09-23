@@ -175,6 +175,15 @@ def trellis_recipe(config: Any, params: Mapping[str, Any], *, mesh_seed: int) ->
     recorded the *config default* -- a bench recipe carrying "standard"
     recorded "raw". The two keys beside it were right, which is what made it
     look like a name rather than a bug.
+
+    The fallback for a missing ``profile`` key is the literal ``"raw"``, not
+    ``config.mesh_profile`` -- deliberately, unlike every sibling field on this
+    line. Since 2026-09-23 (dev/measurements/2026-09-23-default-mesh-budget.md)
+    ``resolve_profile`` records ``params["profile"]`` on every submit, so a
+    missing key is not "this job followed the config default", it is "this row
+    predates that change" -- and it ran raw, the config default *at the time*.
+    ``config.mesh_profile`` now reads "standard"; falling back to it here would
+    make an old row's recipe claim a budget the job never asked for.
     """
     return {
         "version": RECIPE_VERSION,
@@ -187,7 +196,7 @@ def trellis_recipe(config: Any, params: Mapping[str, Any], *, mesh_seed: int) ->
         "decim": params.get("trellis_decim", config.trellis_decim),
         "atlas": params.get("trellis_atlas", config.trellis_atlas),
         "webp": config.trellis_webp,
-        "mesh_profile": params.get("profile") or config.mesh_profile,
+        "mesh_profile": params.get("profile") or "raw",
         "platform": params.get("platform"),
         "size_m": params.get("size_m"),
         "models": model_fingerprints(

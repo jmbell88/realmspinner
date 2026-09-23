@@ -1031,9 +1031,19 @@ def _pick_texture(slot: str) -> dict[str, Any] | None:
     return {"width": int(width), "height": int(height), "rgba": pixels.tobytes()}
 
 
-def _assign_texture(ctx: Any, tab: Any, index: int, slot: str) -> None:
+def _assign_texture(ctx: Any, tab: Any, index: int, slot: str, material: Any) -> None:
+    """*material* is carried as the task's ``tag`` -- the object identity of
+    the palette slot at *index* the moment the picker opened -- so
+    :func:`on_task_done` can tell whether that slot is still the same
+    material by the time the picker returns.
+
+    clay-16 (the 2026-09-23 audit): a lower slot removed while this dialog
+    is open shifts every index above it down, so ``index`` alone can name a
+    different material by the time the file comes back; the identity in
+    ``tag`` is what lets the landing refuse rather than paint the wrong slot.
+    """
     key = _texture_task_key(tab.uid, index, slot)
-    if not ctx.submit(key, _pick_texture, slot):
+    if not ctx.submit(key, _pick_texture, slot, tag=material):
         ctx.toast("A file dialog is already open.", "info")
 
 
@@ -1144,6 +1154,16 @@ def on_task_done(ctx: Any, done: Any) -> None:
     if not 0 <= index < len(doc.materials):
         return
     material = doc.materials[index]
+    if done.tag is not None and material is not done.tag:
+        # clay-16 (the 2026-09-23 audit): a slot below this one removed
+        # while the file dialog was open shifts every index above it down,
+        # so ``index`` alone can now name a different material than the one
+        # the picker was opened for. ``done.tag`` is the material object
+        # identity ``_assign_texture`` captured at pick time -- if the slot
+        # at this index is no longer that same object, the pick is stale,
+        # the same silent no-op every other staleness case in this function
+        # already gets.
+        return
     image = (result["width"], result["height"], result["rgba"])
     doc.set_material(index, replace(material, **{slot: image}))
 
@@ -1176,7 +1196,7 @@ def _texture_slots(ctx: Any, tab: Any, doc: Any, index: int, material: Any) -> N
             # this button is "in from a file", the same reason bridge.py's
             # "Import Mesh..." already uses it.
             if controls.small_button(f"{icons.FOLDER_OPEN}##texassign{slot}", tooltip=assign_tip):
-                _assign_texture(ctx, tab, index, slot)
+                _assign_texture(ctx, tab, index, slot, material)
             imgui.same_line()
             if widgets.disabled_button(f"{icons.X}##texclear{slot}", image is not None):
                 doc.set_material(index, replace(material, **{slot: None}))

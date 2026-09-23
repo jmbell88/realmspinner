@@ -288,16 +288,35 @@ class Config:
     )
     # Default triangle profile for a new job. See pipelines/optimize.PROFILES.
     #
-    # "raw" and not a named tier: gltfpack is vendored and present now, so the
-    # named tiers can run -- but none of them has been qualified (kept UVs,
-    # both PBR maps and material assignment on a chest, a sword and a rock),
-    # and a default that decimates every mesh through an unqualified tier is a
-    # quality regression nothing on screen would explain. It is the only tier
-    # the UI offers for the same reason. Set REALMSPINNER_MESH_PROFILE=standard to
-    # exercise one; the retarget control in the inspector is the qualification
-    # path, since it offers the whole list on a job that already exists.
+    # "standard" (50,000 triangles), not "raw", since 2026-09-23
+    # (dev/measurements/2026-09-23-default-mesh-budget.md): every generated
+    # mesh landed at ~267k-298k faces -- trellis-server's own quadric simplify
+    # to ~300k, with no second pass -- which is a source mesh, not a game
+    # asset, and the complaint that triggered this change said so in as many
+    # words. The per-tier corpus qualification that used to hold every named
+    # tier out of the generate forms never produced a usable result (0 of 20
+    # accepted on 2026-08-13), so it is retired in favour of a check on every
+    # job instead of a sample of three: `tiercheck.compare` now guards every
+    # `pipelines.optimize.run` pass and refuses to publish a tier that dropped
+    # UVs, a material assignment or a PBR texture. `resolve_profile`
+    # (service/_jobs_create.py) downgrades a *defaulted* tier to raw when
+    # gltfpack is not installed, rather than refusing the job outright.
+    # **What is still unguarded is silhouette damage** -- no number here
+    # scores a mangled blade or a lost finger; the eye catches that, and
+    # Retarget -> Raw rebuilds from source.glb, which is never touched. Set
+    # REALMSPINNER_MESH_PROFILE=raw to go back to the old default.
     mesh_profile: str = field(
-        default_factory=lambda: os.environ.get("REALMSPINNER_MESH_PROFILE", "raw")
+        default_factory=lambda: os.environ.get("REALMSPINNER_MESH_PROFILE", "standard")
+    )
+    # The game-ready remesh's default triangle budget, when nothing asks for a
+    # gltfpack tier by name and Blender is on this machine
+    # (dev/measurements/2026-09-23-default-mesh-budget.md).
+    # ``service._jobs_create.resolve_lowpoly`` is the door that reads this;
+    # 5000 is the measured pick (4,996 triangles achieved on the raccoon, good
+    # fidelity, ~6 s). 0 turns the remesh off -- a model job then falls back to
+    # ``mesh_profile``'s gltfpack tier exactly as it did before this existed.
+    lowpoly_triangles: int = field(
+        default_factory=lambda: _env_int("REALMSPINNER_LOWPOLY_TRIANGLES", 5000)
     )
     # Whether a finished reference is scored against the run's conditioning
     # reference -- ref.png, which is the active profile's style anchor when one
@@ -730,6 +749,7 @@ SETTINGS: tuple[tuple[str, str], ...] = (
     ("familiar_idle_timeout", "REALMSPINNER_FAMILIAR_IDLE"),
     ("gltfpack_exe", "REALMSPINNER_GLTFPACK"),
     ("mesh_profile", "REALMSPINNER_MESH_PROFILE"),
+    ("lowpoly_triangles", "REALMSPINNER_LOWPOLY_TRIANGLES"),
     ("mesh_retries", "REALMSPINNER_MESH_RETRIES"),
     ("mesh_hole_max", "REALMSPINNER_MESH_HOLE_MAX"),
     ("reference_retries", "REALMSPINNER_REFERENCE_RETRIES"),

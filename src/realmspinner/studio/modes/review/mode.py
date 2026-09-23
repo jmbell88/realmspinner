@@ -1550,6 +1550,8 @@ def capture_base(ctx: Any) -> dict[str, Any]:
         base["bg_removal"] = form_3d["bg_removal"]
     if form_3d.get("profile"):
         base["profile"] = form_3d["profile"]
+    if float(form_3d.get("lowpoly_triangles") or 0) > 0:
+        base["lowpoly_triangles"] = int(form_3d["lowpoly_triangles"])
     if float(form_3d.get("size_m") or 0) > 0:
         base["size_m"] = float(form_3d["size_m"])
     base["reference_prep"] = bool(form_3d.get("reference_prep"))
@@ -1748,6 +1750,12 @@ AXIS_HELP: dict[str, str] = {
     ),
     "custom_triangles": (
         "Triangle budget, used only when profile is 'custom'. Ignored by 'raw'."
+    ),
+    "lowpoly_triangles": (
+        "Remesh the finished mesh to this many triangles inside the model job "
+        "(the Budget combo's Game-ready rungs). Needs Blender; forces profile "
+        "to 'raw' so the remesh bakes from the full-detail reconstruction, not "
+        "an already gltfpack-simplified one. Empty runs no remesh."
     ),
     "negative_prompt": (
         "What to steer away from. Only reaches models that take a real CFG "
@@ -2245,9 +2253,10 @@ def _label_key(ctx: Any, state: ReviewState, event: Any, name: str) -> bool:
 # may write. ``platform`` goes to the 3D form, whose select it is.
 # ``resolution`` is derived from platform and is not applied at all, nor is
 # ``stage``, which is not a setting.
-FORM_3D_KEYS = ("platform", "profile", "custom_triangles", "size_m", "bg_removal",
-                "reference_prep", "trellis_band", "trellis_tex_res", "trellis_gss",
-                "trellis_gsh", "trellis_max_tokens", "trellis_decim", "trellis_atlas")
+FORM_3D_KEYS = ("platform", "profile", "custom_triangles", "lowpoly_triangles", "size_m",
+                "bg_removal", "reference_prep", "trellis_band", "trellis_tex_res",
+                "trellis_gss", "trellis_gsh", "trellis_max_tokens", "trellis_decim",
+                "trellis_atlas")
 SKIP_KEYS = ("stage", "resolution")
 
 

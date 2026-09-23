@@ -74,6 +74,7 @@ KWARG_AXES = (
     "lora_weight",
     "profile",
     "custom_triangles",
+    "lowpoly_triangles",
     "negative_prompt",
     "reference_prep",
     "resolution",
@@ -465,6 +466,14 @@ def _check_unit(svc: RealmspinnerService, plan: SweepPlan, unit: UnitPlan) -> st
         # gate: a sweep unit that would finish wearing a tier the missing
         # binary never applied poisons the verdict corpus.
         jobs_mod.resolve_profile(svc, {}, kwargs["profile"], kwargs.get("custom_triangles"))
+    if "lowpoly_triangles" in kwargs:
+        # The lowpoly sibling of the check above: an explicit budget with no
+        # Blender on this host would otherwise poison the corpus with rows
+        # that finish unremeshed while ``lowpoly_triangles`` still names the
+        # count somebody asked for.
+        jobs_mod.resolve_lowpoly(
+            svc, {}, kwargs.get("profile"), kwargs["lowpoly_triangles"]
+        )
     # Both halves of the admission door, in ``create_job``'s order. Only the
     # VRAM half was asked here, so a sweep whose base model (or style LoRA) was
     # not on disk was admitted, minted every row, and then refused unit by unit

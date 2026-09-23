@@ -233,6 +233,12 @@ def _warn(ctx: Any, job: Any, form: dict[str, Any]) -> None:
         widgets.text_colored(
             theme.WARN, "These exports will be rebuilt: " + ", ".join(stale)
         )
+    # The surface being replaced is kept under Earlier meshes
+    # (2026-09-22), not simply overwritten -- a re-texture used to be the
+    # irreversible half of the three reworks, and now is not.
+    widgets.muted_wrapped(
+        "The current surface is kept under Earlier meshes below, so this can be undone."
+    )
     if "rig.glb" in set(job.get("files") or []):
         # Said out loud rather than left as an absence: the retarget panel two
         # headers up warns about exactly these, so silence here would read as an

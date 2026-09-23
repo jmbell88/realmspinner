@@ -196,6 +196,20 @@ DERIVED_PARAMS = (
     # path produced the surface, and the tiercheck verdict against the mesh
     # it replaced. Derived for ``retexture``'s reason exactly.
     "remesh",
+    # What the in-job game-ready remesh (``_q_mesh._lowpoly``) did to *this*
+    # run's mesh -- the requested and achieved triangle counts, the method,
+    # and its own tiercheck verdict. Derived for ``remesh``'s reason exactly:
+    # a rerun's mesh has not been through it yet. ``lowpoly_triangles`` -- the
+    # *request* -- is deliberately not here; it is an input and survives a
+    # reroll like ``profile`` does.
+    "lowpoly",
+    # The index of earlier meshes a retarget, a remesh or a re-texture has
+    # replaced (``pipelines.modelhistory``) -- files on *this* row's own
+    # directory, under *this* row's job id. A reroll or a promotion writes a
+    # new directory with nothing in ``versions/``, so an index naming ``n``s
+    # that live nowhere the new row can reach would offer a Restore button
+    # over files that do not exist.
+    "model_history",
     # What a training run produced -- the manifest it registered and its
     # final loss. A rerun trains again and registers its own.
     "lora_result",

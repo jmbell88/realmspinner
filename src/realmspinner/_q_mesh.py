@@ -6,11 +6,12 @@ mixin here is: the class had 35 methods and five unrelated subjects, and the
 worker's loop core -- which is the part with the invariants -- was buried in
 the middle of them.
 
-These five share a rule the rest of the worker does not: **none of them may
+Six of these share a rule the rest of the worker does not: **none of them may
 fail the job**. The reconstruction is on disk and usable by the time any of
-them runs, so a lost triangle budget costs file size, a lost transform costs a
-manual fixup, and a lost measurement costs a badge -- while raising would cost
-the user the mesh. Every one of them logs and returns instead.
+them runs, so a lost triangle budget costs file size, a lost remesh costs a
+larger export, a lost transform costs a manual fixup, and a lost measurement
+costs a badge -- while raising would cost the user the mesh. Every one of them
+logs and returns instead.
 
 No module-scope import of ``.queue`` (that would be circular) and no queue
 module-level names are referenced, so there is no ``queue_mod`` indirection
@@ -73,6 +74,71 @@ def _note_degraded(params: dict[str, Any], step: str, detail: str) -> None:
 class MeshPostOps:
     """Mesh post-processing, mixed into :class:`~.queue.Worker`."""
 
+    def _publish_model_version(
+        self: Worker, source_id: str, temp: Path, *, kind: str, geometry: bool, detail: str
+    ) -> None:
+        """Snapshot the mesh a rework is about to replace, then publish over it.
+
+        The one place ``_remesh`` and ``_retexture`` rename their staging file
+        onto another job's ``model.glb`` -- both used to call ``os.replace``
+        directly, which is how a remesh-then-retexture lost the remesh and a
+        retarget silently discarded either: the old bytes were simply gone the
+        moment the new ones landed. ``pipelines.modelhistory.keep`` is what
+        makes that recoverable, and this method is only the plumbing that gets
+        it the lock and the fresh row it needs.
+
+        Synchronous and meant to be called through ``asyncio.to_thread``, like
+        every other blocking write in this file -- a job's directory can hold a
+        multi-hundred-megabyte ``model.glb``, and ``shutil.copyfile`` of one is
+        not a coroutine's business on the event loop thread.
+
+        Under ``self.artifact_lock(source_id, modelhistory.MODEL_LOCK)`` --
+        the same lock ``optimize_job`` takes as ``svc.convert_lock(job_id,
+        "optimize")`` (``studio.runtime`` wires
+        ``worker.artifact_lock = svc.convert_lock``, so the two spellings name
+        one lock) -- and the row is re-read *inside* that lock rather than
+        trusted from the caller's own copy: a retarget or another rework's
+        publish can be racing this one for the same ``model_history`` list,
+        and a stale read here would silently drop whichever entry landed
+        first, the exact hazard ``db.merge_params`` exists to close for a
+        params write in general.
+
+        ``stage()``/``commit()``, not ``keep()`` -- 2026-09-23 audit, finding
+        service-03: ``keep()`` stages a version (and may evict one at the cap)
+        before the ``os.replace`` below; a failed replace used to leave the
+        staged pair orphaned *and* the eviction already applied, while
+        ``merge_params`` -- never reached -- left the stored index still
+        naming the version eviction had just deleted from disk. Eviction now
+        waits for ``commit()``, called only once ``os.replace`` has actually
+        succeeded; a failed replace instead calls ``discard_last()``, which
+        undoes only the ``stage()`` call, then re-raises so the caller learns
+        its publish did not happen.
+        """
+        import time
+
+        from .pipelines import modelhistory
+
+        source_dir = self.config.job_dir(source_id)
+        with self.artifact_lock(source_id, modelhistory.MODEL_LOCK):
+            row = self.store.get(source_id) or {}
+            params = row.get("params") or {}
+            entries = modelhistory.stage(
+                source_dir,
+                modelhistory.entries_of(params),
+                params,
+                kind=kind,
+                geometry=geometry,
+                detail=detail,
+                now=time.time(),
+            )
+            try:
+                os.replace(temp, source_dir / "model.glb")
+            except OSError:
+                entries = modelhistory.discard_last(source_dir, entries)
+                raise
+            entries = modelhistory.commit(source_dir, entries)
+            self.store.merge_params(source_id, {"model_history": entries})
+
     def _drop_surface_artifacts(self: Worker, source_dir: Path) -> None:
         """Delete the exports that carry the old skin, and only those.
 
@@ -124,7 +190,23 @@ class MeshPostOps:
         source_row = await asyncio.to_thread(self.store.get, source_id)
         source_params = (source_row or {}).get("params") or {}
 
-        target = int(params.get("target_faces") or remesh.FACE_PROFILES[remesh.DEFAULT_PROFILE])
+        # ``target_triangles`` is the triangle ladder's own key; ``target_faces``
+        # is read only as a fallback for a row queued before it existed, and a
+        # legacy row's number is already Blender's own quad count (what a
+        # quadriflow ``target_faces`` means) -- halving it again would ask for
+        # half the budget the user actually picked, so it is passed straight
+        # through rather than run back through remesh.target_faces.
+        requested_triangles = params.get("target_triangles")
+        legacy_faces = params.get("target_faces")
+        if requested_triangles is not None:
+            triangles: int | None = int(requested_triangles)
+            target = remesh.target_faces(triangles)
+        elif legacy_faces is not None:
+            triangles = None
+            target = int(legacy_faces)
+        else:
+            triangles = remesh.TRIANGLE_PROFILES[remesh.DEFAULT_TRIANGLE_PROFILE]
+            target = remesh.target_faces(triangles)
         asked = params.get("texture_size")
         if asked:
             texture_size = int(asked)
@@ -141,7 +223,8 @@ class MeshPostOps:
 
         self.progress.update(
             job_id, phase="remesh", label="Starting Blender", inner=0.0,
-            inner_next=0.05, nominal=60.0, detail=f"{target:,} quads",
+            inner_next=0.05, nominal=60.0,
+            detail=f"{triangles:,} triangles" if triangles is not None else f"{target:,} quads",
         )
 
         def on_progress(frac: float, label: str) -> None:
@@ -193,7 +276,18 @@ class MeshPostOps:
                 health["normalize"] = str(exc)
             after = await asyncio.to_thread(tiercheck.survey, temp)
             verdict = tiercheck.compare(before, after)
-            await asyncio.to_thread(os.replace, temp, model_glb)
+            # The mesh this replaces is kept under Earlier meshes
+            # (2026-09-22) rather than simply overwritten -- a bare
+            # ``os.replace`` here is what used to make a remesh-then-retexture
+            # lose the remesh with no way back.
+            await asyncio.to_thread(
+                self._publish_model_version,
+                source_id,
+                temp,
+                kind="remesh",
+                geometry=True,
+                detail=f"{result.get('faces', target):,} faces ({result.get('method', 'remesh')})",
+            )
         finally:
             with contextlib.suppress(OSError):
                 temp.unlink(missing_ok=True)
@@ -210,6 +304,8 @@ class MeshPostOps:
 
         report = dict(result)
         report["target_faces"] = target
+        if triangles is not None:
+            report["target_triangles"] = triangles
         report["tiercheck"] = {
             "ok": verdict.ok,
             "failures": list(verdict.failures),
@@ -296,8 +392,17 @@ class MeshPostOps:
         from .pipelines import optimize
 
         try:
+            # A missing "profile" key is a *legacy* row, not an unset one:
+            # since resolve_profile (service/_jobs_create.py) started
+            # recording the resolved tier on every submit
+            # (dev/measurements/2026-09-23-default-mesh-budget.md), every row
+            # this worker claims carries the key. A row with none predates
+            # that change and ran "raw" -- the config default at the time --
+            # so the fallback is the literal string, not `self.config
+            # .mesh_profile`, which today reads "standard" and would silently
+            # reinterpret an old row as having asked for a budget it never did.
             budget = optimize.resolve(
-                str(params.get("profile") or self.config.mesh_profile),
+                str(params.get("profile") or "raw"),
                 params.get("custom_triangles"),
             )
         except ValueError:
@@ -331,6 +436,131 @@ class MeshPostOps:
             await asyncio.to_thread(self.store.set_params, job_id, params)
             return
         params["optimize"] = result
+        await asyncio.to_thread(self.store.set_params, job_id, params)
+
+    async def _lowpoly(
+        self: Worker, job_id: str, glb_path: Path, params: dict[str, Any]
+    ) -> None:
+        """Remesh the optimized mesh to a game-ready triangle budget, in place.
+
+        Modelled on ``_remesh``'s Blender call, but it runs *inside* the model
+        job rather than as a follow-up: a follow-up would race
+        ``_maybe_queue_rig``, which would rig the 268k reconstruction and be
+        stale the moment this remesh replaced it
+        (dev/measurements/2026-09-23-default-mesh-budget.md). Between
+        ``_optimize`` and ``_apply_scale`` in ``_q_generate``'s loop, so it
+        bakes from whatever the triangle budget already produced (or the raw
+        reconstruction, when no budget was asked for) and the grounding
+        transform that follows applies to the mesh actually shipped.
+
+        Runs only when ``params["lowpoly_triangles"]`` names a budget --
+        ``resolve_lowpoly`` (service/_jobs_create.py) is the only door that
+        sets it, and a legacy row with no key at all runs none, exactly as a
+        row with no ``profile`` key ran raw before ``resolve_profile`` existed.
+
+        A failure here is not fatal, the rule every mesh post-processing step
+        in this file follows: the optimized mesh is already on disk, and
+        losing the remesh costs the user a larger file, not the asset.
+        """
+        if self._cancel is not None and self._cancel.event.is_set():
+            return
+        triangles = params.get("lowpoly_triangles")
+        if not triangles:
+            return
+        from . import tiercheck
+        from .kernels.rig import blender_spec
+        from .pipelines import blender_run, remesh
+
+        triangles = int(triangles)
+        target = remesh.target_faces(triangles)
+        asked = params.get("texture_size")
+        if asked:
+            texture_size = int(asked)
+        else:
+            from .pipelines import retexture
+
+            texture_size = (
+                await asyncio.to_thread(retexture.atlas_size, glb_path)
+                or remesh.DEFAULT_TEXTURE_PX
+            )
+        job_dir = self.config.job_dir(job_id)
+        # A dotfile beside the served model.glb, not a served name of its own
+        # -- ``_publish_model_version``'s reason doesn't apply here (this is
+        # the same, still-running job's own file, never a different job's
+        # served artifact), but the extension still has to be .glb: Blender's
+        # exporter is what writes it, not gltfpack, so nothing here checks it
+        # -- only the convention that keeps every staged mesh recognisable as
+        # one at a glance.
+        temp = job_dir / ".model.lowpoly.glb"
+
+        self.progress.update(
+            job_id, phase="lowpoly", label="Starting Blender", inner=0.0,
+            inner_next=0.05, nominal=60.0, detail=f"{triangles:,} triangles",
+        )
+
+        def on_progress(frac: float, label: str) -> None:
+            self.progress.update(
+                job_id, phase="lowpoly", label=label, inner=frac,
+                inner_next=min(frac + 0.1, 1.0), nominal=120.0, detail="",
+            )
+
+        try:
+            before = await asyncio.to_thread(tiercheck.survey, glb_path)
+            result = await asyncio.to_thread(
+                functools.partial(
+                    blender_run.run_worker,
+                    blender_spec.remesh_spec(
+                        glb_path,
+                        temp,
+                        job_dir,
+                        target_faces=target,
+                        texture_size=texture_size,
+                        # Always on: measured 2026-09-23, without the voxel
+                        # pre-pass the decimate fallback a trellis mesh always
+                        # takes collapses the mesh rather than producing
+                        # something usable, and every trellis reconstruction
+                        # is exactly the input this step ever runs against.
+                        close_holes=True,
+                        seed=remesh.QUADRIFLOW_SEED,
+                    ),
+                    on_progress=on_progress,
+                    on_start=self._note_blender,
+                    timeout=self.config.rig_timeout,
+                )
+            )
+            if self._cancel is not None and self._cancel.event.is_set():
+                return
+            if not temp.exists():
+                raise RuntimeError("Blender reported success but wrote no mesh")
+            after = await asyncio.to_thread(tiercheck.survey, temp)
+            verdict = tiercheck.compare(before, after)
+            await asyncio.to_thread(os.replace, temp, glb_path)
+        except Exception as exc:
+            log.exception(
+                "lowpoly remesh failed for job %s; keeping the optimized mesh", job_id
+            )
+            _note_degraded(
+                params,
+                "lowpoly",
+                f"the game-ready remesh did not run ({exc}); this mesh is the "
+                f"optimized reconstruction, not a {triangles:,}-triangle remesh",
+            )
+            await asyncio.to_thread(self.store.set_params, job_id, params)
+            return
+        finally:
+            with contextlib.suppress(OSError):
+                temp.unlink(missing_ok=True)
+        params["lowpoly"] = {
+            "requested": triangles,
+            "achieved": result.get("faces"),
+            "method": result.get("method"),
+            "texture_size": texture_size,
+            "tiercheck": {
+                "ok": verdict.ok,
+                "failures": list(verdict.failures),
+                "notes": list(verdict.notes),
+            },
+        }
         await asyncio.to_thread(self.store.set_params, job_id, params)
 
     async def _apply_scale(

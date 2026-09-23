@@ -52,12 +52,22 @@ PHASES_TEXT: dict[str, tuple[float, float]] = {
     "t2i_sample": (0.16, 0.20),
     "trellis": (0.20, 1.00),
     "optimize": (1.00, 1.00),
+    # Zero-width for the same reason "optimize" is, even though it is not the
+    # same order of magnitude: a game-ready remesh is a real out-of-process
+    # Blender run (seconds to low minutes on the 2026-09-23 measurement), but
+    # there is no room left in the budget to reserve a slice for it without
+    # reshaping every phase above -- trellis already claims the rest of the
+    # bar. The bar sits at 100% while it runs, the same as it already does for
+    # optimize/scale/audit; a real slice is future work, not a defect this
+    # sweep owes.
+    "lowpoly": (1.00, 1.00),
     "scale": (1.00, 1.00),
     "audit": (1.00, 1.00),
 }
 PHASES_IMAGE: dict[str, tuple[float, float]] = {
     "trellis": (0.00, 1.00),
     "optimize": (1.00, 1.00),
+    "lowpoly": (1.00, 1.00),
     "scale": (1.00, 1.00),
     "audit": (1.00, 1.00),
 }

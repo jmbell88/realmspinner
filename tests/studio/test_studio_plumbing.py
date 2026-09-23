@@ -159,6 +159,26 @@ def test_a_retarget_with_nothing_stale_does_not_warn_about_rig_artifacts():
     assert [m for m, _ in app.toasts] == ["Mesh rebuilt."]
 
 
+def test_a_model_revert_reloads_the_viewer_and_says_what_went_stale():
+    """``revert_model`` is inline like ``optimize_job``, so it lands here
+    through ``ctx.submit`` and ``_on_task_done`` rather than through the
+    queued-job polling path -- mirrors
+    ``test_a_retarget_reloads_the_viewer_and_says_what_went_stale``."""
+    app = FakeApp()
+    app.dispatch("model-revert:aaaaaaaaaaaa", {"stale": ["rig.glb", "rig.json"]})
+
+    assert "_reload_viewer" in app.calls
+    assert app.app_ctx.cache.invalidated == 1
+    assert any("2 rig artifact(s)" in message for message, _ in app.toasts)
+
+
+def test_a_model_revert_with_nothing_stale_does_not_warn_about_rig_artifacts():
+    app = FakeApp()
+    app.dispatch("model-revert:aaaaaaaaaaaa", {"stale": []})
+
+    assert [m for m, _ in app.toasts] == ["Mesh restored."]
+
+
 def test_a_finished_remesh_or_retexture_reloads_the_viewer_not_just_retarget():
     """2026-09-05 audit, finding create-02. Unlike a retarget, a remesh and a
     re-texture are queued jobs: the "remesh:"/"retexture:" task key fires when

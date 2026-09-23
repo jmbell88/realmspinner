@@ -42,6 +42,7 @@ from ._jobs_create import (  # noqa: F401  -- the facade's re-export
     create_job,
     import_mesh,
     import_reference,
+    resolve_lowpoly,
     resolve_profile,
 )
 from ._jobs_lifecycle import (  # noqa: F401  -- the facade's re-export
@@ -83,6 +84,7 @@ from ._jobs_rework import (  # noqa: F401  -- the facade's re-export
     optimize_job,
     remesh_job,
     retexture_job,
+    revert_model,
     separate_job,
     stale_rig_artifacts,
     stale_surface_artifacts,

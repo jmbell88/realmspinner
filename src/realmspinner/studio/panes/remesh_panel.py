@@ -1,12 +1,13 @@
-"""Remesh a finished mesh to a quad budget and rebake its surface.
+"""Remesh a finished mesh to a triangle budget and rebake its surface.
 
 The inspector's third rework panel, between the triangle budget (which keeps
 the reconstruction's surface and simplifies it) and the surface texture (which
-keeps the geometry and repaints it). This one replaces both: quadriflow to a
-face count, a fresh unwrap, and the old colour, roughness and normals baked
-onto the new mesh. It is the step that turns a reconstruction into something an
-engine budgets for, and it is what every commercial generator sells as
-"game-ready".
+keeps the geometry and repaints it). This one replaces both: a fresh surface
+at a triangle count (quadriflow where the input allows it, a decimate fallback
+where it does not -- see ``pipelines.remesh``), a fresh unwrap, and the old
+colour, roughness and normals baked onto the new mesh. It is the step that
+turns a reconstruction into something an engine budgets for, and it is what
+every commercial generator sells as "game-ready".
 
 Two things it does not hide, on ``retarget_panel``'s model. It runs in Blender,
 so without the ``rig`` extra the panel says so and offers nothing. And it makes
@@ -24,10 +25,10 @@ from ...service import jobs as svc_jobs
 from .. import controls, forms, theme, widgets
 from ..manual import render as manual_render
 
-#: ``remesh.FACE_PROFILES`` first, then the free-form entry -- membership
+#: ``remesh.TRIANGLE_PROFILES`` first, then the free-form entry -- membership
 #: derived, so a budget added to the pipeline appears here without an edit.
 PROFILES: tuple[tuple[str, str], ...] = tuple(
-    (key, remesh.profile_label(key)) for key in remesh.FACE_PROFILES
+    (key, remesh.profile_label(key)) for key in remesh.TRIANGLE_PROFILES
 ) + (("custom", remesh.profile_label("custom")),)
 
 TEXTURES: tuple[tuple[str, str], ...] = (("", "Match the mesh"),) + tuple(
@@ -39,10 +40,17 @@ TEXTURES: tuple[tuple[str, str], ...] = (("", "Match the mesh"),) + tuple(
 # ``texture_panel``'s id in ``ctx.state.field_errors`` -- one flat,
 # unnamespaced dict -- so a re-texture refusal about its atlas size rang this
 # panel's bake-size control too, whenever the inspector drew both together
-# (which is routine). The widget below is keyed by the prefixed name, and
-# ``_remesh_job`` relabels ``remesh_job``'s own refusal to match before it
-# ever reaches ``ctx.state.field_errors``.
-_FIELD_PREFIX = {"texture_size": "remesh_texture_size"}
+# (which is routine). "custom_triangles" is the same hazard against a
+# different neighbour: ``retarget_panel`` draws its own "custom_triangles"
+# number widget beside this one's, for the gltfpack tier's custom count, and
+# ``remesh_job`` raises the identical field name for this panel's own custom
+# triangle count. The widgets below are keyed by the prefixed names, and
+# ``_remesh_job`` relabels ``remesh_job``'s own refusals to match before they
+# ever reach ``ctx.state.field_errors``.
+_FIELD_PREFIX = {
+    "texture_size": "remesh_texture_size",
+    "custom_triangles": "remesh_custom_triangles",
+}
 
 
 def _remesh_job(svc: Any, job_id: str, **kwargs: Any) -> dict[str, Any]:
@@ -81,22 +89,22 @@ def draw(ctx: Any, job: Any) -> None:
     ) as form_ui:
         _changed, form["remesh_profile"] = form_ui.combo(
             "remesh_profile",
-            "Quads",
+            "Triangles",
             form["remesh_profile"],
             PROFILES,
-            help_text="Rebuild the surface as quads at this budget, then bake the "
+            help_text="Rebuild the surface at this triangle budget, then bake the "
             "old colour, roughness and normals onto it.",
-            helper="A reconstruction is ~300k triangles; a prop ships at 2–8k quads.",
+            helper="A reconstruction is ~300k triangles; a prop ships at 2-20k.",
         )
         if form["remesh_profile"] == "custom":
             changed, value = form_ui.number(
-                "custom_faces",
-                "Faces",
-                int(form["custom_faces"]),
-                helper=f"{remesh.FACES_MIN:,} to {remesh.FACES_MAX:,}",
+                "remesh_custom_triangles",
+                "Triangles",
+                int(form["custom_triangles"]),
+                helper=f"{remesh.TRIANGLES_MIN:,} to {remesh.TRIANGLES_MAX:,}",
             )
             if changed:
-                form["custom_faces"] = value
+                form["custom_triangles"] = value
         _changed, form["texture_size"] = form_ui.combo(
             "remesh_texture_size",
             "Bake at",
@@ -135,16 +143,19 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
     if form is None:
         form = {
             "job_id": job_id,
-            "remesh_profile": remesh.DEFAULT_PROFILE,
-            "custom_faces": remesh.FACE_PROFILES[remesh.DEFAULT_PROFILE],
+            "remesh_profile": remesh.DEFAULT_TRIANGLE_PROFILE,
+            "custom_triangles": remesh.TRIANGLE_PROFILES[remesh.DEFAULT_TRIANGLE_PROFILE],
             "texture_size": "",
-            "close_holes": False,
+            # True: measured 2026-09-23, without the voxel pre-pass the
+            # decimate fallback a trellis mesh always takes collapses the
+            # mesh rather than producing something usable.
+            "close_holes": True,
         }
         forms_by_job[job_id] = form
     return form
 
 
-def _blender_available(ctx: Any) -> bool:
+def blender_available(ctx: Any) -> bool:
     """The rig door's own answer, unprobed: ``blender_check(probe=False)``
     returns the cached verdict or a pending row, and a pending row draws as
     "not yet" rather than blocking a frame on a subprocess."""
@@ -156,12 +167,26 @@ def _blender_available(ctx: Any) -> bool:
         return False
 
 
+# The private spelling stayed importable, the ``retarget_panel.gltfpack_available``
+# pattern: this module's own callers and tests already spell the name with the
+# underscore, and settings_3d._budget (2026-09-23) needs this exact answer to
+# decide whether Create's own Budget combo offers the Game-ready rungs.
+_blender_available = blender_available
+
+
 def _warn_stale(ctx: Any, job: Any) -> None:
     files = set(job.get("files") or [])
     if "rig.glb" in files:
         widgets.text_colored(
             theme.WARN, "The rig, its poses and its sheets will describe the old mesh."
         )
+    # A remesh replaces the whole mesh -- both geometry and skin -- and until
+    # pipelines.modelhistory landed (2026-09-22) that replacement was
+    # simply gone. It is kept under Earlier meshes now, and a submit here is
+    # no longer the one-way trip the panel used to be silent about.
+    widgets.muted_wrapped(
+        "The current mesh is kept under Earlier meshes below, so this can be undone."
+    )
 
 
 def dependent_job_reason(jobs: list[dict[str, Any]], job_id: str) -> str | None:
@@ -191,7 +216,7 @@ def validate(form: dict[str, Any]) -> list[str]:
     try:
         remesh.resolve(
             form["remesh_profile"],
-            int(form["custom_faces"]) if form["remesh_profile"] == "custom" else None,
+            int(form["custom_triangles"]) if form["remesh_profile"] == "custom" else None,
         )
     except (ValueError, TypeError) as exc:
         return [str(exc)]
@@ -202,8 +227,8 @@ def submit_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     """The keyword arguments ``remesh_job`` is called with, from the form."""
     return {
         "profile": form["remesh_profile"],
-        "custom_faces": (
-            int(form["custom_faces"]) if form["remesh_profile"] == "custom" else None
+        "custom_triangles": (
+            int(form["custom_triangles"]) if form["remesh_profile"] == "custom" else None
         ),
         "texture_size": int(form["texture_size"]) if form["texture_size"] else None,
         "close_holes": bool(form["close_holes"]),

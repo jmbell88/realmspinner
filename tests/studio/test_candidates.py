@@ -668,6 +668,14 @@ def test_an_engine_axis_set_on_the_mesh_form_reaches_the_promoted_jobs_params(sv
     source = _reference(svc)
     form = {
         **DEFAULT_FORM_3D,
+        # Pinned to "raw" rather than left at DEFAULT_FORM_3D's own
+        # "standard" (dev/measurements/2026-09-23-default-mesh-budget.md):
+        # this test drives promote_kwargs directly, skipping the drawing pass
+        # (_budget) that would otherwise force the form back to "raw" on a
+        # machine with no gltfpack -- the svc fixture pins gltfpack absent,
+        # and this test is about the seven trellis_* engine axes, not the
+        # triangle budget, so it should not depend on the binary either way.
+        "profile": "raw",
         "trellis_band": 8,
         "trellis_tex_res": 256,
         "trellis_gss": 7.5,

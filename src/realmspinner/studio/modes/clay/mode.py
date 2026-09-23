@@ -285,6 +285,7 @@ def adopt(
     path: Path | None = None,
     title: str | None = None,
     view: dict[str, Any] | None = None,
+    rblk_bytes: int = 0,
 ) -> ClayTab:
     state = ensure(ctx)
     tab = ClayTab(
@@ -292,6 +293,7 @@ def adopt(
         title=title or clay_state.title_for(path),
         path=path,
         saved_head=doc.history.head,
+        rblk_bytes=rblk_bytes,
     )
     if view:
         tab.view.yaw = view["yaw"]
@@ -334,6 +336,28 @@ def _within_ceiling(path: Path) -> bytes:
     return sizeguard.read_bytes_within_ceiling(path, MAX_CLAY_SOURCE_BYTES)
 
 
+def _refuse_oversized_save(data: bytes) -> None:
+    """Refuse to write a ``.rblk`` that ``_load`` would then refuse to reopen.
+
+    The 2026-09-23 audit (clay-03): ``save_to`` and ``save_as`` wrote past
+    ``MAX_CLAY_SOURCE_BYTES`` with no check at all -- Clay had no ceiling on
+    *editing* a document, so a user could grow one past the size this same
+    module already refuses to open (:func:`_within_ceiling`), and only find
+    out the next time they tried. Checked here, inside ``run()``, against the
+    exact bytes about to be written -- the same "after the document settles"
+    reasoning :func:`save_to`'s own docstring gives for reading the head where
+    it does.
+    """
+    from ....service.errors import TooLarge
+    from ....service.files import MAX_CLAY_SOURCE_BYTES
+
+    if len(data) > MAX_CLAY_SOURCE_BYTES:
+        raise TooLarge(
+            f"This document is past the {MAX_CLAY_SOURCE_BYTES:,} bytes Clay will reopen.",
+            field="save",
+        )
+
+
 def _within_mesh_ceiling(path: Path) -> bytes:
     """The same question about a GLB, which is a different number.
 
@@ -363,6 +387,11 @@ def _load(path: Path) -> dict[str, Any]:
         # docstring for why the camera is not a second return value from
         # ``read_rblk``. It parses one small JSON member of an in-memory zip.
         "view": serialize.read_view(data),
+        # Free here -- the file is already fully in memory -- and it is what
+        # lets ``.generate``'s own too-big-to-reopen check answer for a
+        # document that has never been saved *this session* without an encode
+        # of its own.
+        "rblk_bytes": len(data),
     }
 
 
@@ -658,8 +687,10 @@ def save_to(ctx: Any, tab: ClayTab, path: Path) -> None:
 
     def run() -> dict[str, Any]:
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic.write_bytes(path, serialize.snapshot_bytes(snap))
-        return {"rev": rev, "path": str(path), "retitle": True}
+        data = serialize.snapshot_bytes(snap)
+        _refuse_oversized_save(data)
+        atomic.write_bytes(path, data)
+        return {"rev": rev, "path": str(path), "retitle": True, "rblk_bytes": len(data)}
 
     _start(ctx, tab, f"clay-save:{tab.uid}", run)
 
@@ -705,8 +736,10 @@ def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
         # the ordinary way to overwrite one, and a write that dies partway
         # through would leave that file truncated with no copy of it anywhere.
         # No mkdir -- the picker returns a directory that exists.
-        atomic.write_bytes(path, serialize.snapshot_bytes(snap))
-        return {"rev": rev, "path": str(path), "retitle": True}
+        data = serialize.snapshot_bytes(snap)
+        _refuse_oversized_save(data)
+        atomic.write_bytes(path, data)
+        return {"rev": rev, "path": str(path), "retitle": True, "rblk_bytes": len(data)}
 
     _start(ctx, tab, f"clay-saveas:{tab.uid}", run)
 
@@ -973,6 +1006,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
                     path=Path(result["path"]),
                     title=result.get("title"),
                     view=result.get("view"),
+                    rblk_bytes=int(result.get("rblk_bytes") or 0),
                 )
             _enter_clay(ctx)
         return
@@ -1011,6 +1045,20 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 # is read from the tag rather than from tab.doc.history.head
                 # now that the call is asynchronous.
                 tab.readiness_head = done.tag
+        return
+
+    from . import generate as clay_generate
+
+    if name in clay_generate.TASK_KEYS:
+        # "Generate into the current tab" (``.generate``): three task keys
+        # that never touch ``saving`` -- a generate in flight leaves the
+        # document editable, the ``clay-bg`` precedent just below. Routed
+        # here, before the generic tail below, for the same reason ``clay-bg``
+        # is: that tail unconditionally clears ``tab.saving`` for *any*
+        # ``clay-*:<uid>`` key, which would unlock a tab mid-save the moment a
+        # refused or deferred landing happened to land on one that was
+        # genuinely saving.
+        clay_generate.on_task_done(ctx, done)
         return
 
     if name == "clay-bg":
@@ -1064,6 +1112,8 @@ def on_task_done(ctx: Any, done: Any) -> None:
         return
 
     tab.mark_saved(result.get("rev"))
+    if "rblk_bytes" in result:
+        tab.rblk_bytes = int(result["rblk_bytes"])
     # See ``inker_mode``: saved is the moment the crash copy stops
     # describing anything at risk (UX-05).
     journal.drop(ctx, tab)
@@ -1088,9 +1138,23 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     :func:`on_task_done` can toast the real gltfpack message rather than the
     generic one this path shows, so this branch exists for whatever an
     unexpected exception past that catch would otherwise leave stuck.
+
+    A failed ``clay-gen*`` task is routed to :mod:`.generate` instead of
+    falling into the generic body below, and for a stronger reason than
+    either of those two: this function's own unconditional ``tab.saving =
+    False`` would unlock a tab that is genuinely mid-save the moment a
+    generate task happens to fail while that save is in flight on the same
+    tab -- a refused or interrupted generate must never be what makes a save
+    that is still running look finished.
     """
     state = ctx.state.clay
     if state is None or ":" not in done.key:
+        return
+    name = done.key.split(":", 1)[0]
+    from . import generate as clay_generate
+
+    if name in clay_generate.TASK_KEYS:
+        clay_generate.on_task_failed(ctx, done)
         return
     tab = state.get(done.key.split(":", 1)[1])
     if tab is not None:

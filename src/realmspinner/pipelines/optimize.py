@@ -17,6 +17,20 @@ The flags are not negotiable and each earns its place:
 Like ``trellis-server.exe`` the binary is vendored and pinned; nothing here
 downloads anything. Missing it is not fatal -- the ``raw`` profile is always
 available and is what every job did before this existed.
+
+**Every gltfpack pass is checked before it is published.** Until
+2026-09-23 a named tier stayed out of the generate forms until a one-off
+corpus run (``dev/measurements/2026-08-13-tier-qualification.md``) had shown
+it kept UVs, both PBR maps and material assignment -- and that run never
+finished. ``dev/measurements/2026-09-23-default-mesh-budget.md`` replaces the
+sample with a check on every job: :func:`run` compares the tier's own output to
+its own source with ``tiercheck.compare`` before ``tmp`` ever replaces
+``dest``, and a verdict that lost UVs, a material assignment or a PBR texture
+is refused rather than published -- ``dest`` is left exactly as it was. That is
+strictly stronger than the old sample, since it cannot pass on a sword and then
+fail unseen on a chest. What it still cannot see is a mangled silhouette; the
+eye catches that, and Retarget -> Raw rebuilds from ``source.glb``, which this
+module never touches.
 """
 
 from __future__ import annotations
@@ -30,7 +44,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .. import winjob
+from .. import tiercheck, winjob
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +114,11 @@ def run(
     """Write an optimized copy of ``source`` to ``dest``.
 
     ``dest`` is only created on success -- a half-written or rejected output must
-    never end up as the model the user downloads.
+    never end up as the model the user downloads. Success now also means
+    ``tiercheck.compare`` accepted the pass: a gltfpack run that dropped UVs, a
+    material assignment or a PBR texture raises :class:`OptimizeError` just
+    like a non-zero exit does, and ``dest`` is left untouched either way (see
+    the module docstring and dev/measurements/2026-09-23-default-mesh-budget.md).
     """
     if target_triangles is None:
         # No budget asked for, so nothing here needs to know the count: this is
@@ -146,13 +164,19 @@ def run(
     # a dotfile (the staged-writes rule), and this one spent a while as a bare
     # model.glb.opt.tmp beside the served model. A dotfile also can never
     # collide with anything in files.LISTED, which is a list of plain names.
-    tmp = dest.with_name(f".{dest.name}.opt.tmp")
+    # It must still *end* in ``.glb``: gltfpack picks its writer from the
+    # output extension and refuses anything else ("unsupported output
+    # extension '.tmp'", exit 4). The old ``.model.glb.opt.tmp`` spelling made
+    # every real retarget fail that way -- unseen, because the only default was
+    # ``raw`` and the tests stub gltfpack -- until the 2026-09-23 switch to a
+    # ``standard`` default ran one against a real reconstruction.
+    tmp = dest.with_name(f".{dest.stem}.opt{dest.suffix}")
     argv = _argv(exe, source, tmp, ratio)
     try:
         # winjob.run (via _invoke) rather than subprocess.run, for the same
         # reason every other child is in the job object: a hard kill of the
         # app must not leave a gltfpack behind holding a half-written
-        # .opt.tmp staging file.
+        # .opt.glb staging file.
         proc = _invoke(argv, timeout=timeout)
     except OptimizeError:
         tmp.unlink(missing_ok=True)
@@ -165,11 +189,23 @@ def run(
 
     # Every other exit from this function unlinks the staging file; the tail
     # did not, so a _triangles() that raised (a mesh trimesh cannot parse) left
-    # an .opt.tmp staging file beside the served model for the next reader to find.
+    # an .opt.glb staging file beside the served model for the next reader to find.
     try:
         achieved = _triangles(tmp)
         if achieved <= 0:
             raise OptimizeError("gltfpack produced a mesh with no triangles")
+        # dev/measurements/2026-09-23-default-mesh-budget.md: the per-tier
+        # corpus qualification this used to wait on never finished, so every
+        # pass now checks itself instead of trusting a sample run on other
+        # meshes. Before the replace, not after -- a losing verdict must leave
+        # `dest` exactly as it was; the `finally` below still unlinks `tmp`
+        # either way, which is what makes "unlink and raise" free here.
+        verdict = tiercheck.compare(tiercheck.survey(source), tiercheck.survey(tmp))
+        if not verdict.ok:
+            raise OptimizeError(
+                f"the {target_triangles:,}-triangle budget lost what it must "
+                "keep: " + "; ".join(verdict.failures)
+            )
         tmp.replace(dest)
     finally:
         tmp.unlink(missing_ok=True)
@@ -182,6 +218,7 @@ def run(
         "achieved": achieved,
         "source_triangles": source_triangles,
         "bytes": dest.stat().st_size,
+        "tiercheck": {"ok": True, "notes": list(verdict.notes)},
     }
 
 
@@ -277,7 +314,7 @@ def _invoke(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[s
     """Spawn gltfpack inside the kill-on-close job; map a timeout to ``OptimizeError``.
 
     Exit-code and output-file checking stay with the caller: ``run`` and
-    ``simplify_bytes`` stage their output differently (a named ``.opt.tmp``
+    ``simplify_bytes`` stage their output differently (a named ``.opt.glb``
     beside ``dest`` vs. a throwaway tempdir), so each decides for itself what
     "produced no usable output" means and what, if anything, it must clean up
     before raising.

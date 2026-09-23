@@ -88,6 +88,12 @@ VECTOR_PARAMS = (
     "reference_prep",
     "profile",
     "custom_triangles",
+    # The game-ready remesh's own budget, distinct from ``custom_triangles``
+    # (the gltfpack tier's custom count): an input picked at the door
+    # (``service._jobs_create.resolve_lowpoly``), recorded on every row --
+    # including ``None`` for "no lowpoly ran" -- so a corpus reader can tell a
+    # 5k-remeshed mesh from a 268k raw one at the same nominal ``profile``.
+    "lowpoly_triangles",
     "trellis_band",
     "trellis_tex_res",
     "trellis_gss",

@@ -324,13 +324,24 @@ def _restore_sheet_block(form: dict[str, Any], params: dict[str, Any]) -> None:
 
 DEFAULT_FORM_3D: dict[str, Any] = {
     "platform": "",
+    # "raw", not "standard": since the game-ready remesh landed
+    # (dev/measurements/2026-09-23-default-mesh-budget.md), the Budget
+    # combo's own default rung is Game-ready 5k, which bakes from the *full*
+    # reconstruction (``resolve_lowpoly`` forces ``profile`` to "raw" whenever
+    # a lowpoly budget runs) -- shipping an already gltfpack-simplified mesh
+    # into the remesh would simplify twice for nothing. "standard" survives
+    # only as the fallback ``resolve_lowpoly`` leaves ``profile`` at when
+    # Blender is not on this machine; the form's own default assumes the
+    # common case (bpy installed) the way settings_3d._budget's own combo
+    # does. tests/studio/test_forms_and_layout.py pins this against
+    # ``Config().lowpoly_triangles``/``Config().mesh_profile`` together.
     "profile": "raw",
-    # Deliberately without a widget. A triangle budget only means anything for
-    # profile "custom", and the generate form offers ``raw`` alone until a tier
-    # has been qualified -- so a control here would offer a number that "raw"
-    # ignores. The plumbing through _payload is kept because it is correct the
-    # moment a tier is exposed; the retarget control on a finished mesh is where
-    # a budget is actually chosen today.
+    # 5000, matching Config().lowpoly_triangles: the form and the door's own
+    # default must not drift, the same rule "profile" above states.
+    "lowpoly_triangles": 5000,
+    # Reachable now that the Budget combo offers "custom" alongside every
+    # other tier -- this used to sit unused behind a form with no widget for
+    # it, kept only because the API and the retarget panel already read it.
     "custom_triangles": 0,
     "size_m": 0.0,
     "bg_removal": "",

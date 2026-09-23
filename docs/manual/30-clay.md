@@ -947,7 +947,9 @@ existed cannot read. Those builds refuse it by name rather than opening it witho
 ## The two ways out
 
 Clay has two ways to turn a document into an asset, and they do genuinely different things.
-Choosing between them is the whole reason both exist. A third door writes a plain file.
+Choosing between them is the whole reason both exist. A third door writes a plain file. Going the
+other direction — building something and bringing it *into* the document you have open — is
+**Generate...**, covered after importing, below.
 
 **Export to the library** puts the *exact* geometry in the library as an ordinary asset. It is a
 finished model row from the moment it lands, so it inherits everything the rest of the app does to a
@@ -1005,6 +1007,38 @@ Two things are refused rather than half-done. A **rigged** GLB, because Clay has
 editing it would drop the rig; open it in Create instead. And a mesh past two million triangles,
 because the editor holds every mesh twice per undo step. Past two hundred thousand it asks first,
 since every edit rebuilds the whole mesh and you should know that before you press Extrude.
+
+## Generating into a document
+
+**Import Mesh** brings in something built elsewhere. **Generate...**, beside it, builds one and lands
+it in the document you already have open — new objects, beside whatever is selected, in one press of
+Ctrl+Z if you change your mind. The job it queues is an ordinary Library row, exactly as if you had
+pressed Generate in Create; nothing about it is special to Clay except where the result ends up.
+
+From a prompt, this is two steps, the same shape Create's own Reference stage takes. Typing a
+description and pressing **Generate** queues a reference picture using Create's own model and style
+settings — the popup says which. Once it is ready, the popup shows it with **Accept**, **Reroll** and
+**Cancel**: Reroll tries again with a fresh seed, Accept sends it on to be reconstructed into a mesh.
+A reference the reconstruction step doubts shows its reason and a **Build anyway** button beside
+Accept, which retries past that doubt — the same override the promote-to-mesh preview elsewhere in
+the app offers.
+
+**From an image...** skips the reference step entirely: pick a picture on disk and it goes straight to
+the mesh stage.
+
+Either way, the **Budget** combo picks the triangle ceiling gltfpack simplifies the result down to —
+Draft, Standard, Detailed or Raw (the untouched reconstruction, routinely a few hundred thousand
+triangles). Standard is the default, so an ordinary press does not trip the same slow-mesh confirm
+Import Mesh gives an oversized file.
+
+The new geometry lands with its minimum resting on the ground: beside the current selection's own
+box with a small gap, or at the origin with nothing selected. More than one object arrives grouped
+under one empty, so it moves as the one thing it is. If it would land past two hundred thousand
+triangles, Clay asks first, the same confirm an oversized import gets. It refuses rather
+than lands when the document you asked from has been closed by the time the mesh is ready,
+or when the mesh would put the document past the two million triangles or the 4,096 objects
+Clay holds, or past the size it could still reopen at — each says which, and changes
+nothing.
 
 ## Where the files go
 

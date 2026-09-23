@@ -87,22 +87,38 @@ def resolve_profile(
     time for the same reason a rig template is: an unusable budget should cost
     the request, not the two minutes of GPU that precede the optimize step.
 
-    A tier that needs gltfpack is refused outright while the binary is absent,
-    not just downgraded: the worker's fallback ships the raw copy silently, so
-    the job would finish ``done`` wearing a profile param the mesh never saw --
-    and ``profile`` is in ``findings.VECTOR_PARAMS``, so every verdict on it
-    would credit a tier that never ran. The UI never offers these tiers
+    ``profile is None`` means "no tier named" -- an omitted API field, a form
+    that has not touched its Budget control -- and is resolved here to
+    ``svc.config.mesh_profile`` (dev/measurements/2026-09-23-default-mesh-budget.md:
+    the default moved from ``raw`` to ``standard``). Resolving it *here*,
+    rather than leaving ``None`` to mean "no reduction" as it used to, is what
+    lets ``params["profile"]`` always say what the job actually ran --
+    ``profile`` is in ``findings.VECTOR_PARAMS``, so a row with no key at all
+    used to credit an unrecorded, ambiguous default; now every row states it.
+
+    A tier that needs gltfpack and is missing it splits into two cases. An
+    *explicitly* named tier is refused outright, not downgraded: the worker's
+    fallback ships the raw copy silently, so the job would finish ``done``
+    wearing a profile param the mesh never saw, and every verdict on it would
+    credit a tier that never ran. A *defaulted* tier -- nobody asked for it by
+    name, the config just says so -- downgrades to ``raw`` instead: refusing
+    every submit on a source checkout with no vendored gltfpack would make the
+    new default a trap rather than a policy, and ``raw`` is exactly what every
+    job ran before this default existed. The UI never offers a named tier
     without the binary; this closes the API, sweep and retarget doors too.
 
     The budget is returned so ``optimize_job`` -- which runs the optimizer right
     there rather than queueing it -- can use this one implementation instead of
     a second, divergent copy of the same two checks. ``None`` back means "no
-    reduction": the ``raw`` tier, and also a caller that named no profile at all,
-    which are the same instruction to ``optimize.run``.
+    reduction": the ``raw`` tier, whether that was named, defaulted, or reached
+    by the gltfpack-missing downgrade above -- all three are the same
+    instruction to ``optimize.run``.
     """
-    if profile is None:
-        return None
     from ..pipelines import optimize
+
+    defaulted = profile is None
+    if defaulted:
+        profile = svc.config.mesh_profile
 
     try:
         target = optimize.resolve(profile, custom_triangles)
@@ -113,12 +129,18 @@ def resolve_profile(
     # ``retarget_panel._gltfpack_available`` -- a directory left where the
     # binary should be must refuse here rather than read as "installed".
     if target is not None and not svc.config.gltfpack_exe.is_file():
-        raise Invalid(
-            f"the '{profile}' budget needs gltfpack, which is not installed "
-            f"(expected at {svc.config.gltfpack_exe}); use profile 'raw', or "
-            "vendor the binary and retry",
-            field="profile",
-        )
+        if defaulted:
+            # See the docstring's second paragraph: nobody asked for this tier
+            # by name, so the machine's missing binary downgrades it instead
+            # of refusing the job outright.
+            profile, target = "raw", None
+        else:
+            raise Invalid(
+                f"the '{profile}' budget needs gltfpack, which is not installed "
+                f"(expected at {svc.config.gltfpack_exe}); use profile 'raw', or "
+                "vendor the binary and retry",
+                field="profile",
+            )
     params["profile"] = profile
     if custom_triangles is not None:
         params["custom_triangles"] = custom_triangles
@@ -129,6 +151,81 @@ def resolve_profile(
 # package and one outside it have always called, and renaming a cross-module
 # call site is not what promoting a helper is for.
 _resolve_profile = resolve_profile
+
+
+def resolve_lowpoly(
+    svc: RealmspinnerService,
+    params: dict[str, Any],
+    profile: str | None,
+    lowpoly_triangles: int | None,
+) -> None:
+    """Door rules for the game-ready remesh that runs inside the model job.
+
+    Called *after* :func:`resolve_profile`, beside which it sits -- ``params``
+    already carries whatever tier that resolved, and this may override
+    ``params["profile"]`` to ``"raw"`` when a lowpoly budget ends up running:
+    the remesh bakes from the full-detail reconstruction (``_q_mesh._lowpoly``
+    runs before ``_apply_scale``, on the optimizer's own output), so shipping
+    an already-simplified gltfpack pass into it would be simplifying twice for
+    no reason, and a rung the user never asked for must not sit in
+    ``params["profile"]`` looking like a request that ran.
+
+    Four cases (dev/measurements/2026-09-23-default-mesh-budget.md):
+
+    * Neither ``profile`` nor ``lowpoly_triangles`` named: defaults to
+      ``svc.config.lowpoly_triangles`` (0 means off) *when Blender is
+      available* -- probed the way ``pipelines.clay_blender.available``
+      does, unprobed and cached, so an ordinary submit never blocks a
+      request on a bpy subprocess. Without Blender, or with the config
+      default at 0, no lowpoly runs and ``profile`` is left exactly as
+      ``resolve_profile`` decided it (the gltfpack default).
+    * ``lowpoly_triangles`` named explicitly: Blender is required, or the
+      door refuses with ``field="lowpoly_triangles"`` -- an explicit request
+      the worker cannot honour must cost the submit, not finish silently
+      unremeshed. The count is range-checked against
+      ``pipelines.remesh.TRIANGLES_MIN..TRIANGLES_MAX``.
+    * ``profile`` named and ``lowpoly_triangles`` not: no lowpoly runs. The
+      user picked a gltfpack tier (or Raw) by name, and a defaulted remesh
+      would silently discard that choice's own simplification the moment it
+      ran.
+    * Every row records both keys -- ``lowpoly_triangles`` is ``None`` when
+      no lowpoly ran, never simply absent, so ``vectors.VECTOR_PARAMS``
+      (which skips ``None``) and a reader with no other context agree on
+      what "no key" would otherwise have meant ambiguously.
+    """
+    from .. import doctor
+
+    explicit = lowpoly_triangles is not None
+    if not explicit:
+        blender_ok = doctor.blender_check(probe=False).ok
+        if profile is None and blender_ok and svc.config.lowpoly_triangles:
+            lowpoly_triangles = svc.config.lowpoly_triangles
+        else:
+            params["lowpoly_triangles"] = None
+            return
+    elif not doctor.blender_check(probe=False).ok:
+        raise Invalid(
+            "a game-ready budget remeshes in Blender, which is not installed "
+            "(`uv sync --extra rig` on Python 3.13)",
+            field="lowpoly_triangles",
+        )
+
+    from ..pipelines import remesh
+
+    try:
+        value = int(lowpoly_triangles)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise Invalid(
+            "lowpoly_triangles must be a whole number", field="lowpoly_triangles"
+        ) from exc
+    if not remesh.TRIANGLES_MIN <= value <= remesh.TRIANGLES_MAX:
+        raise Invalid(
+            f"lowpoly_triangles must be between {remesh.TRIANGLES_MIN:,} and "
+            f"{remesh.TRIANGLES_MAX:,}",
+            field="lowpoly_triangles",
+        )
+    params["lowpoly_triangles"] = value
+    params["profile"] = "raw"
 
 
 def _check_troupe(svc: RealmspinnerService, block: Any) -> dict[str, Any]:
@@ -237,6 +334,7 @@ def create_job(
     reference_prep: bool | None = None,
     profile: str | None = None,
     custom_triangles: int | None = None,
+    lowpoly_triangles: int | None = None,
     trellis_band: int | None = None,
     trellis_tex_res: int | None = None,
     trellis_gss: float | None = None,
@@ -482,6 +580,7 @@ def create_job(
     if asset_intent is not None:
         params["asset_intent"] = asset_intent
     resolve_profile(svc, params, profile, custom_triangles)
+    resolve_lowpoly(svc, params, profile, lowpoly_triangles)
     if reference_prep is not None:
         # Written only when asked for, so an un-set job keeps following
         # queue.DEFAULT_REFERENCE_PREP rather than being pinned to whatever

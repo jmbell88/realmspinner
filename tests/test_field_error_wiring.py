@@ -94,13 +94,16 @@ def test_and_clears_it_when_the_control_is_edited(rel, form_id):
 
 
 def test_the_retarget_field_ids_are_the_refusals_own_names():
-    """The field id *is* the address. ``optimize_job`` refuses with
-    ``remesh_profile`` and ``custom_faces`` -- which is what ``remesh_panel``,
-    the other pane over the same call, already names its fields -- while this
-    one called them ``profile`` and ``custom_triangles``, so even with
-    ``errors`` wired the ring would have had nothing to land on."""
+    """The field id *is* the address. ``remesh_job`` -- the other rework door,
+    ``remesh_panel``'s own -- refuses with ``remesh_profile`` and
+    ``custom_triangles``, the literal name this pane's own custom-triangles
+    control also uses for an unrelated door (``optimize_job``, via
+    ``resolve_profile``, refuses with ``profile`` alone). This pane's source
+    still has to name both of the other door's fields, in prose, for a reader
+    to see the two must not be confused -- exactly the confusion
+    ``remesh_panel._FIELD_PREFIX`` exists to prevent on the other side."""
     source = _source("panes/retarget_panel.py")
-    assert '"remesh_profile"' in source and '"custom_faces"' in source
+    assert '"remesh_profile"' in source and 'field="custom_triangles"' in source
     # The form *dict* keys are the door's parameter names and are a different
     # vocabulary; they stay.
     assert 'profile=form["profile"]' in source
@@ -197,7 +200,13 @@ ELSEWHERE = {
     "base_model": "chosen in Create's recipe column, not here",
     "style_lora": "chosen in Create's recipe column, not here",
     "texture_size": "remesh_panel's own field; not on the retarget form",
-    "custom_faces": "only on remesh_panel and retarget_panel's custom branch",
+    # remesh_job raises field="custom_triangles" for its own custom count, the
+    # same literal name retarget_panel's own (unrelated) custom-triangles
+    # control uses for the gltfpack tier -- remesh_panel._FIELD_PREFIX
+    # relabels it to "remesh_custom_triangles" before it ever reaches
+    # ctx.state.field_errors, which is what this scan (reading remesh_job's
+    # source, not the runtime relabel) cannot see.
+    "custom_triangles": "remesh_panel relabels this to remesh_custom_triangles",
     "remesh_profile": "the budget combo, under its own name on both panes",
     "prompt": "the rework prompt, drawn by the rework panel",
     "strength": "the rework strength, drawn by its own panel",

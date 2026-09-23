@@ -75,7 +75,7 @@ def build(
     ``triangle_budget`` defaults to :data:`TRIANGLE_BUDGET` -- the 150k figure
     below is not measurement-backed (see its own comment) and does not agree
     with the custom budgets the retarget and remesh panels accept
-    (``pipelines.optimize.CUSTOM_MAX`` 250k, ``pipelines.remesh.FACES_MAX``
+    (``pipelines.optimize.CUSTOM_MAX`` 250k, ``pipelines.remesh.TRIANGLES_MAX``
     200k), so a caller that already knows the budget a *particular* mesh was
     built to should pass it here rather than let a mesh optimized to its own
     accepted budget be flagged over a smaller, unrelated default forever (the

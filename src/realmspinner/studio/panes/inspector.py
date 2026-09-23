@@ -27,6 +27,7 @@ from ..tokens import sp
 from . import (
     candidates_panel,
     followup_preview,
+    history_panel,
     overlay,
     pose_panel,
     retarget_panel,
@@ -92,7 +93,13 @@ _STAGE_SECTIONS: dict[str, tuple[str, ...]] = {
     # deformation sheet. The decision and the button are in the stage's own
     # column; retarget and retexture join them because both act on the mesh a
     # rig was fitted to and both are read *after* looking at it.
-    "rig": ("_weighting", "_bones", "_deform_qa", "retarget", "remesh", "retexture"),
+    # shell-02 (2026-09-23 audit): "_history" was wired into the Library's
+    # Rig & Pose tab (``_rig_tab``) but never into this table, so Create's own
+    # live Rig stage never showed "Earlier meshes" though Manual 23 promises
+    # it "in the inspector at the Rig stage, below Surface texture" with no
+    # such caveat -- the same shape as create-02 (2026-09-07 audit), fixed
+    # then in the other direction (remesh reached the tab but not this table).
+    "rig": ("_weighting", "_bones", "_deform_qa", "retarget", "remesh", "retexture", "_history"),
     # Posing produces poses, and the thing made *of* poses is a sprite sheet.
     "pose": ("sheet",),
     # The grid itself is the stage's *column*; this side answers the question
@@ -123,6 +130,7 @@ def _stage_body(ctx: Any, job: Any) -> None:
         "retarget": lambda: retarget_panel.draw(ctx, job),
         "remesh": lambda: remesh_panel.draw(ctx, job),
         "retexture": lambda: texture_panel.draw(ctx, job),
+        "_history": lambda: history_panel.draw(ctx, job),
         "sheet": lambda: sheet_panel.draw(ctx, job),
     }
     for name in _STAGE_SECTIONS.get(ctx.state.create.stage, ()):
@@ -424,6 +432,7 @@ def _rig_tab(ctx: Any, job: Any) -> None:
     retarget_panel.draw(ctx, job)
     remesh_panel.draw(ctx, job)
     texture_panel.draw(ctx, job)
+    history_panel.draw(ctx, job)
     pose_panel.draw(ctx, job)
     sheet_panel.draw(ctx, job)
 

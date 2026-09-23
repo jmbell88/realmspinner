@@ -61,6 +61,63 @@ Releases before this one were published as Warlock Studio. The entries below
 are left exactly as they were written — they are the record of what shipped
 under that name.
 
+- **New meshes come out game-ready, at 5,000 triangles, instead of ~300,000.**
+  The reconstruction engine has no flag to lower its own simplify target, so
+  every Create → Make 3D mesh used to land at roughly 267k–298k triangles
+  regardless of what it was for. A first attempt at fixing this reached for
+  gltfpack alone, but measuring it against a real character found a floor it
+  cannot get past: gltfpack will not simplify across the reconstruction's own
+  UV seams, so it stalled around 94,000 triangles however low it was asked to
+  go, and pushing harder with more aggressive flags shredded the texture
+  instead of thinning the mesh. So the default is now a real remesh — a voxel
+  pass, a fresh unwrap and the old colour, roughness and normals baked back
+  on — run inside the model job itself, between the triangle-budget step and
+  grounding, so a rig queued for the same mesh sees the final geometry. It
+  needs Blender (the `rig` extra, already needed for rigging). Create's
+  **Budget** combo now offers Game-ready (2,000 / 5,000 / 10,000 / 20,000
+  triangles), with 5,000 the new default — Crash-Bandicoot-range fidelity on
+  a whole-character mesh — plus the gltfpack Simplify tiers (Draft/Standard/
+  Detailed) and Raw/Custom. Without Blender, the gltfpack Standard tier
+  (50,000) is the fallback, exactly as the earlier attempt at this change
+  made it the default outright. Every gltfpack pass still checks its own
+  output before publishing (UVs, both PBR maps, material assignment, no added
+  required extension), and a pass that fails ships the raw reconstruction and
+  says why, rather than a tier silently shipping a worse mesh — that guard
+  does not, however, catch a shredded UV atlas that still technically has
+  UVs, so the most aggressive gltfpack flag is never used by anything this
+  app runs. What none of this checks is a mangled silhouette; rebuilding at
+  Raw always gets the full reconstruction back, from the untouched
+  `source.glb`. The inspector's Remesh panel, for reworking a mesh that
+  already exists, moves to the same triangle ladder and now defaults **Close
+  holes first** on — without it, the remesh collapses a reconstruction rather
+  than simplifying it.
+- **A remesh never actually ran on a generated character; now it does.** The
+  Blender operator behind it returns a "cancelled" result on the
+  non-manifold input every reconstruction is, rather than raising — so the
+  fallback path that should have caught it never ran, and a "remesh" was
+  silently shipping the untouched, quarter-million-triangle mesh under a
+  quad-remesh label. A second bug halved every fallback's actual budget: it
+  divided by the quad count instead of the triangle count, so a 10,000-
+  triangle request came back at half that. Both are fixed.
+- **Retarget (the triangle-budget rebuild) never actually worked with a real
+  copy of gltfpack installed.** gltfpack refuses to write to any file whose
+  name doesn't end in `.glb`, and the internal staging file this used had the
+  wrong extension — so every real retarget failed at the last step, unseen
+  because the app's own tests stub gltfpack out and Raw was, until now, the
+  only tier anyone had reason to try. Fixed.
+- **A retarget, a remesh or a re-texture no longer erases the mesh it
+  replaces.** All three rework the same `model.glb` in place, and each one used
+  to simply overwrite whatever the last one had built: remesh a mesh, then
+  re-texture it, and the remesh was gone the moment the new skin landed;
+  retarget after either and both were gone, with nothing to undo it. The
+  inspector's Rig tab now has a collapsed **Earlier meshes** section, below
+  Surface texture, listing what each rework replaced — what kind of change it
+  was, when, and a one-line detail — with a **Restore** button on every row. Up
+  to four earlier meshes are kept per asset; restoring one keeps the mesh it
+  replaces too, so a restore is not a one-way trip either. Earlier meshes are
+  not a new download: they exist only for Restore, count toward an asset's size
+  the same as every other file in its folder, and are deleted with it.
+
 The 2026-09-23 audit read the whole app, all sixteen areas at once, and found 96 things.
 Every one that could be built without a graphics card or a design decision is fixed, each
 with a regression test proven to fail against the unfixed code. These are the ones you
@@ -111,6 +168,26 @@ would actually have run into.
 - **A mesh retargeted to a custom triangle budget above 150,000 was flagged over budget
   forever**, with a repair button that sent you back to the panel you had just used. The
   checklist now judges a mesh against the budget it was built to.
+
+A second audit that day, of Create alone, found six more. All six are fixed, each with a
+regression test proven to fail against the unfixed code.
+
+- **A tile set's plan said one generation when it would run many.** The default materials
+  mode draws one image per material line per variant, so three lines with three variants
+  run nine generations. The plan said one, and "about a minute". It now counts what will
+  actually run, and so does the time estimate.
+- **The Mesh pane quietly threw away a saved triangle budget.** A Game-ready budget that
+  wasn't one of the named sizes was reset the moment the pane was drawn, with no click.
+  It is kept now, and the Budget combo shows it as its own entry.
+- **A full-PBR mesh had wrong occlusion shading in the viewer.** A material with all five
+  texture maps read the environment's lighting where its ambient-occlusion map should have
+  been. Each now has its own texture slot.
+- **A rig or sheet row could still send its trashed source mesh to Clay, Poser or Mason.**
+  Once the source is in the trash, those buttons no longer appear.
+- **Going back to a reference whose cutout you had already watched finish ran it again.**
+  The last few cutouts are now kept, as they were always meant to be.
+- **Create's stage rail was invisible to the tool that checks every control works**, the
+  same gap the shell's own rail had. It is counted now.
 
 The 2026-09-19 audit of Clay found 38 things, and closing them found 3 more. All 41 are
 fixed, each with a regression test proven to fail against the unfixed code. Clay had just

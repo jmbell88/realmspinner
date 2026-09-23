@@ -120,7 +120,9 @@ def test_the_recipe_records_the_tier_the_job_actually_asked_for():
     recipe = provenance.trellis_recipe(config, {"profile": "standard"}, mesh_seed=42)
     assert recipe["mesh_profile"] == "standard"
 
-    # And a job that pinned nothing still falls back to the config.
-    assert provenance.trellis_recipe(config, {}, mesh_seed=42)["mesh_profile"] == (
-        config.mesh_profile
-    )
+    # And a job that pinned nothing falls back to the literal "raw", not the
+    # config default (dev/measurements/2026-09-23-default-mesh-budget.md): a
+    # missing "profile" key means the row predates resolve_profile recording
+    # one on every submit, and that row ran raw -- the config default *at the
+    # time* -- whatever Config().mesh_profile reads today.
+    assert provenance.trellis_recipe(config, {}, mesh_seed=42)["mesh_profile"] == "raw"

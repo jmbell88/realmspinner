@@ -1218,6 +1218,53 @@ def test_the_raw_profile_needs_no_binary(svc):
     assert _params(svc, job_id)["profile"] == "raw"
 
 
+def test_a_job_with_no_profile_records_the_configured_default(svc, tmp_path):
+    """dev/measurements/2026-09-23-default-mesh-budget.md: an omitted profile
+    used to mean "no reduction" and leave no trace in params at all -- now it
+    resolves to ``svc.config.mesh_profile`` and that name is recorded, so a
+    row always says what tier it actually ran rather than an unrecorded
+    default the corpus (``profile`` is in ``findings.VECTOR_PARAMS``) could
+    not see.
+    """
+    exe = tmp_path / "gltfpack.exe"
+    exe.write_bytes(b"")
+    svc.config.gltfpack_exe = exe
+    svc.config.mesh_profile = "standard"
+    # Off, so this test is about resolve_profile's own default in isolation:
+    # since resolve_lowpoly (2026-09-23) forces profile to "raw" whenever a
+    # lowpoly budget defaults in (Blender present, lowpoly_triangles nonzero),
+    # leaving it at Config's own 5000 on a host with bpy installed would fail
+    # this test for a reason that has nothing to do with the profile default
+    # it names.
+    svc.config.lowpoly_triangles = 0
+    job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
+    assert _params(svc, job_id)["profile"] == "standard"
+
+
+def test_a_defaulted_tier_without_gltfpack_records_raw_instead_of_refusing(svc):
+    """The other half of the same measurement doc: the ``svc`` fixture pins
+    gltfpack absent, and ``svc.config.mesh_profile`` defaults to "standard" --
+    so a submit naming no profile at all must not start refusing every job the
+    moment a source checkout has no vendored binary. It downgrades to "raw"
+    and records that, instead of raising.
+    """
+    assert not svc.config.gltfpack_exe.exists()
+    job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
+    assert _params(svc, job_id)["profile"] == "raw"
+
+
+def test_an_explicit_tier_without_gltfpack_still_refuses(svc):
+    """Pinning today's behaviour unchanged, the other side of the split above:
+    a profile the caller actually named is refused outright while gltfpack is
+    missing, not silently downgraded -- see
+    ``test_a_named_tier_is_refused_while_gltfpack_is_absent`` for the original
+    of this assertion.
+    """
+    assert not svc.config.gltfpack_exe.exists()
+    with pytest.raises(Invalid, match="gltfpack"):
+        svc_jobs.create_job(svc, kind="text", prompt="x", profile="standard")
+
+
 # --- derived artifacts ------------------------------------------------------
 
 

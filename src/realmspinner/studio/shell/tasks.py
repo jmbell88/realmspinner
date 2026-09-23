@@ -758,6 +758,19 @@ class TasksMixin:
                 else "Mesh rebuilt."
             )
             return
+        if key.startswith("model-revert:"):
+            # ``revert_model`` is inline like ``optimize_job``, and it rewrites
+            # model.glb under the viewer the same way -- same cache drop, same
+            # reload, same rig-staleness toast, worded for a restore instead.
+            ctx.cache.invalidate()
+            self._reload_viewer()
+            stale = (done.result or {}).get("stale") or []
+            ctx.toast(
+                f"Mesh restored. {len(stale)} rig artifact(s) now describe the old mesh."
+                if stale
+                else "Mesh restored."
+            )
+            return
         if key.startswith("sheet-del:"):
             # Not covered by the "sheet:" prefix below, and _sync_viewer's
             # early-return means nothing else refetches the list: a deleted

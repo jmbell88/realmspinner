@@ -2371,7 +2371,8 @@ def _remesh_object(
     if on_remesh is not None:
         on_remesh()
     try:
-        bpy.ops.object.quadriflow_remesh(
+        faces_before = len(obj.data.polygons)
+        outcome = bpy.ops.object.quadriflow_remesh(
             target_faces=target_faces,
             use_mesh_symmetry=False,
             use_preserve_sharp=False,
@@ -2379,14 +2380,27 @@ def _remesh_object(
             seed=seed,
             mode="FACES",
         )
+        # On non-manifold input quadriflow *returns* {'CANCELLED'} and leaves
+        # the mesh as it was -- it does not raise. Every TRELLIS mesh is
+        # non-manifold (193k of one raccoon's vertices, 2026-09-23), so the
+        # except below never ran: a remesh passed the reconstruction through
+        # untouched, 265k faces at 0% quads, and reported "quadriflow".
+        if "FINISHED" not in outcome:
+            raise RuntimeError(f"quadriflow did not finish: {sorted(outcome)}")
         if len(obj.data.polygons) == 0:
             raise RuntimeError("quadriflow produced no faces")
+        if len(obj.data.polygons) == faces_before:
+            raise RuntimeError("quadriflow left the mesh unchanged")
     except Exception:
         # Non-manifold input, or a mesh quadriflow gave up on. The budget is
         # still honoured, in triangles, and the result says so.
         method = "decimate"
         modifier = obj.modifiers.new("wl_decimate", "DECIMATE")
-        tris = max(len(obj.data.polygons), 1)
+        # Triangles, not polygons: DECIMATE's ratio is a triangle ratio, and
+        # after the voxel pre-pass every polygon is a quad -- counting those as
+        # one each asked for twice the budget (19,996 triangles for a 10k
+        # target on 2026-09-23's raccoon).
+        tris = max(sum(len(p.vertices) - 2 for p in obj.data.polygons), 1)
         modifier.ratio = max(min((target_faces * 2) / tris, 1.0), 0.001)
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.modifier_apply(modifier="wl_decimate")

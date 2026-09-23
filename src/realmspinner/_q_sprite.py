@@ -880,10 +880,12 @@ class SpriteOps:
 
         job_dir = self.config.job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
-        # This job's own directory, not a TemporaryDirectory: six renders, six
-        # restyles and twelve bakes are what a user asks about when the result
-        # is wrong, and they are exactly what ``_discard_artifacts`` removes on
-        # a cancel. Nothing here is in MEDIA or LISTED, so none of it is served.
+        # This job's own directory, not a TemporaryDirectory: ten renders, ten
+        # restyles and twenty bakes (retexture.VIEWS) are what a user asks
+        # about when the result is wrong, and they are exactly what
+        # ``_discard_artifacts`` removes on a cancel. Nothing here is in MEDIA
+        # or LISTED, so none of it is served. (2026-09-23 audit, finding
+        # docs-04: this comment said "six" from before VIEWS grew to ten.)
         views_dir = job_dir / "views"
         views_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1033,16 +1035,25 @@ class SpriteOps:
             # finalize_rig.
             return
 
+        # The skin this replaces is kept under Earlier meshes
+        # (2026-09-22) rather than simply overwritten -- see
+        # ``MeshPostOps._publish_model_version`` for the mechanism, the same
+        # one ``_remesh`` uses. Until now this was the irreversible half of
+        # the pair: a bare rename and the old surface was simply gone.
         temp = source_dir / store.RETEXTURE_GLB_TMP
         try:
             if not await asyncio.to_thread(
                 functools.partial(retexture.swap_base_colour, model_glb, atlas, temp)
             ):
                 raise RuntimeError("this mesh has no base-colour texture to replace")
-            # Rename rather than write: model.glb is served, and os.replace is
-            # atomic on both platforms as long as the two share a filesystem --
-            # which they do, being siblings.
-            await asyncio.to_thread(os.replace, temp, model_glb)
+            await asyncio.to_thread(
+                self._publish_model_version,
+                source_id,
+                temp,
+                kind="retexture",
+                geometry=False,
+                detail=f"{len(views)} views restyled",
+            )
         finally:
             # The staging name is in the *source* job's directory, beside the
             # mesh it is a candidate replacement for. A failure that left it

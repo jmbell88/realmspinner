@@ -162,18 +162,22 @@ def test_pump_submits_and_reports_when_input_png_is_missing_on_first_check(svc):
     assert state.preview is None
 
 
-def test_matte_preview_cache_does_not_grow_without_bound_across_jobs(svc):
-    """2026-09-08 audit, finding create-07.
+def test_matte_preview_cache_stays_bounded_across_many_switches(svc):
+    """2026-09-08 audit, finding create-07; narrowed by the 2026-09-23 audit,
+    finding create-10.
 
-    ``open_for``/``close`` reset the *open* preview's fields but never removed
-    the entry the just-closed job left in ``MatteState.cache`` -- so a Create
-    session that previewed the matte on many distinct references grew that
-    dict for the life of the process. Nothing ever reads a *different* job's
-    entry back (``pump`` looks the cache up by ``state.job_id`` alone), so
-    moving to a new job may safely drop the outgoing one.
+    ``open_for``/``close`` reset the *open* preview's fields, but nothing
+    removed a closed job's entry from ``MatteState.cache`` on its own -- so a
+    Create session that previewed the matte on many distinct references grew
+    that dict for the life of the process. The bound now lives entirely in
+    ``on_task_done``'s LRU (``_MAX_CACHE_ENTRIES``): this test asserts the
+    boundedness create-07 was actually about, not the specific single-entry
+    eviction ``open_for`` used to do on every switch -- create-10 found that
+    eviction was throwing away a preview the user had just watched finish,
+    ahead of a return that should have reused it.
     """
-    job_a = _reference(svc, _subject_rgb())
-    job_b = _reference(svc, _subject_rgb())
+    cap = matte_preview._MAX_CACHE_ENTRIES
+    jobs = [_reference(svc, _subject_rgb()) for _ in range(cap + 3)]
 
     class Ctx:
         def __init__(self) -> None:
@@ -191,24 +195,75 @@ def test_matte_preview_cache_does_not_grow_without_bound_across_jobs(svc):
         # racily-clean rule -- see the module docstring above).
         return svc_matte.replace_stamp(preview, time.time_ns() - 10 * svc_matte.MTIME_RACE_NS)
 
+    state = None
+    for job_id in jobs:
+        matte_preview.open_for(ctx, job_id, {})
+        state = matte_preview.pump(ctx)
+        matte_preview.on_task_done(
+            ctx, SimpleNamespace(key=matte_preview.key(job_id), result=_remembered(job_id))
+        )
+
+    # The unfixed-before-create-07 code left every entry in the cache
+    # forever -- this is the failing assertion against that.
+    assert len(state.cache) <= cap
+    for job_id in jobs[-cap:]:
+        assert job_id in state.cache
+    assert jobs[0] not in state.cache
+
+
+def test_returning_to_a_job_you_just_finished_viewing_reuses_its_cached_preview(
+    svc, monkeypatch
+):
+    """2026-09-23 audit, finding create-10.
+
+    ``open_for`` used to pop the *outgoing* job's cache entry on every switch,
+    even one that had already landed while it was open -- so the 3-entry LRU
+    ``on_task_done`` maintains (``_MAX_CACHE_ENTRIES``) could only ever hold
+    previews that finished *after* the user had switched away. Returning to a
+    reference whose cutout had already finished re-submitted BiRefNet instead
+    of reusing the cached entry.
+    """
+    job_a = _reference(svc, _subject_rgb())
+    job_b = _reference(svc, _subject_rgb())
+
+    class Ctx:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(matte=None)
+            self.svc = svc
+            self.submitted: list = []
+
+        def submit(self, key, fn, *args, **kwargs):
+            self.submitted.append(key)
+            return True
+
+    ctx = Ctx()
+
+    def _land(job_id: str) -> None:
+        preview = svc_matte.preview(svc, job_id)
+        # Past the race window without moving the stamp off the file's real
+        # mtime -- unlike ``replace_stamp``, which would make a later
+        # ``pump`` for the same untouched file miss the cache for an
+        # unrelated reason.
+        monkeypatch.setattr(
+            svc_matte.time, "time_ns", lambda: preview.stamp + svc_matte.MTIME_RACE_NS * 2
+        )
+        matte_preview.on_task_done(
+            ctx, SimpleNamespace(key=matte_preview.key(job_id), result=preview)
+        )
+        monkeypatch.undo()
+
     matte_preview.open_for(ctx, job_a, {})
-    state = matte_preview.pump(ctx)
-    matte_preview.on_task_done(
-        ctx, SimpleNamespace(key=matte_preview.key(job_a), result=_remembered(job_a))
-    )
-    assert job_a in state.cache
-
-    matte_preview.open_for(ctx, job_b, {})
     matte_preview.pump(ctx)
-    matte_preview.on_task_done(
-        ctx, SimpleNamespace(key=matte_preview.key(job_b), result=_remembered(job_b))
-    )
+    _land(job_a)  # job_a's cutout finishes while it is still the open preview
 
-    # The unfixed code left job_a's entry in the cache forever -- this is the
-    # failing assertion against it.
-    assert job_a not in state.cache
-    assert job_b in state.cache
-    assert len(state.cache) == 1
+    matte_preview.open_for(ctx, job_b, {})  # switch away
+    matte_preview.open_for(ctx, job_a, {})  # and back, before job_b's lands
+
+    state = matte_preview.pump(ctx)
+
+    assert ctx.submitted == [matte_preview.key(job_a)]
+    assert state.preview is not None
+    assert state.preview.job_id == job_a
 
 
 def test_late_matte_preview_results_landing_after_several_more_switches_do_not_grow_the_cache_without_bound(  # noqa: E501

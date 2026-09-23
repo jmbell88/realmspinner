@@ -761,13 +761,18 @@ class GenerateOps:
         # statement. best.glb and best.source.glb are two whole
         # reconstructions -- tens of MB -- and every path out of the block
         # below that is not a clean fall-through used to leak them: an
-        # exception from _optimize, _apply_scale, _audit_mesh or the params
+        # exception from _optimize, _lowpoly, _apply_scale, _audit_mesh or the params
         # write, and a cancel that propagates. Nothing sweeps them
         # afterwards; _discard_artifacts runs only on a cancelled job, so on
         # an error they sat in the job directory for its whole life.
         try:
             while True:
                 await self._optimize(job_id, source_glb, glb_path, params)
+                # Between the budget and the grounding transform: it bakes
+                # from whatever _optimize already produced, and _apply_scale
+                # then grounds the mesh that actually ships rather than the
+                # one _lowpoly replaced.
+                await self._lowpoly(job_id, glb_path, params)
                 await self._apply_scale(job_id, glb_path, params)
                 audit = await self._audit_mesh(job_id, glb_path, params)
                 worst = None if audit is None else audit.get("worst")
@@ -779,7 +784,7 @@ class GenerateOps:
                 )
                 if new_best:
                     # params is snapshotted shallowly, which is exact today and
-                    # deliberately so: _optimize, _apply_scale and _audit_mesh all
+                    # deliberately so: _optimize, _lowpoly, _apply_scale and _audit_mesh all
                     # *rebind* their top-level keys rather than mutating a nested
                     # value in place, so a shallow copy of the mapping isolates
                     # every value that can change between here and the restore. A
@@ -898,7 +903,7 @@ class GenerateOps:
                 #
                 # params is restored wholesale rather than key by key: the snapshot
                 # is a copy of the mapping taken between two trellis runs, and only
-                # _optimize, _apply_scale and _audit_mesh write between then and
+                # _optimize, _lowpoly, _apply_scale and _audit_mesh write between then and
                 # here, so replacing it is exact -- and stays exact when one of
                 # those three grows a new key, which a hand-written strip list
                 # would not.
@@ -947,7 +952,7 @@ class GenerateOps:
                 await asyncio.to_thread(self.store.set_params, job_id, params)
         except BaseException:
             # The restore above runs only on the clean fall-through. An
-            # exception from a retry's _optimize/_apply_scale/_audit_mesh or
+            # exception from a retry's _optimize/_lowpoly/_apply_scale/_audit_mesh or
             # the params write (and a cancel that propagates) would skip it,
             # and the finally below would then delete the staged pair --
             # erasing the measured-good mesh while a half-processed attempt

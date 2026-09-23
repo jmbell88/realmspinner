@@ -28,6 +28,11 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "retarget": ("23-generating-meshes", "triangle-budget"),
     "retexture": ("23-generating-meshes", "surface-texture"),
     "remesh": ("23-generating-meshes", "game-ready-remesh"),
+    # The Earlier meshes panel (2026-09-22): what a retarget, a remesh
+    # or a re-texture replaces is kept rather than discarded, and the
+    # questions asked in front of this panel -- how many are kept, what
+    # restoring one does to the rig -- are answered in its own section.
+    "mesh-history": ("23-generating-meshes", "earlier-meshes"),
     "loras": ("42-app-settings", "your-style-loras"),
     "pose": ("25-rigging-and-posing", "posing"),
     "poser-library": ("26-poser", "the-pose-library"),

@@ -385,11 +385,6 @@ class Renderer:
             primitive.material.bind(program)
             if tint is not None and "u_base_color_factor" in program:
                 program["u_base_color_factor"].value = tint
-            if len(primitive.material.textures) >= 5 and "u_camera_pos" in program:
-                # A five-texture material walks its units up to 4, which is
-                # the environment probe's slot -- rebind it, since the hoist
-                # above only bound it once per program.
-                self.env.bind(program, light=self.light_override)
             if primitive.skinned and "u_joints" in program:
                 palette = gpu.palette(node)
                 if palette:

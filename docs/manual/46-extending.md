@@ -286,7 +286,10 @@ its own when it connects, and every tool it has addresses that tab by name. A do
 have open is not merely unlikely to be touched; there is no request the agent can make that names
 it. What the agent does
 goes onto that document's ordinary undo stack, one step per action, so taking over means switching
-to its tab and pressing Ctrl+Z as often as you want to. It also arrives already knowing Realmspinner's
+to its tab and pressing Ctrl+Z as often as you want to. **Generate...**, Clay's own door onto
+text2image and the reconstruction stage, is not part of the tool surface at all — an agent places and
+shapes geometry with the tools below, never by asking the image or mesh models for one. It also
+arrives already knowing Realmspinner's
 units and conventions — metres, which way is up, that a generator stands on the ground rather than
 straddling it — rather than working them out by trial, which is why its first attempt at something
 now usually stands on the ground instead of floating above it or growing up out of the floor.

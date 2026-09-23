@@ -99,34 +99,26 @@ def key(job_id: str) -> str:
     return f"matte-preview:{job_id}"
 
 
-# The 2026-09-08 audit, finding create-03: ``open_for``'s own eviction (see
-# below) only catches the *immediately preceding* job at the moment of a
-# switch, which is what ``test_matte_preview_cache_does_not_grow_without_
-# bound_across_jobs`` (create-07) covers. It cannot catch a preview that
-# lands after the user has moved on through *several* more switches, or one
-# that lands for a job that was never the open one at all -- and
-# ``test_a_result_for_a_job_the_user_left_is_cached_but_not_shown``
-# (test_matte_handoff.py) is exactly that second case, and is the reason the
-# cache is bounded rather than pruned to the single current job: a result for
-# a job the user has left must still be *cached*, just not *shown*. Capping
-# the whole cache at a small LRU in ``on_task_done`` keeps both true: no
-# session can regrow it without bound, and the last few jobs looked at are
-# still instant to return to.
+# The 2026-09-08 audit, finding create-03: a preview that lands after the
+# user has moved on through several more switches must still be *cached*,
+# just not *shown* -- ``test_a_result_for_a_job_the_user_left_is_cached_but_
+# not_shown`` (test_matte_handoff.py) is exactly that case. Capping the whole
+# cache at a small LRU in ``on_task_done`` is what keeps a session that
+# previews many references from regrowing this dict without bound while
+# still holding onto the last few jobs looked at.
 _MAX_CACHE_ENTRIES = 3
 
 
 def open_for(ctx: Any, job_id: str, kwargs: dict[str, Any], *, force: bool = False) -> MatteState:
     """Put the preview in front of the promotion. Draws nothing itself."""
     state = ensure(ctx)
-    if state.job_id and state.job_id != job_id:
-        # The 2026-09-08 audit (finding create-07): nothing ever reads a
-        # *different* job's entry back -- ``pump`` looks ``cache`` up by
-        # ``state.job_id`` alone -- so a session that previews many
-        # references grew this dict for the life of the process. Dropping
-        # the outgoing job's entry here caps it at one; reopening the *same*
-        # job (same id) is left alone, since that is the one case a stale
-        # entry still saves a recompute.
-        state.cache.pop(state.job_id, None)
+    # No eviction here (2026-09-23 audit, finding create-10): this used to
+    # pop the outgoing job's cache entry on every switch, including one that
+    # had already landed while it was still open -- so a preview the user had
+    # just watched finish, and would return to, was thrown away and BiRefNet
+    # re-ran on the return. ``on_task_done``'s bounded LRU (see
+    # ``_MAX_CACHE_ENTRIES`` above) is the only trim the cache needs; ``pump``
+    # reads it back by ``state.job_id`` on every return, not just the first.
     state.job_id = job_id
     state.kwargs = dict(kwargs)
     state.force = force

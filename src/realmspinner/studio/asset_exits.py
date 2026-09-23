@@ -229,6 +229,14 @@ def _mesh_for(ctx: Any, job: Any) -> Any:
     mesh = getter(source) if callable(getter) else None
     if mesh is None or not _is_mesh(mesh):
         return None
+    # The 2026-09-23 audit, finding create-09: trashing a mesh does not touch
+    # its surviving follow-up rows (`_jobs_lifecycle.dependent_jobs` only
+    # scans active jobs) and a trashed row stays in the cache, so without
+    # this floor a rig/sheet/retexture/remesh row kept resolving straight to
+    # a mesh `exits_for`'s own docstring says must offer nothing -- the same
+    # resurrection that check already refuses for the *selected* row.
+    if mesh.get("deleted_at"):
+        return None
     return mesh
 
 

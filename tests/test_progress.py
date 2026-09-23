@@ -68,7 +68,7 @@ def test_every_phase_the_worker_emits_is_declared_for_generate_jobs():
     phase queue.Worker emits for a text/image job must be declared in both
     tables -- including the zero-width tail phases."""
     for table in (PHASES_TEXT, PHASES_IMAGE):
-        for phase in ("trellis", "optimize", "scale", "audit"):
+        for phase in ("trellis", "optimize", "lowpoly", "scale", "audit"):
             assert phase in table, phase
 
 

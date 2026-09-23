@@ -64,8 +64,9 @@ def optimize_job(
     doesn't take one. Refusing beats racing.
     """
     import contextlib
+    import time
 
-    from ..pipelines import optimize, postprocess
+    from ..pipelines import modelhistory, optimize, postprocess
     from . import files
 
     job = svc.require_job(job_id)
@@ -76,16 +77,27 @@ def optimize_job(
     source = job_dir / "source.glb"
     if not source.exists():
         raise Invalid("this job has no source reconstruction to re-optimize")
-    # The configured default, not a hardcoded tier: a named tier needs the
-    # vendored gltfpack, and `raw` is what Config.mesh_profile still defaults to.
-    profile = profile or svc.config.mesh_profile
     # Through the one implementation, not a second copy of it: this used to
     # resolve the budget itself, which raised a fieldless Invalid the UI could
     # not point at anything and -- the half that mattered -- skipped the
     # gltfpack-presence refusal. With a broken REALMSPINNER_GLTFPACK a retarget then
     # shipped the raw copy while params["profile"] named a tier that never ran,
     # and `profile` is in VECTOR_PARAMS, so the corpus learned it.
-    budget = resolve_profile(svc, {}, profile, custom_triangles)
+    #
+    # ``profile`` is passed through *as given*, including ``None`` -- a
+    # retarget with nothing named -- rather than pre-filled with
+    # ``svc.config.mesh_profile`` here the way this used to. Pre-filling would
+    # turn "nothing named" into an *explicit* request the moment it reached
+    # ``resolve_profile``, which on a machine with no gltfpack refuses instead
+    # of downgrading (dev/measurements/2026-09-23-default-mesh-budget.md's
+    # "defaulted tier downgrades, named tier refuses" split). A retarget
+    # button with no tier picked must not start refusing every press the day
+    # the default moved off ``raw`` -- so ``resolve_profile`` is left to do its
+    # own defaulting, and the *resolved* name (not the argument) is what gets
+    # recorded below.
+    resolved: dict[str, Any] = {}
+    budget = resolve_profile(svc, resolved, profile, custom_triangles)
+    profile = resolved["profile"]
 
     # Read from the row rather than started empty: a step that failed on the
     # *original* run is still true of this mesh unless this run fixes it, and
@@ -98,7 +110,30 @@ def optimize_job(
     health = {
         ARTIFACT_HEALTH: dict(inherited) if isinstance(inherited, dict) else {}
     }
-    with svc.convert_lock(job_id, "optimize"):
+    with svc.convert_lock(job_id, modelhistory.MODEL_LOCK):
+        # Staged *before* the run, not after: the old model.glb is only still
+        # on disk here, and stage() has to snapshot it while it is still the
+        # file optimize.run is about to overwrite. A budget label rather than
+        # a face count -- the count model.glb actually has needs a trimesh
+        # load this door does not otherwise pay for.
+        #
+        # stage() only, not keep() -- 2026-09-23 audit, finding service-01:
+        # keep() used to evict the oldest kept version unconditionally, before
+        # optimize.run had even been tried, so a failed retarget at the
+        # version cap permanently destroyed a recoverable mesh even though
+        # nothing on disk had actually changed. Eviction now happens in
+        # commit(), called only after optimize.run has actually succeeded;
+        # discard_last() below undoes exactly this stage() call on failure,
+        # with no eviction to undo because none has happened yet.
+        entries = modelhistory.stage(
+            job_dir,
+            modelhistory.entries_of(job["params"]),
+            job["params"],
+            kind="optimize",
+            geometry=True,
+            detail=f"{budget:,} triangles" if budget else "raw reconstruction",
+            now=time.time(),
+        )
         try:
             result = optimize.run(
                 source,
@@ -107,7 +142,18 @@ def optimize_job(
                 exe=svc.config.gltfpack_exe,
             )
         except optimize.OptimizeError as exc:
+            # model.glb is untouched on this path (optimize.run only creates
+            # dest on success), so the version just staged describes a
+            # replacement that never happened -- back it out rather than let
+            # the history claim a retarget that failed.
+            entries = modelhistory.discard_last(job_dir, entries)
+            svc.store.merge_params(job_id, {"model_history": entries})
             raise Failed(str(exc)) from exc
+        # optimize.run succeeded: model.glb now is the retargeted mesh, so the
+        # version just staged really does describe what it replaced. Only now
+        # is it safe to evict past the cap (2026-09-23 audit, finding
+        # service-01 -- see the stage() call above).
+        entries = modelhistory.commit(job_dir, entries)
         # The optimizer rewrote the node graph, so the grounding transform went
         # with it and has to be reapplied. Failure is logged and swallowed,
         # same rule as the queue path (_apply_scale): the new GLB is already on
@@ -141,17 +187,25 @@ def optimize_job(
             with svc.convert_lock(job_id, name), contextlib.suppress(OSError):
                 (job_dir / name).unlink()
 
-    changes: dict[str, Any] = {"profile": profile, "optimize": result}
+    changes: dict[str, Any] = {
+        "profile": profile,
+        "optimize": result,
+        "model_history": entries,
+    }
     if custom_triangles is not None:
         changes["custom_triangles"] = custom_triangles
-    # The old audit/report describe a mesh that no longer exists. "remesh" is
-    # in the same boat: a retarget rebuilds model.glb from source.glb, which
-    # overwrites whatever a prior remesh baked onto it, but until the
-    # 2026-09-18 audit (finding service-01) this drop list left the old
-    # report in params -- so remesh_panel's "Last remesh: 8,000 faces" line
-    # (params["remesh"], set by _q_mesh's worker path) went on describing
-    # quads that were no longer on disk.
-    drop = ["mesh_audit", "mesh_report", "remesh"]
+    # The old audit/report describe a mesh that no longer exists. "remesh" and
+    # "retexture" are in the same boat: a retarget rebuilds model.glb from
+    # source.glb, which overwrites whatever a prior remesh or re-texture
+    # baked onto it. "remesh" was added by the 2026-09-18 audit (finding
+    # service-01) -- until then this drop list left the old report in params,
+    # so remesh_panel's "Last remesh: 8,000 faces" line (params["remesh"], set
+    # by _q_mesh's worker path) went on describing quads that were no longer
+    # on disk. "retexture" is the same defect, found while wiring
+    # ``model_history`` (2026-09-22): the row went on claiming a skin
+    # that a retarget had just discarded -- now recoverable under Earlier
+    # meshes, but no longer true of the row's own top-level "retexture" key.
+    drop = ["mesh_audit", "mesh_report", "remesh", "retexture"]
     if transform is None:
         drop += ["transform", "scale_factor"]
     else:
@@ -175,6 +229,126 @@ def optimize_job(
         "optimize": result,
         "transform": transform,
         "stale": stale_rig_artifacts(job_dir),
+    }
+
+
+def revert_model(
+    svc: RealmspinnerService,
+    job_id: str,
+    *,
+    version: int,
+) -> dict[str, Any]:
+    """Put an earlier mesh -- one a retarget, a remesh or a re-texture
+    replaced -- back as this job's ``model.glb``.
+
+    Inline, like ``optimize_job``, and under the same lock: a restore writes
+    onto the same served name every other rework here does, so it refuses
+    exactly what they refuse (a job that is queued or running, a dependent
+    job still writing into this one's directory) and for the same reason --
+    the worker's own ``_optimize``/``_apply_scale``/``_publish_model_version``
+    write ``model.glb`` without taking a lock of their own, so an unlocked
+    restore racing one of them would be a second, unordered writer.
+
+    It is a publish rather than a pure derivation -- the bytes come from
+    ``versions/<n>.model.glb`` on disk, not from recomputing anything off
+    ``source.glb`` -- so it goes through ``service.derive._staged`` by hand,
+    the module's own canonical stage-then-rename, rather than through
+    ``get_file``'s ``derived`` table of pure functions of ``model.glb``.
+
+    Whether the restore drops the rig, its poses and its sheets, or only the
+    surface exports, depends on what changed **between** the restored version
+    and the mesh on disk now -- not on what kind of rework produced the
+    version being restored. ``modelhistory.crossed_geometry`` walks the whole
+    chain from that version forward for exactly that reason: a version from
+    two reworks back can still be a pure surface restore if neither rework
+    since touched geometry, and a version saved just before a re-texture can
+    still cross geometry if a remesh landed after it.
+
+    And the restore is itself kept, the same as every other publish here --
+    so restoring one version is not a one-way trip either.
+    """
+    import contextlib
+    import json
+    import shutil
+    import time
+
+    from ..pipelines import modelhistory, retexture
+    from . import files
+    from .derive import _staged
+
+    check_job_id(job_id)
+    job = svc.require_job(job_id)
+    if job["status"] in ("queued", "running"):
+        raise Conflict(f"job is {job['status']}; restore an earlier mesh once it finishes")
+    _require_no_dependents(svc, job_id, "restore an earlier mesh of")
+    job_dir = svc.job_dir(job_id)
+
+    with svc.convert_lock(job_id, modelhistory.MODEL_LOCK):
+        # Re-read inside the lock, not the ``job`` fetched at the door: a
+        # queued rework's own publish, or a concurrent restore, may have
+        # pushed or evicted an entry in between.
+        row = svc.require_job(job_id)
+        params = row["params"]
+        entries = modelhistory.entries_of(params)
+        by_n = {e["n"]: e for e in entries}
+        entry = by_n.get(version)
+        version_glb = modelhistory.version_path(job_dir, version)
+        if entry is None or not version_glb.exists():
+            if entry is not None:
+                # A dangling entry whose file is gone (an eviction that died
+                # mid-delete, a hand-edited job directory) -- drop it rather
+                # than fail forever on a version nothing can ever restore.
+                entries = [e for e in entries if e["n"] != version]
+                svc.store.merge_params(job_id, {"model_history": entries})
+            raise Invalid(
+                f"version {version} is no longer available", field="version"
+            )
+        geometry = modelhistory.crossed_geometry(entries, version)
+        restored_params = json.loads(
+            modelhistory.meta_path(job_dir, version).read_text("utf-8")
+        )
+
+        # The mesh being replaced is kept too, exactly like every other
+        # rework's publish -- so a restore can itself be undone.
+        entries = modelhistory.keep(
+            job_dir,
+            entries,
+            params,
+            kind="revert",
+            geometry=geometry,
+            detail=f"restored version {version}",
+            now=time.time(),
+        )
+
+        def _write(tmp: Path) -> None:
+            shutil.copyfile(version_glb, tmp)
+
+        _staged(job_dir, "model.glb", _write)
+
+        # Geometry crossed means every derived export describes a mesh that
+        # no longer exists, the same rule optimize_job and remesh_job follow;
+        # otherwise only the surface exports do, retexture_job's rule --
+        # each under its own lock, so an in-flight conversion of the old mesh
+        # cannot rename a stale copy into place after the unlink.
+        drop_names = files.DERIVED if geometry else retexture.SURFACE_DERIVED
+        for name in drop_names:
+            with svc.convert_lock(job_id, name), contextlib.suppress(OSError):
+                (job_dir / name).unlink()
+
+        changes = dict(restored_params)
+        changes["model_history"] = entries
+        # Any MODEL_PARAMS key the restored version never had (a run before
+        # the key existed, or one whose step failed) has to come off the row
+        # too -- restoring is putting the mesh's whole description back, not
+        # only adding what this version recorded.
+        remove = tuple(k for k in modelhistory.MODEL_PARAMS if k not in restored_params)
+        svc.store.merge_params(job_id, changes, remove=remove)
+
+    return {
+        "ok": True,
+        "version": version,
+        "stale": stale_rig_artifacts(job_dir) if geometry else [],
+        "surface": not geometry,
     }
 
 
@@ -308,12 +482,12 @@ def remesh_job(
     job_id: str,
     *,
     profile: str | None = None,
-    custom_faces: int | None = None,
+    custom_triangles: int | None = None,
     texture_size: int | None = None,
-    close_holes: bool = False,
+    close_holes: bool = True,
 ) -> dict[str, Any]:
-    """Queue a game-ready remesh of a finished mesh: quads to a budget, a fresh
-    unwrap, and the old surface baked onto the new.
+    """Queue a game-ready remesh of a finished mesh: a fresh surface at a
+    triangle budget, a fresh unwrap, and the old surface baked onto the new.
 
     The third rework, and it sits between the other two. Like a retarget it
     changes geometry, so it invalidates *every* derived export and makes a rig
@@ -323,6 +497,13 @@ def remesh_job(
     path: not for the resident pipe (it needs none) but because the serial
     worker is what keeps a multi-minute bake from overlapping a trellis run,
     exactly as ``_rig`` states.
+
+    ``close_holes`` defaults to True, unlike every other bool-flag default in
+    this door: measured 2026-09-23, without the voxel pre-pass the decimate
+    fallback a trellis mesh always takes collapses the mesh rather than
+    producing something usable -- so the panel and this door's own default now
+    agree with what actually works, rather than each silently declining the
+    pass a plain quadriflow run cannot survive on this input.
 
     ``source.glb`` is never touched: a remesh reads ``model.glb`` -- the mesh
     as the user sees it, current skin included -- and publishes over it. A
@@ -350,12 +531,12 @@ def remesh_job(
             "(`uv sync --extra rig` on Python 3.13)",
             field="remesh_profile",
         )
-    key = profile or remesh.DEFAULT_PROFILE
+    key = profile or remesh.DEFAULT_TRIANGLE_PROFILE
     try:
-        faces = remesh.resolve(key, custom_faces)
+        triangles = remesh.resolve(key, custom_triangles)
     except ValueError as exc:
         raise Invalid(
-            str(exc), field="custom_faces" if key == "custom" else "remesh_profile"
+            str(exc), field="custom_triangles" if key == "custom" else "remesh_profile"
         ) from exc
     size = None if texture_size is None else int(texture_size)
     if size is not None and size not in remesh.TEXTURE_SIZES:
@@ -365,15 +546,15 @@ def remesh_job(
         )
     params: dict[str, Any] = {
         # ``remesh_profile`` rather than ``profile``: the latter is the gltfpack
-        # tier and is in VECTOR_PARAMS, and a quad budget wearing that key
-        # would land in the findings corpus as a triangle tier.
+        # tier and is in VECTOR_PARAMS, and a triangle budget wearing that key
+        # would land in the findings corpus as a gltfpack tier.
         "source_job": job_id,
         "remesh_profile": key,
-        "target_faces": faces,
+        "target_triangles": triangles,
         "close_holes": bool(close_holes),
     }
     if key == "custom":
-        params["custom_faces"] = faces
+        params["custom_triangles"] = triangles
     if size is not None:
         params["texture_size"] = size
     # Zero on this kind -- Blender is out of process -- but held for the
@@ -422,7 +603,7 @@ def separate_job(
         raise Invalid("only a track can be split into stems", field="source_job")
     if job["status"] in ("queued", "running"):
         raise Conflict(f"job is {job['status']}; split it once it finishes")
-    _require_no_dependents(svc, job_id, "separate")
+    _require_no_dependents(svc, job_id, "separate", noun="music take")
     job_dir = svc.job_dir(job_id)
     if not (job_dir / "track.wav").exists():
         # ``muse_mode.play``'s sentence and ``derive_music_job``'s, so all
@@ -447,7 +628,9 @@ def separate_job(
     return {"id": new_id, "source_job": job_id}
 
 
-def _require_no_dependents(svc: RealmspinnerService, job_id: str, what: str) -> None:
+def _require_no_dependents(
+    svc: RealmspinnerService, job_id: str, what: str, *, noun: str = "mesh"
+) -> None:
     """Refuse while another job is still writing into this one's directory.
 
     Both doors here refuse on the *target row's* own status, which is the wrong
@@ -467,13 +650,18 @@ def _require_no_dependents(svc: RealmspinnerService, job_id: str, what: str) -> 
 
     ``dependent_jobs`` already exists and ``_jobs_lifecycle``'s docstring
     already names it as the answer to this shape.
+
+    ``noun`` names the thing being started from, not only meshes any more --
+    ``separate_stems`` calls this on a music take, and the hardcoded "mesh" in
+    the message used to call a finished track's take a mesh (2026-09-23 audit,
+    finding muse-01).
     """
     from ._jobs_lifecycle import dependent_jobs
 
     blocking = dependent_jobs(svc, job_id)
     if blocking:
         raise Conflict(
-            f"{len(blocking)} job(s) started from this mesh are still queued or "
+            f"{len(blocking)} job(s) started from this {noun} are still queued or "
             f"running and will write into its directory; wait for them to finish "
             f"before you {what} it."
         )

@@ -29,7 +29,7 @@ from .. import guidance
 from ..pipelines import reference
 from ..provenance import file_fingerprint
 from . import matte
-from ._jobs_create import _normalize_guidance, resolve_profile
+from ._jobs_create import _normalize_guidance, resolve_lowpoly, resolve_profile
 from ._jobs_rework import _require_no_dependents
 from .core import RealmspinnerService
 from .errors import Conflict, Invalid
@@ -542,6 +542,7 @@ def promote_to_model(
     bg_removal: str | None = None,
     profile: str | None = None,
     custom_triangles: int | None = None,
+    lowpoly_triangles: int | None = None,
     trellis_band: int | None = None,
     trellis_tex_res: int | None = None,
     trellis_gss: float | None = None,
@@ -679,6 +680,7 @@ def promote_to_model(
         raw["resolution"] = guidance.PLATFORMS[guidance.DEFAULT_PLATFORM].resolution
     params.update(_normalize_guidance(svc, raw))
     resolve_profile(svc, params, profile, custom_triangles)
+    resolve_lowpoly(svc, params, profile, lowpoly_triangles)
     # create_job's own unset-follows-config rule, restated rather than
     # re-derived: an inherited value describes the *source* reference's mesh
     # stage, which never ran these flags (a reference is text/image, not

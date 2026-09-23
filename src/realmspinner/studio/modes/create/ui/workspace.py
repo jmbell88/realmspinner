@@ -60,9 +60,17 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
     elif spec.key == "seamless_material":
         stages = "Generate seamless material → verify wrap"
     elif spec.key == "tileset":
+        # The 2026-09-23 audit, finding create-06: this used to hardcode one
+        # generation regardless of mode, lines or variants. Read the real
+        # count the door and the worker will run through the same helper
+        # ``material_lines``/``tile_mode_of`` already use, mirroring the
+        # sprite arm below.
+        from ..engine import recipe as create_recipe
+
         candidates = 1
-        generations = 1
-        duration = "about a minute"
+        tile = create_recipe.tileset_generation_plan(form)
+        generations = int(tile["generations"])
+        duration = svc_sprites.generation_time_phrase(generations)
         stages = "Generate tile sheet → inspect cells"
     elif spec.key == "sprite_sheet":
         # The sprite follow-up has one preliminary character plus one sheet

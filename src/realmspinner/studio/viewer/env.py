@@ -25,6 +25,15 @@ from typing import Any
 
 import numpy as np
 
+from .scene import TEXTURE_SLOTS
+
+# The specular probe's texture unit. Past the last material slot a five-
+# texture material's GpuMaterial.bind ever assigns (units 0..len(TEXTURE_SLOTS)-1),
+# so the probe and a material's occlusion map can never land on the same
+# unit -- the 2026-09-23 audit, finding create-11: a full PBR material's AO
+# sampler read the probe instead of the AO map because both were unit 4.
+ENV_UNIT = len(TEXTURE_SLOTS)
+
 # The gradient, in linear light. Read off the frontend's gradientEnvironment().
 SKY = (0.42, 0.48, 0.60)
 HORIZON = (0.34, 0.34, 0.36)
@@ -293,7 +302,7 @@ class Environment:
     def bind(
         self,
         program: Any,
-        unit: int = 4,
+        unit: int = ENV_UNIT,
         *,
         light: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None,
     ) -> None:

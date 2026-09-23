@@ -22,28 +22,31 @@ from __future__ import annotations
 
 from typing import Any
 
-#: Quad budgets, keyed by the word the panel shows. Faces, not triangles: a
-#: quadriflow target is a quad count, and a "2k quad" prop is ~4k triangles --
-#: the ladder a mobile/indie engine actually budgets in. ``custom`` takes a
-#: number in ``FACES_MIN..FACES_MAX``.
+#: Triangle budgets, keyed by the word the panel and Create's Budget combo
+#: show. Triangles, not quads: measured 2026-09-23 on the raccoon
+#: (`dev/measurements/2026-09-23-default-mesh-budget.md`) -- the voxel pass
+#: forces quadriflow to refuse ("consistent normals") on every trellis mesh,
+#: so the decimate fallback is what actually runs, and decimate's own budget
+#: is a triangle count. A quad-labelled ladder was therefore promising a unit
+#: the worker could not deliver. ``custom`` takes a number in
+#: ``TRIANGLES_MIN..TRIANGLES_MAX``.
 #:
-#: No `dev/measurements/` document backs these three numbers, and the
-#: 2026-09-11 audit (finding pipelines-08) is right that this is a weaker
-#: footing than ``optimize.PROFILES``' triangle tiers, whose named rungs are
-#: deliberately kept out of the generate form until a qualification run backs
-#: them. The difference is what the number decides: a quad budget is a *target
-#: the user picks by name and can see the result of*, not a threshold that
-#: silently classifies a mesh, and nothing in the stored corpus is keyed on it
-#: -- a remesh records the budget it ran at. Re-deriving the ladder is a
-#: sitting with a card and eyes, and it is owed rather than done.
-FACE_PROFILES: dict[str, int] = {
-    "low": 2_000,
-    "medium": 8_000,
-    "high": 30_000,
+#: 5k is the default: Crash-Bandicoot-range fidelity on a whole-character
+#: reconstruction, per the same measurement (4,996 triangles in ~6 s with good
+#: fidelity on the raccoon). The other three rungs bracket it rather than
+#: being independently qualified -- the same weaker footing the old quad
+#: ladder's own comment named (2026-09-11 audit, finding pipelines-08), carried
+#: forward rather than resolved: re-deriving the ladder is still a sitting
+#: with a card and eyes, and it is still owed rather than done.
+TRIANGLE_PROFILES: dict[str, int] = {
+    "2k": 2_000,
+    "5k": 5_000,
+    "10k": 10_000,
+    "20k": 20_000,
 }
-DEFAULT_PROFILE = "medium"
-FACES_MIN = 500
-FACES_MAX = 200_000
+DEFAULT_TRIANGLE_PROFILE = "5k"
+TRIANGLES_MIN = 1_000
+TRIANGLES_MAX = 200_000
 
 #: Bake resolutions. ``None`` at the door means "match the mesh's own atlas",
 #: resolved by the worker against the file for ``retexture``'s reason.
@@ -82,48 +85,65 @@ BAKE_MARGIN_PX = 8
 
 
 def resolve(profile: str, custom: int | None = None) -> int:
-    """The quad budget a profile names, or a refusal that names the range.
+    """The triangle budget a profile names, or a refusal that names the range.
 
     ``ValueError`` rather than a service error: this is the one implementation
     the door *and* the panel's pre-flight call, exactly as ``optimize.resolve``
-    is for the triangle tiers, so both refuse in the same words.
+    is for the gltfpack tiers, so both refuse in the same words.
     """
     if profile == "custom":
         if custom is None:
-            raise ValueError("a custom remesh needs a face count")
+            raise ValueError("a custom remesh needs a triangle count")
         try:
             value = int(custom)
         except (TypeError, ValueError) as exc:
-            raise ValueError("face count must be a whole number") from exc
-        if not FACES_MIN <= value <= FACES_MAX:
-            raise ValueError(f"face count must be between {FACES_MIN:,} and {FACES_MAX:,}")
+            raise ValueError("triangle count must be a whole number") from exc
+        if not TRIANGLES_MIN <= value <= TRIANGLES_MAX:
+            raise ValueError(
+                f"triangle count must be between {TRIANGLES_MIN:,} and {TRIANGLES_MAX:,}"
+            )
         return value
-    if profile not in FACE_PROFILES:
+    if profile not in TRIANGLE_PROFILES:
         raise ValueError(
             f"unknown remesh profile {profile!r}; one of "
-            f"{sorted(FACE_PROFILES)} or 'custom'"
+            f"{sorted(TRIANGLE_PROFILES)} or 'custom'"
         )
-    return FACE_PROFILES[profile]
+    return TRIANGLE_PROFILES[profile]
 
 
-def profile_label(key: str, faces: int | None = None) -> str:
-    """"Medium (8k quads)" -- derived from the table so a label cannot
+def target_faces(triangles: int) -> int:
+    """A triangle budget -> Blender's own ``target_faces``.
+
+    ``quadriflow_remesh``'s ``target_faces`` counts quads, and after the
+    always-on voxel pre-pass every polygon in the decimate fallback's input is
+    one -- so half the triangle budget is what the decimate ratio in
+    ``blender_worker._remesh_object`` actually converges on (its own comment
+    states the arithmetic: ``(target_faces * 2) / tris``). At least 1, so a
+    degenerate custom budget never asks Blender for zero faces.
+    """
+    return max(int(triangles) // 2, 1)
+
+
+def profile_label(key: str, triangles: int | None = None) -> str:
+    """"5k (5,000 triangles)" -- derived from the table so a label cannot
     disagree with the number the worker is asked for."""
     if key == "custom":
         return "Custom..."
-    faces = FACE_PROFILES[key] if faces is None else faces
-    if faces % 1000 == 0:
-        return f"{key.capitalize()} ({faces // 1000}k quads)"
-    return f"{key.capitalize()} ({faces:,} quads)"
+    triangles = TRIANGLE_PROFILES[key] if triangles is None else triangles
+    return f"{key} ({triangles:,} triangles)"
 
 
 def report_line(report: Any) -> str | None:
     """One sentence about what the last remesh produced, or None.
 
-    Says which path made the surface -- quadriflow, or the decimate fallback a
-    non-manifold input forces -- because a "remeshed" mesh that is really a
-    decimated one has triangles where the user was promised quads, and the
-    panel must not let the two read the same.
+    A decimated mesh is the *expected* path on a trellis reconstruction now
+    (2026-09-23: the voxel pre-pass that closes plate-crust holes leaves every
+    surface with "inconsistent normals" as far as quadriflow is concerned, so
+    it refuses and the decimate fallback is what actually runs) -- so this no
+    longer reads a decimated result as a failure of the quad path. It still
+    says which path ran, because a quadriflow surface and a decimated one are
+    different UV layouts and a reader comparing two remeshes should be able to
+    tell them apart.
     """
     if not isinstance(report, dict):
         return None
@@ -134,7 +154,7 @@ def report_line(report: Any) -> str | None:
     method = report.get("method")
     size = report.get("texture_size")
     if method == "decimate":
-        head = f"{faces:,} triangles (decimated: the surface was not manifold enough to quad)"
+        head = f"{faces:,} triangles (remeshed and re-baked)"
     elif quads is not None:
         head = f"{faces:,} faces, {quads * 100:.0f}% quads"
     else:

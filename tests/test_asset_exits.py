@@ -367,6 +367,25 @@ def test_a_rig_row_whose_source_is_not_in_the_cache_offers_nothing_at_all(svc):
     assert asset_exits.exits_for(ctx, rig_row) == []
 
 
+def test_a_followup_row_offers_no_exits_once_its_source_mesh_is_trashed(svc):
+    """The 2026-09-23 audit, finding create-09: ``_mesh_for`` resolved a
+    follow-up row's source through ``ctx.cache.get`` and gated only on
+    ``_is_mesh``, never on the resolved mesh's own ``deleted_at`` -- although
+    its own docstring already promises None for "a source that has since
+    been trashed". Trashing a mesh does not touch its surviving follow-up
+    rows (``_jobs_lifecycle.dependent_jobs`` only sees active jobs, and a
+    trashed row stays in the cache), so without this floor the rig row here
+    kept offering Clay/Poser/Mason against a mesh the library no longer shows
+    at all -- exactly the resurrection ``exits_for``'s own docstring says a
+    trashed row must never offer."""
+    mesh = _mesh(svc, rigged=True)
+    mesh["deleted_at"] = 12345.0
+    rig_row = _rig_followup(svc, mesh["id"])
+    ctx = FakeCtx(svc)
+    ctx.cache.rows[mesh["id"]] = mesh
+    assert asset_exits.exits_for(ctx, rig_row) == []
+
+
 def test_a_charsheet_offers_nothing_in_the_exits_list(svc):
     """Regression: a charsheet row carries ``stage == "model"`` -- the column
     default every follow-up product wears, per ``asset_open``'s own docstring

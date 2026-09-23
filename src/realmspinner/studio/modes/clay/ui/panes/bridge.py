@@ -172,6 +172,166 @@ def _import_mesh(ctx: Any, tab: Any) -> None:
         state.import_scale = float(picked)
     imgui.same_line()
     state.import_up = widgets.combo("##clay-import-up", state.import_up, IMPORT_UP_OPTIONS, sp(90))
+    imgui.dummy((0, sp(tokens.SP_1)))
+    _generate_row(ctx, tab, state)
+
+
+# --- generate into this document ---------------------------------------------
+#
+# "Import Mesh..." above brings in something built elsewhere; this builds it,
+# and lands it here rather than opening a second tab the way a Library row's
+# own "Edit in Clay" still does. See ``studio/modes/clay/generate.py`` for
+# every rule (the two-step text approval, the ceilings, the frame-thread
+# split) -- this file draws only what that module's own pure helpers already
+# decided.
+
+GENERATE_POPUP = "clay-generate"
+
+
+def _generate_row(ctx: Any, tab: Any, state: Any) -> None:
+    why = "Saving..." if tab.saving else ""
+    if widgets.disabled_button(f"{icons.SPARKLES} Generate...", not tab.saving, reason=why):
+        imgui.open_popup(GENERATE_POPUP)
+    _generate_popup(ctx, tab, state)
+    # Visible with the popup closed too -- the same reason ``ClayTab.bg_busy``
+    # (which this mirrors) is read by the hint line: a multi-minute wait with
+    # nothing on screen saying so is the clay-41 defect this door must not
+    # repeat.
+    pending = state.generate_pending
+    if pending is not None and pending.get("tab_uid") == tab.uid:
+        from ... import generate as clay_generate
+
+        line = clay_generate.status_line(pending)
+        if line:
+            widgets.muted(line)
+
+
+def _generate_popup(ctx: Any, tab: Any, state: Any) -> None:
+    if not imgui.begin_popup(GENERATE_POPUP):
+        return
+    widgets.popup_chrome(_imgui=imgui)
+    from ... import generate as clay_generate
+
+    pending = state.generate_pending
+    if pending is not None and pending.get("tab_uid") == tab.uid:
+        if pending.get("stage") == "preview":
+            _generate_preview_body(ctx, tab, pending, clay_generate)
+        else:
+            _generate_working_body(ctx, tab, pending, clay_generate)
+    elif pending is not None:
+        widgets.muted_wrapped("A generation is already under way for another document.")
+    else:
+        _generate_prompt_body(ctx, tab, state, clay_generate)
+    imgui.end_popup()
+
+
+def _generate_text_reason(prompt_ok: bool, saving: bool) -> str:
+    """Why the popup's "Generate" button is refused right now, or ``""``.
+
+    Pulled out as a plain function, the ``_outputs_why`` pattern (clay-07,
+    the 2026-09-08 audit): a reason that only imgui can compute is a reason
+    no test can check. clay-14 (the 2026-09-23 audit): the button used to be
+    gated on ``prompt_ok`` alone -- pressing it while the tab was mid-save
+    started a reference job against a document the save was still encoding.
+    "Saving..." wins over the empty-prompt sentence: a save in progress is
+    why the button is off regardless of what the prompt field holds.
+    """
+    if saving:
+        return "Saving..."
+    return "" if prompt_ok else "Describe what to add first."
+
+
+def _generate_image_reason(saving: bool) -> str:
+    """Why "From an image..." is refused right now, or ``""``.
+
+    clay-15 (the 2026-09-23 audit): this button passed ``reason=""``
+    unconditionally, so it greyed out while saving with no explanation at
+    all -- the one case it can ever be disabled for.
+    """
+    return "Saving..." if saving else ""
+
+
+def _generate_prompt_body(ctx: Any, tab: Any, state: Any, clay_generate: Any) -> None:
+    widgets.muted_wrapped(
+        "Generate a mesh and land it in this document, beside whatever is "
+        "selected -- or at the origin, with nothing selected."
+    )
+    state.generate_prompt = widgets.input_text(
+        "##clay-generate-prompt", state.generate_prompt, hint="Describe what to add..."
+    )
+    imgui.dummy((0, sp(tokens.SP_1)))
+    widgets.field_label("Budget", "How many triangles gltfpack simplifies the mesh down to.")
+    state.generate_budget = widgets.combo(
+        "##clay-generate-budget", state.generate_budget, clay_generate.budget_choices(), sp(170)
+    )
+    widgets.muted(clay_generate.settings_note(ctx))
+    imgui.dummy((0, sp(tokens.SP_1)))
+
+    prompt_ok = bool(state.generate_prompt.strip())
+    if widgets.primary_button(
+        "Generate",
+        enabled=prompt_ok and not tab.saving,
+        reason=_generate_text_reason(prompt_ok, tab.saving),
+    ) and clay_generate.submit_text(ctx, tab, state.generate_prompt, budget=state.generate_budget):
+        imgui.close_current_popup()
+    imgui.same_line()
+    if widgets.disabled_button(
+        "From an image...", not tab.saving, reason=_generate_image_reason(tab.saving)
+    ):
+        clay_generate.submit_image(ctx, tab, budget=state.generate_budget)
+        imgui.close_current_popup()
+    imgui.same_line()
+    if widgets.disabled_button("Cancel##clay-generate-none", True):
+        imgui.close_current_popup()
+
+
+def _generate_preview_body(ctx: Any, tab: Any, pending: dict, clay_generate: Any) -> None:
+    job_id = pending.get("reference_job_id", "")
+    if job_id:
+        _generate_reference_image(ctx, job_id)
+    widgets.muted_wrapped("Approve this reference, or try another.")
+    if widgets.primary_button("Accept", enabled=True):
+        clay_generate.accept_reference(ctx, tab)
+    imgui.same_line()
+    if widgets.disabled_button("Reroll", True):
+        clay_generate.reroll_reference(ctx, tab)
+    if pending.get("force_offer"):
+        imgui.same_line()
+        if widgets.disabled_button("Build anyway", True):
+            clay_generate.accept_reference(ctx, tab, force=True)
+        # docs-02 (the 2026-09-23 audit): the manual promises the doubt's
+        # reason beside Build anyway; only a one-shot toast said it before,
+        # gone the moment a user missed it or came back to a reopened popup.
+        # ``pending["doubt_reasons"]`` is set by ``on_task_failed`` at the
+        # same point ``force_offer`` is.
+        for reason in pending.get("doubt_reasons") or ():
+            widgets.text_colored(theme.ERR, reason)
+    imgui.same_line()
+    if widgets.disabled_button("Cancel", True):
+        clay_generate.cancel(ctx, tab)
+        imgui.close_current_popup()
+
+
+def _generate_reference_image(ctx: Any, job_id: str) -> None:
+    textures = getattr(ctx, "textures", None)
+    if textures is None:
+        return
+    texture = textures.get(job_id, ctx.svc.job_dir(job_id) / "input.png")
+    if texture is None:
+        return
+    width, height = texture.size
+    avail = widgets.stable_content_width()
+    if avail <= 1.0:
+        avail = sp(320)
+    scale = min(1.0, avail / float(width))
+    imgui.image(widgets.texture_ref(texture), (float(width) * scale, float(height) * scale))
+
+
+def _generate_working_body(ctx: Any, tab: Any, pending: dict, clay_generate: Any) -> None:
+    widgets.muted(clay_generate.status_line(pending) or "Working...")
+    if widgets.disabled_button("Cancel", True):
+        clay_generate.cancel(ctx, tab)
+        imgui.close_current_popup()
 
 
 def _outputs_why(doc: Any, saving: bool) -> str:

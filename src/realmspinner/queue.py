@@ -983,11 +983,17 @@ class Worker(
         # to a model.glb (and is why ``optimize_job`` refuses a job that is
         # queued or running rather than trying to interleave with it).
         #
-        # ``_retexture`` and ``_remesh`` use it, and only to *delete* the
-        # exports that describe the geometry or skin they just replaced -- the
-        # places the worker touches a finished job's derived artifacts, and so
-        # the places an in-flight conversion could otherwise rename a stale copy
-        # back into existence after the unlink.
+        # ``_retexture`` and ``_remesh`` use it to *delete* the exports that
+        # describe the geometry or skin they just replaced -- the places the
+        # worker touches a finished job's derived artifacts, and so the places
+        # an in-flight conversion could otherwise rename a stale copy back
+        # into existence after the unlink. ``_publish_model_version`` (mixed
+        # in from ``_q_mesh.MeshPostOps``) also takes it, under the name
+        # ``modelhistory.MODEL_LOCK`` -- guarding the ``model.glb`` publish
+        # itself, not a delete, so a version push can't race a concurrent
+        # writer's own read-modify-write of ``model_history`` (2026-09-23
+        # audit, finding service-06: this comment used to name only the two
+        # deleters and left the publish path's own use of the lock unstated).
         self.artifact_lock: Any = lambda _job_id, _name: contextlib.nullcontext()
         self.fatal: BaseException | None = None
         # The service layer's reaction to a job that just failed, injected the

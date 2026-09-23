@@ -129,6 +129,15 @@ class QuitMixin:
             for k in busy
         ):
             lines.append("A review sweep is launching or being cleaned up and will be interrupted.")
+        # shell-03 (2026-09-23 audit): a retarget (``retarget:<uid>``) and a
+        # model-history restore (``history_panel``'s ``model-revert:<uid>``)
+        # each rewrite ``model.glb`` under the viewer, same as an export or a
+        # library write above, but neither key starts with "download",
+        # "export"/"save"/"bake", "pack:" or contains "-library:" or matches
+        # ``_EXPORT_OR_SAVE_KEY`` -- so quitting mid-rework gave no warning at
+        # all, unlike every other in-flight rewrite this method already names.
+        if any(k.startswith(("retarget:", "model-revert:")) for k in busy):
+            lines.append("The mesh is still being reworked and will be interrupted.")
         return "\n".join(lines)
 
     def _ask_quit(self) -> None:
