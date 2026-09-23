@@ -259,7 +259,7 @@ def test_a_hole_in_the_floating_mask_is_not_part_of_it():
     assert not buf.contains((3, 3))
 
 
-def test_floating_buffer_scale_is_ceilinged_before_the_render_allocates():
+def test_floating_buffer_scale_is_ceilinged_before_the_render_allocates(monkeypatch):
     """The 2026-09-11 audit found ``scale`` floored at 0.01 with no ceiling
     above it: a scale-handle drag (``inker_canvas.py``'s own unclamped
     ``fx = abs(point[0]-cx)/ref_x``) or a direct ``transform(scale=...)`` call
@@ -273,7 +273,14 @@ def test_floating_buffer_scale_is_ceilinged_before_the_render_allocates():
     re-attempts the same failing allocation on every later re-render -- a
     flip, a pivot move, the next drag frame -- so this also drives a second
     render afterwards and checks it stays bounded too.
+
+    The ceiling is patched down to 256 because rendering at the real 16384
+    peaked at 15.55 GiB (measured 2026-09-23): on the 16 GB CI runner that
+    paged the whole machine, and all four xdist workers hit the 300 s
+    timeout together (run 35924184950). The clamp is ratio arithmetic, so a
+    small ceiling proves the same claim -- 50000x on 64 px still overshoots.
     """
+    monkeypatch.setattr(sel, "MAX_TRANSFORM_SIDE", 256)
     buf = _floating()
     buf.pixels = np.full((64, 64, 4), 255, dtype=np.uint8)
     buf.mask = np.full((64, 64), 255, dtype=np.uint8)

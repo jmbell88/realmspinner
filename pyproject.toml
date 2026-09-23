@@ -313,9 +313,11 @@ markers = [
 # *worse*, because past that point the run is paying for redundant interpreter
 # startup and imports rather than running tests. `auto` is therefore both the
 # slowest setting above six and the least safe one -- at 24 workers the suite
-# intermittently failed on memory, twice in twelve runs (an 8192x8192xf32 canvas
-# in test_inker_mode.py is 1 GiB by design, and this box idles at 53 of its 69.5
-# GiB commit limit already). Eight is the fast answer and the sober one.
+# intermittently failed on memory, twice in twelve runs (this box idles at 53 of
+# its 69.5 GiB commit limit already). A test that renders at a real size ceiling
+# must patch the ceiling down instead: the scale-ceiling test in
+# tests/modes/inker/test_selection.py once rendered 16384 square at a 15.55 GiB
+# peak, and on the 16 GB CI runner that stalled every worker at once. Eight is the fast answer and the sober one.
 addopts = [
     "-m", "not gpu and not perf",
     "-n", "8",

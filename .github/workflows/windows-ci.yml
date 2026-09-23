@@ -34,8 +34,15 @@ jobs:
       # slower: 120 s is generous on an unloaded workstation and marginal on a
       # shared runner, and a test killed by the timeout is one of the ways a
       # worker dies.
+      #
+      # ``faulthandler_timeout`` sits below the timeout so a hang names itself.
+      # Run 35924184950 (2026-09-23) went silent at 45%, then lost all four
+      # workers within five seconds, with no stack and no failure list: a
+      # 15.55 GiB test render had paged the runner, and pytest-timeout's
+      # ``os._exit`` threw away the captured output. faulthandler writes to
+      # the real stderr fd before that, and ``-rfE`` lists failures by name.
       - name: Default test suite
-        run: uv run pytest -q -n 4 --timeout 300
+        run: uv run pytest -q -n 4 --timeout 300 -o faulthandler_timeout=240 -rfE
       - name: Build wheel and sdist
         run: uv build
       # The wheel "built" here was never proven to import, let alone run --

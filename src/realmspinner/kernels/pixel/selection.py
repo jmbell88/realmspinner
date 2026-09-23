@@ -841,8 +841,10 @@ def render_transform_about(
 #: this fix picked 4096 and did exactly that, a data-visible regression caught
 #: before it shipped. 16384 is two doublings past the 8192 canvas ceiling: even
 #: a full-canvas selection can still scale up 2x, an ordinary 64px selection can
-#: scale up 256x, and the worst case (16384 square, RGBA) is a few hundred MB
-#: rather than unbounded.
+#: scale up 256x. Bounded is not cheap, though: the kept RGBA plane at 16384
+#: square is already 1 GiB, and a "smooth" render there passes through float32
+#: intermediates that peaked at 15.55 GiB (measured 2026-09-23, a 64 px buffer
+#: scaled into the ceiling). Tests prove the clamp with this patched down.
 MAX_TRANSFORM_SIDE = 16384
 
 

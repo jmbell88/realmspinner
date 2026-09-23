@@ -225,9 +225,16 @@ def test_a_floating_buffer_dragged_off_canvas_then_pivoted_does_not_blow_the_tra
     ``buf.size`` alone would pass even on the unfixed code -- the cost was
     already spent padding and rotating a plane nobody keeps. The spy below
     catches the padded plane itself, before the crop throws the evidence away.
+
+    The ceiling is patched down to 512 for the same reason as
+    ``test_selection.py``'s scale-ceiling test: a pad and rotation at the real
+    16384 costs a plane of up to a GiB, and on the 16 GB CI runner the
+    multi-GiB renders in this band paged the whole machine (run 35924184950).
+    A -50,000 px drag overshoots 512 exactly as it overshoots 16384.
     """
     from realmspinner.kernels.pixel import selection as sel
 
+    monkeypatch.setattr(sel, "MAX_TRANSFORM_SIDE", 512)
     seen: list[tuple[int, int]] = []
     real_pad = sel._pad_to_pivot
 
