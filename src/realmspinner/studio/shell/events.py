@@ -805,21 +805,11 @@ class EventsMixin:
         return tokens.SCALE
 
     def _on_drop(self, path: Path) -> None:
-        from .. import dialogs
         from ..main import DROP_REFUSALS, DROPPABLE_IMAGES
         from ..modes.create.ui import stages as create_stages
         from ..modes.create.ui.panes import settings_3d
 
         ctx = self.app_ctx
-        # Before any mode's own dispatch, because every one of the five would
-        # otherwise fall through to its generic "this mode opens X" refusal --
-        # which names the right suffix but reads, to someone holding a document
-        # they made last week, as though the file is no longer supported. It is
-        # supported; it is named wrong. Said once here rather than five times.
-        hint = dialogs.legacy_suffix_hint(path)
-        if hint is not None:
-            ctx.toast(hint, "error")
-            return
         if ctx.state.mode == "inker":
             from ..modes.inker import mode as inker_mode
 

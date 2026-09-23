@@ -116,26 +116,6 @@ PALETTE_MEMBER = "palette.gpl"
 REALMSPINNER_MEMBER = "realmspinner.json"
 REALMSPINNER_VERSION = 1
 
-#: What this member was called before the 2026-09-19 rename, and the one place
-#: the old product name still has to be read. Unlike a ``.rblk``, an ``.ora``
-#: written by Warlock Studio is a *valid* OpenRaster file: dropping the member
-#: would open the document and silently lose its slices and tilesets, which is
-#: a worse failure than refusing it outright. Read-only and never written --
-#: one save under the new name migrates the file.
-LEGACY_MEMBER = "warlock.json"
-
-
-def _read_sidecar(zf: zipfile.ZipFile) -> bytes:
-    """The app's own metadata member, under either name.
-
-    Raises ``KeyError`` when neither is present, so every call site keeps the
-    ``except KeyError`` it already had for "this document has no such block".
-    """
-    try:
-        return zf.read(REALMSPINNER_MEMBER)
-    except KeyError:
-        return zf.read(LEGACY_MEMBER)
-
 #: A document's tilesets, track bindings and cel refs -- Wave 3 chunk 3.4.
 #: Its own member and its own version, ``REALMSPINNER_MEMBER``'s reasons restated
 #: one layer further in: tile *structure* is metadata about a picture that is
@@ -1908,7 +1888,7 @@ def _read_colour(zf) -> tuple[str, int]:
     mode label and the transparent index, not a pixel.
     """
     try:
-        raw = _read_sidecar(zf)
+        raw = zf.read(REALMSPINNER_MEMBER)
     except KeyError:
         return ("rgb", 0)
     try:
@@ -2026,7 +2006,7 @@ def _read_slices(zf: zipfile.ZipFile, anim: Animation | None) -> list:
     from .slices import Slice, SliceKey
 
     try:
-        raw = _read_sidecar(zf)
+        raw = zf.read(REALMSPINNER_MEMBER)
     except KeyError:
         return []
     frames = [] if anim is None else anim.frames

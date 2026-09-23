@@ -860,16 +860,8 @@ def get_config() -> Config:
         # non-empty, so leave it alone" rule has to see the destination as the
         # user left it, and creating data_dir first would make every first run
         # look like a half-finished move.
-        from . import migrate, rename
+        from . import migrate
 
-        # Before ``migrate``: this one moves the whole ``~/.warlock`` home to
-        # ``~/.realmspinner`` after the 2026-09-19 product rename, and
-        # ``migrate`` decides what to do with a checkout-era tree by looking at
-        # whether the destination roots are populated. Run the other way round,
-        # ``migrate`` would see an empty new home, move the checkout's trees
-        # into it, and leave this one declining a destination it had just
-        # filled -- stranding the real library at the old name.
-        rename.run(cfg)
         migrate.run(cfg)
         # palette_dir and t2i_model_root are created here and not lazily: on a
         # fresh install both are directories the user has to put files into by

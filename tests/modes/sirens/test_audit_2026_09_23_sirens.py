@@ -4,9 +4,7 @@ Four findings, none of them touching one another's code: a persistent pitch
 effect that overflows a voice's note over a long render (sirens-01, plus
 ``preview_note``'s missing catch), an unguarded "Loop the song" checkbox
 (sirens-02), a silent note-preview refusal (sirens-03), and an unlogged
-zero-length buffer refusal (sirens-04). See ``dev/audits/audit-2026-09-23.md``
-for the full records -- not cited by name from ``src/``, per that file's own
-rule.
+zero-length buffer refusal (sirens-04).
 """
 
 from __future__ import annotations

@@ -79,38 +79,6 @@ ARTIFACT_FILTERS = {
 }
 
 
-#: What each document suffix was called before the 2026-09-19 rename, when the
-#: leading ``w`` stood for Warlock. The formats themselves did not change -- a
-#: ``.wblk`` is byte-for-byte a ``.rblk`` -- so the honest answer to being
-#: handed one is not "this file is broken" but "rename it", which is what
-#: :func:`legacy_suffix_hint` says. Kept here beside the filter table rather
-#: than in any one mode, because five modes need the same sentence.
-LEGACY_SUFFIXES: dict[str, str] = {
-    ".wscn": ".rscn",
-    ".wblk": ".rblk",
-    ".wpack": ".rpack",
-    ".wmap": ".rmap",
-    ".wsng": ".rsng",
-}
-
-
-def legacy_suffix_hint(path: Path) -> str | None:
-    """The sentence for a pre-rename document, or ``None`` if it is not one.
-
-    Deliberately actionable rather than a refusal: the container is unchanged,
-    so renaming the file really is the whole fix, and a user told only that the
-    suffix is unsupported would reasonably conclude their work was lost.
-    """
-    new = LEGACY_SUFFIXES.get(path.suffix.lower())
-    if new is None:
-        return None
-    return (
-        f"{path.name} is a {path.suffix.lower()} document, from before this app "
-        f"was renamed to Realmspinner. Rename it to "
-        f"{path.with_suffix(new).name} and it opens unchanged."
-    )
-
-
 def open_file(title: str, filters: list[str] | None = None) -> Path | None:
     """Blocking; call from a task thread.
 

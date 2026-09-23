@@ -8,12 +8,6 @@
 #define ProjectRoot SourcePath + "\.."
 
 [Setup]
-; A *new* AppId for the 2026-09-19 rename, deliberately. Inno keys an in-place
-; upgrade off this GUID, so keeping the old one would have left the product
-; installed in a directory named after a name it no longer has, with one
-; Add/Remove Programs entry whose display name changed under the user. A new
-; identity installs cleanly into {localappdata}\Programs\Realmspinner;
-; PrepareToInstall below is what stops that leaving two entries behind.
 AppId={{580F8E4B-F507-4CEA-B6B5-A92DA1A70FDC}
 AppName=Realmspinner
 AppVersion={#AppVersion}
@@ -90,91 +84,6 @@ Type: filesandordirs; Name: "{app}\src"
 Type: filesandordirs; Name: "{app}\python"
 
 [Code]
-// The AppId this product shipped under as Warlock Studio, up to and including
-// 0.0.51. Inno registers its uninstaller under "<AppId>_is1", so this is the
-// key to look for. A literal rather than something derived: it is a historical
-// fact about already-installed copies, and it must not follow AppId above the
-// next time that changes.
-const
-  LegacyAppId = '{C64355D5-8A1F-4A10-8DBB-7E72BCE2C297}_is1';
-
-function LegacyUninstaller(): String;
-var
-  Key: String;
-  Value: String;
-begin
-  Result := '';
-  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + LegacyAppId;
-  // Per-user install (PrivilegesRequired=lowest), so HKCU is where it lives --
-  // but an older machine may carry a per-machine copy, so both are asked.
-  if RegQueryStringValue(HKEY_CURRENT_USER, Key, 'QuietUninstallString', Value) then
-    Result := Value
-  else if RegQueryStringValue(HKEY_LOCAL_MACHINE, Key, 'QuietUninstallString', Value) then
-    Result := Value;
-end;
-
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  Command: String;
-  ExecName: String;
-  Params: String;
-  ResultCode: Integer;
-  Cut: Integer;
-begin
-  // Never fails the install. A machine that cannot remove the old product is
-  // still a machine that can have the new one -- the cost is one stale
-  // Add/Remove Programs entry, which is not worth refusing an install over.
-  Result := '';
-  Command := LegacyUninstaller();
-  if Command = '' then
-    exit;
-
-  if MsgBox(
-       'Warlock Studio is installed on this PC. It was renamed to Realmspinner,'
-       + ' so this is the same program under a new name rather than a second copy.'
-       + #13#10#13#10
-       + 'Remove Warlock Studio now?'
-       + #13#10#13#10
-       + 'Your assets and downloaded models are not touched either way --'
-       + ' Realmspinner moves them to their new home the first time you run it.',
-       mbConfirmation, MB_YESNO) <> IDYES then
-    exit;
-
-  // QuietUninstallString is already '"<path>\unins000.exe" /SILENT'; split it
-  // so Exec gets the executable and its arguments apart, the way it wants them.
-  ExecName := Command;
-  Params := '';
-  if Copy(ExecName, 1, 1) = '"' then
-  begin
-    Delete(ExecName, 1, 1);
-    Cut := Pos('"', ExecName);
-    if Cut > 0 then
-    begin
-      Params := Trim(Copy(ExecName, Cut + 1, Length(ExecName)));
-      ExecName := Copy(ExecName, 1, Cut - 1);
-    end;
-  end
-  else
-  begin
-    Cut := Pos(' ', ExecName);
-    if Cut > 0 then
-    begin
-      Params := Trim(Copy(ExecName, Cut + 1, Length(ExecName)));
-      ExecName := Copy(ExecName, 1, Cut - 1);
-    end;
-  end;
-
-  if Params = '' then
-    Params := '/SILENT';
-  if Pos('/NORESTART', Uppercase(Params)) = 0 then
-    Params := Params + ' /NORESTART';
-
-  // Waited on, not fired and forgotten: the old uninstaller deletes its own
-  // install tree, and letting that race this installer's file copy is how a
-  // fresh install ends up missing files it had already written.
-  Exec(ExecName, Params, '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
-end;
-
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataPath: String;
