@@ -18,7 +18,7 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
-## Unreleased
+## 0.0.53 — 2026-09-23
 
 - **Familiar no longer shows two Discard buttons at once.** A character plan that
   landed while a Clay ghost was still waiting drew its Create/Discard row beside
@@ -41,8 +41,6 @@ the release you are actually running.
   each sidebar and the remainder from the canvas — so the five widths and the gaps
   between them always sum to exactly the window's width. Neither sidebar drags
   any more.
-
-## 0.0.53 — 2026-09-23
 
 - **Join and Separate no longer make a Clay document impossible to open.** Joining
   objects, or a boolean Union, Difference or Intersection, dropped the absorbed objects

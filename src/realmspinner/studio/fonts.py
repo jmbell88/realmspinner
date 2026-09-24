@@ -197,6 +197,9 @@ def centred_glyph_pos(imgui: Any, glyph: str, cx: float, cy: float) -> tuple[flo
     try:
         found = imgui.get_font_baked().find_glyph_no_fallback(ord(glyph[0]))
     except Exception:
+        # No baked font yet (a headless test's default atlas, or a frame before
+        # the first bake): centring on the advance box below is the documented
+        # fallback, not a failure to report.
         found = None
     if found is None or found.x1 <= found.x0 or found.y1 <= found.y0:
         return cx - size.x * 0.5, cy - size.y * 0.5
