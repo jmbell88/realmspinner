@@ -148,6 +148,16 @@ def test_an_unknown_movement_is_named_in_the_dropped_list():
     assert fly_drop in dropped
 
 
+def test_a_non_string_movement_entry_is_named_in_the_dropped_list():
+    options = _options()
+    reply = '{"family": "goblin", "movements": ["walk", 5, null, {}]}'
+    plan, dropped = character_plan.parse_plan(reply, options)
+    assert plan is not None
+    assert {"kind": "movement", "text": "5", "reason": "not a movement name"} in dropped
+    assert {"kind": "movement", "text": "None", "reason": "not a movement name"} in dropped
+    assert {"kind": "movement", "text": "{}", "reason": "not a movement name"} in dropped
+
+
 def test_an_unoffered_theme_is_named_in_the_dropped_list():
     options = _options()
     reply = json.dumps({"family": "goblin", "theme": "gilded"})

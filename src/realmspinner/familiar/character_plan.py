@@ -194,6 +194,16 @@ def parse_plan(
             for m in str_movements
             if m not in known
         )
+        # 2026-09-24 audit (familiar-02): a non-string entry (5, None, {})
+        # matched neither the string filter nor the known/unknown split and
+        # landed in neither ``kept`` nor ``dropped`` -- silently thrown away,
+        # breaking the docs/manual/20-overview.md promise that a word the
+        # plan could not act on is named rather than dropped.
+        dropped.extend(
+            {"kind": "movement", "text": repr(m), "reason": "not a movement name"}
+            for m in movements_field
+            if not isinstance(m, str)
+        )
         if kept:
             plan["movements"] = kept
 
