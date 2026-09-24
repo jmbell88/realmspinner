@@ -13,7 +13,7 @@ way the in-memory undo stacks do.
 **Display and pending-preview refinement, never model context.** The model
 still sees only the current request plus the scene -- that is the shape
 Familiar's model was trained on -- so a thread here is not conversation
-history fed back into a prompt. It is what the bottom pane renders, and it is
+history fed back into a prompt. It is what the Familiar dock renders, and it is
 what a "no, make it taller" follow-up reads to know which pending preview it
 is refining. Conflating the two would grow the prompt without bound and feed
 the model a shape it was never trained to use.
@@ -54,7 +54,7 @@ class Threads:
 
     Guarded by a lock because the future ``realmspinner-familiar`` thread (T4/T5)
     appends turns as a skill's answer streams in while the frame thread reads
-    a snapshot to draw the bottom pane -- the same cross-thread shape as
+    a snapshot to draw the Familiar dock -- the same cross-thread shape as
     every other piece of Familiar state, and a lock is cheaper than teaching
     every reader to tolerate a torn read.
     """

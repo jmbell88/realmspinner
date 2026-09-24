@@ -979,6 +979,7 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
             ),
         ),
         digests=((FAMILIAR_GGUF_FILE, FAMILIAR_GGUF_SHA256),),
+        card_shas=("cfa3068767ab6fc0c48bc4ef94f224cc3315fac596a830bf23507c240206f760",),  # LOCAL TEST: Q2, never commit
         description=(
             "Familiar's own weights: a testing pin of the base "
             "Qwen3-VL-4B-Instruct model.\n\n"

@@ -23,11 +23,12 @@ from _panes import pane_files  # noqa: E402
 # they draw under the pane that owns them.
 NO_HELP_BUTTON = {
     "__init__",  # not a pane
-    # T0 of the Familiar programme: one collapsed row saying Familiar
-    # isn't installed yet, replacing the old status bar. No heading, and the
-    # per-item status readouts it used to carry moved into the top menu bar
-    # (``menus.py``'s own status group, likewise not a pane with a (?)).
-    "bottom_pane",
+    # T0 of the Familiar programme, replaced 2026-09-23 by the full-height
+    # right dock: a closed strip with one ✦ button when Familiar isn't
+    # installed yet. No heading, and the per-item status readouts it used to
+    # carry moved into the top menu bar (``menus.py``'s own status group,
+    # likewise not a pane with a (?)).
+    "familiar_dock",
     # A picture strip the inspector's Details tab draws above its own sections
     # ("What this made", for a follow-up row). No heading of its own to hang a
     # (?) beside: the inspector's button opens the Library chapter that

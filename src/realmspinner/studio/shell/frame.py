@@ -40,7 +40,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from .. import anchors, guard, probe, tokens
+from .. import anchors, guard, probe
 from ..modes.create.ui import brief as create_brief
 
 log = logging.getLogger(__name__)
@@ -159,24 +159,21 @@ def _right_column(
 
 
 def _column_boundary(library: Any, workspace: str, side: str, *, length: float = 0.0) -> None:
-    """The draggable boundary between a side column and the centre anchor.
+    """The gap between a side column and the centre anchor.
 
-    ``length`` is the handle's height, and forwarding it is not optional for a
-    workspace that keeps a row under its columns. Left at 0 the splitter takes
-    ``get_content_region_avail().y`` -- **the whole remainder**, not the height
-    the columns were given -- so the handle, and not the columns, is what sets
-    the row's height. Muse is the workspace that found this: it shortens its
-    columns to leave 148 dp for the player strip, the splitter went on claiming
-    the full height anyway, and the strip was pushed 8 px past the bottom of
-    the content region, where ``begin_child`` returns false and draws nothing.
+    Used to draw and persist a drag handle there (``layout.column_splitter``);
+    the proportional shell (2026-09-23) sizes every side column from
+    ``layout.proportions`` instead of a per-workspace preference, so there is
+    nothing left to drag. Left in place as a plain ``same_line`` -- every
+    workspace's own module still calls this between its two columns, so
+    removing it outright would be a one-line edit repeated in eight files
+    rather than one. ``library``/``workspace``/``side``/``length`` are kept
+    for the same reason ``layout.measure``'s own now-unused parameters are:
+    every call site already passes them.
     """
 
     from imgui_bundle import imgui
 
-    from .. import layout as layout_mod
-
-    imgui.same_line()
-    layout_mod.column_splitter(library, workspace, side, length=length)
     imgui.same_line()
 
 
@@ -644,7 +641,7 @@ class FrameMixin:
         from ..modes.home.ui.panes import landing
         from ..modes.library.ui.panes import library
         from ..modes.settings.ui.panes import app_settings
-        from ..panes import bottom_pane, inspector
+        from ..panes import familiar_dock, inspector
 
         ctx = self.app_ctx
         # The rail first of all, because the sidebars are fitted against what
@@ -652,6 +649,9 @@ class FrameMixin:
         # disagreeing with the window by exactly its own width for one frame
         # every time it was toggled.
         rail.tick(self.layout)
+        # And the Familiar dock, right after -- the other edge the columns
+        # must be fitted against, for the same reason and in the same order.
+        familiar_dock.tick(ctx)
         # Before any pane reads ``layout.SIDEBAR_W``: a width change eases, and
         # a half-eased width read by the left sidebar and the settled one read
         # by the right would be two columns disagreeing about the same frame.
@@ -661,12 +661,10 @@ class FrameMixin:
         # not settle it for itself and leave the right one to find out (UX-01).
         mode_for_layout = ctx.state.mode
         self.layout.bind_workspace(self.layouts, mode_for_layout)
-        # No ``fixed_left`` any more: it pinned Inker's left column to the
-        # toolbox rail's 90 px, and the rail is gone -- both of Inker's columns
-        # are ordinary sidebars whose widths are the arrangement's to state.
-        # (``fit_widths`` keeps the parameter: it is the general answer for a
-        # column that is a fixed size rather than a preference, and deleting it
-        # would have to be re-derived by the next workspace that wants one.)
+        # The side columns are a fixed share of the room now
+        # (``layout.proportions``, 2026-09-23), the same in every workspace --
+        # ``self.layouts``/``mode_for_layout`` are still passed and still
+        # accepted, but ``measure`` no longer reads them for anything.
         layout_mod.measure(self.layouts, mode_for_layout)
         # Recomputed every frame by whoever draws the viewport image. Every
         # mode but 3D returns without drawing it, so it stays false there and
@@ -817,16 +815,12 @@ class FrameMixin:
             draw_placeholder=False,
         )
         imgui.same_line()
-        # Treat the workspace and its status as one vertical item beside the
-        # full-height rail. Without this group imgui advances below the taller
-        # rail before drawing the status, clipping it against the host edge.
-        imgui.begin_group()
-        # A negative child height leaves its magnitude below the child, but
-        # the next item also consumes the parent's item spacing. Reserve both
-        # so the shared status line is never clipped at the host's lower edge,
-        # especially when that spacing is doubled by UI scale.
-        status_reserve = tokens_mod.sp(bottom_pane.reserve(ctx)) + imgui.get_style().item_spacing.y
-        imgui.begin_child("##content", (0, -status_reserve))
+        # The workspace's own column, sized to leave the Familiar dock (and
+        # its grip, once open) clear on the right -- the dock's counterpart
+        # to the rail's column on the left.
+        dock_reserve = familiar_dock.reserve()
+        spacing = imgui.get_style().item_spacing.x
+        imgui.begin_child("##content", (-(dock_reserve + spacing), 0))
         from ..panes import overlay
 
         mode = ctx.state.mode
@@ -925,8 +919,10 @@ class FrameMixin:
                     )
 
         imgui.end_child()
-        guard.run("shell/status", bottom_pane.draw, ctx, title="The bottom pane")
-        imgui.end_group()
+        imgui.same_line()
+        # No grip: the dock's width is a fixed share of the room
+        # (``layout.proportions``, 2026-09-23), never a drag.
+        guard.run("shell/familiar", familiar_dock.draw, ctx, title="The Familiar dock")
         imgui.end()
         self._overlays(viewport)
 
@@ -1162,7 +1158,7 @@ class FrameMixin:
                 self.eta,
                 title="The progress card",
             )
-        from ..panes import bottom_pane
+        from ..panes import familiar_dock
 
         over(
             "overlay/toasts",
@@ -1170,7 +1166,7 @@ class FrameMixin:
             ctx.state,
             (viewport.work_size.x, viewport.work_size.y),
             on_action=self._toast_action,
-            bottom_offset=tokens.sp(bottom_pane.reserve(ctx)),
+            right_offset=familiar_dock.reserve(),
             title="Notifications",
         )
         # The first-run question owns the screen before any workflow modal.

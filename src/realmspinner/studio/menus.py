@@ -422,7 +422,7 @@ def draw(ctx: Any, layout: Any = None) -> None:
     from imgui_bundle import imgui
 
     from . import controls, tokens
-    from .panes import bottom_pane
+    from .panes import familiar_dock
 
     shape = specs(ctx, layout, evaluate=False)
     live: list[MenuSpec] | None = None
@@ -455,18 +455,23 @@ def draw(ctx: Any, layout: Any = None) -> None:
                     if clicked and row.enabled:
                         row.callback()
         # Reserved, never dropped -- see ``FAMILIAR_LABEL``'s own docstring.
-        # T5 wires the one row that used to read "Installed -- not yet
-        # wired" into a real command: it expands the bottom pane, the same
-        # toggle its own ▸/▾ button flips.
+        # T5 wired the one row that used to read "Installed -- not yet
+        # wired" into a real command; the dock move (2026-09-23) made it a
+        # checked toggle over ``ctx.state.familiar.expanded``, the same flag
+        # the dock's own strip/close controls flip -- one state, one toggle,
+        # never a second implementation of it.
         with controls.menu(FAMILIAR_LABEL) as familiar_open:
             if familiar_open:
-                if bottom_pane.familiar_state(ctx.svc.config) == "idle":
-                    hit = controls.menu_item("Open Familiar##menu/familiar-open", "", False, True)
+                if familiar_dock.familiar_state(ctx.svc.config) == "idle":
+                    from .assistant import ui as familiar_ui
+
+                    ui = familiar_ui.ensure(ctx)
+                    hit = controls.menu_item(
+                        "Show Familiar##menu/familiar-show", "", ui.expanded, True
+                    )
                     clicked = hit[0] if isinstance(hit, tuple) else hit
                     if clicked:
-                        from .assistant import ui as familiar_ui
-
-                        familiar_ui.ensure(ctx).expanded = True
+                        ui.expanded = not ui.expanded
                 else:
                     controls.menu_item(
                         "Not installed##menu/familiar-not-installed",

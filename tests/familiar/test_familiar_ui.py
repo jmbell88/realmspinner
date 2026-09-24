@@ -977,6 +977,52 @@ def test_discard_clears_the_plan():
     assert ui.plan is None
 
 
+def test_a_pending_preview_and_a_landed_character_plan_do_not_draw_two_identical_discard_buttons(
+    monkeypatch,
+):
+    """familiar-01 (2026-09-24 audit): a Clay preview pending at the same
+    time a character plan has landed (the router sent a follow-up to the
+    character skill while a ghost sat unresolved) used to draw *both* the
+    preview's Apply/Discard row and the plan card's Create/Open in
+    Create/Discard row in the same footer -- two identically labelled
+    "Discard" buttons with different effects. Only the preview's row may
+    draw; the plan must still be kept (not dropped) for its own turn."""
+    from _ui_context import imgui_context
+
+    from realmspinner.studio import probe
+
+    ctx = _FakeCtx(mode="clay")
+    ui = familiar_ui.ensure(ctx)
+    ui.preview_calls = [{"name": "clay_add_primitive", "arguments": {}}]
+    ui.preview_scratch = SimpleNamespace()
+    ui.preview_diff = SimpleNamespace(added=set(), removed=set(), changed=set(), empty=False)
+    ui.preview_tab_uid = ctx.tab.uid
+    ui.plan = _character_plan_action()
+
+    with imgui_context(monkeypatch) as imgui_mod:
+        imgui_mod.new_frame()
+        imgui_mod.set_next_window_size((500, 500))
+        imgui_mod.begin("##test-host")
+        try:
+            familiar_ui._draw_footer(ctx, ui)
+        finally:
+            imgui_mod.end()
+            imgui_mod.end_frame()
+            imgui_mod.render()
+
+    labels = [c.label for c in probe.FRAME_CONTROLS]
+    discard_labels = [label for label in labels if "discard" in label.lower()]
+
+    assert discard_labels == ["Discard##familiar/discard"], (
+        f"expected only the preview's Discard control, got {discard_labels!r}"
+    )
+    assert any("familiar/apply" in label for label in labels)
+    assert not any("familiar/character-create" in label for label in labels)
+    # The plan itself must survive -- discarded findings said "kept, not
+    # dropped": it draws on its own turn once the preview clears.
+    assert ui.plan is not None
+
+
 def test_a_failed_character_creation_says_so_in_the_transcript_and_toasts():
     """The 2026-09-18 audit (familiar-03): the CHARACTER_KEY failure branch
     of ``on_task_done`` set ``ui.reason``/``ui.message`` but never called

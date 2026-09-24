@@ -237,31 +237,23 @@ def test_the_frame_rate_rides_the_meter_and_is_omitted_when_unknown():
     assert line.index("RAM") < line.index("fps")
 
 
-def test_the_bottom_pane_centres_on_the_face_it_actually_draws_with():
-    """The vertical centring is an ordering, and this is what pins it.
-
-    T0 of the Familiar programme moved this row from ``status_bar.draw`` (now
-    deleted -- its per-item readouts moved to the menu bar) to
-    ``panes.bottom_pane.draw``, carrying the same rule with it: ``draw``
-    reserves half the leftover of the row height as top padding, so the line
-    height it measures has to be the one the row is *drawn* at --
-    ``TEXT_SMALL``. Measured before ``fonts.small`` was pushed it was
-    ``TEXT_BODY``'s instead, which reserved half of a larger gap above and left
-    the remainder below: the row read as top-aligned, and by more the larger
-    the UI scale, because the error is half the distance between the two faces
-    and both scale. Asserted on the source because the arithmetic needs a real
-    font atlas to produce a number, and the atlas needs a window.
+def test_the_closed_dock_strips_button_reads_the_missing_or_idle_branch():
+    """The 2026-09-23 dock move replaced the bottom pane's collapsed row with
+    a 44 dp strip holding one ✦ button, and the branch it draws from has to
+    stay the same one the row used to read: ``familiar_state`` -- "missing"
+    muted with an Install... tooltip pointing at Settings -> Models, "idle"
+    live and opening the dock. Asserted on the source, the same reason
+    ``test_the_bottom_pane_centres_on_the_face_it_actually_draws_with`` (this
+    test's predecessor) gave: the branch needs a real font atlas and window to
+    prove interactively, which is more than this claim is about.
     """
     import inspect
 
-    from realmspinner.studio.panes import bottom_pane
+    from realmspinner.studio.panes import familiar_dock
 
-    source = inspect.getsource(bottom_pane.draw)
-    pushed = source.index("fonts.small(imgui)")
-    measured = source.index("get_text_line_height()")
-    began = source.index("begin_child")
-    assert pushed < measured < began, "measure the small face, before the child"
-    assert source.count("fonts.small(imgui)") == 1, "one push, not one per use"
+    source = inspect.getsource(familiar_dock.draw)
+    assert "familiar_state(ctx.svc.config)" in source
+    assert "muted" in source and "Install" in source
 
 
 def test_resources_imports_nothing_from_the_ui():

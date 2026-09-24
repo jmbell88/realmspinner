@@ -3566,7 +3566,7 @@ def toasts(
     viewport_size: tuple[float, float],
     on_action: Any = None,
     *,
-    bottom_offset: float = 0.0,
+    right_offset: float = 0.0,
 ) -> None:
     """Stacked bottom-right, newest lowest; born sliding up, dying fading out.
 
@@ -3582,16 +3582,19 @@ def toasts(
     is how two of them come to disagree. Only a toast that takes input can be
     hovered at all, which is the same set that is worth pausing.
 
-    ``bottom_offset`` -- design pixels already scaled by the caller -- lifts
-    the whole stack clear of ``panes.bottom_pane``, which sits at the same
-    screen edge this stack anchors to.
+    ``right_offset`` -- design pixels already scaled by the caller -- pulls
+    the whole stack clear of the Familiar dock (2026-09-23), which sits at
+    the same screen edge this stack anchors to (the stack used to clear
+    ``panes.bottom_pane`` on the *bottom* edge instead; the dock is a right
+    dock, so the offset moved from ``y`` to ``x``).
     """
     state.expire_toasts()
     if not state.toasts:
         return
     now = time.monotonic()
     delta = imgui.get_io().delta_time
-    margin = sp(16) + bottom_offset
+    margin = sp(16)
+    x_margin = margin + right_offset
     y = viewport_size[1] - margin
     dismissed: list[Any] = []
     hidden = max(0, len(state.toasts) - TOAST_VISIBLE)
@@ -3611,7 +3614,7 @@ def toasts(
         colour, glyph = toast_style(toast.level)
         imgui.set_next_window_bg_alpha(0.96 * alpha)
         imgui.set_next_window_pos(
-            (viewport_size[0] - margin, y - rise), imgui.Cond_.always.value, (1, 1)
+            (viewport_size[0] - x_margin, y - rise), imgui.Cond_.always.value, (1, 1)
         )
         imgui.set_next_window_size((sp(tokens.SURFACE_W_POPOVER), 0))
         imgui.push_style_color(imgui.Col_.window_bg.value, imgui.ImVec4(*theme.rgba(colour)))

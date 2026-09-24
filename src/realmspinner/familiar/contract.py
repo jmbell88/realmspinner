@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
     from . import retrieval
 
-CARDS: dict[str, str] = {"clay": "clay-1.txt", "router": "router-1.txt"}
+CARDS: dict[str, str] = {"clay": "clay-2.txt", "router": "router-1.txt"}  # LOCAL TEST: Q2, never commit
 """Skill name -> the frozen card file beside this module, under ``cards/``.
 Two entries: Clay's own trained card, and T6's router card. The router card
 is frozen for a different reason than Clay's -- not because a fine-tune was

@@ -89,9 +89,6 @@ def draw(ctx: Any) -> None:
             if not collapsed:
                 _rail(ctx, jobs)
     imgui.same_line()
-    if arrangement is not None and not collapsed:
-        layout.column_splitter(arrangement, "library", "left")
-        imgui.same_line()
 
     width = (
         layout.centre_width()
@@ -104,9 +101,6 @@ def draw(ctx: Any) -> None:
 
     if selected is not None:
         imgui.same_line()
-        if arrangement is not None:
-            layout.column_splitter(arrangement, "library", "right")
-            imgui.same_line()
         with layout.pane(
             "library-full/inspector",
             (right_w, 0),

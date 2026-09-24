@@ -211,11 +211,18 @@ def _item(
         # different state rather than as "not hovered".
         alpha *= 0.45
     colour = imgui.get_color_u32(theme.rgba(theme.TEXT if selected else theme.MUTED, alpha))
-    glyph_w = imgui.calc_text_size(icon)
+    # The collapsed column's centre, so the glyph does not move when the
+    # labels arrive -- measured from the rail's own window edge, not from the
+    # item: this used to assume the item started one ``SP_1`` of padding in
+    # and subtract it, but the item box starts flush with the column, so every
+    # glyph sat 4 px left of its hover pill (screenshot, 2026-09-24). Centred
+    # on its ink rather than its advance, too (``fonts.centred_glyph_pos``).
     draw.add_text(
-        (
-            origin.x + (sp(RAIL_W) - glyph_w.x) * 0.5 - sp(tokens.SP_1),
-            origin.y + (height - glyph_w.y) * 0.5,
+        fonts.centred_glyph_pos(
+            imgui,
+            icon,
+            imgui.get_window_pos().x + sp(RAIL_W) * 0.5,
+            origin.y + height * 0.5,
         ),
         colour,
         icon,

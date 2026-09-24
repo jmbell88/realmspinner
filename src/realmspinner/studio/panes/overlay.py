@@ -338,13 +338,14 @@ def fps_meter(ctx: Any, meter: Any) -> None:
     else:
         colour = theme.ERR
 
-    from . import bottom_pane
-
     viewport = imgui.get_main_viewport()
+    # No offset any more: the Familiar dock (2026-09-23) sits on the window's
+    # *right* edge, not its bottom, and this meter is bottom-left -- the one
+    # bottom-anchored overlay the dock move left untouched.
     imgui.set_next_window_pos(
         (
             viewport.work_pos.x + sp(16),
-            viewport.work_pos.y + viewport.work_size.y - sp(16) - sp(bottom_pane.reserve(ctx)),
+            viewport.work_pos.y + viewport.work_size.y - sp(16),
         ),
         imgui.Cond_.always.value,
         (0.0, 1.0),
@@ -415,21 +416,23 @@ def progress_card(ctx: Any, eta: Any) -> None:
     elapsed = max(time.time() - float(started), 0.0) if started else 0.0
     cold = bool(snapshot.get("cold"))
 
-    from . import bottom_pane
+    from . import familiar_dock
 
     viewport = imgui.get_main_viewport()
     # The rise is the departure read backwards: it comes up out of the bottom
     # edge and goes back down into it, which is where a bottom-anchored surface
     # belongs. Under reduce-motion ``present`` is already at its target, so the
     # offset is zero and the card simply is or is not there.
+    #
+    # Centred horizontally, not over the whole viewport: the Familiar dock
+    # (2026-09-23) took the old bottom-pane reserve away from the *bottom*
+    # edge and put it on the right instead, so this card centres over the
+    # width the dock has left rather than sliding under it.
+    reserve = familiar_dock.reserve()
     imgui.set_next_window_pos(
         (
-            viewport.work_pos.x + viewport.work_size.x * 0.5,
-            viewport.work_pos.y
-            + viewport.work_size.y
-            - sp(18)
-            + sp(14) * (1.0 - present)
-            - sp(bottom_pane.reserve(ctx)),
+            viewport.work_pos.x + (viewport.work_size.x - reserve) * 0.5,
+            viewport.work_pos.y + viewport.work_size.y - sp(18) + sp(14) * (1.0 - present),
         ),
         imgui.Cond_.always.value,
         (0.5, 1.0),

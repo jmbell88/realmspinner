@@ -13,6 +13,8 @@ import ast
 import pathlib
 from typing import Any
 
+import pytest
+
 from realmspinner.studio import layout as layout_mod
 
 
@@ -321,6 +323,10 @@ def test_every_split_has_a_handle_and_every_handle_a_split():
     # height is a drag along the bottom of the centre column, which no column
     # renderer owns), and it derives its handle from its key exactly the way
     # ``_split_column`` does. What matters is that no id is a bare literal.
+    #
+    # The Familiar dock's own grip is gone (2026-09-23's proportional shell:
+    # the dock's width is a fixed share of the room, ``layout.proportions``,
+    # never a drag), so it no longer appears here.
     assert sorted(set(ids)) == ["<derived>"], (
         "every column's handle should come from _split_column, which derives "
         f"its id from split_id; hand-built splitters found: {sorted(set(ids))}"
@@ -403,3 +409,182 @@ def test_every_split_has_a_handle_and_every_handle_a_split():
         # rather than as a split column of its own, so there is no handle
         # left for it to carry.
     }
+
+
+def test_measure_shrinks_the_sidebars_as_familiar_opens(monkeypatch):
+    """UX-01's failure mode one edge over: the Familiar dock (2026-09-23)
+    sits on the window's right edge outside every mode's columns, exactly
+    where the old bottom pane never had to be subtracted from (it ran the
+    window's full width). ``measure`` now derives every column from
+    :func:`layout_mod.proportions`, keyed on :data:`layout_mod.FAMILIAR_OPEN_T`
+    -- opening the dock takes width from both sidebars by construction, so
+    the right sidebar can never be pushed off-screen the way an
+    independently-fitted dock could.
+    """
+    from _ui_context import imgui_context
+
+    with imgui_context(monkeypatch) as imgui:
+        imgui.get_io().display_size = (1600.0, 900.0)
+        imgui.new_frame()
+        try:
+            layout_mod.FAMILIAR_OPEN_T = 0.0
+            without_dock = layout_mod.measure()
+
+            layout_mod.FAMILIAR_OPEN_T = 1.0
+            with_dock = layout_mod.measure()
+        finally:
+            imgui.end_frame()
+            imgui.render()
+            layout_mod.FAMILIAR_OPEN_T = 0.0
+
+    assert with_dock < without_dock
+
+
+# --- proportions(): the proportional shell (2026-09-23) ----------------------
+#
+# The rail, the two sidebars, the centre and the Familiar dock used to be
+# fitted by two independent pure functions (``fit_widths`` and
+# ``familiar_dock.fit``) against the same room, with nothing keeping their
+# combined claim under the window -- the reported bug this wave fixes.
+# ``proportions`` is the one function that divides the room, so the
+# regression below is the shape of the fix: assert the five numbers plus
+# the four gaps between them equal the room exactly, at every scale and in
+# both Familiar states, which the old ``fit_widths``/``familiar_dock.fit``
+# pair could not promise because neither knew about the other.
+
+
+def test_rail_left_centre_right_dock_and_gaps_equal_room_exactly():
+    """The regression this wave exists for. Proven to fail against the old
+    ``fit_widths``/``familiar_dock.fit`` pair before this test was written:
+    reconstructing their old formulas at a 1600x900 window, 2x UI scale,
+    Familiar open and 300 dp panel preferences on both sides gave sidebars
+    fitted to 193 physical px each -- well under half of
+    :data:`layout_mod.SIDEBAR_MIN` at that scale (400) -- because
+    ``fit_widths`` floors only the *centre*, never the sidebars, once the
+    dock (fitted independently, with no notion of the rail or the sidebar
+    floors at all) has taken its own share first. ``proportions`` cannot
+    reproduce that: it divides the room once, so every floor in its own
+    ladder is met by moving width between the other four columns, never by
+    quietly letting one of them collapse.
+    """
+    spacing = 8.0
+    for room in (1100.0, 1920.0, 2560.0, 3800.0):
+        for scale in (1.0, 1.5, 2.0):
+            for t in (0.0, 0.35, 1.0):
+                rail, left, centre, right, dock = layout_mod.proportions(
+                    room, t, spacing, scale=scale
+                )
+                total = rail + left + centre + right + dock + 4.0 * spacing
+                assert total == pytest.approx(room), (room, scale, t)
+
+
+def test_the_rail_and_the_closed_dock_are_icon_strips_not_shares():
+    """2026-09-24: as flat 5% shares the rail and the closed dock were each
+    two to three times wider than the 44 dp icon they hold (96 px apiece on a
+    1920 window). Both are icon strips again, at every window width and
+    scale -- a share would grow with the room, which is what this pins."""
+    spacing = 8.0
+    for room in (1600.0, 1920.0, 2560.0, 3800.0):
+        for scale in (1.0, 1.5):
+            rail, _l, _c, _r, dock = layout_mod.proportions(
+                room, 0.0, spacing, rail=44.0 * scale, scale=scale
+            )
+            assert rail == pytest.approx(44.0 * scale), (room, scale)
+            assert dock == pytest.approx(44.0 * scale), (room, scale)
+
+
+def test_the_canvas_gets_what_the_icon_strips_gave_up():
+    """The centre is the remainder: on a 1920 window with Familiar closed it
+    is wider than the 40% it was held at while the rail and the closed dock
+    were 5% shares, by exactly what those two shares gave up."""
+    spacing = 8.0
+    room = 1920.0
+    content = room - 4.0 * spacing
+    rail, left, centre, right, dock = layout_mod.proportions(
+        room, 0.0, spacing, rail=44.0, scale=1.0
+    )
+    assert left == right == pytest.approx(content * 0.25)
+    assert centre == pytest.approx(content * 0.50 - 88.0)
+    assert centre > content * 0.40 + 100.0
+
+
+def test_proportions_at_the_open_extreme():
+    """Open, each sidebar is 20% and the dock 15% of the room (spacing taken
+    out), on a window generous enough that no floor engages."""
+    spacing = 8.0
+    room = 3800.0
+    content = room - 4.0 * spacing
+    rail, left, centre, right, dock = layout_mod.proportions(
+        room, 1.0, spacing, rail=44.0, scale=1.0
+    )
+    assert rail == pytest.approx(44.0)
+    assert left == right == pytest.approx(content * 0.20)
+    assert dock == pytest.approx(content * 0.15)
+    assert centre == pytest.approx(content * 0.45 - 44.0)
+
+
+def test_opening_familiar_takes_five_points_from_each_sidebar():
+    """Halfway open, each sidebar should have given up exactly half of the
+    five points the fully-open state takes -- ``proportions`` interpolates
+    linearly, and this is what "linearly" has to mean for a share."""
+    spacing = 8.0
+    room = 3800.0
+    content = room - 4.0 * spacing
+    _rail, left_closed, _c, right_closed, _dock = layout_mod.proportions(room, 0.0, spacing)
+    _rail, left_half, _c, right_half, _dock = layout_mod.proportions(room, 0.5, spacing)
+    assert left_closed - left_half == pytest.approx(content * 0.025)
+    assert right_closed - right_half == pytest.approx(content * 0.025)
+
+
+def test_the_rail_argument_defaults_to_what_rail_tick_reserved(monkeypatch):
+    """``measure`` and ``familiar_dock.tick`` read the rail's width from
+    :data:`RAIL_RESERVED` -- a labelled rail must narrow the centre, not
+    overflow it."""
+    monkeypatch.setattr(layout_mod, "RAIL_RESERVED", 188.0)
+    rail, *_ = layout_mod.proportions(1920.0, 0.0, 8.0, scale=1.0)
+    assert rail == pytest.approx(188.0)
+    monkeypatch.setattr(layout_mod, "RAIL_RESERVED", 0.0)
+    rail, *_ = layout_mod.proportions(1920.0, 0.0, 8.0, scale=1.0)
+    assert rail == pytest.approx(44.0)
+
+
+def test_the_dock_floor_pulls_from_the_sidebars_then_the_canvas():
+    """At a 1100 px window, scale 1, fully open, the dock's raw 15% share is
+    well under its 260 dp floor. The floor is met in full: the sidebars give
+    what they can above :data:`SIDEBAR_MIN`, and the centre -- the remainder
+    -- carries the rest."""
+    spacing = 8.0
+    room = 1100.0
+    rail, left, centre, right, dock = layout_mod.proportions(
+        room, 1.0, spacing, rail=44.0, scale=1.0
+    )
+    assert dock == pytest.approx(260.0)
+    assert left == pytest.approx(layout_mod.SIDEBAR_MIN)
+    assert right == pytest.approx(layout_mod.SIDEBAR_MIN)
+    assert rail == pytest.approx(44.0), "the rail is an icon strip; it never gives"
+    assert centre > 0.0
+    assert rail + left + centre + right + dock + 4.0 * spacing == pytest.approx(room)
+
+
+def test_a_closed_dock_never_borrows_the_open_floor():
+    """The failure mode a naive "floor at 260 whenever the share is under
+    260" rule would have: at t=0 the dock is a slim strip the width of the
+    collapsed rail, however narrow the window."""
+    spacing = 8.0
+    room = 1100.0
+    rail, _left, _centre, _right, dock = layout_mod.proportions(
+        room, 0.0, spacing, rail=44.0, scale=1.0
+    )
+    assert dock == pytest.approx(rail)
+
+
+def test_a_degenerate_room_still_sums_exactly():
+    """A room narrower than every floor combined takes the overdraw back off
+    the dock, the sidebars and the rail -- never a negative centre and never
+    a sum past the room."""
+    spacing = 8.0
+    for room in (200.0, 400.0, 600.0):
+        for t in (0.0, 1.0):
+            parts = layout_mod.proportions(room, t, spacing, rail=44.0, scale=2.0)
+            assert min(parts) >= 0.0, (room, t, parts)
+            assert sum(parts) + 4.0 * spacing == pytest.approx(room), (room, t)

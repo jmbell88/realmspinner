@@ -108,7 +108,7 @@ async def server(tmp_path_factory):
 
     Skips, rather than fails, when a row is not downloaded -- the same
     ``fetch.present(config, "familiar", spec)`` idiom
-    ``doctor._familiar_checks``/``bottom_pane.familiar_state`` already use,
+    ``doctor._familiar_checks``/``familiar_dock.familiar_state`` already use,
     so this file behaves like every other gpu module when the machine simply
     has not fetched Familiar yet.
     """

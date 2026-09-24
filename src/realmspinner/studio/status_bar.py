@@ -2,11 +2,13 @@
 
 Pure data only (:func:`items`, :func:`resource_item`) -- T0 of the Familiar
 programme moved the imgui drawing itself into ``menus.draw`` (the per-item
-row) and ``panes/bottom_pane.py`` (the one collapsed row at the foot of the
-window). This module's own ``draw`` and ``STATUS_H`` stopped being called
-the same day and sat here unreferenced until shell-04 (the 2026-09-14 audit)
-found them still claiming to be live -- with INVARIANTS, ``bottom_pane.py``'s
-docstring and ``test_editor_shell.py`` all already saying otherwise.
+row) and what was then ``panes/bottom_pane.py`` (the one collapsed row at the
+foot of the window; the 2026-09-23 dock move replaced it with
+``panes/familiar_dock.py``, a full-height strip on the right edge instead).
+This module's own ``draw`` and ``STATUS_H`` stopped being called the same day
+and sat here unreferenced until shell-04 (the 2026-09-14 audit) found them
+still claiming to be live -- with INVARIANTS, the bottom pane's own docstring
+and ``test_editor_shell.py`` all already saying otherwise.
 """
 
 from __future__ import annotations

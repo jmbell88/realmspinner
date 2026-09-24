@@ -181,6 +181,28 @@ def push(imgui: Any, font: Any, size: float) -> Iterator[None]:
         imgui.pop_font()
 
 
+def centred_glyph_pos(imgui: Any, glyph: str, cx: float, cy: float) -> tuple[float, float]:
+    """Where to ``add_text`` one glyph so its *ink* is centred on ``(cx, cy)``.
+
+    Centring on ``calc_text_size`` centres the glyph's advance and line box,
+    and a Lucide icon's ink is neither: ``ICON_OFFSET`` is one average nudge
+    for the whole face, so an individual glyph still sat about 3 px left of
+    its rail button on a 44 dp column (screenshot, 2026-09-24), and the ✦
+    sigil comes from a different face again. The baked glyph's own ``x0..x1``
+    and ``y0..y1`` are the ink box relative to the draw position, so this
+    centres what the eye actually sees. Falls back to the advance box when the
+    glyph is not in the atlas (a headless test's default font).
+    """
+    size = imgui.calc_text_size(glyph)
+    try:
+        found = imgui.get_font_baked().find_glyph_no_fallback(ord(glyph[0]))
+    except Exception:
+        found = None
+    if found is None or found.x1 <= found.x0 or found.y1 <= found.y0:
+        return cx - size.x * 0.5, cy - size.y * 0.5
+    return cx - (found.x0 + found.x1) * 0.5, cy - (found.y0 + found.y1) * 0.5
+
+
 # There is deliberately no ``body()`` helper. Regular is loaded first, so it
 # *is* imgui's default font, and it is loaded at ``tokens.TEXT_BODY`` -- a
 # ``push(REGULAR, TEXT_BODY)`` therefore pushes what is already in force. The

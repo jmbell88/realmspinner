@@ -3345,8 +3345,13 @@ def test_the_expanded_rail_gives_way_before_the_columns_do(app_ctx, imgui_ctx):
     the collapsed rail and dragging it back restores the labels, because what
     the user chose and what fits are two different facts.
 
-    Without the rule the inspector is the column that falls off the edge --
-    UX-01's whole story, one column further left.
+    The rail's own *width* is a flat 5% share of the room now
+    (``layout.proportions``, 2026-09-23) whether or not the labels are shown
+    -- what gives way is only whether that 5% is wide enough to hold
+    "Packwright" beside its glyph (``rail.expanded_fits``), which is what this
+    now asserts in place of the old two-width toggle. Without the rule the
+    inspector is the column that falls off the edge -- UX-01's whole story,
+    one column further left.
     """
     imgui, _renderer = imgui_ctx
     from realmspinner.studio import main as main_mod
@@ -3358,9 +3363,13 @@ def test_the_expanded_rail_gives_way_before_the_columns_do(app_ctx, imgui_ctx):
     io = imgui.get_io()
     old_display = (io.display_size.x, io.display_size.y)
     seen: dict[str, float] = {}
+    fits: dict[str, bool] = {}
     try:
         for name, size, scale in (
-            ("wide", (2400.0, 1200.0), 1.0),
+            # Wide enough that the rail's flat 5% share clears
+            # ``RAIL_EXPANDED_W`` at scale 1 (see ``expanded_fits``'s own
+            # docstring: around 3800 physical px).
+            ("wide", (4200.0, 1200.0), 1.0),
             ("floor", (float(main_mod.MIN_SIZE[0]), float(main_mod.MIN_SIZE[1])), 1.5),
         ):
             tokens.set_scale(scale)
@@ -3374,6 +3383,7 @@ def test_the_expanded_rail_gives_way_before_the_columns_do(app_ctx, imgui_ctx):
             # asserted is the target it is heading for.
             motion.forget(rail_mod._WIDTH_KEY)
             seen[name] = rail_mod.tick(layout)
+            fits[name] = rail_mod.expanded_fits()
             imgui.end()
             imgui.render()
     finally:
@@ -3381,8 +3391,9 @@ def test_the_expanded_rail_gives_way_before_the_columns_do(app_ctx, imgui_ctx):
         tokens.set_scale(old_scale)
         motion.forget(rail_mod._WIDTH_KEY)
 
-    assert seen["wide"] == rail_mod.RAIL_EXPANDED_W
-    assert seen["floor"] == rail_mod.RAIL_W
+    assert fits["wide"] is True
+    assert fits["floor"] is False
+    assert seen["wide"] > seen["floor"]
     assert layout.rail == "labels", "the preference is not what gave way"
 
 
@@ -5755,21 +5766,22 @@ def test_the_wand_row_renders_and_no_dead_generator_route_remains(app_ctx, imgui
     assert found.stdout.strip() == "", found.stdout
 
 
-def test_the_menu_bar_and_bottom_pane_actually_render(app_ctx, imgui_ctx):
+def test_the_menu_bar_and_familiar_dock_actually_render(app_ctx, imgui_ctx):
     """The half of the editor shell that ``test_editor_shell`` cannot reach.
 
     ``test_editor_shell`` and ``test_menus`` test ``menus.specs`` and
     ``status_bar.items`` -- the pure data behind the shell -- and nothing
     anywhere tested the imgui half: ``begin_menu_bar``/``end_menu_bar``
-    pairing, the style vars pushed around it, and the bottom pane's
+    pairing, the style vars pushed around it, and the Familiar dock's
     ``begin_child``. Every other pane in this app is smoke-rendered; these two
     were the exception, which is a poor thing for the two newest modules in
     the shell to be.
 
     T0 of the Familiar programme replaced the old flat status bar
     (``status_bar.draw``, now deleted) with a right-aligned group inside
-    ``menus.draw`` itself and a one-row ``panes.bottom_pane.draw`` at the
-    foot -- so this renders those two instead of the two originals.
+    ``menus.draw`` itself and a one-row bottom pane at the foot; the
+    2026-09-23 dock move replaced that pane with ``panes.familiar_dock.draw``,
+    a full-height strip on the right edge -- so this renders those two.
 
     The assertion is the frame completing. An unbalanced style stack or a
     missing ``end_menu_bar`` does not raise where it happens -- it corrupts the
@@ -5778,7 +5790,7 @@ def test_the_menu_bar_and_bottom_pane_actually_render(app_ctx, imgui_ctx):
     window stack were wrong.
     """
     from realmspinner.studio import menus
-    from realmspinner.studio.panes import bottom_pane
+    from realmspinner.studio.panes import familiar_dock
 
     imgui, renderer = imgui_ctx
     imgui.new_frame()
@@ -5788,7 +5800,7 @@ def test_the_menu_bar_and_bottom_pane_actually_render(app_ctx, imgui_ctx):
     # only ever exercised the early return would be the same gap again.
     imgui.begin("##shell-host", None, imgui.WindowFlags_.menu_bar.value)
     menus.draw(app_ctx)
-    bottom_pane.draw(app_ctx)
+    familiar_dock.draw(app_ctx)
     imgui.end()
     imgui.render()
     renderer.render(imgui.get_draw_data())

@@ -258,26 +258,6 @@ def test_v1_uses_legacy_seeds_without_writing_until_an_edit():
     assert settings.writes == 1
 
 
-def test_independent_width_fit_compresses_without_losing_the_centre_floor():
-    from realmspinner.studio import layout
-
-    left, right, centre = layout.fit_widths(1100.0, 300.0, 420.0, 8.0, scale=1.5)
-    assert left < right
-    assert left + right + centre + 16.0 == pytest.approx(1100.0)
-    assert centre == pytest.approx(220.0 * 1.5)
-
-
-def test_right_boundary_drag_has_the_opposite_sign_to_the_left():
-    settings = _Settings()
-    library = layouts.Library(settings)
-    from realmspinner.studio import layout
-
-    assert layout.resize_side(library, "clay", "left", 20.0)
-    assert layout.resize_side(library, "clay", "right", -20.0)
-    assert library.width("clay", "left") == 320.0
-    assert library.width("clay", "right") == 320.0
-
-
 def test_a_newer_blob_is_kept_verbatim_and_not_applied():
     settings = _Settings(
         {

@@ -254,7 +254,7 @@ def clay_build(svc: Any, prompt: str, scene: dict[str, Any]) -> list[dict]:
     ``calls`` list a preview run then executes one at a time.
 
     *scene* is expected already compacted (``contract.compact_scene``) --
-    the caller (the bottom pane, on the frame thread) reads ``clay_scene``'s
+    the caller (the Familiar dock, on the frame thread) reads ``clay_scene``'s
     full structured content and compacts it *before* handing the request to
     this door, because that read has to happen against the live document on
     the frame thread anyway (the same GL-adjacent reason ``clay_scene``

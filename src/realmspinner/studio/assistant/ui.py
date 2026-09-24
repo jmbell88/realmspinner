@@ -1,5 +1,5 @@
-"""Familiar's in-session conversation: state, submission and the bottom
-pane's expanded body. T5 of the Familiar programme.
+"""Familiar's in-session conversation: state, submission and the Familiar
+dock's expanded body. T5 of the Familiar programme.
 
 **Why this lives at studio level, not inside ``studio/familiar/``.** Exactly
 ``studio/assistant/preview.py``'s own reason (see that module's docstring):
@@ -65,48 +65,11 @@ MISSING_FAMILIAR_ROWS = ("familiar_runtime", "familiar_runtime_cudart", "familia
 #: exists to carry.
 LAND_KEY = "familiar/land"
 
-#: The bottom pane's expanded height, in design pixels, before
-#: ``bottom_pane.max_height``'s own window-relative clamp -- room for a short
-#: scrollable transcript plus one input row. Not derived from content height:
-#: a pane that resizes itself every frame to fit a variable-length transcript
-#: would fight the layout it sits in rather than the user's own toggle. This
-#: is only the *starting* height now (2026-09-16) -- see :func:`pane_height`,
-#: which is what every caller actually reads.
-EXPANDED_H = 160.0
-
-#: Where a user-dragged pane height is persisted (``ctx.settings``), a plain
-#: top-level key the same way ``main.AGENT_SERVER_SETTING`` is -- one number,
-#: not worth a dict entry of its own.
-HEIGHT_SETTING = "familiar_pane_height"
-
-#: The narrowest a user may drag the pane to before expanded stops being
-#: worth the screen it costs -- room for roughly two transcript lines and the
-#: input row.
-MIN_EXPANDED_H = 100.0
-
-#: The widest a user may drag the pane to, before ``bottom_pane.max_height``'s
-#: own window-relative clamp gets a say. Generous -- a long back-and-forth is
-#: exactly when someone wants the transcript tall -- but still bounded, so a
-#: stray dependency on a settings file cannot hand this a value that eats the
-#: whole window.
-MAX_EXPANDED_H = 480.0
-
-
-def pane_height(ctx: Any) -> float:
-    """The expanded pane's height before :func:`bottom_pane.max_height`'s own
-    clamp -- the user's last drag if there was one, else :data:`EXPANDED_H`."""
-    stored = ctx.settings.get(HEIGHT_SETTING, EXPANDED_H)
-    try:
-        value = float(stored)
-    except (TypeError, ValueError):
-        return EXPANDED_H
-    return min(max(value, MIN_EXPANDED_H), MAX_EXPANDED_H)
-
-
-def set_pane_height(ctx: Any, value: float) -> None:
-    """Persist a drag of the handle above the pane, clamped the same way
-    :func:`pane_height` reads it back."""
-    ctx.settings.set(HEIGHT_SETTING, min(max(value, MIN_EXPANDED_H), MAX_EXPANDED_H))
+#: The Familiar dock no longer has a width preference of its own (2026-09-23's
+#: proportional shell): its width is a fixed share of the room
+#: (``layout.proportions``), the same for every profile, so there is nothing
+#: left to persist here -- the old ``dock_width``/``set_dock_width`` pair and
+#: the settings key they read/wrote are simply gone.
 
 
 @dataclass
@@ -116,10 +79,11 @@ class FamiliarUIState:
     a pending preview describes this run, not something worth restoring
     across a restart."""
 
-    #: Whether the pane is drawn at :data:`EXPANDED_H` (clamped) rather than
-    #: ``bottom_pane.COLLAPSED_H``. Toggled by the user, never by a message
-    #: arriving -- an answer landing while the pane is collapsed should not
-    #: itself pop the layout open under whatever the user is doing.
+    #: Whether the Familiar dock is open (its proportional share of the room,
+    #: up to 15%) rather than collapsed to its 5%-share strip.
+    #: Toggled by the user, never by a message arriving -- an answer landing
+    #: while the dock is closed should not itself pop it open under whatever
+    #: the user is doing.
     expanded: bool = False
     #: The input line's live text, kept here (not a local in ``draw``) so a
     #: reply landing mid-type does not require choosing what happens to
@@ -1248,9 +1212,9 @@ def _draw_plan_card(ctx: Any, ui: FamiliarUIState) -> None:
 
 
 def draw_expanded(ctx: Any) -> None:
-    """The pane's body once expanded: the thread transcript, the input line,
+    """The dock's body once expanded: the thread transcript, the input line,
     Send, and -- in Clay, with a tab open -- Build, plus Apply/Discard once a
-    preview is ready. Drawn by ``bottom_pane.draw`` inside its own child
+    preview is ready. Drawn by ``familiar_dock.draw`` inside its own child
     region; this function assumes it is already inside one.
     """
     from imgui_bundle import imgui
@@ -1261,21 +1225,24 @@ def draw_expanded(ctx: Any) -> None:
     key = thread_key(ctx)
     turns = ctx.familiar_threads.get(key) if getattr(ctx, "familiar_threads", None) else ()
 
-    # The transcript takes whatever the pane's own drag (bottom_pane.draw)
-    # leaves after a rough estimate of what still has to draw below it --
-    # the message line, and either the input row, the preview buttons or the
-    # taller plan card. Not exact (the plan card's real height depends on how
-    # much of its summary is present), but the alternative -- a hardcoded
-    # transcript height -- is the defect this pane shipped with: dragging the
-    # handle above it would grow the pane while the transcript itself stayed
-    # a fixed 60px, all of the new room going to blank space beneath it.
-    footer = imgui.get_frame_height_with_spacing()
-    if ui.message:
-        footer += imgui.get_text_line_height_with_spacing()
-    if ui.plan is not None:
-        footer += imgui.get_frame_height_with_spacing() * 4.0
-    if ui.preview_calls is not None:
-        footer += imgui.get_frame_height_with_spacing()
+    # The transcript takes exactly what the dock's height leaves after the
+    # footer below it -- the message line, the preview buttons or plan card,
+    # and the input with its Send row -- so the input stays pinned to the
+    # dock's bottom edge and the transcript is the only thing that scrolls.
+    # The footer's height is *measured* (last frame's, in ``_FOOTER_H``)
+    # rather than estimated: the estimate this replaced counted the input and
+    # Send as one row when they are two, so the footer overflowed the dock and
+    # the whole dock scrolled, input and all (2026-09-24). A first frame with
+    # nothing measured falls back to that estimate, corrected.
+    footer = _FOOTER_H[0]
+    if footer <= 0.0:
+        footer = imgui.get_frame_height_with_spacing() * 2.0
+        if ui.message:
+            footer += imgui.get_text_line_height_with_spacing()
+        if ui.plan is not None:
+            footer += imgui.get_frame_height_with_spacing() * 4.0
+        if ui.preview_calls is not None:
+            footer += imgui.get_frame_height_with_spacing()
     transcript_h = max(tokens.sp(40.0), imgui.get_content_region_avail().y - footer)
 
     # A turn already at the bottom stays pinned to it as new ones arrive; one
@@ -1320,6 +1287,29 @@ def draw_expanded(ctx: Any) -> None:
     imgui.end_child()
     imgui.pop_style_var(2)
 
+    footer_top = imgui.get_cursor_pos_y()
+    try:
+        _draw_footer(ctx, ui)
+    finally:
+        # The cursor sits one item spacing below the last footer item, which
+        # is exactly the spacing the transcript's own end left above it.
+        _FOOTER_H[0] = imgui.get_cursor_pos_y() - footer_top
+
+
+#: The footer's measured height last frame, physical px -- see
+#: :func:`draw_expanded`. Module state, not ``FamiliarUIState``: it is a fact
+#: about the last frame's layout, not about the conversation.
+_FOOTER_H = [0.0]
+
+
+def _draw_footer(ctx: Any, ui: FamiliarUIState) -> None:
+    """Everything under the transcript: the message line, Apply/Discard or
+    the plan card, and the input with Send. Split out of
+    :func:`draw_expanded` so its drawn height can be measured."""
+    from imgui_bundle import imgui
+
+    from .. import controls, theme, widgets
+
     if ui.message:
         imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.WARN)), ui.message)
         # familiar-05 (2026-09-23 audit): the one reason an Install door
@@ -1342,10 +1332,18 @@ def draw_expanded(ctx: Any) -> None:
             discard_preview(ctx)
 
     if ui.plan is not None:
-        # T7: a Clay preview (checked above) always wins the pane's one row
-        # of action buttons -- a build and a character plan cannot land in
-        # the same turn today, but if one ever did, the ghost already sitting
-        # in the viewport is the more urgent thing to resolve.
+        if pending:
+            # familiar-01 (2026-09-24 audit): a Clay preview and a landed
+            # character plan used to both draw a Discard button in this same
+            # row -- two identically labelled controls with different
+            # effects. The preview (drawn above) keeps the pane's one row of
+            # action buttons; the plan is kept, not dropped, and its card
+            # draws on its own turn once the preview is applied or discarded.
+            widgets.secondary(
+                "A character plan is waiting -- it will show once this preview "
+                "is applied or discarded."
+            )
+            return
         _draw_plan_card(ctx, ui)
         return
 

@@ -145,14 +145,15 @@ def test_browse_never_shows_a_destination_paired_with_the_previous_plan(monkeypa
 
 def test_status_bar_module_has_no_draw_function_once_the_menu_bar_owns_status():
     """T0 of the Familiar programme moved the per-item row into ``menus.draw``
-    and the one collapsed row into ``panes/bottom_pane.py`` -- INVARIANTS,
-    ``bottom_pane.py``'s own docstring and ``test_editor_shell.py`` have all
-    said ``status_bar.draw`` was deleted since that day, but the function (and
+    and the one collapsed row into what was then ``panes/bottom_pane.py``
+    (replaced 2026-09-23 by ``panes/familiar_dock.py``) -- INVARIANTS, that
+    module's own docstring and ``test_editor_shell.py`` have all said
+    ``status_bar.draw`` was deleted since that day, but the function (and
     the ``STATUS_H`` constant only it used) was still sitting in the module,
     unreferenced.
     """
     assert not hasattr(status_bar, "draw"), (
-        "status_bar.draw still exists though INVARIANTS, bottom_pane.py's "
+        "status_bar.draw still exists though INVARIANTS, the Familiar dock's "
         "docstring and test_editor_shell.py all say it was deleted"
     )
     assert not hasattr(status_bar, "STATUS_H"), (

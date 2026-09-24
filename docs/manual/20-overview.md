@@ -47,13 +47,13 @@ thing that decides what the panes show. It is drawn in every mode, so there is n
 leave. There is no per-mode keyboard shortcut — the command palette (`Ctrl+K`) is the keyboard
 route, see [Keyboard shortcuts](38-shortcuts.md).
 
-The rail shows glyphs by default and expands to show the labels beside them; **Window → Navigation
-labels** toggles that, and the choice is remembered. Every mode carries a short purpose sentence
-saying what it is for; in icon-only form it names itself and that sentence in a tooltip, and in
-the labelled form the sentence is a second, muted line under the label when the row has room for
-it. A window too narrow to hold the labelled rail *and* three usable columns draws the collapsed one
-until there is room again — what you chose and what fits are two different facts, so dragging the
-window wider brings the labels back.
+The rail shows glyphs by default, in a column just wide enough for them, and expands to show the
+labels beside them; **Window → Navigation labels** toggles that, and the choice is remembered.
+Every mode carries a short purpose sentence saying what it is for; in icon-only form it names
+itself and that sentence in a tooltip, and in the labelled form the sentence is a second, muted
+line under the label when the row has room for it. A window too narrow to hold the labelled rail
+*and* three usable columns draws the collapsed one until there is room again — what you chose and
+what fits are two different facts, so dragging the window wider brings the labels back.
 
 It is drawn in three sections, and the list below is in that order. The first is where an asset
 **begins** — what you have, and making another one. The second is the **creative workspaces**. The
@@ -138,12 +138,20 @@ The app opens on Home, every launch: no mode is remembered between runs, because
 what you want to be dropped into before you have said what you are doing. **Home**
 is the first entry in the rail described above, and returns there at any time.
 
-Once you are in the workspace, the window is three columns:
+Once you are in the workspace, the window is five columns, left to right: the rail, the left
+sidebar, the canvas, the right sidebar, and the Familiar dock — and none of them is a size you
+drag. The rail and the closed dock are icon strips, each just wide enough for its icons; the two
+sidebars are a quarter of the window each; the canvas takes everything left over. Opening the dock
+grows it to 15% of the window, five points taken from each sidebar (so they become 20% each) and
+the rest from the canvas. Neither sidebar has a drag handle of its own any more; a window too
+narrow for a column's comfortable width compresses it instead, following a stated order (the
+sidebars give way to the open dock first, then the canvas), so there is one width per mode rather
+than a per-workspace preference to lose track of.
 
 - **The left sidebar** is the settings form for the current mode, and nothing else — there is
   nothing left to split against, so it is one scrolling column with no divider. In Create a **stage
   rail** sits above it, naming the five steps an asset goes through and switching the column
-  between them. Its width is not draggable; it is one of three named sizes chosen in Settings.
+  between them.
 - **The middle column** is the viewport: the interactive 3D preview, or the reference image at the
   Reference stage, or the canvas in Inker mode. A small toolbar sits over it with the framing,
   wireframe and turntable toggles, and — on a finished reference at the Reference stage — the
@@ -152,10 +160,10 @@ Once you are in the workspace, the window is three columns:
   inspector: everything about the selected asset. In Create it carries no tabs — the stage rail is
   what switches it, so it shows the evidence for the stage you are on. Everywhere else it is three
   tabs, **Details**, **Rig & Pose** and **Export**. The lower panel is the asset library — every
-  job you have ever run, with its filters. The divider between them can be dragged; the sidebar's
-  own width is not draggable, only chosen from the three named sizes in Settings.
+  job you have ever run, with its filters. The divider between the two can still be dragged; that
+  is a vertical split of the one column's own height, unrelated to the column's width.
 
-Above the columns is the menu bar and below them is the bottom pane, and both are described next.
+Above the columns is the menu bar and to their right is the Familiar dock, and both are described next.
 
 ## What is the same in every workspace
 
@@ -223,19 +231,26 @@ never drops, whatever the window's width. Every item in the group is a readout, 
 of it is clickable.
 
 Beside the status group, and likewise never dropped, sits **✦ Familiar**. Once Familiar's weights are
-installed its menu holds one row, **Open Familiar**, which expands the bottom pane below; until then
-it stays a disabled **Not installed**.
+installed its menu holds one row, a checked **Show Familiar** toggle, which opens and closes the
+Familiar dock on the window's right edge; until then it stays a disabled **Not installed**.
 
-## The bottom pane
+## The Familiar dock
 
-One row along the foot of the window, in every mode, where the per-item status line used to live. Its
-text depends on whether Familiar's weights are downloaded: **✦ Familiar isn't installed —** beside an
-**Install…** button that opens Settings → Models, or once every row is present, a clickable **▸ ✦
-Familiar** row that expands into a short conversation: a scrollback of what you and Familiar have
-said, an input line, and **Send**. Drag the thin handle along the top edge of the expanded pane to make
-it taller or shorter; Realmspinner remembers the height you leave it at. The per-item readouts that used to sit
-here (workspace, document, tool, zoom, queue, health) moved to the menu bar's own right-aligned group,
-described above.
+A full-height dock on the window's right edge, from the menu bar to the bottom of the window, outside
+every workspace's own columns — the rail's mirror image on the opposite side. Closed, it is a slim strip
+the same width as the collapsed rail, with one **✦** button; muted when Familiar's weights are
+not yet downloaded, with a tooltip pointing at Settings → Models, or a toggle once they are present:
+press **✦** to open the dock and press it again to close it. Open, a centred header reads **✦ Familiar**
+beside a **✕** that also collapses it, above
+a short conversation: a scrollback of what you and Familiar have said, an input line, and **Send**.
+The input line and **Send** stay pinned to the bottom of the dock; only the conversation above them
+scrolls.
+Opening it grows the dock to 15% of the window's width, five points taken from each of the two
+sidebars and the rest from the canvas — there is no grip to drag any more, and nothing to remember:
+the width is always that same share. On a narrow window the dock's own floor (260 px) is met by the
+two sidebars giving up width first, then the canvas. The per-item readouts that used to sit
+in a pane at the foot of the window (workspace, document, tool, zoom, queue, health) live in the menu
+bar's own right-aligned group, described above.
 
 Familiar reads a sent message before answering it: a short router decision picks what the message is actually asking
 for — build something in Clay, edit what's already there, a question about Realmspinner itself, or just
@@ -259,7 +274,9 @@ button would; **Open in Create** drops the same plan into Create's form instead,
 adjust and generate yourself; **Discard** drops it. Nothing is queued until you press Create — proposing a plan never
 mints anything by itself, the same "look before you build" contract a Clay ghost keeps. A word the prompt used that
 the plan could not act on (a look the species does not offer, say) is named under the plan rather than silently
-dropped. In **Clay**, with a document open, the expanded pane also offers **Build**:
+dropped. A plan that arrives while a Clay ghost is still waiting is kept, not shown: the ghost's **Apply** and
+**Discard** stay the only buttons, and the plan's card appears once you have pressed one of them.
+In **Clay**, with a document open, the expanded pane also offers **Build**:
 describe what to add and Familiar proposes it as a translucent ghost over your document, with **Apply** and
 **Discard** beside it once it lands — the same ghost a Send message routed to a Clay build lands as, if the router
 decides that is what you meant. The input stays open while a ghost is showing: a follow-up ("make it taller") refines

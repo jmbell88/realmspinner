@@ -128,8 +128,8 @@ def test_every_vendored_face_is_present():
 
 
 def test_familiar_sigil_is_covered_by_the_vendored_faces():
-    """Familiar T0 (ef853790): ``menus.FAMILIAR_LABEL`` and the bottom pane's
-    row are built with the literal ✦ (U+2726 BLACK FOUR POINTED STAR). Inter
+    """Familiar T0 (ef853790): ``menus.FAMILIAR_LABEL`` and the Familiar dock's
+    strip button are built with the literal ✦ (U+2726 BLACK FOUR POINTED STAR). Inter
     and Lucide don't carry that codepoint -- it fell through to the atlas's
     missing-glyph box, which at menu-bar size reads as "?" -- so a one-glyph
     subset of Noto Sans Symbols 2 (``fonts.SIGIL_FACE``) is merged in
@@ -172,3 +172,22 @@ def test_no_icon_constant_is_an_empty_placeholder():
         and getattr(icons, attr) == ""
     ]
     assert not empty, f"empty icon codepoint constant(s): {empty}"
+
+
+def test_a_glyph_is_centred_on_its_ink_not_its_advance():
+    """The rail's icons and the dock's ✦ sat ~3 px left of their buttons'
+    centre (screenshot, 2026-09-24) because they were centred on
+    ``calc_text_size`` -- the advance box -- while the ink lies elsewhere in
+    it. ``centred_glyph_pos`` must centre the baked glyph's ink box, and fall
+    back to the advance box only when the atlas has no such glyph."""
+    from types import SimpleNamespace
+
+    ink = SimpleNamespace(x0=2.0, x1=10.0, y0=4.0, y1=12.0)
+    fake = SimpleNamespace(
+        calc_text_size=lambda s: SimpleNamespace(x=16.0, y=20.0),
+        get_font_baked=lambda: SimpleNamespace(find_glyph_no_fallback=lambda cp: ink),
+    )
+    assert fonts.centred_glyph_pos(fake, "✦", 100.0, 50.0) == (94.0, 42.0)
+
+    fake.get_font_baked = lambda: SimpleNamespace(find_glyph_no_fallback=lambda cp: None)
+    assert fonts.centred_glyph_pos(fake, "✦", 100.0, 50.0) == (92.0, 40.0)

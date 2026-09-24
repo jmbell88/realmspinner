@@ -1343,7 +1343,7 @@ class AppState:
     # first stage's workspace has no document, no engine and no selection, so
     # there is nothing yet for a mode-level ``ensure`` to build.
     mason: Any = None
-    # The bottom pane's in-session Familiar state (T5) -- whether it is
+    # The Familiar dock's in-session state (T5) -- whether it is
     # expanded, the input line, and the last chat/build outcome (thinking,
     # refused, or a Clay preview ready to Apply/Discard). Untyped and None
     # for the reason the mode states above are, and session-only for the

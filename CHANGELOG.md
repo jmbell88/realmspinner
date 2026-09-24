@@ -18,6 +18,30 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## Unreleased
+
+- **Familiar no longer shows two Discard buttons at once.** A character plan that
+  landed while a Clay ghost was still waiting drew its Create/Discard row beside
+  the ghost's Apply/Discard, and the input line vanished; the ghost's buttons now
+  stay the only ones and the plan's card waits its turn. A character plan also
+  names a malformed movement entry under the plan instead of dropping it silently.
+- **Familiar moved from a bottom pane to a full-height dock on the window's right
+  edge**, mirroring the navigation rail on the opposite side. Closed, it is a slim
+  strip with one ✦ button that toggles it open and closed; open, it holds the
+  same conversation it always did.
+- **The shell's five columns — the rail, the two sidebars, the canvas and the
+  Familiar dock — are now divided by one function rather than five
+  independently-fitted widths.** The old arrangement could overflow: the rail, the
+  sidebars and the dock were each sized by their own function against the same
+  window width, with nothing keeping their combined claim under it, and a narrow,
+  high-scale window could compress a sidebar to less than half its documented
+  floor once the dock was open. Now the rail and the closed dock are icon strips
+  just wide enough for their icons, each sidebar is 25% of the window, and the
+  canvas takes the rest; opening Familiar grows the dock to 15%, five points from
+  each sidebar and the remainder from the canvas — so the five widths and the gaps
+  between them always sum to exactly the window's width. Neither sidebar drags
+  any more.
+
 ## 0.0.53 — 2026-09-23
 
 - **Join and Separate no longer make a Clay document impossible to open.** Joining

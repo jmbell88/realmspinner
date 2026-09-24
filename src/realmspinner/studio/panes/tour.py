@@ -457,7 +457,7 @@ def _ring(hole: tuple[float, float, float, float]) -> None:
 def _card_pos(
     viewport: Any,
     hole: tuple[float, float, float, float] | None,
-    bottom_offset: float = 0.0,
+    right_offset: float = 0.0,
 ) -> tuple[float, float]:
     """Bottom-right by default, and out of the hole's way when there is one.
 
@@ -466,20 +466,25 @@ def _card_pos(
     at the top and bottom of the same pane, and a reader tracking a moving card
     is not reading it.
 
-    ``bottom_offset`` -- already-scaled design pixels -- lifts the card clear
-    of ``panes.bottom_pane``, which anchors to the same edge.
+    ``right_offset`` -- already-scaled design pixels -- pulls the card clear
+    of the Familiar dock (2026-09-23), which anchors to the window's right
+    edge; before the dock move this was ``bottom_offset``, lifting the card
+    clear of ``panes.bottom_pane`` on the bottom edge instead.
 
-    **``bottom_offset`` only ever touches ``y``.** It used to be folded into
-    one ``margin`` shared with the horizontal inset, so opening the Familiar
-    dock -- a nonzero ``bottom_offset`` -- shifted every card sideways too, by
-    the pane's own height (the 2026-09-20 audit, finding tour-01, reproduced
-    at a 200 px offset moving ``x`` by exactly 200). ``inset`` below is the
-    edge margin alone, read by both ``x`` branches; the lift is added only
-    into ``y``.
+    **``right_offset`` only ever touches ``x``, and only the two right-hand
+    placements.** It used to be folded into one ``margin`` shared with the
+    vertical inset, so opening the Familiar dock -- a nonzero offset -- shifted
+    every card vertically too (the 2026-09-20 audit, finding tour-01,
+    reproduced at a 200 px offset moving ``y`` by exactly 200 when the offset
+    was still a bottom one). The dock now sits on the right, so the offset
+    moved from ``y`` to ``x`` -- but the rule survives unchanged: it must
+    still touch one axis only. The left-hand placement (the card ducking a
+    hole on the right half of the screen) is nowhere near the dock, so it is
+    untouched by either offset.
     """
     inset = sp(tokens.SP_4)
-    y = viewport.work_pos.y + viewport.work_size.y - inset - bottom_offset
-    right = viewport.work_pos.x + viewport.work_size.x - inset
+    y = viewport.work_pos.y + viewport.work_size.y - inset
+    right = viewport.work_pos.x + viewport.work_size.x - inset - right_offset
     if hole is not None:
         hx, _hy, hw, _hh = hole
         centre = viewport.work_pos.x + viewport.work_size.x * 0.5
@@ -544,11 +549,11 @@ def _card(
     hole: tuple[float, float, float, float] | None,
     appearing: bool,
 ) -> None:
-    from . import bottom_pane
+    from . import familiar_dock
 
     state = ctx.state.tour
     alpha, rise = widgets.popover_enter("tour", appearing)
-    x, y = _card_pos(viewport, hole, sp(bottom_pane.reserve(ctx)))
+    x, y = _card_pos(viewport, hole, familiar_dock.reserve())
     imgui.set_next_window_pos((x, y + rise), imgui.Cond_.always.value, (1.0, 1.0))
     imgui.set_next_window_size((sp(CARD_W), 0))
     frosted = widgets.frosted()

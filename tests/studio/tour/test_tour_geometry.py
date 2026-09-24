@@ -83,26 +83,28 @@ def test_card_pos_only_swaps_horizontally_never_vertically():
     assert no_hole_y == left_hole_y == right_hole_y
 
 
-def test_card_pos_bottom_offset_only_shifts_the_card_vertically():
+def test_card_pos_right_offset_only_shifts_the_card_horizontally():
     """tour-01 (the 2026-09-20 audit): ``_card_pos`` reused one ``margin`` for
-    both the vertical lift that clears ``panes.bottom_pane`` and the
-    horizontal inset from the viewport's edge, so opening the Familiar dock
-    (a nonzero ``bottom_offset``) shifted every card horizontally too, by the
-    pane's full height -- reproduced with a 200 px offset moving ``x`` by
-    exactly 200. The docstring says only the vertical position should move.
+    both the lift that cleared the old bottom pane and the inset from the
+    viewport's edge, so a nonzero offset shifted every card on the other axis
+    too. The 2026-09-23 dock move put the Familiar dock on the *right* edge
+    instead of the bottom, so the offset itself moved from ``y`` to ``x`` --
+    but the one-axis rule survives unchanged: a nonzero ``right_offset`` must
+    still touch exactly one axis, now ``x`` rather than ``y``.
     """
     viewport = _viewport()
     x0, y0 = tour_pane._card_pos(viewport, None, 0.0)
     x1, y1 = tour_pane._card_pos(viewport, None, 200.0)
-    assert x1 == x0
-    assert y1 == y0 - 200.0
+    assert y1 == y0
+    assert x1 == x0 - 200.0
 
-    # The swapped-side branch reads the same inset, and must not move either.
+    # The swapped-side (left-hand) branch is nowhere near the right edge the
+    # dock occupies, and must not move at all.
     hole = (800.0, 200.0, 100.0, 40.0)  # past centre, as above
     hx0, hy0 = tour_pane._card_pos(viewport, hole, 0.0)
     hx1, hy1 = tour_pane._card_pos(viewport, hole, 200.0)
     assert hx1 == hx0
-    assert hy1 == hy0 - 200.0
+    assert hy1 == hy0
 
 
 # --- _hole ------------------------------------------------------------------
