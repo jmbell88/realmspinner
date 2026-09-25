@@ -416,7 +416,9 @@ def test_a_follow_up_while_a_ghost_is_pending_is_sent_the_ghost_as_its_scene(mon
 
     seen = {}
     monkeypatch.setattr(
-        svc_familiar, "clay_build", lambda svc, prompt, scene: seen.setdefault("scene", scene)
+        svc_familiar,
+        "clay_build",
+        lambda svc, prompt, scene, image=None: seen.setdefault("scene", scene),
     )
     assert familiar_ui.submit_build(ctx, "make it taller")
     fn, args, kwargs, _tag = ctx._pending[familiar_ui.BUILD_KEY]
@@ -439,7 +441,7 @@ def test_a_follow_up_lands_on_top_of_the_ghost_and_apply_lands_both_as_one_step(
     _land_build(ctx, first)
     ghost = familiar_ui.ensure(ctx).preview_scratch
 
-    monkeypatch.setattr(svc_familiar, "clay_build", lambda svc, prompt, scene: [])
+    monkeypatch.setattr(svc_familiar, "clay_build", lambda svc, prompt, scene, image=None: [])
     assert familiar_ui.submit_build(ctx, "make it taller")
     _fn, _args, _kwargs, tag = ctx._pending.pop(familiar_ui.BUILD_KEY)
     second = [
@@ -1048,3 +1050,314 @@ def test_a_failed_character_creation_says_so_in_the_transcript_and_toasts():
     assert turns[-1].role == "familiar"
     assert turns[-1].text == "Blender is not installed."
     assert ctx.toasts, "a failed character creation must toast, like every other failure"
+
+
+# ---------------------------------------------------------------------------
+# Self-repair: a scratch-run refusal (a gate neither ``clay_build`` nor
+# ``ask`` can see -- it only runs once the calls are tried against a real
+# document clone) triggers one follow-up turn via ``service.familiar.
+# clay_repair``, entirely on the LAND_KEY worker, never the frame thread.
+# ---------------------------------------------------------------------------
+
+
+def test_a_scratch_run_refusal_triggers_one_self_repair_retry_and_lands_the_corrected_build(
+    monkeypatch,
+):
+    """The first (bad) calls refuse in the scratch run -- ``clay_delete``
+    naming an object nothing in the batch created. Self-repair must call
+    ``service.familiar.clay_repair`` with the failed reply and the scratch
+    run's own refusal sentence, then land the *corrected* calls it comes back
+    with as the ghost preview -- never the bad ones."""
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    bad_calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "base"}},
+        {"name": "clay_delete", "arguments": {"uids": [{"$ref": "nothing_called_this"}]}},
+    ]
+    good_calls = _canned_calls()
+
+    build_result = svc_familiar.ClayBuildResult(
+        calls=bad_calls, reply="the bad reply", repairs_used=0
+    )
+    monkeypatch.setattr(
+        svc_familiar, "clay_build", lambda svc, prompt, scene, image=None: build_result
+    )
+
+    repaired = svc_familiar.ClayBuildResult(
+        calls=good_calls, reply="the corrected reply", repairs_used=1
+    )
+    seen_repair_args: dict = {}
+
+    def fake_clay_repair(svc, prompt, scene, failed_reply, refusal, repairs_used, image=None):
+        seen_repair_args.update(
+            prompt=prompt,
+            failed_reply=failed_reply,
+            refusal=refusal,
+            repairs_used=repairs_used,
+        )
+        return repaired
+
+    monkeypatch.setattr(svc_familiar, "clay_repair", fake_clay_repair)
+
+    assert familiar_ui.submit_build(ctx, "build a box then delete something bogus")
+    fn, args, kwargs, tag = ctx._pending.pop(familiar_ui.BUILD_KEY)
+    result = fn(*args, **kwargs)
+    familiar_ui.on_task_done(ctx, Done(key=familiar_ui.BUILD_KEY, result=result, tag=tag))
+    assert familiar_ui.LAND_KEY in ctx._pending, "the repair must run off the frame thread too"
+    _run_land(ctx)
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.preview_calls == good_calls, "the corrected calls must land, never the bad ones"
+    assert ui.message is None
+
+    assert seen_repair_args["prompt"] == "build a box then delete something bogus"
+    assert seen_repair_args["failed_reply"] == "the bad reply"
+    assert seen_repair_args["repairs_used"] == 0
+    assert "nothing_called_this" in seen_repair_args["refusal"]
+
+    turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
+    retry_turns = [t for t in turns if t.text.startswith("Retrying after a refusal:")]
+    assert retry_turns, "the transcript must visibly mark the retry"
+    assert "nothing_called_this" in retry_turns[0].text
+
+
+def test_a_scratch_run_refusal_with_no_repair_budget_left_refuses_exactly_as_before(monkeypatch):
+    """``repairs_used`` already at ``MAX_REPAIRS`` (spent by the card/parse/
+    vocabulary gate) must mean no repair is attempted at all -- the scratch
+    run's own refusal is shown exactly the way it always was, with no
+    ``clay_repair`` call and no retry turn."""
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    bad_calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "base"}},
+        {"name": "clay_delete", "arguments": {"uids": [{"$ref": "nothing_called_this"}]}},
+    ]
+    build_result = svc_familiar.ClayBuildResult(
+        calls=bad_calls, reply="the bad reply", repairs_used=svc_familiar.MAX_REPAIRS
+    )
+    monkeypatch.setattr(
+        svc_familiar, "clay_build", lambda svc, prompt, scene, image=None: build_result
+    )
+
+    def exploding_clay_repair(*args, **kwargs):
+        raise AssertionError("clay_repair must not run with no budget left")
+
+    monkeypatch.setattr(svc_familiar, "clay_repair", exploding_clay_repair)
+
+    assert familiar_ui.submit_build(ctx, "build a box then delete something bogus")
+    fn, args, kwargs, tag = ctx._pending.pop(familiar_ui.BUILD_KEY)
+    result = fn(*args, **kwargs)
+    familiar_ui.on_task_done(ctx, Done(key=familiar_ui.BUILD_KEY, result=result, tag=tag))
+    _run_land(ctx)
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.preview_calls is None
+    assert ui.message is not None and "nothing_called_this" in ui.message
+
+    turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
+    assert not any(t.text.startswith("Retrying after a refusal:") for t in turns)
+
+
+# ---------------------------------------------------------------------------
+# Vision (2026-09-24): attaching a PNG by path, and Clay's own ghost render
+# auto-attached as a critique image on a revision. Every image in this
+# section goes through a real PIL round trip -- ``load_attachment``/
+# ``_ghost_critique_image`` now normalize through
+# ``normalize_attachment_image``, so a caller can no longer hand-write
+# arbitrary junk bytes and expect them to survive unchanged.
+# ---------------------------------------------------------------------------
+
+
+def _real_png(
+    size: tuple[int, int] = (64, 32), color: tuple[int, int, int] = (10, 20, 30)
+) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", size, color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _png_size(data: bytes) -> tuple[int, int]:
+    from io import BytesIO
+
+    from PIL import Image
+
+    with Image.open(BytesIO(data)) as img:
+        return img.size
+
+
+def test_load_attachment_reads_and_normalizes_the_files_bytes(tmp_path):
+    path = tmp_path / "ref.png"
+    path.write_bytes(_real_png((64, 32)))
+
+    result = familiar_ui.load_attachment(str(path))
+
+    # Not a byte-for-byte match -- PIL re-encodes -- but a valid PNG at the
+    # same size, since 64x32 is already under VISION_MAX_SIDE.
+    assert _png_size(result) == (64, 32)
+
+
+def test_load_attachment_refuses_a_missing_path(tmp_path):
+    with pytest.raises(ValueError, match="not a file"):
+        familiar_ui.load_attachment(str(tmp_path / "nope.png"))
+
+
+def test_load_attachment_refuses_a_file_that_is_not_an_image(tmp_path):
+    path = tmp_path / "not-an-image.png"
+    path.write_bytes(b"this is plainly not image data")
+
+    with pytest.raises(ValueError, match="not a readable image"):
+        familiar_ui.load_attachment(str(path))
+
+
+def test_normalize_attachment_image_downscales_a_large_image_never_upscales():
+    """The orchestrator's 2026-09-24 review, second finding: an un-normalized
+    large image would undercount ``IMAGE_TOKEN_COST`` (measured at 512x512)
+    by roughly the same factor it exceeds 512px by. A 2048x1024 input must
+    come out with its longer side at most VISION_MAX_SIDE, aspect preserved,
+    and a small input must never be upscaled."""
+    large = _real_png((2048, 1024))
+
+    normalized = familiar_ui.normalize_attachment_image(large)
+
+    width, height = _png_size(normalized)
+    assert max(width, height) <= familiar_ui.VISION_MAX_SIDE
+    assert width == 2 * height, "aspect ratio must be preserved"
+
+    small = _real_png((64, 32))
+    assert _png_size(familiar_ui.normalize_attachment_image(small)) == (64, 32)
+
+
+def test_normalize_attachment_image_refuses_non_image_bytes():
+    with pytest.raises(ValueError, match="not a readable image"):
+        familiar_ui.normalize_attachment_image(b"not an image at all")
+
+
+def test_submit_chat_sends_the_attached_image(monkeypatch, tmp_path):
+    image_path = tmp_path / "ref.png"
+    image_path.write_bytes(_real_png((64, 32)))
+    seen: dict = {}
+
+    def fake_ask(svc, prompt, *, mode, history, scene=None, destinations=(), asset_types=(),
+                 character_options=None, image=None):
+        seen["image"] = image
+        return svc_familiar.Answer(skill="other", text="ok")
+
+    monkeypatch.setattr(svc_familiar, "ask", fake_ask)
+    ctx = _FakeCtx(mode="home")
+    ui = familiar_ui.ensure(ctx)
+    ui.attach_path = str(image_path)
+
+    assert familiar_ui.submit_chat(ctx, "what is this?")
+    fn, args, kwargs, _tag = ctx._pending[familiar_ui.CHAT_KEY]
+    fn(*args, **kwargs)
+
+    assert _png_size(seen["image"]) == (64, 32)
+    assert ui.attach_path == "", "a sent attachment must not linger for the next message"
+
+
+def test_submit_chat_refuses_when_the_attached_path_cannot_be_read(tmp_path):
+    ctx = _FakeCtx(mode="home")
+    ui = familiar_ui.ensure(ctx)
+    ui.attach_path = str(tmp_path / "does-not-exist.png")
+
+    accepted = familiar_ui.submit_chat(ctx, "what is this?")
+
+    assert accepted is False
+    assert ui.attach_error is not None and "not a file" in ui.attach_error
+    assert familiar_ui.CHAT_KEY not in ctx._pending
+
+
+def test_a_revision_of_a_pending_ghost_auto_attaches_the_ghost_render(monkeypatch):
+    """A follow-up build while a ghost is pending, with no explicit attach,
+    must send Clay's own ghost render as the critique image -- so the model
+    sees what it is being asked to revise."""
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    _land_build(
+        ctx, [{"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "tower"}}]
+    )
+    ghost = familiar_ui.ensure(ctx).preview_scratch
+
+    rendered: dict = {}
+
+    def fake_render_png(rendered_doc, *, size, view, shading):
+        rendered.update(doc=rendered_doc, size=size, view=view, shading=shading)
+        return _real_png((512, 512))
+
+    ctx.clay_view.render_png = fake_render_png
+
+    seen: dict = {}
+    monkeypatch.setattr(
+        svc_familiar,
+        "clay_build",
+        lambda svc, prompt, scene, image=None: seen.setdefault("image", image) or [],
+    )
+
+    assert familiar_ui.submit_build(ctx, "make it taller")
+    fn, args, kwargs, _tag = ctx._pending[familiar_ui.BUILD_KEY]
+    fn(*args, **kwargs)
+
+    assert rendered["doc"] is ghost
+    assert rendered["size"] == familiar_ui.GHOST_CRITIQUE_SIZE
+    assert rendered["view"] == "three_quarter"
+    assert rendered["shading"] == "lit"
+    assert _png_size(seen["image"]) == (512, 512)
+
+
+def test_an_explicit_attach_wins_over_the_ghost_critique_render(monkeypatch, tmp_path):
+    """A user who typed a path meant that picture -- the ghost's own render
+    must not silently override it."""
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    _land_build(
+        ctx, [{"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "tower"}}]
+    )
+    image_path = tmp_path / "ref.png"
+    image_path.write_bytes(_real_png((80, 40)))
+    familiar_ui.ensure(ctx).attach_path = str(image_path)
+
+    def exploding_render(*args, **kwargs):
+        raise AssertionError("the ghost must not be rendered when a path was typed explicitly")
+
+    ctx.clay_view.render_png = exploding_render
+
+    seen: dict = {}
+    monkeypatch.setattr(
+        svc_familiar,
+        "clay_build",
+        lambda svc, prompt, scene, image=None: seen.setdefault("image", image) or [],
+    )
+
+    assert familiar_ui.submit_build(ctx, "make it taller")
+    fn, args, kwargs, _tag = ctx._pending[familiar_ui.BUILD_KEY]
+    fn(*args, **kwargs)
+
+    assert _png_size(seen["image"]) == (80, 40)
+
+
+def test_a_fresh_build_with_no_pending_ghost_attaches_no_image(monkeypatch):
+    """No ghost, no explicit attach -- a plain build must send ``image=None``,
+    exactly as before vision existed."""
+    ctx = _FakeCtx(bd.ClayDoc(), mode="clay")
+
+    def exploding_render(*args, **kwargs):
+        raise AssertionError("nothing to render with no pending ghost")
+
+    ctx.clay_view.render_png = exploding_render
+
+    seen: dict = {}
+    monkeypatch.setattr(
+        svc_familiar,
+        "clay_build",
+        lambda svc, prompt, scene, image=None: seen.setdefault("image", image) or [],
+    )
+
+    assert familiar_ui.submit_build(ctx, "build a box")
+    fn, args, kwargs, _tag = ctx._pending[familiar_ui.BUILD_KEY]
+    fn(*args, **kwargs)
+
+    assert seen["image"] is None

@@ -633,6 +633,16 @@ class FamiliarModel:
     #: never be served under our model's name, so only T10's row
     #: (``FAMILIAR_V1_NAME``) sets this.
     served_name: str = ""
+    #: True for a row Familiar runs fine without -- today, only
+    #: ``familiar_mmproj`` (vision, 2026-09-24). Every readiness gate that
+    #: asks "is Familiar installed" (``studio.panes.familiar_dock.
+    #: familiar_state``, the ✦ menu it feeds, ``doctor._familiar_checks``'s
+    #: own wording) must require only the *non*-optional rows -- an existing
+    #: install that never downloaded the vision row is not "not installed",
+    #: it is "installed, text-only", exactly the state before vision existed.
+    #: ``pipelines/llama.py`` already treats a missing mmproj file as "don't
+    #: pass --mmproj" rather than a refusal, for the same reason.
+    optional: bool = False
 
     @property
     def download(self) -> str:
@@ -890,8 +900,9 @@ FAMILIAR_RUNTIME_CUDART_DIGESTS: tuple[tuple[str, str], ...] = (
 # Familiar has something real to run before a Qwen fine-tune
 # exists to become the shipped pin. Q8_0 for testing; a 4-bit shipped pin
 # waits on a measured BF16-to-Q4 delta, because Gemma's Q4_K_M lost 44-61 of
-# 232 Clay eval rows. Text only for now: no mmproj row, no ``--mmproj``, no
-# image input -- vision is a later tranche.
+# 232 Clay eval rows. Vision (2026-09-24): the ``familiar_mmproj`` row below
+# is the optional projector that turns image input on; text-only still works
+# with nothing but this row installed.
 #
 # Revision is the repository's commit at pin time; sha256 is the file's own
 # LFS oid, read from the Hub API without downloading the 4.28 GB file. Qwen
@@ -902,6 +913,25 @@ FAMILIAR_GGUF_REVISION = "1cd86afb9a95c410a6038ab3b40d8b578c892266"
 FAMILIAR_GGUF_FILE = "Qwen3VL-4B-Instruct-Q8_0.gguf"
 FAMILIAR_GGUF_SHA256 = (
     "054721f478bc5fa6beffb7f38eae575d45298f88cbb8d2f83ef675a727863eb1"
+)
+
+# Familiar's vision half: the mmproj projector Qwen3-VL-4B-Instruct's own
+# GGUF repository publishes beside the text weights, at the *same* revision
+# pin (``FAMILIAR_GGUF_REVISION``) -- both files are one Hub snapshot, so
+# there is only one revision to track, not two that could drift apart.
+# **Optional**: Familiar runs text-only with no mmproj row installed at all
+# (``pipelines/llama.py`` passes ``--mmproj`` only when the file is present),
+# so this is the one Familiar row a user may skip entirely.
+#
+# sha256/size read from a local copy of this exact file (the same Q8_0
+# quantisation as the text weights, for one download profile rather than
+# mixing precisions) rather than the Hub API's LFS oid, because the mmproj
+# file in this repository is *not* stored via Git LFS the way the text GGUFs
+# are -- confirmed 2026-09-24 against the working copy staged for the
+# fine-tuning programme.
+FAMILIAR_MMPROJ_FILE = "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf"
+FAMILIAR_MMPROJ_SHA256 = (
+    "30ba2c7dd3127a4561b6cba9d13d0f711c91bdb38742e2f56d73c8cb596bd06d"
 )
 
 # The name a Realmspinner-trained Clay-assistant fine-tune of Qwen3-VL-4B-Instruct
@@ -986,6 +1016,30 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
             "file. Apache 2.0 licensed. Realmspinner's own Clay-assistant "
             "fine-tune of this base replaces this as the shipped pin once "
             "one is published."
+        ),
+    ),
+    FamiliarModel(
+        "familiar_mmproj",
+        "Familiar vision (mmproj)",
+        (FAMILIAR_MMPROJ_FILE,),
+        fetch=(
+            Fetch(
+                FAMILIAR_GGUF_REPO,
+                "familiar-mmproj",
+                revision=FAMILIAR_GGUF_REVISION,
+                filenames=(FAMILIAR_MMPROJ_FILE,),
+                size_gib=0.42,
+            ),
+        ),
+        digests=((FAMILIAR_MMPROJ_FILE, FAMILIAR_MMPROJ_SHA256),),
+        optional=True,
+        description=(
+            "Image input for Familiar: the multimodal projector Qwen "
+            "publishes beside the text weights.\n\n"
+            "Optional -- Familiar runs text-only without this row. With it "
+            "installed, the dock can attach a PNG (a reference image, or "
+            "Clay's own ghost render) to a chat turn. Apache 2.0 licensed, "
+            "same repository and revision as 'Familiar weights' above."
         ),
     ),
 )

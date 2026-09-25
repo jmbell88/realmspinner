@@ -76,14 +76,28 @@ LORA_TRAIN_GIB = 18.0
 IP_ENCODER_GIB = 1.2
 """The CLIP-ViT-H image encoder an IP-Adapter needs (same place)."""
 
-FAMILIAR_GIB = 7.7
+FAMILIAR_GIB = 7.9
 """llama-server.exe resident with the Qwen3-VL-4B-Instruct Q8_0 pin, ``-ngl 999``.
 
 Measured on the GPU lane (``dev/measurements/2026-09-16-familiar-qwen-vram.md``,
 RTX 5090): 6.81 GiB resident once healthy and 6.82 GiB peak with both slots
-generating, identical across three runs. This is that peak plus 0.8 GiB for a
-different driver or CUDA context and for a same-architecture, same-quant
-fine-tune of that base, rounded up to the tenth.
+generating, identical across three runs. That measurement carried +0.8 GiB
+for a different driver or CUDA context and for a same-architecture,
+same-quant fine-tune of that base, rounded up to the tenth (7.7).
+
+**Raised to 7.9 (2026-09-24, dev/measurements/2026-09-24-familiar-mmproj-vram.md
+-- text-only base peak is unaffected, this covers the optional
+``familiar_mmproj`` row).** With the mmproj projector loaded (``--mmproj``,
+``pipelines/llama.py``) and one real image request answered on the real
+b10948 server, RTX 5090: card-wide used memory rose by 7.27-7.68 GiB over an
+un-pinned pre-server baseline that itself drifted +/-0.4 GiB across the
+measurement window (other processes sharing the card) -- rounded up past the
+noisy end of that range rather than the point estimate, since a VRAM budget
+that reads too low is the unsafe direction. Familiar is admitted at this one
+number regardless of whether a session ever attaches an image, because
+``ensure_started`` passes ``--mmproj`` whenever the row is downloaded, not
+only when a request is about to use it -- the projector's own weights are
+resident from spawn.
 
 The previous pin, Gemma 4 E2B, measured 3.20 GiB peak and carried 4.0 here;
 it kept its per-layer embeddings off the card, where Qwen puts the whole

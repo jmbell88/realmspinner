@@ -1022,6 +1022,12 @@ class Worker(
             idle_timeout=config.familiar_idle_timeout,
             expected_card_shas=lambda: models.FAMILIAR_MODELS["familiar_gguf"].card_shas,
             served_name=lambda: models.FAMILIAR_MODELS["familiar_gguf"].served_name,
+            # Vision (2026-09-24): optional, same directory as the text
+            # weights (``fetch.familiar_root`` -- neither row is a
+            # ``runtime=True`` one) -- resolved lazily so a download that
+            # lands mid-session is found on the very next spawn, same reason
+            # the weights path above is.
+            mmproj_path=lambda: config.familiar_models_dir / models.FAMILIAR_MMPROJ_FILE,
         )
 
     async def before_gpu_job(self, job: dict[str, Any]) -> None:

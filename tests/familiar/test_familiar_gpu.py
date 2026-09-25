@@ -113,7 +113,18 @@ async def server(tmp_path_factory):
     has not fetched Familiar yet.
     """
     config = get_config()
-    for spec in models.FAMILIAR_MODELS.values():
+    for key, spec in models.FAMILIAR_MODELS.items():
+        if key == "familiar_mmproj":
+            # Optional (vision, 2026-09-24): this fixture's own ``_new_server``
+            # never passes ``mmproj_path``, so this server is text-only
+            # regardless of whether the row is downloaded -- requiring it here
+            # would skip every test in this module on a machine that has
+            # everything Familiar's text half needs but not its optional
+            # vision half. This module's own vision test (below, ``test_an_
+            # image_is_described_through_the_mmproj_projector``) checks this
+            # row itself and builds its own separate server with
+            # ``mmproj_path`` set, for the one test that actually needs it.
+            continue
         if not fetch.present(config, "familiar", spec):
             pytest.skip(f"{spec.label} not downloaded")
     tmp_dir = tmp_path_factory.mktemp("familiar-gpu")
@@ -643,3 +654,113 @@ def test_stop_frees_the_card(tmp_path_factory):
     assert not listed_after
     assert srv.key_path is None
     assert not key_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Vision (2026-09-24): a real image, sent to the real mmproj-loaded server,
+# must actually be seen -- not merely accepted and ignored. Measured cost and
+# VRAM: dev/measurements/2026-09-24-familiar-mmproj-vram.md.
+# ---------------------------------------------------------------------------
+
+
+def _red_box_png() -> bytes:
+    """A minimal 64x64 solid-red PNG, built with the stdlib only (no PIL
+    dependency for this one test) -- big enough for the projector's own
+    tiling, small enough to stay a few hundred bytes of literal image data.
+    """
+    import struct
+    import zlib
+
+    width = height = 64
+    row = b"\x00" + bytes((220, 30, 30)) * width
+    raw = row * height
+    compressed = zlib.compress(raw, level=6)
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", compressed)
+        + chunk(b"IEND", b"")
+    )
+
+
+def test_an_image_is_described_through_the_mmproj_projector(tmp_path_factory):
+    """A real request carrying a real PNG (a solid red box/square) to the
+    real, mmproj-loaded server must come back describing what it actually
+    shows -- box/square/red -- not just a generic non-empty reply, which
+    would also pass if the image were silently dropped and the model merely
+    answered the bare text prompt.
+
+    Skips (not fails) when ``familiar_mmproj`` is not downloaded -- the one
+    optional Familiar row -- exactly like the shared ``server`` fixture skips
+    for the two required rows.
+    """
+    import base64
+
+    config = get_config()
+    for key in ("familiar_runtime", "familiar_runtime_cudart", "familiar_gguf", "familiar_mmproj"):
+        spec = models.FAMILIAR_MODELS[key]
+        if not fetch.present(config, "familiar", spec):
+            pytest.skip(f"{spec.label} not downloaded")
+
+    tmp_dir = tmp_path_factory.mktemp("familiar-gpu-vision")
+    srv = LlamaServer(
+        lambda: config.familiar_runtime_dir / "llama-server.exe",
+        lambda: config.familiar_models_dir / models.FAMILIAR_GGUF_FILE,
+        _free_port(),
+        key_dir=tmp_dir / "keys",
+        log_path=tmp_dir / "familiar.log",
+        idle_timeout=3600.0,
+        expected_card_shas=lambda: models.FAMILIAR_MODELS["familiar_gguf"].card_shas,
+        served_name=lambda: models.FAMILIAR_MODELS["familiar_gguf"].served_name,
+        mmproj_path=lambda: config.familiar_models_dir / models.FAMILIAR_MMPROJ_FILE,
+    )
+
+    async def _run() -> str:
+        await srv.ensure_started()
+        try:
+            b64 = base64.b64encode(_red_box_png()).decode()
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "What shape and color is in this image? "
+                                "Answer in one short sentence."
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{b64}"},
+                        },
+                    ],
+                }
+            ]
+            return await llama_client.chat(
+                srv,
+                messages,
+                slot=0,
+                sampling={"temperature": 0.0, "top_k": 1, "top_p": 1.0, "max_tokens": 64},
+            )
+        finally:
+            srv.stop()
+
+    reply = asyncio.run(_run())
+    print(f"FAMILIAR-GPU: vision_reply={reply!r}")
+
+    lowered = reply.lower()
+    assert any(word in lowered for word in ("box", "square", "cube", "rectangle")), (
+        f"the reply never named the shape actually shown: {reply!r}"
+    )
+    assert "red" in lowered, f"the reply never named the color actually shown: {reply!r}"

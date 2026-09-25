@@ -371,3 +371,61 @@ def test_build_chat_messages_keeps_only_the_last_history_turns_window():
     kept = [m["content"] for m in messages[1:-1]]
     expected_kept = [f"turn {i}" for i in range(contract.HISTORY_TURNS, contract.HISTORY_TURNS * 2)]
     assert kept == expected_kept, "must keep the most recent turns, not the oldest ones"
+
+
+# ---------------------------------------------------------------------------
+# Self-repair: build_repair_messages must reproduce the exact four-message
+# shape a fine-tuning harness trains on -- see the function's own docstring.
+# ---------------------------------------------------------------------------
+
+
+def test_build_repair_messages_is_the_exact_four_message_shape_with_a_scene():
+    """Card, then the original user turn, then the failed reply played back
+    as the assistant's own turn, then the refusal folded with the compact
+    scene -- byte for byte, since a fine-tuning harness trains on this exact
+    shape (the task brief's own words)."""
+    scene = {"objects": [], "bounds": None, "materials": []}
+    messages = contract.build_repair_messages(
+        "clay", "build a box", scene, "not json at all", "no fenced json"
+    )
+
+    assert messages == [
+        {"role": "system", "content": contract.load_card("clay")},
+        {
+            "role": "user",
+            "content": (
+                "Here is the scene:\n"
+                + json.dumps(scene, sort_keys=True, separators=(",", ":"))
+                + "\n\nbuild a box"
+            ),
+        },
+        {"role": "assistant", "content": "not json at all"},
+        {
+            "role": "user",
+            "content": (
+                "The door refused that proposal: no fenced json\n\n"
+                "Here is the scene:\n"
+                + json.dumps(scene, sort_keys=True, separators=(",", ":"))
+                + "\n\nReply with a corrected clay_batch."
+            ),
+        },
+    ]
+
+
+def test_build_repair_messages_omits_the_scene_paragraph_with_no_scene():
+    """A plain build row (no prior state, ``scene=None``) must not print a
+    "Here is the scene:" paragraph with nothing in it -- the same ``scene is
+    None`` shape :func:`contract.user_turn` already keeps."""
+    messages = contract.build_repair_messages(
+        "clay", "build a box", None, "not json at all", "no fenced json"
+    )
+
+    assert messages[1] == {"role": "user", "content": "build a box"}
+    assert messages[3] == {
+        "role": "user",
+        "content": (
+            "The door refused that proposal: no fenced json\n\n"
+            "Reply with a corrected clay_batch."
+        ),
+    }
+    assert "scene" not in messages[3]["content"].lower()

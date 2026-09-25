@@ -569,6 +569,56 @@ def build_messages(
     ]
 
 
+def build_repair_messages(
+    skill: str,
+    prompt: str,
+    scene: dict[str, Any] | None,
+    failed_reply: str,
+    refusal: str,
+) -> list[dict[str, str]]:
+    """One follow-up turn appended onto :func:`build_messages`'s own shape,
+    for Familiar's self-repair loop (``service.familiar``'s ``clay_build``/
+    ``clay_repair``): a gate past the card gate refused *failed_reply* --
+    ``contract.parse_calls``, ``contract.allowed_calls``, or the scratch run
+    (``studio.assistant.preview.run_scratch``) -- and *refusal* is that
+    gate's own sentence, exactly as it was shown to the user.
+
+    Exactly four messages: :func:`build_messages`'s own ``[system, user]``
+    pair, then *failed_reply* played back as the ``assistant`` turn that
+    earned the refusal, then one more ``user`` turn naming the refusal and
+    asking for a corrected ``clay_batch``. This shape -- not a summary, not a
+    diff -- is deliberate: a fine-tune trained on this exact byte sequence
+    has to see the same "propose, get refused, retry" turn structure at
+    training time that it will be run against at inference time, so no
+    caller may re-word or reorder any of the four messages.
+
+    The follow-up's own text is ``"The door refused that proposal: " +
+    refusal + "\\n\\n"``, then -- only when *scene* is not ``None`` -- ``"Here
+    is the scene:\\n" + <compact json, sorted keys, no whitespace, the same
+    encoding :func:`user_turn` uses> + "\\n\\n"``, then ``"Reply with a
+    corrected clay_batch."``. The scene paragraph is dropped entirely (not
+    printed with an empty scene) for a plain build row with nothing to
+    describe -- the same ``scene is None`` shape :func:`user_turn` itself
+    already keeps for a fresh build with no prior state.
+
+    *failed_reply* is *not* re-parsed or re-validated here -- whatever the
+    model actually said, verbatim, so the follow-up turn's own "that
+    proposal" refers to exactly what earned the refusal, not a paraphrase of
+    it.
+    """
+    text = "The door refused that proposal: " + refusal + "\n\n"
+    if scene is not None:
+        scene_text = json.dumps(scene, sort_keys=True, separators=(",", ":"))
+        text += "Here is the scene:\n" + scene_text + "\n\n"
+    text += "Reply with a corrected clay_batch."
+    return [
+        {"role": "system", "content": load_card(skill)},
+        {"role": "user", "content": user_turn(prompt, scene)},
+        {"role": "assistant", "content": failed_reply},
+        {"role": "user", "content": text},
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Reply grammar -- moved from dev/training/clay-assistant/eval/run_val.py, same
 # fence and the same three failure details ("no fenced json", "json: ...",

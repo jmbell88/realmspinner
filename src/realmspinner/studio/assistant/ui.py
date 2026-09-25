@@ -122,6 +122,17 @@ class FamiliarUIState:
     #: already pending simply replaces it -- the same "the document changed,
     #: preview again" spirit ``_staleness_refusal`` keeps, one plan at a time.
     plan: dict[str, Any] | None = None
+    #: Vision (2026-09-24): a file path the user typed into the dock's own
+    #: attach control, kept as text (not the loaded bytes) so the input line
+    #: survives a reply landing mid-type the same way ``input_text`` already
+    #: does. Read and cleared by :func:`submit_chat`/:func:`submit_build` on
+    #: an accepted submit, never by the frame draw itself.
+    attach_path: str = ""
+    #: The last attempt to load ``attach_path``'s own refusal sentence (a
+    #: missing file, an unreadable one, ...), or ``None`` -- shown beside the
+    #: attach control the same way a submit refusal is shown beside Send/
+    #: Build, and cleared the moment a fresh path is typed or a load succeeds.
+    attach_error: str | None = None
 
     def on_tab_closed(self, mode: str, uid: str) -> None:
         """:data:`~..docmodes.TAB_CLOSED` listener (registered by
@@ -229,6 +240,148 @@ def _pending_ghost(ctx: Any, tab_uid: str) -> Any:
     if not tab_uid or ui.preview_calls is None or ui.preview_tab_uid != tab_uid:
         return None
     return ui.preview_scratch
+
+
+#: The longest side any image handed to Familiar may have, after
+#: :func:`normalize_attachment_image` -- the resolution
+#: ``familiar.llama_client.IMAGE_TOKEN_COST`` was actually measured at
+#: (``dev/measurements/2026-09-24-familiar-mmproj-vram.md``: a 512x512 PNG
+#: cost 258 tokens). Qwen3-VL's own vision encoder tiles a larger image into
+#: more tokens -- roughly linearly in pixel count, so a 2048px image (16x the
+#: pixels of 512px) costs on that order more -- and ``IMAGE_TOKEN_COST`` is a
+#: flat ceiling over the 512px measurement, not a formula that scales with
+#: whatever a caller hands it. **The orchestrator's 2026-09-24 review, second
+#: finding:** without a cap here, an attached photo straight off a phone
+#: (2048px+ on its long side) would be undercounted by roughly the same
+#: factor it exceeds 512px by -- exactly what INVARIANTS' "a token count that
+#: feeds a budget must err high" forbids, silently, only visible once a Clay
+#: reply overran the 8,192-token trained window. Capping every image at this
+#: module's one door, before it ever reaches ``llama_client``, is what makes
+#: the flat constant true rather than merely convenient.
+VISION_MAX_SIDE = 512
+
+
+def normalize_attachment_image(data: bytes) -> bytes:
+    """*data*, decoded, converted to RGB and downscaled -- never upscaled --
+    so its longer side is at most :data:`VISION_MAX_SIDE`, re-encoded as PNG.
+
+    The one door both image sources go through before either ever reaches
+    Familiar: :func:`load_attachment` (a user-typed path) and
+    :func:`_ghost_critique_image` (Clay's own render, already 512px, so this
+    is a cheap re-encode for that path rather than a resize) -- so
+    ``llama_client.IMAGE_TOKEN_COST``'s own measurement at 512px is a
+    guarantee about every image Familiar is ever handed, not just the one
+    this function's own measurement used.
+
+    Raises ``ValueError`` naming why not when *data* cannot be decoded as an
+    image at all -- the same "refuse with a sentence a person can act on"
+    shape :func:`load_attachment`'s own missing-file refusal already keeps,
+    never a raw ``PIL`` traceback reaching the dock.
+    """
+    from io import BytesIO
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        img = Image.open(BytesIO(data))
+        img.load()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValueError(f"not a readable image: {exc}") from exc
+    img = img.convert("RGB")
+    longer = max(img.size)
+    if longer > VISION_MAX_SIDE:
+        scale = VISION_MAX_SIDE / longer
+        size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+        img = img.resize(size, Image.LANCZOS)
+    out = BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+
+
+def load_attachment(path: str) -> bytes:
+    """Read *path* (an image the user typed into the dock's own attach
+    input), normalized through :func:`normalize_attachment_image`. -> the
+    normalized PNG bytes, or raises ``ValueError`` naming why not -- missing,
+    a directory, any other ``OSError`` reading it, or a file that is not a
+    readable image -- the same "refuse with a sentence a person can act on"
+    shape every other Familiar refusal already keeps, never a raw traceback
+    from a bad path or an oversized photo.
+
+    Pure and headless (no imgui, no GL): the file itself is the only thing
+    this touches, so it is exactly as testable off a live frame as
+    :func:`~..familiar.contract.build_repair_messages` is.
+    """
+    from pathlib import Path
+
+    p = Path(path)
+    if not p.is_file():
+        raise ValueError(f"{path!r} is not a file")
+    try:
+        raw = p.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"could not read {path!r}: {exc}") from exc
+    return normalize_attachment_image(raw)
+
+
+#: The view/size Clay's own reference render already ships to trellis --
+#: ``ClayView.render_png``'s own module docstring names it "the standard
+#: three-quarter framing" -- reused verbatim here (2026-09-24, vision) so a
+#: revision's critique image is the same picture the user is already looking
+#: at in the ghost preview, not a second, different render invented for this.
+#: Equal to :data:`VISION_MAX_SIDE` on purpose (see that constant's own
+#: docstring): the render is already the size the token-cost measurement
+#: used, so :func:`normalize_attachment_image` is a no-op resize for this
+#: path, never a downscale.
+GHOST_CRITIQUE_SIZE = VISION_MAX_SIDE
+
+
+def _ghost_critique_image(ctx: Any, ghost: Any) -> bytes | None:
+    """*ghost* (a ``ClayDoc``, the pending preview's own scratch document),
+    rendered the same way Clay's reference render already does -- lit,
+    three-quarter, 512 px -- for a revision request to critique, then through
+    :func:`normalize_attachment_image` like every other attached image.
+    ``None`` with no ``clay_view`` to render through (a headless test's
+    ``ctx``, or a session with no GL context at all), never a refusal: an
+    auto-attached critique image is a bonus a text-only prompt already works
+    without.
+    """
+    view = getattr(ctx, "clay_view", None)
+    if view is None:
+        return None
+    render_png = getattr(view, "render_png", None)
+    if render_png is None:
+        return None
+    raw = render_png(ghost, size=GHOST_CRITIQUE_SIZE, view="three_quarter", shading="lit")
+    return normalize_attachment_image(raw)
+
+
+def _resolve_attach_image(ctx: Any, ui: FamiliarUIState, refine: Any) -> tuple[bytes | None, bool]:
+    """What image (if any) this submit should attach. -> ``(image, ok)`` --
+    ``ok`` is ``False`` only when the user explicitly typed a path
+    (``ui.attach_path``) that failed to load, in which case *this* submit
+    must be refused rather than silently sent with no image at all
+    (``ui.attach_error`` is set for the dock to show beside the control).
+
+    An explicit attach always wins over the ghost critique: a user who typed
+    a path meant that picture, not the ghost's own render. With nothing
+    explicit and *refine* not ``None`` (a revision of a pending ghost --
+    the follow-up shape :func:`_pending_ghost` already recognises), Clay's
+    own ghost render is attached automatically (:func:`_ghost_critique_image`)
+    so the model can see what it is being asked to revise, not just read the
+    compacted scene JSON.
+    """
+    path = ui.attach_path.strip()
+    if path:
+        try:
+            image = load_attachment(path)
+        except ValueError as exc:
+            ui.attach_error = str(exc)
+            return None, False
+        ui.attach_error = None
+        return image, True
+    if refine is not None:
+        return _ghost_critique_image(ctx, refine), True
+    return None, True
 
 
 def _capture_scene(ctx: Any, tab_uid: str) -> dict[str, Any] | None:
@@ -357,6 +510,11 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     exchange_id = familiar_log.new_exchange_id()
     refine = _pending_ghost(ctx, tab_uid)
 
+    ui = ensure(ctx)
+    image, image_ok = _resolve_attach_image(ctx, ui, refine if mode == "clay" else None)
+    if not image_ok:
+        return False
+
     def run() -> Any:
         with familiar_log.exchange(exchange_id):
             return svc_familiar.ask(
@@ -368,6 +526,7 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
                 destinations=tuple(destinations),
                 asset_types=asset_types,
                 character_options=character_options,
+                image=image,
             )
 
     tag = {
@@ -376,6 +535,15 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
         "scene_captured": scene is not None,
         "refine": refine,
         "exchange": exchange_id,
+        # Self-repair: if the router sends this to Clay and the scratch run
+        # later refuses (a gate ``ask``/``clay_build`` cannot see -- see
+        # ``preview.py``'s own docstring), ``_submit_build_preview`` needs
+        # *this* prompt/scene again to build a follow-up turn
+        # (``contract.build_repair_messages``) -- neither was carried in the
+        # tag before self-repair existed, since nothing downstream of a
+        # landed build ever needed them again.
+        "prompt": prompt,
+        "scene": scene,
     }
     if not ctx.submit(CHAT_KEY, run, tag=tag):
         return False
@@ -390,10 +558,10 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
                 scene=scene,
                 refine=refine is not None,
             )
-    ui = ensure(ctx)
     ui.thinking = "chat"
     ui.reason = None
     ui.message = None
+    ui.attach_path = ""
     return True
 
 
@@ -424,11 +592,24 @@ def submit_build(ctx: Any, prompt: str) -> bool:
     exchange_id = familiar_log.new_exchange_id()
     refine = _pending_ghost(ctx, tab_uid)
 
+    ui = ensure(ctx)
+    image, image_ok = _resolve_attach_image(ctx, ui, refine)
+    if not image_ok:
+        return False
+
     def run() -> list[dict]:
         with familiar_log.exchange(exchange_id):
-            return svc_familiar.clay_build(ctx.svc, prompt, scene)
+            return svc_familiar.clay_build(ctx.svc, prompt, scene, image=image)
 
-    tag = {"thread_key": key, "tab_uid": tab_uid, "refine": refine, "exchange": exchange_id}
+    tag = {
+        "thread_key": key,
+        "tab_uid": tab_uid,
+        "refine": refine,
+        "exchange": exchange_id,
+        # Self-repair: see the identical comment on ``submit_chat``'s own tag.
+        "prompt": prompt,
+        "scene": scene,
+    }
     if not ctx.submit(BUILD_KEY, run, tag=tag):
         return False
     if familiar_log.enabled():
@@ -442,7 +623,7 @@ def submit_build(ctx: Any, prompt: str) -> bool:
                 scene=scene,
                 refine=refine is not None,
             )
-    ui = ensure(ctx)
+    ui.attach_path = ""
     ui.thinking = "build"
     ui.reason = None
     ui.message = None
@@ -540,6 +721,12 @@ def on_task_done(ctx: Any, done: Any) -> None:
             if isinstance(result, Answer) and result.calls is not None:
                 # The router sent this one to Clay -- land it exactly like
                 # an explicit Build's own result, calls and all.
+                for refusal_sentence in result.retries:
+                    _say(
+                        ctx,
+                        tag.get("thread_key"),
+                        f"Retrying after a refusal: {refusal_sentence}",
+                    )
                 _submit_build_preview(
                     ctx,
                     ui,
@@ -548,6 +735,10 @@ def on_task_done(ctx: Any, done: Any) -> None:
                     refine=tag.get("refine"),
                     thread_key=tag.get("thread_key"),
                     exchange=tag.get("exchange"),
+                    prompt=tag.get("prompt"),
+                    scene=tag.get("scene"),
+                    reply=result.reply,
+                    repairs_used=result.repairs_used,
                 )
                 return
             if (
@@ -603,9 +794,26 @@ def on_task_done(ctx: Any, done: Any) -> None:
             if tag.get("refine") is None:
                 _clear_preview(ui)
             return
-        calls = done.result if isinstance(done.result, list) else []
+        from ...service.familiar import ClayBuildResult
+
+        build_result = done.result
+        if isinstance(build_result, ClayBuildResult):
+            calls, reply, repairs_used, retries = (
+                build_result.calls,
+                build_result.reply,
+                build_result.repairs_used,
+                build_result.retries,
+            )
+        else:
+            # Back-compat with a hand-built ``Done(result=<plain list>)`` --
+            # every test written before self-repair existed, and any other
+            # caller that never runs the real ``clay_build`` door.
+            calls = build_result if isinstance(build_result, list) else []
+            reply, repairs_used, retries = None, 0, ()
         ui.reason = None
         ui.message = None
+        for refusal_sentence in retries:
+            _say(ctx, tag.get("thread_key"), f"Retrying after a refusal: {refusal_sentence}")
         _submit_build_preview(
             ctx,
             ui,
@@ -614,6 +822,10 @@ def on_task_done(ctx: Any, done: Any) -> None:
             refine=tag.get("refine"),
             thread_key=tag.get("thread_key"),
             exchange=tag.get("exchange"),
+            prompt=tag.get("prompt"),
+            scene=tag.get("scene"),
+            reply=reply,
+            repairs_used=repairs_used,
         )
         return
 
@@ -814,6 +1026,10 @@ def _submit_build_preview(
     refine: Any = None,
     thread_key: Any = None,
     exchange: Any = None,
+    prompt: str | None = None,
+    scene: dict[str, Any] | None = None,
+    reply: str | None = None,
+    repairs_used: int = 0,
 ) -> None:
     """Phase one of landing a build: the staleness checks and the scratch
     clone -- both cheap, both fine on the frame thread -- then hand the
@@ -836,6 +1052,22 @@ def _submit_build_preview(
     dev-log id the same round trip's ``submit``/``request`` records used.
     Both are carried into :data:`LAND_KEY`'s own tag so the second phase can
     use them too.
+
+    **Self-repair, past the card/parse/vocabulary gates.** *prompt*/*scene*/
+    *reply*/*repairs_used* -- all optional, all defaulted to "nothing to
+    repair with" -- are what :func:`clay_build`/:func:`~.service.familiar.ask`
+    already gated *calls* with. If the scratch run refuses (a gate neither of
+    those can see: it only runs once *calls* is tried against a real document
+    clone), the worker closure itself resends one follow-up turn via
+    ``service.familiar.clay_repair`` and re-runs the scratch gate on the
+    corrected reply -- up to ``service.familiar.MAX_REPAIRS`` total across
+    *both* refusal sources, since *repairs_used* already carries whatever the
+    card/parse/vocabulary gate spent. All of this runs on the :data:`LAND_KEY`
+    worker, never the frame thread -- the same reason the scratch run itself
+    already moved there (the 2026-09-17 audit, familiar-01). With *prompt*
+    ``None`` (every pre-self-repair caller, and every test that hand-builds a
+    ``BUILD_KEY``/``CHAT_KEY`` result), there is nothing to build a follow-up
+    turn from, so a scratch-run refusal is shown exactly as it always was.
     """
     from ..modes.clay import mode as clay_mode
     from . import preview as familiar_preview
@@ -860,19 +1092,66 @@ def _submit_build_preview(
     # ``tab.doc`` happens to be by the time it looks.
     base_doc_id = id(tab.doc)
     base_head = tab.doc.history.head
-    scratch_ctx = familiar_preview.build(refine if refine is not None else tab.doc)
+    base_for_clone = refine if refine is not None else tab.doc
+    scratch_ctx = familiar_preview.build(base_for_clone)
+    # A second, independent clone -- read off the live document here, on the
+    # frame thread, for the exact same reason ``scratch_ctx`` itself is: a
+    # self-repair retry needs a *fresh* scratch clone (the first one may have
+    # been partway mutated by a batch that failed midway through), and taking
+    # that clone from ``tab.doc`` inside the worker closure below would race
+    # the frame thread's own edits to it. Cloning ``pristine_doc`` itself
+    # (never touched again after this line, and never shared with anything
+    # else) inside the worker is safe, because nothing outside this closure
+    # can still be mutating it. ``None`` when there is no *prompt* to retry
+    # with (see this function's own docstring) -- no repair can ever run, so
+    # there is nothing worth the extra clone.
+    from ...kernels.mesh import scratch as clay_scratch
+
+    pristine_doc = clay_scratch.clone(base_for_clone) if prompt is not None else None
 
     # One clay_batch, never call by call: the model names objects made earlier
     # in the same reply as {"$ref": "<name>"}, which only a batch resolves --
     # it is the shape the training data, the eval and the door all share. Run
     # one at a time, the first $ref was refused ("Build the Eiffel Tower" came
     # back as clay_boolean's "uids must be a list of integers.", 2026-09-16).
-    # This closure touches only ``scratch_ctx`` -- its own, private
-    # ``ClayState`` holding nothing but the clone (see ``familiar_preview``'s
-    # module docstring) -- never ``ctx.state``, GL or imgui, which is what
-    # makes running it off the frame thread safe.
+    # This closure touches only ``scratch_ctx``/``pristine_doc`` -- private
+    # clones, never ``ctx.state``, GL or imgui -- and ``ctx.svc`` (for a
+    # repair's own model round trip, exactly like every other Familiar
+    # closure already does), which is what makes running it off the frame
+    # thread safe.
     def run() -> dict:
-        return familiar_preview.run_scratch(scratch_ctx, "clay_batch", {"calls": calls})
+        from ...service import familiar as svc_familiar
+
+        calls_now, reply_now, repairs_now = calls, reply, repairs_used
+        working_ctx = scratch_ctx
+        retries: list[str] = []
+        result = familiar_preview.run_scratch(working_ctx, "clay_batch", {"calls": calls_now})
+        while (
+            isinstance(result, dict)
+            and result.get("isError")
+            and pristine_doc is not None
+            and repairs_now < svc_familiar.MAX_REPAIRS
+        ):
+            refusal_sentence = _refusal_sentence(result)
+            retries.append(refusal_sentence)
+            build_result = svc_familiar.clay_repair(
+                ctx.svc, prompt, scene, reply_now, refusal_sentence, repairs_now
+            )
+            calls_now, reply_now, repairs_now = (
+                build_result.calls,
+                build_result.reply,
+                build_result.repairs_used,
+            )
+            working_ctx = familiar_preview.build(pristine_doc)
+            result = familiar_preview.run_scratch(
+                working_ctx, "clay_batch", {"calls": calls_now}
+            )
+        return {
+            "result": result,
+            "calls": calls_now,
+            "scratch_ctx": working_ctx,
+            "retries": retries,
+        }
 
     tag = {
         "thread_key": thread_key,
@@ -947,7 +1226,17 @@ def _land_build_preview(ctx: Any, ui: FamiliarUIState, done: Any) -> None:
         _say(ctx, thread_key, ui.message)
         return
 
-    result = done.result if isinstance(done.result, dict) else {}
+    payload = done.result if isinstance(done.result, dict) else {}
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    # ``calls``/``scratch_ctx`` may have been replaced by self-repair (a
+    # corrected reply's own calls, run against a fresh clone) -- the
+    # worker's own payload names the ones the *landed* result actually
+    # describes, falling back to what phase one submitted with for a
+    # defensive ``done.result`` that is not this shape at all.
+    calls = payload.get("calls") if isinstance(payload.get("calls"), list) else calls
+    scratch_ctx = payload.get("scratch_ctx", scratch_ctx)
+    for refusal_sentence in payload.get("retries") or ():
+        _say(ctx, thread_key, f"Retrying after a refusal: {refusal_sentence}")
     if result.get("isError"):
         ui.message = _refusal_sentence(result)
         ui.reason = "parse"

@@ -303,3 +303,98 @@ async def test_a_router_request_is_not_sized_as_a_skill_reply(tmp_path):
     completion = next(r for r in requests if r.url.path == "/v1/chat/completions")
     body = json.loads(completion.content)
     assert body["max_tokens"] == contract.SAMPLING["router"]["max_tokens"]
+
+
+# ---------------------------------------------------------------------------
+# Vision (2026-09-24): image_url content parts must be tokenized to plain
+# text for /tokenize (never sent as data), and sized conservatively.
+# ---------------------------------------------------------------------------
+
+
+def _image_part(data: str = "aGVsbG8=") -> dict:
+    return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}}
+
+
+async def test_a_clay_request_with_an_image_charges_image_token_cost(tmp_path):
+    """An ``image_url`` content part must add ``IMAGE_TOKEN_COST`` on top of
+    the text-only ``/tokenize`` count plus the template margin -- ``/tokenize``
+    only ever sees plain text, so an image sent alongside it must not
+    silently cost zero tokens toward the reply budget."""
+    server = _server(tmp_path)
+    n_tokens = 100
+    handler, requests = _chat_handler(tokens=n_tokens)
+    transport = httpx.MockTransport(handler)
+
+    await llama_client.chat(
+        server,
+        [
+            {"role": "system", "content": "card"},
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "what should I build?"}, _image_part()],
+            },
+        ],
+        slot=1,
+        sampling=contract.SAMPLING["clay"],
+        skill="clay",
+        expected_card_sha=contract.card_sha("clay"),
+        transport=transport,
+    )
+
+    completion = next(r for r in requests if r.url.path == "/v1/chat/completions")
+    body = json.loads(completion.content)
+    expected = contract.output_budget(
+        "clay",
+        n_tokens + llama_client.TEMPLATE_MARGIN_TOKENS + llama_client.IMAGE_TOKEN_COST,
+    )
+    assert body["max_tokens"] == expected
+
+
+async def test_the_data_uri_itself_never_reaches_tokenize(tmp_path):
+    """``/tokenize`` must only ever see the message's own text parts -- never
+    the base64 image payload, which would be both wasted bytes and a
+    meaningless token count for a binary blob."""
+    server = _server(tmp_path)
+    handler, requests = _chat_handler(tokens=10)
+    transport = httpx.MockTransport(handler)
+    image_data = "aGVsbG8td29ybGQtaW1hZ2UtZGF0YQ=="
+
+    await llama_client.chat(
+        server,
+        [
+            {"role": "system", "content": "card"},
+            {"role": "user", "content": [{"type": "text", "text": "hi"}, _image_part(image_data)]},
+        ],
+        slot=1,
+        sampling=contract.SAMPLING["clay"],
+        skill="clay",
+        expected_card_sha=contract.card_sha("clay"),
+        transport=transport,
+    )
+
+    tokenize_request = next(r for r in requests if r.url.path == "/tokenize")
+    tokenize_body = json.loads(tokenize_request.content)
+    assert image_data not in tokenize_body["content"]
+
+
+async def test_an_image_only_message_sends_the_content_parts_list_unchanged(tmp_path):
+    """The chat-completions request itself must forward the OpenAI-style
+    content-part list verbatim -- llama-server's own vision support reads the
+    ``image_url`` part directly, so this client must not collapse it into
+    text or drop it."""
+    server = _server(tmp_path)
+    handler, requests = _chat_handler(tokens=10)
+    transport = httpx.MockTransport(handler)
+    parts = [{"type": "text", "text": "describe this"}, _image_part()]
+
+    await llama_client.chat(
+        server,
+        [{"role": "user", "content": parts}],
+        slot=1,
+        sampling=contract.SAMPLING["chat"],
+        transport=transport,
+    )
+
+    completion = next(r for r in requests if r.url.path == "/v1/chat/completions")
+    body = json.loads(completion.content)
+    assert body["messages"][0]["content"] == parts

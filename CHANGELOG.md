@@ -20,6 +20,25 @@ the release you are actually running.
 
 ## 0.0.53 — 2026-09-23
 
+- **Familiar retries its own refused Clay proposals instead of giving up on the
+  first one.** A reply the door cannot read, one naming a tool outside Clay's
+  trained vocabulary, or one whose calls are refused once actually tried against
+  your document, now gets one follow-up turn showing Familiar its own refused
+  proposal and the reason it was turned away — up to twice — before either a
+  corrected ghost lands or the same refusal is shown as it always has been. Every
+  retry is visible in the conversation and none of it blocks the app: the retry
+  itself, like every Familiar request, runs off the frame thread.
+- **Familiar can now see a picture.** With the optional vision weights installed
+  (Settings → Models → Familiar vision (mmproj) — Familiar still runs text-only
+  without it), a message can carry an attached PNG, typed or pasted as a path
+  beside the input line; revising a Clay ghost attaches its own current render
+  automatically, so a "make it taller" is answered against what the ghost
+  actually looks like, not only the scene's own numbers. Measured against the
+  real server: a 512×512 image costs about 258 prompt tokens, and the mmproj
+  projector adds roughly 0.5–0.9 GiB of VRAM once loaded (`vram.FAMILIAR_GIB`
+  raised from 7.7 to 7.9 GiB to cover it) — see
+  `dev/measurements/2026-09-24-familiar-mmproj-vram.md`. Images never leave the
+  machine.
 - **Familiar no longer shows two Discard buttons at once.** A character plan that
   landed while a Clay ghost was still waiting drew its Create/Discard row beside
   the ghost's Apply/Discard, and the input line vanished; the ghost's buttons now

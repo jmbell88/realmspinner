@@ -112,6 +112,40 @@ MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 #: of an 8,192-token slot and lose the room for a template that spends more.
 TEMPLATE_MARGIN_TOKENS = 32
 
+#: A conservative per-image token charge for :func:`contract.output_budget`'s
+#: sizing, added once for every ``image_url`` content part in a request --
+#: ``/tokenize`` only ever counts the raw *text* of a message (see this
+#: module's own "why /tokenize on the concatenated message text" note above),
+#: so an image's own cost has nowhere else to come from and would otherwise
+#: silently count as zero, which is the unsafe direction (INVARIANTS: a token
+#: count that feeds a budget must err high).
+#:
+#: **Measured against the real b10948 server** (2026-09-24,
+#: ``dev/measurements/2026-09-24-familiar-mmproj-vram.md``): a 512x512 PNG --
+#: the exact size Clay's own ghost render ships (``ClayView.render_png``'s
+#: ``three_quarter`` view) -- sent as one ``image_url`` part cost 258 prompt
+#: tokens above the same request's own text-only prompt (273 vs. 15, with the
+#: chat-template overhead in both). 300 is a ceiling over that reproducible
+#: 258, the same "round up, never estimate down" shape
+#: :data:`MIN_REPLY_TOKENS`'s own docstring already uses: Qwen3-VL's own
+#: dynamic tiling can spend more on a busier image than the flat red square
+#: this measurement used, and there is no cheap way to ask the server for the
+#: real count ahead of a request the way ``/tokenize`` answers for text.
+#:
+#: **This constant is only a valid ceiling because every image is capped at
+#: 512px on its longer side before it ever reaches this module (the
+#: orchestrator's 2026-09-24 review, second finding).**
+#: ``studio.assistant.ui.normalize_attachment_image``/``VISION_MAX_SIDE`` is
+#: the one door both a user-typed attach and Clay's own ghost render go
+#: through -- Qwen3-VL's own vision encoder tiles a larger image into
+#: roughly proportionally more tokens, so an un-normalized 2048px photo
+#: (16x the pixels of the 512px measurement) would cost on that order more
+#: than this flat number, silently overrunning the 8,192-token trained
+#: window exactly where INVARIANTS forbids it. This module has no way to
+#: enforce that cap itself (it is not where an image first arrives), so it
+#: is stated here as a precondition rather than checked here.
+IMAGE_TOKEN_COST = 300
+
 
 def _headers(server: Any) -> dict[str, str]:
     """``Authorization: Bearer <key>``, read from the key *file* -- never
@@ -189,6 +223,35 @@ async def _tokenize(
     return len(tokens)
 
 
+def _message_text(content: Any) -> str:
+    """*content* as plain text for ``/tokenize`` -- a bare string (every
+    caller before vision existed) unchanged, or the joined ``text`` parts of
+    an OpenAI-style content-part list (vision: ``[{"type": "text", ...},
+    {"type": "image_url", ...}]``). ``/tokenize`` only ever counts text --
+    an ``image_url`` part's own cost is :data:`IMAGE_TOKEN_COST`, added by
+    :func:`_image_count`/:func:`chat` instead, never by handing the data URI
+    itself to ``/tokenize``."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
+def _image_count(content: Any) -> int:
+    """How many ``image_url`` parts *content* carries -- 0 for a bare string
+    (every caller before vision existed)."""
+    if not isinstance(content, list):
+        return 0
+    return sum(
+        1 for part in content if isinstance(part, dict) and part.get("type") == "image_url"
+    )
+
+
 async def chat(
     server: Any,
     messages: list[dict[str, str]],
@@ -228,12 +291,18 @@ async def chat(
     ) as client:
         max_tokens = sampling["max_tokens"]
         if skill is not None and skill in contract.SIZED_SKILLS:
-            prompt_text = "\n\n".join(m["content"] for m in messages)
+            prompt_text = "\n\n".join(_message_text(m["content"]) for m in messages)
             n_tokens = await _tokenize(client, headers, prompt_text)
+            n_images = sum(_image_count(m["content"]) for m in messages)
             # Propagates ValueError as-is: a prompt that leaves no room for a
             # real reply is a refusal the caller must show, not something
-            # this client papers over by truncating.
-            max_tokens = contract.output_budget(skill, n_tokens + TEMPLATE_MARGIN_TOKENS)
+            # this client papers over by truncating. Every image content part
+            # adds IMAGE_TOKEN_COST -- see its own docstring for why
+            # ``/tokenize``'s text-only count would otherwise silently charge
+            # zero for an image actually sent.
+            max_tokens = contract.output_budget(
+                skill, n_tokens + TEMPLATE_MARGIN_TOKENS + n_images * IMAGE_TOKEN_COST
+            )
 
         payload = {
             "model": "familiar",

@@ -289,5 +289,19 @@ testing pin, a Clay build answers with a plain sentence saying so rather than a 
 document tab keeps its own conversation, the same way it keeps its own undo stack — closing a tab ends its thread, and
 every other mode without a document of its own shares one Realmspinner-wide thread.
 
+A build proposal that gets turned away — an unreadable reply, a tool name outside what the model was trained to use,
+or the door that actually tries the proposal against your document refusing it — is not shown to you as a dead end
+straight away: Familiar quietly retries, up to twice, showing each attempt's own refusal as its own line in the
+conversation (**"Retrying after a refusal: …"**) before either a corrected ghost lands or the refusal is shown exactly
+as it always has been once both retries are spent. None of this blocks the app — every retry, like the build itself,
+runs off to the side while you keep working.
+
+With Familiar's vision weights installed (Settings → Models → **Familiar vision (mmproj)**, optional — everything
+above works without it), you can attach a PNG to a message: type or paste its path into the attach field beside the
+input line and it rides along with your next Send or Build. Revising a Clay ghost sends its own current render
+automatically, with nothing to attach by hand, so Familiar can see what you are asking it to change rather than only
+reading the scene's own numbers. An attach you typed yourself always wins over the automatic ghost render. Familiar
+runs entirely on this machine either way — an attached picture never leaves it.
+
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
 the command palette, and it is reproduced in [Keyboard shortcuts](38-shortcuts.md).

@@ -852,3 +852,208 @@ def test_creating_a_planned_character_re_runs_the_recipe_before_minting(monkeypa
 
     assert result == {"id": "abc123", "rig": "def456", "kind": "character"}
     assert calls == ["recipe", "create"]
+
+
+# ---------------------------------------------------------------------------
+# Self-repair: clay_build/clay_repair resend a corrected proposal after a
+# parse/vocabulary/scratch-run refusal, up to MAX_REPAIRS times, re-running
+# the full gate on every attempt.
+# ---------------------------------------------------------------------------
+
+
+def _fine_tuned_pin(monkeypatch) -> None:
+    fine_tuned = dataclasses.replace(
+        models.FAMILIAR_MODELS["familiar_gguf"], card_shas=(contract.card_sha("clay"),)
+    )
+    monkeypatch.setitem(models.FAMILIAR_MODELS, "familiar_gguf", fine_tuned)
+
+
+def test_clay_build_self_repairs_a_parse_failure_and_returns_the_corrected_calls(monkeypatch):
+    """A first reply with no fenced JSON must not refuse on the spot: one
+    follow-up turn (``contract.build_repair_messages``) is sent, and a
+    corrected second reply's calls are returned, with ``repairs_used == 1``
+    and the first refusal recorded in ``retries``."""
+    _fine_tuned_pin(monkeypatch)
+    replies = iter(["not json at all", '```json\n{"calls": [{"name": "clay_scene"}]}\n```'])
+    seen_messages: list[list[dict]] = []
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        seen_messages.append(messages)
+        return next(replies)
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    result = svc_familiar.clay_build(_FakeSvc(), "build a box", {"objects": []})
+
+    assert result.calls == [{"name": "clay_scene"}]
+    assert result.repairs_used == 1
+    assert result.retries == ("Familiar's reply could not be read as Clay tool calls "
+                               "(no fenced json).",)
+    # The second request must be the repair shape: system, original user,
+    # the failed reply played back, then the refusal + retry ask.
+    assert len(seen_messages[1]) == 4
+    assert seen_messages[1][2] == {"role": "assistant", "content": "not json at all"}
+    assert "The door refused that proposal:" in seen_messages[1][3]["content"]
+
+
+def test_clay_build_gives_up_after_max_repairs_with_the_same_refusal_shown_today(monkeypatch):
+    """A reply that never passes the gate must refuse after exactly
+    ``MAX_REPAIRS`` retries (three requests total), with the same sentence
+    and reason ``clay_build`` has always refused with."""
+    _fine_tuned_pin(monkeypatch)
+    calls_made = []
+
+    async def fake_chat(*args, **kwargs):
+        calls_made.append(1)
+        return "never any json here"
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    with pytest.raises(FamiliarRefusal) as excinfo:
+        svc_familiar.clay_build(_FakeSvc(), "build a box", {"objects": []})
+
+    assert excinfo.value.reason == "parse"
+    assert "could not be read as Clay tool calls" in excinfo.value.message
+    assert len(calls_made) == 1 + svc_familiar.MAX_REPAIRS
+
+
+def test_clay_repair_resumes_the_shared_budget_after_a_scratch_run_refusal(monkeypatch):
+    """``clay_repair`` -- called after a gate ``clay_build`` cannot see itself
+    (the scratch run) refuses -- must count its own attempt against whatever
+    budget ``clay_build`` already spent, not grant a fresh one."""
+    _fine_tuned_pin(monkeypatch)
+
+    async def fake_chat(*args, **kwargs):
+        return '```json\n{"calls": [{"name": "clay_scene"}]}\n```'
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    # clay_build's own gate already spent one repair (repairs_used=1); one
+    # more is available before MAX_REPAIRS (2) is reached.
+    result = svc_familiar.clay_repair(
+        _FakeSvc(), "build a box", {"objects": []},
+        "some failed reply", "the scratch run refused it", repairs_used=1,
+    )
+
+    assert result.calls == [{"name": "clay_scene"}]
+    assert result.repairs_used == 2
+
+
+def test_clay_repair_refuses_the_card_gate_again(monkeypatch):
+    """``clay_repair`` re-checks the card gate exactly like ``clay_build`` --
+    a prior reply having come from the trained pin is not proof the server
+    still serves it now."""
+    assert models.FAMILIAR_MODELS["familiar_gguf"].card_shas == ()
+
+    with pytest.raises(FamiliarRefusal) as excinfo:
+        svc_familiar.clay_repair(
+            _FakeSvc(), "build a box", {"objects": []}, "reply", "refusal", repairs_used=0
+        )
+
+    assert excinfo.value.reason == "card"
+
+
+def test_a_build_routed_through_ask_carries_self_repair_bookkeeping(monkeypatch):
+    """A Clay build routed through ``ask`` must report the same
+    ``reply``/``repairs_used``/``retries`` bookkeeping ``clay_build`` itself
+    returns, so the caller (the Familiar dock) can chain a further
+    ``clay_repair`` call if the scratch run later refuses."""
+    _fine_tuned_pin(monkeypatch)
+    replies = iter(["not json at all", '```json\n{"calls": [{"name": "clay_scene"}]}\n```'])
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "clay_build"}'
+        return next(replies)
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    answer = svc_familiar.ask(
+        _FakeSvc(), "build a box", mode="clay", history=(), scene={"objects": []}
+    )
+
+    assert answer.calls == [{"name": "clay_scene"}]
+    assert answer.repairs_used == 1
+    assert len(answer.retries) == 1
+    assert answer.reply == '```json\n{"calls": [{"name": "clay_scene"}]}\n```'
+
+
+# ---------------------------------------------------------------------------
+# Vision: an image attached to a chat/build turn is wrapped as an OpenAI-
+# style content-part list on the *last* message only, and never sent at all
+# when no image is attached (every pre-vision call site).
+# ---------------------------------------------------------------------------
+
+
+def test_with_image_wraps_only_the_last_messages_content():
+    messages = [
+        {"role": "system", "content": "card"},
+        {"role": "user", "content": "here is the scene"},
+    ]
+
+    wrapped = svc_familiar._with_image(messages, b"fake-png-bytes")
+
+    assert wrapped[0] == {"role": "system", "content": "card"}
+    assert wrapped[1]["content"] == [
+        {"type": "text", "text": "here is the scene"},
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": "data:image/png;base64,"
+                + __import__("base64").b64encode(b"fake-png-bytes").decode()
+            },
+        },
+    ]
+    # The input list itself must not be mutated -- a caller may reuse it.
+    assert messages[1]["content"] == "here is the scene"
+
+
+def test_with_image_is_a_no_op_with_no_image():
+    messages = [{"role": "user", "content": "hello"}]
+    assert svc_familiar._with_image(messages, None) == messages
+
+
+def test_chat_reply_attaches_an_image_to_the_final_user_turn(monkeypatch):
+    seen: dict = {}
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        seen["messages"] = messages
+        return "I see a red box."
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    reply = svc_familiar.chat_reply(_FakeSvc(), "what is this?", image=b"png-bytes")
+
+    assert reply == "I see a red box."
+    last = seen["messages"][-1]
+    assert last["role"] == "user"
+    assert isinstance(last["content"], list)
+    assert last["content"][0] == {"type": "text", "text": "what is this?"}
+    assert last["content"][1]["type"] == "image_url"
+
+
+def test_clay_build_attaches_an_image_and_repair_retries_keep_it(monkeypatch):
+    """A revision's own critique image must still be attached on a
+    self-repair retry -- a corrected reply is answering the same picture,
+    not a different question."""
+    _fine_tuned_pin(monkeypatch)
+    replies = iter(["not json at all", '```json\n{"calls": [{"name": "clay_scene"}]}\n```'])
+    seen_messages: list[list[dict]] = []
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        seen_messages.append(messages)
+        return next(replies)
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    result = svc_familiar.clay_build(
+        _FakeSvc(), "make it taller", {"objects": []}, image=b"ghost-render-bytes"
+    )
+
+    assert result.calls == [{"name": "clay_scene"}]
+    for messages in seen_messages:
+        assert messages[-1]["content"][1]["type"] == "image_url"

@@ -117,9 +117,19 @@ def tick(ctx: Any) -> float:
 
 
 def familiar_state(config: Any) -> str:
-    """"missing" if a row from ``models.FAMILIAR_MODELS`` is absent from
-    disk, "idle" once every row is present. Carried over unchanged from the
-    bottom pane -- see :mod:`realmspinner.models` for the row list."""
+    """"missing" if a *non-optional* row from ``models.FAMILIAR_MODELS`` is
+    absent from disk, "idle" once every one of those is present. Carried over
+    unchanged from the bottom pane -- see :mod:`realmspinner.models` for the
+    row list.
+
+    **Optional rows (``familiar_mmproj``, vision) are never asked here
+    (2026-09-24).** Before vision existed this loop's "every row" really did
+    mean every row Familiar needed to run at all; adding an *optional* row to
+    the same table without excluding it here would have read an existing,
+    working, text-only install as "not installed" the moment this shipped --
+    a regression for every machine that had already downloaded Familiar and
+    never asked for vision.
+    """
     import time
 
     global _familiar_state_cache
@@ -134,6 +144,7 @@ def familiar_state(config: Any) -> str:
         if all(
             fetch.present(config, "familiar", spec)
             for spec in models.FAMILIAR_MODELS.values()
+            if not spec.optional
         )
         else "missing"
     )

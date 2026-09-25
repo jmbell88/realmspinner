@@ -154,6 +154,34 @@ def test_familiar_state_is_idle_once_every_row_is_present(tmp_path):
     assert familiar_dock.familiar_state(config) == "idle"
 
 
+def test_familiar_is_idle_with_only_the_text_weights_installed(tmp_path):
+    """The 2026-09-24 orchestrator review: an existing install that has never
+    downloaded the optional vision row (``familiar_mmproj``) must still read
+    "idle", not "missing" -- adding an optional row to ``FAMILIAR_MODELS``
+    must never regress a machine that already has everything Familiar's
+    text half needs.
+
+    Fails against the unfixed code (``familiar_state``'s old ``all(...)``
+    over every row with no ``optional`` filter) with:
+        AssertionError: assert 'missing' == 'idle'
+    """
+    from realmspinner import models
+
+    config = _familiar_config(tmp_path)
+    for spec in models.FAMILIAR_MODELS.values():
+        if spec.optional:
+            # The one row this test deliberately leaves undownloaded.
+            continue
+        base = config.familiar_runtime_dir if spec.runtime else config.familiar_models_dir
+        base.mkdir(parents=True, exist_ok=True)
+        for name in spec.probe:
+            (base / name).write_bytes(b"x")
+    familiar_dock._familiar_state_cache = None
+
+    assert models.FAMILIAR_MODELS["familiar_mmproj"].optional is True
+    assert familiar_dock.familiar_state(config) == "idle"
+
+
 def test_the_open_dock_renders_bubbles_the_handle_and_autoscrolls(monkeypatch, tmp_path):
     """A full render of the open dock: the header row, the padded and
     bubble-coloured transcript, and the auto-scroll check -- with no GL

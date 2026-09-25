@@ -25,6 +25,7 @@ have to know this hierarchy exists), so the door that *does* know about
 
 from __future__ import annotations
 
+import base64
 import concurrent.futures
 import dataclasses
 import threading
@@ -235,23 +236,210 @@ def _call(
             )
 
 
-def chat_reply(svc: Any, prompt: str, history: tuple[Any, ...] = ()) -> str:
+def _with_image(messages: list[dict[str, str]], image: bytes | None) -> list[dict[str, Any]]:
+    """*messages*, with the last message's own ``content`` turned into an
+    OpenAI-style content-part list carrying *image* alongside its text --
+    unchanged when *image* is ``None`` (every caller before vision existed).
+
+    Only the *last* message: every builder in :mod:`~.contract`
+    (:func:`~.contract.build_chat_messages`, :func:`~.contract.build_messages`,
+    :func:`~.contract.build_repair_messages`, ...) puts the live turn -- the
+    one a picture actually illustrates -- last, and none of those functions
+    themselves may change shape (a fine-tuning harness and a training script
+    both depend on their exact plain-string output), so the wrapping happens
+    here, one layer up, never inside :mod:`~.contract` itself.
+
+    PNG bytes only, base64-encoded into a ``data:image/png;base64,...`` URI
+    -- images never leave the machine (the offline invariant): this never
+    touches the network itself, it only shapes the payload
+    :func:`~..familiar.llama_client.chat` sends to the *resident*,
+    loopback-only server.
+    """
+    if image is None:
+        return messages
+    out = [dict(m) for m in messages]
+    last = out[-1]
+    text = last["content"]
+    last["content"] = [
+        {"type": "text", "text": text},
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64," + base64.b64encode(image).decode()},
+        },
+    ]
+    return out
+
+
+def chat_reply(
+    svc: Any, prompt: str, history: tuple[Any, ...] = (), image: bytes | None = None
+) -> str:
     """A plain-chat reply on the base testing pin: no card, no scene.
 
     ``expected_card_sha=None`` -- the same "no card in play" shape
     ``LlamaServer._check_card_sha`` never refuses -- so plain chat starts
     Familiar in every mode, on the testing pin, regardless of whether the
     Clay fine-tune has ever been installed.
+
+    *image* (2026-09-24, vision) -- optional PNG bytes, attached to the
+    user's own turn (:func:`_with_image`) -- lets a question be asked about a
+    picture (a reference image, or Clay's own ghost render) rather than text
+    alone. ``None`` (every pre-vision caller) sends the same request as
+    always.
     """
-    messages = contract.build_chat_messages(prompt, history)
+    messages = _with_image(contract.build_chat_messages(prompt, history), image)
     return _call(
         svc, messages, skill=None, sampling=contract.SAMPLING["chat"], expected_card_sha=None
     )
 
 
-def clay_build(svc: Any, prompt: str, scene: dict[str, Any]) -> list[dict]:
-    """A Clay build: the frozen card, *scene*, *prompt* -> the parsed
-    ``calls`` list a preview run then executes one at a time.
+#: How many follow-up turns Familiar's self-repair loop may send after a
+#: refusal from any gate *past* the card gate -- ``contract.parse_calls``,
+#: ``contract.allowed_calls`` (both checked here), or the scratch run's own
+#: refusal (``studio.assistant.preview.run_scratch``, checked by the caller
+#: and fed back in through :func:`clay_repair`). Two, not open-ended, for the
+#: same reason a person is not asked to keep re-typing a prompt forever: each
+#: retry is a full extra round trip through an 8,192-token slot (``contract.
+#: TRAINED_WINDOW``), and a model whose *second* corrected attempt still
+#: fails a gate it was shown the exact refusal for is not going to be talked
+#: into a third one -- the honest answer at that point is the refusal itself,
+#: not another guess. The budget is shared across *both* refusal sources
+#: (:data:`ClayBuildResult.repairs_used` is what lets :func:`clay_repair`
+#: know how much of it :func:`clay_build`'s own parse/vocabulary retries
+#: already spent), because the fix a person cares about is "how many times
+#: did Familiar guess wrong before giving up", not which gate did the
+#: refusing.
+MAX_REPAIRS = 2
+
+
+@dataclasses.dataclass(frozen=True)
+class ClayBuildResult:
+    """What :func:`clay_build`/:func:`clay_repair` hand back on success: the
+    gated ``calls``, the reply they were parsed out of, and the self-repair
+    bookkeeping a later gate needs if it has to resume this same budget.
+
+    *reply* is carried along (not just the parsed ``calls``) because a gate
+    this module cannot see -- the scratch run, off the frame thread in
+    ``studio.assistant.preview.run_scratch`` -- may still refuse *this*
+    reply's calls once they are actually tried against a document clone, and
+    :func:`~.contract.build_repair_messages` needs the assistant's own prior
+    turn played back verbatim to build a correct follow-up.
+
+    *repairs_used* is how much of :data:`MAX_REPAIRS` this call already
+    spent (0 when the very first reply passed the gate clean) -- the number
+    a caller chaining a further :func:`clay_repair` call must pass back in so
+    the two never together exceed the cap. *retries* is that same call's own
+    refusal sentences, oldest first, for the caller to show in the
+    transcript, each one visibly marked as a retry -- never the final,
+    successful reply's own sentence, since that one is not a refusal.
+    """
+
+    calls: list[dict]
+    reply: str
+    repairs_used: int = 0
+    retries: tuple[str, ...] = ()
+
+
+def _gate_reply(skill: str, reply: str) -> tuple[list[dict] | None, str | None]:
+    """*reply* through Clay's own gate -- :func:`~.contract.parse_calls` then
+    :func:`~.contract.allowed_calls` -- worded exactly as :func:`clay_build`
+    has always refused with, so a caller showing this sentence (in a retry
+    turn, or as the final refusal) never drifts from what it said before
+    self-repair existed. -> ``(calls, None)`` on success, ``(None, sentence)``
+    naming which of the two failed.
+    """
+    calls, error = contract.parse_calls(reply)
+    if calls is None:
+        return None, f"Familiar's reply could not be read as Clay tool calls ({error})."
+    # The 2026-09-18 audit (familiar-05): contract.allowed_calls exists
+    # precisely to answer "what did this frozen card actually train the
+    # model to name" (parsed from the card's own clay_batch schema, not the
+    # live agent_clay registry) but was never actually called here, so a
+    # reply naming a tool outside the card's own vocabulary -- a decoding
+    # fluke, or a weights pin whose card has drifted from what this build
+    # ships -- ran through to the preview/apply path unchecked. Refused in
+    # the same "parse" bucket an unreadable reply already uses: a call this
+    # door does not trust is no more actionable than one it could not read.
+    allowed = contract.allowed_calls(skill)
+    for call in calls:
+        name = call.get("name") if isinstance(call, dict) else None
+        if name not in allowed:
+            return None, (
+                f"Familiar's reply named a tool ({name!r}) outside Clay's "
+                "trained vocabulary."
+            )
+    return calls, None
+
+
+def _build_with_repairs(
+    svc: Any,
+    prompt: str,
+    scene: dict[str, Any] | None,
+    card_sha: str,
+    *,
+    image: bytes | None = None,
+    seed_reply: str | None = None,
+    seed_refusal: str | None = None,
+    repairs_used: int = 0,
+) -> ClayBuildResult:
+    """The self-repair loop shared by :func:`clay_build` (a fresh build) and
+    :func:`clay_repair` (resuming after a refusal this module could not see
+    itself). One gated reply, then up to :data:`MAX_REPAIRS` follow-up turns
+    (:func:`~.contract.build_repair_messages`) when :func:`_gate_reply`
+    refuses -- *repairs_used* is whatever budget an earlier refusal (of
+    either kind) already spent, carried in so the two sources never together
+    exceed the cap.
+
+    **Every attempt re-runs the full gate**, never just the half that failed
+    last time: a corrected reply could just as easily land back in the
+    *other* half (a fixed vocabulary violation whose new call is itself
+    unparseable, say) -- trusting the previous attempt's own gate for
+    anything it did not just re-check would ship a reply this loop never
+    actually validated.
+
+    Raises :class:`FamiliarRefusal` (reason ``"parse"``) with the last
+    attempt's own refusal sentence once the budget is spent -- the exact
+    shape :func:`clay_build` always refused with, before self-repair
+    existed.
+
+    *image* (2026-09-24, vision) -- optional PNG bytes, attached
+    (:func:`_with_image`) to *every* attempt's own last turn, retries
+    included: a corrected reply is still being asked to build against the
+    same picture, so a retry that dropped it would be answering a different
+    question than the one that was refused.
+    """
+    retries: list[str] = []
+    if seed_reply is None:
+        messages = contract.build_messages("clay", prompt, scene)
+    else:
+        messages = contract.build_repair_messages(
+            "clay", prompt, scene, seed_reply, seed_refusal or ""
+        )
+    while True:
+        reply = _call(
+            svc,
+            _with_image(messages, image),
+            skill="clay",
+            sampling=contract.SAMPLING["clay"],
+            expected_card_sha=card_sha,
+        )
+        calls, refusal = _gate_reply("clay", reply)
+        if calls is not None:
+            return ClayBuildResult(
+                calls=calls, reply=reply, repairs_used=repairs_used, retries=tuple(retries)
+            )
+        if repairs_used >= MAX_REPAIRS:
+            raise FamiliarRefusal(refusal, reason="parse")
+        retries.append(refusal)
+        repairs_used += 1
+        messages = contract.build_repair_messages("clay", prompt, scene, reply, refusal)
+
+
+def clay_build(
+    svc: Any, prompt: str, scene: dict[str, Any], image: bytes | None = None
+) -> ClayBuildResult:
+    """A Clay build: the frozen card, *scene*, *prompt* -> a
+    :class:`ClayBuildResult` whose ``calls`` a preview run then executes one
+    at a time.
 
     *scene* is expected already compacted (``contract.compact_scene``) --
     the caller (the Familiar dock, on the frame thread) reads ``clay_scene``'s
@@ -275,6 +463,19 @@ def clay_build(svc: Any, prompt: str, scene: dict[str, Any]) -> list[dict]:
     a Clay request on the testing pin alone would not fail loudly -- it would
     just fail, every time, with no tool call in the reply for
     :func:`~.contract.parse_calls` to find.
+
+    A reply that fails the gate (:func:`_gate_reply`: unparseable, or naming
+    a tool outside Clay's trained vocabulary) is not refused on the spot --
+    self-repair resends one follow-up turn (:func:`~.contract.
+    build_repair_messages`, carrying the model's own failed reply and the
+    refusal sentence back to it) and re-runs the *full* gate on what comes
+    back, up to :data:`MAX_REPAIRS` times, before finally refusing exactly as
+    this door always has.
+
+    *image* (2026-09-24, vision) -- optional PNG bytes (the dock's own
+    attach, or Clay's ghost render on a revision -- see
+    ``studio.assistant.ui``'s own docstring), attached to every attempt's own
+    turn via :func:`_with_image`.
     """
     card_sha = contract.card_sha("clay")
     if card_sha not in models.FAMILIAR_MODELS["familiar_gguf"].card_shas:
@@ -282,39 +483,55 @@ def clay_build(svc: Any, prompt: str, scene: dict[str, Any]) -> list[dict]:
             "Building in Clay needs the trained Familiar model (familiar_v1.0).",
             reason="card",
         )
-    messages = contract.build_messages("clay", prompt, scene)
-    reply = _call(
-        svc,
-        messages,
-        skill="clay",
-        sampling=contract.SAMPLING["clay"],
-        expected_card_sha=card_sha,
-    )
-    calls, error = contract.parse_calls(reply)
-    if calls is None:
+    return _build_with_repairs(svc, prompt, scene, card_sha, image=image)
+
+
+def clay_repair(
+    svc: Any,
+    prompt: str,
+    scene: dict[str, Any] | None,
+    failed_reply: str,
+    refusal: str,
+    repairs_used: int,
+    image: bytes | None = None,
+) -> ClayBuildResult:
+    """Resume Clay's self-repair loop after a refusal from a gate
+    :func:`clay_build` cannot see for itself: the scratch run
+    (``studio.assistant.preview.run_scratch``), which only runs once a caller
+    already has a gated ``clay_batch`` and tries it against a real document
+    clone, off the frame thread, well after :func:`clay_build` has already
+    returned.
+
+    *repairs_used* is whatever :func:`clay_build` (or an earlier call here,
+    for a build with more than one scratch-run refusal in a row) already
+    spent -- this call's own attempt counts as one more against that same
+    budget before it ever sends a request, so the caller must not call this
+    once :data:`MAX_REPAIRS` is already reached; :func:`_build_with_repairs`
+    still re-checks the cap on every attempt after that, the same as
+    :func:`clay_build`'s own loop, so a second scratch-run refusal in a row
+    is refused rather than granted a third full budget.
+
+    Re-checks the card gate -- the same reason :func:`clay_build` checks it
+    up front rather than trusting ``ensure_started``'s own spawn-time check:
+    an earlier reply in this same build having come from the Clay-trained
+    pin is not proof the server still serves it now.
+    """
+    card_sha = contract.card_sha("clay")
+    if card_sha not in models.FAMILIAR_MODELS["familiar_gguf"].card_shas:
         raise FamiliarRefusal(
-            f"Familiar's reply could not be read as Clay tool calls ({error}).",
-            reason="parse",
+            "Building in Clay needs the trained Familiar model (familiar_v1.0).",
+            reason="card",
         )
-    # The 2026-09-18 audit (familiar-05): contract.allowed_calls exists
-    # precisely to answer "what did this frozen card actually train the
-    # model to name" (parsed from the card's own clay_batch schema, not the
-    # live agent_clay registry) but was never actually called here, so a
-    # reply naming a tool outside the card's own vocabulary -- a decoding
-    # fluke, or a weights pin whose card has drifted from what this build
-    # ships -- ran through to the preview/apply path unchecked. Refused in
-    # the same "parse" bucket an unreadable reply already uses: a call this
-    # door does not trust is no more actionable than one it could not read.
-    allowed = contract.allowed_calls("clay")
-    for call in calls:
-        name = call.get("name") if isinstance(call, dict) else None
-        if name not in allowed:
-            raise FamiliarRefusal(
-                f"Familiar's reply named a tool ({name!r}) outside Clay's "
-                "trained vocabulary.",
-                reason="parse",
-            )
-    return calls
+    return _build_with_repairs(
+        svc,
+        prompt,
+        scene,
+        card_sha,
+        image=image,
+        seed_reply=failed_reply,
+        seed_refusal=refusal,
+        repairs_used=repairs_used + 1,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +560,15 @@ class Answer:
     text: str | None
     citations: tuple[retrieval.Citation, ...] = ()
     calls: list[dict] | None = None
+    #: Self-repair's own bookkeeping, populated only when *calls* came from
+    #: :func:`clay_build` (``skill`` a Clay route) -- see
+    #: :class:`ClayBuildResult`'s own docstring for what each carries.
+    #: Defaulted so every pre-self-repair ``Answer(skill, text, ...)`` call
+    #: site (including every hand-built one in a test) keeps working
+    #: unchanged: no repair ever ran, nothing to retry.
+    reply: str | None = None
+    repairs_used: int = 0
+    retries: tuple[str, ...] = ()
     #: T8: what a routed ``navigate``/``create`` decided to *do*, for the
     #: caller (``studio/assistant/doors.py``, on the frame thread) to act out
     #: -- ``{"kind": "navigate", "target": <destination key>}`` or
@@ -599,8 +825,14 @@ def ask(
     destinations: tuple[doors.Destination, ...] = (),
     asset_types: tuple[tuple[str, str], ...] = (),
     character_options: dict[str, Any] | None = None,
+    image: bytes | None = None,
 ) -> Answer:
     """Route *prompt* to a skill, then answer it.
+
+    *image* (2026-09-24, vision) -- optional PNG bytes, forwarded to
+    whichever door actually answers (:func:`chat_reply` for every fallback,
+    :func:`clay_build` for a routed build) -- never to the router request
+    itself, which only ever needs *prompt*'s own text to pick a skill.
 
     A refusal raised while routing (a lease, a missing worker, a timeout, ...)
     propagates as a :class:`FamiliarRefusal` exactly as :func:`chat_reply`/
@@ -656,8 +888,15 @@ def ask(
         # there" as well as "add something new" (``cards/clay-1.txt``), and
         # nothing about the card gate is build-specific -- a model untrained
         # on Clay tool calls at all is exactly as unable to edit them.
-        calls = clay_build(svc, prompt, scene)
-        return Answer(skill=skill, text=None, calls=calls)
+        build_result = clay_build(svc, prompt, scene, image=image)
+        return Answer(
+            skill=skill,
+            text=None,
+            calls=build_result.calls,
+            reply=build_result.reply,
+            repairs_used=build_result.repairs_used,
+            retries=build_result.retries,
+        )
 
     if skill == "navigate" and destinations:
         return _ask_navigate(svc, prompt, history, destinations)
@@ -668,4 +907,4 @@ def ask(
     if skill == "character" and character_options:
         return _ask_character(svc, prompt, history, character_options)
 
-    return Answer(skill=skill, text=chat_reply(svc, prompt, history))
+    return Answer(skill=skill, text=chat_reply(svc, prompt, history, image=image))

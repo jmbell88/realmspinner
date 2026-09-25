@@ -78,10 +78,17 @@ class LlamaServer:
         idle_timeout: float = 300.0,
         expected_card_shas: Callable[[], tuple[str, ...]] | None = None,
         served_name: str | Callable[[], str] = "",
+        mmproj_path: Path | Callable[[], Path] | None = None,
     ) -> None:
         self._exe = exe
         self._weights_path = weights_path
         self._served_name = served_name
+        # Vision (2026-09-24): optional, unlike ``exe``/``weights_path`` --
+        # Familiar runs text-only with nothing here at all. Resolved lazily,
+        # same reason ``weights_path`` is: a download that lands mid-session
+        # (Settings -> Models, ``familiar_mmproj``) must be found on the very
+        # next spawn, not only after a restart.
+        self._mmproj_path = mmproj_path
         self._port = port
         self._key_dir = key_dir
         self._log_path = log_path
@@ -185,6 +192,11 @@ class LlamaServer:
     def _resolve_served_name(self) -> str:
         return self._served_name() if callable(self._served_name) else self._served_name
 
+    def _resolve_mmproj(self) -> Path | None:
+        if self._mmproj_path is None:
+            return None
+        return self._mmproj_path() if callable(self._mmproj_path) else self._mmproj_path
+
     # --- the API key file -----------------------------------------------
 
     def _write_key_file(self) -> Path:
@@ -255,6 +267,17 @@ class LlamaServer:
         name = self._resolve_served_name()
         if name:
             argv += ["--alias", name]
+        # Vision (2026-09-24): only when the file is actually present --
+        # ``familiar_mmproj`` is the one optional Familiar row, and passing
+        # ``--mmproj`` a path that does not exist is a spawn-time refusal
+        # llama-server itself would raise, for a capability nobody asked to
+        # turn on. Checked with a plain ``is_file()``, the same way
+        # ``ensure_started`` already checks ``weights.is_file()`` -- a
+        # partial/corrupt mmproj still reaches ``_check_manifest``'s own
+        # digest verification before this server is ever trusted to serve.
+        mmproj = self._resolve_mmproj()
+        if mmproj is not None and mmproj.is_file():
+            argv += ["--mmproj", str(mmproj)]
         return argv
 
     # --- spawn ---------------------------------------------------------

@@ -93,6 +93,53 @@ def test_the_testing_pin_is_never_served_as_familiar_v1(tmp_path):
     assert "--alias" not in argv
 
 
+def test_mmproj_is_passed_when_the_file_is_present(tmp_path):
+    """Vision (2026-09-24): ``--mmproj`` must reach the server's own argv only
+    when the resolved file actually exists -- the one optional Familiar row,
+    so a machine that never downloaded it must spawn exactly as before."""
+    mmproj = tmp_path / "models" / "familiar" / models.FAMILIAR_MMPROJ_FILE
+    mmproj.parent.mkdir(parents=True, exist_ok=True)
+    mmproj.write_bytes(b"not a real gguf, just present")
+    srv = _srv(tmp_path, mmproj_path=mmproj)
+
+    argv = srv._argv(tmp_path / "key.txt")
+
+    assert "--mmproj" in argv
+    assert argv[argv.index("--mmproj") + 1] == str(mmproj)
+
+
+def test_mmproj_is_omitted_when_the_file_is_absent():
+    """No download, no flag -- text-only Familiar must spawn unchanged."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        from pathlib import Path
+
+        tmp_path = Path(tmp)
+        mmproj = tmp_path / "models" / "familiar" / models.FAMILIAR_MMPROJ_FILE
+        srv = _srv(tmp_path, mmproj_path=mmproj)
+
+        argv = srv._argv(tmp_path / "key.txt")
+
+        assert "--mmproj" not in argv
+
+
+def test_mmproj_defaults_to_none_and_is_omitted():
+    """A caller that never passes ``mmproj_path`` at all (every pre-vision
+    call site) must spawn exactly as before."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        from pathlib import Path
+
+        tmp_path = Path(tmp)
+        srv = _srv(tmp_path)
+
+        argv = srv._argv(tmp_path / "key.txt")
+
+        assert "--mmproj" not in argv
+
+
 @pytest.mark.asyncio
 async def test_a_weights_file_whose_manifest_does_not_verify_refuses_to_start(
     tmp_path, monkeypatch
@@ -629,8 +676,36 @@ def test_a_familiar_row_not_downloaded_is_pending_install_not_a_fault(tmp_path):
         familiar_models_dir=tmp_path / "models" / "familiar",
     )
     checks = doctor._familiar_checks(config)
-    assert len(checks) == len(models.FAMILIAR_MODELS) == 3
+    assert len(checks) == len(models.FAMILIAR_MODELS) == 4
     for check in checks:
         assert check.ok is False
         assert check.fatal is False
         assert check.pending_install is True
+
+
+def test_the_optional_mmproj_rows_missing_detail_reads_as_optional_not_required(tmp_path):
+    """The 2026-09-24 orchestrator review: an absent ``familiar_mmproj`` row
+    must not print the same "download with" prompt every required row does
+    -- a reader must be able to tell "optional, skip it" from "you need
+    this" without cross-referencing the registry."""
+    from realmspinner.config import Config
+
+    config = Config(
+        data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
+        trellis_server_exe=tmp_path / "missing.exe", trellis_models_dir=tmp_path / "models",
+        t2i_model_root=tmp_path / "t2i-models",
+        familiar_runtime_dir=tmp_path / "engine" / "llama",
+        familiar_models_dir=tmp_path / "models" / "familiar",
+    )
+    checks = {c.name: c for c in doctor._familiar_checks(config)}
+    mmproj_name = fetch.check_name(
+        "familiar", models.FAMILIAR_MODELS["familiar_mmproj"].label
+    )
+    required_name = fetch.check_name(
+        "familiar", models.FAMILIAR_MODELS["familiar_gguf"].label
+    )
+
+    assert checks[mmproj_name].detail.startswith("optional --")
+    assert checks[mmproj_name].fatal is False
+    assert checks[mmproj_name].pending_install is True
+    assert not checks[required_name].detail.startswith("optional --")
