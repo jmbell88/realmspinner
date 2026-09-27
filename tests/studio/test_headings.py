@@ -57,8 +57,9 @@ def test_the_sweep_found_them_all() -> None:
     2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): ``section()`` is
     ``widgets.section``, imgui-only, so this stays scoped to ``studio/`` on
     purpose -- none of P3's moves (Clay's engine, Inker's engine, grid2d,
-    the geom3d/audio/manual kernels, safeio, undo, Familiar's headless half)
-    draw imgui, so widening would only add files this scan can never match.
+    the geom3d/audio/manual kernels, safeio, undo, Familiar's then-headless
+    half, later removed outright along with the rest of Familiar) draw
+    imgui, so widening would only add files this scan can never match.
     The file-count floor is the actual guard against the failure this pass
     found elsewhere: a root that stops matching still passes on an empty set.
     """

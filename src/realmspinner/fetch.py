@@ -64,7 +64,6 @@ class Kind:
 
 KINDS: tuple[Kind, ...] = (
     Kind("engine", models.ENGINE_MODELS, "engine: ", "Reconstruction engine"),
-    Kind("familiar", models.FAMILIAR_MODELS, "familiar: ", "Familiar"),
     Kind("base", models.BASE_MODELS, "image model: ", "Image models"),
     Kind("lora", models.STYLE_LORAS, "style LoRA: ", "Style LoRAs"),
     Kind("adapter", models.IP_ADAPTERS, "IP-Adapter: ", "Conditioning"),
@@ -243,22 +242,6 @@ def engine_probe_dir(config: Config, spec: Any) -> Path:
     return config.trellis_models_dir
 
 
-def familiar_dir(config: Config, spec: Any) -> Path:
-    """Which of Familiar's two directories this entry's payload lands in.
-
-    Mirrors :func:`engine_dir` exactly, and is a separate function rather than
-    a shared one for the same reason ``config.familiar_runtime_dir`` is a
-    separate field from ``config.trellis_runtime_dir``: llama.cpp and
-    trellis.cpp ship their own, differently built ``ggml*.dll``, so the two
-    engines' binaries must never be able to land in the same directory even by
-    a future refactor that tried to generalise ``engine_dir`` across kinds.
-    Familiar also has no vendor-checkout fallback and no env-var exe override
-    -- unlike the reconstruction engine, there is exactly one place this ever
-    lives, so there is no separate "probe" directory either.
-    """
-    return config.familiar_runtime_dir if spec.runtime else config.familiar_models_dir
-
-
 def destination(config: Config, entry: Entry, one: models.Fetch) -> Path:
     """Where ``one`` actually lands, as opposed to what its command string says.
 
@@ -271,8 +254,6 @@ def destination(config: Config, entry: Entry, one: models.Fetch) -> Path:
     spec = entry.spec
     if entry.kind == "engine":
         return engine_dir(config, spec)
-    if entry.kind == "familiar":
-        return familiar_dir(config, spec)
     is_base = entry.kind == "base"
     return models.fetch_dests(
         (one,),
@@ -671,8 +652,6 @@ def claims(config: Config, entry: Entry) -> tuple[Path, ...]:
     spec = entry.spec
     if entry.kind == "engine":
         return (engine_dir(config, spec),)
-    if entry.kind == "familiar":
-        return (familiar_dir(config, spec),)
     if entry.kind == "base":
         out = [base_model_dir(config, spec)]
         if spec.base_lora:
@@ -968,8 +947,8 @@ def suspect_files(config: Config, kind: str, spec: Any) -> list[str]:
     """
     out: list[str] = []
     root = config.t2i_model_root
-    if kind in ("engine", "familiar"):
-        base = engine_probe_dir(config, spec) if kind == "engine" else familiar_dir(config, spec)
+    if kind == "engine":
+        base = engine_probe_dir(config, spec)
         candidates = [base / name for name in spec.probe]
         for path in candidates:
             try:
@@ -996,6 +975,14 @@ def suspect_files(config: Config, kind: str, spec: Any) -> list[str]:
         # matches this candidate, same as today.
         marker = "model_index.json" if kind == "base" else "config.json"
         candidates.append(base / marker)
+        # ``claims()`` already counts a base's step-distillation LoRA as part
+        # of what makes the row present (``base_model_state`` refuses without
+        # it) -- this scan left it out, so the 2026-09-26 audit
+        # (pipelines-install-04) found a zero-byte
+        # ``Hyper-SDXL-4steps-lora.safetensors`` reading as a healthy install
+        # right up until the generate that actually loads it.
+        if kind == "base" and getattr(spec, "base_lora", None):
+            candidates.append(root / "loras" / spec.base_lora)
         if base.is_dir():
             candidates += [
                 p
@@ -1030,9 +1017,6 @@ def present(config: Config, kind: str, spec: Any) -> bool:
     root = config.t2i_model_root
     if kind == "engine":
         base = engine_probe_dir(config, spec)
-        return all((base / name).is_file() for name in spec.probe)
-    if kind == "familiar":
-        base = familiar_dir(config, spec)
         return all((base / name).is_file() for name in spec.probe)
     if kind == "base":
         return base_model_state(config, spec)[0]

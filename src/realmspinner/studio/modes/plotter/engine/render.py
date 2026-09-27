@@ -19,6 +19,7 @@ here, and the blit clips rather than refusing.
 
 from __future__ import annotations
 
+import math
 import weakref
 from typing import Any
 
@@ -220,6 +221,23 @@ def _blit_over(
     )
 
 
+def _pixel_shift(value: float) -> int:
+    """One axis of a pixel shift, refused rather than raised past a bad float.
+
+    ``round()`` on ``inf``/``-inf``/``NaN`` raises ``OverflowError`` or
+    ``ValueError`` with no sentence a caller can show, and a non-finite
+    offset, parallax factor or object coordinate can reach this render from
+    more doors than the reader's own (the 2026-09-26 audit, finding
+    plotter-map-07, found the ``.tmx``/``.tmj`` readers accepting one
+    unchecked). One plain ``ValueError``, worded like every other refusal this
+    module raises, is what keeps a document carrying one toasting instead of
+    crashing the frame thread this runs on.
+    """
+    if not math.isfinite(value):
+        raise ValueError(f"a layer's placement is not a finite number: {value!r}")
+    return int(round(value))
+
+
 def render_layer(
     doc: MapDoc,
     layer: TileLayer,
@@ -238,7 +256,7 @@ def render_layer(
     """
     tile_h = doc.tile_h
     opacity = float(layer.opacity if opacity is None else opacity)
-    shift_x, shift_y = int(round(offset[0])), int(round(offset[1]))
+    shift_x, shift_y = _pixel_shift(offset[0]), _pixel_shift(offset[1])
     ids = gidlib.tile_ids(layer.data)
     flags = gidlib.flags(layer.data)
     # A per-tileset cache of resolved tiles is pointless -- ``tile_pixels`` is
@@ -413,8 +431,8 @@ def render_image(
         return
     opacity = float(layer.opacity if opacity is None else opacity)
     height, width = int(pixels.shape[0]), int(pixels.shape[1])
-    for y0 in repeats(int(round(offset[1])), height, out.shape[0], layer.repeat_y):
-        for x0 in repeats(int(round(offset[0])), width, out.shape[1], layer.repeat_x):
+    for y0 in repeats(_pixel_shift(offset[1]), height, out.shape[0], layer.repeat_y):
+        for x0 in repeats(_pixel_shift(offset[0]), width, out.shape[1], layer.repeat_x):
             _blit_over(out, pixels, x0, y0, opacity, blend_mode)
 
 

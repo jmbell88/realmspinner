@@ -41,6 +41,7 @@ import numpy as np
 
 from .....core.undo import CompoundEdit, Edit, UndoStack
 from .....kernels.geom3d import gltf
+from .....kernels.geom3d import math3d as m3
 from . import edits as ed
 from . import nodes as nd
 from . import scene as sc
@@ -615,6 +616,19 @@ class MasonDoc:
                 "directly or through another prefab it places"
             )
         template = nd.copy_subtree(node, fresh_uids=False)
+        # The 2026-09-26 audit, finding mason-engine-01: the instance that
+        # replaces ``node`` in the tree (``mode.py``'s ``define_prefab_from_selection``)
+        # is given ``node``'s own translation/rotation/scale, so the template
+        # root carrying that same TRS made ``scene.py``'s expansion apply it
+        # twice -- once for the instance's ``local()``, once more for the
+        # template root's -- landing every instance at double its transform.
+        # ``unpack_instance`` already treats the template root's TRS as
+        # meaningless (it overwrites ``copy.translation``/``rotation``/``scale``
+        # with the *instance*'s own, a few lines below in this file), so
+        # identity here is what the rest of this module already assumes.
+        template.translation = m3.vec3()
+        template.rotation = m3.quat_identity()
+        template.scale = m3.vec3(1.0, 1.0, 1.0)
         before = self.prefabs.get(name)
         # Charge this template against the same MAX_PLACED ceiling
         # ``read_rscn`` will check it against on reopen (roots plus every

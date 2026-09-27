@@ -51,6 +51,28 @@ _USHORT = 5123
 _UINT = 5125
 
 
+def _finite_json_float(value: float, what: str) -> float:
+    """*value* as a plain ``float``, refused if it is not finite.
+
+    The 2026-09-26 audit's clay-io-07: a material factor is written straight
+    into the JSON chunk, not the binary buffer -- so a NaN or an Infinity
+    here (an untrusted importer that let one through, an op with a division
+    bug) is not valid JSON at all, only a token ``json.dumps``'s default
+    ``allow_nan=True`` emits anyway. Refusing it here, at the one door every
+    material factor already goes through, is cheaper than trusting every
+    caller of :meth:`_Writer.material` to have checked first.
+    """
+    out = float(value)
+    if not np.isfinite(out):
+        raise ValueError(f"write_glb refuses a non-finite material {what}: {out!r}")
+    return out
+
+
+def _finite_json_floats(values: Any, what: str) -> list[float]:
+    """:func:`_finite_json_float` over a whole factor, e.g. ``baseColorFactor``."""
+    return [_finite_json_float(v, what) for v in values]
+
+
 def _png(image: tuple[int, int, bytes]) -> bytes:
     """A decoded ``(width, height, rgba)`` slot back to PNG bytes."""
     import io
@@ -129,8 +151,25 @@ class _Writer:
             "type": kind,
         }
         if bounds and len(array):
-            acc["min"] = [float(v) for v in array.min(axis=0)]
-            acc["max"] = [float(v) for v in array.max(axis=0)]
+            mn = array.min(axis=0)
+            mx = array.max(axis=0)
+            # The 2026-09-26 audit's clay-io-07: a NaN or an Infinity in the
+            # data (an importer that let one through, or a bug in an op) came
+            # straight out the other end here -- unlike the raw bytes in the
+            # buffer view above, ``min``/``max`` are JSON *numbers*, and a
+            # non-finite float is not valid JSON at all, only a token
+            # ``json.dumps``'s default ``allow_nan=True`` writes anyway. A
+            # reader that trusts these bounds without checking them (most do,
+            # per this method's own module docstring) would then frame the
+            # scene from garbage instead of getting a file it can even parse.
+            if not (np.isfinite(mn).all() and np.isfinite(mx).all()):
+                raise ValueError(
+                    "write_glb refuses a non-finite vertex bound -- a NaN or "
+                    "an Infinity is not valid JSON, and this writer will not "
+                    "emit one silently."
+                )
+            acc["min"] = [float(v) for v in mn]
+            acc["max"] = [float(v) for v in mx]
         self.accessors.append(acc)
         return len(self.accessors) - 1
 
@@ -182,22 +221,26 @@ class _Writer:
             return self._material_index[key]
         doc: dict[str, Any] = {
             "pbrMetallicRoughness": {
-                "baseColorFactor": [float(v) for v in material.base_color_factor],
-                "metallicFactor": float(material.metallic_factor),
-                "roughnessFactor": float(material.roughness_factor),
+                "baseColorFactor": _finite_json_floats(
+                    material.base_color_factor, "baseColorFactor"
+                ),
+                "metallicFactor": _finite_json_float(material.metallic_factor, "metallicFactor"),
+                "roughnessFactor": _finite_json_float(
+                    material.roughness_factor, "roughnessFactor"
+                ),
             }
         }
         if material.name:
             doc["name"] = material.name
         self._material_textures(material, doc)
         if any(material.emissive_factor):
-            doc["emissiveFactor"] = [float(v) for v in material.emissive_factor]
+            doc["emissiveFactor"] = _finite_json_floats(material.emissive_factor, "emissiveFactor")
         if material.double_sided:
             doc["doubleSided"] = True
         if material.alpha_mode != "OPAQUE":
             doc["alphaMode"] = material.alpha_mode
             if material.alpha_mode == "MASK":
-                doc["alphaCutoff"] = float(material.alpha_cutoff)
+                doc["alphaCutoff"] = _finite_json_float(material.alpha_cutoff, "alphaCutoff")
         self.materials.append(doc)
         index = len(self.materials) - 1
         self._material_index[key] = index

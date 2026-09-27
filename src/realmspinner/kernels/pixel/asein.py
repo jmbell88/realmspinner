@@ -443,12 +443,35 @@ class _Parse:
         #: are filled forward at the end of the parse.
         self.palette_snaps: dict[int, list[RGBA]] = {}
         self.palette_touched = False
+        #: Running total of colours across every snapshot in
+        #: ``palette_snaps``, charged in ``_read_frame`` at the point a
+        #: snapshot is taken. The 2026-09-26 audit, finding inker-codecs-03:
+        #: each snapshot is the *whole* table (up to ``_MAX_PALETTE_ENTRIES``,
+        #: 65536) and nothing summed the total across every frame that
+        #: touches it -- a 9.7 KB file naming 200 frames each changing one
+        #: entry retained 217 MB with no refusal. The same shared ceiling
+        #: ``tileset_pixels``/``cel_pixels`` above use, for the identical
+        #: unbounded-total shape.
+        self.palette_entries = 0
         #: Running total of decoded tileset pixels across every 0x2023 chunk
         #: this file declares, charged in ``_read_tileset`` and checked
         #: against ``pixelguard.MAX_DECODE_PIXELS`` -- the 2026-09-16 audit's
         #: fix for the same summed-total hole ``ora.py``'s tiles.json reader
         #: closed for ``tileset_pixels`` there after the 2026-09-11 audit.
         self.tileset_pixels = 0
+        #: Running total of ``cel.width * cel.height`` across every raw or
+        #: compressed cel chunk this file declares, charged in ``_read_cel``
+        #: before its own inflate rather than after it -- the 2026-09-26
+        #: audit, finding inker-codecs-02: ``_inflate`` already bounds one
+        #: cel's own decompressed size against ``MAX_DECOMPRESSED_BYTES``
+        #: (up to ~1 GiB), but nothing summed the total across every cel a
+        #: file may declare, and ``_build_cels``'s own running total charges
+        #: the *canvas*'s pixel count per cel rather than the cel's own
+        #: (possibly far larger, off-canvas) rectangle -- so a 654 KB file
+        #: naming many large off-canvas cels retained 1.34 GB with no
+        #: refusal at any point. The same running-total shape as
+        #: ``tileset_pixels`` above, for the identical reason.
+        self.cel_pixels = 0
         self.frame = 0
         #: Who the next ``USER_DATA`` chunk belongs to: ``(kind, ordinal)``,
         #: or ``None`` when the chunk before it was not one that owns user
@@ -610,7 +633,14 @@ def _read_frame(
     # all, so ``_frame_palettes`` finds nothing and the document is the one it
     # always was, down to the bytes.
     if state.palette_touched:
-        state.palette_snaps[index] = _final_palette(state) or []
+        snapshot = _final_palette(state) or []
+        state.palette_entries += len(snapshot)
+        if state.palette_entries > pixelguard.MAX_DECODE_PIXELS:
+            raise ValueError(
+                "this .aseprite's per-frame palette snapshots hold more than"
+                f" the {pixelguard.MAX_DECODE_PIXELS} colours this build will open"
+            )
+        state.palette_snaps[index] = snapshot
         state.palette_touched = False
     return end
 
@@ -908,6 +938,15 @@ def _read_cel(state: _Parse, r: _Reader) -> None:
     elif kind in (_CEL_RAW, _CEL_COMPRESSED):
         cel.width = r.u16()
         cel.height = r.u16()
+        # Charged before the inflate below (or, for a raw cel, before the
+        # plane is retained), in the cel's own pixels rather than the
+        # canvas's -- ``state.cel_pixels``'s docstring says why.
+        state.cel_pixels += cel.width * cel.height
+        if state.cel_pixels > pixelguard.MAX_DECODE_PIXELS:
+            raise ValueError(
+                f"a cel on layer {layer} declares more than the"
+                f" {pixelguard.MAX_DECODE_PIXELS} pixels this build will open"
+            )
         raw = r.rest()
         if kind == _CEL_COMPRESSED:
             # ``_decode``'s arithmetic, hoisted ahead of the allocation.
@@ -1822,6 +1861,18 @@ def document_from_aseprite(
                 blend=sprite.layers[index].blend,
                 locked=sprite.layers[index].locked,
                 continuous=sprite.layers[index].continuous,
+                # The 2026-09-26 audit, finding inker-codecs-04: a ``Track``'s
+                # ``background``/``reference`` are authoritative over the
+                # materialised ``Layer``'s own (this dataclass's own
+                # docstring says so -- ``Document._materialize_frame`` copies
+                # them down every time), so leaving them at their default
+                # ``False`` here silently overwrote what ``_build_cels``
+                # above had already read correctly off the same row the
+                # moment any frame materialised -- an animated document lost
+                # both flags that a still one, built from ``made`` directly,
+                # kept.
+                background=sprite.layers[index].background,
+                reference=sprite.layers[index].reference,
                 # The layer's user data, onto the row that *is* that layer's
                 # identity here. A direct field, because a track is one object
                 # -- the per-cel half below is the dict, for the reason it is

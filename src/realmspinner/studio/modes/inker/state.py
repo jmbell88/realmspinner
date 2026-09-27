@@ -736,15 +736,20 @@ TOOL_OPTION_DEFAULTS: dict[str, Any] = {
 CONTEXT_WIDGETS = _context_table()
 
 
-def _safe_int(value: Any, fallback: int, *, minimum: int) -> int:
+def _safe_int(value: Any, fallback: int, *, minimum: int, maximum: int | None = None) -> int:
     """``value`` as an int no smaller than ``minimum``, or ``fallback`` if it
     is not a number at all -- a hand-edited settings file's own doctrine,
     applied to a recorded export option the same way ``clamp_canvas`` applies
-    it to a typed size."""
+    it to a typed size. ``maximum``, when given, is the other half of that
+    doctrine: a floor alone still let a hand-edited ``"scale": 100000`` back
+    into a live tab, unbounded, the way ``clamp_resize``'s own docstring
+    warns a floor-only rule always does (the 2026-09-26 audit, inker-mode-13).
+    """
     try:
-        return max(minimum, int(value))
+        out = max(minimum, int(value))
     except (TypeError, ValueError):
         return fallback
+    return out if maximum is None else min(out, maximum)
 
 
 #: The nine export controls, and the value each starts at -- ``InkerState``'s
@@ -774,6 +779,14 @@ EXPORT_OPTION_DEFAULTS: dict[str, Any] = {
     "scale": 1,
     "template": "",
 }
+
+#: The largest ``export_scale`` a restored settings block may set. Not the
+#: allocation guard itself -- ``inker_export._export_scale_overflow`` is,
+#: measured against the document actually being written -- but a floor
+#: without a ceiling still let a hand-edited sidecar's ``"scale": 100000``
+#: back into a live tab's controls, unbounded, between here and whichever
+#: export finally rejects it (the 2026-09-26 audit, inker-mode-13).
+MAX_EXPORT_SCALE = 64
 
 DEFAULT_SWATCHES: tuple[tuple[int, int, int, int], ...] = (
     (0, 0, 0, 255),
@@ -1992,7 +2005,9 @@ class InkerState(docmodes.DocTabs[InkerDoc]):
         self.export_trim = bool(merged["trim"])
         self.export_padding = _safe_int(merged["padding"], self.export_padding, minimum=0)
         self.export_extrude = _safe_int(merged["extrude"], self.export_extrude, minimum=0)
-        self.export_scale = _safe_int(merged["scale"], self.export_scale, minimum=1)
+        self.export_scale = _safe_int(
+            merged["scale"], self.export_scale, minimum=1, maximum=MAX_EXPORT_SCALE
+        )
         self.export_template = str(merged.get("template") or "")
 
     # -- documents ---------------------------------------------------------
@@ -2006,6 +2021,15 @@ class InkerState(docmodes.DocTabs[InkerDoc]):
         self._settle_transform()
         self.clear_drag()
         self.forget_held_keys()
+        # ``close()`` has already dropped the tab from ``self.docs`` by the
+        # time this runs, so a session whose owner is now gone is found the
+        # same way ``session()`` finds a live one: by tab_uid, never by index.
+        # Left set, it pinned ``open_reason`` at ``ALREADY_OPEN`` for the rest
+        # of the app run -- "Create walk cycle" stayed greyed for every other
+        # document too, with no session left for Cancel to throw away (the
+        # 2026-09-26 audit, inker-mode-05).
+        if self.walk is not None and self.get(self.walk.tab_uid) is None:
+            self.walk = None
 
     def _settle_transform(self) -> None:
         """Cancel an open free transform the moment its owner stops being the

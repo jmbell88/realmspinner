@@ -87,6 +87,21 @@ REFINE_MS = 100.0
 #: chose, never the next one.
 ZERO_CROSS_MS = 20.0
 
+#: Below this peak amplitude, :func:`_refine`'s ``target`` window is treated as
+#: silence rather than a shape to match.
+#:
+#: **muse-engine-03 (2026-09-26 audit).** A silent ``target`` is all zeros, so
+#: ``np.correlate`` against it is zero at every offset and the ``energy``
+#: denominator sits at its own numerical floor everywhere too -- ``corr /
+#: energy`` is flat, and ``np.argmax`` of a flat array is its first index by
+#: definition, not "nothing preferred this position". That snapped ``end`` to
+#: roughly ``half`` samples *before* where it started on every silent region
+#: this stage ever saw, silently, because a flat array is not distinguishable
+#: from a one-sample-wide peak by ``argmax`` alone. The same scale the other
+#: normalisations in this module float their own zero-guards at (``1e-6``,
+#: above).
+_SILENT_TARGET_PEAK = 1e-6
+
 # --- the three weights ------------------------------------------------------
 #
 # **Chosen by ear, and unmeasured.** They are not corpus-keyed, so no
@@ -293,6 +308,12 @@ def _refine(mono: np.ndarray, start: int, end: int, rate: int) -> tuple[int, int
     if region.size <= target.size or target.size == 0:
         return start, end
 
+    # muse-engine-03 (2026-09-26 audit): a target with nothing in it to match
+    # is left alone, the same rule this function's own docstring already
+    # states for "no crossing in its window" -- see :data:`_SILENT_TARGET_PEAK`.
+    if float(np.max(np.abs(target))) < _SILENT_TARGET_PEAK:
+        return _snap(mono, start, rate), _snap(mono, end, rate)
+
     # Normalised, so the match is about shape rather than about which candidate
     # happens to be louder -- the same reason stage 2 normalises per frame.
     corr = np.correlate(region, target, mode="valid")
@@ -407,6 +428,18 @@ def crossfade(pcm: np.ndarray, start: int, end: int, fade: int) -> np.ndarray:
     """
     data = np.asarray(pcm)
     dtype = data.dtype
+    # muse-engine-04 (2026-09-26 audit). Not reachable through today's UI --
+    # every live caller already comes through ``fileio.loop_cache_key``,
+    # which now bounds ``start``/``end`` to the take itself -- but this
+    # function trusted them regardless: ``end`` past ``len(pcm)`` raised
+    # ``IndexError`` at ``data[end - 1]`` below, and a negative ``start``
+    # silently wrapped Python's own slicing convention onto samples from the
+    # *tail* of the take instead of refusing what is obviously not a region
+    # of it. Clamped here too, the same as every other kernel boundary in
+    # this codebase that takes a caller-supplied index rather than trusting
+    # its one caller to have already checked.
+    start = max(0, min(int(start), data.shape[0]))
+    end = max(start, min(int(end), data.shape[0]))
     body = data[start:end].astype(np.float32).copy()
     n = body.shape[0]
     fade = int(max(0, min(fade, n // 2)))

@@ -99,12 +99,14 @@ Three downloads are listed once you get to them:
 The first of those was part of the installer until 2026-09-10, where it was more than half of
 everything you downloaded whether or not you ever made a 3D model. It is a row like the others now.
 
-That download is the only network use there is, and the mechanism is deliberate rather than
-incidental. The app process sets `HF_HUB_OFFLINE=1` at import and keeps it for its entire life; the
-Download button spawns a *separate* process which goes online in its own environment, fetches one
-repository into a staging directory beside its destination, moves the files in only if it succeeded,
-and exits. So a cancelled or failed fetch leaves no half-populated model directory, and the app
-never becomes online-capable — not even briefly. To run the downloads yourself instead,
+Downloading these is one of three things in the app that go online — the other two are installing a
+dependency pack (Settings → Packs) and checking for a new release (Settings → Updates) — and the
+mechanism behind all three is deliberate rather than incidental. The app process sets
+`HF_HUB_OFFLINE=1` at import and keeps it for its entire life; the Download button spawns a
+*separate* process which goes online in its own environment, fetches one repository into a staging
+directory beside its destination, moves the files in only if it succeeded, and exits. So a cancelled
+or failed fetch leaves no half-populated model directory, and the app process itself never becomes
+online-capable — not even briefly. To run the downloads yourself instead,
 [Model weights](40-installation.md#model-weights) has the commands with their pinned revisions.
 
 ## What works before the downloads finish

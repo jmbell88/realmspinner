@@ -344,8 +344,16 @@ class JobOps:
             "sheet_id": store.new_id(),
             "template": params.get("rig_template") or self.config.rig_template,
             "logical_size": block.get("logical_size"),
-            "colors": block.get("colors"),
-            "outline": block.get("outline"),
+            # Carried explicitly (poser-jobs-01, the 2026-09-26 audit): an HD
+            # block (``service.troupe._check_options``, D5 HD mode) pops
+            # ``colors``/``outline`` and writes ``pixel_art: False``, but this
+            # row never used to copy ``pixel_art`` at all, so
+            # ``_q_troupe``'s ``params.get("pixel_art") is not False`` read an
+            # absent key as *True* -- the ordinary pixel-art path -- for a
+            # sheet whose block said HD, and that path's
+            # ``int(params.get("colors", 64))`` then met the ``None`` two
+            # lines below and raised ``TypeError`` after the whole render.
+            "pixel_art": block.get("pixel_art") is not False,
             "reduce_mode": block.get("reduce_mode"),
             "dither": bool(block.get("dither")),
             "palette": block.get("palette") or "",
@@ -355,6 +363,15 @@ class JobOps:
             # change what an older request means.
             "layout": block.get("layout"),
         }
+        if block.get("colors") is not None:
+            # Present only when the block actually named one -- an HD block's
+            # ``colors`` key is absent, and writing ``None`` for it here (as
+            # this used to) is a key that *exists* and is not a number, which
+            # defeats ``_q_troupe``'s ``params.get("colors", 64)`` default the
+            # same way a present ``None`` elevation would (see below).
+            sheet_params["colors"] = block["colors"]
+        if block.get("outline") is not None:
+            sheet_params["outline"] = block["outline"]
         if block.get("elevation") is not None:
             # The camera preset the form chose, resolved to an angle and
             # validated at the reference door. Copied only when the request

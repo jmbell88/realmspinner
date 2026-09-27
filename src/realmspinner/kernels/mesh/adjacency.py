@@ -53,6 +53,7 @@ from __future__ import annotations
 import threading
 import weakref
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 
 import numpy as np
@@ -223,19 +224,76 @@ def _build(mesh: Mesh) -> Adjacency:
 # The 2026-09-23 audit's clay-12: these three caches were unsynchronized on
 # the same premise ``mesh.py``'s ``_RAW_CACHE`` was before the 2026-09-12
 # audit's clay-04 gave it a lock -- that every caller runs on the frame
-# thread -- and that premise is just as false here. Familiar's agent batch
-# runs a scratch preview (``kernels/mesh/scratch.py``) off the frame thread,
-# on ``Mesh`` objects shared with the live document (meshes are immutable and
-# deliberately shared, not copied, by ``scratch.clone``), and any of
-# ``adjacency``/``cached_positions_f8``/``cached_triangulation`` reached from
-# that batch races the frame thread reading or filling the same
-# ``WeakKeyDictionary`` entry for the same mesh. One lock guards all three:
-# they are never held across another lock and each critical section is only
-# a dict get/set, so contention costs an uncontended acquire, same as
-# ``_RAW_CACHE_LOCK`` there.
+# thread -- and that premise is just as false here. The character pipeline's
+# generators (``characters/*/generate.py``) run on the MCP service lane's own
+# ``TaskRunner`` (``studio/agent_host.py``'s ``SERVICE_WORKERS`` pool), off the
+# frame thread, and any of ``adjacency``/``cached_positions_f8``/
+# ``cached_triangulation`` reached from there races the frame thread reading
+# or filling the same ``WeakKeyDictionary`` entry for the same mesh. One lock
+# guards all three: they are never held across another lock and each critical
+# section is only a dict get/set, so contention costs an uncontended acquire,
+# same as ``_RAW_CACHE_LOCK`` there.
+#
+# **The 2026-09-26 audit's clay-mesh-core-04: "only a dict get/set" was the
+# intent, not what shipped.** All three functions below held ``_CACHE_LOCK``
+# across their own ``_build``/``triangulate`` call too, not just the
+# dictionary access either side of it -- so a slow build for one mesh on the
+# service lane (a dense character import, off the frame thread) held the
+# *one* lock every other mesh's cached lookup on the frame thread also
+# needs, blocking every pick and hover in the whole app for as long as that
+# unrelated mesh took to adjacency-build
+# (``test_a_slow_adjacency_build_on_one_thread_does_not_block_another_meshs_cached_triangulation``).
+#
+# Moving the build outside the lock entirely fixed that but broke the other
+# half of the same finding (clay-12,
+# ``test_adjacency_cache_builds_only_once_under_concurrent_access_from_two_threads``):
+# with no lock held across the build, two threads racing the same mesh's
+# cache miss both called ``_build`` -- wasted work, and no longer "harmless"
+# now that a caller can hold the returned ``Adjacency`` by identity (a GPU
+# buffer keyed on ``id(adj)``) and get a *different* object than a concurrent
+# caller for what must be one cached value.
+#
+# So the lock guards two different things at two different granularities:
+# ``_CACHE_LOCK`` itself, held only ever for a dict get/set, and a per-mesh
+# ``threading.Lock`` (in ``_BUILDING``, itself only ever touched under
+# ``_CACHE_LOCK``) held across exactly one thread's build of exactly one
+# mesh. Two threads missing on the *same* mesh get the same per-mesh lock and
+# serialize on it, so only one of them builds and the second's post-build
+# recheck is a cache hit; two threads missing on *different* meshes get two
+# different locks and build fully concurrently. ``_BUILDING`` is weak-keyed
+# for the same reason ``_CACHE`` is: a lock entry must not outlive the mesh
+# it guards.
 _CACHE_LOCK = threading.Lock()
 
+
+def _memoized(
+    store: weakref.WeakKeyDictionary[Mesh, object],
+    building: weakref.WeakKeyDictionary[Mesh, threading.Lock],
+    mesh: Mesh,
+    build: Callable[[Mesh], object],
+) -> object:
+    """Shared shape for the three caches below -- see the block comment above."""
+    with _CACHE_LOCK:
+        got = store.get(mesh)
+        if got is not None:
+            return got
+        lock = building.get(mesh)
+        if lock is None:
+            lock = threading.Lock()
+            building[mesh] = lock
+    with lock:
+        with _CACHE_LOCK:
+            got = store.get(mesh)
+        if got is not None:
+            return got
+        got = build(mesh)
+        with _CACHE_LOCK:
+            got = store.setdefault(mesh, got)
+        return got
+
+
 _CACHE: weakref.WeakKeyDictionary[Mesh, Adjacency] = weakref.WeakKeyDictionary()
+_BUILDING: weakref.WeakKeyDictionary[Mesh, threading.Lock] = weakref.WeakKeyDictionary()
 
 
 def adjacency(mesh: Mesh) -> Adjacency:
@@ -245,15 +303,17 @@ def adjacency(mesh: Mesh) -> Adjacency:
     what lets a caller key a GPU buffer or a memo on ``id(adj)``; a mesh that
     becomes unreachable takes its entry with it.
     """
-    with _CACHE_LOCK:
-        got = _CACHE.get(mesh)
-        if got is None:
-            got = _build(mesh)
-            _CACHE[mesh] = got
-        return got
+    return _memoized(_CACHE, _BUILDING, mesh, _build)
 
 
 _F8: weakref.WeakKeyDictionary[Mesh, np.ndarray] = weakref.WeakKeyDictionary()
+_F8_BUILDING: weakref.WeakKeyDictionary[Mesh, threading.Lock] = weakref.WeakKeyDictionary()
+
+
+def _build_f8(mesh: Mesh) -> np.ndarray:
+    got = mesh.positions.astype("f8")
+    _freeze(got)
+    return got
 
 
 def cached_positions_f8(mesh: Mesh) -> np.ndarray:
@@ -264,16 +324,17 @@ def cached_positions_f8(mesh: Mesh) -> np.ndarray:
     mesh that is frozen and cannot have changed. Cheap next to the ray cast
     itself, but it is a full copy of an array the cast then only reads.
     """
-    with _CACHE_LOCK:
-        got = _F8.get(mesh)
-        if got is None:
-            got = mesh.positions.astype("f8")
-            _freeze(got)
-            _F8[mesh] = got
-        return got
+    return _memoized(_F8, _F8_BUILDING, mesh, _build_f8)
 
 
 _TRIS: weakref.WeakKeyDictionary[Mesh, tuple[np.ndarray, np.ndarray]] = weakref.WeakKeyDictionary()
+_TRIS_BUILDING: weakref.WeakKeyDictionary[Mesh, threading.Lock] = weakref.WeakKeyDictionary()
+
+
+def _build_tris(mesh: Mesh) -> tuple[np.ndarray, np.ndarray]:
+    tris, tri_face = triangulate(mesh)
+    _freeze(tris, tri_face)
+    return (tris, tri_face)
 
 
 def cached_triangulation(mesh: Mesh) -> tuple[np.ndarray, np.ndarray]:
@@ -283,14 +344,7 @@ def cached_triangulation(mesh: Mesh) -> tuple[np.ndarray, np.ndarray]:
     list within one frame, and re-fanning a 200k-corner mesh three times per
     frame is the difference between an interactive viewport and a slideshow.
     """
-    with _CACHE_LOCK:
-        got = _TRIS.get(mesh)
-        if got is None:
-            tris, tri_face = triangulate(mesh)
-            _freeze(tris, tri_face)
-            got = (tris, tri_face)
-            _TRIS[mesh] = got
-        return got
+    return _memoized(_TRIS, _TRIS_BUILDING, mesh, _build_tris)
 
 
 # --- boundary rings ---------------------------------------------------------

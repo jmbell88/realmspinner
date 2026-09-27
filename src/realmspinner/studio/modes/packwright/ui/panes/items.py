@@ -38,9 +38,7 @@ def draw(ctx: Any) -> None:
     if tab.pack_error:
         widgets.text_colored(theme.ERR, f"{icons.TRIANGLE_ALERT} {tab.pack_error}")
         imgui.dummy((0, sp(tokens.SP_1)))
-        widgets.muted_wrapped(
-            "Raise the max size, turn trimming on, or split this into two atlases."
-        )
+        widgets.muted_wrapped(_pack_error_remedy(tab))
         return
 
     layout = tab.layout
@@ -78,6 +76,20 @@ def draw(ctx: Any) -> None:
         for index in range(clipper.display_start, clipper.display_end):
             _item_row(state, layout.frames[index], by_key)
     clipper.end()
+
+
+def _pack_error_remedy(tab: Any) -> str:
+    """The sentence under a pack failure, naming only remedies that apply.
+
+    The 2026-09-26 audit, packwright-mode-05: this used to be fixed text shown
+    under *any* pack failure, but "turn trimming on" does nothing for a grid
+    pack -- ``layout.grid_layout`` always packs with trim off, whatever the
+    setting says (see that module's docstring for why) -- so the one remedy a
+    grid failure can actually use was buried in two that do not apply to it.
+    """
+    if tab.doc.settings.mode == "grid":
+        return "Raise the max size, or split this into two atlases."
+    return "Raise the max size, turn trimming on, or split this into two atlases."
 
 
 def _coverage_pct(tab: Any) -> int:

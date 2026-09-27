@@ -649,22 +649,37 @@ def create_sprite_synthesis(
     # file count alone let N rapid submits all pass. Count and create under
     # one job-wide hold -- the pose cap's CON-03 rule, taken at this door.
     with svc.convert_lock(job_id, "sprite_drafts"):
-        queued = sum(
-            1
-            for j in svc.store.active_jobs()
-            if j["kind"] == "sprite_synthesis"
-            and (j.get("params") or {}).get("source_job") == job_id
-        )
-        if len(store.list_sprite_drafts(job_dir)) + queued >= store.MAX_SPRITE_DRAFTS:
-            raise Conflict(
-                f"this reference already has {store.MAX_SPRITE_DRAFTS} sprite "
-                "sheet drafts; delete one first"
-            )
+        check_sprite_draft_cap(svc, job_id, job_dir)
         new_id = svc.store.create(
             "sprite_synthesis", source["prompt"], params, uuid.uuid4().hex[:12]
         )
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id, "draft": draft_id}
+
+
+def check_sprite_draft_cap(svc: RealmspinnerService, job_id: str, job_dir: Path) -> None:
+    """Refuse the sprite draft that would take *job_id* past ``MAX_SPRITE_DRAFTS``.
+
+    Extracted out of ``create_sprite_synthesis`` (the 2026-09-26 audit,
+    poser-jobs-03) so ``_jobs_resubmit.rerun_job`` can hold the same door on a
+    reroll of a ``sprite_synthesis`` row -- that path minted a fresh
+    ``draft_id`` but skipped this cap and the ``convert_lock`` around it
+    entirely, unlike every other door onto this pool. Called under
+    ``svc.convert_lock(job_id, "sprite_drafts")``: the trio a draft writes
+    lands minutes after the row is minted, so counting files alone would let
+    N rapid submits all read the same count and all pass.
+    """
+    queued = sum(
+        1
+        for j in svc.store.active_jobs()
+        if j["kind"] == "sprite_synthesis"
+        and (j.get("params") or {}).get("source_job") == job_id
+    )
+    if len(store.list_sprite_drafts(job_dir)) + queued >= store.MAX_SPRITE_DRAFTS:
+        raise Conflict(
+            f"this reference already has {store.MAX_SPRITE_DRAFTS} sprite "
+            "sheet drafts; delete one first"
+        )
 
 
 def list_sprite_drafts(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:

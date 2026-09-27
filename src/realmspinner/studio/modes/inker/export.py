@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,9 +28,33 @@ from typing import Any
 
 from ....core.safeio import atomic
 from ....kernels import sheet as sheetlib
+from ....kernels.pixel import sheetout
 from ... import dialogs, icons
 from . import mode as inker_mode
 from .state import InkerDoc
+
+#: The most pixels one export's magnification may produce. Not a fresh
+#: number: ``NEW_MAX`` squared, the pixel count of the largest canvas the New
+#: dialog will ever hand out -- an export cannot need more than the app's own
+#: biggest document already holds, however ``export_scale`` got to be that
+#: large. Checked before ``transform.upscale`` (``np.repeat``) runs, because it
+#: allocates before touching any ceiling of its own: a 4096x4096 canvas at 8x
+#: is a ~4 GiB allocation, and a hand-edited sidecar's ``"scale": 100000`` is
+#: unbounded (the 2026-09-26 audit, inker-mode-13).
+MAX_EXPORT_PIXELS = inker_mode.NEW_MAX * inker_mode.NEW_MAX
+
+
+def _export_scale_overflow(size: tuple[int, int], scale: int) -> str | None:
+    """``None``, or why magnifying *size* by *scale* asks for too much."""
+    width, height = int(size[0]), int(size[1])
+    scale = max(1, int(scale))
+    out_w, out_h = width * scale, height * scale
+    if out_w * out_h <= MAX_EXPORT_PIXELS:
+        return None
+    return (
+        f"{width}x{height} at {scale}x would be {out_w}x{out_h} "
+        f"({out_w * out_h:,} px), over the {MAX_EXPORT_PIXELS:,}-pixel export ceiling"
+    )
 
 
 def export_png(ctx: Any, tab: InkerDoc | None = None, *, repeat: bool = False) -> None:
@@ -64,6 +89,11 @@ def export_png(ctx: Any, tab: InkerDoc | None = None, *, repeat: bool = False) -
             return None
         if dest.suffix.lower() != ".png":
             dest = dest.with_suffix(".png")
+        overflow = _export_scale_overflow(doc.size, scale)
+        if overflow is not None:
+            from ....service.errors import TooLarge
+
+            raise TooLarge(overflow, field="export_scale")
         atomic.write_bytes(dest, doc.png_bytes(scale=scale))
         # ``dest`` and ``export_kind`` so the *next* repeat has something to
         # repeat -- ``on_task_done`` records both.
@@ -108,16 +138,41 @@ def _slice_filenames(entries: list[Any]) -> list[str]:
     pins both halves against each other so neither can drift onto the other's
     policy unnoticed.
     """
+    def _key(value: str) -> str:
+        # ``require_distinct_names``'s idiom exactly, and for its reason:
+        # NTFS and APFS are both case-insensitive by default, and this
+        # module preserves non-ASCII, so the fold has to run over the
+        # NFC form or a macOS-typed name and a Windows-typed one would
+        # count as different slices.
+        return unicodedata.normalize("NFC", value).casefold()
+
+    def _blocked(value: str) -> bool:
+        if _key(value) in taken:
+            return True
+        try:
+            sheetout.reserved_check(value)
+        except ValueError:
+            # A slice literally named "NUL" or "com1" sanitises intact --
+            # ``_SLICE_SAFE`` only touches characters -- and used to be
+            # handed straight to ``run()``, which wrote ``NUL.png`` where
+            # Windows silently refuses the device name instead (the
+            # 2026-09-26 audit, inker-mode-10). Folded into the same
+            # bump loop as an ordinary collision: a human reads these
+            # names off a folder listing, the same reason a repeated
+            # "Hitbox" bumps rather than refuses.
+            return True
+        return False
+
     taken: set[str] = set()
     out = []
     for entry in entries:
         base = _SLICE_SAFE.sub("-", entry.name).strip("-") or "slice"
         candidate = base
         counter = 2
-        while candidate in taken:
+        while _blocked(candidate):
             candidate = f"{base}_{counter}"
             counter += 1
-        taken.add(candidate)
+        taken.add(_key(candidate))
         out.append(candidate)
     return out
 
@@ -251,6 +306,11 @@ def export_slices(
                     ) from exc
                 suffix = ".png"
             else:
+                overflow = _export_scale_overflow((x1 - x0, y1 - y0), scale)
+                if overflow is not None:
+                    from ....service.errors import TooLarge
+
+                    raise TooLarge(f'"{name}": {overflow}', field="export_scale")
                 pixels = upscale(flat[y0:y1, x0:x1], scale)
                 suffix = ".png"
             out = dest.parent / f"{name}{suffix}"
@@ -948,6 +1008,17 @@ def _submit_export(ctx: Any, export: _Export) -> None:
     # user could change while the encode is in flight would otherwise decide
     # the file's size halfway through writing it.
     scale = max(1, int(getattr(state, "export_scale", 1) or 1))
+    overflow = _export_scale_overflow(doc.size, scale)
+    if overflow is not None:
+        # Refused here, before the file dialog and before any frame is
+        # composed, the same shape as the count-mismatch and arrange
+        # refusals below: every leg's ``upscale`` shares this one document
+        # size and this one scale, so one check up front catches every leg
+        # ``run_sheet``/``run_gif``/``run_pngseq`` would otherwise allocate
+        # for (the 2026-09-26 audit, inker-mode-13).
+        tab.saving = False
+        ctx.toast(overflow, "warn")
+        return
     # Same reason as ``scale`` beside it: a setting the user could change
     # mid-encode must not decide, halfway through, how this file is packed.
     arrange = getattr(state, "export_arrange", None)

@@ -41,6 +41,7 @@ from .validate import (
     _euler_xyz_from_quat,
     _json,
     _label_top,
+    _over_frame_budget,
     _protocol,
     _quat_from_euler_xyz,
     _tab,
@@ -57,9 +58,8 @@ from .validate import (
 # docstring for why those run inline rather than on a task thread) could be
 # folded into one call and block the frame thread for minutes. Kept local to
 # this handler, not in ``schema.py``, so it changes no published tool
-# description or schema byte (``derive_clay_card()`` reads those) -- a plain
-# handler-side deadline, exactly ``clay_program``'s own shape, checked
-# between entries the same way.
+# description or schema byte -- a plain handler-side deadline, exactly
+# ``clay_program``'s own shape, checked between entries the same way.
 BATCH_DEADLINE_S = 30.0
 
 
@@ -486,6 +486,21 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     # merely comparable" guarantee ``_json``'s own docstring keeps, applied
     # by hand here because this is the one JSON payload in the file built
     # without going through ``_json`` itself.
+    #
+    # The 2026-09-26 audit, finding clay-agent-tools-02: this embeds every
+    # nested call's own whole result in ``results`` with no ceiling of its
+    # own -- unlike ``clay_scene``/``clay_diagnose``, whose replies scale with
+    # the document and are checked through ``_over_frame_budget`` (see that
+    # function's own docstring, including the "measured against the wire's
+    # own doubled copy" fix beside it), a batch of scene reads reaches
+    # whatever size its entries add up to with nothing to refuse it. 15.7 MB
+    # reproduced from an ordinary-looking batch of ``clay_scene`` calls, well
+    # past ``protocol.MAX_FRAME``. Checked here, against the *assembled*
+    # payload -- after the run, not per-entry -- because it is the sum that
+    # travels the wire.
+    over_budget = _over_frame_budget(payload)
+    if over_budget is not None:
+        return over_budget
     encoded = json.dumps(payload)
     result = ok(text(encoded), structured=json.loads(encoded))
     # Set by hand rather than through ``fail()``: a batch that stopped early
@@ -885,6 +900,16 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
     if stopped_at is not None:
         payload["failure"] = results[stopped_at]
 
+    # The 2026-09-26 audit, finding clay-agent-tools-02: the same missing
+    # ceiling as ``_h_batch``'s own payload above -- ``dry_run``'s own
+    # ``calls`` preview and a run's ``failure`` can each carry a whole nested
+    # tool result, with nothing checking the sum against ``protocol.
+    # MAX_FRAME`` before it reaches the wire twice over (see
+    # ``_over_frame_budget``'s own docstring). Checked against the fully
+    # assembled payload, the same point ``_h_batch`` checks its own.
+    over_budget = _over_frame_budget(payload)
+    if over_budget is not None:
+        return over_budget
     encoded = json.dumps(payload)
     result = ok(text(encoded), structured=json.loads(encoded))
     result["isError"] = stopped_at is not None

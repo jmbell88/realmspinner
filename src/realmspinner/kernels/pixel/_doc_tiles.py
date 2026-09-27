@@ -317,6 +317,19 @@ class TileOps:
         """
         if not self._will_be_tilemap(layer_uid):
             raise ValueError("place_tiles targets a tilemap layer")
+        # The 2026-09-26 audit, finding inker-document-06: this door -- the
+        # stamp tool, tile flood fill, every future placement gesture -- wrote
+        # refs onto the cel with no ``write_locked`` check at all, unlike
+        # every pixel-writing door in ``_doc_paint.py``. Checked against the
+        # current-frame row rather than the eventual (possibly still
+        # unmaterialised) cel, for the same reason ``_will_be_tilemap`` is:
+        # refused before ``_ensure_cel_for`` autovivifies anything.
+        try:
+            addressed = self.stack.by_uid(layer_uid)
+        except KeyError:
+            addressed = None
+        if addressed is not None and self.write_locked(addressed):
+            return False
         patch = np.asarray(patch, dtype=np.uint32)
         if patch.ndim != 2:
             raise ValueError("a tile patch is a 2-D refs plane")

@@ -199,9 +199,13 @@ INKER_BASICS = Tour(
             id="toolbox",
             title="The toolbox",
             body=(
-                "Twenty-four tools in twelve slots. Each slot has a letter, and pressing "
-                "that letter again cycles within the slot -- so B is the brush, and B "
-                "again is the spray."
+                # The 2026-09-26 audit, finding tour-1-01: this promised
+                # letter cycling ("B again is the spray") that chapter 5's own
+                # prose was already corrected away from at finding docs-02 --
+                # every tool has its own letter, and Spray answers to A or
+                # Shift+B, not a second B.
+                "Twenty-four tools in twelve groups. Each tool has its own letter -- "
+                "B is the brush, and A (or Shift+B) is the spray."
             ),
             mode="inker",
             anchor="inker/tools",

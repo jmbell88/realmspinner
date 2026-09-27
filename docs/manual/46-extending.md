@@ -269,9 +269,9 @@ not have completed, never a guess either way. Reconnecting after that — whethe
 mid-call or was simply never open at start-up — opens a new tab in the app, not a resume of
 whatever tab or document the agent was using before.
 
-The arrow only ever points inwards. Realmspinner runs exactly one pinned model, Familiar, on this computer
-only, and reaches no endpoint; an agent that is already running connects inward to Realmspinner itself,
-never to Familiar. The transport is a local named pipe
+The arrow only ever points inwards. Realmspinner ships no language model of its own and reaches no
+endpoint; an agent that is already running connects inward to Realmspinner itself, and never the
+other way round. The transport is a local named pipe
 rather than a port, so there is nothing to open in a firewall and nothing off your machine can
 reach it. The pipe's key lives in `mcp.token` in your Realmspinner home and is written when you switch
 the setting on, so a program that cannot read your files cannot connect either. `realmspinner mcp` is

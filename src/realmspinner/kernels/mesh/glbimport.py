@@ -38,6 +38,7 @@ will do with it.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -108,6 +109,14 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
         _header, doc, _rest = glbio.split_glb(data)
     except ValueError:
         return 0, 0
+    # The 2026-09-26 audit's clay-io-04: a node count already past what
+    # ``gltf.load`` would refuse for (``gltf.MAX_NODES``) is refused here too,
+    # on the JSON-only count alone, rather than walking every one of them (and
+    # every primitive on every mesh they name) in pure Python first only to
+    # reach the identical refusal at real decode cost a few lines later.
+    nodes = doc.get("nodes") or []
+    if len(nodes) > gltf.MAX_NODES:
+        return 0, MAX_OBJECTS + 1
     accessors = doc.get("accessors") or []
     meshes = doc.get("meshes") or []
 
@@ -128,7 +137,7 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
 
     tris = 0
     objects = 0
-    for node in doc.get("nodes") or []:
+    for node in nodes:
         mesh_index = node.get("mesh") if isinstance(node, dict) else None
         if not isinstance(mesh_index, int) or not 0 <= mesh_index < len(meshes):
             continue
@@ -147,6 +156,12 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
             )
             tris += declared // 3
             objects += 1
+            # The early exit itself (see the docstring): once either running
+            # total is already past what the caller refuses for, there is
+            # nothing left for the rest of this file's own declared entries
+            # to change about the verdict.
+            if tris > MAX_TRIANGLES or objects > MAX_OBJECTS:
+                return tris, objects
     return tris, objects
 
 
@@ -231,6 +246,21 @@ def _object_for(
     slot = _material_index(prim.material, materials, palette)
     mesh = _mesh_for(prim, slot)
     translation, rotation, scale = m3.decompose(node.world)
+    # The 2026-09-26 audit's clay-io-02: ``gltf.py``'s own loader refuses a
+    # node whose *own* declared ``matrix`` has shear (the 2026-09-20 audit's
+    # clay-16, right beside ``m3.decompose``'s own docstring), by this exact
+    # recompose-and-compare check -- but ``node.world`` is composed through
+    # the whole ancestor chain, and two individually shear-free T*R*S
+    # matrices (a non-uniform-scaled parent over a rotated child) can still
+    # compose into one that has shear, which that per-node check never sees.
+    # ``decompose`` cannot represent it either way -- it just drops it,
+    # silently distorting the imported geometry -- so a composed shear bakes
+    # the real matrix straight into the mesh's own vertices instead, which
+    # loses nothing: this module stores no per-vertex normal for a transform
+    # to invalidate, and every reader derives one from the baked geometry.
+    if not np.allclose(m3.compose(translation, rotation, scale), node.world, atol=1e-4, rtol=1e-4):
+        mesh = _bake_world(mesh, node.world)
+        translation, rotation, scale = m3.vec3(), m3.quat_identity(), m3.vec3(1.0, 1.0, 1.0)
     return Obj(
         uid=new_uid(),
         name=_unique(node.name or base, taken),
@@ -271,6 +301,22 @@ def _material_index(
         palette[key] = len(materials)
         materials.append(material)
     return palette[key]
+
+
+def _bake_world(mesh: Any, matrix: np.ndarray) -> Any:
+    """*mesh*, with *matrix* applied to every vertex position.
+
+    :func:`_object_for`'s escape hatch for a composed node transform ``Obj``'s
+    own T/R/S cannot represent (see its own comment, the 2026-09-26 audit's
+    clay-io-02): baking the exact matrix into the geometry once, up front,
+    keeps the imported shape identical to what the file actually places,
+    where handing ``decompose`` a sheared matrix would have silently dropped
+    the shear instead.
+    """
+    points = np.asarray(mesh.positions, dtype="f8")
+    homogeneous = np.concatenate([points, np.ones((len(points), 1), dtype="f8")], axis=1)
+    baked = (matrix @ homogeneous.T).T[:, :3]
+    return replace(mesh, positions=np.ascontiguousarray(baked, dtype="f4"))
 
 
 def _mesh_for(prim: gltf.Primitive, material: int) -> Any:

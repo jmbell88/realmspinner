@@ -11,10 +11,12 @@ Two models do the work. An image model (SDXL 1.0 by default) draws the reference
 your prompt. A reconstruction engine, Microsoft TRELLIS.2-4B running natively through
 `trellis-server.exe`, turns that picture into a mesh. Both run on your GPU.
 
-The app is **fully offline**. Model weights are downloaded once, by hand, before you start; after
-that Realmspinner never touches the network. There is no provider API, no account, no upload of
-your prompts or your images. If a set of weights is missing, the app tells you the exact command
-to fetch it rather than fetching anything itself.
+The app is **fully offline**. There is no provider API, no account, and nothing about your prompts
+or your images ever leaves the machine. Three things go online, and only three, each its own
+separate process that you start with a click: downloading model weights or the reconstruction
+engine (Settings → Models), installing a dependency pack (Settings → Packs), and checking for a new
+release (Settings → Updates). Outside those three, the app touches the network nowhere at all — a
+missing weight tells you the exact command to fetch it rather than fetching anything itself.
 
 It is also a single desktop window. There is no server to start, no browser tab, no `localhost`
 address. Everything described in this manual happens in one process.
@@ -138,15 +140,13 @@ The app opens on Home, every launch: no mode is remembered between runs, because
 what you want to be dropped into before you have said what you are doing. **Home**
 is the first entry in the rail described above, and returns there at any time.
 
-Once you are in the workspace, the window is five columns, left to right: the rail, the left
-sidebar, the canvas, the right sidebar, and the Familiar dock — and none of them is a size you
-drag. The rail and the closed dock are icon strips, each just wide enough for its icons; the two
-sidebars are a quarter of the window each; the canvas takes everything left over. Opening the dock
-grows it to 15% of the window, five points taken from each sidebar (so they become 20% each) and
-the rest from the canvas. Neither sidebar has a drag handle of its own any more; a window too
-narrow for a column's comfortable width compresses it instead, following a stated order (the
-sidebars give way to the open dock first, then the canvas), so there is one width per mode rather
-than a per-workspace preference to lose track of.
+Once you are in the workspace, the window is four columns, left to right: the rail, the left
+sidebar, the canvas and the right sidebar — and none of them is a size you drag. The rail is an
+icon strip, just wide enough for its icons; the two sidebars are a quarter of the window each; the
+canvas takes everything left over. Neither sidebar has a drag handle of its own any more; a window
+too narrow for a column's comfortable width compresses it instead, following a stated order (the
+sidebars give way first, then the canvas), so there is one width per mode rather than a
+per-workspace preference to lose track of.
 
 - **The left sidebar** is the settings form for the current mode, and nothing else — there is
   nothing left to split against, so it is one scrolling column with no divider. In Create a **stage
@@ -163,7 +163,7 @@ than a per-workspace preference to lose track of.
   job you have ever run, with its filters. The divider between the two can still be dragged; that
   is a vertical split of the one column's own height, unrelated to the column's width.
 
-Above the columns is the menu bar and to their right is the Familiar dock, and both are described next.
+Above the columns is the menu bar, described next.
 
 ## What is the same in every workspace
 
@@ -229,79 +229,6 @@ report. When the menus a workspace needs leave the group no room, items drop low
 — the resource meter, then zoom, then tool, then document, then queue — but the health figure
 never drops, whatever the window's width. Every item in the group is a readout, not a button: none
 of it is clickable.
-
-Beside the status group, and likewise never dropped, sits **✦ Familiar**. Once Familiar's weights are
-installed its menu holds one row, a checked **Show Familiar** toggle, which opens and closes the
-Familiar dock on the window's right edge; until then it stays a disabled **Not installed**.
-
-## The Familiar dock
-
-A full-height dock on the window's right edge, from the menu bar to the bottom of the window, outside
-every workspace's own columns — the rail's mirror image on the opposite side. Closed, it is a slim strip
-the same width as the collapsed rail, with one **✦** button; muted when Familiar's weights are
-not yet downloaded, with a tooltip pointing at Settings → Models, or a toggle once they are present:
-press **✦** to open the dock and press it again to close it. Open, a centred header reads **✦ Familiar**
-beside a **✕** that also collapses it, above
-a short conversation: a scrollback of what you and Familiar have said, an input line, and **Send**.
-The input line and **Send** stay pinned to the bottom of the dock; only the conversation above them
-scrolls.
-Opening it grows the dock to 15% of the window's width, five points taken from each of the two
-sidebars and the rest from the canvas — there is no grip to drag any more, and nothing to remember:
-the width is always that same share. On a narrow window the dock's own floor (260 px) is met by the
-two sidebars giving up width first, then the canvas. The per-item readouts that used to sit
-in a pane at the foot of the window (workspace, document, tool, zoom, queue, health) live in the menu
-bar's own right-aligned group, described above.
-
-Familiar reads a sent message before answering it: a short router decision picks what the message is actually asking
-for — build something in Clay, edit what's already there, a question about Realmspinner itself, or just
-conversation — and answers accordingly, without you having to say which. A question about Realmspinner
-(**"how do I export a GLB"**, **"what does the band setting do"**) is answered from the Manual itself, with a
-small **[1]**, **[2]**… link under the reply
-for each section it actually used; clicking one opens the Manual at that section. If the Manual has nothing on the
-question, Familiar says so plainly rather than guessing. Familiar can also take you somewhere — say "open Mason" or
-"take me to Settings" and it switches modes, opens the right Settings page, opens the Manual, a tour, the keyboard
-shortcuts list, the workspace layout picker or the trash, whichever you asked for — and it can draft
-a brief in **Create**: say "make me a reference image of a lantern" and it fills in the asset type
-and prompt and takes you to Create's Reference stage, exactly where typing it yourself would have
-left you. It never presses **Generate** for you; you check the
-brief and do that yourself. Neither door goes anywhere or does anything you could not already reach by hand — a mode
-that is not ready yet says why, the same sentence its greyed rail item shows, and a request to draft in Create when
-Create itself is not ready says that instead of opening a form that could not generate anything. Ask Familiar for a
-character — **"make me a goblin in the swamp"** — and instead of a brief it shows a plan: the species, the theme,
-whichever movements, direction count or name you actually asked for, and a time estimate, with **Create**, **Open in
-Create** and **Discard** underneath. **Create** queues the character exactly the way pressing Create's own Generate
-button would; **Open in Create** drops the same plan into Create's form instead, at the Reference stage, for you to
-adjust and generate yourself; **Discard** drops it. Nothing is queued until you press Create — proposing a plan never
-mints anything by itself, the same "look before you build" contract a Clay ghost keeps. A word the prompt used that
-the plan could not act on (a look the species does not offer, say) is named under the plan rather than silently
-dropped. A plan that arrives while a Clay ghost is still waiting is kept, not shown: the ghost's **Apply** and
-**Discard** stay the only buttons, and the plan's card appears once you have pressed one of them.
-In **Clay**, with a document open, the expanded pane also offers **Build**:
-describe what to add and Familiar proposes it as a translucent ghost over your document, with **Apply** and
-**Discard** beside it once it lands — the same ghost a Send message routed to a Clay build lands as, if the router
-decides that is what you meant. The input stays open while a ghost is showing: a follow-up ("make it taller") refines
-the ghost rather than the document, and **Apply** lands the build and every refinement as one undo step. However a
-build finishes — a ghost ready to apply, or a refusal — Familiar says so as a line in the conversation and a toast, so
-you can tell it is done even with the pane collapsed; **Apply** and **Discard** answer the same way, with **Discard**
-skipping the toast. Building
-needs the trained Clay model (`familiar_v1.0`); until that model replaces the
-testing pin, a Clay build answers with a plain sentence saying so rather than a ghost, however it was asked for. Each
-document tab keeps its own conversation, the same way it keeps its own undo stack — closing a tab ends its thread, and
-every other mode without a document of its own shares one Realmspinner-wide thread.
-
-A build proposal that gets turned away — an unreadable reply, a tool name outside what the model was trained to use,
-or the door that actually tries the proposal against your document refusing it — is not shown to you as a dead end
-straight away: Familiar quietly retries, up to twice, showing each attempt's own refusal as its own line in the
-conversation (**"Retrying after a refusal: …"**) before either a corrected ghost lands or the refusal is shown exactly
-as it always has been once both retries are spent. None of this blocks the app — every retry, like the build itself,
-runs off to the side while you keep working.
-
-With Familiar's vision weights installed (Settings → Models → **Familiar vision (mmproj)**, optional — everything
-above works without it), you can attach a PNG to a message: type or paste its path into the attach field beside the
-input line and it rides along with your next Send or Build. Revising a Clay ghost sends its own current render
-automatically, with nothing to attach by hand, so Familiar can see what you are asking it to change rather than only
-reading the scene's own numbers. An attach you typed yourself always wins over the automatic ghost render. Familiar
-runs entirely on this machine either way — an attached picture never leaves it.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
 the command palette, and it is reproduced in [Keyboard shortcuts](38-shortcuts.md).

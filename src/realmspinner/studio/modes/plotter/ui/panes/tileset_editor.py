@@ -118,9 +118,16 @@ def draw(ctx: Any) -> None:
     if widgets.ghost_button("Back to the map##tsback"):
         state.editing_tileset = None
         return
+    # ``tile_count``, not ``len(ref.tileset)``: ``Tileset`` is a plain dataclass
+    # with no ``__len__``, so every open of this pane raised ``TypeError``
+    # before this line ran (the 2026-09-26 audit, finding plotter-mode-01) and
+    # "Back to the map" above became unreachable along with it. ``ref.firstgid``,
+    # not ``ref.first_gid`` (``TilesetRef`` has no such attribute) -- a second,
+    # previously-masked crash on this same line: the ``len()`` TypeError always
+    # raised first, in the same f-string, so this typo never had a chance to run.
     widgets.muted(
-        f"{len(ref.tileset)} tiles, {ref.tileset.tile_w} x {ref.tileset.tile_h} px, "
-        f"first gid {ref.first_gid}"
+        f"{ref.tileset.tile_count} tiles, {ref.tileset.tile_w} x {ref.tileset.tile_h} px, "
+        f"first gid {ref.firstgid}"
     )
 
     changed, picked = controls.segmented_choice(
@@ -218,7 +225,9 @@ def _tile_grid(ctx: Any, state: Any, ref: Any) -> None:
     spacing = imgui.get_style().item_spacing
     avail = max(1.0, imgui.get_content_region_avail().x)
     across = max(1, int(avail // (cell + spacing.x)))
-    count = len(tileset)
+    # ``tile_count``, not ``len(tileset)``: see the header comment above, same
+    # incident (the 2026-09-26 audit, finding plotter-mode-01).
+    count = tileset.tile_count
     rows = -(-count // across)  # ceil division, with no float rounding at the edge
     row_height = cell + spacing.y
     clipper = imgui.ListClipper()

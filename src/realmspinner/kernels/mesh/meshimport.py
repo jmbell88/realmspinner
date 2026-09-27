@@ -283,9 +283,39 @@ def import_file(
 
         doc = glbimport.glb_to_claydoc(data, name)
         if scale != 1.0 or up != "y":
+            from ..geom3d import math3d as m3
+
             matrix = axis_matrix(scale=scale, up=up)
+            # The 2026-09-26 audit, finding clay-io-01: this used to rescale
+            # only each object's own mesh positions and leave its
+            # translation/rotation exactly as the GLB recorded them -- a
+            # child GLTF node placed ten metres from the origin stayed ten
+            # metres away after a scale of 0.01 shrank its mesh to fit in a
+            # centimetre, so it detached from the shape it used to sit on.
+            # OBJ and STL never hit this because every object they produce
+            # has an identity placement (the whole reason ``axis_matrix``'s
+            # own docstring can call "positions, not the node" innocent
+            # there); a GLB's nodes are not identity, so the same choice here
+            # silently dropped half the transform.
+            #
+            # Conjugating each object's own *local* matrix by the same
+            # matrix (``M @ local @ M^-1``) rather than leaving it alone
+            # keeps every object's *world* matrix in exact lockstep with its
+            # mesh (which is transformed by ``M`` directly, as before) --
+            # true independent of parent depth: for a chain of local
+            # matrices L1 L2 ... Ln, conjugating each one individually gives
+            # (M L1 M^-1)(M L2 M^-1)...(M Ln M^-1) = M (L1 L2 ... Ln) M^-1,
+            # so the composed world matrix is conjugated exactly the same
+            # way a single root object's would be.
+            try:
+                inverse = np.linalg.inv(matrix)
+            except np.linalg.LinAlgError as error:
+                raise OpError("Import scale cannot be 0.") from error
             for obj in doc.objects:
                 obj.mesh = bm.transformed(obj.mesh, matrix)
+                local = m3.compose(obj.translation, obj.rotation, obj.scale)
+                t, r, s = m3.decompose(matrix @ local @ inverse)
+                obj.translation, obj.rotation, obj.scale = t, r, s
         return doc
     raise OpError(
         f"Clay does not import {suffix!r} files. It reads "

@@ -1253,6 +1253,18 @@ def apply_skeleton(ctx: Any) -> None:
     state.skeleton_error = None
     if not ctx.submit(key, svc_rig.edit_skeleton, ctx.svc, job_id, payload):
         ctx.toast("Still re-rigging this asset.", "info")
+        return
+    # The draft this call just submitted is no longer unsaved (poser-mode-02,
+    # the 2026-09-26 audit): left set, ``_pump_rerig``'s landing guard() --
+    # minutes later, once the queued Blender job actually finishes -- read
+    # ``draft_dirty`` as a reason to ask "Unsaved skeleton changes will be
+    # lost" about the very draft the user had already applied, and declining
+    # that prompt still popped the job out of ``state.rerig_jobs`` (the pop
+    # runs before the guard), leaving the new rig queued, finished and never
+    # bound to the asset. A further edit to the draft before the job lands
+    # sets ``draft_dirty`` back to True through the ordinary ``skel_*``
+    # mutators, so this does not mask a real unsaved change.
+    viewer.editor.draft_dirty = False
 
 
 def _skeleton_call(ctx: Any, fn: Any, *args: Any) -> tuple[bool, Any]:
@@ -2336,7 +2348,10 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     if done.key == "troupe-start" or str(done.key).startswith(("troupe-sheet:", "troupe-send:")):
         invalidate_sheets(ctx)
         invalidate_riggable(ctx)
-        ctx.toast(str(getattr(done, "error", "") or "That request was refused."), "error")
+        # No toast here (poser-mode-05, the 2026-09-26 audit): ``shell/tasks.
+        # py``'s generic failure path already shows one, from the same
+        # ``done.message``/``done.error`` this branch was re-toasting with its
+        # own raw exception text -- every failed task got the sentence twice.
         return
     if done.key == LIST_KEY:
         # ``loading`` gates the refresh; leaving it set makes the mode inert.
@@ -3912,6 +3927,15 @@ def apply_key(ctx: Any) -> None:
     # every guarded door below would ask after every key click.
     editor.dirty = False
     editor.moved.clear()
+    # Straight onto ``editor`` above, not through the ``Viewer`` wrappers of
+    # the same names -- which is exactly why this has to call
+    # ``_after_pose_change()`` itself (poser-mode-01, the 2026-09-26 audit):
+    # that call is what refreshes a bound skinned mesh's GPU skin palettes, and
+    # with no call to it here a mesh bound to this armature kept showing its
+    # old pose after every key click, even though the armature itself moved.
+    after = getattr(viewer_of(ctx), "_after_pose_change", None)
+    if after is not None:
+        after()
     sync_onion(ctx)
 
 
@@ -3975,6 +3999,15 @@ def scrub(ctx: Any, frame: int) -> None:
         [float(v) for v in (pose.get("root_translation") or (0.0, 0.0, 0.0))],
         dirty=False,
     )
+    # Same gap as ``apply_key`` above (poser-mode-01, the 2026-09-26 audit):
+    # both calls above are the bare, undecorated ``editor`` methods -- on
+    # purpose, so a slider drag does not push a step per frame -- but that
+    # also skips the ``Viewer.apply``/``set_root_translation`` wrappers'
+    # ``_after_pose_change()`` call, so a bound skinned mesh never re-skinned
+    # to the scrubbed frame.
+    after = getattr(viewer_of(ctx), "_after_pose_change", None)
+    if after is not None:
+        after()
 
 
 def capture_key(ctx: Any) -> None:

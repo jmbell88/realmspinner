@@ -1356,6 +1356,16 @@ def op_animate(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         step = float(track.get("step") or 1.0)
         space = str(track.get("space") or "delta")
         for frame_index, frame in enumerate(frames):
+            # poser-rig-01, the 2026-09-26 audit: a pose is a *partial* map
+            # (``_reset_pose``'s own docstring), and this loop applied one
+            # frame directly onto whatever the previous frame -- or the
+            # previous clip's last frame -- left on a bone the new frame
+            # omits, instead of the rest the sheet render loop above always
+            # resets to first. ``animated.glb`` then disagreed with the sheet
+            # on every clip after the first, and on every frame after the
+            # first within a clip whose frames do not all name the same
+            # bones.
+            _reset_pose(arm_obj)
             _applied, missing = _apply_pose(arm_obj, frame.get("bones") or {}, space)
             unknown.extend(n for n in missing if n not in unknown)
             at = 1.0 + frame_index * step

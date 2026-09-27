@@ -154,6 +154,21 @@ _KIND_WORDS: dict[str, tuple[str, ...]] = {
     "sprite": ("sprite", "sprites", "image", "icon"),
 }
 
+#: Colour words that are *also* how this vocabulary names a layer -- only
+#: "fire" today, an alias for ``flame`` in ``_KIND_WORDS`` above. The
+#: 2026-09-26 audit, finding inker-flourish-01: the colour loop below fires
+#: on every word that is a key of ``COLOURS``, with no exception for one that
+#: is *also* a kind noun -- so "green fire", "no fire" and "bigger fire" each
+#: tripped it a second time on "fire" itself, found no kind word after it
+#: (there is none left -- it's the last word), and a colour word with no
+#: target after it means "repaint every coloured layer", which turned every
+#: one of those three clauses orange. A word in this set is only a colour
+#: when something else in its clause still names the kind (``_kind_after``
+#: found a target); found alone, it is naming the layer, not painting it.
+_COLOUR_ALSO_KIND = {
+    word for word in COLOURS if any(word in names for names in _KIND_WORDS.values())
+}
+
 
 # -- the deterministic mapper --------------------------------------------------------------
 
@@ -174,8 +189,14 @@ def apply(recipe: Recipe, text: str) -> tuple[Recipe, list[str]]:
     for i, word in enumerate(words):
         if word not in COLOURS:
             continue
-        hot, cool = COLOURS[word]
         target = _kind_after(words, i)
+        if target is None and word in _COLOUR_ALSO_KIND:
+            # "fire" with nothing after it names the flame layer, not a
+            # colour to apply to everything -- ``_COLOUR_ALSO_KIND``'s
+            # docstring says why. The "no"/"bigger" clauses below still see
+            # this same word and target it correctly through ``_kind_after``.
+            continue
+        hot, cool = COLOURS[word]
         touched = 0
         no_colour = set()
         for j, layer in enumerate(layers):

@@ -800,6 +800,24 @@ def _mode(verb: str, **kwargs: Any) -> Callable[..., Any]:
     return _run
 
 
+def _step_frame(delta: int) -> Callable[..., Any]:
+    """``next_frame``/``prev_frame``: unlike every other ``_mode`` verb,
+    ``playback.step_frame`` takes ``delta`` positionally before ``tab`` --
+    its timeline-pane callers rely on that order -- so routing it through
+    ``_mode("step_frame", delta=...)`` passed ``tab`` where ``delta`` was
+    expected and then ``delta`` again by keyword, raising
+    ``TypeError: step_frame() got multiple values for argument 'delta'`` and
+    leaving both the menu rows and the ``.``/``,`` keys dead (2026-09-26
+    audit, inker-mode-01)."""
+
+    def _run(ctx: Any, tab: Any, **_: Any) -> Any:
+        from . import mode as inker_mode
+
+        return inker_mode.step_frame(ctx, delta, tab)
+
+    return _run
+
+
 def _mode_ctx(verb: str) -> Callable[..., Any]:
     """An op that is one ``inker_mode`` function of ``(ctx)`` alone."""
 
@@ -1270,14 +1288,29 @@ register(
         ),
     )
 )
+def _filter_not_on_tilemap(state: Any, tab: Any) -> bool:
+    # The 2026-09-26 audit, finding inker-panes-02: Edit > Filter stayed lit
+    # on a tilemap layer, and ``begin_filter`` raises past ``bridge.popups``
+    # into the canvas pane's own frame -- a plain ``ValueError`` unwinding a
+    # menu click. Greyed the same way ``convert_to_tilemap`` already greys
+    # its own tilemap case, so the click never reaches the door that raises.
+    return ready(state, tab) and tab.doc.active_tilemap_uid() is None
+
+
+def _filter_reason(state: Any, tab: Any) -> str:
+    if not ready(state, tab):
+        return BUSY
+    return "A tilemap layer's pixels come from its tileset -- convert it to a raster layer first."
+
+
 register(
     Op(
         "filter",
         "Filter...",
         dialog("inker-filter"),
         menu="Edit",
-        enabled=ready,
-        reason=_no_doc_first(BUSY),
+        enabled=_filter_not_on_tilemap,
+        reason=_no_doc_first(_filter_reason),
         separator_before=True,
     )
 )
@@ -1942,7 +1975,7 @@ register(
     Op(
         "next_frame",
         "Next frame",
-        _mode("step_frame", delta=1),
+        _step_frame(1),
         menu="Frame",
         key=".",
         enabled=animated,
@@ -1954,7 +1987,7 @@ register(
     Op(
         "prev_frame",
         "Previous frame",
-        _mode("step_frame", delta=-1),
+        _step_frame(-1),
         menu="Frame",
         key=",",
         enabled=animated,
@@ -2699,6 +2732,15 @@ def _sheet_merge(ctx: Any, tab: Any, **_: Any) -> Any:
 def _sheet_conflict_next(ctx: Any, tab: Any, **_: Any) -> Any:
     from . import sheet as inker_sheet
 
+    # The 2026-09-26 audit, finding inker-mode-03: this set ``doc.anim.current``
+    # directly, which is only the raw index -- it never re-materialised
+    # ``stack`` for the new frame, never committed a floating buffer left over
+    # on the old one, and never checked ``ready``, so a click mid-transform or
+    # mid-save landed strokes in the old frame's layers. ``set_current_frame``
+    # is the one door every other frame change already goes through.
+    state = ctx.state.inker
+    if not ready(state, tab):
+        return False
     doc = getattr(tab, "doc", None)
     if doc is None or doc.anim is None:
         return False
@@ -2706,7 +2748,7 @@ def _sheet_conflict_next(ctx: Any, tab: Any, **_: Any) -> Any:
     if nxt is None:
         ctx.toast(inker_sheet.NO_CONFLICTS, "info")
         return False
-    doc.anim.current = nxt
+    doc.set_current_frame(nxt)
     return True
 
 

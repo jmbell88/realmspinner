@@ -150,8 +150,17 @@ def loop_cache_key(player: Any) -> tuple[int, int, int] | None:
     if player.loop_start is None or player.loop_end is None:
         return None
     rate = int(player.rate)
-    start = int(player.loop_start * rate)
-    end = int(player.loop_end * rate)
+    # muse-engine-04 (2026-09-26 audit). ``loop_start``/``loop_end`` are
+    # believed unclamped -- not reachable through today's UI, but nothing
+    # stopped a region recorded against one take (``loop_memory``, keyed by
+    # job id) from outliving a shorter file later written under the same id
+    # (a rerun). ``end`` past the take's own length reached ``crossfade``
+    # (``engine/loops.py``) and raised there; bounded to ``len(player.pcm)``
+    # here instead, at the one function every cache key and every blend goes
+    # through.
+    length = 0 if player.pcm is None else int(len(player.pcm))
+    start = max(0, int(player.loop_start * rate))
+    end = min(length, int(player.loop_end * rate))
     if end <= start:
         return None
     fade = int(player.xfade_ms * rate / 1000.0)

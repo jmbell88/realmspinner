@@ -335,12 +335,10 @@ CLOSE_WHILE_SAVING = "Still saving -- close it once the save lands."
 #: Listeners told when a tab is actually gone: ``(mode, uid)``, called from
 #: :func:`close_tab`'s ``drop`` after ``state.close(uid)`` -- never on a
 #: refusal (mid-save) or a cancelled "unsaved work?" prompt, because both of
-#: those leave the tab open and the uid still valid. T5 registers
-#: ``familiar.threads.drop`` here to end a closed tab's conversation thread;
-#: this module stays the one place a closed tab is *known*, so it is also the
-#: one place that announces it, and it does not import ``familiar`` itself --
-#: docmodes is reached from every document mode and must not drag the
-#: assistant in.
+#: those leave the tab open and the uid still valid. This module stays the
+#: one place a closed tab is *known*, so it is also the one place that
+#: announces it -- a listener registers here rather than docmodes reaching
+#: out to whatever wants to know a tab closed.
 TAB_CLOSED: list[Callable[[str, str], None]] = []
 
 

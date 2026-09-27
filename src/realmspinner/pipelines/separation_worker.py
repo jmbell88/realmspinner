@@ -42,6 +42,7 @@ import contextlib
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 #: The checkpoint's filename inside the model directory. ``models.Fetch``'s
 #: ``filename`` for the same entry, restated here because a pipeline may not
@@ -52,6 +53,41 @@ CHECKPOINT = "hdemucs_high_trained.pt"
 def _emit(fraction: float, label: str) -> None:
     """One progress line, in the format ``blender_run.run_worker`` parses."""
     print(f"[separate] {fraction:.3f} {label}", flush=True)
+
+
+def write_stems(stems: Any, sources: tuple, out_dir: Path, rate: Any, *, sf: Any) -> list[str]:
+    """Stage each stem beside its served name and rename it into place.
+
+    Pulled out of ``separate`` so the staging convention can be proven right
+    without loading a model: a torch tensor and a real (but weight-free)
+    ``soundfile`` are enough. ``sf`` is passed in rather than imported here so
+    the two ways this is called -- the real worker, module already imported at
+    call time, and a test with no torch/soundfile dependency of its own --
+    share the exact same code path.
+    """
+    written = []
+    for index, name in enumerate(sources):
+        path = out_dir / f"{name}.wav"
+        # Staged and renamed, like every other write onto a name something else
+        # reads: ``stems.json`` is the completion gate, but a half-written stem
+        # beside it would still be a file the library offers.
+        tmp = path.with_name(f".{path.name}.tmp")
+        # ``format=`` is required here (the 2026-09-26 audit,
+        # pipelines-children-03): soundfile infers the container from the
+        # filename's extension when it is not given, and the staging name
+        # ends in ``.tmp`` rather than ``.wav``, so every separation raised
+        # ``TypeError: No format specified and unable to determine format
+        # from file extension`` right after the model finished running.
+        sf.write(
+            str(tmp),
+            stems[index].T.cpu().numpy(),
+            int(rate),
+            subtype="PCM_16",
+            format="WAV",
+        )
+        tmp.replace(path)
+        written.append(f"{name}.wav")
+    return written
 
 
 def separate(spec: dict) -> dict:
@@ -154,21 +190,7 @@ def separate(spec: dict) -> dict:
     stems = stems * std + mean
 
     _emit(0.97, "Writing the stems")
-    written = []
-    for index, name in enumerate(sources):
-        path = out_dir / f"{name}.wav"
-        # Staged and renamed, like every other write onto a name something else
-        # reads: ``stems.json`` is the completion gate, but a half-written stem
-        # beside it would still be a file the library offers.
-        tmp = path.with_name(f".{path.name}.tmp")
-        sf.write(
-            str(tmp),
-            stems[index].T.cpu().numpy(),
-            int(rate),
-            subtype="PCM_16",
-        )
-        tmp.replace(path)
-        written.append(f"{name}.wav")
+    written = write_stems(stems, sources, out_dir, rate, sf=sf)
 
     return {"ok": True, "files": written, "rate": int(rate), "device": device}
 

@@ -812,13 +812,25 @@ class SelectionOps:
         this editor -- the move tool, a paste, a nudge -- goes through the
         floating buffer, which is what makes this one undo step and what makes
         the pixels land under the same alpha rules.
+
+        **One undo step, wrapped rather than assumed.** The 2026-09-26 audit,
+        finding inker-document-03: ``lift`` and ``commit_floating`` each push
+        their own step onto the history -- correct when they are reached from
+        two different user actions (a drag's mouse-down and mouse-up), which is
+        why neither pushes through ``one_gesture`` on its own -- but this
+        docstring already promised one step for the single click that runs
+        both back to back, and nothing here folded them. ``one_gesture``
+        collapses whatever the block actually pushed (zero, one or two steps)
+        into one, so a refusal still pushes nothing and a partial commit still
+        undoes in one Ctrl+Z.
         """
         if self.mask is None or (not dx and not dy):
             return False
-        if not self.lift():
-            return False
-        self.move_floating(int(dx), int(dy))
-        return self.commit_floating()
+        with self.one_gesture():
+            if not self.lift():
+                return False
+            self.move_floating(int(dx), int(dy))
+            return self.commit_floating()
 
     def cut(self: Document) -> bool:
         return self.copy() and self.delete_selection()

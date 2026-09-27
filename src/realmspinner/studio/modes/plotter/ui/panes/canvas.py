@@ -344,6 +344,24 @@ SETUP_POPUP = "New map"
 #: Preset buttons per row in the setup modal. See ``_setup_body``.
 PRESET_COLUMNS = 2
 
+#: Whether the New-map modal was on screen the frame just drawn.
+#:
+#: The 2026-09-26 audit's shell-chrome-05: ``dialogs.modal_open`` did not know
+#: about this popup, so Delete/Esc/Ctrl+Z/Ctrl+K reached the map behind it.
+#: It cannot ask imgui directly -- it also runs from a bare ``SimpleNamespace``
+#: ctx in headless tests, with no imgui context at all, and
+#: ``imgui.is_popup_open`` there segfaults rather than raising. Recorded here
+#: instead, at the one place this modal is guaranteed to have just been drawn
+#: (or not) this frame, on the frame thread where a real context exists -- and
+#: read back by :func:`setup_popup_open` as a plain flag, the same shape every
+#: other ``dialogs.modal_open`` predicate already uses.
+_setup_open = False
+
+
+def setup_popup_open(ctx: Any) -> bool:  # noqa: ARG001 - dialogs.modal_open's uniform predicate shape
+    """Whether the New-map dialog owns the keyboard."""
+    return _setup_open
+
 
 def setup_popup(ctx: Any, state: Any) -> None:
     """Ask what the new map is, then make it.
@@ -375,6 +393,8 @@ def setup_popup(ctx: Any, state: Any) -> None:
     opened, _ = imgui.begin_popup_modal(
         SETUP_POPUP, None, imgui.WindowFlags_.always_auto_resize.value
     )
+    global _setup_open
+    _setup_open = opened
     widgets.pop_surface_rounding()
     if not opened:
         imgui.pop_style_var()

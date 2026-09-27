@@ -111,6 +111,16 @@ def _library(ctx: Any, state: Any) -> None:
         thumbs.job_thumb(ctx, job, sp(32.0))
         imgui.same_line()
         label = job.get("name") or job.get("prompt") or job["id"]
+        kind = f"job:{job['id']}"
+        # The 2026-09-26 audit's mason-mode-05: this row used to place at once
+        # on click, contradicting Chapter 17 ("clicking *arms* the asset
+        # rather than placing it") and Chapter 31's "Arming and placing"
+        # section, which both promise the same click-then-click-in-viewport
+        # gesture the primitive grid and the lights already give. Armed the
+        # same way ``_primitives``/``_lights`` arm theirs -- ``_arm_kind`` and
+        # ``mason_mode.place_armed`` -- rather than placing here directly, so
+        # the row also lights up while its own asset is the one armed.
+        #
         # ``controls.selectable`` and never ``imgui.selectable``: every
         # interactive widget in this app goes through the one chokepoint
         # ``controls._finish_item``, which is what ``studio/probe.py`` taps to
@@ -119,15 +129,16 @@ def _library(ctx: Any, state: Any) -> None:
         # everything in this pane except the library rows and report full
         # coverage, which is the blind spot ``test_probe`` pins a count
         # against precisely so it cannot grow quietly.
-        if controls.selectable(f"{label}##masonlib", False)[0]:
-            mason_mode.place_job(ctx, job)
+        if controls.selectable(f"{label}##masonlib", state.place_kind == kind)[0]:
+            _arm_kind(state, kind)
         # The pane's own drag source, over the same row the click above
-        # places from -- ``library.draggable_mesh`` is the predicate and the
+        # arms from -- ``library.draggable_mesh`` is the predicate and the
         # payload this row and the viewport's drop target both have to agree
-        # on; that agreement lives in ``panes/library.py``, not here.
+        # on; that agreement lives in ``panes/library.py``, not here. Dragging
+        # still places at once, which is a different gesture from a click and
+        # is not what either manual chapter above is describing.
         library.draggable_mesh(ctx, job)
         imgui.pop_id()
-    del state
 
 
 def _arm_kind(state: Any, kind: str) -> None:

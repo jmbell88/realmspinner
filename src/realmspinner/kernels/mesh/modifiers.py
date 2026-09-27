@@ -131,12 +131,25 @@ class EvalContext:
     land, and a cache keyed on local TRS alone would go on serving a stale
     result. See ``_run_boolean`` and :func:`_evaluate`'s own cache-validity
     phase.
+
+    A target that does not exist at all records ``(target_uid, None, None,
+    None)`` rather than nothing -- the 2026-09-26 audit, finding
+    clay-mesh-model-01: recording *no* dependency for a missing target meant
+    a boolean modifier whose target had been deleted cached its "no longer
+    exists" error with nothing that could ever invalidate it, so undoing the
+    delete brought the target back and the modifier went on showing the
+    stale error (the un-boolean-ed base mesh) forever after. The
+    ``target_mesh is None`` sentinel lets the cache-validity phase tell "was
+    missing, still is" (dependency holds) from "was missing, now is not"
+    (invalidate) apart.
     """
 
     doc: ClayDoc
     obj: Obj
     visiting: frozenset[int]
-    boolean_deps: list[tuple[int, Mesh, np.ndarray, np.ndarray]] = field(default_factory=list)
+    boolean_deps: list[tuple[int, Mesh | None, np.ndarray | None, np.ndarray | None]] = field(
+        default_factory=list
+    )
 
 
 @dataclass(frozen=True)
@@ -583,7 +596,7 @@ class _CacheEntry:
 
     base: Mesh
     stack: tuple[Modifier, ...]
-    boolean_deps: tuple[tuple[int, Mesh, np.ndarray, np.ndarray], ...]
+    boolean_deps: tuple[tuple[int, Mesh | None, np.ndarray | None, np.ndarray | None], ...]
     result: Evaluated
 
 
@@ -696,6 +709,21 @@ def _evaluate(doc: ClayDoc, uid: int, visiting: frozenset[int]) -> Evaluated:
                 frames.pop()
                 continue
             target_uid, target_mesh, self_world, target_world = deps[frame.dep_idx]
+            if target_mesh is None:
+                # The 2026-09-26 audit, finding clay-mesh-model-01: this
+                # dependency was recorded when *target_uid* did not exist at
+                # all (see the "apply" phase's own comment below). The only
+                # thing that can invalidate it is the target coming back --
+                # while it is still missing, a fresh recompute would land on
+                # exactly the same "no longer exists" error this cache entry
+                # already has, so honour it and move on.
+                try:
+                    doc.by_uid(target_uid)
+                except KeyError:
+                    frame.dep_idx += 1
+                    continue
+                frame.phase = "apply"
+                continue
             try:
                 doc.by_uid(target_uid)  # existence only; the world check below is the value
             except KeyError:
@@ -767,6 +795,16 @@ def _evaluate(doc: ClayDoc, uid: int, visiting: frozenset[int]) -> Evaluated:
                 target_obj = doc.by_uid(target_uid)
             except KeyError:
                 frame.errors.append((mod.id, f"Target object {target_uid} no longer exists."))
+                # The 2026-09-26 audit, finding clay-mesh-model-01: record the
+                # dependency even though there is no mesh or world matrix to
+                # keep -- a ``(target_uid, None, None, None)`` sentinel, so
+                # that if *target_uid* comes back (an undo of whatever
+                # deleted it) the cache-validity phase above has something to
+                # notice the change with. Leaving nothing recorded here is
+                # what let a boolean modifier's own "no longer exists" error
+                # go on caching itself past an undo that resurrected the
+                # target -- see ``EvalContext``'s own docstring.
+                frame.ctx.boolean_deps.append((target_uid, None, None, None))
                 frame.idx += 1
                 continue
             if target_uid not in memo:

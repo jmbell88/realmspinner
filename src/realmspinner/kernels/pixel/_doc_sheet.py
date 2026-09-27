@@ -3,12 +3,14 @@
 ``sheetscope`` decides *which* frames a correction reaches; this mixin is the
 one door that writes them. Every verb below resolves to :meth:`SheetOps.map_frames`,
 which is ``filter_range`` (``_doc_ranges``) narrowed to one track and an
-explicit frame list rather than a rectangle: ``commit_floating`` first, the
+explicit frame list rather than a rectangle: ``commit_floating`` first, a
+content-locked track (its own lock, a reference track, or a locked group's
+fold) and a tilemap both refused by name before anything is written, the
 distinct cels of the named slots (deduped by ``id()``, ``_cels_in``'s rule),
-a tilemap refused by name before anything is written, ``masked_apply`` per cel
-with the track's alpha lock, the mode-aware edit from ``_patch_edit_for``, and
-one ``_push_range`` for the lot -- so a correction sent to forty cells is one
-``Ctrl+Z``, and a correction that changes nothing pushes nothing.
+``masked_apply`` per cel with the track's alpha lock, the mode-aware edit from
+``_patch_edit_for``, and one ``_push_range`` for the lot -- so a correction
+sent to forty cells is one ``Ctrl+Z``, and a correction that changes nothing
+pushes nothing.
 
 No new ``Edit`` class: a patch edit addressed by layer uid is exactly what a
 range op already leaves on the stack, and what makes undo hold after a frame
@@ -110,7 +112,18 @@ class SheetOps:
         what the renderer last gave it in the future, and the next merge would
         then read every restored edit as untouched. The five existing verbs go
         on calling :meth:`_map_cels` and behave exactly as they did.
+
+        **The one place all five (and ``merge_render``) can be refused for a
+        locked track.** The 2026-09-26 audit, finding inker-document-06: this
+        funnel checked the tilemap refusal but never ``write_locked`` -- so a
+        content-locked track (its own lock, a reference track, or the fold of
+        a locked group above it) still took a sheet correction, a mirror or a
+        merged re-render, when every other paint door in this package already
+        refuses the same lock. One check here covers every verb that reaches
+        it, the way the tilemap check already does.
         """
+        if self.write_locked(track):
+            return []
         if any(isinstance(layer, TilemapCel) for layer, _fn, _w in pairs):
             raise ValueError("a sheet correction of a tilemap layer is not yet modeled")
         x0, y0, x1, y1 = box
@@ -356,6 +369,17 @@ class SheetOps:
                     f"document is {width}x{height}"
                 )
         track = self._track_by_uid(track_uid)
+        if self.write_locked(track):
+            # Raised here rather than left to ``_sheet_cel_edits``'s own
+            # refusal (finding inker-document-06): that refusal turns into an
+            # empty edit list, which this function would still read as every
+            # cell having verdict "take" or "conflict" and report a merge that
+            # did not happen. A locked track's render cannot land at all, so
+            # the whole call is refused before any verdict is computed.
+            raise ValueError(
+                "this track is content-locked (or inside a locked group): "
+                "unlock it before merging a re-render"
+            )
         if track.alpha_lock:
             # Refused, never bypassed. ``_sheet_cel_edits`` passes the lock into
             # ``masked_apply``, so a locked track would keep the *old*

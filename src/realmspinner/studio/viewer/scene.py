@@ -317,6 +317,14 @@ class GpuModel:
         for node, _prim in self.draws:
             if node.skin is None or id(node) in self._palettes:
                 continue
+            # The 2026-09-26 audit, finding create-viewer-01: ``__init__``
+            # already draws a skin over ``MAX_JOINTS`` at rest (unskinned,
+            # see the ``over_budget`` loop above) -- building its full
+            # palette here anyway is a second full-size allocation
+            # (``Model.joint_palette`` is a Python list comprehension over
+            # every joint) for a value nothing reads, on every pose change.
+            if len(self.model.skins[node.skin].joints) > MAX_JOINTS:
+                continue
             palette = self.model.joint_palette(node)
             if palette is not None:
                 # Padded out to the declared array length: moderngl writes an

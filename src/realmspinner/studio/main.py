@@ -224,11 +224,11 @@ def _desktop_size(pygame: Any) -> tuple[int, int] | None:
     Prefers :func:`dpi.work_area` -- the desktop minus the taskbar (and any
     docked toolbars) -- over ``get_desktop_sizes``'s whole-display size,
     because a client size clamped only to the whole display could still fit
-    a window whose bottom edge lands under the taskbar: Familiar's Build/Send
-    row did exactly that (2026-09-16). ``get_desktop_sizes`` is the fallback
-    for whatever isn't Windows, or where the work-area query itself fails --
-    a ceiling on what can be *asked for*, not a promise the window won't sit
-    under the taskbar, but better than nothing.
+    a window whose bottom edge lands under the taskbar: a docked panel's
+    bottom row did exactly that (2026-09-16). ``get_desktop_sizes`` is the
+    fallback for whatever isn't Windows, or where the work-area query itself
+    fails -- a ceiling on what can be *asked for*, not a promise the window
+    won't sit under the taskbar, but better than nothing.
 
     This is still only half the fix: it bounds the client area passed to
     ``set_mode``, not the outer frame (title bar included) the window ends
@@ -381,9 +381,15 @@ def _setup_logging() -> None:
         )
         _crash_log.flush()
         faulthandler.enable(file=_crash_log)
-    except OSError:
+    except Exception:
         # A read-only or missing data_dir is not a reason to refuse to start;
-        # console logging alone is what we had before.
+        # console logging alone is what we had before. Broadened from
+        # ``OSError`` for shell-boot-01 (the 2026-09-26 audit): ``get_config``
+        # also runs ``migrate.run``, and a ``migrate.MigrationError`` is not an
+        # ``OSError`` -- it escaped this ``except`` as a bare traceback, and
+        # since nothing wraps this call in ``run()`` either, the "cannot use
+        # its home directory" alert a few lines further down was never
+        # reached at all.
         logging.getLogger(__name__).warning("file logging unavailable", exc_info=True)
 
     # force=True is load-bearing, not defensive: cli.main() used to call
@@ -563,22 +569,13 @@ def _clear_session_marker() -> None:
 
 def run() -> int:
     """The ``realmspinner`` entry point."""
-    _setup_logging()
-    _install_excepthooks()
-    log.info(
-        "Realmspinner %s starting: pid=%d python=%s argv=%s",
-        _version(),
-        os.getpid(),
-        sys.version.split()[0],
-        sys.argv[1:],
-    )
     # Before ``migrate`` is even imported, because importing it *performs* the
     # one-time move: a second instance starting mid-copy is RUN-02's window, and
     # the whole point of this lock is to be taken before anything touches the
     # home directory. Also before the store is opened and before the runtime
     # claims the engine port.
     from .. import instance
-    from ..config import get_config, source_checkout
+    from ..config import Config, get_config, source_checkout
 
     if not source_checkout():
         # Refused at the door with a sentence, rather than left to fail as a
@@ -598,22 +595,21 @@ def run() -> int:
             "    uv run realmspinner",
         )
         return 1
+    # **The lock is taken before ``_setup_logging`` runs, not after.** Shell-
+    # boot-02, the 2026-09-26 audit: this used to call ``_setup_logging()``
+    # first, and that function calls ``get_config()`` itself (to find
+    # ``data_dir`` for the rotating handler) -- which is the same
+    # migrate-and-mkdir call the comment above says must wait for the lock.
+    # A refused second instance still ran the migration and held a rotating
+    # handler on the first instance's log before this function ever asked
+    # whether it was allowed to start. A bare ``Config()`` resolves the three
+    # lock paths (home, db, model root) from the environment alone -- no
+    # migrate, no mkdir -- so the lock can be checked first and ``get_config``
+    # 's side effects deferred until it is held.
     try:
-        config = get_config()
+        lock_cfg = Config()
     except Exception as exc:
-        # The first thing in this process that touches the disk, and until now
-        # the only unguarded one. ``get_config`` runs ``migrate.run`` and then
-        # ``mkdir``s four directories, so a home on a disconnected network
-        # share, a read-only drive or a path the user has no rights to raises
-        # ``OSError`` **here** -- before the window, before GL, before imgui,
-        # and (under ``pythonw``) with stderr pointed at the null device. The
-        # app simply did not appear, twice in a row, with nothing anywhere but
-        # a log file in a directory that is itself the problem.
-        #
-        # ``instance.alert`` is the right tool and was already used twice in
-        # the twenty lines above: it needs no window, no GL context and no
-        # imgui, which is exactly the situation this is.
-        log.exception("could not prepare the Realmspinner home directory")
+        log.exception("could not resolve the Realmspinner home directory")
         instance.alert(
             "Realmspinner cannot use its home directory",
             f"{exc}\n\nRealmspinner keeps its library, job database and settings in "
@@ -622,7 +618,7 @@ def run() -> int:
             "writable, or point REALMSPINNER_HOME at a directory you own.",
         )
         return 1
-    lock = instance.InstanceLocks(instance.lock_paths(config))
+    lock = instance.InstanceLocks(instance.lock_paths(lock_cfg))
     unsafe_lock = os.environ.get("REALMSPINNER_ALLOW_UNSAFE_LOCK") == "1"
     if not lock.acquire(allow_unsafe=unsafe_lock):
         # A dialog, not a log line. The behaviour this replaces wrote a warning
@@ -649,6 +645,37 @@ def run() -> int:
             "and try again. A second copy needs a different REALMSPINNER_HOME, "
             "REALMSPINNER_DB, and REALMSPINNER_T2I_ROOT.",
         )
+        return 1
+    # Logging, the excepthooks and the version banner all wait for the lock
+    # too, now: none of them need to run before it, and ``_setup_logging``
+    # itself is the call this reorder exists to move.
+    _setup_logging()
+    _install_excepthooks()
+    log.info(
+        "Realmspinner %s starting: pid=%d python=%s argv=%s",
+        _version(),
+        os.getpid(),
+        sys.version.split()[0],
+        sys.argv[1:],
+    )
+    try:
+        get_config()
+    except Exception as exc:
+        # ``get_config`` runs ``migrate.run`` and then ``mkdir``s four
+        # directories, so a home on a disconnected network share, a read-only
+        # drive or a path the user has no rights to raises here -- before the
+        # window, before GL, before imgui, and (under ``pythonw``) with stderr
+        # pointed at the null device. ``instance.alert`` needs no window, no
+        # GL context and no imgui, which is exactly the situation this is.
+        log.exception("could not prepare the Realmspinner home directory")
+        instance.alert(
+            "Realmspinner cannot use its home directory",
+            f"{exc}\n\nRealmspinner keeps its library, job database and settings in "
+            "a home directory it creates on first run, and it could not "
+            "prepare that directory.\n\nCheck that the drive is connected and "
+            "writable, or point REALMSPINNER_HOME at a directory you own.",
+        )
+        lock.release()
         return 1
     try:
         code = _run_locked()

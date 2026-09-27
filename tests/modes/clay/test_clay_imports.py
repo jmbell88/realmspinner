@@ -57,13 +57,14 @@ OUTWARD_IMPORTS = {
     ("drag.py", "realmspinner.kernels.geom3d"),
     ("document.py", "realmspinner.kernels.geom3d"),
     ("edits.py", "realmspinner.core.undo"),
-    # Added deliberately on 2026-09-06 (the audit's clay-01): deleting or
-    # duplicating a multi-object selection pushed one step per object, so one
-    # ``Delete`` took three ``Ctrl+Z`` presses and the first landed on a state
-    # the user had never made. Bundling the gesture needs ``CompoundEdit``, from
-    # the same shared history engine ``document.py`` and ``edits.py`` already
-    # reach for -- not a fourth private notion of what one step is.
-    ("selection.py", "realmspinner.core.undo"),
+    # clay-mesh-core-01 (2026-09-26 audit): the object-mode branch of
+    # ``delete_selected`` used to hand-build its own ``CompoundEdit`` around a
+    # hand-popped ``doc.objects.pop`` -- which never re-parented a removed
+    # object's children the way ``remove_object`` does, nor popped
+    # ``_evaluated``. It now calls ``remove_object`` itself, per uid, inside a
+    # ``doc.history.mark()``/``collapse_since()`` gesture instead, so
+    # ``selection.py`` no longer imports ``core.undo`` directly at all.
+    # Removed from this table rather than left stale.
     # H01: the declared-count preflight reads a GLB's JSON chunk before
     # ``gltf.load`` decodes anything, and ``glbio.split_glb`` is the one
     # container-level parser this project has -- the same one ``gltf``
@@ -71,6 +72,13 @@ OUTWARD_IMPORTS = {
     # entry, not two: ``glbimport.py`` reaches ``geom3d`` for ``glbio``,
     # ``gltf`` and ``math3d`` through relative imports of the same package.
     ("glbimport.py", "realmspinner.kernels.geom3d"),
+    # clay-io-01 (2026-09-26 audit): a GLB import with a non-identity scale/up
+    # conjugates each object's local TRS by the same matrix its mesh is
+    # transformed by (``m3.compose``/``decompose``), so a child node's world
+    # placement stays in lockstep with its rescaled mesh instead of detaching
+    # from it -- the same ``math3d`` this table already grants every other
+    # transform-composing module.
+    ("meshimport.py", "realmspinner.kernels.geom3d"),
     # 2026-09-19, Clay tranche 1: an OBJ's ``usemtl``/MTL colours become
     # ``gltf.Material`` palette slots, glbimport's reason exactly -- a Clay
     # material is a ``gltf.Material``, never a parallel type.

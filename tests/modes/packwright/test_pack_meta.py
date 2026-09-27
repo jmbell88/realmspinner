@@ -220,16 +220,25 @@ def test_an_untrimmed_pack_normalizes_against_the_whole_canvas():
 
 
 def test_a_fully_transparent_sprite_divides_safely():
-    """It trims to 1x1 rather than to nothing, which is what makes the pivot
-    division safe with no guard anywhere in the writer.
+    """The pivot division stays safe with no guard anywhere in the writer,
+    whatever the frame's own size turns out to be.
 
     The 2026-09-16 audit (packwright-08) found this test pinning the *wrong*
-    number: normalising against that 1x1 box put a blank sprite's explicit
-    pivot dozens of pixels outside its own frame. The fix normalises an empty
+    number: normalising against a 1x1 box put a blank sprite's explicit pivot
+    dozens of pixels outside its own frame. The fix normalises an empty
     sprite's pivot against its own untrimmed canvas instead, which is what
     keeps the emitted fraction between 0 and 1 -- see
     ``test_pivot_on_an_empty_sprite_with_an_explicit_pivot_stays_a_fraction_between_zero_and_one``
-    for the case that first exposed it."""
+    for the case that first exposed it.
+
+    ``PackSettings`` defaults to grid mode, and the 2026-09-26 audit's
+    packwright-packer-03 fixed ``trim_rect`` to keep a blank sprite's own
+    untrimmed canvas there (a grid pack never trims -- see
+    ``layout.grid_layout``'s docstring) instead of collapsing it to the 1x1
+    empty placeholder, so the frame is now the sprite's own 16x12 rather than
+    1x1. The pivot fraction is unaffected either way: it normalises against
+    ``source_w``/``source_h`` for an empty sprite regardless of the frame's
+    own size (see ``texturepacker._pivot``)."""
     blank = Sprite(
         key="a",
         name="a",
@@ -237,7 +246,7 @@ def test_a_fully_transparent_sprite_divides_safely():
         meta=SpriteMeta(pivot=(4.0, 4.0)),
     )
     result = layout([blank], PackSettings(power_of_two=False))
-    assert (result.frames[0].w, result.frames[0].h) == (1, 1)
+    assert (result.frames[0].w, result.frames[0].h) == (16, 12)
     entry = texturepacker.tp_json(result, image_name="a.png")["frames"][0]
     assert entry["pivot"] == {"x": 4.0 / 16, "y": 4.0 / 12}
 

@@ -641,11 +641,24 @@ def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     values.extend((str(size), f"{size}px") for size in generation.TARGET_CELL_PRESETS)
     values.append(("custom", "Custom (8–256px)"))
     current = str(form.get("target_cell_px") or "")
-    known = current if current in {x[0] for x in values} else "custom"
+    # The 2026-09-26 audit, finding create-panes-04: picking "Custom" writes
+    # nothing to ``form["target_cell_px"]`` until the number field below is
+    # actually edited -- entering custom mode is a UI choice, not a value, and
+    # this form has nowhere else to remember it. Without this flag, the very
+    # next frame recomputed ``known`` from ``target_cell_px`` alone, saw the
+    # *old* preset/blank value still sitting there (unchanged, since nothing
+    # had been typed yet) and read it as "not custom" -- so the combo snapped
+    # straight back to whatever it showed before, and a custom number that
+    # happened to equal a preset (say 64) had the same problem permanently,
+    # not just on the first frame.
+    custom_mode = bool(form.get("_target_cell_custom")) or current not in {x[0] for x in values}
+    known = "custom" if custom_mode else current
     selected = widgets.combo("##target_cell_px", known, values)
     if selected != "custom":
         form["target_cell_px"] = selected
+        form["_target_cell_custom"] = False
         return
+    form["_target_cell_custom"] = True
     raw = form.get("target_cell_px")
     try:
         number = int(raw)
@@ -938,6 +951,16 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOA
         else:
             form["model_mode"] = "auto"
             form["model_override"] = ""
+            # The 2026-09-26 audit, finding create-panes-06: the preflight
+            # banner's own "Switch to Automatic" repair button (below, ~line
+            # 1298) writes these same two fields and then calls
+            # ``clear_for_tier`` -- this control, the one that actually sets
+            # them from the Model combo, never did. A ControlNet chosen under
+            # Advanced survived the switch, the picker that shows it hides
+            # once ``model_mode`` is "auto" (Automatic runs at guidance 0 and
+            # cannot take one), and ``validate`` refused on a field with no
+            # control left on screen to point at.
+            create_recipe.clear_for_tier(ctx, form)
         ctx.state.clear_field_error("base_model")
     # The refusal this most often carries is ``check_weights``' -- a model that
     # is selected and not downloaded, with the ``hf download`` line in it.
@@ -1437,7 +1460,14 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
         kwargs["guidance_fields"]["base_model"] = resolved.base_model
         # The request document preserves the user's Avoid text, but an inert
         # negative branch must not be sent through to a distilled worker.
-        kwargs["negative_prompt"] = generation.effective_negative_prompt(request, resolved) or None
+        # The 2026-09-26 audit, finding create-panes-01: ``or None`` folded a
+        # deliberately emptied Avoid box (``""``) back into
+        # ``guidance.normalize``'s default, the same "" != None distinction
+        # ``request_to_legacy``/``submit_kwargs`` already respect (2026-09-03
+        # fix, ``tests/modes/create/test_create_fixes_2026_09_03.py``) --
+        # ``effective_negative_prompt`` already returns "" for an inert
+        # negative branch, so nothing here should coerce a non-empty string.
+        kwargs["negative_prompt"] = generation.effective_negative_prompt(request, resolved)
         # Handed to the door rather than merged onto the row afterwards. The
         # merge lost a race with the worker twice over -- ``next_queued`` can
         # claim the row first, and ``_q_generate`` writes its claim-time

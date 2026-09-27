@@ -610,6 +610,22 @@ def save(ctx: Any, tab: InkerDoc | None = None) -> None:
             )
         save_as(ctx, tab)
         return
+    if suffix == ".png" and (len(tab.doc.stack) > 1 or tab.doc.anim is not None):
+        # ``png_bytes()`` is ``flatten()`` -- one composite of the *current*
+        # frame, dropping every other layer and frame it does not show. A
+        # flat PNG opened here starts as one layer and no animation, so a
+        # user who grew it into either and pressed Ctrl+S got exactly the
+        # overwrite the JPG/WebP/BMP/GIF branch above exists to refuse: bytes
+        # over the source that "keep what I have" promised not to touch (the
+        # 2026-09-26 audit, inker-mode-04). Save As instead, the same door.
+        ctx.toast(
+            "This drawing came from a flat PNG and now holds more than one"
+            " layer or frame, which Inker cannot write back into it. Choose"
+            " where to save the layered copy.",
+            "info",
+        )
+        save_as(ctx, tab)
+        return
     _submit_write(ctx, tab, f"inker-save:{tab.uid}", tab.path, tab.file_format)
 
 
@@ -1632,7 +1648,23 @@ def paste_from_os(ctx: Any, tab: InkerDoc | None = None) -> bool:
         # added: {exc}." shape.
         ctx.toast(f"The image was not pasted: {exc}.", "warn")
         return False
-    tab.doc.put_clipboard(np.asarray(grabbed.convert("RGBA"), dtype=np.uint8).copy())
+    rgba = np.asarray(grabbed.convert("RGBA"), dtype=np.uint8)
+    fingerprint = rgba.tobytes()
+    # The bytes of the last OS clipboard image this tab actually pulled in --
+    # kept on the tab rather than at module scope, since the fact this
+    # answers is "has this document already accounted for what is on the OS
+    # clipboard right now", not a process-wide one. The 2026-09-26 audit,
+    # finding inker-mode-02: Ctrl+V always re-grabbed the OS clipboard and
+    # stamped it over the app clipboard, so an in-app Copy -- which never
+    # touches the OS clipboard -- was clobbered by the very next Ctrl+V
+    # re-grabbing the unchanged screenshot underneath it, and Copy -> Paste
+    # pasted the stale screenshot instead of the thing just copied.
+    if fingerprint == getattr(tab, "_os_clip_fingerprint", None):
+        # Same screenshot as the last time this door looked: whatever the app
+        # clipboard holds now -- most likely a Copy made since -- stands.
+        return True
+    tab._os_clip_fingerprint = fingerprint
+    tab.doc.put_clipboard(rgba.copy())
     return True
 
 

@@ -190,6 +190,17 @@ def _project(
     """
     if len(faces) == 0:
         return None
+    # The 2026-09-26 audit (pipelines-mesh-01): a NaN/Inf vertex made
+    # ``sx.min()``/``sy.max()`` NaN, ``span``'s ``<= 0`` guard below is False
+    # for NaN (every comparison with NaN is), and the NaN-poisoned scale and
+    # offsets that followed turned into pixel coordinates far outside
+    # ``resolution`` -- an access violation in the native rasteriser, which
+    # trusts its integer indices rather than bounds-checking them, and a
+    # silent "solid" from the numpy fallback, which clips instead. Refusing
+    # here, before either fill ever sees the triangle, is the one guard that
+    # protects both.
+    if not np.isfinite(positions).all():
+        return None
 
     right, up = _screen_basis(direction)
     sx, sy = positions @ right, positions @ up

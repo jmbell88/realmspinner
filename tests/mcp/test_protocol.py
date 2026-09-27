@@ -203,14 +203,12 @@ def test_tasks_extension_negotiated_only_when_client_declares_it() -> None:
         state,
     )
     assert reply["result"]["capabilities"]["extensions"] == {p.TASKS_EXTENSION: {}}
-    assert state.tasks is True
 
 
 def test_tasks_extension_absent_when_not_declared() -> None:
     state = p.BridgeEra()
     reply = _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
     assert "extensions" not in reply["result"]["capabilities"]
-    assert state.tasks is False
 
 
 def test_legacy_client_never_sees_the_tasks_capability() -> None:
@@ -228,7 +226,51 @@ def test_legacy_client_never_sees_the_tasks_capability() -> None:
         state,
     )
     assert "extensions" not in reply["result"]["capabilities"]
-    assert state.tasks is False
+
+
+def test_tasks_capability_is_decided_per_request_not_latched() -> None:
+    """The 2026-09-26 fix: `BridgeEra` used to keep a `self.tasks` flag,
+    latched `True` the first time any request on the connection declared
+    :data:`p.TASKS_EXTENSION` and never reset -- contradicting both the
+    spec's own per-request capability model and this bridge's promise
+    (`TASKS_EXTENSION`'s own docstring) that "a server must never offer a
+    task to a client that never asked for one." A `server/discover` that
+    declares the extension followed by one that does not must not carry the
+    capability forward, and a `tools/call` on the same connection that does
+    not itself declare the extension must be served synchronously even
+    though an earlier request on that connection did declare it."""
+    state = p.BridgeEra()
+    first = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/discover",
+            "params": _modern_meta_with_tasks(),
+        },
+        state,
+    )
+    assert first["result"]["capabilities"]["extensions"] == {p.TASKS_EXTENSION: {}}
+
+    second = _dispatch(
+        {"jsonrpc": "2.0", "id": 2, "method": "server/discover", "params": _modern_meta()},
+        state,
+    )
+    assert "extensions" not in second["result"]["capabilities"]
+
+    called = []
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "clay_scene", "arguments": {}, **_modern_meta()},
+        },
+        state,
+        call_tool_task=lambda name, args: called.append((name, args)) or ("op-1", "working"),
+    )
+    assert not called
+    assert reply["result"]["resultType"] == "complete"
+    assert reply["result"]["content"] == [{"type": "text", "text": "ran clay_scene"}]
 
 
 def test_absent_extension_task_augmented_call_served_synchronously() -> None:
@@ -272,12 +314,19 @@ def test_task_augmented_call_returns_create_task_result() -> None:
         state,
         call_tool_task=lambda name, args: ("op-1", "working"),
     )
+    # 2026-09-26: the real CreateTaskResult schema (tests/mcp/fixtures/
+    # ext_tasks_2026-07-28.json) flattens these fields onto the result --
+    # there never was a nested "task" object; that shape was this module's
+    # own guess before the schema was fetched, and is what
+    # test_schema_conformance.py now refuses.
     result = reply["result"]
     assert result["resultType"] == "task"
-    assert result["task"]["taskId"] == "op-1"
-    assert result["task"]["status"] == "working"
-    assert result["task"]["ttlMs"] == p.TASK_TTL_MS
-    assert result["task"]["pollIntervalMs"] == p.TASK_POLL_INTERVAL_MS
+    assert result["taskId"] == "op-1"
+    assert result["status"] == "working"
+    assert result["ttlMs"] == p.TASK_TTL_MS
+    assert result["pollIntervalMs"] == p.TASK_POLL_INTERVAL_MS
+    assert result["createdAt"] == result["lastUpdatedAt"]
+    assert isinstance(result["createdAt"], str) and result["createdAt"]
 
 
 def test_tasks_get_completed_splices_result_body_byte_identical() -> None:
@@ -334,7 +383,18 @@ def test_tasks_get_working_has_no_result_field() -> None:
         state,
         get_task=lambda task_id: ("working", None),
     )
-    assert reply["result"] == {"taskId": "op-1", "status": "working"}
+    # 2026-09-26: the real GetTaskResult schema (tests/mcp/fixtures/
+    # ext_tasks_2026-07-28.json) requires resultType/taskId/status/
+    # createdAt/lastUpdatedAt/ttlMs on every branch -- only "no result or
+    # error field for a non-terminal status" is this test's own claim now.
+    result = reply["result"]
+    assert result["resultType"] == "complete"
+    assert result["taskId"] == "op-1"
+    assert result["status"] == "working"
+    assert isinstance(result["createdAt"], str) and result["createdAt"]
+    assert isinstance(result["lastUpdatedAt"], str) and result["lastUpdatedAt"]
+    assert "result" not in result
+    assert "error" not in result
 
 
 def test_tasks_get_with_a_malformed_body_becomes_an_error_not_broken_json() -> None:
@@ -394,7 +454,17 @@ def test_tasks_cancel_ok() -> None:
         state,
         cancel_task=lambda task_id: "cancelled",
     )
-    assert reply["result"] == {"taskId": "op-1", "status": "cancelled"}
+    # CancelTaskResult's own schema requires only resultType: "complete"
+    # (see tests/mcp/fixtures/ext_tasks_2026-07-28.json); taskId/status are
+    # this bridge's own extra fields, kept for the caller's convenience.
+    assert reply["result"] == {
+        "resultType": "complete",
+        "taskId": "op-1",
+        "status": "cancelled",
+        "_meta": {
+            "io.modelcontextprotocol/serverInfo": {"name": "realmspinner", "version": "1.2.3"}
+        },
+    }
 
 
 def test_tasks_update_is_refused() -> None:
@@ -740,7 +810,9 @@ def test_server_discover_shape() -> None:
     assert result["ttlMs"] == 60000
     assert result["cacheScope"] == "public"
     assert result["resultType"] == "complete"
-    assert result["_meta"]["serverInfo"] == {"name": "realmspinner", "version": "1.2.3"}
+    assert result["_meta"]["io.modelcontextprotocol/serverInfo"] == (
+        {"name": "realmspinner", "version": "1.2.3"}
+    )
     assert result["instructions"] == "Clay measures in metres."
     assert state.era == "modern"
 
@@ -819,7 +891,9 @@ def test_modern_tools_list_carries_cache_hints_and_result_type() -> None:
     assert result["ttlMs"] == 60000
     assert result["cacheScope"] == "public"
     assert result["resultType"] == "complete"
-    assert result["_meta"]["serverInfo"] == {"name": "realmspinner", "version": "1.2.3"}
+    assert result["_meta"]["io.modelcontextprotocol/serverInfo"] == (
+        {"name": "realmspinner", "version": "1.2.3"}
+    )
 
 
 # --- splicing tools/call results: never json.loads the body --------------------
@@ -883,7 +957,9 @@ def test_modern_tools_call_splices_meta_in_front_of_the_body() -> None:
     )
     result = reply["result"]
     assert result["resultType"] == "complete"
-    assert result["_meta"]["serverInfo"] == {"name": "realmspinner", "version": "1.2.3"}
+    assert result["_meta"]["io.modelcontextprotocol/serverInfo"] == (
+        {"name": "realmspinner", "version": "1.2.3"}
+    )
     assert result["content"] == []
     assert result["isError"] is False
     assert result["structuredContent"] == {"n": 1}
@@ -1337,7 +1413,9 @@ def test_modern_prompts_get_ok_carries_meta() -> None:
         state,
         get_prompt=_ok_get_prompt,
     )
-    assert reply["result"]["_meta"]["serverInfo"] == {"name": "realmspinner", "version": "1.2.3"}
+    assert reply["result"]["_meta"]["io.modelcontextprotocol/serverInfo"] == (
+        {"name": "realmspinner", "version": "1.2.3"}
+    )
 
 
 def test_no_read_resource_or_get_prompt_configured_is_unknown_method() -> None:

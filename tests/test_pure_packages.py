@@ -23,12 +23,13 @@ def test_a_relative_import_of_a_gl_module_is_not_counted_pure(tmp_path: Path):
     :func:`_pure_packages.pure_packages`.
 
     This is a from-scratch reproduction rather than a read of the real
-    ``studio/familiar/`` package on purpose: this fix is what moves
+    ``studio/familiar/`` package on purpose: that fix moved
     ``apply.py``/``scratch_ctx.py`` out of ``familiar`` entirely -- folded
-    into ``studio/assistant/preview.py`` -- so a test that depended on their
-    being there would stop meaning anything the day the move landed. The
+    into ``studio/assistant/preview.py``, itself removed outright along with
+    the rest of Familiar (2026-09-26) -- so a test that depended on either
+    package being there would stop meaning anything the day it landed. The
     tmp tree keeps the claim -- "a relative import chain into a window is
-    not invisible" -- true independent of that move.
+    not invisible" -- true independent of both moves.
     """
     studio = tmp_path / "realmspinner" / "studio"
     studio.mkdir(parents=True)
@@ -56,28 +57,3 @@ def test_a_relative_import_of_a_gl_module_is_not_counted_pure(tmp_path: Path):
         "a relative import chain into a window module must surface in the "
         f"resolved roots; got {roots}"
     )
-
-
-def test_familiar_left_pure_packages_the_same_day_it_left_studio():
-    """``familiar`` no longer answers to :func:`pp.pure_packages` at all --
-    not because it stopped being pure, but because P3 of the core-vs-subsystems
-    restructure (``dev/RESTRUCTURE.md``) moved it straight out of ``studio/``
-    to ``realmspinner/familiar/``, one layer down (L3, beside ``service`` and
-    ``characters``) from the L1 kernels and mode-owned ``studio/`` packages
-    this function's docstring says it is for.
-
-    This used to assert the opposite -- that ``"familiar" in
-    pp.pure_packages()`` -- back when the fix worth recording here was that a
-    *relative* import chain into a window was invisible to the derivation
-    (see :func:`test_a_relative_import_of_a_gl_module_is_not_counted_pure`
-    above, which still holds and is unaffected by the move). That claim is
-    obsolete now for a different reason than the bug it fixed: the function
-    this file tests answers "which packages are headless engines a sibling
-    mode must not import", and ``familiar`` was never a sibling of ``clay`` or
-    ``inker`` in that sense -- it earns its own AST pin instead, in
-    ``tests/familiar/test_familiar_imports.py``, which proves the same
-    "no window, no service, no network" claim directly rather than through
-    membership in a set this function no longer has any reason to include it
-    in.
-    """
-    assert "familiar" not in pp.pure_packages()

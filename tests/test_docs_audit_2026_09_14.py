@@ -1,6 +1,6 @@
 """Regression tests closing the docs/root-document findings of the 2026-09-14
-audit (docs-01, docs-02, inker-03, shell-03, shell-07, pipelines-02,
-packwright-02, docs-03, docs-04, docs-09, docs-10, docs-11, docs-12, tour-01).
+audit (docs-02, inker-03, shell-03, shell-07, pipelines-02,
+packwright-02, docs-04, docs-09, docs-10, docs-11, docs-12, tour-01).
 See ``docs/audit-2026-09-14.md`` for the full findings; do not cite it from
 ``src/`` or ``scripts/`` (``tests/test_ux_todo_fixes.py`` refuses that).
 
@@ -31,38 +31,6 @@ def _normalize_ws(text: str) -> str:
     repo's manual prose is wrapped at ~100-110 columns) is still found as one
     phrase -- the same idiom ``tests/test_licence_claims.py`` already uses."""
     return re.sub(r"\s+", " ", text)
-
-
-# --- docs-01: THIRD-PARTY-NOTICES.md claims llama.cpp/the Familiar weights
-# are "shown by hand in the tables above", but neither appeared in any
-# table. Familiar's base moved from Gemma 4 E2B to Qwen3-VL-4B-Instruct
-# (2026-09-16); the row this test looks for moved with it. -----------------
-
-
-def test_third_party_notices_names_llama_cpp_and_qwen_where_it_claims_to():
-    text = _read("THIRD-PARTY-NOTICES.md")
-    marker = "all shown by\nhand in the tables above"
-    idx = text.replace("\r\n", "\n").index(marker.replace("\r\n", "\n"))
-    tables_above = text.replace("\r\n", "\n")[:idx]
-
-    # A real table row (not just prose) for each, with the licence
-    # docs/MODELS.md records (MIT for the runtime, Apache-2.0 for the
-    # weights).
-    llama_rows = [
-        line
-        for line in tables_above.splitlines()
-        if line.startswith("|") and "llama.cpp" in line
-    ]
-    assert llama_rows, "no table row mentions llama.cpp above the claim"
-    assert any("MIT" in row for row in llama_rows), llama_rows
-
-    qwen_rows = [
-        line
-        for line in tables_above.splitlines()
-        if line.startswith("|") and "Qwen" in line
-    ]
-    assert qwen_rows, "no table row mentions Qwen3-VL above the claim"
-    assert any("Apache-2.0" in row for row in qwen_rows), qwen_rows
 
 
 # --- docs-02: Manual 17 said an instance holds nothing of its own but a
@@ -112,10 +80,10 @@ def test_manual_29_reference_layer_claim_matches_asein_visibility_behaviour():
 
 
 # --- shell-03: "an agent already running on this computer connects to it"
-# reads as connecting to Familiar; must be unambiguously Realmspinner. ----------
+# read ambiguously; must be unambiguously Realmspinner. ----------
 
 
-def test_agent_settings_help_text_never_implies_agents_reach_familiar():
+def test_agent_settings_help_text_says_agents_connect_inward():
     targets = [
         "docs/manual/42-app-settings.md",
         "src/realmspinner/studio/modes/settings/ui/panes/app_settings.py",
@@ -198,20 +166,6 @@ def test_manual_packwright_chapter_names_the_document_wide_pixel_ceiling():
     assert f"{width}×{width}" in section or f"{width}x{width}" in section
     assert str(million) in section
     assert "split" in section.lower()
-
-
-# --- docs-03: SECURITY.md's scope never mentions llama-server.exe, a second
-# loopback HTTP listener with an API-key file. ------------------------------
-
-
-def test_security_md_names_familiars_loopback_listener():
-    text = _read("SECURITY.md")
-    start = text.index("## What is in scope")
-    end = text.index("\n## ", start + 1)
-    section = _normalize_ws(text[start:end])
-    assert "llama-server.exe" in section
-    assert "127.0.0.1" in section
-    assert "key" in section.lower()
 
 
 # --- docs-04: the pixel-art-xl pre-registration still reads as live and

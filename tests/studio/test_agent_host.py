@@ -94,14 +94,13 @@ it past pytest's own timeout.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import queue
 import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 from realmspinner.mcp import pipe, rpc
 from realmspinner.studio import agent_character, agent_host
@@ -2680,6 +2679,59 @@ def test_stop_never_terminates_tracked_child_processes(tmp_path, monkeypatch) ->
     assert terminate_calls == [], "stop() must never reach winjob.terminate_tracked"
 
 
+def test_stopping_the_last_lane_owner_never_terminates_tracked_children(
+    tmp_path, monkeypatch
+) -> None:
+    """As ``test_stop_never_terminates_tracked_child_processes`` above, but
+    proven through :meth:`AgentHost._release_lanes` directly rather than
+    ``stop()``'s own top-level flow: :data:`PIPE_OWNER` is now the only lane
+    owner this host ever registers (Familiar's in-app session, and the
+    owner-minting that went with it, is gone), so ``stop()`` -- the one
+    caller of ``_release_lanes`` left -- is always releasing *the last*
+    owner, and must still shut the service runner down with
+    ``wait=False`` and never a ``timeout``, never reaching
+    ``winjob.terminate_tracked()``, while a character call is still stuck
+    mid-run."""
+    from realmspinner import winjob
+
+    terminate_calls: list[str] = []
+    monkeypatch.setattr(
+        winjob, "terminate_tracked", lambda *a, **kw: terminate_calls.append("called") or []
+    )
+
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    host.start()
+    assert host._lane_owners == {agent_host.PIPE_OWNER}
+    release = threading.Event()
+
+    def stuck(svc, char_session, name, arguments):  # noqa: ARG001
+        release.wait(WAIT)
+        return {"content": [], "isError": False}
+
+    monkeypatch.setattr(agent_character, "HANDLERS", {"character_probe": stuck})
+    monkeypatch.setattr(agent_character, "call", stuck)
+
+    session = agent_clay.Session()
+    calls = agent_host._Calls()
+    thread = threading.Thread(
+        target=lambda: host._call(session, calls, "character_probe", {}), daemon=True
+    )
+    thread.start()
+    try:
+        deadline = time.monotonic() + WAIT
+        while not host._service_jobs and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert host._service_jobs, "the service job never registered"
+
+        host.stop()
+    finally:
+        release.set()
+        thread.join(timeout=WAIT)
+
+    assert not host._lane_owners, "stop() must release the last (and only) lane owner"
+    assert terminate_calls == [], "releasing the last lane owner must never terminate children"
+
+
 def test_pump_and_the_service_lane_skip_the_same_tombstone() -> None:
     """``_execute`` is the one function both lanes claim a job through --
     proven by dropping a job by hand for each lane and driving it through
@@ -2775,6 +2827,78 @@ def test_a_character_call_toasts_the_human_on_the_frame_thread(tmp_path, monkeyp
         host.stop()
 
 
+def test_a_second_bridge_dialling_a_busy_host_is_told_busy_and_closed(tmp_path) -> None:
+    """CLAUDE.md's "one session at a time" rule, and `pipe.py`'s own module
+    docstring naming it a v1 decision: a second bridge dialling in while one
+    is already attached must get a clear, immediate answer rather than
+    sitting wherever the OS pipe/socket layer happened to queue it,
+    unanswered, until the first session ends.
+
+    `_listen` now hands every accepted (already-authenticated) connection to
+    its own admission thread precisely so a second connection can be
+    accepted -- and refused -- while the first is still being served; before
+    that change, `_listen` never called `accept()` again until `_serve`
+    returned, so a second connection could not reach this refusal at all.
+    """
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    assert host.start()
+    stop_pumping = threading.Event()
+
+    def pump_loop() -> None:
+        while not stop_pumping.is_set():
+            host.pump(budget=0.01)
+            time.sleep(0.005)
+
+    pumper = threading.Thread(target=pump_loop, daemon=True)
+    pumper.start()
+    try:
+        first = pipe.connect(tmp_path)
+        try:
+            first.send_bytes(rpc.encode_request("hello", versions=[1], bridge_version="t"))
+            header, _body = rpc.split_reply(_recv(first))
+            assert "error" not in header, "the first connection must be admitted normally"
+
+            second = pipe.connect(tmp_path)
+            try:
+                second.send_bytes(
+                    rpc.encode_request("hello", versions=[1], bridge_version="t")
+                )
+                busy_header, busy_body = rpc.split_reply(_recv(second))
+                assert busy_header == {"error": {"code": "busy"}}
+                assert busy_body == b""
+                # The refused connection is actually closed, not merely told
+                # busy and left dangling: reading (or polling) it now raises
+                # rather than ever yielding more bytes.
+                assert _closed(second)
+            finally:
+                with contextlib.suppress(OSError):
+                    second.close()
+
+            # The first connection is entirely unaffected by the refusal.
+            first.send_bytes(rpc.encode_request("catalogue"))
+            cat_header, _body = rpc.split_reply(_recv(first))
+            assert "tools" in cat_header
+        finally:
+            first.close()
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+        host.stop()
+
+
+def _closed(conn) -> bool:
+    """Whether *conn* looks closed from the reading side: a `poll`/
+    `recv_bytes` after the peer closed raises `EOFError`/`OSError` (Windows
+    surfaces this as `BrokenPipeError`, a subclass of `OSError`) rather than
+    hanging or returning bytes."""
+    try:
+        conn.poll(WAIT)
+        conn.recv_bytes()
+    except (EOFError, OSError):
+        return True
+    return False
+
+
 def test_every_name_the_host_publishes_is_unique() -> None:
     """``_rpc_tools`` concatenates Clay's tools, the character surface's
     (the real ``agent_character.tools()``, not a stand-in -- a collision or
@@ -2790,223 +2914,3 @@ def test_every_name_the_host_publishes_is_unique() -> None:
     assert any(name.startswith("character_") for name in names), names
 
 
-# --- Familiar: an in-app session, independent of the pipe (T1) --------------
-
-
-def test_the_familiar_session_works_while_the_agent_server_is_off(tmp_path) -> None:
-    """The whole point of :meth:`AgentHost.open_session`: an in-app caller
-    gets a working Clay tool surface even though ``start()`` (the pipe) is
-    never called at all -- Familiar has no pipe and no bridge, and must not
-    need either."""
-    host = agent_host.AgentHost(_Ctx(), tmp_path)
-    assert not host.running
-
-    session = host.open_session()
-    stop_pumping = threading.Event()
-    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
-    pumper.start()
-    try:
-        outcome: dict[str, object] = {}
-
-        def call() -> None:
-            outcome["result"] = session.call("clay_add_primitive", {"generator": "box"})
-
-        thread = threading.Thread(target=call, daemon=True)
-        thread.start()
-        thread.join(timeout=WAIT)
-        assert not thread.is_alive()
-        result = outcome["result"]
-        assert result is not None and result.get("isError") is False, result
-    finally:
-        stop_pumping.set()
-        pumper.join(timeout=WAIT)
-        session.close()
-
-
-def test_switching_the_agent_server_off_never_drops_familiar_jobs(tmp_path) -> None:
-    """A job an in-app session queued must survive ``stop()`` -- turning the
-    pipe server off is only ever supposed to fail *its own* jobs
-    (:meth:`AgentHost._fail_pending`'s owner scoping), never a Familiar
-    session's, and the frame lane itself must stay open for it because the
-    session is still holding its own lane-ownership token."""
-    host = agent_host.AgentHost(_Ctx(), tmp_path)
-    host.start()
-    session = host.open_session()
-    stop_pumping = threading.Event()
-    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
-    pumper.start()
-    try:
-        release = threading.Event()
-        started = threading.Event()
-
-        def slow(ctx, sess, name, arguments):  # noqa: ARG001
-            started.set()
-            assert release.wait(WAIT), "release never came"
-            return {"content": [], "isError": False}
-
-        import realmspinner.studio.modes.clay.agent.dispatch as agent_clay_mod
-
-        original_call = agent_clay_mod.call
-        agent_clay_mod.call = slow
-        try:
-            outcome: dict[str, object] = {}
-
-            def call() -> None:
-                outcome["result"] = session.call("clay_scene", {})
-
-            thread = threading.Thread(target=call, daemon=True)
-            thread.start()
-            assert started.wait(WAIT), "the familiar job never started running"
-
-            # Switching the pipe server off must not touch this job.
-            host.stop()
-            assert not host.running
-
-            release.set()
-            thread.join(timeout=WAIT)
-            assert not thread.is_alive()
-            result = outcome["result"]
-            assert result is not None and result.get("isError") is False, result
-        finally:
-            agent_clay_mod.call = original_call
-    finally:
-        stop_pumping.set()
-        pumper.join(timeout=WAIT)
-        session.close()
-
-
-def test_stopping_the_last_lane_owner_never_terminates_tracked_children(
-    tmp_path, monkeypatch
-) -> None:
-    """As ``test_stop_never_terminates_tracked_child_processes``, but for the
-    lane-ownership rewrite: closing an :class:`InAppSession` that turns out
-    to be the last owner of the service lane must still shut the runner
-    down with ``wait=False`` and never a ``timeout`` -- never reaching
-    ``winjob.terminate_tracked()`` -- exactly the constraint ``AgentHost.
-    stop()`` already keeps."""
-    from realmspinner import winjob
-
-    terminate_calls: list[str] = []
-    monkeypatch.setattr(
-        winjob, "terminate_tracked", lambda *a, **kw: terminate_calls.append("called") or []
-    )
-
-    host = agent_host.AgentHost(_Ctx(), tmp_path)
-    session = host.open_session()
-    release = threading.Event()
-
-    def stuck(svc, char_session, name, arguments):  # noqa: ARG001
-        release.wait(WAIT)
-        return {"content": [], "isError": False}
-
-    monkeypatch.setattr(agent_character, "HANDLERS", {"character_probe": stuck})
-    monkeypatch.setattr(agent_character, "call", stuck)
-
-    thread = threading.Thread(
-        target=lambda: session.call("character_probe", {}), daemon=True
-    )
-    thread.start()
-    try:
-        deadline = time.monotonic() + WAIT
-        while not host._service_jobs and time.monotonic() < deadline:
-            time.sleep(0.005)
-        assert host._service_jobs, "the service job never registered"
-
-        session.close()
-    finally:
-        release.set()
-        thread.join(timeout=WAIT)
-
-    assert terminate_calls == [], "close() must never reach winjob.terminate_tracked"
-
-
-def test_an_in_app_call_on_the_frame_thread_raises_instead_of_deadlocking(tmp_path) -> None:
-    """``InAppSession.call`` blocks on an ``Event`` only ``AgentHost.pump``
-    ever sets, and nothing calls ``pump`` concurrently with a synchronous,
-    same-thread call -- so a caller already on the frame thread (the main
-    thread, per this module's own convention) must be refused outright
-    rather than left to hang for the full ``CALL_TIMEOUT``."""
-    host = agent_host.AgentHost(_Ctx(), tmp_path)
-    session = host.open_session()
-    try:
-        assert threading.current_thread() is threading.main_thread()
-        with pytest.raises(RuntimeError):
-            session.call("clay_scene", {})
-    finally:
-        session.close()
-
-
-def test_opening_an_in_app_session_mints_no_tab(tmp_path) -> None:
-    """Unlike a pipe connection (:meth:`AgentHost._serve`, which mints a tab
-    before a bridge can ask for one), :meth:`AgentHost.open_session` must
-    not queue any frame-thread work at all -- a fresh session's own
-    ``agent_clay.Session`` starts with no tab pinned, and nothing about
-    opening it should touch ``ClayState``."""
-    host = agent_host.AgentHost(_Ctx(), tmp_path)
-    session = host.open_session()
-    try:
-        assert not session._session.tab_uid
-    finally:
-        session.close()
-
-
-def test_a_pipe_call_after_stop_is_refused_while_familiar_holds_the_lanes(tmp_path) -> None:
-    """The hole a plain ``self._queue is None`` check reopened: once a
-    Familiar session has its own hold on the lanes, ``stop()`` releasing
-    only the pipe's own ownership leaves ``self._queue``/``self._service``
-    non-``None``. A pipe-owned call arriving after ``stop()`` must still be
-    refused outright -- accepted onto lanes that are still open with nothing
-    left to ever fail it (the pipe is gone) would otherwise hang the caller
-    out to the full ``CALL_TIMEOUT`` for an answer that never comes."""
-    host = agent_host.AgentHost(_Ctx(), tmp_path)
-    session = host.open_session()
-    try:
-        host.start()
-        host.stop()
-        assert not host.running
-        # The lanes themselves are still open: Familiar's own session still
-        # owns them, so neither is torn down by a pipe-only stop().
-        assert host._queue is not None
-        assert host._service is not None
-
-        _job, frame_result, frame_error, frame_state = host._run_on_frame_job(
-            lambda: "ran", timeout=0.2, owner=agent_host.PIPE_OWNER
-        )
-        assert frame_state == agent_host.DROPPED, "a pipe job was accepted onto live lanes"
-        assert frame_error is None
-        assert frame_result is not None and frame_result["isError"] is True
-
-        _job2, service_result, service_error, service_state = host._run_on_service_job(
-            lambda: "ran", timeout=0.2, owner=agent_host.PIPE_OWNER
-        )
-        assert service_state == agent_host.DROPPED, "a pipe job was accepted onto live lanes"
-        assert service_error is None
-        assert service_result is not None and service_result["isError"] is True
-    finally:
-        session.close()
-
-
-def test_a_closed_in_app_session_refuses_calls(tmp_path) -> None:
-    """A closed :class:`InAppSession` must refuse rather than queue -- it
-    has released its own lane ownership, and calling into a torn-down (or
-    someone-else's still-open) lane after that would be answering for a
-    session that no longer exists. Run off the main thread so the
-    frame-thread guard cannot be what raises here -- this test is about the
-    closed check specifically."""
-    host = agent_host.AgentHost(_Ctx(), tmp_path)
-    session = host.open_session()
-    session.close()
-
-    outcome: dict[str, object] = {}
-
-    def call() -> None:
-        try:
-            session.call("clay_scene", {})
-        except RuntimeError as exc:
-            outcome["error"] = exc
-
-    thread = threading.Thread(target=call, daemon=True)
-    thread.start()
-    thread.join(timeout=WAIT)
-    assert not thread.is_alive()
-    assert isinstance(outcome.get("error"), RuntimeError)

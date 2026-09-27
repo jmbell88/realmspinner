@@ -35,6 +35,7 @@ from .....manual import render as manual_render
 from .....tokens import sp
 from ... import matlib as clay_matlib
 from ... import mode as clay_mode
+from . import outliner as clay_outliner
 
 log = logging.getLogger(__name__)
 
@@ -224,7 +225,14 @@ def _relations(ctx: Any, doc: Any, obj: Any) -> None:
     below are read in.
     """
     widgets.field_label("relations")
-    descendants = set(doc.descendants(obj.uid))
+    # The 2026-09-26 audit's clay-document-05: ``ClayDoc.descendants`` calls
+    # ``children_of`` once per node in the subtree, and that method scans
+    # every object in the document each time -- 0.40 s/frame reproduced
+    # against a 4,095-child parent, on a combo this pane rebuilds on every
+    # selection. ``clay_outliner.fast_descendants`` answers the identical
+    # question from a parent->children map built once per ``doc.rev`` (see
+    # its own docstring) instead of a linear scan per node.
+    descendants = set(clay_outliner.fast_descendants(doc, obj.uid))
     options = [("0", "(none)")] + [
         (str(other.uid), other.name or f"object {other.uid}")
         for other in doc.objects

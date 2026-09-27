@@ -545,7 +545,21 @@ def _read_textures(zf: zipfile.ZipFile, scene: dict[str, Any]) -> list[Any]:
     # ``width``/``height`` -- ``Image.open`` is lazy, so both are available
     # before the ``convert`` call that actually allocates the decoded bytes.
     spent = 0
-    for entry in scene.get("textures", []):
+    declared = scene.get("textures", [])
+    if not isinstance(declared, list):
+        # clay-document-07, the 2026-09-26 audit: an iterable-but-wrong
+        # container (a dict, most likely a hand-edited file) used to reach the
+        # loop below and hand ``entry`` a bare string key with no ``.get`` --
+        # an unnamed ``AttributeError`` rather than this reader's refusal.
+        # ``read_rblk`` already validates this before calling here; re-checked
+        # so this function is not only safe by way of its one caller.
+        raise ValueError("this is not a Realmspinner Clay document")
+    for entry in declared:
+        if not isinstance(entry, dict):
+            # clay-document-07: a texture entry that is itself not a mapping
+            # (a bare string in the list, say) reached ``entry.get(...)`` next
+            # as the same unnamed ``AttributeError``.
+            raise ValueError("a texture in this clay document is not a mapping")
         name = str(entry.get("file", ""))
         try:
             raw = zf.read(name)
@@ -558,14 +572,28 @@ def _read_textures(zf: zipfile.ZipFile, scene: dict[str, Any]) -> list[Any]:
         # otherwise leave twenty of them to the garbage collector. The ``with``
         # is ``pixelguard``'s now, which is also where the pixel ceiling is
         # asked -- before ``convert``, because that is the call that allocates.
-        with pixelguard.opened(io.BytesIO(raw), f"a texture in this clay document ({name})") as im:
-            spent += im.width * im.height * 4
-            if spent > MAX_TOTAL_TEXTURE_BYTES:
-                raise ValueError(
-                    f"this clay document's decoded texture bytes pass the "
-                    f"{MAX_TOTAL_TEXTURE_BYTES:,} byte budget a document may spend"
-                )
-            image = im.convert("RGBA")
+        try:
+            with pixelguard.opened(
+                io.BytesIO(raw), f"a texture in this clay document ({name})"
+            ) as im:
+                spent += im.width * im.height * 4
+                if spent > MAX_TOTAL_TEXTURE_BYTES:
+                    raise ValueError(
+                        f"this clay document's decoded texture bytes pass the "
+                        f"{MAX_TOTAL_TEXTURE_BYTES:,} byte budget a document may spend"
+                    )
+                image = im.convert("RGBA")
+        except OSError as exc:
+            # clay-document-07, the 2026-09-26 audit: bytes that are not a
+            # real, decodable image -- a truncated write, a hand-edited zip
+            # member, a member renamed onto the wrong bytes -- reach
+            # ``Image.open`` (inside ``pixelguard.opened``) as Pillow's own
+            # ``UnidentifiedImageError`` (a subclass of ``OSError``, so caught
+            # here along with a truncated-file decode error), uncaught by
+            # anything in this module and reaching the user unnamed.
+            raise ValueError(
+                f"this clay document names a texture that is not a usable image ({name})"
+            ) from exc
         out.append((image.width, image.height, image.tobytes()))
     return out
 
@@ -633,7 +661,12 @@ def _material_index(entry: dict[str, Any]) -> int:
     material = entry.get("material", 0)
     try:
         return int(material)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
+        # clay-document-07, the 2026-09-26 audit: ``int(float("inf"))`` raises
+        # ``OverflowError`` rather than ``ValueError`` -- and Python's own
+        # ``json`` module accepts an ``Infinity`` literal by default -- so a
+        # hand-edited ``"material": Infinity`` reached the caller as this
+        # reader's one uncaught exception type instead of its named refusal.
         raise ValueError(
             "an object in this clay document has a material that is not a number"
         ) from exc
@@ -689,7 +722,10 @@ def _modifiers_from(entry: dict[str, Any]) -> tuple[Any, ...]:
             kind = str(item["kind"])
             enabled = bool(item.get("enabled", True))
             params = item.get("params") or {}
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            # clay-document-07, the 2026-09-26 audit -- see ``_material_index``'s
+            # identical ``OverflowError`` comment: an ``"id": Infinity`` reached
+            # ``int()`` uncaught here the same way.
             raise ValueError(
                 "an object in this clay document has a malformed modifier"
             ) from exc
@@ -704,7 +740,15 @@ def _modifiers_from(entry: dict[str, Any]) -> tuple[Any, ...]:
         seen_ids.add(mid)
         try:
             built = mod.make(kind, params, id=mid)
-        except el.OpError as exc:
+        except (el.OpError, TypeError, ValueError) as exc:
+            # clay-document-07, the 2026-09-26 audit: a modifier parameter of
+            # the wrong *type* (a list, ``null`` or a dict where a number
+            # belongs -- ``{"angle": null}``, say) reaches a modifier's own
+            # ``float(value)`` coercion deep inside ``mod.make``, which raises
+            # a bare, unnamed ``TypeError`` (or, for an unparsable string, a
+            # ``ValueError`` with no mention of this file) that only
+            # ``el.OpError`` was ever caught here. Folded into the same named
+            # refusal every other malformed modifier shape already gets.
             raise ValueError(
                 f"an object in this clay document has a malformed modifier: {exc}"
             ) from exc
@@ -728,7 +772,9 @@ def _parent_from(entry: dict[str, Any]) -> int | None:
         return None
     try:
         return int(parent)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
+        # clay-document-07, the 2026-09-26 audit -- see ``_material_index``'s
+        # identical ``OverflowError`` comment.
         raise ValueError(
             "an object in this clay document has a parent that is not a number or null"
         ) from exc
@@ -780,7 +826,9 @@ def _seams_from(entry: dict[str, Any], mesh: bm.Mesh) -> tuple[tuple[int, int], 
         raise ValueError("an object in this clay document has a seams that is not a list")
     try:
         pairs = [(int(item[0]), int(item[1])) for item in raw]
-    except (TypeError, ValueError, IndexError, KeyError) as exc:
+    except (TypeError, ValueError, IndexError, KeyError, OverflowError) as exc:
+        # clay-document-07, the 2026-09-26 audit -- see ``_material_index``'s
+        # identical ``OverflowError`` comment.
         raise ValueError(
             "an object in this clay document has a seam that is not a pair of numbers"
         ) from exc
@@ -936,7 +984,11 @@ def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
             alpha_mode=str(entry.get("alpha_mode", "OPAQUE")),
             alpha_cutoff=float(entry.get("alpha_cutoff", 0.5)),
         )
-    except (TypeError, ValueError, AttributeError) as exc:
+    except (TypeError, ValueError, AttributeError, OverflowError) as exc:
+        # clay-document-07, the 2026-09-26 audit: a texture index of
+        # ``Infinity`` reaches ``int(index)`` above as an uncaught
+        # ``OverflowError`` -- see ``_material_index``'s identical comment,
+        # one field kind over.
         raise ValueError("a material in this clay document is malformed") from exc
 
 
@@ -977,8 +1029,27 @@ def read_rblk(data: bytes) -> ClayDoc:
             json.JSONDecodeError,
         ) as exc:
             raise ValueError("this is not a Realmspinner Clay document") from exc
+        if not isinstance(scene, dict):
+            # clay-document-07, the 2026-09-26 audit: ``scene.json`` is valid
+            # JSON whenever its *top level* is a list, a string or a number --
+            # ``json.loads`` does not care -- and every ``scene.get(...)``
+            # below assumed a mapping without checking. A hand-edited or
+            # truncated file whose root was not an object reached the very
+            # next line as a bare ``AttributeError`` instead of this reader's
+            # own named refusal.
+            raise ValueError("this is not a Realmspinner Clay document")
 
-        version = int(scene.get("version", 0))
+        try:
+            version = int(scene.get("version", 0))
+        except (TypeError, ValueError, OverflowError) as exc:
+            # clay-document-07, the 2026-09-26 audit: this line had no
+            # try/except at all -- a non-numeric ``"version"`` reached
+            # ``int()``'s own unnamed message, and ``"version": Infinity``
+            # (Python's ``json`` module accepts the literal by default)
+            # reached it as an uncaught ``OverflowError``.
+            raise ValueError(
+                "this clay document's version is not a usable number"
+            ) from exc
         if version > VERSION:
             raise ValueError(
                 f"this clay document was written by a newer version of Realmspinner "
@@ -1041,7 +1112,10 @@ def read_rblk(data: bytes) -> ClayDoc:
             # ``TypeError`` this used to hand the mode layer.
             try:
                 uid = int(entry["uid"])
-            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
+                # clay-document-07, the 2026-09-26 audit -- see
+                # ``_material_index``'s identical ``OverflowError`` comment:
+                # ``"uid": Infinity`` reached ``int()`` uncaught here too.
                 raise ValueError(
                     "an object in this clay document has no usable uid"
                 ) from exc

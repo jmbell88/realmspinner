@@ -28,7 +28,6 @@ from typing import Any
 import pytest
 
 from realmspinner.kernels.mesh import modifiers as clay_modifiers
-from realmspinner.kernels.mesh import scratch as clay_scratch
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
@@ -785,79 +784,3 @@ def test_a_batch_can_build_a_stack_and_apply_it_in_one_undo_step() -> None:
     assert doc.by_uid(uid1).modifiers == ()
     assert doc.undo()
     assert doc.by_uid(uid1).modifiers == ()  # undo reverses the whole fold
-
-
-# --- kernels.mesh.scratch: a batch that adds a modifier previews and
-# transplants as one step ----------------------------------------------------
-
-
-def test_a_batch_adding_a_modifier_previews_and_transplants_as_one_step() -> None:
-    """``clay_scratch.clone``'s own comment: the stack is shared (an
-    immutable tuple of frozen modifiers) and ``"modifiers"`` rides in
-    ``_PROP_FIELDS`` -- a batch that adds one on the scratch clone previews
-    it and, transplanted, lands on the real document as one step. Before
-    that pair of one-line fixes, a preview drew every mirrored or arrayed
-    object as its bare base mesh and a transplant back wrote the stack away
-    entirely. Driven through ``studio.assistant.preview``'s own
-    ``build``/``run_scratch`` -- the real door a Familiar-driven preview
-    takes, not a hand-rolled scratch ctx -- the same way
-    ``tests/familiar/test_scratch_ctx.py`` already does for every other
-    tool.
-    """
-    from realmspinner.studio.assistant import preview as familiar_preview
-
-    ctx, session, uid1, _uid2 = _new_world()
-    doc = _doc(ctx, session)
-    before_head = doc.history.head
-    before_count = len(doc.history.history())
-
-    scratch_ctx = familiar_preview.build(doc)
-    batch_result = familiar_preview.run_scratch(
-        scratch_ctx, "clay_batch",
-        {"calls": [{"name": "clay_modifier_add", "arguments": {"uid": uid1, "kind": "mirror"}}]},
-    )
-    assert batch_result["isError"] is False, batch_result
-    scratch = scratch_ctx.state.clay.docs[0].doc
-
-    # Previewed on the clone; the real document is untouched.
-    assert scratch.by_uid(uid1).modifiers
-    assert doc.by_uid(uid1).modifiers == ()
-
-    diff = clay_scratch.diff(doc, scratch)
-    assert uid1 in diff.props_changed
-    assert "modifiers" in diff.props_changed[uid1]
-
-    changed = clay_scratch.transplant(doc, scratch, diff)
-    assert changed
-    assert doc.history.head != before_head
-    # One step, folded: history() lists every step ever pushed on this
-    # branch (done and undone both -- see UndoStack.history's own
-    # docstring), so a single new entry here is what "one step" means,
-    # exactly the shape test_scratch.py's own transplant tests already
-    # check.
-    assert len(doc.history.history()) == before_count + 1
-    assert doc.by_uid(uid1).modifiers
-
-    assert doc.undo()
-    assert doc.history.head == before_head
-    assert doc.by_uid(uid1).modifiers == ()
-
-
-def test_scratch_preview_draws_the_modifier_not_the_bare_base_mesh() -> None:
-    """The measured incident ``clay_scratch.clone``'s own comment names,
-    reproduced directly: without ``modifiers=obj.modifiers`` a clone's copy
-    of an object dropped its stack, so a preview of a batch that had already
-    added one drew the object as its bare base mesh -- fewer vertices than
-    the real evaluated result the batch actually built."""
-    ctx, session, uid1, _uid2 = _new_world()
-    doc = _doc(ctx, session)
-    agent_clay.call(
-        ctx, session, "clay_modifier_add",
-        {"uid": uid1, "kind": "array", "params": {"count": 3, "offset_x": 2.0}},
-    )
-    real_evaluated_verts = len(doc.evaluated(uid1).positions)
-
-    scratch = clay_scratch.clone(doc)
-    scratch_evaluated_verts = len(scratch.evaluated(uid1).positions)
-    assert scratch_evaluated_verts == real_evaluated_verts
-    assert scratch.by_uid(uid1).modifiers == doc.by_uid(uid1).modifiers

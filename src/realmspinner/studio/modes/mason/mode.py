@@ -304,6 +304,23 @@ def place_prefab(ctx: Any, name: str) -> int | None:
     return node.uid
 
 
+def _find_job(ctx: Any, job_id: str) -> Any:
+    """The full job dict for ``job_id`` off ``ctx.cache.jobs``, or the bare id
+    if the library no longer has it (removed from under an armed row).
+
+    :func:`place_job` accepts either -- a dict or a plain id -- but only the
+    dict carries the display name onto the placed node, which is what an
+    armed library row (mason-mode-05, the 2026-09-26 audit) wants: the click
+    that armed it only had the id and the kind string to remember by, since
+    ``MasonState.place_kind`` is one string, the same as it is for a
+    primitive or a light.
+    """
+    for job in getattr(ctx.cache, "jobs", []):
+        if isinstance(job, dict) and job.get("id") == job_id:
+            return job
+    return job_id
+
+
 #: What :func:`place_armed` does with each ``MasonState.place_kind`` prefix.
 #: A table rather than a chain of ``startswith`` tests, so the Assets pane's
 #: arming keys and this dispatch cannot drift into a kind the pane can arm and
@@ -311,9 +328,16 @@ def place_prefab(ctx: Any, name: str) -> int | None:
 #: was written by the pane and read by nothing but the hint line, so arming a
 #: primitive, a light or a camera and clicking in the viewport placed nothing
 #: at all.
+#:
+#: ``"job:"`` joined the table with the 2026-09-26 audit's mason-mode-05: the
+#: Assets panel's library rows used to place at once, on click, rather than
+#: arming like every other row here -- contradicting Chapter 17 and Chapter
+#: 31's "Arming and placing" section, both of which promise the click-then-
+#: click-in-viewport gesture this table already gives everything else.
 _PLACERS = {
     "light:": lambda ctx, key: place_light(ctx, key.split(":", 1)[1]),
     "camera": lambda ctx, _key: place_camera(ctx),
+    "job:": lambda ctx, key: place_job(ctx, _find_job(ctx, key.split(":", 1)[1])),
 }
 
 
@@ -426,6 +450,35 @@ def add_asset_to_scene(ctx: Any, job: Any) -> int | None:
 # --- editing --------------------------------------------------------------------
 
 
+def _selection_without_selected_ancestor(doc: Any, uids: list[int]) -> list[int]:
+    """``uids`` with any node dropped that has one of its own ancestors also
+    in ``uids``.
+
+    The 2026-09-26 audit's mason-mode-01: :func:`group_selected` used to hand
+    every selected uid to ``move_node`` regardless of whether the selection
+    already nested one inside another. A selected descendant does not need
+    its own move -- once its selected ancestor moves into the new group, the
+    descendant rides along unchanged, exactly the way ``move_node`` never
+    re-expresses a child's local transform when its parent moves -- and
+    trying to move the ancestor anyway can land it inside a group that was
+    itself created as the ancestor's own child, raising ``move_node``'s
+    "cannot be moved inside its own descendant".
+    """
+    selected = set(uids)
+    kept = []
+    for uid in uids:
+        ancestor = doc.parent_uid_of(uid)
+        under_selected = False
+        while ancestor is not None:
+            if ancestor in selected:
+                under_selected = True
+                break
+            ancestor = doc.parent_uid_of(ancestor)
+        if not under_selected:
+            kept.append(uid)
+    return kept
+
+
 def group_selected(ctx: Any) -> None:
     """Wrap the current selection in one new :class:`~.mason.nodes.GroupNode`,
     as a single undo step.
@@ -447,6 +500,16 @@ def group_selected(ctx: Any) -> None:
         return
     from .engine import nodes as nd
 
+    # The 2026-09-26 audit's mason-mode-01 (was Critical): Ctrl+A then G with
+    # a node and one of its own ancestors both selected raised ``move_node``'s
+    # "cannot be moved inside its own descendant" -- see
+    # :func:`_selection_without_selected_ancestor` for why. Reduced before
+    # anything is built, not just caught after, so the common case never
+    # reaches the group half-built.
+    uids = _selection_without_selected_ancestor(doc, uids)
+    if not uids:
+        return
+
     # The 2026-09-18 audit's mason-01: this used to call ``doc.add_node``
     # with no ceiling pre-check, so a scene already sitting at MAX_PLACED
     # raised ``add_node``'s ``ValueError`` uncaught -- see
@@ -462,8 +525,20 @@ def group_selected(ctx: Any) -> None:
     # is about to hold rather than always at the root.
     parent_uid = doc.parent_uid_of(uids[0])
     doc.add_node(group, parent_uid=parent_uid)
-    for uid in uids:
-        doc.move_node(uid, len(group.children), parent_uid=group.uid)
+    try:
+        for uid in uids:
+            doc.move_node(uid, len(group.children), parent_uid=group.uid)
+    except ValueError as exc:
+        # The reduction above is the real fix; this is the backstop the
+        # 2026-09-26 audit's mason-mode-01 also asked for, since
+        # ``shell/events.py``'s catch-all already contained the exception
+        # before this existed but left a half-built group and an uncollapsed
+        # history mark behind it. Any case the reduction misses still closes
+        # its own undo step and tells the user, instead of raising out of
+        # this function with the mark left open.
+        doc.collapse_since(mark)
+        ctx.toast(f"Could not group the selection: {exc}", "error")
+        return
     doc.collapse_since(mark)
     doc.select([group.uid])
 
@@ -760,6 +835,15 @@ def duplicate_selected(ctx: Any) -> None:
         node = doc.node(uid)
         if node is None:
             continue
+        if isinstance(node, nd.TerrainNode):
+            # The 2026-09-26 audit's mason-mode-10: a ``TerrainNode`` carries
+            # no heightfield of its own -- it only refers to the
+            # document-singleton ``doc.terrain`` -- so a "duplicate" would be
+            # a second outliner row resolving and drawing the very same
+            # ground, at whatever transform the copy ends up with. Skipped
+            # rather than built; a selection of the ground alone leaves
+            # ``copies`` empty and this whole gesture a no-op.
+            continue
         parents[uid] = doc.parent_uid_of(uid)
         copies.append((parents[uid], nd.copy_subtree(node, fresh_uids=True)))
     if not copies:
@@ -777,11 +861,48 @@ def duplicate_selected(ctx: Any) -> None:
     if over is not None:
         _toast_over_max_placed(ctx, over)
         return
+    from .engine import scene as msc
+
+    # The 2026-09-26 audit's mason-mode-02 (was High): ``_over_max_placed``
+    # above is exactly ``_check_max_placed``'s own tree-side count -- it
+    # counts a duplicated ``PrefabNode`` instance as the one node it is, never
+    # as what it expands to every time the scene resolves, draws or exports
+    # (``document.py``'s ``resolved_growth`` docstring). A selection that
+    # duplicated one or more prefab instances could sail past this check and
+    # still hit ``add_node``'s own ``_check_resolved_placed`` backstop --
+    # which raises, uncaught, once the loop below is already running, leaving
+    # whatever copies had already landed attached with the mark still open.
+    # Charged with :meth:`resolved_growth` first, the same shape
+    # :func:`place_prefab` already uses for a single placement.
+    try:
+        resolved_total = doc.resolved_total() + doc.resolved_growth(
+            [copy for _parent_uid, copy in copies]
+        )
+    except ValueError:
+        # scene.resolved_count refuses rather than counting an oversized walk
+        # to completion once either half alone would already exceed
+        # MAX_PLACED -- treat that refusal the same as "over", since it is
+        # (``place_prefab``'s own comment, restated).
+        resolved_total = msc.MAX_PLACED + 1
+    if resolved_total > msc.MAX_PLACED:
+        _toast_over_max_placed(ctx, resolved_total)
+        return
     mark = doc.mark()
     new_uids: list[int] = []
-    for parent_uid, copy in copies:
-        doc.add_node(copy, parent_uid=parent_uid)
-        new_uids.append(copy.uid)
+    try:
+        for parent_uid, copy in copies:
+            doc.add_node(copy, parent_uid=parent_uid)
+            new_uids.append(copy.uid)
+    except ValueError as exc:
+        # The backstop for the backstop: if the resolved-size precheck above
+        # ever disagrees with what ``add_node``'s own ``_check_resolved_placed``
+        # finds (a future prefab-expansion wrinkle neither of us has thought
+        # of yet), this closes the mark and tells the user instead of raising
+        # out of this function with earlier copies left attached --
+        # ``group_selected``'s mason-mode-01 fix, one door over.
+        doc.collapse_since(mark)
+        ctx.toast(f"Could not duplicate the selection: {exc}", "error")
+        return
     doc.collapse_since(mark)
     doc.select(new_uids)
 
@@ -795,10 +916,25 @@ def delete_selected(ctx: Any) -> None:
     uids = sorted(doc.selection)
     if not uids:
         return
+    from .engine import nodes as nd
+
     mark = doc.mark()
     for uid in uids:
-        if doc.node(uid) is not None:
-            doc.remove_node(uid)
+        node = doc.node(uid)
+        if node is None:
+            continue
+        doc.remove_node(uid)
+        if isinstance(node, nd.TerrainNode):
+            # The 2026-09-26 audit's mason-mode-10: this used to call
+            # ``remove_node`` alone, which takes the outliner row but leaves
+            # ``doc.terrain`` -- the document-singleton height field the node
+            # only refers to (``nodes.TerrainNode``'s own docstring) -- behind
+            # it. ``add_terrain`` refuses whenever ``tab.doc.terrain is not
+            # None``, so a scene whose ground was deleted this way could
+            # never be given a new one. ``remove_terrain``'s own second step,
+            # folded into this same undo mark rather than called wholesale,
+            # since the node itself is already gone.
+            doc.set_terrain(None)
     doc.collapse_since(mark)
     doc.select([])
 
@@ -915,6 +1051,24 @@ def export_glb(ctx: Any, tab: MasonTab | None = None) -> None:
     if tab is None or tab.saving:
         return
     doc, title = tab.doc, tab.title
+    from .engine import gltfout
+
+    # The 2026-09-26 audit's mason-mode-12: ``source = mason_assets.ensure(ctx)``
+    # and the ``gltfout.scene_model`` walk used to run inside ``run()``, on the
+    # task thread ``_start`` moves this whole closure to -- but ``AssetSource``
+    # is the frame thread's own cache (``_cache``/``_order``/``_pending``, plain
+    # dicts and lists behind no lock) and ``MasonView.sync`` mutates that exact
+    # object every single frame. A task-thread ``source.primitives(ref)`` call
+    # for a ref the viewport had not yet touched raced the frame thread on
+    # those containers -- a check-then-act race, not merely a slow one -- and
+    # for a still-unresolved ``LibraryRef`` also called ``ctx.submit`` from a
+    # thread nothing else ever calls it from. Resolved here instead, on the
+    # frame thread, before ``_start`` ever hands the rest off: exactly as
+    # cheap as what ``sync`` already does every frame, since a cache hit is a
+    # dict lookup and a miss only *starts* a background parse rather than
+    # blocking for it (``AssetSource.primitives``'s own docstring).
+    source = mason_assets.ensure(ctx)
+    export = gltfout.scene_model(doc, source)
 
     def run() -> dict[str, Any] | None:
         path = dialogs.save_file(
@@ -923,8 +1077,40 @@ def export_glb(ctx: Any, tab: MasonTab | None = None) -> None:
         if path is None:
             return None
         path = Path(path).with_suffix(".glb")
-        source = mason_assets.ensure(ctx)
-        files = mason_io.glb_bundle(doc, source)
+        # The 2026-09-26 audit's mason-mode-11: this used to hand straight off
+        # to ``mason_io.glb_bundle``, which resolves every ref against the
+        # *live* ``AssetSource`` and writes an ordinary meshless node for one
+        # that has not finished its background parse yet
+        # (``gltfout._Builder._mesh_for``'s own docstring) -- with nothing in
+        # the returned dict for this door to see, so the toast said "Exported."
+        # over a GLB missing a prop. ``export`` (above, resolved once on the
+        # frame thread -- mason-mode-12, this same audit) already carries
+        # ``unresolved``, checked before anything is written -- a
+        # ``service.errors`` exception rather than a ``docmodes.refuse``
+        # because this closure runs on the task thread, where ``TaskRunner``
+        # is what turns a ``ServiceError`` into the toast (``tasks.py``).
+        from ....kernels.geom3d import glbwrite
+        from ....service.errors import NotReady
+        from .engine import manifest
+
+        if export.unresolved:
+            raise NotReady(
+                f"{len(export.unresolved)} placed asset(s) have not finished "
+                "loading yet -- export again once they do.",
+                field="export",
+            )
+        # mason-mode-13, the 2026-09-26 audit: the manifest sidecar used to be
+        # written at the fixed name ``manifest.MANIFEST`` ("scene.json")
+        # beside whatever the GLB was actually called, so exporting "Barrel.glb"
+        # and then "Crate.glb" into the same folder overwrote the first
+        # export's manifest with the second's -- nothing inside the manifest
+        # references its own filename, so renaming it here (unlike the OBJ's
+        # MTL, whose ``mtllib``/``map_Kd`` lines embed the name -- see
+        # ``objout.format_jobs``) is safe with no other change needed.
+        files = {
+            "scene.glb": glbwrite.write_glb(export.model),
+            f"{path.stem}.json": manifest.manifest_bytes(doc, export),
+        }
         mason_io.write_files(files, path, primary="scene.glb")
         return {"exported": True, "path": str(path)}
 
@@ -940,21 +1126,41 @@ def export_obj(ctx: Any, tab: MasonTab | None = None) -> None:
     if tab is None or tab.saving:
         return
     doc, title = tab.doc, tab.title
+    # The 2026-09-26 audit's mason-mode-12: ``mason_io.obj_bundle`` (which
+    # calls ``objout.obj_export``, which walks the resolved scene calling
+    # ``source.primitives(ref)`` for every node) used to run inside ``run()``
+    # on the task thread -- see :func:`export_glb`'s identical comment for
+    # why that races the frame thread's own ``AssetSource``. Resolved here
+    # instead, via :func:`objout.collect_jobs` -- the ``source``-touching half
+    # -- before ``_start`` hands the rest off; :func:`objout.format_jobs`
+    # below is pure and needs no ``source`` at all, so it runs inside ``run()``
+    # where the chosen path (and so the stem mason-mode-13 wants, this same
+    # audit) is finally known.
+    source = mason_assets.ensure(ctx)
+    collected = objout.collect_jobs(doc, source)
 
     def run() -> dict[str, Any] | None:
         path = dialogs.save_file("Export Mason scene as OBJ", f"{title}.obj", mason_io.OBJ_FILTER)
         if path is None:
             return None
         path = Path(path).with_suffix(".obj")
-        source = mason_assets.ensure(ctx)
-        files, skipped, vertices, triangles = mason_io.obj_bundle(doc, source)
-        mason_io.write_files(files, path, primary=objout.OBJ)
+        # mason-mode-13, the 2026-09-26 audit: the OBJ, MTL and texture
+        # directory this bundle carries are named after ``path.stem`` rather
+        # than the fixed "scene" -- see :func:`objout.format_jobs`'s own
+        # comment for why that has to happen in ``objout`` itself (the
+        # ``mtllib``/``map_Kd`` lines embed these names) rather than as a
+        # rename of the finished files in ``mason_io.write_files``. Without
+        # it, exporting "Barrel.obj" and then "Crate.obj" into the same
+        # folder overwrote the first export's "scene.mtl" and every texture
+        # under "textures/" with the second's.
+        export = objout.format_jobs(collected, stem=path.stem)
+        mason_io.write_files(dict(export.files), path, primary=f"{path.stem}.obj")
         return {
             "exported": True,
             "path": str(path),
-            "skipped": skipped,
-            "vertices": vertices,
-            "triangles": triangles,
+            "skipped": list(export.skipped),
+            "vertices": export.vertices,
+            "triangles": export.triangles,
         }
 
     _start(ctx, tab, f"mason-exportobj:{tab.uid}", run)
@@ -988,7 +1194,7 @@ def export_library(ctx: Any, tab: MasonTab | None = None) -> None:
     from -- see ``service._jobs_create.import_mesh`` for why the mesh side
     needed a field the reference side already had.
     """
-    from .engine import serialize
+    from .engine import gltfout, serialize
 
     tab = tab or active(ctx)
     if tab is None or tab.saving:
@@ -1003,15 +1209,33 @@ def export_library(ctx: Any, tab: MasonTab | None = None) -> None:
         return
     camera_of(ctx, tab)
     snap = serialize.snapshot(doc)
+    # The 2026-09-26 audit's mason-mode-12: ``mason_assets.ensure``/
+    # ``gltfout.scene_model`` used to run inside ``run()`` on the task thread
+    # -- see :func:`export_glb`'s identical comment for why that races the
+    # frame thread's own ``AssetSource``. Resolved here instead, before
+    # ``_start`` hands the network write off.
+    source = mason_assets.ensure(ctx)
+    export = gltfout.scene_model(doc, source)
 
     def run() -> dict[str, Any]:
         from ....kernels.geom3d import glbwrite
         from ....service import files as svc_files
         from ....service import jobs as svc_jobs
-        from .engine import gltfout
+        from ....service.errors import NotReady
 
-        source = mason_assets.ensure(ctx)
-        export = gltfout.scene_model(doc, source)
+        if export.unresolved:
+            # The 2026-09-26 audit's mason-mode-11: an unparsed library ref
+            # resolves to no primitives (``gltfout._Builder._mesh_for``), so
+            # this used to mint a *permanent* library row from a GLB missing
+            # that prop's geometry -- and there is no re-export of a row
+            # already minted, only a fresh one. Refused before
+            # ``svc_jobs.import_mesh`` ever runs, so nothing is written for a
+            # scene whose references have not all finished loading yet.
+            raise NotReady(
+                f"{len(export.unresolved)} placed asset(s) have not finished "
+                "loading yet -- export again once they do.",
+                field="export",
+            )
         result = svc_jobs.import_mesh(
             ctx.svc,
             glbwrite.write_glb(export.model),

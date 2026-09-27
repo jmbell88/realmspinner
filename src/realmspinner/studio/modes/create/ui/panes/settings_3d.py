@@ -1182,11 +1182,31 @@ def matte_modal(ctx: Any) -> None:
 
 def _matte_body(ctx: Any, state: Any) -> None:
     preview = state.preview
+    # The 2026-09-26 audit, finding create-panes-03: ``on_task_failed``
+    # latches ``failed_stamp``/``_tried_and_failed`` precisely so ``pump``
+    # stops re-submitting a cutout that will never land -- but this function
+    # used to read only ``preview is None``, which is also true while the
+    # first attempt is still in flight. A failed cutout and a slow one drew
+    # the identical "Cutting the subject out..." forever, with Accept *and*
+    # Fix matte both disabled on "still being prepared" -- a modal with no
+    # way forward and no sign anything had gone wrong (the failure toast
+    # ``_collect_tasks`` raises scrolls off; this modal is what stays up).
+    failed = bool(state._tried_and_failed and state.failed_stamp == state.stamp)
     # The cutout is as tall as the reference is: a portrait image plus a stack
     # of warnings is exactly the body that used to push Accept off the bottom of
     # a short viewport. It scrolls; the three buttons below do not.
     with widgets.modal_body("matte-body"):
-        if preview is None:
+        if failed:
+            # widgets.wrapped, not muted under a pushed text colour: this is a
+            # sentence, not a status line, and the 2026-09-26 audit (pass 3)
+            # found ``muted`` cutting sidebar sentences mid-word with no wrap
+            # and no scrollbar to reach the rest.
+            widgets.wrapped(
+                theme.ERR,
+                "The cutout could not be computed. Fix matte opens the "
+                "reference in Inker so you can paint one by hand.",
+            )
+        elif preview is None:
             widgets.muted("Cutting the subject out...")
         else:
             _matte_image(ctx, preview)
@@ -1212,10 +1232,16 @@ def _matte_body(ctx: Any, state: Any) -> None:
     ready = preview is not None
     refused = bool(preview is not None and preview.reasons)
     label = "Build anyway" if refused else "Accept"
-    # Both buttons in this popup wait on the same thing, and it is a state the
-    # user can see happening -- so the sentence says what is being waited for
-    # rather than restating that the button is off.
-    preview_why = "The cutout is still being prepared."
+    # Both buttons in this popup wait on the same thing while it is genuinely
+    # still in flight -- so the sentence says what is being waited for rather
+    # than restating that the button is off. A failed cutout is not waiting on
+    # anything (``pump`` will not ask again for these bytes), so Accept's
+    # reason says why *it* stays off, and Fix matte -- which only opens Inker
+    # on ``state.job_id``, reading nothing off ``preview`` -- gets no reason
+    # at all because nothing here disables it.
+    preview_why = (
+        "The cutout could not be computed." if failed else "The cutout is still being prepared."
+    )
     role = controls.ButtonRole.DESTRUCTIVE if refused else controls.ButtonRole.PRIMARY
     if controls.button(
         label,
@@ -1236,7 +1262,7 @@ def _matte_body(ctx: Any, state: Any) -> None:
         return
     imgui.same_line()
     if controls.button(
-        "Fix matte", (sp(150), 0), enabled=ready, reason=preview_why
+        "Fix matte", (sp(150), 0), enabled=(ready or failed), reason=preview_why
     ):
         imgui.close_current_popup()
         state._open = False

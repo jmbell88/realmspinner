@@ -7,7 +7,9 @@ indentation and an expander sits beside any row with children, the same
 the one that matters, and imgui's own tree nodes would be a second identity to
 key selection off of that this pane does not need). Clay's document has no
 ``walk()`` of its own -- :func:`_tree_rows` is this pane's, built from
-``ClayDoc.roots``/``children_of``, both already in document order.
+:func:`_hierarchy`'s own parent->children map (memoised per ``doc.rev``,
+the 2026-09-26 audit's clay-document-05 -- see that function's docstring),
+which is document order the same way ``ClayDoc.roots``/``children_of`` are.
 
 A row's own document-list position (what used to decide screen order outright)
 now decides only *sibling* order: the roots come first, in document order,
@@ -46,6 +48,7 @@ through this pane's own door onto :func:`~.clay.ops.toast`.
 from __future__ import annotations
 
 import contextlib
+import weakref
 from typing import Any
 
 from imgui_bundle import imgui
@@ -90,38 +93,95 @@ def draw(ctx: Any) -> None:
         _body(ctx)
 
 
+#: *doc* -> ``(rev, children map, by-uid map)``, weak so a closed tab's own
+#: document takes its entry with it. See :func:`_hierarchy`.
+_HierarchyEntry = tuple[int, dict[Any, list[int]], dict[int, Any]]
+_HIERARCHY_CACHE: weakref.WeakKeyDictionary[Any, _HierarchyEntry] = weakref.WeakKeyDictionary()
+
+
+def _hierarchy(doc: Any) -> tuple[dict[Any, list[int]], dict[int, Any]]:
+    """*(children, by_uid)* for *doc*, built in one pass and memoised on ``rev``.
+
+    The 2026-09-26 audit's clay-document-05 (+clay-panes-04, -05): both
+    :func:`_tree_rows` here and ``props._relations`` called
+    ``ClayDoc.children_of``/``by_uid`` once per node visited, and neither of
+    those methods' own docstrings promise anything cheaper than scanning the
+    *whole* object list every single call -- so a depth-first walk over N
+    objects cost O(N) per node, not O(1). Reproduced: 0.63-0.72 s/frame in
+    this pane's own ``_tree_rows`` at 4,096 objects, and 0.40 s/frame in
+    ``props._relations``'s ``ClayDoc.descendants`` for a 4,095-child parent.
+    One pass over ``doc.objects`` builds both maps at once; the cache key is
+    ``doc.rev``, which every structural edit already bumps (``ClayDoc.
+    touch``), so a frame that changes nothing about the document reuses the
+    same maps instead of rebuilding them from a linear scan per node.
+    """
+    cached = _HIERARCHY_CACHE.get(doc)
+    if cached is not None and cached[0] == doc.rev:
+        return cached[1], cached[2]
+    children: dict[Any, list[int]] = {}
+    by_uid: dict[int, Any] = {}
+    for obj in doc.objects:
+        children.setdefault(obj.parent, []).append(obj.uid)
+        by_uid[obj.uid] = obj
+    _HIERARCHY_CACHE[doc] = (doc.rev, children, by_uid)
+    return children, by_uid
+
+
+def fast_descendants(doc: Any, uid: int) -> list[int]:
+    """``ClayDoc.descendants``'s own contract (depth-first, document order
+    per level) from :func:`_hierarchy`'s memoised maps, for a caller (
+    ``props._relations``) that would otherwise pay ``children_of``'s linear
+    scan once per node in the subtree -- see :func:`_hierarchy`'s own
+    docstring for the reproduction.
+    """
+    children, _by_uid = _hierarchy(doc)
+    out: list[int] = []
+    stack = list(reversed(children.get(uid, [])))
+    while stack:
+        u = stack.pop()
+        if u in out:  # cycle guard; see ClayDoc.ancestors's own
+            continue
+        out.append(u)
+        stack.extend(reversed(children.get(u, [])))
+    return out
+
+
 def _tree_rows(doc: Any) -> list[tuple[Any, int, bool]]:
     """Every object, depth-first, in document order within each parent, as
     ``(obj, depth, has_children)``.
 
-    ``ClayDoc.roots``/``children_of`` are already document order (both
-    methods' own docstrings), so this is the plain depth-first walk over
-    them -- roots first, then each root's own children before its next
-    sibling. Ignores collapse entirely: what a row's expander hides is a
-    *drawing* decision (``_body``'s own depth-skip loop), never a fact this
-    walk itself forgets, because a tag or name filter has to be able to find
-    a match inside a collapsed group.
+    Roots first, then each root's own children before its next sibling.
+    Ignores collapse entirely: what a row's expander hides is a *drawing*
+    decision (``_body``'s own depth-skip loop), never a fact this walk
+    itself forgets, because a tag or name filter has to be able to find a
+    match inside a collapsed group.
 
-    An explicit stack, not recursion, the same shape ``ClayDoc.ancestors``
-    uses for its own parent walk: the 2026-09-19 audit's clay-02 found this
-    walk raised an uncaught ``RecursionError`` on a legal, acyclic parent
-    chain of a few thousand objects (well inside ``glbimport.MAX_OBJECTS``),
-    crashing the app the moment the outliner opened. Each uid is pushed with
-    its depth; children are pushed in reverse so the stack still pops them
-    in document order, one root's whole subtree finished before its next
-    sibling starts -- exactly what the old recursive ``walk`` produced.
+    An explicit stack, not recursion: the 2026-09-19 audit's clay-02 found
+    this walk raised an uncaught ``RecursionError`` on a legal, acyclic
+    parent chain of a few thousand objects (well inside ``glbimport.
+    MAX_OBJECTS``), crashing the app the moment the outliner opened. Each
+    uid is pushed with its depth; children are pushed in reverse so the
+    stack still pops them in document order, one root's whole subtree
+    finished before its next sibling starts -- exactly what the old
+    recursive ``walk`` produced.
+
+    Built from :func:`_hierarchy`'s memoised maps rather than
+    ``ClayDoc.roots``/``children_of``/``by_uid`` -- see that function's own
+    docstring (the 2026-09-26 audit's clay-document-05/clay-panes-04): this
+    walk used to call ``children_of`` once per node, each one a fresh linear
+    scan of the whole object list.
     """
+    children, by_uid = _hierarchy(doc)
     rows: list[tuple[Any, int, bool]] = []
-    stack: list[tuple[int, int]] = [(root, 0) for root in reversed(doc.roots())]
+    stack: list[tuple[int, int]] = [(root, 0) for root in reversed(children.get(None, []))]
     while stack:
         uid, depth = stack.pop()
-        try:
-            obj = doc.by_uid(uid)
-        except KeyError:  # pragma: no cover - defensive; no caller builds this
+        obj = by_uid.get(uid)
+        if obj is None:  # pragma: no cover - defensive; no caller builds this
             continue
-        children = doc.children_of(uid)
-        rows.append((obj, depth, bool(children)))
-        stack.extend((child, depth + 1) for child in reversed(children))
+        kids = children.get(uid, [])
+        rows.append((obj, depth, bool(kids)))
+        stack.extend((child, depth + 1) for child in reversed(kids))
     return rows
 
 
@@ -179,6 +239,16 @@ def _body(ctx: Any) -> None:
     # tree, and a match nested three deep under a collapsed group must still
     # be found.
     skip_below: int | None = None
+    # The 2026-09-26 audit's clay-panes-05: every one of these rows used to be
+    # submitted to imgui whether or not the pane could show it -- a thousand
+    # selectables, drag-drop sources/targets and context-menu registrations a
+    # frame for the twenty a typical dock column holds. Filtering and the
+    # collapse-skip still run over the *whole* tree here, since which rows
+    # even exist to show is a document-wide question a clipper cannot answer
+    # -- only the resulting list is clipped, the same split
+    # ``packwright/ui/panes/sources.py`` already draws between "what matches"
+    # and "what is drawn".
+    visible: list[tuple[Any, int, bool]] = []
     for obj, depth, has_children in _tree_rows(doc):
         if not filtered and skip_below is not None:
             if depth > skip_below:
@@ -188,13 +258,20 @@ def _body(ctx: Any) -> None:
             continue
         if tag_needle and not any(tag_needle in t for t in obj.tags):
             continue
-        shown += 1
-        _row(
-            ctx, state, doc, obj, depth, has_children,
-            filtered=filtered, saving=bool(tab.saving),
-        )
+        visible.append((obj, depth, has_children))
         if not filtered and has_children and obj.uid in state.outliner_collapsed:
             skip_below = depth
+    shown = len(visible)
+    clipper = imgui.ListClipper()
+    clipper.begin(len(visible))
+    while clipper.step():
+        for index in range(clipper.display_start, clipper.display_end):
+            obj, depth, has_children = visible[index]
+            _row(
+                ctx, state, doc, obj, depth, has_children,
+                filtered=filtered, saving=bool(tab.saving),
+            )
+    clipper.end()
     widgets.no_matches(needle or tag_needle, shown)
     imgui.end_disabled()
 

@@ -162,11 +162,31 @@ class ExportJob:
 @dataclass(frozen=True)
 class PlannedFile:
     """One file an export would write: its name, the path it would land at,
-    and whether that path already has something at it."""
+    and whether that path already has something at it.
+
+    ``key`` is the *pre-suffix* name -- what :func:`plan_export` first called
+    this file, before :func:`keep_both` ever touched it -- and is what
+    :func:`export_planned_to_folder` matches against a freshly re-collected
+    listing. Empty for a plan straight out of :func:`plan_export`, where
+    ``name`` already is the pre-suffix name; :func:`keep_both` is the one
+    place that sets it, to the ``name`` it is about to overwrite. The 2026-09-26
+    audit, service-assets-01: before this field existed, that matching compared
+    ``plan.files``' *suffixed* names (once a plan had been through
+    ``keep_both``) against ``collect()``'s always-un-suffixed arcnames, so the
+    two sets could never agree and every "Keep both" export was refused as a
+    stale plan -- the 2026-09-13 audit's own by-name matching, added to survive
+    a plan going stale, instead made every keep-both plan look stale on arrival.
+    """
 
     name: str
     dest: Path
     exists: bool
+    key: str = ""
+
+    @property
+    def match_name(self) -> str:
+        """The name to match a fresh ``collect()`` arcname against."""
+        return self.key or self.name
 
 
 @dataclass(frozen=True)
@@ -224,7 +244,7 @@ def keep_both(plan: ExportPlan) -> ExportPlan:
         n += 1
     return ExportPlan(
         files=tuple(
-            PlannedFile(_suffixed_name(f.name, n), c, False)
+            PlannedFile(_suffixed_name(f.name, n), c, False, key=f.match_name)
             for f, c in zip(plan.files, candidates, strict=True)
         )
     )
@@ -284,7 +304,13 @@ def export_planned_to_folder(
     # Match by name instead, so a plan that no longer describes what
     # ``collect`` would write now is refused with a message the UI can show,
     # not a traceback.
-    plan_by_name = {f.name: f for f in plan.files}
+    #
+    # By *pre-suffix* name (``PlannedFile.match_name``), not ``f.name`` --
+    # the 2026-09-26 audit, service-assets-01: ``collect`` always returns
+    # today's un-suffixed arcnames, but ``plan.files`` carries suffixed names
+    # once ``keep_both`` has run, so matching on ``f.name`` compared two sets
+    # that could never agree and refused every "Keep both" as a stale plan.
+    plan_by_name = {f.match_name: f for f in plan.files}
     if {arcname for arcname, _path in members} != set(plan_by_name):
         raise Conflict(
             "the export plan is out of date -- re-open the export dialog and try again",

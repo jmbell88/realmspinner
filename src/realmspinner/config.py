@@ -429,28 +429,6 @@ class Config:
     trellis_idle_timeout: float = field(
         default_factory=lambda: _env_float("REALMSPINNER_TRELLIS_IDLE", 600.0)
     )
-    # Familiar's own two directories, deliberately never reused from trellis'
-    # -- llama.cpp and trellis.cpp ship their own, differently built
-    # ``ggml*.dll`` (see fetch.py's ``familiar_runtime_dir``), so publishing
-    # one engine's binaries into the other's directory would silently mix DLL
-    # builds the moment both engines are installed.
-    familiar_runtime_dir: Path = field(
-        default_factory=lambda: _env_path(
-            "REALMSPINNER_FAMILIAR_RUNTIME", _home() / "engine" / "llama"
-        )
-    )
-    familiar_models_dir: Path = field(
-        default_factory=lambda: _env_path(
-            "REALMSPINNER_FAMILIAR_MODELS", _home() / "models" / "familiar"
-        )
-    )
-    familiar_port: int = field(
-        default_factory=lambda: _env_int("REALMSPINNER_FAMILIAR_PORT", 17972)
-    )
-    # Seconds of inactivity before the Familiar child is stopped to free VRAM.
-    familiar_idle_timeout: float = field(
-        default_factory=lambda: _env_float("REALMSPINNER_FAMILIAR_IDLE", 300.0)
-    )
     # Where every image model lives: models.BASE_MODELS[k].dir_name resolves
     # against this, and style LoRAs against its loras/ subdirectory. All
     # downloaded once by hand (see README) -- the app never downloads, and
@@ -743,10 +721,6 @@ SETTINGS: tuple[tuple[str, str], ...] = (
     ("trellis_max_tokens", "REALMSPINNER_TRELLIS_MAX_TOKENS"),
     ("trellis_decim", "REALMSPINNER_TRELLIS_DECIM"),
     ("trellis_atlas", "REALMSPINNER_TRELLIS_ATLAS"),
-    ("familiar_runtime_dir", "REALMSPINNER_FAMILIAR_RUNTIME"),
-    ("familiar_models_dir", "REALMSPINNER_FAMILIAR_MODELS"),
-    ("familiar_port", "REALMSPINNER_FAMILIAR_PORT"),
-    ("familiar_idle_timeout", "REALMSPINNER_FAMILIAR_IDLE"),
     ("gltfpack_exe", "REALMSPINNER_GLTFPACK"),
     ("mesh_profile", "REALMSPINNER_MESH_PROFILE"),
     ("lowpoly_triangles", "REALMSPINNER_LOWPOLY_TRIANGLES"),

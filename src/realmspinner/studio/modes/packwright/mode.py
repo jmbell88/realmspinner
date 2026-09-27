@@ -76,6 +76,17 @@ log = logging.getLogger(__name__)
 # different things about the same wait.
 _BUSY_WHY = widgets.DOCUMENT_SAVING_WHY
 
+# The four task-key prefixes ``docmodes.start_save`` actually sets ``tab.saving``
+# for (``save_to``/``save_as``/``export_files``/``export_library``, all through
+# ``_start``). The 2026-09-26 audit's packwright-mode-02: ``on_task_failed``
+# used to clear ``tab.saving`` for *any* failed task keyed to this tab -- a
+# failed picker add or tile-set decode (``ctx.submit`` directly, never through
+# ``_start``) landed there too and cleared a flag a concurrent save had set,
+# unlocking the tab to accept another edit while the save was still writing.
+_SAVE_KEYS = frozenset(
+    {"packwright-save", "packwright-saveas", "packwright-export", "packwright-library"}
+)
+
 
 # The three recents wrappers every document mode carries, over the one
 # list Home's Resume rows are built from (``docmodes.recents_for``).
@@ -497,7 +508,16 @@ def set_pivot(
     a pivot that never reaches a pack is a pivot the sidecar does not carry.
     """
 
-    if tab is None or tab.saving:
+    if tab is None:
+        return
+    if tab.busy:
+        # The 2026-09-26 audit, packwright-mode-06: this gated on ``tab.saving``
+        # directly, silently, where every sibling in this file (``remove_source``,
+        # ``rename_source``, ``set_settings``, the add doors) gates on ``tab.busy``
+        # and toasts the shared sentence -- so a pivot drag while a save was
+        # writing was dropped with no word, the exact silent shape the
+        # 2026-09-23 audit already fixed for the rest of this file.
+        docmodes.refuse(ctx, _BUSY_WHY)
         return
     before = tab.doc.history.head
     tab.doc.set_pivot(int(uid), pivot)
@@ -795,6 +815,22 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
     if name == "packwright-pack":
         if isinstance(result, dict):
+            if not tab.doc.sources:
+                # The 2026-09-26 audit, packwright-mode-01: a pack in flight
+                # when the last source is removed used to land anyway.
+                # ``request_pack``'s own empty-sources branch (above) already
+                # clears ``layout``/``atlas``/``pack_dirty`` the moment the
+                # document goes empty, but ``adopt_pack`` deliberately never
+                # touches ``pack_dirty`` (an edit mid-pack must survive the
+                # landing) -- so this stale result re-installed the old
+                # atlas over an empty document with ``pack_dirty`` left at
+                # whatever the empty-sources branch had already set it to
+                # (False), and nothing left to re-arm a repack. Both exports
+                # would then have written sprites the document no longer
+                # held. Dropped instead: an empty document has nothing to
+                # pack, however this task's snapshot answered.
+                tab.packing = False
+                return
             tab.adopt_pack(result["layout"], result["atlas"])
         else:
             tab.packing = False
@@ -913,7 +949,10 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     tab = state.get(done.key.split(":", 1)[1])
     if tab is None:
         return
-    tab.saving = False
+    if done.key.split(":", 1)[0] in _SAVE_KEYS:
+        # Only the four keys ``docmodes.start_save`` actually sets
+        # ``tab.saving`` for may clear it back -- see ``_SAVE_KEYS``.
+        tab.saving = False
     if done.key.startswith("packwright-pack"):
         tab.packing = False
         tab.pack_error = done.message or "That pack did not work."

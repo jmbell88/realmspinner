@@ -716,10 +716,9 @@ def _agents(ctx: Any) -> None:
                 "Lets a program that speaks the Model Context Protocol -- "
                 "Claude Code, Codex, anything with an MCP client already "
                 "running on this machine -- build in Clay and make characters "
-                "for you. Realmspinner runs exactly one pinned model, Familiar, on "
-                "loopback, and still makes no network egress; an agent that "
-                "is already running connects inward to Realmspinner itself, never "
-                "to Familiar and never the other way round."
+                "for you. Realmspinner still makes no network egress; an agent "
+                "that is already running connects inward to Realmspinner "
+                "itself, never the other way round."
             ),
             helper="Takes effect at once -- no restart.",
         )
@@ -1116,11 +1115,40 @@ _EVIDENCE_MEASURED = False
 
 
 def _reset_measure() -> None:
-    """For tests, for ``_reset_sweep``'s reason. Both once-per-session walks,
-    because a helper that reset one of them would be a trap the moment a third
-    arrived."""
-    global _EVIDENCE_MEASURED, _MEASURED
+    """For tests, for ``_reset_sweep``'s reason. Three once-per-session facts,
+    because a helper that reset only some of them would be a trap the moment
+    a case relying on a fourth arrived -- exactly what this function's own
+    older wording warned about and ``_STAGED``/``_STAGED_PENDING`` (the
+    2026-09-26 audit's shell-review-settings-02) then were."""
+    _stale_model_storage()
+    _stale_evidence_storage()
+    _stale_staged_installer()
+
+
+def _stale_model_storage() -> None:
+    """Force the next :func:`_model_storage` call to re-measure rather than
+    keep showing whatever ``ctx.model_storage`` already holds.
+
+    The 2026-09-26 audit's shell-review-settings-01: ``_MEASURED`` was set
+    once, the first time this pane drew, and nothing ever cleared it again --
+    so the Storage pane's "N model files - X GB" line kept the figure from
+    the *first* time Settings was opened for the rest of the session, no
+    matter how many downloads or removals actually changed what was on disk.
+    Called by ``shell.tasks`` once a ``download:``/``remove:`` task lands.
+    """
+    global _MEASURED
     _MEASURED = False
+
+
+def _stale_evidence_storage() -> None:
+    """:func:`_stale_model_storage`'s twin, for the evidence archive.
+
+    ``_evidence_storage``'s own docstring says why a delete is exactly the
+    moment this archive can change size: it fills up *on* a delete, which
+    landing (``shell.tasks``' ``delete:``/``prune``/``purge:``/``empty-trash``
+    branch) is where this is called from.
+    """
+    global _EVIDENCE_MEASURED
     _EVIDENCE_MEASURED = False
 
 
@@ -2461,6 +2489,28 @@ def _restore_packs(ctx: Any, keys: list[str]) -> None:
 #: changes underneath it.
 _STAGED: dict[tuple[str, int, float, str], bool] = {}
 
+#: The one stat slot a verification has already been submitted for -- this
+#: pane redraws every frame the Updates category is open, and a cache miss
+#: must ask :func:`_verify_staged_task` exactly once, not resubmit it on
+#: every single frame until the task lands. ``None`` when nothing is in
+#: flight. A single slot rather than a set, ``_STAGED``'s own "this session
+#: sees one release" comment restated: two different files staged at once
+#: is not a shape this pane needs to worry about.
+_STAGED_PENDING: tuple[str, int, float, str] | None = None
+
+#: The task key :func:`_staged` submits under and :mod:`shell.tasks` lands.
+STAGED_TASK_KEY = "settings-staged-installer"
+
+
+def _stale_staged_installer() -> None:
+    """Drop the cached verification and any in-flight submission -- for
+    tests, ``_reset_measure``'s reason: a case that staged one file and
+    verified it must not leave the next case's differently-named,
+    differently-hashed file reading as already verified."""
+    global _STAGED_PENDING
+    _STAGED.clear()
+    _STAGED_PENDING = None
+
 
 def update_size_note(info: dict[str, Any]) -> str:
     """"418 MB", or nothing when the release did not say. Pure, for the tests."""
@@ -2470,15 +2520,55 @@ def update_size_note(info: dict[str, Any]) -> str:
     return f"{size / float(1024**2):.0f} MB"
 
 
+def _verify_staged_task(
+    svc: Any, info: dict[str, Any], slot: tuple[str, int, float, str]
+) -> tuple[tuple[str, int, float, str], bool]:
+    """The task-thread half of :func:`_staged`: hash the file and say whether
+    it matched, against ``slot`` rather than a bare bool -- so
+    :func:`_on_staged_verified`, landing later, can tell *which* stat this
+    answer is for even if the file has changed again by the time it lands.
+    """
+    from ......service import updates as svc_updates
+
+    return slot, svc_updates.staged_installer(svc, info) is not None
+
+
+def _on_staged_verified(slot: tuple[str, int, float, str], ok: bool) -> None:
+    """Land a :func:`_verify_staged_task` result -- called from
+    ``shell.tasks``'s ``STAGED_TASK_KEY`` branch, on the frame thread, which
+    is fine: this only ever writes two small module globals.
+    """
+    global _STAGED_PENDING
+    # Cleared wholesale rather than aged: an entry whose file has changed
+    # is already unreachable by its own key, and this session sees one
+    # release.
+    _STAGED.clear()
+    _STAGED[slot] = ok
+    if slot == _STAGED_PENDING:
+        _STAGED_PENDING = None
+
+
 def _staged(ctx: Any, info: dict[str, Any]) -> Path | None:
     """The verified installer for ``info``, cached against its own stat.
 
-    The service answers this by hashing the file, which is right and is not
-    something to do on the frame thread sixty times a second. A stat is; so the
-    digest is computed once per (path, size, mtime, expected digest), and the
-    cache is invalidated by the file changing rather than by a timer.
+    The 2026-09-26 audit's shell-review-settings-02: the service answers this
+    by hashing the whole file -- "hundreds of megabytes" per the module
+    comment on ``_STAGED`` -- and this pane draws every frame the Updates
+    category is open, on the frame thread. The stat-keyed cache below already
+    made that hash run at most once *per slot*, but the miss that fills the
+    cache used to call ``svc_updates.staged_installer`` -- the hash -- right
+    here, inline, the first time a new file's slot was seen: one very slow
+    frame the moment a download finishes, on the same thread the whole
+    window's redraw depends on. Resolved off-thread now, through
+    :func:`_verify_staged_task`/:func:`_on_staged_verified`, the same
+    once-per-fact shape ``_model_storage`` already uses: a miss submits and
+    answers "not verified yet" for this frame, and the *next* miss for the
+    same slot is a no-op (``_STAGED_PENDING``) rather than a second
+    submission every frame until the first one lands.
     """
     from ......service import updates as svc_updates
+
+    global _STAGED_PENDING
 
     name = str(info.get("installer_name") or "")
     digest = str(info.get("sha256") or "").lower()
@@ -2490,13 +2580,12 @@ def _staged(ctx: Any, info: dict[str, Any]) -> Path | None:
     except OSError:
         return None
     slot = (str(path), stat.st_size, stat.st_mtime, digest)
-    if slot not in _STAGED:
-        # Cleared wholesale rather than aged: an entry whose file has changed
-        # is already unreachable by its own key, and this session sees one
-        # release.
-        _STAGED.clear()
-        _STAGED[slot] = svc_updates.staged_installer(ctx.svc, info) is not None
-    return path if _STAGED[slot] else None
+    if slot in _STAGED:
+        return path if _STAGED[slot] else None
+    if slot != _STAGED_PENDING:
+        _STAGED_PENDING = slot
+        ctx.submit(STAGED_TASK_KEY, _verify_staged_task, ctx.svc, info, slot)
+    return None
 
 
 def _updates(ctx: Any) -> None:

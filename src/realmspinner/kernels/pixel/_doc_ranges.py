@@ -674,6 +674,21 @@ class RangeOps:
         f0 = max(0, min(int(f0), len(anim.frames) - 1))
         if t0 + max(offset for offset, _frame in clip.slots) >= len(anim.tracks):
             return False
+        # The 2026-09-26 audit, finding inker-document-04: a ``TilemapCel``
+        # plane in the clip carries the *source* document's ``tileset_uid``,
+        # and nothing here checked the target held a tileset by that uid
+        # before adopting it -- every later stroke, flip or rotate on the
+        # pasted cel calls ``tileset_slot``, whose own docstring says a
+        # missing uid is a bug upstream and raises ``KeyError`` rather than
+        # refusing by name, and ``ops.run`` does not catch it. Refused here,
+        # the same whole-or-nothing answer a size mismatch or a track
+        # overflow gets, before a single cel is adopted.
+        bound = {slot.uid for slot in self.tilesets}
+        if any(
+            isinstance(plane, TilemapCel) and plane.tileset_uid not in bound
+            for plane in clip.planes
+        ):
+            return False
         landing = [
             (t0 + track_offset, f0 + frame_offset, index)
             for (track_offset, frame_offset), index in sorted(
@@ -681,6 +696,15 @@ class RangeOps:
             )
         ]
         if not landing:
+            return False
+        # The 2026-09-26 audit, finding inker-document-06: every target track
+        # this paste lands on used to be written with no ``write_locked``
+        # check at all -- a content-locked track (or one inside a locked
+        # group) took a pasted cel the same as any other. Checked here, whole-
+        # or-nothing like the size and track-overflow refusals above: a paste
+        # landing on several tracks must not silently skip the locked ones and
+        # land the rest, the same argument ``track_overflow`` already makes.
+        if any(self.write_locked(anim.tracks[t]) for t, _f, _i in landing):
             return False
         self.commit_floating()
         edits: list[Any] = []

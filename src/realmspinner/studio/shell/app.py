@@ -284,8 +284,8 @@ class App(
         if not size_override:
             # ``size`` above is the client area only; the title bar and frame
             # SDL adds on top of it push the outer window further down/right
-            # than that clamp can see, which is how Familiar's Build/Send row
-            # ended up under the taskbar with a client size that "fit"
+            # than that clamp can see, which is how a docked panel's bottom
+            # row ended up under the taskbar with a client size that "fit"
             # (2026-09-16). Skipped under ``size_override`` -- the screenshot
             # harness asked for an exact framebuffer, and moving the window
             # would not change that, but a stray SetWindowPos on a headless
@@ -546,15 +546,6 @@ class App(
             # must leave the feature off and the launch alone. The reason
             # lands on ``agent_host.failure`` for the Settings pane to show.
             self.agent_host.start()
-        # T5: one Threads instance for the process, and its TAB_CLOSED
-        # listener registered exactly once through the same door a test
-        # calls (``familiar_ui.install``) -- see that function's own
-        # docstring for why registration through it, rather than a bare
-        # ``TAB_CLOSED.append`` here, is what lets a test prove the app
-        # itself wires this rather than the test wiring it.
-        from ..assistant import ui as familiar_ui
-
-        familiar_ui.install(self.app_ctx)
 
     def _load_static_answers(self) -> None:
         """Read the things that cannot change without a restart, once."""

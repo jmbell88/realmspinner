@@ -501,6 +501,26 @@ def _int_attr(node: Any, name: str, default: int) -> int:
         return default
 
 
+def _json_int(node: Any, name: str, default: int) -> int:
+    """One integer field of a Tiled JSON record, ``default`` when absent or junk.
+
+    Not ``int(node.get(name, default) or default)``: an ``or`` fallback treats
+    a stored ``0`` as missing, exactly the defect ``props.json_number`` exists
+    to avoid for property values. The 2026-09-26 audit (finding
+    plotter-map-06) found the Wang JSON reader making that mistake for a
+    colour's or a set's representative tile, so a genuine wang tile 0 read
+    back as -1 (unset) while the XML twin (:func:`_int_attr`, which has no
+    such idiom) kept it.
+    """
+    value = node.get(name) if isinstance(node, dict) else None
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def read_wang_model_json(entries: Any) -> tuple[WangSet, ...]:
     """:func:`read_wang_model` over Tiled's JSON spelling."""
     if not isinstance(entries, list):
@@ -514,7 +534,7 @@ def read_wang_model_json(entries: Any) -> tuple[WangSet, ...]:
                 name=str(colour.get("name") or ""),
                 colour=str(colour.get("color") or "#ffffff"),
                 probability=json_number(colour, "probability", 1.0),
-                tile=int(colour.get("tile", -1) or -1),
+                tile=_json_int(colour, "tile", -1),
                 klass=str(colour.get("class") or ""),
             )
             for colour in (wangset.get("colors") or ())
@@ -535,7 +555,7 @@ def read_wang_model_json(entries: Any) -> tuple[WangSet, ...]:
                 kind=kind if kind in WANG_KINDS else "mixed",
                 colours=tuple(colours),
                 tiles=tiles,
-                tile=int(wangset.get("tile", -1) or -1),
+                tile=_json_int(wangset, "tile", -1),
                 klass=str(wangset.get("class") or ""),
             )
         )

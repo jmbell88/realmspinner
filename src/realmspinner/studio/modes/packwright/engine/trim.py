@@ -53,8 +53,16 @@ def trim_rect(pixels: np.ndarray, *, enabled: bool = True) -> tuple[int, int, in
     """
     height, width = int(pixels.shape[0]), int(pixels.shape[1])
     box = alpha_bbox(pixels)
+    if not enabled:
+        # The 2026-09-26 audit, packwright-packer-03: the ``box is None`` check
+        # used to run *before* this one, so a fully transparent sprite
+        # collapsed to the 1x1 empty rectangle even with trimming off. Grid
+        # mode always packs with ``enabled=False`` (see ``layout.grid_layout``
+        # and the module docstring there: "a grid pack never trims, whatever
+        # trim says") -- so an all-blank grid pack reported a 1x1 cell and
+        # exported a ``.tsx`` describing 1x1 tiles for sprites that were
+        # actually, say, 16x16. ``empty`` is still reported honestly.
+        return 0, 0, width, height, box is None
     if box is None:
         return 0, 0, EMPTY_SIZE, EMPTY_SIZE, True
-    if not enabled:
-        return 0, 0, width, height, False
     return (*box, False)

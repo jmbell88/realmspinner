@@ -185,8 +185,10 @@ def test_every_packwright_busy_refusal_says_why():
     # than mints a document: ``add_source_paths``, ``add_job_source``,
     # ``add_rendered_sheet`` (the three the first run's packwright-01 fixed),
     # ``add_inker_document``, ``ask_add_sources``, ``import_tileset``,
-    # ``remove_source``, ``rename_source`` and ``set_settings`` -- nine doors.
-    assert source.count("docmodes.refuse(ctx, _BUSY_WHY)") == 9
+    # ``remove_source``, ``rename_source`` and ``set_settings`` -- nine doors,
+    # plus ``set_pivot`` (the 2026-09-26 audit's packwright-mode-06: it used to
+    # gate on ``tab.saving`` directly and return with no word at all) -- ten.
+    assert source.count("docmodes.refuse(ctx, _BUSY_WHY)") == 10
     assert "_BUSY_WHY = widgets.DOCUMENT_SAVING_WHY" in source, (
         "one shared sentence for every busy refusal in the file, not a "
         "second string that could drift from the pane's own copy"

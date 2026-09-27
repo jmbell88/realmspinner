@@ -107,27 +107,21 @@ REFERENCE_TOOLS = frozenset(
     }
 )
 """The four reference tools, named once, so nothing else in this fold has to
-relist them by hand -- ``studio/assistant/preview.py``'s own
-``PREVIEW_EXCLUDED`` reads this set (through ``dispatch.py``'s re-export)
-rather than writing the four names out a second time.
+relist them by hand.
 
-**Deliberately not folded into ``BATCH_EXCLUDED`` below.** The 2026-09-18
-audit's familiar-04 first tried exactly that -- ``BATCH_EXCLUDED`` had
-always named only ``clay_reference_get``, so ``clay_reference_add``/
-``_list``/``_remove`` were batchable, and folding this whole set in closed
-that hole -- but ``BATCH_EXCLUDED`` is *published*: ``clay_batch``'s own
-description sentence interpolates ``set(_HANDLERS) - BATCH_EXCLUDED``
+**Deliberately not folded into ``BATCH_EXCLUDED`` below.** A 2026-09-18 audit
+first tried exactly that -- ``BATCH_EXCLUDED`` had always named only
+``clay_reference_get``, so ``clay_reference_add``/``_list``/``_remove`` were
+batchable, and folding this whole set in closed that hole -- but
+``BATCH_EXCLUDED`` is *published*: ``clay_batch``'s own description sentence
+interpolates ``set(_HANDLERS) - BATCH_EXCLUDED``
 (``studio/modes/clay/agent/dispatch.py``'s ``batch_names``), so widening it
 changed the live tool catalogue's text and, with it, the catalogue hash a
-training dataset had pinned (``dev/tests/familiar/test_contract.py``'s
-``test_derive_clay_card_reproduces_the_dataset_manifest_tools_sha``) --
-and silently made three tools unbatchable for every external MCP agent, a
-public-surface change familiar-04 never asked for. The fix moved to
-``studio/assistant/preview.py``'s ``run_scratch`` instead: it now walks a
-``clay_batch`` call's own ``calls`` before running it and refuses any nested
-name in ``PREVIEW_EXCLUDED``, the same set a *direct* call already checks --
-closing the preview-only hole without touching what an ordinary MCP client
-may batch."""
+training dataset had pinned, and silently made three tools unbatchable for
+every external MCP agent -- a public-surface change nobody asked for. This
+set stays separate so a caller with a narrower reason to refuse the same
+four tools can check it without touching what an ordinary MCP client may
+batch."""
 
 BATCH_EXCLUDED = frozenset(
     {

@@ -284,14 +284,19 @@ def rerun_job(
         # depicts -- so the strip above must not cost it, or the minted job
         # dispatches straight into "sheet_id is not a sheet id: ''".
         params["sheet_id"] = source["params"].get("sheet_id")
-    if kind == "charsheet":
-        # A *fresh* sheet id, not the source's: a rerun of a character sheet is
-        # another sheet beside the first one, never an overwrite of it -- which
-        # is what the strip above already implies, made true here rather than
-        # left to the worker's ``or new_id()`` fallback. Minted at the door so
-        # ``_discard_artifacts`` has an id to name this run's atlas by; without
-        # one a cancel leaves the staged render behind, having nothing to look
-        # for.
+    if kind in ("charsheet", "sheet"):
+        # A *fresh* sheet id, not the source's: a rerun of a character sheet
+        # (or, the 2026-09-26 audit, service-kinds-02, a plain pose x
+        # direction sheet) is another sheet beside the first one, never an
+        # overwrite of it -- which is what the strip above already implies,
+        # made true here rather than left to the worker's ``or new_id()``
+        # fallback. Minted at the door so ``_discard_artifacts`` has an id to
+        # name this run's atlas by; without one a cancel leaves the staged
+        # render behind, having nothing to look for. Before this, ``"sheet"``
+        # fell through neither this arm nor ``pixel_sheet``'s re-seed, so the
+        # strip above left the minted row with no ``sheet_id`` at all and
+        # ``_q_rig.Worker._sheet`` refused it at dispatch with "sheet_id is
+        # not a sheet id: ''", even though ``rerollable`` had said yes.
         from ..kernels.rig import store
 
         params["sheet_id"] = store.new_id()
@@ -519,9 +524,42 @@ def rerun_job(
         # a *reference* a mesh was promoted from, and a reroll of that mesh is
         # a fresh attempt rather than a second promotion.
         parent = source.get("parent_id") if kind == "music" else None
-        svc.store.create(
-            kind, source["prompt"], params, new_id, stage=stage, parent_id=parent
-        )
+        if kind in ("charsheet", "sheet"):
+            # The 2026-09-26 audit, poser-jobs-03: this mints a fresh
+            # ``sheet_id`` above but, unlike every *other* door onto the same
+            # pool (``sheets.create_sheet``, ``troupe.create_charsheet``),
+            # used to insert straight through with no job-wide hold and no
+            # ``MAX_SHEETS`` check -- so a reroll could take the mesh past the
+            # cap those doors enforce, and N rapid rerolls could all read the
+            # same "N sheets so far" count and all pass. ``params["source_job"]``
+            # is the mesh this sheet renders against, not ``job_id`` (the row
+            # being rerolled, itself a sheet), which is what the lock and the
+            # cap must be keyed on -- the same key ``_require_no_dependents``
+            # above already uses for this reason.
+            from .sheets import check_sheet_cap
+
+            mesh_id = str(params.get("source_job") or "")
+            with svc.convert_lock(mesh_id, "sheets"):
+                check_sheet_cap(svc, mesh_id, svc.job_dir(mesh_id))
+                svc.store.create(
+                    kind, source["prompt"], params, new_id, stage=stage, parent_id=parent
+                )
+        elif kind == "sprite_synthesis":
+            # Same incident, same fix, the sprite draft pool: ``draft_id`` is
+            # minted above with none of ``create_sprite_synthesis``'s
+            # ``check_sprite_draft_cap`` under ``convert_lock(..., "sprite_drafts")``.
+            from .sprites import check_sprite_draft_cap
+
+            mesh_id = str(params.get("source_job") or "")
+            with svc.convert_lock(mesh_id, "sprite_drafts"):
+                check_sprite_draft_cap(svc, mesh_id, svc.job_dir(mesh_id))
+                svc.store.create(
+                    kind, source["prompt"], params, new_id, stage=stage, parent_id=parent
+                )
+        else:
+            svc.store.create(
+                kind, source["prompt"], params, new_id, stage=stage, parent_id=parent
+            )
     except Exception:
         # The other half of writing the dir first: a row that exists owns its
         # directory, so only an insert (or copy) that never landed cleans up

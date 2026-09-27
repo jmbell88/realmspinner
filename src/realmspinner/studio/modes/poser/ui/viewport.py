@@ -239,10 +239,23 @@ class PoserViewport:
 
     def _ensure_poser_viewer(self) -> Any:
         """Poser's own Viewer, built on first use for ClayView's reason -- and
-        mirrored onto the ctx so poser_mode's guard can reach the editor."""
+        mirrored onto the ctx so poser_mode's guard can reach the editor.
+
+        ``on_pose_dirty`` is wired here too. The 2026-09-26 audit's
+        poser-mode-03: ``shell/app.py`` wires the *shared* viewer's callback
+        at startup (``self.viewer.on_pose_dirty = self._on_pose_dirty``), but
+        Poser edits through this, its own separate ``Viewer`` -- built lazily,
+        here, long after that assignment ran -- so its callback stayed the
+        class default (``None``) forever, and the status-bar ``*``/title mark
+        never followed a Poser edit. ``self._on_pose_dirty`` is the same
+        mixin method the shared viewer uses (``App`` mixes in both
+        ``PoserViewport`` and ``QuitMixin``), so both viewers land on the one
+        mirror.
+        """
         from ....viewer_embed import Viewer
 
         if self.poser_viewer is None:
             self.poser_viewer = Viewer(self.ctx)
+            self.poser_viewer.on_pose_dirty = self._on_pose_dirty
             self.app_ctx.poser_viewer = self.poser_viewer
         return self.poser_viewer

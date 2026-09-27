@@ -76,77 +76,6 @@ Licences: the engine is MIT (trellis.cpp and ggml) over NVIDIA's redistributable
 and because you now fetch it from upstream rather than receiving it from us, Realmspinner redistributes
 none of it. The terms are in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md) either way.
 
-## Familiar
-
-**Four rows, under their own *Familiar* heading in Settings → Models**, on the same shape as the
-reconstruction engine above: a runtime (split into two rows -- see below), the weights it
-loads, and the optional vision projector, in their own directories (`~/.realmspinner/engine/llama/`,
-`~/.realmspinner/models/familiar/`) —
-never the trellis ones, because llama.cpp and trellis.cpp ship their own, differently built
-`ggml*.dll`.
-
-| Row | What it is | Size |
-|---|---|---|
-| **Familiar runtime** | `llama-server.exe` (llama.cpp b10948, CUDA 12.4 Windows build) and the DLLs it links, minus the CUDA redistributable | ~0.24 GB down |
-| **Familiar runtime (CUDA)** | the CUDA 12.4 redistributable (`cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll`) the runtime above links against | ~0.37 GB down |
-| **Familiar weights (Qwen3-VL-4B-Instruct)** | the model it serves, quantised | ~4.28 GB |
-| **Familiar vision (mmproj)** | the multimodal projector, optional -- Familiar runs text-only without it | ~0.42 GB |
-
-**Two rows for the runtime, not one, and that is upstream's shape, not this app's.** llama.cpp
-publishes its CUDA Windows build as two separate release zips — the server binaries, and the CUDA
-redistributable apart from them, so a machine running both a CUDA-12 and a CUDA-13 build does not
-fetch the same ~370 MB of cudart twice. Realmspinner's `Fetch` record has no way to give one registry
-row two independent URL/SHA-256 pins, so this is genuinely two rows rather than one row hiding two
-downloads — both land in the same directory, pinned by SHA-256 the same way the reconstruction
-engine's binaries are:
-
-```powershell
-curl -L -o $HOME/.realmspinner/engine/llama/llama-b10948-bin-win-cuda-12.4-x64.zip `
-  https://github.com/ggml-org/llama.cpp/releases/download/b10948/llama-b10948-bin-win-cuda-12.4-x64.zip
-# then check its sha256 is 9839398baa5a74fcf2447168000b2a8c659e6ee0d944f7686bb72168a0bc1e35
-curl -L -o $HOME/.realmspinner/engine/llama/cudart-llama-bin-win-cuda-12.4-x64.zip `
-  https://github.com/ggml-org/llama.cpp/releases/download/b10948/cudart-llama-bin-win-cuda-12.4-x64.zip
-# then check its sha256 is 8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6
-# then unpack both into $HOME/.realmspinner/engine/llama
-```
-
-**The weights row is a testing pin, stated as one.** It is Qwen's own Q8_0 GGUF of the stock
-`Qwen/Qwen3-VL-4B-Instruct` instruct model — not `familiar_v1.0`, the name reserved for a
-Clay-assistant fine-tune of this base, trained by this project's own training pipeline, which will
-swap in as the shipped pin once one is published. There is no picker and no path override: this
-exact file, or nothing.
-
-```powershell
-# Familiar weights (~4.28 GB) -> ~/.realmspinner/models/familiar/
-uvx hf download Qwen/Qwen3-VL-4B-Instruct-GGUF --revision 1cd86afb9a95c410a6038ab3b40d8b578c892266 `
-  --include "Qwen3VL-4B-Instruct-Q8_0.gguf" --local-dir $HOME/.realmspinner/models/familiar
-```
-
-**Vision (2026-09-24) is the one optional Familiar row.** `Familiar vision (mmproj)` is the
-multimodal projector Qwen publishes beside the text weights, same repository, same revision pin --
-one Hub snapshot, not two that could drift apart. With it installed, `pipelines/llama.py` passes
-`--mmproj` and the dock can attach a PNG to a message (a reference image, or Clay's own ghost render
-on a revision); without it, Familiar runs exactly as it always has, text only.
-
-```powershell
-# Familiar vision (~0.42 GB) -> ~/.realmspinner/models/familiar/
-uvx hf download Qwen/Qwen3-VL-4B-Instruct-GGUF --revision 1cd86afb9a95c410a6038ab3b40d8b578c892266 `
-  --include "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf" --local-dir $HOME/.realmspinner/models/familiar
-```
-
-Licences: the runtime is MIT (llama.cpp and ggml) over NVIDIA's redistributable CUDA libraries, on
-the same "fetched from upstream, nothing redistributed" footing as the reconstruction engine. The
-weights repository (`Qwen/Qwen3-VL-4B-Instruct-GGUF`) is published under Apache 2.0, matching the
-base `Qwen/Qwen3-VL-4B-Instruct` model it requantizes -- the mmproj file it also publishes carries
-the same repository licence.
-
-**`familiar_v1.0` is reserved, not yet published.** It names a future Clay-assistant fine-tune of
-Qwen3-VL-4B-Instruct; no such fine-tune exists yet, so the row's `served_name` stays empty and Clay
-Build keeps refusing by name. Because the base model is Apache-2.0, a fine-tune of it carries no
-licence question the way the previous (Gemma) base once did — when `familiar_v1.0` ships it will be
-under this project's own GPL-3.0-or-later, the same as the rest of Realmspinner, same as its base's
-Apache-2.0 permits.
-
 ## Licences, and what you may do with the output
 
 **Read this before you sell anything you generated.** These weights are not part
@@ -164,10 +93,6 @@ restricted ones; this table is the same information in full.
 | **DreamShaper XL** | OpenRAIL++-M | Yes, subject to the use restrictions |
 | **FLUX.2 klein / klein-base 4B** | Apache-2.0 | Yes |
 | **TRELLIS.2-4B** (the reconstruction engine) | MIT | Yes |
-| **llama.cpp** (Familiar's runtime) | MIT | Yes |
-| **Qwen3-VL-4B-Instruct** (Familiar's weights, testing pin) | Apache-2.0 | Yes |
-| **Familiar vision (mmproj)** (optional, same repository as the weights above) | Apache-2.0 | Yes |
-| **`familiar_v1.0`** (Familiar's fine-tuned weights, not yet published) | Apache-2.0 (base); ships under this project's own GPL-3.0-or-later once published | Yes |
 | **BiRefNet** (matting) | MIT | Yes |
 | **ACE-Step v1 3.5B** (Muse) | Apache-2.0 | Yes |
 | **Hybrid Demucs** (stem separation) | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — see below |

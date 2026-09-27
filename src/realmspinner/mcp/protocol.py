@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from .rpc import (  # noqa: F401 -- re-exported
@@ -174,6 +175,39 @@ round trip to Realmspinner's pipe) and noticing completion quickly; unmeasured,
 picked as "a few times a frame budget's worth of app-perceived latency," not
 tuned against a real slow tool yet."""
 
+SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
+"""The reserved `_meta` key a modern-era `Result` names its server under,
+per the core 2026-07-28 schema's `ResultMetaObject`
+(tests/mcp/fixtures/mcp_2026-07-28.json, fetched 2026-09-26). This module
+used to write a bare `"serverInfo"` key with no namespace prefix -- which
+`MetaObject`'s own key-naming rule (an optional dotted prefix, or none at
+all only for *unreserved* application-specific keys) does not sanction for
+a protocol-reserved field, and which
+`tests/mcp/test_schema_conformance.py` now catches by validating every
+modern reply against the real schema. The legacy era's `initialize` reply
+carries `serverInfo` as a top-level field, not inside `_meta` at all, and
+is untouched by this constant -- see `_legacy_initialize`."""
+
+MAX_TASK_CLOCKS = 256
+"""Bound on `BridgeEra`'s own `taskId -> createdAt` map (see
+`BridgeEra.note_task_created`). This bridge process, unlike Realmspinner's
+`_Calls` store, has no natural eviction point of its own (a task never
+"completes" from this module's point of view -- `tasks/get` just keeps
+answering), so without a bound a long-lived connection that mints many
+tasks would grow this dict forever. Oldest-first eviction, same shape as
+the concern `_Calls.mint`'s own bound answers on the Realmspinner side."""
+
+
+def _iso_now() -> str:
+    """Now, as the ISO-8601 UTC string (millisecond precision, `Z` suffix)
+    the ext-tasks schema requires for `createdAt`/`lastUpdatedAt` --
+    `CreateTaskResult` and every branch of `GetTaskResult` require both
+    (tests/mcp/fixtures/ext_tasks_2026-07-28.json). The pre-2026-09-26 code
+    omitted both fields outright, which is what let `_create_task_result_bytes`
+    and `_tasks_get_bytes` drift into shapes `test_schema_conformance.py`
+    now refuses."""
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
 
 def _client_declares_tasks(params: Any) -> bool:
     """Whether *params* (one request's own `params`, modern era) declares
@@ -221,17 +255,50 @@ class BridgeEra:
 
     A request arriving before either `initialize` or a modern `_meta`
     version has decided anything is refused (`-32600`) rather than guessed
-    at -- see `bridge_dispatch`'s own docstring."""
+    at -- see `bridge_dispatch`'s own docstring.
+
+    **There used to be a `self.tasks` flag here, latched `True` the first
+    time any request on the connection declared :data:`TASKS_EXTENSION` and
+    never reset.** That contradicted the spec's own per-request capability
+    model (`_client_declares_tasks`'s docstring: "this is asked on *every*
+    request, not negotiated once") and this bridge's own `TASKS_EXTENSION`
+    docstring, which promises "a server must never offer a task to a client
+    that never asked for one" -- with the latch, a client that declared the
+    extension once (even on a `server/discover` call) and then made an
+    ordinary `tools/call` with no such declaration still got a
+    `CreateTaskResult` back, because the connection had already latched
+    `tasks=True`. Removed 2026-09-26: every call site that used to read
+    `state.tasks` now calls :func:`_client_declares_tasks` on that request's
+    own `params` instead, with nothing latched across requests."""
 
     def __init__(self) -> None:
         self.era: str | None = None
         self.legacy_version: str | None = None
-        self.tasks: bool = False
-        """Latched `True` the first time a modern-era request on this
-        connection declares :data:`TASKS_EXTENSION` -- see
-        :func:`_client_declares_tasks`. Always `False` for a legacy
-        connection: see that constant's own docstring for why legacy never
-        gets tasks at all."""
+        self._task_created_at: dict[str, str] = {}
+        """`taskId -> createdAt` (ISO-8601 UTC), for the tasks this
+        connection has itself minted via `call_tool_task` -- the only source
+        this bridge has for a task's `createdAt`, since Realmspinner's own RPC v1
+        `status` op reports current state, not history. Bounded by
+        :data:`MAX_TASK_CLOCKS`."""
+
+    def note_task_created(self, task_id: str) -> str:
+        """Record *task_id* as minted now (if not already known) and return
+        its `createdAt`. Idempotent -- a task id seen twice (should never
+        happen; `call_tool_task` mints a fresh one per call) keeps its first
+        timestamp rather than overwriting it."""
+        if task_id not in self._task_created_at:
+            if len(self._task_created_at) >= MAX_TASK_CLOCKS:
+                oldest = next(iter(self._task_created_at))
+                del self._task_created_at[oldest]
+            self._task_created_at[task_id] = _iso_now()
+        return self._task_created_at[task_id]
+
+    def task_created_at(self, task_id: str) -> str:
+        """`createdAt` for *task_id*, or now if this connection never minted
+        it (a task id from before `MAX_TASK_CLOCKS` eviction, or one this
+        bridge session never created at all) -- the honest fallback rather
+        than a fabricated past timestamp."""
+        return self._task_created_at.get(task_id, _iso_now())
 
 
 def _error_bytes(msg_id: Any, code: int, message: str, data: Any = None) -> bytes:
@@ -310,7 +377,7 @@ def discover_result(
         "ttlMs": 60000,
         "cacheScope": "public",
         "resultType": "complete",
-        "_meta": {"serverInfo": {"name": server_name, "version": server_version}},
+        "_meta": {SERVER_INFO_META_KEY: {"name": server_name, "version": server_version}},
     }
     if tasks:
         result["capabilities"]["extensions"] = {TASKS_EXTENSION: {}}
@@ -320,43 +387,77 @@ def discover_result(
 
 
 def _create_task_result_bytes(
-    msg_id: Any, operation_id: str, status: str, *, server_info_meta: dict[str, Any]
+    msg_id: Any,
+    operation_id: str,
+    status: str,
+    *,
+    created_at: str,
+    server_info_meta: dict[str, Any],
 ) -> bytes:
     """A `CreateTaskResult` (`resultType: "task"`), replacing the ordinary
-    spliced `tools/call` reply when this connection declared
-    :data:`TASKS_EXTENSION` -- see that constant's own docstring for why
-    every `tools/call` on such a connection becomes one. The exact nesting
-    of `taskId`/`status`/`ttlMs`/`pollIntervalMs` inside a `task` object
-    (rather than flattened onto the result) is this module's own reading of
-    the ext-tasks overview page's prose -- the overview names the fields but
-    shows no worked JSON example of this particular result, unlike
-    `server/discover`'s and `tools/call`'s own, which this module matches
-    byte-for-byte."""
-    task = {
+    spliced `tools/call` reply when *this request* declared
+    :data:`TASKS_EXTENSION` (see `_client_declares_tasks` -- no longer
+    latched per connection, see `BridgeEra`'s own docstring).
+
+    2026-09-26: fetched the real ext-tasks JSON Schema
+    (tests/mcp/fixtures/ext_tasks_2026-07-28.json) rather than continuing to
+    guess from the overview page's prose, which named the fields but showed
+    no worked JSON example of this particular result. The schema's
+    `CreateTaskResult` flattens `taskId`/`status`/`createdAt`/
+    `lastUpdatedAt`/`ttlMs`/`pollIntervalMs` directly onto the result object
+    -- there never was a nested `task` object, which the pre-2026-09-26 code
+    invented and which `test_schema_conformance.py` now catches for any
+    reply shaped that way. `createdAt`/`lastUpdatedAt`/`ttlMs` are all
+    required; `lastUpdatedAt` equals `createdAt` here since nothing has
+    happened to the task between minting it and replying."""
+    result = {
+        "resultType": "task",
         "taskId": operation_id,
         "status": status,
+        "createdAt": created_at,
+        "lastUpdatedAt": created_at,
         "ttlMs": TASK_TTL_MS,
         "pollIntervalMs": TASK_POLL_INTERVAL_MS,
+        "_meta": server_info_meta,
     }
-    result = {"resultType": "task", "task": task, "_meta": server_info_meta}
     return _result_bytes(msg_id, result)
 
 
-def _tasks_get_bytes(msg_id: Any, task_id: str, status: str, body: bytes | None) -> bytes:
+def _tasks_get_bytes(
+    msg_id: Any,
+    task_id: str,
+    status: str,
+    body: bytes | None,
+    *,
+    created_at: str,
+    last_updated_at: str,
+    server_info_meta: dict[str, Any],
+) -> bytes:
     """One `tasks/get` reply, built the same never-`json.loads` way
     `splice_tool_result` builds a `tools/call` reply: *body* (already
     serialised elsewhere -- Realmspinner's RPC v1 `status` op reply, spliced
     verbatim, see `rpc.py`'s docs for that op) becomes the `result` field
     when *status* is `"completed"`, or the `error` field when it is
     `"failed"` -- the ext-tasks overview's own two names for a terminal
-    task's payload. No worked JSON example of this shape was available
-    either (see :func:`_create_task_result_bytes`'s note); `error` here
-    holds whatever `fail()` shape Realmspinner already produced for a raised call
-    rather than a strict JSON-RPC `{code, message}` error object, which is
-    the honest approximation for a codebase where "a tool failing is not a
-    JSON-RPC error" is a load-bearing rule (see this module's own opening
-    docstring) -- there is no JSON-RPC error object to hand back for what a
-    tool-level exception was never treated as.
+    task's payload. `error` here holds whatever `fail()` shape Realmspinner
+    already produced for a raised call rather than a strict JSON-RPC
+    `{code, message}` error object, which is the honest approximation for a
+    codebase where "a tool failing is not a JSON-RPC error" is a
+    load-bearing rule (see this module's own opening docstring) -- there is
+    no JSON-RPC error object to hand back for what a tool-level exception
+    was never treated as.
+
+    2026-09-26: fetched the real `GetTaskResult` schema
+    (tests/mcp/fixtures/ext_tasks_2026-07-28.json) rather than continuing to
+    guess -- every status branch requires `taskId`/`status`/`createdAt`/
+    `lastUpdatedAt`/`ttlMs`, and the envelope (`Result`) requires
+    `resultType`, always `"complete"` for `tasks/get` (a `tasks/get` call
+    never itself mints a task). None of those five fields existed on this
+    reply before. *created_at* is `BridgeEra.task_created_at`'s answer;
+    *last_updated_at* is always "now" -- this bridge has no record of a
+    task's real last-transition time (only Realmspinner's `_Job` does), and every
+    `tasks/get` is answered live, so "now" is the honest approximation
+    rather than a fabricated history.
 
     The 2026-09-18 audit (agents-02): this used to splice *body* with no
     shape check at all -- unlike `splice_tool_result`, which checks its own
@@ -368,13 +469,21 @@ def _tasks_get_bytes(msg_id: Any, task_id: str, status: str, body: bytes | None)
     body is spliced in."""
     if body is not None and (not body.startswith(b"{") or not body.endswith(b"}")):
         raise ValueError("task body must be a JSON object")
-    task_json = json.dumps({"taskId": task_id, "status": status}, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    prefix = {
+        "resultType": "complete",
+        "taskId": task_id,
+        "status": status,
+        "createdAt": created_at,
+        "lastUpdatedAt": last_updated_at,
+        "ttlMs": TASK_TTL_MS,
+        "pollIntervalMs": TASK_POLL_INTERVAL_MS,
+        "_meta": server_info_meta,
+    }
+    prefix_json = json.dumps(prefix, separators=(",", ":")).encode("utf-8")
     if body is None:
-        result = task_json
+        result = prefix_json
     else:
-        head = task_json[:-1]  # drop the trailing '}'
+        head = prefix_json[:-1]  # drop the trailing '}'
         key = b'"result":' if status == "completed" else b'"error":'
         result = head + b"," + key + body + b"}"
     id_json = json.dumps(msg_id).encode("utf-8")
@@ -601,7 +710,7 @@ def _dispatch_one(
     call_tool: Callable[[str, dict[str, Any]], bytes],
     read_resource: Callable[[str], dict[str, Any] | None] | None = None,
     get_prompt: Callable[[str, dict[str, Any]], Any] | None = None,
-    call_tool_task: Callable[[str, dict[str, Any]], tuple[str, str]] | None = None,
+    call_tool_task: Callable[[str, dict[str, Any]], tuple[str, str] | bytes] | None = None,
     get_task: Callable[[str], tuple[str, bytes | None] | None] | None = None,
     cancel_task: Callable[[str], str | None] | None = None,
 ) -> bytes | None:
@@ -707,13 +816,15 @@ def _dispatch_one(
             )
         if state.era is None:
             state.era = "modern"
-        if state.era == "modern" and _client_declares_tasks(params):
-            state.tasks = True
         result = discover_result(
             instructions=instructions,
             server_name=server_name,
             server_version=server_version,
-            tasks=state.era == "modern" and state.tasks,
+            # 2026-09-26: no more `state.tasks` latch -- see `BridgeEra`'s
+            # own docstring for the incident. Decided from this request's
+            # own declaration alone, same as every other per-request
+            # capability check in this dispatcher.
+            tasks=state.era == "modern" and _client_declares_tasks(params),
         )
         return _result_bytes(msg_id, result) if has_id else None
 
@@ -771,10 +882,12 @@ def _dispatch_one(
             "unsupported protocol version",
             data={"supported": list(MODERN), "requested": meta_version},
         )
-    if _client_declares_tasks(params):
-        state.tasks = True
-    server_info_meta = {"serverInfo": {"name": server_name, "version": server_version}}
-    if method == "tools/call" and state.tasks and call_tool_task is not None:
+    # 2026-09-26: no more `state.tasks` latch -- see `BridgeEra`'s own
+    # docstring for the incident this replaced. `declares_tasks` is this
+    # request's own answer, nothing remembered from an earlier one.
+    declares_tasks = _client_declares_tasks(params)
+    server_info_meta = {SERVER_INFO_META_KEY: {"name": server_name, "version": server_version}}
+    if method == "tools/call" and declares_tasks and call_tool_task is not None:
         # Absent the extension (or this bridge session with nothing to
         # reach Realmspinner's task-mode `call` with), every `tools/call` falls
         # through to the ordinary synchronous path below -- the core
@@ -805,13 +918,37 @@ def _dispatch_one(
             # catches `(EOFError, KeyboardInterrupt)`, so an uncaught
             # exception here killed the whole `realmspinner mcp` process. The
             # same guard is repeated below for `get_task`/`cancel_task`.
-            operation_id, status = call_tool_task(name, arguments)
+            outcome = call_tool_task(name, arguments)
         except Exception as exc:  # noqa: BLE001 -- see the comment above
             return _error_bytes(
                 msg_id, -32603, f"call_tool_task failed: {type(exc).__name__}: {exc}"
             )
+        if isinstance(outcome, bytes):
+            # 2026-09-26 contract change: `call_tool_task` may decline to
+            # mint a task at all -- e.g. Realmspinner refused the call before any
+            # task could exist for it -- and hand back a complete tool
+            # result body instead, the same shape `call_tool` returns.
+            # Spliced as an ordinary `tools/call` reply, never wrapped as a
+            # `CreateTaskResult`: minting a task id for a task that will
+            # never exist (the old `"unavailable"` sentinel this replaced)
+            # would let a client `tasks/get` it forever and never learn it
+            # was never real.
+            splice_prefix = {"resultType": "complete", "_meta": server_info_meta}
+            try:
+                return splice_tool_result(msg_id, outcome, meta=splice_prefix)
+            except ValueError as exc:
+                fallback = json.dumps(
+                    fail(f"malformed tool result: {exc}"), separators=(",", ":")
+                ).encode("utf-8")
+                return splice_tool_result(msg_id, fallback, meta=splice_prefix)
+        operation_id, status = outcome
+        created_at = state.note_task_created(operation_id)
         return _create_task_result_bytes(
-            msg_id, operation_id, status, server_info_meta=server_info_meta
+            msg_id,
+            operation_id,
+            status,
+            created_at=created_at,
+            server_info_meta=server_info_meta,
         )
     if method == "tasks/get":
         task_id = params.get("taskId")
@@ -826,6 +963,8 @@ def _dispatch_one(
         if found is None:
             return _error_bytes(msg_id, -32602, "unknown task", data={"taskId": task_id})
         status, body = found
+        created_at = state.task_created_at(task_id)
+        last_updated_at = _iso_now()
         try:
             # The 2026-09-18 audit (agents-02): folded the same way
             # `_dispatch_tools_call`'s own try/except folds
@@ -834,12 +973,28 @@ def _dispatch_one(
             # this call and reaching the caller as an exception (or, before
             # `_tasks_get_bytes`'s own guard above existed, going onto the
             # wire as invalid JSON).
-            return _tasks_get_bytes(msg_id, task_id, status, body)
+            return _tasks_get_bytes(
+                msg_id,
+                task_id,
+                status,
+                body,
+                created_at=created_at,
+                last_updated_at=last_updated_at,
+                server_info_meta=server_info_meta,
+            )
         except ValueError as exc:
             fallback = json.dumps(
                 fail(f"malformed task body: {exc}"), separators=(",", ":")
             ).encode("utf-8")
-            return _tasks_get_bytes(msg_id, task_id, status, fallback)
+            return _tasks_get_bytes(
+                msg_id,
+                task_id,
+                status,
+                fallback,
+                created_at=created_at,
+                last_updated_at=last_updated_at,
+                server_info_meta=server_info_meta,
+            )
     if method == "tasks/cancel":
         task_id = params.get("taskId")
         if not isinstance(task_id, str) or not task_id:
@@ -854,7 +1009,20 @@ def _dispatch_one(
             )
         if status is None:
             return _error_bytes(msg_id, -32602, "unknown task", data={"taskId": task_id})
-        return _result_bytes(msg_id, {"taskId": task_id, "status": status})
+        # `CancelTaskResult`'s own schema (tests/mcp/fixtures/ext_tasks_2026-07-28.json)
+        # requires only `resultType: "complete"` from `Result` -- `taskId`/
+        # `status` are this bridge's own extra, informative fields, not
+        # schema-required ones, kept because a client cancelling a task
+        # wants its own id and the resulting status echoed back.
+        return _result_bytes(
+            msg_id,
+            {
+                "resultType": "complete",
+                "taskId": task_id,
+                "status": status,
+                "_meta": server_info_meta,
+            },
+        )
     if method == "tasks/list":
         # Realmspinner's own `_Calls` store (per Realmspinner connection, not per bridge
         # MCP connection) is where task state actually lives; this bridge
@@ -952,7 +1120,7 @@ def bridge_dispatch(
     call_tool: Callable[[str, dict[str, Any]], bytes],
     read_resource: Callable[[str], dict[str, Any] | None] | None = None,
     get_prompt: Callable[[str, dict[str, Any]], Any] | None = None,
-    call_tool_task: Callable[[str, dict[str, Any]], tuple[str, str]] | None = None,
+    call_tool_task: Callable[[str, dict[str, Any]], tuple[str, str] | bytes] | None = None,
     get_task: Callable[[str], tuple[str, bytes | None] | None] | None = None,
     cancel_task: Callable[[str], str | None] | None = None,
 ) -> bytes | None:

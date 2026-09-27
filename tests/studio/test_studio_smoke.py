@@ -5766,31 +5766,27 @@ def test_the_wand_row_renders_and_no_dead_generator_route_remains(app_ctx, imgui
     assert found.stdout.strip() == "", found.stdout
 
 
-def test_the_menu_bar_and_familiar_dock_actually_render(app_ctx, imgui_ctx):
+def test_the_menu_bar_actually_renders(app_ctx, imgui_ctx):
     """The half of the editor shell that ``test_editor_shell`` cannot reach.
 
     ``test_editor_shell`` and ``test_menus`` test ``menus.specs`` and
     ``status_bar.items`` -- the pure data behind the shell -- and nothing
     anywhere tested the imgui half: ``begin_menu_bar``/``end_menu_bar``
-    pairing, the style vars pushed around it, and the Familiar dock's
-    ``begin_child``. Every other pane in this app is smoke-rendered; these two
-    were the exception, which is a poor thing for the two newest modules in
-    the shell to be.
+    pairing and the style vars pushed around it. Every other pane in this app
+    is smoke-rendered; this was the exception, which is a poor thing for the
+    newest module in the shell to be.
 
     T0 of the Familiar programme replaced the old flat status bar
     (``status_bar.draw``, now deleted) with a right-aligned group inside
-    ``menus.draw`` itself and a one-row bottom pane at the foot; the
-    2026-09-23 dock move replaced that pane with ``panes.familiar_dock.draw``,
-    a full-height strip on the right edge -- so this renders those two.
+    ``menus.draw`` itself -- so this renders that.
 
     The assertion is the frame completing. An unbalanced style stack or a
     missing ``end_menu_bar`` does not raise where it happens -- it corrupts the
-    draw data and surfaces later, so ``imgui.render()`` running clean over both
+    draw data and surfaces later, so ``imgui.render()`` running clean over it
     is the real check, and ``imgui.end()`` would already have thrown if the
     window stack were wrong.
     """
     from realmspinner.studio import menus
-    from realmspinner.studio.panes import familiar_dock
 
     imgui, renderer = imgui_ctx
     imgui.new_frame()
@@ -5800,7 +5796,6 @@ def test_the_menu_bar_and_familiar_dock_actually_render(app_ctx, imgui_ctx):
     # only ever exercised the early return would be the same gap again.
     imgui.begin("##shell-host", None, imgui.WindowFlags_.menu_bar.value)
     menus.draw(app_ctx)
-    familiar_dock.draw(app_ctx)
     imgui.end()
     imgui.render()
     renderer.render(imgui.get_draw_data())

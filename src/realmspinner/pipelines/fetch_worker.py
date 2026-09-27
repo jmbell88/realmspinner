@@ -326,7 +326,12 @@ def _extract_staged(staging: Path, spec: dict[str, Any]) -> None:
 #: deliberately *not* ``.realmspinner-fetch.json`` -- that name is the published
 #: manifest in the destination, and one name meaning two things across two
 #: directories is how a later reader comes to trust the wrong file.
-RESUME_NAME = ".realmspinner-resume.json"
+#:
+#: An alias onto ``download.RESUME_NAME`` rather than a second definition (the
+#: 2026-09-26 audit, pipelines-children-01): that module has no side effect on
+#: import and this one does (below), so ``service.downloads`` now reads the
+#: name from there instead of importing this module just for the constant.
+RESUME_NAME = download.RESUME_NAME
 
 #: How many times one fetch re-enters the transport before giving up, and how
 #: long it waits between attempts. Small and bounded: this is for the reset

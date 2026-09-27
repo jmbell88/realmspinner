@@ -1,8 +1,8 @@
 """Regression tests for the 2026-09-15 audit's pipelines findings.
 
-Five independent findings, five independent tests, grouped here because they
-share no code -- the installer, the release gate, Familiar's chat client, the
-image pipeline's LoRA loading and the update checker.
+Four independent findings, four independent tests, grouped here because they
+share no code -- the installer, the release gate, the image pipeline's LoRA
+loading and the update checker.
 """
 
 from __future__ import annotations
@@ -13,11 +13,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 
 from realmspinner import models
-from realmspinner.familiar import contract, llama_client
 from realmspinner.pipelines import download, update_worker
 from realmspinner.pipelines.text2image import Text2Image
 
@@ -105,95 +103,6 @@ def test_check_versions_passes_when_uv_lock_agrees(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# pipelines-03 -- Familiar's llama client buffered the whole reply before
-# checking MAX_RESPONSE_BYTES
-# ---------------------------------------------------------------------------
-
-
-class _CountingStream(httpx.AsyncByteStream):
-    """A response body delivered as separate chunks, counting how many of
-    them the client actually consumed -- the only way to tell "streamed and
-    aborted early" from "read in full, then measured" from outside."""
-
-    def __init__(self, chunks: list[bytes]) -> None:
-        self._chunks = chunks
-        self.yielded = 0
-
-    async def __aiter__(self):
-        for chunk in self._chunks:
-            self.yielded += 1
-            yield chunk
-
-    async def aclose(self) -> None:  # pragma: no cover -- nothing to release
-        pass
-
-
-class _StreamingTransport(httpx.AsyncBaseTransport):
-    def __init__(self, stream: _CountingStream) -> None:
-        self._stream = stream
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, stream=self._stream)
-
-
-class _FakeServer:
-    def __init__(self, key_path: Path) -> None:
-        self._key_path = key_path
-
-    @property
-    def base_url(self) -> str:
-        return "http://127.0.0.1:9999"
-
-    @property
-    def key_path(self) -> Path:
-        return self._key_path
-
-    async def ensure_started(self, *, expected_card_sha: str | None = None) -> None:
-        return None
-
-    def touch(self) -> None:
-        return None
-
-
-async def test_chat_refuses_an_oversized_reply_before_it_is_fully_buffered(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """``MAX_RESPONSE_BYTES`` used to be checked with ``len(response.content)``
-    after a plain ``client.post`` -- by the time that ran, httpx had already
-    read the whole body into memory, exactly the risk this module's own
-    docstring says it avoids by streaming (parity with ``trellis.generate``).
-
-    Proven here by chunk-counting: three chunks are queued, each over a third
-    of the (monkeypatched, small) ceiling, so the ceiling is crossed partway
-    through the second chunk. Streamed-and-aborted code must never ask the
-    transport for the third chunk; buffer-then-check code (``client.post``,
-    which internally calls ``aread()``) always consumes every chunk before
-    any length check runs.
-    """
-    monkeypatch.setattr(llama_client, "MAX_RESPONSE_BYTES", 100)
-    key_path = tmp_path / "familiar.key"
-    key_path.write_text("k", encoding="utf-8")
-    server = _FakeServer(key_path)
-    chunk = b"x" * 60  # 3 chunks x 60 bytes = 180 bytes, over the 100-byte cap
-    stream = _CountingStream([chunk, chunk, chunk])
-    transport = _StreamingTransport(stream)
-
-    with pytest.raises(RuntimeError, match="byte ceiling"):
-        await llama_client.chat(
-            server,
-            [{"role": "user", "content": "hi"}],
-            slot=0,
-            sampling=contract.SAMPLING["chat"],
-            transport=transport,
-        )
-
-    assert stream.yielded < 3, (
-        "the client consumed every queued chunk -- it buffered the full reply "
-        "before checking the ceiling instead of aborting mid-stream"
-    )
-
-
-# ---------------------------------------------------------------------------
 # pipelines-04 -- a directory where a LoRA file belongs read as "present"
 # ---------------------------------------------------------------------------
 
@@ -256,8 +165,7 @@ def test_check_refuses_a_release_feed_response_over_the_manifest_size_ceiling(
     ``update-manifest.json`` asset it points at) with an unbounded body would
     have this process buffer all of it before ``json.loads`` ever got a
     chance to reject it. Same host-exhaustion shape ``trellis.py``'s
-    ``MAX_GLB_BYTES`` and ``llama_client.py``'s ``MAX_RESPONSE_BYTES`` already
-    guard against."""
+    ``MAX_GLB_BYTES`` already guards against."""
     oversized = b"[" + b"1," * update_worker.MAX_MANIFEST_BYTES + b"1]"
 
     def fake_open_url(url: str, *, timeout: float | None = None) -> _Response:

@@ -167,11 +167,24 @@ def _over_frame_budget(payload: Any) -> dict | None:
     agents-03 found neither checked at all: a document of about 22,000
     primitives encodes to roughly 9.1 MB, past ``protocol.MAX_FRAME`` (8 MiB),
     with nothing in either handler that would refuse or page it.
+
+    **Budgeted at half of ``MAX_FRAME``, not the whole of it.** The 2026-09-26
+    audit, finding clay-agent-tools-01: this used to compare one
+    ``json.dumps`` of *payload* against the full budget, but every caller
+    hands its result straight to :func:`_json`, which puts the same payload
+    on the wire **twice** -- once as the text block's own JSON string, once
+    again as ``structuredContent`` -- so a payload measured at, say, 6 MB
+    passed this check and then built a wire frame of roughly 12 MB, past
+    ``MAX_FRAME`` (8 MiB), which ``send_bytes`` cannot carry at all.
+    Reproduced: 11,000 objects encoded to a 12.9 MB reply against one 8 MiB
+    copy passing this check. Halving the budget here is cheaper than encoding
+    *payload* twice just to measure it, and every caller's payload really
+    does travel through ``_json`` twice, not conditionally.
     """
     import json
 
     encoded_len = len(json.dumps(payload))
-    if encoded_len > _protocol().MAX_FRAME:
+    if encoded_len * 2 > _protocol().MAX_FRAME:
         return fail(
             "This reply is too large to send back in one frame; narrow the "
             "request (fewer objects, or a single uid) and try again."

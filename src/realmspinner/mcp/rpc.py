@@ -23,7 +23,13 @@ as JSON text) and this module never touches its contents.
   frame* is written in. If none overlaps :data:`SUPPORTED_RPC_VERSIONS`, the
   reply is `{"error": {"code": "rpc_version", "supported": [...]}}` and
   nothing else; otherwise it is `{"rpc": 1, "studio_version": ...,
-  "catalogue_hash": ..., "call_timeout": ...}`. No body.
+  "catalogue_hash": ..., "call_timeout": ...}`. No body. A connection that
+  dials in while another is already live gets `{"error": {"code": "busy"}}`
+  instead -- `pipe.py`'s "one connection at a time" decision means a second
+  bridge is authenticated (the token challenge already ran, in
+  `pipe.Server.accept`) but never admitted to a session; `studio/
+  agent_host.py::AgentHost._refuse_busy` is the one place that answers it,
+  and it is the only reply that connection ever gets before being closed.
 * `catalogue` -- reply header is `{"hash": ..., "tools": [...], "instructions":
   ..., "server": {"name": ..., "version": ...}, "resources": [...],
   "prompts": [...]}`, in that key order, built by :func:`catalogue_payload`.

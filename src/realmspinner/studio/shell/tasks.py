@@ -333,6 +333,25 @@ class TasksMixin:
             if isinstance(done.result, dict):
                 ctx.evidence_storage = done.result
             return
+        if key == "settings-staged-installer":
+            # ``app_settings.STAGED_TASK_KEY``, restated as a literal here the
+            # way "model-storage"/"evidence-storage" just above already are,
+            # rather than importing that pane module just to compare a key on
+            # every single task landing.
+            #
+            # The 2026-09-26 audit's shell-review-settings-02: verifying a
+            # staged installer means hashing "hundreds of megabytes"
+            # (``app_settings._STAGED``'s own comment) -- ``_staged`` now
+            # submits that off the frame thread instead of doing it inline on
+            # a cache miss, and this is where the answer lands: a
+            # ``(slot, ok)`` pair, folded back into the module cache so the
+            # next frame's stat-keyed lookup is a dict read again.
+            if isinstance(done.result, tuple) and len(done.result) == 2:
+                from ..modes.settings.ui.panes import app_settings
+
+                slot, ok = done.result
+                app_settings._on_staged_verified(slot, ok)
+            return
         if key == app_ctx_mod.UPDATE_CHECK_KEY:
             if isinstance(done.result, dict):
                 # Onto the state rather than left in the task's progress: the
@@ -498,6 +517,17 @@ class TasksMixin:
             # takes the same body rather than a second one that could drift.
             from ...service import system as svc_system
 
+            # The 2026-09-26 audit's shell-review-settings-01: a download or a
+            # removal changes what is on disk under the model store, but
+            # ``app_settings._model_storage`` only ever measured it once per
+            # session (``_MEASURED``) -- so the Storage pane's own figure kept
+            # showing the pre-download/pre-removal size until a restart. Cleared
+            # here, the landing branch for both, so the next time that pane
+            # draws it re-measures.
+            from ..modes.settings.ui.panes import app_settings
+
+            app_settings._stale_model_storage()
+
             # Off the frame thread. ``force=True`` re-runs *every* probe,
             # including the slow ones the startup path deliberately defers --
             # the torch import and the bpy subprocess, which is seconds of
@@ -534,11 +564,6 @@ class TasksMixin:
             from .. import journal
 
             journal.on_task_done(ctx, done)
-            return
-        if key.startswith("familiar/"):
-            from ..assistant import ui as familiar_ui
-
-            familiar_ui.on_task_done(ctx, done)
             return
         if key.startswith("clay-mattex:"):
             # Assigning a texture into a material slot from a file (tranche 6,
@@ -591,19 +616,22 @@ class TasksMixin:
             from ..modes.plotter import mode as plotter_mode
 
             plotter_mode.on_task_done(ctx, done)
-            if isinstance(done.result, dict) and done.result.get("exported_asset"):
-                # The card appears in the library like any other asset, so
-                # it needs the thumbnail every other asset gets -- and that
-                # is an offscreen GL draw, which belongs on the frame thread
-                # rather than in the task that minted the row.
-                self._capture_clay_thumbnail(done.result["job_id"])
+            # No thumbnail capture here (shell-shell-pkg-01, the 2026-09-26
+            # audit): this used to call ``self._capture_clay_thumbnail``,
+            # which photographs *Clay's* viewport regardless of what mode
+            # exported the asset -- either an unrelated document or, in a
+            # session that never opened Clay, nothing at all. Mason already
+            # has its own branch for exactly this hazard
+            # (``_capture_thumbnail_from(..., self.mason_view)``); Plotter has
+            # no GL viewport of its own to read a framebuffer from, so the
+            # card is left on its placeholder rather than shown a picture of
+            # the wrong document.
             return
         if key.startswith("packwright-"):
             from ..modes.packwright import mode as packwright_mode
 
             packwright_mode.on_task_done(ctx, done)
-            if isinstance(done.result, dict) and done.result.get("exported_asset"):
-                self._capture_clay_thumbnail(done.result["job_id"])
+            # Same reason as the ``plotter-`` branch just above.
             return
         if key.startswith("muse-"):
             from ..modes.muse import mode as muse_mode
@@ -729,6 +757,17 @@ class TasksMixin:
             # to move (UX-11).
             if key.startswith(("delete:", "prune", "purge:")) or key == "empty-trash":
                 self._request_storage()
+                # The 2026-09-26 audit's shell-review-settings-01: a delete
+                # (and a prune, which archives the same way -- see
+                # ``evidence.archive_all``'s ``reason="prune"`` call) can grow
+                # the evidence archive, but ``app_settings._evidence_storage``
+                # only ever measured it once per session. Cleared alongside
+                # the library's own re-measure above, so the Storage pane's
+                # "Kept as evidence" line catches up the next time it draws
+                # instead of staying at whatever it read on the first open.
+                from ..modes.settings.ui.panes import app_settings
+
+                app_settings._stale_evidence_storage()
             return
         if key == _import_mesh_key():
             # A new finished row, so the list has to refetch exactly as it does

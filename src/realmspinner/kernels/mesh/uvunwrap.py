@@ -69,7 +69,7 @@ def _corner_mask(mesh: Mesh, faces: np.ndarray) -> np.ndarray:
     return selected[corner_face]
 
 
-def _island_is_closed(mesh: Mesh, faces: np.ndarray) -> bool:
+def _island_is_closed(mesh: Mesh, faces: np.ndarray, seams: np.ndarray | None = None) -> bool:
     """True when no edge touched by *faces* has fewer than two of its uses
     inside the island -- a closed surface (a full sphere, an unseamed cube)
     with nothing to cut it open along.
@@ -77,6 +77,20 @@ def _island_is_closed(mesh: Mesh, faces: np.ndarray) -> bool:
     An edge counted twice *within the island* is a genuine interior edge:
     both its faces are inside. One counted once is a cut -- either the
     mesh's own boundary, or a seam separating this island from a neighbour.
+
+    **A seam edge is a cut even when the structural count says otherwise.**
+    The 2026-09-26 audit, finding clay-mesh-uv-01: ``islands_by_seams`` can
+    keep the two faces either side of a seam edge in the *same* island when
+    an unseamed path connects them the long way around (see
+    ``_corner_groups``'s own docstring for the cylinder example this is the
+    sphere twin of) -- a sphere cut along one pole-to-pole meridian is one
+    island by that rule, every edge on it still counted exactly twice, and
+    this function called it closed and refused the unwrap the seam had
+    already made possible ("cannot be flattened with no seam" on a mesh that
+    plainly had one). Closedness is decided on the structural count first,
+    then overturned the moment any edge the island touches is itself in
+    *seams* -- a seam always means "this island has a cut here", whatever
+    the raw corner count says.
     """
     a = adjacency(mesh)
     corner_idx = np.flatnonzero(_corner_mask(mesh, faces))
@@ -84,7 +98,13 @@ def _island_is_closed(mesh: Mesh, faces: np.ndarray) -> bool:
         return False
     edge_ids = a.corner_edge[corner_idx]
     counts = np.bincount(edge_ids, minlength=a.n_edges)
-    return bool((counts[edge_ids] == 2).all())
+    if not bool((counts[edge_ids] == 2).all()):
+        return False
+    seam_set = edge_keys(seams)
+    if len(seam_set) == 0:
+        return True
+    ev = a.edge_verts[edge_ids]
+    return not bool(_isin_pairs(ev, seam_set).any())
 
 
 def _boundary_vertices(mesh: Mesh, faces: np.ndarray) -> np.ndarray:
@@ -264,7 +284,7 @@ def _solve_island(
             f"{MAX_LSCM_VERTICES} an unwrap by seams reads -- mark more seams "
             f"to split it, or use Smart Unwrap on a mesh this dense."
         )
-    if _island_is_closed(mesh, faces):
+    if _island_is_closed(mesh, faces, seams):
         raise OpError(
             "A closed surface cannot be flattened with no seam -- mark a "
             "seam first."

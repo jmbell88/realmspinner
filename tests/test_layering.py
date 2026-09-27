@@ -19,11 +19,14 @@ now half-spent.** P3 landed 2026-09-17: ``core/safeio/``, ``core/undo.py``,
 any more, so :func:`classify` matches them directly (a plain prefix or a
 literal set of the files that actually moved) instead of guessing from a
 ``studio/...`` name that no longer exists on disk. ``realmspinner/familiar/``
-(the pilot) is the same story: ``familiar/router.py`` is layer 3 because
-``familiar/`` *is* where it lives now. What is left to move under this
-trick -- still classified by planned destination because the file has not
-moved yet -- is everything P4 onward names: the god-file splits, the
-per-mode folds (P5/P6), Muse into Create (P10), Review/Home into Library
+was the pilot for this trick, classified by its real path the same way --
+but Familiar was removed outright rather than folded further (2026-09-26),
+taking ``familiar/`` and ``studio/assistant/`` out of the tree entirely
+rather than relocating them, so neither needs a row here any more. What is
+left to move under this trick -- still classified by planned destination
+because the file has not moved yet -- is everything P4 onward names: the
+god-file splits, the per-mode folds (P5/P6), Muse into Create (P10),
+Review/Home into Library
 (P11/P12), plus the three still-undecided core/kernels edges in
 ``_UNRESOLVED`` below. What the tree answers, and what actually gets walked
 with :mod:`ast`, is which mode owns a ``studio/<mode>_*.py`` /
@@ -34,14 +37,10 @@ enrols itself in the sibling-import ban the day its files appear rather than
 waiting for a hand list to notice.
 
 **Module scope only**, matching :mod:`_pure_packages`'s own choice, and for
-the same reason stated there plus one this repo already writes down twice.
-``familiar/contract.py`` imports ``agent_clay`` *inside a function*
-specifically so the module keeps importing with no imgui/moderngl/pygame in
-the process, and its own docstring names that as the reason; ``poser_mode.py``
-imports ``clay_mode``, ``inker_mode`` and ``packwright_mode`` the same way,
-inside functions, and says so ("the ``studio/modes/clay/mode.py`` pattern --
-state and logic here, drawing in ``main.py``"). A lazy, function-scope import
-is this codebase's accepted way
+the same reason stated there. ``poser_mode.py`` imports ``clay_mode``,
+``inker_mode`` and ``packwright_mode`` inside functions, and says so ("the
+``studio/modes/clay/mode.py`` pattern -- state and logic here, drawing in
+``main.py``"). A lazy, function-scope import is this codebase's accepted way
 to reach across a boundary rarely and by name -- treating it the same as a
 module-scope import would fail two patterns the code is deliberately, visibly
 using as an escape hatch, not two bugs. It also means this pin cannot see
@@ -194,10 +193,6 @@ VIEWPORT_NAMED = frozenset({
     "studio/_view_frame.py",
     "studio/_viewer_pose.py",
 })
-#: Familiar's UI half -- P5 landed: "Familiar is a pane, not a mode -- keep it
-#: out of modes/", so ``studio/assistant/`` is shell (L4) by prefix rather
-#: than invented as its own layer.
-FAMILIAR_UI_PREFIX = "studio/assistant/"
 #: True CLI/entrypoint/dev-tooling -- outside the six-layer table entirely
 #: (nothing in the table's rows names ``cli.py``, ``doctor.py``, ``sweep.py``,
 #: the console entry point, or the bench harness). Excluded from the check in
@@ -255,8 +250,6 @@ def classify(rel: str) -> Layer:
         return Layer(3, "jobs")
     if rel.startswith("service/"):
         return Layer(3, "service")
-    if rel.startswith("familiar/"):
-        return Layer(3, "familiar")
     if rel.startswith("characters/"):
         return Layer(3, "characters")
     if rel.startswith("mcp/"):
@@ -265,7 +258,7 @@ def classify(rel: str) -> Layer:
         return Layer(4, "viewport")
     if rel in VIEWPORT_NAMED:
         return Layer(4, "viewport")
-    if rel in SHELL_NAMED or rel.startswith(FAMILIAR_UI_PREFIX):
+    if rel in SHELL_NAMED:
         return Layer(4, "shell")
     if rel in STRAY_MODE_FILES:
         return Layer(5, "mode", STRAY_MODE_FILES[rel])
@@ -528,15 +521,13 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
 })
 
 # P3 -- shared code moves out of studio/, DONE for Familiar's headless half
-# (contract, router, retrieval, doors, character_plan): it now lives at
-# realmspinner/familiar/, and service/familiar.py importing it is layer 3
+# (contract, router, retrieval, doors, character_plan): it moved to
+# realmspinner/familiar/, making service/familiar.py's import of it layer 3
 # importing layer 3, not a violation any more -- the group that used to sit
-# here (_P3_FAMILIAR_MOVES_OUT) is gone. One of its six pairs survives under
-# a different name: see _UNRESOLVED's "pipelines/llama_client.py" entry --
-# the move fixed the "-> studio/" shape but not the underlying layer number,
-# because pipelines/ (L2) importing realmspinner/familiar/ (L3) is banned by
-# dev/RESTRUCTURE.md's own table regardless of studio/ being involved, and
-# no phase says who fixes that.
+# here (_P3_FAMILIAR_MOVES_OUT) went empty first, and Familiar itself (all of
+# realmspinner/familiar/, service/familiar.py, studio/assistant/) was removed
+# outright later (2026-09-26), so there is nothing left here to track either
+# way.
 
 # P3/P7 -- "Packwright stays a mode... the overlap was tilegrid and the
 # texture caches, which P3 and P7 already fix" (RESTRUCTURE.md's own words).
@@ -572,22 +563,20 @@ _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP: frozenset[tuple[str, str]] = frozenset({
 # the plan line was corrected rather than obeyed.
 
 # P5 -- the pilot four. Two shapes: Familiar's UI half folding into
-# studio/assistant/ (its Clay-preview and Create-doors reach), and Inker's
-# `PaintView` (formerly inker_state.py:858-1476) promoting to
-# shell/paintview.py, named explicitly as "already imported by Plotter and
-# Packwright" -- landed, which is why the four pairs that used to sit here
+# studio/assistant/ (its Clay-preview and Create-doors reach -- itself
+# removed outright, 2026-09-26, along with the rest of Familiar, so none of
+# those pairs are named below any more), and Inker's `PaintView` (formerly
+# inker_state.py:858-1476) promoting to shell/paintview.py, named explicitly
+# as "already imported by Plotter and Packwright" -- landed, which is why the
+# four pairs that used to sit here
 # (``packwright_state``/``panes.packwright_preview``/``panes.plotter_canvas``/
 # ``plotter_state`` -> ``modes.inker.state``) are gone rather than struck
 # through: all four now import ``shell.paintview`` instead, a real shell
 # import rather than a sibling-mode one, so there is nothing left to except.
 # Create's own UI fold (landed: modes/create/) and the Clay fold (landed:
 # modes/clay/{ui,agent}/) are the other two pilot-four bullets; what is left
-# of them below is the shell and Familiar still naming a mode directly.
+# of them below is the shell still naming a mode directly.
 _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
-    # Familiar UI -> Clay / Create
-    ("realmspinner.studio.assistant.preview", "realmspinner.studio.modes.clay.agent.dispatch"),
-    ("realmspinner.studio.assistant.preview", "realmspinner.studio.modes.clay.mode"),
-    ("realmspinner.studio.assistant.preview", "realmspinner.studio.modes.clay.state"),
     # Clay agent fold
     # The MCP listener is shell and names Clay's surface and its transcript
     # recorder. The transcript edge is not new: ``agent_transcript.py`` sat
@@ -631,9 +620,9 @@ _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
 # this file's walk can see. The reverse leg is real too: Sirens' "Compose in
 # Muse..." button and its Closeness slider (bridge.py:166,211-212) import
 # ``muse.mode`` and ``muse.ui.panes.results`` back, function-scoped, the same
-# lazy-reach pattern the module docstring already names for
-# familiar/contract.py and poser_mode.py -- and so, by this file's own
-# module-scope-only rule, invisible to :func:`_all_edges` and absent from
+# lazy-reach pattern the module docstring already names for poser_mode.py --
+# and so, by this file's own module-scope-only rule, invisible to
+# :func:`_all_edges` and absent from
 # both this set and :data:`EXCEPTIONS`. Naming it here is what the 2026-09-18
 # audit's finding sirens-04 asked for ("list both directions"): a reader of
 # this comment sees P10 has two legs to fold, not the one the tuples below

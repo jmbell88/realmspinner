@@ -223,20 +223,30 @@ class MasonView(FrameOps):
         self._cache: dict[tuple[Any, ...], _Entry] = {}
         # The ground's own upload, outside the ref-keyed cache because terrain
         # geometry does not come from a ``GeometrySource`` and so has no ref to
-        # be keyed on: ``(heights_array, override, model, GpuModel)``, valid
-        # only while the pinned array *is* ``doc.terrain.heights``. Identity
-        # and not ``id()``, ``terrain.terrain_mesh``'s own memo rule and for
-        # its reason: an id is an address CPython may hand to a different
-        # array once the old one is collected, so an id-keyed check can
-        # validate against the wrong object. Every brush rebinds the array
-        # rather than writing into it, which is what makes the identity check
-        # a sound invalidation signal.
+        # be keyed on: ``(heights_array, size_x, size_z, material, override,
+        # model, GpuModel)``, valid only while the pinned array *is*
+        # ``doc.terrain.heights`` and the config fields still match. Identity
+        # and not ``id()`` for the array half, ``terrain.terrain_mesh``'s own
+        # memo rule and for its reason: an id is an address CPython may hand to
+        # a different array once the old one is collected, so an id-keyed
+        # check can validate against the wrong object. Every brush rebinds the
+        # array rather than writing into it, which is what makes the identity
+        # check a sound invalidation signal for that half of the key.
         #
         # The 2026-09-15 audit's mason-04: this was annotated as a 3-tuple
         # while :meth:`sync_terrain` has always stored all four of
         # ``(terrain.heights, override, model, gpu)`` -- the annotation had
         # drifted from what is actually assigned a few lines down.
-        self._terrain: tuple[Any, Any, Any, Any] | None = None
+        #
+        # The 2026-09-26 audit's mason-engine-02: those "all four" were still
+        # not enough. ``MasonDoc.set_terrain_config`` writes
+        # ``size_x``/``size_z``/``material`` onto the live ``Terrain`` with
+        # ``setattr`` and never rebinds ``heights``, so this cache -- keyed on
+        # ``heights`` identity alone, same as ``terrain_mesh``'s memo -- kept
+        # redrawing the old extent and material after a config edit.
+        # ``size_x``/``size_z``/``material`` join the key for the same reason
+        # they joined ``terrain_mesh``'s.
+        self._terrain: tuple[Any, Any, Any, Any, Any, Any, Any] | None = None
         # What the terrain GPU state was built from, so a rebuild is counted
         # the way a ref's is.
         self.terrain_rebuilds = 0
@@ -425,6 +435,28 @@ class MasonView(FrameOps):
             # not picked would make it the one of the three that is only half
             # true.
             self._cache.pop(key).gpu.release()
+        # The 2026-09-26 audit's mason-mode-03: this loop is "the one time"
+        # ``document.py``'s own ``missing_refs`` docstring and ``scene.py``'s
+        # ``dangling`` paragraph both say the host tries a ref and finds out
+        # whether it resolves -- but nothing here, or anywhere else that calls
+        # ``source.primitives``, ever copied ``AssetSource.missing`` onto
+        # ``doc.missing``. ``doc.missing`` stayed permanently empty, so
+        # ``missing_refs()`` (the "N missing" HUD, the Scene-file list, the
+        # Properties line, manual 31) always reported zero regardless of how
+        # many refs actually failed. Replaced wholesale rather than unioned:
+        # ``AssetSource.missing`` already drops a key the moment it resolves
+        # (``_store``), and this is the one place that reads it every time the
+        # viewport actually redraws, so a stale entry here would outlive a
+        # successful relink until some unrelated redraw happened to run this
+        # loop again. ``missing`` is not part of the ``GeometrySource``
+        # protocol (``refs.py``'s own contract lists only ``primitives``,
+        # ``box`` and ``rev``) -- only the concrete ``mason_assets.AssetSource``
+        # happens to carry it -- so a stand-in source in a test that has no
+        # such attribute is left alone rather than made to grow one it has no
+        # other reason to have.
+        missing = getattr(source, "missing", None)
+        if missing is not None:
+            doc.missing = set(missing)
 
     def _build(self, placed: Any, key: tuple[Any, ...], prims: Any) -> _Entry:
         """One ref's upload.
@@ -483,9 +515,12 @@ class MasonView(FrameOps):
         if (
             self._terrain is not None
             and self._terrain[0] is terrain.heights
-            and self._terrain[1] is override
+            and self._terrain[1] == terrain.size_x
+            and self._terrain[2] == terrain.size_z
+            and self._terrain[3] == terrain.material
+            and self._terrain[4] is override
         ):
-            return self._terrain[2], self._terrain[3]
+            return self._terrain[5], self._terrain[6]
         self._release_terrain()
         from dataclasses import replace as _replace
 
@@ -500,13 +535,21 @@ class MasonView(FrameOps):
         node = gltf.Node(name="terrain", mesh=0)
         model = gltf.Model([node], [0], [[primitive]], [])
         gpu = scenelib.GpuModel(self.ctx, model)
-        self._terrain = (terrain.heights, override, model, gpu)
+        self._terrain = (
+            terrain.heights,
+            terrain.size_x,
+            terrain.size_z,
+            terrain.material,
+            override,
+            model,
+            gpu,
+        )
         self.terrain_rebuilds += 1
         return model, gpu
 
     def _release_terrain(self) -> None:
         if self._terrain is not None:
-            self._terrain[3].release()
+            self._terrain[6].release()
             self._terrain = None
 
     def clear(self) -> None:
@@ -644,7 +687,7 @@ class MasonView(FrameOps):
                 # placement has none, and those draw as overlays instead.
                 if isinstance(item.node, terrain_node) and self._terrain is not None:
                     proxy = self._pool.node(item.world)
-                    opaque += [(proxy, primitive) for _n, primitive in self._terrain[3].draws]
+                    opaque += [(proxy, primitive) for _n, primitive in self._terrain[6].draws]
                 continue
             entry = self._cache.get(_entry_key(item))
             if entry is None:
@@ -896,7 +939,19 @@ class MasonView(FrameOps):
             (p for p in self.resolved(doc) if p.visible and isinstance(p.node, _terrain_node())),
             None,
         )
-        if found is None:
+        if found is None or found.locked:
+            # The 2026-09-26 audit's mason-mode-09: nothing here ever read
+            # the terrain node's lock at all -- ``found.locked`` is
+            # ``scene.resolve``'s own inherited answer (the "locked ORs"
+            # rule), already computed for every caller of :meth:`resolved`,
+            # so a locked ``TerrainNode`` -- or one under a locked ancestor
+            # group -- sculpted exactly like an unlocked one, contradicting
+            # manual 31's "a locked object, and everything under it, cannot
+            # be moved" (sculpting the ground *is* moving it, one vertex at a
+            # time). This is both entry points: :meth:`_begin_sculpt` calls
+            # this to open the session and :meth:`_motion` calls it on every
+            # subsequent dab, so gating here covers both without a second
+            # lock read.
             return None
         origin, direction = self._ray(local)
         march = mpick.ray_terrain(terrain, found.world, origin, direction)
@@ -1149,12 +1204,52 @@ class MasonView(FrameOps):
         """
         self._grab = "gizmo"
         self._drag_start = {}
+        selected = set(doc.selection)
         for uid in sorted(doc.selection):
             node = doc.node(uid)
-            if node is None or node.locked:
+            if node is None:
+                continue
+            # The 2026-09-26 audit's mason-mode-09: ``node.locked`` is only
+            # the node's *own* flag -- ``scene.py``'s own "locked ORs" rule
+            # (its module docstring, and the ``locked = p_locked or
+            # bool(node.locked)`` line in :func:`~.scene.walk`) means a child
+            # of a locked group, or the terrain node under a locked ancestor,
+            # is locked too even though its own flag reads ``False``. Reading
+            # the bare attribute let a gizmo drag move exactly the child a
+            # lock was supposed to stop, contradicting manual 31's "a locked
+            # object, and everything under it, cannot be moved". Read through
+            # :func:`~.scene.resolved_for` instead, the same inherited answer
+            # the properties panel and the picker already use.
+            try:
+                found = msc.resolved_for(doc, uid)
+            except ValueError:
+                # mason-03, the 2026-09-13 audit: a document past MAX_PLACED
+                # must not crash this lookup -- ``selection_centre``'s own
+                # reason, one call site over. Treated as locked: nothing here
+                # can confirm it is safe to move.
+                found = None
+            if found is None or found.locked:
                 # The engine's standing rule is that a lock is *reported, never
                 # enforced* -- a lock stops the user and not the document. This
                 # is the layer that stops the user.
+                continue
+            # The 2026-09-26 audit's mason-mode-07: a drag over a node and one
+            # of its own selected ancestors moved the child twice -- once here
+            # as its own independent local-translation write, and again for
+            # free, because the ancestor's world transform already carries
+            # every child along with it. A node with a selected ancestor is
+            # skipped for the same reason ``group_selected``
+            # (``mode.py``'s mason-mode-01) drops one: the ancestor's own move
+            # is what the descendant rides on, so giving it a second, separate
+            # move doubles the delta.
+            ancestor = doc.parent_uid_of(uid)
+            under_selected_ancestor = False
+            while ancestor is not None:
+                if ancestor in selected:
+                    under_selected_ancestor = True
+                    break
+                ancestor = doc.parent_uid_of(ancestor)
+            if under_selected_ancestor:
                 continue
             self._drag_start[uid] = tuple(np.array(v, copy=True) for v in node.trs())
         centre = self.selection_centre(doc, source)

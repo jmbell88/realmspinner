@@ -16,6 +16,7 @@ import multiprocessing.connection as mpconn
 import stat
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -423,3 +424,74 @@ def test_a_socket_file_left_by_a_crash_does_not_disable_the_server_for_good(
         assert server.address
     finally:
         server.close()
+
+
+# --- connect() is bounded, on the client's own side of the handshake ------------
+
+
+def test_connect_is_bounded_when_the_clients_own_handshake_hangs(tmp_path, monkeypatch) -> None:
+    """`mpconn.Client`'s authentication has no deadline of its own -- only
+    `Server._handshake` (the app's own half of this exchange) was ever
+    bounded. A bridge dialling a Realmspinner that accepted the connection
+    but is stuck mid-handshake would otherwise block in `connect()` forever,
+    with nothing above it (`bridge.main`) able to tell "still connecting"
+    from "hung". Proven with `mpconn.Client` itself replaced by something
+    that never returns -- a real hung peer looks the same to this function:
+    `Client()` simply never comes back.
+    """
+    monkeypatch.setattr(pipe, "HANDSHAKE_TIMEOUT", 0.3)
+    pipe.write_token(tmp_path)
+
+    def hangs_forever(*_args: object, **_kwargs: object) -> None:
+        time.sleep(30)
+
+    monkeypatch.setattr(pipe.mpconn, "Client", hangs_forever)
+
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        pipe.connect(tmp_path)
+    elapsed = time.monotonic() - start
+    assert elapsed < pipe.HANDSHAKE_TIMEOUT + 10, (
+        f"connect() took {elapsed:.1f}s -- it did not honour HANDSHAKE_TIMEOUT"
+    )
+
+
+def test_connect_still_raises_the_real_error_when_the_handshake_fails_fast(
+    tmp_path, monkeypatch
+) -> None:
+    """The bound must not swallow a real, prompt failure (e.g. a wrong
+    token) behind a generic `TimeoutError` -- `connect()`'s worker thread
+    hands back whatever `mpconn.Client` actually raised, same as if it had
+    been called inline."""
+    monkeypatch.setattr(pipe, "HANDSHAKE_TIMEOUT", 5.0)
+    home_without_a_server = tmp_path
+    pipe.write_token(home_without_a_server)
+    # No `Server` was ever started for this home, so the address does not
+    # exist -- `mpconn.Client` fails immediately with its own `OSError`
+    # subclass, not a timeout.
+    with pytest.raises(OSError) as excinfo:
+        pipe.connect(home_without_a_server)
+    assert not isinstance(excinfo.value, TimeoutError)
+
+
+def test_connect_succeeds_well_within_handshake_timeout_against_a_real_server(
+    tmp_path, monkeypatch
+) -> None:
+    """The bound must not cost an honest connection anything: a real
+    `Server`/`connect()` round trip still completes comfortably inside
+    `HANDSHAKE_TIMEOUT`."""
+    monkeypatch.setattr(pipe, "HANDSHAKE_TIMEOUT", 5.0)
+    server = pipe.Server(tmp_path)
+    server.start()
+    accepted: list[Any] = []
+    accepting = threading.Thread(target=lambda: accepted.append(server.accept()), daemon=True)
+    accepting.start()
+    try:
+        conn = pipe.connect(tmp_path)
+        accepting.join(timeout=5)
+        assert accepted and accepted[0] is not None
+        conn.close()
+        accepted[0].close()
+    finally:
+        server.close()
+        accepting.join(timeout=5)

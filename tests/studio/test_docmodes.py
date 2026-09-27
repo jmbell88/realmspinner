@@ -349,9 +349,9 @@ def test_a_confirmed_dirty_close_fires_the_listener(_listener_log):
 
 
 def test_a_bad_listener_does_not_break_closing_the_tab():
-    """One misbehaving listener (a future ``familiar`` hook, say) must not
-    stop the tab from actually closing -- it is cleanup, and cleanup that can
-    be broken by an observer is not cleanup you can rely on."""
+    """One misbehaving listener (a future agent hook, say) must not stop the
+    tab from actually closing -- it is cleanup, and cleanup that can be
+    broken by an observer is not cleanup you can rely on."""
 
     def boom(mode: str, uid: str) -> None:
         raise RuntimeError("boom")

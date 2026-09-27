@@ -827,7 +827,18 @@ def _open_filter(ctx: Any, tab: Any) -> None:
         return
     if not state.filter_name:
         state.filter_name = next(iter(filters.FILTERS))
-    if tab.doc.begin_filter() is None:
+    try:
+        opened = tab.doc.begin_filter() is None
+    except ValueError as exc:
+        # The 2026-09-26 audit, finding inker-panes-02: ``begin_filter``
+        # raises on a tilemap layer's pixels being re-derived from its
+        # tileset, and this door forwarded it bare -- a bare ``ValueError``
+        # unwinding the canvas pane's own frame instead of a toast. The op's
+        # own ``enabled``/``reason`` now grey the menu row first, but this
+        # stays as the belt for any caller that reaches here anyway.
+        ctx.toast(f"Not filtered: {exc}.", "warn")
+        return
+    if opened:
         ctx.toast("There is nothing to filter.", "warn")
         return
     # The *owner*, not a bare flag: everything below addresses the document

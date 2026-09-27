@@ -90,11 +90,14 @@ class JobsCache:
         # Bumped whenever ``_dir_sizes`` is replaced or amended, so the
         # ``visible`` memo notices a measurement landing (J85's size sort).
         self._sizes_generation = 0
-        # {job_id: ((status, dir mtime), names)} for attach_files -- the frame
-        # loop's largest syscall cost, and the one that grew without limit as
-        # "load more" widened the window. Pruned to the page below, so it can
-        # never outgrow what is being shown.
-        self._files: dict[str, tuple[tuple[Any, int], list[str]]] = {}
+        # {job_id: ((status, dir mtime, stems mtime), names)} for attach_files
+        # -- the frame loop's largest syscall cost, and the one that grew
+        # without limit as "load more" widened the window. Pruned to the page
+        # below, so it can never outgrow what is being shown. The stamp grew a
+        # third element (service-assets-02, the 2026-09-26 audit): see
+        # ``attach_files``'s own docstring for why a stems separation needed
+        # a second mtime folded in.
+        self._files: dict[str, tuple[tuple[Any, int | None, int | None], list[str]]] = {}
         # Rows beyond the newest page (A2/O119): ``read`` only ever refreshes
         # the top ``LIST_LIMIT`` rows on an ordinary tick, so anything "Load
         # older" has widened the window with lives here, untouched, until
@@ -300,9 +303,23 @@ class JobsCache:
         """
         if not self._due():
             return False
-        self._read_was_dirty = self._dirty
-        self._dirty = False
-        return bool(runner.submit("jobs-list", self.read, dict(self._files)))
+        # shell-documents-04 (2026-09-26 audit). ``_dirty`` used to be cleared
+        # here unconditionally, before ``runner.submit`` had said whether the
+        # read was actually taken -- ``TaskRunner.submit`` refuses a key
+        # already in flight, so a read still landing from the frame before
+        # swallowed this ``invalidate()`` outright: nothing was submitted for
+        # it, nothing will be until the *next* dirtying call or the 3 s idle
+        # tick, and the rows the caller asked to see refreshed stayed stale
+        # for however long that is. Cleared only once ``submit`` actually
+        # accepted, so a refusal leaves ``_dirty`` set and ``_due()`` keeps
+        # this method retrying next frame -- cheap, since a refused submit is
+        # just a dict lookup -- until the in-flight read frees the key.
+        was_dirty = self._dirty
+        accepted = bool(runner.submit("jobs-list", self.read, dict(self._files)))
+        if accepted:
+            self._read_was_dirty = was_dirty
+            self._dirty = False
+        return accepted
 
     def tick(self, on_transition: Callable[[dict[str, Any], str | None], None] | None = None):
         """The synchronous form of :meth:`request` + :meth:`adopt`, for a

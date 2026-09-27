@@ -1614,7 +1614,17 @@ def _drag_toggle(ctx: Any, tab: Any, index: int) -> None:
         # crossed used to cost eight Ctrl+Z to put back.
         _end_eye_drag(state, tab)
         return
-    if imgui.is_item_hovered() and tab.doc.stack[index].visible != state.eye_drag:
+    # Hit-tested geometrically, ``cell_index``'s reason exactly (see its
+    # docstring): a pressed imgui button suppresses ``is_item_hovered`` on
+    # every row but the one holding the press, so gating this on it answered
+    # False for every row past the first the whole time the eye stayed down
+    # -- the drag toggled only row 0 (the 2026-09-26 audit, inker-panes-01).
+    # The eye button is still the last item here: ``begin_disabled`` and
+    # ``end_disabled`` push style/flags, never an item of their own.
+    low, high = imgui.get_item_rect_min(), imgui.get_item_rect_max()
+    mx, my = imgui.get_mouse_pos()
+    hit = low.x <= mx <= high.x and low.y <= my <= high.y
+    if hit and tab.doc.stack[index].visible != state.eye_drag:
         # Written straight onto the row rather than through ``set_layer_props``:
         # the step for all of them is pushed on release, and an edit per row
         # here is exactly what that exists to avoid.

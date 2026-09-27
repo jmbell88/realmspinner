@@ -373,6 +373,20 @@ def land(ctx: Any, state: Any, done: Any, *, now: float) -> bool:
         if group_field is not None:
             state.flourish_pending_asset.pop(int(group_field), None)
         return False
+    if tab.busy:
+        # 2026-09-26 audit, inker-flourish-02: unlike the tileset landing
+        # (``_done_tileset_import`` re-checks ``busy`` at completion, not
+        # just at submit), this pushed a history step -- ``insert_flourish``
+        # or ``apply_flourish`` -- with no re-check, so a save or Play
+        # started while the bake was running saw a half-mutated layer stack.
+        # Refused here; a regenerate is left due so ``tick`` resubmits it
+        # once the tab is free, an insert is simply dropped with a toast.
+        group_field = result.get("group")
+        if group_field is not None and not done.key.startswith(INSERT_KEY):
+            state.flourish_due[int(group_field)] = float(now)
+        else:
+            ctx.toast("The effect finished while the document was busy; try again.", "warn")
+        return False
     baked = result["baked"]
     if done.key.startswith(INSERT_KEY):
         group = tab.doc.insert_flourish(baked)
@@ -1280,6 +1294,16 @@ def land_restyle(ctx: Any, state: Any, done: Any) -> bool:
     pending = result["pending"]
     tab = _tab_by_uid(state, pending["tab_uid"])
     if tab is None:
+        return False
+    if tab.busy:
+        # 2026-09-26 audit, inker-flourish-02: ``insert_flourish_track`` below
+        # pushes a history step with no re-check of ``busy`` at landing,
+        # unlike the tileset landing (``_done_tileset_import``) -- a save or
+        # Play started while the keyframes restyled would see the same
+        # half-mutated stack. Dropped rather than deferred: a restyle result
+        # is keyed to a span snapshot already checked below, and re-arming it
+        # for a later frame would just fail that same staleness check anyway.
+        ctx.toast("The restyle finished while the document was busy; it was dropped.", "info")
         return False
     group = int(pending["group"])
     held = tab.doc.flourish_state(group)

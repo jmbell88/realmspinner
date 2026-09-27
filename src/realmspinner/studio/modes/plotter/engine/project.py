@@ -452,6 +452,51 @@ def object_from_pixels(lat: Lattice, x: float, y: float) -> tuple[float, float]:
     return (column * lat.tile_h, row * lat.tile_h)
 
 
+def shift_by_cells(
+    lat: Lattice,
+    x: float,
+    y: float,
+    dx: int,
+    dy: int,
+    *,
+    wrap: tuple[int, int] | None = None,
+) -> tuple[float, float]:
+    """Move a point by whole cells along this lattice -- not by a flat pixel step.
+
+    ``x + dx * tile_w, y + dy * tile_h`` is only the right pixel vector for an
+    orthogonal grid: an isometric cell's pixel step mixes both axes, an
+    oblique one adds the skew, and an offset lattice's step depends on which
+    row or column is the staggered one. The 2026-09-26 audit (finding
+    plotter-map-03) found ``_map_geometry``'s ``resize``, ``offset`` and
+    ``_offset_infinite`` all applying the orthogonal formula unconditionally,
+    so an object at cell (2, 3) on an isometric map came back at (1, 4) after
+    a resize -- detached from the tile it was drawn on, and the same
+    detachment reached oblique and the offset lattices too.
+
+    Going by way of the lattice instead -- the fractional cell the point
+    already occupies (:func:`cell_point`), plus the whole-cell shift,
+    projected back to pixels (:func:`cell_corner`) -- is exact for every
+    projection this module draws, because it is the same arithmetic the
+    canvas and the renderer already use to place a cell.
+
+    ``wrap``, when given, is the ``(width, height)`` a shifted cell wraps
+    around -- :meth:`~.tilemap.MapDoc.offset`'s whole-map, wrapped case. It is
+    a modulus on the *cell* coordinate rather than on the returned pixel
+    position, which is what keeps the round trip exact: wrapping the pixel
+    position of a diamond or a staggered cell by the map's pixel bounding box
+    is not the same operation as the map wrapping by one cell.
+    """
+    column, row = cell_point(lat, x, y)
+    column, row = column + dx, row + dy
+    if wrap is not None:
+        width, height = wrap
+        if width:
+            column %= width
+        if height:
+            row %= height
+    return cell_corner(lat, column, row)
+
+
 def cell_bounds(
     lat: Lattice,
     x0: float,

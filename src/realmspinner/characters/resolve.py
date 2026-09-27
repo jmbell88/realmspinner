@@ -43,7 +43,7 @@ caught.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from .family import ARCHETYPE_KEYS, Family, families
@@ -553,7 +553,17 @@ class Resolution:
 #: Kept inside a token. ``/`` so "3/4" survives as one token and ``-`` so
 #: "top-down" does; everything else is a separator.
 _KEEP = set("abcdefghijklmnopqrstuvwxyz0123456789/-")
-_SEPARATORS = ",;:!?.()[]{}\"“”‘’<>|*_+=@#$%^&~`\\\n\t\r"
+#: The curly single quotes (U+2018/U+2019) are deliberately *not* here even
+#: though they look like punctuation: they are the apostrophe in a pasted
+#: prompt as often as the straight one is, and splitting on them the way the
+#: double quotes below do broke "bird's eye" into three tokens ("bird", "s",
+#: "eye") the moment the apostrophe was curly, so the two-token camera alias
+#: never matched and "bird" fell through as a species instead (poser-characters-01,
+#: the 2026-09-26 audit: `bird’s eye ogre` resolved to family=bird while the
+#: ASCII `bird's eye ogre` correctly resolved to family=ogre). ``_normal``
+#: strips all three apostrophe spellings the same way it already stripped the
+#: straight one.
+_SEPARATORS = ",;:!?.()[]{}\"“”<>|*_+=@#$%^&~`\\\n\t\r"
 
 
 def _normal(raw: str) -> str:
@@ -561,9 +571,11 @@ def _normal(raw: str) -> str:
 
     Apostrophes are removed rather than kept so "bird's eye" and "birds eye"
     are the same two tokens; the *original* spelling is carried separately and
-    is what an unrecognised word is reported as.
+    is what an unrecognised word is reported as. All three apostrophe
+    spellings -- straight and both curly single quotes -- are stripped here
+    rather than split in ``_SEPARATORS`` (see that name's comment).
     """
-    text = raw.lower().replace("'", "").replace("’", "")
+    text = raw.lower().replace("'", "").replace("’", "").replace("‘", "")
     text = "".join(ch if ch in _KEEP else " " for ch in text)
     return " ".join(text.split()).replace(" ", "")
 
@@ -718,7 +730,11 @@ def resolve(text: str, *, families: Mapping[str, Family] | None = None) -> Resol
     camera: str | None = None
     actions: list[str] = []
     creature_words: list[str] = []
-    unrecognised: list[str] = []
+    # ``(token index, original spelling)`` rather than a flat list, so a
+    # creature word demoted after the fact (below) can be folded back in at
+    # its own place in the prompt instead of only ever being appended at the
+    # end.
+    unrecognised_hits: list[tuple[int, str]] = []
     spans: list[Span] = []
     hints: list[str] = []  # creature words, in matching form, in order
 
@@ -735,7 +751,7 @@ def resolve(text: str, *, families: Mapping[str, Family] | None = None) -> Resol
                 break
         if hit is None:
             if normals[index] not in STOPWORDS:
-                unrecognised.append(raws[index])
+                unrecognised_hits.append((index, raws[index]))
             index += 1
             continue
 
@@ -752,7 +768,9 @@ def resolve(text: str, *, families: Mapping[str, Family] | None = None) -> Resol
                 # saying "orc and goblin" got one of the two, and the user has
                 # to be able to see which word did nothing.
                 applied = False
-                unrecognised.extend(raws[index : index + length])
+                unrecognised_hits.extend(
+                    (index + j, w) for j, w in enumerate(raws[index : index + length])
+                )
         elif category == "creature":
             creature_words.append(text_span)
             hints.append(key)
@@ -780,6 +798,22 @@ def resolve(text: str, *, families: Mapping[str, Family] | None = None) -> Resol
         creature = KNOWN_CREATURES[hints[0]]
         archetype = creature.archetype
         offer = _offer_for(creature, registry)
+    elif family_key is not None:
+        # A creature word only means anything when no real species was named
+        # in the prompt; once one is, the creature word was outvoted exactly
+        # the way a second species name is, and was wrongly left marked
+        # ``applied=True`` and off ``unrecognised`` (poser-characters-04, the
+        # 2026-09-26 audit: "giant spider knight" resolved to family=knight
+        # with unrecognised=() and nothing on screen saying "spider" did
+        # nothing).
+        for i, s in enumerate(spans):
+            if s.kind == "creature" and s.applied:
+                spans[i] = replace(s, applied=False)
+                unrecognised_hits.extend(
+                    (idx, raws[idx]) for idx in range(s.start, s.end)
+                )
+
+    unrecognised = tuple(w for _, w in sorted(unrecognised_hits, key=lambda hit: hit[0]))
 
     return Resolution(
         family=family_key,
@@ -787,7 +821,7 @@ def resolve(text: str, *, families: Mapping[str, Family] | None = None) -> Resol
         theme=theme,
         camera_preset=camera,
         actions=tuple(sorted(actions, key=_action_rank)),
-        unrecognised=tuple(unrecognised),
+        unrecognised=unrecognised,
         creature_words=tuple(creature_words),
         offer=offer,
         spans=tuple(spans),

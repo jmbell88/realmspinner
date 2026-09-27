@@ -63,7 +63,9 @@ nothing outlives the app however it exits, and a scan test refuses a spawn site 
 | The load probe | A checkpoint, to measure it | Measuring a load must not perform one |
 | The `bpy` probe | Nothing; it imports Blender and prints its version | `import bpy` takes seconds and must not be one the window waits on |
 | gltfpack | One mesh optimisation | A vendored native binary, like the engine |
-| The fetch worker | One download | It is the only thing allowed online — see below |
+| The fetch worker | One model or engine download | One of three allowed online — see below |
+| The pack worker | One dependency-pack install | Same allowance, for `uv sync`'s equivalent |
+| The update worker | One release-feed check plus an installer download | Same allowance, for the app's own version |
 
 **Blender is the oldest of them and the clearest.** `bpy` keeps global state, and the non-manifold
 geometry a reconstruction sometimes produces can abort the interpreter rather than raise. A crash
@@ -147,14 +149,16 @@ being fetched. That is the whole reason installation has a manual download step 
 [Model weights](40-installation.md#model-weights) and
 [Offline by design](40-installation.md#offline-by-design).
 
-There is one exception and it is deliberately shaped so that it changes nothing above. The Settings
-pane's **Download** button spawns the fetch worker from
+There are three exceptions, all user-initiated and all shaped so that none of them changes anything
+above. The Settings pane's **Download** button spawns the fetch worker from
 [the subprocess family](#the-subprocess-family) above, which sets `HF_HUB_OFFLINE=0` in its own
-environment, fetches one repository and exits. It is the only one of those children that goes
-online at all. The app process never sets that variable to anything
-but `1`, and nothing on the generation path can reach the fetcher. A subprocess rather than a
-temporary flag flip precisely because `huggingface_hub` reads the variable at import time: in
-process, "is this offline" would become a question about import order instead of about one line.
+environment, fetches one repository and exits. **Settings → Packs** spawns the pack worker the same
+way to install a dependency pack, and **Settings → Updates** spawns the update worker to read the
+release feed and, if asked, download an installer. Those three are the only children that ever go
+online. The app process never sets `HF_HUB_OFFLINE` to anything but `1`, and nothing on the
+generation path can reach any of the three. A subprocess rather than a temporary flag flip precisely
+because `huggingface_hub` reads the variable at import time: in process, "is this offline" would
+become a question about import order instead of about one line.
 
 ## The GL context
 

@@ -1504,6 +1504,20 @@ class JobStore:
         ``sweep_id IS NULL`` because a sweep's units are reviewed under their
         own sweep; this is the "daily use feeds the same findings pool" half,
         and mixing the two would list every sweep unit twice.
+
+        ``kind IN ('text', 'image')`` -- the 2026-09-26 audit, service-queue-03:
+        every one of ``followups.PRODUCTS``' eight derived kinds (rig, sheet,
+        pixel_sheet, sprite_synthesis, charsheet, retexture, remesh, separate)
+        defaults to ``stage = 'model'`` exactly like an ordinary reconstruction
+        does (``JobStore.create``'s own default), and none of them carries the
+        generation vector a mesh verdict is meant to grade -- so a finished rig,
+        sheet render or stem split used to surface here as an "unjudged mesh"
+        nobody had ever asked to be judged, and ``lora_train`` (no
+        ``source_job`` at all, and not a mesh either) the same way. Only
+        ``text``/``image`` are what ``create_job`` mints for an actual
+        reconstruction request. ``deleted_at IS NULL`` because ``list`` (unlike
+        ``search``, which takes an explicit ``trash`` flag) filters nothing --
+        a trashed mesh is not sitting in front of anyone to judge.
         """
         # NOT EXISTS rather than NOT IN: with idx_verdicts_source it is one
         # index probe per candidate row instead of materialising the whole
@@ -1511,6 +1525,7 @@ class JobStore:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM jobs WHERE status = 'done' AND stage = 'model'"
+                " AND kind IN ('text', 'image') AND deleted_at IS NULL"
                 " AND sweep_id IS NULL"
                 " AND NOT EXISTS (SELECT 1 FROM verdicts v WHERE v.source = ?"
                 " AND v.stage = 'model' AND v.job_id = jobs.id)"

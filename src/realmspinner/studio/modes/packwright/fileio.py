@@ -249,6 +249,16 @@ def export_files(ctx: Any, tab: PackTab | None = None) -> None:
         # ``PackTab.pack_stale_why``.
         ctx.toast(tab.pack_stale_why, "error")
         return
+    if tab.pack_dirty or tab.packing:
+        # The 2026-09-26 audit, packwright-mode-03: ``export_library`` already
+        # refuses here (below) because pairing the *landed* atlas with the
+        # current document while an edit is unpacked would describe two
+        # different atlases -- but this export pairs the landed atlas with
+        # nothing live at all, and until now exported it regardless, so
+        # "Atlas + JSON" wrote a PNG and a JSON sidecar for the atlas from
+        # before the edit while the open document had already moved past it.
+        ctx.toast("Still packing your latest edits -- try again in a moment.", "error")
+        return
     layout, atlas = tab.layout, tab.atlas
     # Snapshotted here, with ``layout``/``atlas`` above, for the same reason
     # ``request_pack`` snapshots settings before its own task closure: a

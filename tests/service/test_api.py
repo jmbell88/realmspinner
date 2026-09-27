@@ -333,8 +333,7 @@ def test_health_reports_the_worker_and_the_doctor_checks(svc, worker):
         # packs are equally legible rather than two of them being visible only
         # folded into the matting and text rows. The engine becoming a second
         # ``ENGINE_MODELS`` entry added no row here -- doctor builds both engine
-        # rows by hand rather than from the table. Familiar's own three rows
-        # (2026-09-13) *are* built from ``FAMILIAR_MODELS``, unlike the engine.
+        # rows by hand rather than from the table.
         19
         + len(models.BASE_MODELS)
         + len(models.STYLE_LORAS)
@@ -345,7 +344,6 @@ def test_health_reports_the_worker_and_the_doctor_checks(svc, worker):
         + len(models.POSE_MODELS)
         + len(models.MUSIC_MODELS)
         + len(models.SEPARATION_MODELS)
-        + len(models.FAMILIAR_MODELS)
     )
 
 

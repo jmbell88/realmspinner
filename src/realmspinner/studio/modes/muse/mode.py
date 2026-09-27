@@ -181,11 +181,24 @@ def open_derive(ctx: Any, job_id: str, task: str) -> None:
     carried, for the reason it is a separate dict at all: a window left over
     from the last take is a request about a piece of music the user is no
     longer looking at.
+
+    **muse-mode-02 (2026-09-26 audit).** Field errors used to be cleared right
+    before ``derive`` submitted, not here -- so a ring from a refused derive
+    of *this* take, still showing because the popup that caused it was closed
+    early (see ``derive_settled``'s docstring), survived to ring a control on
+    the *next* take's popup instead. Cleared on open instead, the same as
+    every full-page brief in this app clears on its own submit -- a popup
+    freshly pointed at a take is a request about that take, not a stale echo
+    of the last one.
     """
     state = ensure(ctx)
     state.derive_job = job_id
     state.derive_form = dict(DEFAULT_DERIVE)
     state.derive_form["task"] = task if task in DERIVE_CONTROLS else "retake"
+    # Unset by a fresh dict already, but named here so a reader of ``derive``/
+    # ``derive_settled`` can see where the flag they poll starts from.
+    state.derive_form["_submitting"] = False
+    ctx.state.clear_field_errors()
 
 
 def close_derive(ctx: Any) -> None:
@@ -254,9 +267,49 @@ def derive(ctx: Any) -> bool:
         # door then centres it on the roll. See ``derive_music_job``.
         kwargs["repaint_start"] = 0.0
 
-    ctx.state.clear_field_errors()
+    # muse-mode-02 (2026-09-26 audit): no longer cleared here -- ``open_derive``
+    # clears on open now, so a refusal from *this* submit survives to ring its
+    # control instead of being wiped by the very call that might reproduce it.
     if not ctx.submit("submit", lambda: svc_jobs.derive_music_job(ctx.svc, job_id, **kwargs)):
         ctx.toast("Still submitting the last one - try again in a moment.")
+        return False
+    # Left open, and marked waiting, rather than closed here: accepted only
+    # means the task was *queued*, not that ``derive_music_job`` -- a door,
+    # on the task thread -- agreed to it. ``derive_settled`` closes it once
+    # that answer is actually in -- immediately, for a caller (a test, or a
+    # submit fast enough to have already landed) where it already is.
+    state.derive_form["_submitting"] = True
+    derive_settled(ctx)
+    return True
+
+
+def derive_settled(ctx: Any) -> bool:
+    """Whether the popup's last submit has come back with nothing left to
+    show. -> whether the popup may now close itself.
+
+    **muse-mode-02 (2026-09-26 audit).** ``results.py`` used to close the
+    popup the instant ``derive`` returned ``True`` -- which only means
+    ``ctx.submit`` *accepted* the request, not that ``derive_music_job`` (a
+    door, on the task thread) agreed to it. A refusal landed a frame or two
+    later, after the popup was already gone: ``field_error`` had no control
+    left to ring it on, and the entry sat in ``ctx.state.field_errors`` until
+    it rang a *different* take's popup instead (fixed by clearing on
+    ``open_derive`` rather than here).
+
+    Polled every frame the popup is open; only says yes once a submit was
+    actually made (``_submitting``) and it has actually come back
+    (``not ctx.busy("submit")``) with none of this task's own controls -- or
+    "How many" -- left holding a refusal.
+    """
+    state = ensure(ctx)
+    if not state.derive_job or not state.derive_form.get("_submitting"):
+        return False
+    if ctx.busy("submit"):
+        return False
+    state.derive_form["_submitting"] = False
+    task = str(state.derive_form.get("task") or "")
+    watched = set(DERIVE_CONTROLS.get(task, ())) | {"derive_count"}
+    if watched & set(ctx.state.field_errors):
         return False
     state.derive_job = ""
     return True
@@ -445,7 +498,21 @@ def on_task_done(ctx: Any, done: Any) -> None:
         state.player.play_offset = min(previous.play_offset, state.player.duration)
     # Tagged with the job id, which is what lets a card ask "am *I* the one
     # playing" rather than only "is anything playing".
-    if sirens_audio.play(result["pcm"], result["rate"], tag=job_id):
+    #
+    # muse-mode-01 (2026-09-26 audit). This used to hand ``result["pcm"]``
+    # itself to ``sirens_audio.play`` regardless of ``play_offset`` just
+    # carried above -- fine for a fresh load, where there is nothing to carry
+    # and the offset is still 0.0, but not a switch: the channel started the
+    # new take from sample 0 while the player's own state, and the "0:32" the
+    # transport read off it, said otherwise, so the playhead and the readout
+    # lied for the rest of the audition and ``[``/``]`` marked a region against
+    # a position nothing was actually sounding at. Sliced to the same offset
+    # instead -- exactly ``_play_from``'s own plain-playthrough arithmetic,
+    # not a call to it, so an empty take still reaches ``sirens_audio.play``
+    # and gets its refusal toasted rather than returning on ``_play_from``'s
+    # empty-buffer guard with nothing said.
+    start = int(state.player.play_offset * state.player.rate)
+    if sirens_audio.play(result["pcm"][start:], result["rate"], tag=job_id):
         state.playing_job = job_id
     else:
         ctx.toast(sirens_audio.unavailable_reason() or "could not play that take",
@@ -1110,6 +1177,7 @@ __all__ = [
     "close_derive",
     "compose_from_sirens",
     "derive",
+    "derive_settled",
     "ensure",
     "generate",
     "handle_key",

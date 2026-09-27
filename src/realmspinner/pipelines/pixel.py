@@ -103,6 +103,31 @@ def _refuse_past_max_rows(count: int) -> None:
         )
 
 
+#: The absolute ceiling on how many entries :func:`map_palette` will search
+#: against. A **separate**, far smaller number from :data:`MAX_PALETTE_ROWS`
+#: above: that one bounds what a *reader* will parse out of a file, this one
+#: bounds what the *search* below can afford to allocate over. The 2026-09-26
+#: audit (inker-sheets-03) found a palette at the reader's own ceiling
+#: (65,536 rows -- itself a legal read) turned ``map_palette`` catastrophic
+#: with no refusal anywhere on the way: the dither branch's pairwise gap
+#: matrix is ``(entries, entries, 3)`` float64 (~96 GB at 65,536 entries) and
+#: the no-native-kernel fallback's per-chunk search is ``(chunk, entries, 3)``
+#: float64 of the same order -- both unbounded in the number of entries, and
+#: neither named what was wrong before the allocation (or the swap thrash)
+#: took the machine down. 4096 is sixteen times Aseprite's own 256-entry
+#: indexed-mode ceiling (see :data:`MAX_PALETTE_ROWS`'s own comment) and keeps
+#: the dither branch's worst case under half a gigabyte.
+MAX_SEARCHABLE_PALETTE = 4096
+
+
+def _refuse_past_max_searchable(count: int) -> None:
+    if count > MAX_SEARCHABLE_PALETTE:
+        raise ValueError(
+            f"this palette holds {count} colours, more than the "
+            f"{MAX_SEARCHABLE_PALETTE} this build will search by name"
+        )
+
+
 def parse_hex(text: str) -> tuple[RGB, ...]:
     """A Lospec ``.hex`` palette: one ``rrggbb`` per line.
 
@@ -602,6 +627,7 @@ def map_palette(
 
     if not palette:
         raise ValueError("an empty palette maps nothing")
+    _refuse_past_max_searchable(len(palette))
     rgba = np.asarray(image.convert("RGBA"))
     alpha = rgba[:, :, 3]
     lab = _to_oklab(rgba[:, :, :3])

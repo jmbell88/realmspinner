@@ -608,12 +608,15 @@ def _grid_candidates(
 def _tri_tri_intersect(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Batched triangle-triangle intersection via separating-axis test.
 
-    Eleven candidate axes -- each triangle's own face normal, plus the nine
-    cross products of one edge from each triangle -- checked in turn; a pair
-    intersects unless some axis separates their projected intervals. A
-    degenerate (near-zero-length) axis is skipped rather than treated as
-    separating, which is what a pair of edges that happen to be parallel
-    would otherwise produce.
+    Seventeen candidate axes -- each triangle's own face normal, the nine
+    cross products of one edge from each triangle, and (the 2026-09-26 audit,
+    finding clay-mesh-model-02) each triangle's own six in-plane edge normals
+    -- checked in turn; a pair intersects unless some axis separates their
+    projected intervals. A degenerate (near-zero-length) axis is skipped
+    rather than treated as separating, which is what a pair of edges that
+    happen to be parallel would otherwise produce -- the coplanar case the
+    last six axes exist for, where every one of the first eleven degenerates
+    to a multiple of the shared normal.
     """
     k = len(a)
     intersecting = np.ones(k, dtype=bool)
@@ -627,6 +630,24 @@ def _tri_tri_intersect(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     for ea in edges_a:
         for eb in edges_b:
             axes.append(np.cross(ea, eb))
+    # The 2026-09-26 audit, finding clay-mesh-model-02: the nine edge-cross
+    # axes above are exactly the ones a *non-coplanar* pair needs, but two
+    # disjoint triangles that share a plane -- axis-aligned level-kit pieces
+    # butted up against each other, say -- have every edge parallel to the
+    # shared normal, so each ``cross(ea, eb)`` degenerates to a multiple of
+    # that same normal: no axis in the batch lies *within* the shared plane,
+    # and along the normal itself both triangles project to a single point,
+    # always "overlapping". Two boxes 0.04 m apart with a pair of coplanar
+    # faces read as ``intersects=True, distance=0.0``. Each triangle's own
+    # in-plane edge normals (``cross(edge, that triangle's own face
+    # normal)``) are the classic 2D SAT axis set and close exactly this gap
+    # -- they run unconditionally, not behind a coplanarity check, because
+    # more candidate axes can only find a separation that exists; they can
+    # never manufacture one that does not.
+    for ea in edges_a:
+        axes.append(np.cross(ea, n1))
+    for eb in edges_b:
+        axes.append(np.cross(eb, n2))
 
     eps = 1e-9
     for axis in axes:

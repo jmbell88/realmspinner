@@ -298,11 +298,24 @@ def create_generation_request(
             from . import sprites as svc_sprites
 
             sprite = request.sprite
-            legacy_size = (
-                sprite.target_cell_px
-                if sprite.target_cell_px in svc_sprites.SPRITE_LOGICAL_SIZES
-                else svc_sprites.DEFAULT_SPRITE_LOGICAL_SIZE
-            )
+            # Refused rather than coerced -- the 2026-09-26 audit,
+            # service-kinds-03, and the same incident ``tile.target_cell_px``
+            # above was already fixed for. ``validate_request`` accepts
+            # anything from ``generation.TARGET_CELL_MIN`` to ``_MAX`` (8-256),
+            # so this used to answer "make me 50px cells" with a 64px sheet
+            # and never say so: the request document went on recording 50
+            # while the pixels were 64. None (nothing asked) still means "the
+            # ladder's own default", exactly as absent does for a tileset.
+            if sprite.target_cell_px is None:
+                legacy_size = svc_sprites.DEFAULT_SPRITE_LOGICAL_SIZE
+            elif int(sprite.target_cell_px) in svc_sprites.SPRITE_LOGICAL_SIZES:
+                legacy_size = int(sprite.target_cell_px)
+            else:
+                raise Invalid(
+                    f"a sprite sheet cannot publish {int(sprite.target_cell_px)}px "
+                    f"cells; choose one of {list(svc_sprites.SPRITE_LOGICAL_SIZES)}",
+                    field="sprite.target_cell_px",
+                )
             sprite_block = {
                 # The request's own action and direction count, not a collapse
                 # of them. This read ``"turnaround" if mode == "turnaround" else

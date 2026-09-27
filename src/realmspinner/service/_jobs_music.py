@@ -274,6 +274,21 @@ def create_music_job(
                 "that reference is larger than this build will read",
                 field="reference_wav",
             )
+        # muse-jobs-02 (2026-09-26 audit). ``MAX_REFERENCE_BYTES`` above bounds
+        # one copy, but the loop below (`` (job_dir / "source.wav")
+        # .write_bytes(reference_wav)``) writes that same buffer once per row
+        # -- up to :data:`MAX_COUNT`, four -- with nothing that ever added the
+        # copies up. A reference sitting just under the 256 MiB ceiling and a
+        # count of 4 wrote ~1 GiB with the door having only ever checked
+        # 256 MiB of it. Rung on ``count``, not ``reference_wav``: the
+        # reference is already as small as this request can make it, and
+        # asking for fewer takes is the control that actually frees the room.
+        if len(reference_wav) * count > MAX_REFERENCE_BYTES:
+            raise Invalid(
+                "that many takes of this reference would write more than"
+                " this build keeps of one at a time -- ask for fewer takes",
+                field="count",
+            )
         try:
             with wave.open(io.BytesIO(reference_wav)) as handle:
                 seconds = handle.getnframes() / float(max(handle.getframerate(), 1))
@@ -390,6 +405,7 @@ TASK_PARAMS = (
     "edit_lyrics",
     "edit_n_min",
     "edit_n_max",
+    "edit_source_prompt",
     "ref_audio_strength",
     "roll",
 )
@@ -627,6 +643,18 @@ def derive_music_job(
         block["edit_lyrics"] = new_lyrics
         block["edit_n_min"] = float(edit_n_min)
         block["edit_n_max"] = float(edit_n_max)
+        # muse-jobs-01 (2026-09-26 audit). The row's own ``prompt`` column is
+        # deliberately the *new* words -- see this function's ``prompt =``
+        # line below -- because the library shows a derived row's brief, not
+        # its ancestry. But ``_music`` (this module) used to send that same
+        # column to the sampler as the *source* conditioning too, so a
+        # prompt-only edit's source and target were identical text and
+        # FlowEdit had nothing to edit away from. The parent's own words,
+        # unchanged, are what the source conditioning has to be for the edit
+        # to move the piece from what it *was* toward ``edit_target_prompt``
+        # rather than restating it. Named in ``TASK_PARAMS`` below like every
+        # other edit-only key, so a reroll of a repaint never inherits it.
+        block["edit_source_prompt"] = was_prompt
 
     else:  # audio2audio
         # **service-02 (2026-09-15 audit).** Every other task in this family

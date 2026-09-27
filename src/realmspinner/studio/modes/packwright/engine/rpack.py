@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import zipfile
 from typing import Any
 
@@ -234,7 +235,12 @@ def read_rpack(data: bytes) -> PackDoc:
 
         try:
             version = int(manifest.get("version", 0))
-        except (TypeError, ValueError) as exc:
+        # ``OverflowError`` as well as the pair below: the 2026-09-26 audit's
+        # packwright-packer-01. ``json.loads`` accepts ``1e999`` as a number --
+        # Python's float parser reads it as ``inf``, no exception -- and
+        # ``int(inf)`` is what actually raises, past every guard here that only
+        # caught ``TypeError``/``ValueError``.
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("this atlas document's manifest is malformed") from exc
         if version > VERSION:
             raise ValueError(
@@ -305,7 +311,21 @@ def read_rpack(data: bytes) -> PackDoc:
 
 
 def _read_point(raw: Any) -> tuple[float, float] | None:
-    return None if raw is None else (float(raw["x"]), float(raw["y"]))
+    if raw is None:
+        return None
+    x, y = float(raw["x"]), float(raw["y"])
+    if not (math.isfinite(x) and math.isfinite(y)):
+        # The 2026-09-26 audit's packwright-packer-02: ``float()`` accepts
+        # ``1e999`` (Python reads it as ``inf``, no exception) and JSON's own
+        # ``NaN``/``Infinity`` literals (which ``json.loads`` accepts), so a
+        # pivot with either used to open clean and ride into the exported
+        # sidecar, where ``tp_bytes`` wrote it as the literal token
+        # ``Infinity``/``NaN`` -- not valid JSON, and a loader that expects
+        # strict JSON chokes on it. Refused at the door instead, the format's
+        # own doctrine: a file that is wrong about itself is a file to say so
+        # about.
+        raise ValueError("a pivot must be a finite number")
+    return (x, y)
 
 
 def _read_rect(raw: Any) -> tuple[int, int, int, int] | None:
@@ -347,7 +367,10 @@ def _meta_from(entry: dict, key: str) -> SpriteMeta:
                 )
             )
         return SpriteMeta(pivot=_read_point(entry.get("pivot")), slices=tuple(slices))
-    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+    # ``OverflowError`` too: the 2026-09-26 audit's packwright-packer-01.
+    # ``_read_rect``'s ``int(...)`` on a slice bound of ``1e999`` (parsed by
+    # ``json.loads`` as ``inf``) raises it, past this except clause as it stood.
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError) as exc:
         raise ValueError(
             f"this atlas document's metadata for {key!r} is malformed"
         ) from exc
@@ -446,7 +469,13 @@ def _settings_from(entry: Any) -> PackSettings:
             ),
             "json_schema": str(values.get("json_schema", default.json_schema)),
         }
-    except (TypeError, ValueError) as exc:
+    # ``OverflowError`` too: the 2026-09-26 audit's packwright-packer-01. A
+    # manifest with ``1e999`` in ``padding``/``extrude``/``max_size``/``columns``
+    # parses clean through ``json.loads`` (Python reads it as ``inf``) and it is
+    # ``int(inf)`` above that actually raises, past this except clause as it
+    # stood -- an atlas whose settings should have been refused by name instead
+    # crashed the open outright.
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("this atlas document's settings are malformed") from exc
     # Constructed *outside* the coercion guard on purpose. ``PackSettings``
     # validates on construction -- including the padding-against-extrude rule --

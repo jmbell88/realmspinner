@@ -110,10 +110,20 @@ class Terrain:
     size_x: float
     size_z: float
     material: gltf.Material
-    #: ``(array, primitive)`` the last :func:`terrain_mesh` call produced for
-    #: this instance, or ``None`` before the first call. Private to this
-    #: module; see :func:`terrain_mesh` for why it is not keyed on ``id()``.
-    _mesh_cache: tuple[np.ndarray, gltf.Primitive] | None = field(
+    #: ``(array, size_x, size_z, material, primitive)`` the last
+    #: :func:`terrain_mesh` call produced for this instance, or ``None`` before
+    #: the first call. Private to this module; see :func:`terrain_mesh` for why
+    #: the array half is not keyed on ``id()``.
+    #:
+    #: The 2026-09-26 audit's mason-engine-02: this used to be keyed on the
+    #: array's identity alone, on the theory that only a brush ever changes the
+    #: ground. ``MasonDoc.set_terrain_config`` (``document.py``) disproved it --
+    #: it writes ``size_x``/``size_z``/``material`` onto the live ``Terrain``
+    #: with ``setattr`` and never touches ``heights``, so a config edit left
+    #: this memo returning a mesh built from the old extent or the old
+    #: material. ``size_x``/``size_z``/``material`` join the key so a config
+    #: change invalidates it the same as a rebind does.
+    _mesh_cache: tuple[np.ndarray, float, float, gltf.Material, gltf.Primitive] | None = field(
         default=None, repr=False, compare=False
     )
 
@@ -416,17 +426,37 @@ def terrain_mesh(terrain: Terrain) -> gltf.Primitive:
     collected, so a memo keyed on it can validate against the wrong object --
     exactly the bug ``viewer/picking.cached_bvh`` was written to stop
     repeating, and the plan's own first draft asked for it again. Holding
-    ``(array, primitive)`` on the ``Terrain`` instance and checking
-    ``cached_array is terrain.heights`` compares against an object this
-    method is itself keeping alive, so there is no address to recycle out
-    from under it. This is exactly ``gltf.Primitive._box``'s trick one level
-    up the stack.
+    ``(array, size_x, size_z, material, primitive)`` on the ``Terrain``
+    instance and checking ``cached_array is terrain.heights`` compares against
+    an object this method is itself keeping alive, so there is no address to
+    recycle out from under it. This is exactly ``gltf.Primitive._box``'s trick
+    one level up the stack.
+
+    ``size_x``/``size_z``/``material`` ride along in the same key because
+    ``heights`` identity is not the only thing that can change under a
+    ``Terrain``: ``MasonDoc.set_terrain_config`` writes those three fields
+    straight onto the live instance with ``setattr`` and never rebinds
+    ``heights`` (the 2026-09-26 audit's mason-engine-02), so a memo keyed on
+    ``heights`` alone kept returning a mesh built from the old extent or the
+    old material after a config edit.
     """
     cached = terrain._mesh_cache
-    if cached is not None and cached[0] is terrain.heights:
-        return cached[1]
+    if (
+        cached is not None
+        and cached[0] is terrain.heights
+        and cached[1] == terrain.size_x
+        and cached[2] == terrain.size_z
+        and cached[3] == terrain.material
+    ):
+        return cached[4]
     primitive = _build_mesh(terrain)
-    terrain._mesh_cache = (terrain.heights, primitive)
+    terrain._mesh_cache = (
+        terrain.heights,
+        terrain.size_x,
+        terrain.size_z,
+        terrain.material,
+        primitive,
+    )
     return primitive
 
 

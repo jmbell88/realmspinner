@@ -43,10 +43,9 @@ what a value starts at and what it ends at across the phase. Change the **seed**
 arrangement of the same sparks.
 
 Or type it: put *colder, more sparks, no smoke* in the prompt field under the buttons and press
-Enter. The toast lists what each word did. With no language model on the machine that is a
+Enter. The toast lists what each word did. Realmspinner ships no language model, so this is a
 fixed vocabulary of colours and adjectives, which is enough for most of what you would say to a
-fireball; a local instruct model, when one is present, reads the sentence instead — and its
-answer is clamped exactly like a slider.
+fireball; whatever it maps a word to is clamped exactly like a slider.
 
 ## Paint on a cell, then regenerate
 

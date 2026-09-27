@@ -1,6 +1,6 @@
-"""Regressions for the 2026-09-23 audit's clay-02, clay-11 and clay-12
-findings against ``kernels/mesh/scratch.py``, ``primitives.py``,
-``adjacency.py`` and ``document.py``'s ``render_plan``.
+"""Regressions for the 2026-09-23 audit's clay-11 and clay-12
+findings against ``primitives.py``, ``adjacency.py`` and ``document.py``'s
+``render_plan``.
 
 See the audit's own records for the full write-up; this module only pins
 the failure each one names.
@@ -16,51 +16,6 @@ import numpy as np
 from realmspinner.kernels.mesh import adjacency as adj
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import primitives as bp
-from realmspinner.kernels.mesh import scratch as clay_scratch
-
-# --- clay-02: Familiar Apply after a previewed reparent ----------------------
-
-
-def test_a_transplanted_reparent_does_not_leave_the_object_under_its_old_parent_wearing_the_new_parents_local_trs():  # noqa
-    """clay-02: a scratch preview that reparents a child (``keep_world=True``,
-    ``clay_parent``'s own default) recomputes the child's local TRS relative
-    to its *new* parent's frame. Before this fix, ``transplant`` carried only
-    that recomputed TRS through ``transform_changed`` -- never the parent
-    link itself, because ``parent`` was absent from ``scratch._PROP_FIELDS``
-    -- so Apply landed the new-parent-relative numbers on an object still
-    hanging under its *old* parent on the real document, and the object
-    visibly jumped even though the preview picture showed it standing still.
-    """
-    doc = bd.ClayDoc()
-    parent_obj = doc.add_object(
-        bd.Obj(
-            uid=bd.new_uid(), name="parent", mesh=bp.box(), translation=np.array([5.0, 0.0, 0.0])
-        )
-    )
-    child_obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="child", mesh=bp.box()))
-
-    before_world = doc.world_matrix(child_obj.uid)[:3, 3].copy()
-
-    # Exactly what clay_parent's handler does against a Familiar preview
-    # scratch: reparent with keep_world=True (the tool's own default), which
-    # moves nothing on screen in the *scratch*.
-    scratch = clay_scratch.clone(doc)
-    scratch.set_parent(child_obj.uid, parent_obj.uid, keep_world=True)
-    preview_world = scratch.world_matrix(child_obj.uid)[:3, 3].copy()
-    assert np.allclose(preview_world, before_world), "the preview itself must not move the child"
-
-    diff = clay_scratch.diff(doc, scratch)
-    clay_scratch.transplant(doc, scratch, diff)
-
-    assert doc.by_uid(child_obj.uid).parent == parent_obj.uid, (
-        "Apply must carry the reparent itself, not just the recomputed local TRS"
-    )
-    after_world = doc.world_matrix(child_obj.uid)[:3, 3]
-    assert np.allclose(after_world, before_world), (
-        "the user approved a picture where the child stood still; Apply moved it to "
-        f"{after_world} instead of leaving it at {before_world}"
-    )
-
 
 # --- clay-11: arch height clamp -----------------------------------------------
 
@@ -92,11 +47,11 @@ def test_clamp_params_mirrors_archs_own_height_floor():
 
 def test_adjacency_cache_builds_only_once_under_concurrent_access_from_two_threads(monkeypatch):
     """clay-12: ``adjacency._CACHE`` (and its siblings ``_F8``/``_TRIS``) is a
-    bare ``WeakKeyDictionary`` reached from both the frame thread and a
-    Familiar scratch batch on a shared, unlocked ``Mesh``. Without a lock
-    around the check-then-build-then-store sequence, two threads racing a
-    cache miss for the same mesh both rebuild it; with the lock, the second
-    thread blocks until the first has stored the result and gets a cache hit.
+    bare ``WeakKeyDictionary`` reachable from more than one thread against a
+    shared, unlocked ``Mesh``. Without a lock around the
+    check-then-build-then-store sequence, two threads racing a cache miss for
+    the same mesh both rebuild it; with the lock, the second thread blocks
+    until the first has stored the result and gets a cache hit.
     """
     mesh = bp.box()  # a fresh instance, not already cached by anything else
     calls: list[int] = []
@@ -131,11 +86,10 @@ def test_adjacency_cache_builds_only_once_under_concurrent_access_from_two_threa
 
 def test_render_plan_cache_builds_only_once_under_concurrent_access_from_two_threads(monkeypatch):
     """clay-12: ``document._PLANS`` carries the identical, unlocked-cache gap
-    as ``adjacency.py``'s three tables -- reached from ``render_plan``, on a
-    ``Mesh`` shared between the live document and a Familiar scratch preview.
-    Same proof shape as the adjacency regression above: patch the mesh
-    module's ``render_layout`` to be slow, and assert only one thread's call
-    actually builds anything.
+    as ``adjacency.py``'s three tables -- reached from ``render_plan`` on a
+    ``Mesh`` more than one thread can share. Same proof shape as the
+    adjacency regression above: patch the mesh module's ``render_layout`` to
+    be slow, and assert only one thread's call actually builds anything.
     """
     mesh = bp.box()
     calls: list[int] = []

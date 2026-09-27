@@ -326,13 +326,25 @@ class MusicOps:
         # without having loaded 8.3 GiB to find out.
         extra = _task_kwargs(params, job_dir)
 
+        # muse-jobs-01 (2026-09-26 audit). The row's ``prompt`` column is the
+        # *new* words for an edit -- ``derive_music_job`` puts them there so
+        # the library shows a derived row's own brief -- but that is the wrong
+        # text for the sampler's *source* conditioning: sent as both source and
+        # ``edit_target_prompt`` (below, from ``_task_kwargs``), a prompt-only
+        # edit had nothing to edit away from. ``edit_source_prompt`` carries
+        # the parent's own words, unchanged, for exactly this call; every other
+        # task never sets it, so ``job["prompt"]`` -- already the parent's, for
+        # them -- is unaffected.
+        source_prompt = params.get("edit_source_prompt")
+        prompt = str(source_prompt) if source_prompt is not None else str(job["prompt"] or "")
+
         assert self._cancel is not None
         client, handoff = await self._acquire_music(spec)
         try:
             await asyncio.to_thread(
                 functools.partial(
                     client.generate,
-                    str(job["prompt"] or ""),
+                    prompt,
                     output,
                     lyrics=str(params.get("lyrics") or ""),
                     audio_duration=float(params.get("duration", 60.0)),

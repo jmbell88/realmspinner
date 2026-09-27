@@ -144,12 +144,6 @@ and Lightning recipes are the same weights run differently, so each of them cost
 adapter on top. SDXL-Turbo is a separate checkpoint and is optional now — the models page has its
 command.
 
-Familiar, the in-app assistant, is optional and separate from both: its runtime is llama.cpp's own
-CUDA Windows release (`ggml-org/llama.cpp`, two zips upstream splits apart — the server binaries
-and the CUDA 12.4 redistributable), and its weights are a testing pin of
-`Qwen/Qwen3-VL-4B-Instruct-GGUF`. All three rows live in Settings → Models under the *Familiar*
-heading; `docs/MODELS.md` carries the full commands.
-
 The GGUF download also brings `birefnet.gguf`, the background-matting model. It is optional: without
 it the engine falls back to a threshold cutout, which is worse on anything with a soft edge.
 
@@ -402,9 +396,11 @@ crash, and every 3D job will fail — or worse, be served by the orphan — unti
 
 ## Offline by design
 
-Those one-time downloads are the only network use there is. The app itself never downloads anything:
-`HF_HUB_OFFLINE=1` and `HF_HUB_DISABLE_TELEMETRY=1` are set the moment the package is imported, and
-every model load is `local_files_only`.
+Those one-time downloads are user-initiated, and so are the only two other things that ever go
+online: installing a dependency pack (Settings → Packs) and checking for a new release (Settings →
+Updates). Outside those three, the app itself never downloads anything: `HF_HUB_OFFLINE=1` and
+`HF_HUB_DISABLE_TELEMETRY=1` are set the moment the package is imported, and every model load is
+`local_files_only`.
 
 The consequence is worth stating plainly, because it is a design decision rather than an oversight:
 a missing set of weights produces a clear error and a `doctor` warning naming the exact command to
@@ -416,4 +412,6 @@ weaken any of the above. The button spawns a separate process which is allowed o
 repository into a staging folder beside its destination, moves the files in only on success, and
 exits; the app process keeps `HF_HUB_OFFLINE=1` for its whole life and nothing on the generation
 path can start a fetch. It is the same download you would run by hand, run for you, once, because
-you asked.
+you asked. Settings → Packs and Settings → Updates spawn their own separate, one-shot processes the
+same way — `pack_worker` and `update_worker` — and neither one leaves the app process itself able to
+reach the network either.

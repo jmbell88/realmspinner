@@ -13,7 +13,7 @@ person's project.
 ## What is in scope
 
 Realmspinner is an offline desktop application. It has no server, no account
-system and no network listener beyond `127.0.0.1`, so the realistic threat is
+system and no network listener at all, so the realistic threat is
 **a malicious file**, not a malicious peer. In scope:
 
 - **Any file the app opens.** `.ora`, `.aseprite`, `.tmx`/`.tsx` and their JSON
@@ -64,14 +64,6 @@ system and no network listener beyond `127.0.0.1`, so the realistic threat is
   is anything reachable through either derived tool surface that escapes its
   own bound — Clay's one tab, or the character pipeline's read-any/write-
   additive-only rule.
-- **Familiar's local listener.** `src/realmspinner/pipelines/llama.py` spawns
-  `llama-server.exe`, a second loopback HTTP listener distinct from the named
-  pipe above, bound to `127.0.0.1` only. It exists only while Familiar is in
-  use — spawned on demand, not on startup — and every spawn writes a fresh
-  API key to a key file (`--api-key-file`, never on the command line, where
-  any other process on the machine could read it) rather than reusing one
-  across restarts. In scope: anything reachable through that HTTP surface, and
-  the key file's own handling.
 - **Subprocess handling.** Heavy or privileged work is never done inline in the
   main process: reconstruction (`trellis-server.exe`), the Blender worker,
   the matting worker, the music and stem-separation workers, LoRA training,

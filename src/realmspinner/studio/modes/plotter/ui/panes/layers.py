@@ -16,6 +16,7 @@ from dataclasses import replace
 from typing import Any
 
 from ......kernels.grid2d import gid as gidlib
+from ......kernels.grid2d.tileset import colour_text
 from ..... import controls, icons, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
@@ -923,7 +924,17 @@ def _layer_table(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
             # other field in this table.
             controls.fold_undo(doc.history)
             if color != (layer.color or ""):
-                doc.set_layer_props(layer.uid, color=color or None)
+                try:
+                    doc.set_layer_props(layer.uid, color=color or None)
+                except ValueError:
+                    # The 2026-09-26 audit (finding plotter-mode-03): a
+                    # half-typed value ("#", "#4") is not an error, it is a
+                    # colour in progress -- the Map properties dialog's own
+                    # background field (``tools.py``) already keeps typing
+                    # this tolerant; this field raised straight out of
+                    # ``set_layer_props`` on the first partial keystroke and
+                    # tripped the pane after three.
+                    widgets.muted("Not a colour yet - #RRGGBB or #AARRGGBB.")
         elif isinstance(layer, ImageLayer):
             _row_named(
                 "Picture",
@@ -1293,6 +1304,19 @@ def _shape_fields(doc: Any, layer: Any, obj: MapObject) -> None:
     _row_named("Colour", "The colour the text is drawn in.")
     color = widgets.input_text("##text-color", shape.color, max_length=9, hint="#RRGGBB")
     controls.fold_undo(doc.history)
+    # Validated *before* it reaches ``replace(shape, ...)``, not caught after:
+    # a half-typed value ("#", "#4") is not an error, it is a colour in
+    # progress, the Map properties dialog's own rule for its background field
+    # (``tools.py``). ``Text.__post_init__`` refuses anything else it is
+    # handed, so typing straight through raised on the first partial
+    # keystroke and tripped the pane after three (the 2026-09-26 audit,
+    # finding plotter-mode-03).
+    color_pending = False
+    if color != shape.color:
+        try:
+            colour_text(color, "a text object colour")
+        except ValueError:
+            color_pending = True
     _row_named("Align", "Horizontal, then vertical, within the object's box.")
     halign = widgets.combo(
         "##text-halign",
@@ -1318,11 +1342,13 @@ def _shape_fields(doc: Any, layer: Any, obj: MapObject) -> None:
         controls.fold_undo(doc.history)
         flags[key] = value_flag if changed_flag else getattr(shape, key)
 
+    if color_pending:
+        widgets.muted("Not a colour yet - #RRGGBB or #AARRGGBB.")
     values = {
         "text": text,
         "family": family,
         "pixel_size": max(1, int(pixel_size)) if changed_size else shape.pixel_size,
-        "color": color,
+        "color": shape.color if color_pending else color,
         "halign": halign,
         "valign": valign,
         **flags,

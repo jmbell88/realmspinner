@@ -145,6 +145,47 @@ def _world_boxes(ctx: Any, doc: md.MasonDoc, uids: list[int]) -> dict[int, tuple
     return out
 
 
+#: ``MasonView._parent_basis``'s own guard against a parent scaled flat on
+#: some axis, restated here (view.py's own comment names why: a determinant
+#: too close to zero has an inverse that blows up into non-finite numbers
+#: before ``np.linalg.inv`` even gets a chance to raise on it).
+_SINGULAR_DET_EPS = 1e-12
+
+
+def _parent_inverse_basis(doc: md.MasonDoc, uid: int) -> Any:
+    """The inverse of ``uid``'s parent's world rotation/scale, or ``None``
+    when it has none (a parent scaled flat on some axis).
+
+    ``MasonView._parent_basis``'s own shape, restated here because
+    ``_apply_deltas`` below builds a *world*-space delta the same way a gizmo
+    drag does, and both need the identical conversion into the node's own
+    parent-local space before it can be added to a local translation.
+    Identity at the root, which is the common case and costs nothing.
+    """
+    parent_uid = doc.parent_uid_of(uid)
+    if parent_uid is None:
+        return np.eye(3)
+    try:
+        found = scene.resolved_for(doc, parent_uid)
+    except ValueError:
+        # mason-03, the 2026-09-13 audit: a document past MAX_PLACED must not
+        # crash this lookup -- ``MasonView._parent_basis``'s own reason.
+        found = None
+    if found is None:
+        return np.eye(3)
+    basis = np.asarray(found.world, dtype="f8")[:3, :3]
+    det = float(np.linalg.det(basis))
+    if not np.isfinite(det) or abs(det) < _SINGULAR_DET_EPS:
+        return None
+    try:
+        inverse = np.linalg.inv(basis)
+    except np.linalg.LinAlgError:
+        return None
+    if not np.isfinite(inverse).all():
+        return None
+    return inverse
+
+
 def _apply_deltas(doc: md.MasonDoc, deltas: dict[int, Any]) -> None:
     """Move every ``(uid, delta)`` pair, as **one** undo step.
 
@@ -155,14 +196,32 @@ def _apply_deltas(doc: md.MasonDoc, deltas: dict[int, Any]) -> None:
     a single undo step", and every other multi-node mutator in
     ``mason_mode.py`` (``group_selected``, ``duplicate_selected``...) already
     folds the same way. This is the one call site all three buttons share.
+
+    The 2026-09-26 audit's mason-mode-08: ``delta`` comes from
+    ``mops.align``/``distribute``/``drop_to_ground``, all three of which work
+    from *world* boxes (``_world_boxes``, above) -- but this used to add that
+    world delta straight onto ``node.translation``, which is expressed in the
+    node's own *parent* space. Identical to the child of a scaled group for a
+    gizmo drag before ``MasonView._apply_drag``'s own fix: a child of a group
+    scaled 2x moved by half the world distance a click asked for, or the
+    wrong direction entirely under a rotated one. Converted through the
+    parent's inverse basis first, the same call the gizmo drag makes.
     """
     mark = doc.mark()
     for uid, delta in deltas.items():
         node = doc.node(uid)
         if node is None:
             continue
+        inverse = _parent_inverse_basis(doc, uid)
+        if inverse is None:
+            # A parent whose own basis has no inverse (scaled flat on some
+            # axis) is skipped rather than written with a non-finite
+            # transform -- ``objout._normal_matrix``'s own guard, one door
+            # over.
+            continue
         was = node.trs()
-        translation = np.asarray(node.translation, dtype="f8") + np.asarray(delta, dtype="f8")
+        local_delta = inverse @ np.asarray(delta, dtype="f8")
+        translation = np.asarray(node.translation, dtype="f8") + local_delta
         doc.set_transform(uid, translation=translation, was=was)
     doc.collapse_since(mark)
 
@@ -260,14 +319,62 @@ def _over_max_placed(doc: md.MasonDoc, node: nd.Node, copies: int) -> int | None
     return total if total > scene.MAX_PLACED else None
 
 
+def _over_resolved_placed(doc: md.MasonDoc, node: nd.Node, copies: int) -> int | None:
+    """The document's *resolved* size (what :func:`scene.resolve` actually
+    expands to) after adding ``copies`` more duplicates of ``node``, or
+    ``None`` when that stays within :data:`scene.MAX_PLACED`.
+
+    The 2026-09-26 audit's mason-mode-02 (was High): :func:`_over_max_placed`
+    above is exactly ``MasonDoc._check_max_placed``'s own tree-side count --
+    it counts arraying a ``PrefabNode`` instance as ``copies`` plain nodes,
+    never as what each one expands to every time the scene resolves, draws or
+    exports (``document.py``'s ``resolved_growth`` docstring). An array of a
+    prefab instance could sail past that check and still hit
+    ``MasonDoc.add_nodes``'s own ``_check_resolved_placed`` backstop, which
+    raises past ``_spawn_array`` uncaught. Charged the same way
+    ``mode.place_prefab`` already charges one placement: every copy of
+    ``node`` resolves to the same size ``node`` itself does (a fresh copy
+    changes only uid and transform, never structure or refs), so one call to
+    :meth:`~.document.MasonDoc.resolved_growth` times ``copies`` is exact
+    without having to build any of them first.
+    """
+    try:
+        per_copy = doc.resolved_growth([node])
+    except ValueError:
+        # scene.resolved_count refuses rather than counting an oversized walk
+        # to completion once either half alone would already exceed
+        # MAX_PLACED -- treat that refusal the same as "over", since it is.
+        return scene.MAX_PLACED + 1
+    total = doc.resolved_total() + copies * per_copy
+    return total if total > scene.MAX_PLACED else None
+
+
+def _over_either_ceiling(doc: md.MasonDoc, node: nd.Node, copies: int) -> int | None:
+    """Both ceilings an array press must respect, tree-side
+    (:func:`_over_max_placed`) first since it is the cheaper of the two, then
+    resolved (:func:`_over_resolved_placed`, mason-mode-02) -- whichever fires
+    first is the number the toast reports."""
+    over = _over_max_placed(doc, node, copies)
+    if over is not None:
+        return over
+    return _over_resolved_placed(doc, node, copies)
+
+
 def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
     """Duplicate the one selected node along a line or around a circle,
     through ``mason.ops.array_linear``/``array_radial`` -- the arithmetic that
     decides where each copy lands, applied here to fresh copies of the node
     ``copy_subtree`` makes, added as one undo step through ``add_nodes``."""
     uids = list(doc.selection)
-    one = len(uids) == 1
-    node = doc.node(uids[0]) if one else None
+    node = doc.node(uids[0]) if len(uids) == 1 else None
+    # The 2026-09-26 audit's mason-mode-10: a ``TerrainNode`` carries no
+    # heightfield of its own -- it only refers to the document-singleton
+    # ``doc.terrain`` (``nodes.TerrainNode``'s own docstring) -- so arraying
+    # it would build several outliner rows all resolving and drawing the same
+    # one ground a second, third and fourth time. Refused at the button
+    # rather than built.
+    is_terrain = isinstance(node, nd.TerrainNode)
+    one = len(uids) == 1 and not is_terrain
 
     widgets.field_label("count")
     _, count = controls.input_int("##masonarraycount", int(_PENDING["count"]), 1)
@@ -278,14 +385,18 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
     _PENDING["offset"] = list(offset)
 
     width = widgets.grid_width(1)
-    array_reason = "Select exactly 1 node to array."
+    array_reason = (
+        "The ground can't be arrayed -- there is only one terrain."
+        if is_terrain
+        else "Select exactly 1 node to array."
+    )
     if (
         widgets.disabled_button(
             "Array (linear)##masonarraylinear", one, (width, 0), reason=array_reason
         )
         and node
     ):
-        over = _over_max_placed(doc, node, _PENDING["count"] - 1)
+        over = _over_either_ceiling(doc, node, _PENDING["count"] - 1)
         if over is not None:
             ctx.toast(
                 f"That array would bring this scene to {over} nodes, past "
@@ -297,7 +408,7 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
             trs_list = mops.array_linear(
                 _PENDING["count"], _PENDING["offset"], base_trs=node.trs()
             )
-            _spawn_array(doc, node, trs_list[1:])
+            _spawn_array(ctx, doc, node, trs_list[1:])
 
     widgets.field_label("degrees")
     _, degrees = controls.input_float("##masonarraydegrees", float(_PENDING["degrees"]), 5.0)
@@ -309,7 +420,7 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
         )
         and node
     ):
-        over = _over_max_placed(doc, node, _PENDING["count"] - 1)
+        over = _over_either_ceiling(doc, node, _PENDING["count"] - 1)
         if over is not None:
             ctx.toast(
                 f"That array would bring this scene to {over} nodes, past "
@@ -318,7 +429,17 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
                 "error",
             )
         else:
-            centre = node.translation
+            # The 2026-09-26 audit's mason-mode-04: this used to read
+            # ``node.translation`` -- exactly ``node.trs()``'s own
+            # translation, the ``base_trs`` passed below -- so
+            # ``array_radial``'s ``t0 - centre`` was zero for every copy and
+            # all of them landed on top of the original. ``base_trs`` is in
+            # the node's *parent* space (``_spawn_array`` adds every copy
+            # under that same parent), so the origin of that space -- the
+            # parent's own pivot -- is the centre that actually spins the
+            # node's own offset from it around a circle, the way a fence post
+            # a few metres from a hub spins around the hub rather than in place.
+            centre = (0.0, 0.0, 0.0)
             trs_list = mops.array_radial(
                 _PENDING["count"],
                 centre=centre,
@@ -326,11 +447,11 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
                 degrees=_PENDING["degrees"],
                 base_trs=node.trs(),
             )
-            _spawn_array(doc, node, trs_list[1:])
+            _spawn_array(ctx, doc, node, trs_list[1:])
     del state
 
 
-def _spawn_array(doc: md.MasonDoc, node: nd.Node, trs_list: list[Any]) -> None:
+def _spawn_array(ctx: Any, doc: md.MasonDoc, node: nd.Node, trs_list: list[Any]) -> None:
     if not trs_list:
         return
     parent_uid = doc.parent_uid_of(node.uid)
@@ -341,4 +462,14 @@ def _spawn_array(doc: md.MasonDoc, node: nd.Node, trs_list: list[Any]) -> None:
         copy.rotation = np.asarray(rotation, dtype="f8")
         copy.scale = np.asarray(scale, dtype="f8")
         copies.append(copy)
-    doc.add_nodes(copies, parent_uid=parent_uid, label="Array")
+    try:
+        doc.add_nodes(copies, parent_uid=parent_uid, label="Array")
+    except ValueError as exc:
+        # The 2026-09-26 audit's mason-mode-02 (was High): ``add_nodes``
+        # checks both ceilings *before* attaching anything (see its own
+        # docstring), so this backstop never leaves a half-built array
+        # attached -- but before this existed, its ``ValueError`` propagated
+        # out of a button press uncaught rather than the friendly toast
+        # ``_over_either_ceiling``'s precheck gives the common case.
+        # ``group_selected``'s mason-mode-01 fix, one door over.
+        ctx.toast(f"Could not build that array: {exc}", "error")

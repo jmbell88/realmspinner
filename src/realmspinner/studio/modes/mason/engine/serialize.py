@@ -531,6 +531,16 @@ def _vector(entry: dict[str, Any], key: str, default: tuple[float, ...]) -> np.n
             f"a node in this mason scene has a {key} of {value.size} numbers, "
             f"not {len(default)}"
         )
+    if not np.isfinite(value).all():
+        # mason-engine-04, the 2026-09-26 audit: ``np.asarray`` happily builds
+        # a float array out of a JSON ``NaN``/``Infinity`` literal (Python's
+        # own ``json`` module accepts both by default), and nothing here used
+        # to notice -- a transform with one non-finite component reached the
+        # resolver, the renderer and every exporter as a matrix that draws
+        # garbage or throws far from this reader, instead of the named refusal
+        # every other malformed field here already gets. ``_view_json``'s own
+        # ``np.isfinite`` check, one field shape over.
+        raise ValueError(f"a node in this mason scene has a {key} that is not finite")
     return value
 
 
@@ -552,15 +562,24 @@ def _float_tuple(
             f"a node in this mason scene has a {key} of {len(values)} numbers, "
             f"not {len(default)}"
         )
+    if not all(math.isfinite(v) for v in values):
+        # mason-engine-04, the 2026-09-26 audit -- see :func:`_vector`'s
+        # identical guard, one field shape over.
+        raise ValueError(f"a node in this mason scene has a {key} that is not finite")
     return tuple(values)
 
 
 def _float_field(entry: dict[str, Any], key: str, default: float) -> float:
     """One scalar field off a node entry, or a refusal by name."""
     try:
-        return float(entry.get(key, default))
+        value = float(entry.get(key, default))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"a node in this mason scene has a {key} that is not a number") from exc
+    if not math.isfinite(value):
+        # mason-engine-04, the 2026-09-26 audit -- see :func:`_vector`'s
+        # identical guard, one field shape over.
+        raise ValueError(f"a node in this mason scene has a {key} that is not finite")
+    return value
 
 
 def _properties(entry: dict[str, Any]) -> dict[str, Any]:
@@ -662,13 +681,25 @@ def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
                     f"past the {len(textures)} this file carries"
                 )
             slots[slot] = textures[int(index)]
+        # mason-engine-04, the 2026-09-26 audit: ``tuple(entry.get(...))`` used
+        # to hand ``gltf.Material`` whatever length JSON carried -- a
+        # two-element ``base_color_factor`` or a five-element
+        # ``emissive_factor`` built without complaint, since the dataclass has
+        # no ``__post_init__`` to check either the count or the finiteness
+        # (``kernels/geom3d/gltf.py``'s ``Material`` is a plain ``@dataclass``).
+        # That reached the renderer's RGBA unpack or an exporter's glTF write
+        # as an out-of-range index or a shape mismatch, far from this reader
+        # and with none of its named-refusal messages. Checked here instead,
+        # the same shape as :func:`_vector`'s guard one field kind over.
+        base_color_factor = _factor_tuple(entry, "base_color_factor", (1.0, 1.0, 1.0, 1.0))
+        emissive_factor = _factor_tuple(entry, "emissive_factor", (0.0, 0.0, 0.0))
         return gltf.Material(
             **slots,
             name=str(entry.get("name", "")),
-            base_color_factor=tuple(entry.get("base_color_factor", (1.0, 1.0, 1.0, 1.0))),
+            base_color_factor=base_color_factor,
             metallic_factor=float(entry.get("metallic_factor", 1.0)),
             roughness_factor=float(entry.get("roughness_factor", 1.0)),
-            emissive_factor=tuple(entry.get("emissive_factor", (0.0, 0.0, 0.0))),
+            emissive_factor=emissive_factor,
             double_sided=bool(entry.get("double_sided", False)),
             alpha_mode=str(entry.get("alpha_mode", "OPAQUE")),
             alpha_cutoff=float(entry.get("alpha_cutoff", 0.5)),
@@ -677,14 +708,39 @@ def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
         raise ValueError("a material in this mason scene is malformed") from exc
 
 
+def _factor_tuple(
+    entry: dict[str, Any], key: str, default: tuple[float, ...]
+) -> tuple[float, ...]:
+    """A fixed-length, finite factor tuple off a material entry -- see
+    :func:`_material_from`'s mason-engine-04 comment for why ``tuple(raw)``
+    alone is not enough. Raises plain :class:`ValueError`/:class:`TypeError`,
+    left to :func:`_material_from`'s own ``try`` to fold into its one named
+    message, the same way every other field there already does.
+    """
+    values = tuple(float(v) for v in entry.get(key, default))
+    if len(values) != len(default) or not all(math.isfinite(v) for v in values):
+        raise ValueError(f"a material's {key} in this mason scene is malformed")
+    return values
+
+
 def _read_textures(zf: zipfile.ZipFile, scene: dict[str, Any]) -> list[Any]:
     """Decode every ``textures/<n>.png`` the scene names, in order -- a member
     the scene names and the archive does not carry is refused rather than
     skipped, the same half-read-is-worse-than-refused rule the terrain reader
     follows.
     """
+    declared = scene.get("textures", [])
+    if not isinstance(declared, list):
+        # mason-engine-04, the 2026-09-26 audit: an iterable-but-wrong
+        # container (a dict, most likely a hand-edited file) used to reach
+        # the loop below and hand ``entry`` a bare string key with no
+        # ``.get`` -- an unnamed ``AttributeError`` rather than this reader's
+        # refusal.
+        raise ValueError("this mason scene's textures is not a list")
     out = []
-    for entry in scene.get("textures", []):
+    for entry in declared:
+        if not isinstance(entry, dict):
+            raise ValueError("a texture in this mason scene is not a mapping")
         name = str(entry.get("file", ""))
         try:
             raw = zf.read(name)
@@ -846,6 +902,16 @@ def read_rscn(data: bytes) -> MasonDoc:
             json.JSONDecodeError,
         ) as exc:
             raise ValueError("this is not a Realmspinner Mason scene") from exc
+        if not isinstance(scene, dict):
+            # mason-engine-04, the 2026-09-26 audit: ``scene.json`` is valid
+            # JSON whenever its *top level* is a list, a string or a number --
+            # ``json.loads`` does not care -- and every ``scene.get(...)``
+            # below assumed a mapping without checking. A hand-edited or
+            # truncated file whose root was not an object reached one of
+            # those calls as a bare ``AttributeError`` instead of this
+            # reader's own named refusal, the same "half a read is worse
+            # than a refusal" rule the rest of this function already follows.
+            raise ValueError("this is not a Realmspinner Mason scene")
 
         version = int(scene.get("version", 0))
         if version > VERSION:

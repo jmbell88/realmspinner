@@ -266,7 +266,13 @@ def test_modern_discover_and_tools_call_round_trip(studio, monkeypatch) -> None:
     replies = [json.loads(line) for line in stdout.getvalue().splitlines() if line]
     assert replies[0]["result"]["resultType"] == "complete"
     assert replies[1]["result"]["resultType"] == "complete"
-    assert replies[1]["result"]["_meta"]["serverInfo"]["name"] == "realmspinner"
+    # 2026-09-26 (protocol.py): the reserved _meta key is the namespaced
+    # "io.modelcontextprotocol/serverInfo", not a bare "serverInfo" -- see
+    # protocol.SERVER_INFO_META_KEY.
+    assert (
+        replies[1]["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"]
+        == "realmspinner"
+    )
     assert replies[1]["result"]["content"] == [{"type": "text", "text": "done"}]
 
 
@@ -468,4 +474,202 @@ def test_prompts_get_missing_argument_is_minus_32602_on_legacy(studio, monkeypat
     replies = [json.loads(line) for line in stdout.getvalue().splitlines() if line]
     assert replies[1]["error"]["code"] == -32602
 
+
+# --- setup (hello/catalogue) is bounded, not just the ordinary call path --------
+
+
+class _NeverAnswers:
+    """A duck-typed connection whose peer never replies: `poll` always
+    returns `False`, and `recv_bytes` is never expected to be called at all
+    -- calling it is the bug this file's timeout tests exist to catch."""
+
+    def __init__(self) -> None:
+        self.sent: list[bytes] = []
+
+    def send_bytes(self, data: bytes) -> None:
+        self.sent.append(data)
+
+    def poll(self, timeout: float | None = None) -> bool:
+        return False
+
+    def recv_bytes(self, maxlength=None) -> bytes:
+        raise AssertionError(
+            "recv_bytes() must never be called once poll() has already said "
+            "no reply arrived within SETUP_TIMEOUT"
+        )
+
+    def close(self) -> None:
+        pass
+
+
+def test_hello_gives_up_after_setup_timeout_rather_than_blocking_on_recv_bytes(
+    monkeypatch, capsys
+) -> None:
+    """Before this, `_hello` sent its request and called `conn.recv_bytes()`
+    straight away with no bound at all -- a Realmspinner that accepted the
+    connection (the token challenge already passed) but then hung left this
+    blocked forever. `_NeverAnswers.poll` always returning `False` stands in
+    for that hang; `_hello` must give up rather than ever reaching
+    `recv_bytes`."""
+    monkeypatch.setattr(bridge, "SETUP_TIMEOUT", 0.05)
+    conn = _NeverAnswers()
+    assert bridge._hello(conn) is None
+    assert conn.sent, "hello must still have been sent before giving up"
+    err = capsys.readouterr().err
+    assert "hello" in err.lower()
+
+
+def test_fetch_catalogue_gives_up_after_setup_timeout_rather_than_blocking(monkeypatch) -> None:
+    monkeypatch.setattr(bridge, "SETUP_TIMEOUT", 0.05)
+    conn = _NeverAnswers()
+    assert bridge._fetch_catalogue(conn) is None
+
+
+def test_ensure_connected_treats_a_hello_timeout_on_reconnect_as_not_connected(
+    home, monkeypatch
+) -> None:
+    """The same bound applies on `_Session._ensure_connected`'s lazy
+    reconnect path, not just `main`'s own start-up call to `_hello`."""
+    monkeypatch.setattr(bridge, "SETUP_TIMEOUT", 0.05)
+    session = bridge._Session(home, None, {"call_timeout": 5.0}, {"hash": "h"})
+    monkeypatch.setattr(bridge, "_connect", lambda home: _NeverAnswers())
+    assert session._ensure_connected() is False
+    assert session.conn is None
+
+
+# --- a busy Realmspinner (another agent client already connected) ---------------
+
+
+def test_hello_busy_reply_is_treated_as_not_connected_and_named_clearly(
+    monkeypatch, capsys
+) -> None:
+    conn = _StubConn(rpc.encode_reply({"error": {"code": "busy"}}))
+    assert bridge._hello(conn) is None
+    err = capsys.readouterr().err
+    assert "another agent" in err.lower()
+
+
+def test_a_version_mismatch_still_raises_rather_than_being_treated_as_busy(monkeypatch) -> None:
+    """`_VersionMismatch` is the one refusal that must not be folded into
+    the ordinary "not connected right now" `None` return -- `main` needs to
+    tell the two apart (see its own two-fatal-cases comment)."""
+    conn = _StubConn(rpc.encode_reply({"error": {"code": "rpc_version", "supported": [1]}}))
+    with pytest.raises(bridge._VersionMismatch):
+        bridge._hello(conn)
+
+
+# --- call_tool_task must never invent a fake operation id (was "unavailable") ---
+
+
+class _SendFails:
+    def send_bytes(self, data: bytes) -> None:
+        raise OSError("the pipe is gone")
+
+    def poll(self, timeout: float | None = None) -> bool:  # pragma: no cover - unreachable
+        raise AssertionError("poll() must not be reached once send_bytes() failed")
+
+    def close(self) -> None:
+        pass
+
+
+class _PollNeverFires:
+    def __init__(self) -> None:
+        self.sent: list[bytes] = []
+
+    def send_bytes(self, data: bytes) -> None:
+        self.sent.append(data)
+
+    def poll(self, timeout: float | None = None) -> bool:
+        return False
+
+    def close(self) -> None:
+        pass
+
+
+class _RecvRaisesEOF:
+    def send_bytes(self, data: bytes) -> None:
+        pass
+
+    def poll(self, timeout: float | None = None) -> bool:
+        return True
+
+    def recv_bytes(self, maxlength=None) -> bytes:
+        raise EOFError()
+
+    def close(self) -> None:
+        pass
+
+
+def _decode(body: bytes) -> dict:
+    assert isinstance(body, (bytes, bytearray)), f"expected bytes, got {type(body).__name__}"
+    return json.loads(body)
+
+
+def test_call_tool_task_never_reports_the_old_synthetic_unavailable_pair(home) -> None:
+    """The old contract returned `("unavailable", "cancelled")` for every
+    failure to reach Realmspinner -- a fake operation id a real MCP Tasks
+    client would then poll `tasks/get` for and get `not_found`, forever,
+    rather than an honest answer up front. Whatever `call_tool_task` returns
+    now, it must never be that pair again."""
+    session = bridge._Session(home, None, {"call_timeout": 5.0}, {"hash": "h"})
+    result = session.call_tool_task("t", {})
+    assert result != ("unavailable", "cancelled")
+
+
+def test_call_tool_task_never_submitted_when_realmspinner_is_unreachable(home, monkeypatch) -> None:
+    monkeypatch.setattr(bridge, "_connect", lambda home: None)
+    session = bridge._Session(home, None, {"call_timeout": 5.0}, {"hash": "h"})
+    result = session.call_tool_task("t", {})
+    payload = _decode(result)
+    assert payload["isError"] is True
+    text = payload["content"][0]["text"].lower()
+    assert "never" in text or "did not start" in text or "nothing started" in text
+    assert payload.get("structuredContent", {}).get("recovery") != "read_scene"
+
+
+def test_call_tool_task_never_submitted_when_send_fails(home) -> None:
+    session = bridge._Session(home, _SendFails(), {"call_timeout": 5.0}, {"hash": "h"})
+    result = session.call_tool_task("t", {})
+    payload = _decode(result)
+    assert payload["isError"] is True
+    assert payload.get("structuredContent", {}).get("recovery") != "read_scene"
+    assert session.conn is None, "a failed send must disconnect this session"
+
+
+def test_call_tool_task_reports_lost_not_never_started_on_a_poll_timeout(home) -> None:
+    conn = _PollNeverFires()
+    session = bridge._Session(home, conn, {"call_timeout": 0.01}, {"hash": "h"})
+    result = session.call_tool_task("t", {})
+    payload = _decode(result)
+    assert conn.sent, "the request must actually have been sent before timing out"
+    assert payload["isError"] is True
+    assert payload["structuredContent"]["recovery"] == "read_scene"
+    assert session.conn is None
+
+
+def test_call_tool_task_reports_lost_not_never_started_on_eof(home) -> None:
+    session = bridge._Session(home, _RecvRaisesEOF(), {"call_timeout": 5.0}, {"hash": "h"})
+    result = session.call_tool_task("t", {})
+    payload = _decode(result)
+    assert payload["isError"] is True
+    assert payload["structuredContent"]["recovery"] == "read_scene"
+    assert session.conn is None
+
+
+def test_call_tool_task_reports_lost_when_the_reply_names_no_operation_id(home) -> None:
+    conn = _StubConn(rpc.encode_reply({"status": "working"}))
+    session = bridge._Session(home, conn, {"call_timeout": 5.0}, {"hash": "h"})
+    result = session.call_tool_task("t", {})
+    payload = _decode(result)
+    assert payload["isError"] is True
+    assert payload["structuredContent"]["recovery"] == "read_scene"
+
+
+def test_call_tool_task_returns_the_real_operation_id_and_status_when_one_is_minted(
+    home,
+) -> None:
+    conn = _StubConn(rpc.encode_reply({"operation_id": "op-1", "status": "working"}))
+    session = bridge._Session(home, conn, {"call_timeout": 5.0}, {"hash": "h"})
+    result = session.call_tool_task("t", {})
+    assert result == ("op-1", "working")
 

@@ -1,10 +1,9 @@
 """What a 2D recipe means: the plan, the validation, the kwargs, the notes.
 
 Split out of ``modes/create/ui/settings_2d.py`` (2026-09-18 restructure, P5)
--- the imgui-free half of that ~3,200-line module. Familiar
-(``assistant/ui.py``, ``assistant/doors.py``), Review (``review_panes.py``) and
-Poser's character-sheet stage (Troupe's own, before P9 2026-09-18 folded that
-mode in) read this vocabulary today by reaching into a *pane*, through
+-- the imgui-free half of that ~3,200-line module. Review (``review_panes.py``)
+and Poser's character-sheet stage (Troupe's own, before P9 2026-09-18 folded
+that mode in) read this vocabulary today by reaching into a *pane*, through
 comments that say they may not import it outright (``service/sprites.py``,
 ``service/tilesheets.py``); they import this module directly now, since it
 draws nothing. What stays in ``modes/create/ui/settings_2d.py`` is the
@@ -101,6 +100,18 @@ def resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
     try:
         request = generation.request_from_legacy(form)
         config = ctx.svc.config
+        # The 2026-09-26 audit, finding create-panes-02 (+create-workspace-05):
+        # the memo below used to key only on ``request`` and ``id(config)``,
+        # neither of which changes when a download, a delete or an imported
+        # LoRA lands -- ``config`` is the same object for the app's whole
+        # life. A form left untouched across that install kept reading the
+        # pre-install "No compatible installed recipe" answer until some
+        # unrelated field edit finally changed the request and forced a
+        # re-resolve. ``ctx.model_rows`` is wholesale-replaced whenever a
+        # fetch finishes (see its field comment in ``app_ctx.py``), so a
+        # fingerprint of its ``(row_key, present)`` pairs is the installed-set
+        # generation this memo was missing.
+        installed_fingerprint = _installed_fingerprint(ctx)
     except Exception:
         # Silent on purpose, and the same choice ``negative_supported`` makes
         # for the same reason: this runs sixty times a second inside the draw,
@@ -123,8 +134,12 @@ def resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
     state = getattr(ctx, "state", None)
     cache = getattr(state, "_resolved_recipe_cache", None) if state is not None else None
     if cache is not None:
-        cached_request, cached_config_id, cached_resolved = cache
-        if cached_config_id == id(config) and cached_request == request:
+        cached_request, cached_config_id, cached_installed, cached_resolved = cache
+        if (
+            cached_config_id == id(config)
+            and cached_request == request
+            and cached_installed == installed_fingerprint
+        ):
             return cached_resolved
 
     try:
@@ -135,8 +150,22 @@ def resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
         # that once rather than sixty times a second.
         resolved = None
     if state is not None:
-        state._resolved_recipe_cache = (request, id(config), resolved)
+        state._resolved_recipe_cache = (request, id(config), installed_fingerprint, resolved)
     return resolved
+
+
+def _installed_fingerprint(ctx: Any) -> tuple[tuple[str, bool], ...] | None:
+    """A cheap stand-in for "what is installed right now", for the memo above.
+
+    ``None`` when this ``ctx`` carries no ``model_rows`` at all (several note
+    helpers call :func:`resolved_recipe` with a bare ``SimpleNamespace``) --
+    the same "memoise nothing without one" fallback the docstring above
+    already documents for a missing ``state``.
+    """
+    rows = getattr(ctx, "model_rows", None)
+    if not rows:
+        return None
+    return tuple(sorted((str(row.get("row_key")), bool(row.get("present"))) for row in rows))
 
 def clear_for_tier(ctx: Any, form: dict[str, Any]) -> list[str]:
     """Drop the selections the newly chosen tier cannot run.

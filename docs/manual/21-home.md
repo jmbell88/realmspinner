@@ -9,9 +9,11 @@ under the same glyphs, one click either way, beside a control that is drawn in e
 Home answers the three questions nothing else in the app answered instead: **what changed**, **what
 is the machine doing**, and **what was I working on**.
 
-Nothing about Home is remembered. There is no "last mode" setting, and no way to make the app skip
-it — a stored mode would be a value with no reader, and the app would drift into disagreeing with
-itself about where it opens.
+Nothing about Home itself is remembered, and by default nothing skips it: every launch opens here
+the same way the last one did. Settings ▸ Startup (Chapter 42) is the one door out of that — its
+**Last workspace** option reopens whichever mode you left the app in instead, falling back to Home
+if that mode needs weights or a pack this machine does not have — but it is off unless you turn it
+on, and a fresh install or an older settings file opens on Home exactly as this chapter describes.
 
 The three answers are two columns, weighted by how often each is the reason you are looking: a
 narrow left column holding a card you dismiss once per release, the New… button and one quiet

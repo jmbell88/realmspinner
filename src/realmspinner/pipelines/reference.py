@@ -551,6 +551,11 @@ def normalise(
     if report.bbox is None:
         return image, report
 
+    # Mode alone stays keyed on presence (``report.alpha_source``, i.e.
+    # ``has_alpha``): a channel-carrying input must round-trip as RGBA even
+    # when the channel is fully opaque -- ``test_normalise_never_invents_or_
+    # strips_an_alpha_channel`` pins exactly that. What presence must *not*
+    # decide is the freshly-painted margin's own alpha, below.
     src = image.convert("RGBA") if report.alpha_source else image.convert("RGB")
     if background is None:
         background = _border_colour(src)
@@ -577,7 +582,20 @@ def normalise(
     nh = max(1, round(subject.height * scale))
     subject = subject.resize((nw, nh), Image.LANCZOS)
 
-    canvas = Image.new(src.mode, (side, side), background + ((0,) if src.mode == "RGBA" else ()))
+    # The margin's own alpha, against ``src.mode``'s reason above: painting it
+    # transparent (0) only makes sense when the channel is genuinely a matte.
+    # The 2026-09-26 audit (pipelines-image-01) found this unconditional on
+    # RGBA-ness alone, so an opaque RGBA reference (every source pixel already
+    # alpha 255, nothing to matte) came back with a *hole* punched around the
+    # subject -- min alpha 255 in, 0 in the margins out -- despite the source
+    # never having had any transparency to preserve. ``_alpha_is_meaningful``
+    # is ``measure``'s own test for "is this channel a matte or just a
+    # channel"; an opaque source keeps its margins opaque, and a real cutout
+    # keeps the transparent margins compositing depends on.
+    margin_alpha = 0 if _alpha_is_meaningful(image) else 255
+    canvas = Image.new(
+        src.mode, (side, side), background + ((margin_alpha,) if src.mode == "RGBA" else ())
+    )
     box = ((side - nw) // 2, (side - nh) // 2)
     # No mask argument. The 2026-09-20 audit (pipelines-01): handing an RGBA
     # image to paste as its own mask does not composite it -- PIL blends

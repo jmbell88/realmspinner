@@ -303,11 +303,21 @@ def check_glb(data: bytes, field: str = "glb") -> None:
         raise Invalid("that file is not a binary glTF (.glb)", field=field)
     try:
         doc, _buffer = read_glb(data)
+        # The 2026-09-26 audit, service-gates-02: ``doc`` is parsed JSON from
+        # caller-supplied bytes, so ``meshes`` is exactly as untrusted as the
+        # bytes that produced it -- a JSON glTF whose ``"meshes": [1]`` reads
+        # as valid to ``read_glb`` (which never looks past the buffer views)
+        # and then escaped this function as a raw ``AttributeError`` (``int``
+        # has no ``.get``) instead of the ``Invalid`` this door promises,
+        # because the mesh walk used to sit *after* the try that was supposed
+        # to be the "caller input is bounded at the door" boundary.
+        meshes = doc.get("meshes") or []
+        if not any(isinstance(mesh, dict) and mesh.get("primitives") for mesh in meshes):
+            raise Invalid("that .glb has no mesh in it", field=field)
+    except Invalid:
+        raise
     except Exception as exc:
         raise Invalid("that .glb could not be read", field=field) from exc
-    meshes = doc.get("meshes") or []
-    if not any(mesh.get("primitives") for mesh in meshes):
-        raise Invalid("that .glb has no mesh in it", field=field)
 
 
 def check_seed(name: str, value: int | None) -> None:

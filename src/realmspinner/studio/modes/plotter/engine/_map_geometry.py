@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .....kernels.grid2d import gid as gidlib
+from . import project
 from ._map_model import (
     MAX_DIMENSION,
     MAX_GROWTH,
@@ -95,7 +96,10 @@ class GeometryOps:
             before[layer.uid] = layer.data if baseline is None else baseline
             after[layer.uid] = _reframed(layer.data)
 
-        shift_x, shift_y = dx * self.tile_w, dy * self.tile_h
+        # Not ``dx * tile_w, dy * tile_h``: that pixel step is only right on an
+        # orthogonal grid. See ``project.shift_by_cells`` (the 2026-09-26
+        # audit, finding plotter-map-03).
+        lat = self._lattice()
         before_objects: dict[int, list[tuple[float, float]]] = {}
         after_objects: dict[int, list[tuple[float, float]]] = {}
         # ``all_layers`` rather than ``self.layers``: an object layer inside a
@@ -105,7 +109,9 @@ class GeometryOps:
             if not isinstance(layer, ObjectLayer):
                 continue
             before_objects[layer.uid] = [(o.x, o.y) for o in layer.objects]
-            after_objects[layer.uid] = [(o.x + shift_x, o.y + shift_y) for o in layer.objects]
+            after_objects[layer.uid] = [
+                project.shift_by_cells(lat, o.x, o.y, dx, dy) for o in layer.objects
+            ]
 
         self.history.push(
             ResizeEdit(
@@ -227,25 +233,29 @@ class GeometryOps:
         before_objects: dict[int, list[tuple[float, float]]] = {}
         after_objects: dict[int, list[tuple[float, float]]] = {}
         if scope == "map":
-            shift_x, shift_y = dx * self.tile_w, dy * self.tile_h
-            # Under ``wrap`` the objects wrap too, modulo the map's pixel size --
-            # Tiled's own answer, and the only one that keeps the docstring's
-            # identity claim true for them: the cells were normalized by modulo
-            # above, so a shift applied *un*-wrapped moved objects by the
-            # normalized amount -- ``offset(-1)`` on an 8-wide map pushed every
-            # object 7 tiles right, and ``offset(+1)`` then ``offset(-1)`` left
-            # them displaced a full map width from the geometry they annotate.
-            pixel_w, pixel_h = self.width * self.tile_w, self.height * self.tile_h
+            # Under ``wrap`` the objects wrap too, modulo the map's *cell*
+            # extent -- Tiled's own answer, and the only one that keeps the
+            # docstring's identity claim true for them: the cells were
+            # normalized by modulo above, so a shift applied *un*-wrapped moved
+            # objects by the normalized amount -- ``offset(-1)`` on an 8-wide
+            # map pushed every object 7 tiles right, and ``offset(+1)`` then
+            # ``offset(-1)`` left them displaced a full map width from the
+            # geometry they annotate.
+            #
+            # Not a flat pixel shift (``dx * tile_w, dy * tile_h``) modulo the
+            # map's pixel size: that arithmetic is the orthogonal special case
+            # and detaches an object from its cell on every other projection
+            # (the 2026-09-26 audit, finding plotter-map-03). Wrapping the
+            # *cell* coordinate first and projecting back through the lattice
+            # is what ``project.shift_by_cells``'s ``wrap`` argument does.
+            lat = self._lattice()
+            wrap_extent = (self.width, self.height) if wrap else None
             for layer in self.all_layers():
                 if not isinstance(layer, ObjectLayer):
                     continue
                 before_objects[layer.uid] = [(o.x, o.y) for o in layer.objects]
                 after_objects[layer.uid] = [
-                    (
-                        ((o.x + shift_x) % pixel_w, (o.y + shift_y) % pixel_h)
-                        if wrap
-                        else (o.x + shift_x, o.y + shift_y)
-                    )
+                    project.shift_by_cells(lat, o.x, o.y, dx, dy, wrap=wrap_extent)
                     for o in layer.objects
                 ]
 
@@ -335,7 +345,10 @@ class GeometryOps:
         # *window* starts, and only the untouched layers' true coordinates are
         # what it has to keep still.
         after_origin = (before_origin[0] - left, before_origin[1] - top)
-        shift_x, shift_y = left * self.tile_w, top * self.tile_h
+        # Not ``left * tile_w, top * tile_h``: the orthogonal-only pixel step
+        # (the 2026-09-26 audit, finding plotter-map-03). See
+        # ``project.shift_by_cells``.
+        lat = self._lattice()
         before_objects: dict[int, list[tuple[float, float]]] = {}
         after_objects: dict[int, list[tuple[float, float]]] = {}
         for other in self.all_layers():
@@ -343,7 +356,7 @@ class GeometryOps:
                 continue
             before_objects[other.uid] = [(o.x, o.y) for o in other.objects]
             after_objects[other.uid] = [
-                (o.x + shift_x, o.y + shift_y) for o in other.objects
+                project.shift_by_cells(lat, o.x, o.y, left, top) for o in other.objects
             ]
         self.history.push(
             ResizeEdit(
@@ -520,11 +533,23 @@ class GeometryOps:
         self.end_object_edit()
         self.end_group_edit()
 
-        # A ratio rather than a cell walk: an object is not on the grid, it is
-        # at a pixel, and the pixel that was two cells across is still two cells
-        # across afterwards only if it moves by the same factor the cell did.
+        # A ratio for the shape's own ``w``/``h`` -- those are pixel extents
+        # with no cell of their own, so they simply scale. A *position* is not
+        # scaled the same way past an orthogonal grid: independent
+        # ``o.x * scale_x, o.y * scale_y`` is the identity ``cell_point`` then
+        # ``cell_corner`` reduces to on an orthogonal or isometric lattice, but
+        # not on an oblique one, where the skew term does not scale with the
+        # tile size at all -- scaling it anyway detached an object from its
+        # cell on every oblique map (the 2026-09-26 audit, finding
+        # plotter-map-03). Recomputing from the lattice -- the fractional cell
+        # the point occupies under the *old* tile size, projected back to
+        # pixels under the *new* one -- is exact on every projection this
+        # module draws, because the cell itself does not move; only the pixels
+        # it draws to do.
         scale_x = tile_w / float(self.tile_w)
         scale_y = tile_h / float(self.tile_h)
+        old_lat = self._lattice()
+        new_lat = old_lat._replace(tile_w=tile_w, tile_h=tile_h)
         before_objects: dict[int, list[tuple[float, float, Shape]]] = {}
         after_objects: dict[int, list[tuple[float, float, Shape]]] = {}
         for layer in self.all_layers():
@@ -537,7 +562,10 @@ class GeometryOps:
             # approximately the same rectangle.
             before_objects[layer.uid] = [(o.x, o.y, o.shape) for o in layer.objects]
             after_objects[layer.uid] = [
-                (o.x * scale_x, o.y * scale_y, scaled_shape(o.shape, scale_x, scale_y))
+                (
+                    *project.cell_corner(new_lat, *project.cell_point(old_lat, o.x, o.y)),
+                    scaled_shape(o.shape, scale_x, scale_y),
+                )
                 for o in layer.objects
             ]
 

@@ -216,7 +216,17 @@ class LayerOps:
                 # document and is silently reset on an animated one:
                 # ``continuous`` turned a held-pose row into a blank-cel row,
                 # and the note is the label the timeline reads.
-                background=track.background,
+                #
+                # ``background`` is the one property deliberately **not**
+                # carried across: the 2026-09-26 audit, finding
+                # inker-document-02. The copy is inserted one row *above* its
+                # source (below), never at the bottom, so copying the flag put
+                # a second track reading ``background`` at a row
+                # ``LayerStack.move`` would itself refuse a drag into --
+                # ``from_background`` only ever acts on row 0, so the copy
+                # could not even be un-flagged from the UI. The still-document
+                # branch gets the identical fix in ``LayerStack.duplicate``.
+                background=False,
                 reference=track.reference,
                 continuous=track.continuous,
                 # ``Note`` is frozen and deliberately shared -- see its docstring.
@@ -604,6 +614,23 @@ class LayerOps:
         pixels[...] = ixp.materialize(indices, table)
         return indices
 
+    def _group_fold_of(self: Document, member_uid: int | None) -> tuple[bool, float]:
+        """A row's inherited ``(visible, opacity)`` from the groups above it.
+
+        The 2026-09-26 audit, finding inker-document-05: ``merge_down`` and
+        ``_merge_tracks`` read the upper row's *own* ``visible``/``opacity``
+        only, never the fold from an ancestor group -- so merging a layer out
+        of a hidden (or dimmed) folder baked its pixels into the lower layer
+        at full strength, when the canvas showing the document had never
+        composited them at all. ``groups.resolve`` is the same fold
+        ``group_fold`` already uses for the canvas; this asks it for one row
+        instead of every row, since a merge only ever needs the upper one.
+        """
+        if member_uid is None or not self.groups:
+            return True, 1.0
+        visible, opacity, _locked = gp.resolve(self.groups, self.group_of, member_uid)
+        return visible, opacity
+
     def merge_down(self: Document, index: int | None = None) -> bool:
         """Flatten a layer into the one beneath it, honouring its blend mode."""
         index = self.stack.active_index if index is None else index
@@ -631,13 +658,15 @@ class LayerOps:
         width, height = self.size
         upper = self.stack[index]
         lower = self.stack[index - 1]
+        fold_visible, fold_opacity = self._group_fold_of(upper_member)
+        effective_visible = upper.visible and fold_visible
         merged = cp.to_uint8(
             cp.stack_region(
                 [
                     (lower.pixels, lower.opacity, lower.blend),
-                    (upper.pixels, upper.opacity, upper.blend),
+                    (upper.pixels, upper.opacity * fold_opacity, upper.blend),
                 ]
-                if upper.visible
+                if effective_visible
                 else [(lower.pixels, lower.opacity, lower.blend)],
                 (0, 0, width, height),
             )
@@ -761,6 +790,7 @@ class LayerOps:
         width, height = self.size
         upper_track, lower_track = anim.tracks[index], anim.tracks[index - 1]
         self._refuse_merge_across_z(anim, index)
+        fold_visible, fold_opacity = self._group_fold_of(upper_member)
 
         merged_for: dict[tuple[int, int], Layer] = {}
         upper_cels: dict[int, Layer] = {}
@@ -789,11 +819,11 @@ class LayerOps:
                             lower_track.blend,
                         )
                     )
-                if upper_track.visible:
+                if upper_track.visible and fold_visible:
                     entries.append(
                         (
                             upper.pixels,
-                            upper_track.opacity * upper_alpha,
+                            upper_track.opacity * upper_alpha * fold_opacity,
                             upper_track.blend,
                         )
                     )
@@ -951,30 +981,39 @@ class LayerOps:
 
         The track is authoritative on an animated document -- writing only the
         materialised layer would last until the next time that frame was
-        rebuilt -- and the still document has no track at all. A track and its
-        layer share one uid by construction (``Track.of``), so this is one
-        address with two places to put the answer, not two objects to keep in
-        step.
+        rebuilt -- and the still document has no track at all. Addressed by
+        the uid's *position* in ``self.stack``, not by matching ``track.uid``
+        against ``uid`` directly: a track and the cel ``Track.of`` first built
+        it from do share one uid, but every frame materialised after that
+        (``add_frame``, a paint stroke that autovivifies a cel, ...) gets its
+        own copied ``Layer`` with a fresh uid, and ``Animation.layers_for``
+        always pairs a track with the stack entry at its own *position*, not
+        its uid. The 2026-09-26 audit, finding inker-document-01: matching by
+        uid silently missed every one of those copied cels, so the flag it set
+        landed only on the materialised layer and vanished the next time that
+        frame rebuilt (``layers_for`` copies the track's -- untouched -- value
+        back down over it).
         """
-        if self.anim is not None:
-            for track in self.anim.tracks:
-                if track.uid == uid:
-                    for key, value in props.items():
-                        setattr(track, key, value)
-                    break
-        for layer in self.stack:
-            if layer.uid == uid:
+        index = next((i for i, layer in enumerate(self.stack) if layer.uid == uid), None)
+        if index is not None:
+            if self.anim is not None and index < len(self.anim.tracks):
+                track = self.anim.tracks[index]
                 for key, value in props.items():
-                    setattr(layer, key, value)
-                break
+                    setattr(track, key, value)
+            layer = self.stack[index]
+            for key, value in props.items():
+                setattr(layer, key, value)
         self.invalidate_all()
 
     def _flag_edit(self: Document, uid: int, **props: Any) -> Any:
         """A :class:`LayerFlagEdit` capturing the current values as ``before``."""
 
         target = None
-        if self.anim is not None:
-            target = next((t for t in self.anim.tracks if t.uid == uid), None)
+        index = next((i for i, layer in enumerate(self.stack) if layer.uid == uid), None)
+        if index is not None and self.anim is not None and index < len(self.anim.tracks):
+            # By position, the same correction ``_set_layer_flags`` makes and
+            # for the identical reason -- see its docstring.
+            target = self.anim.tracks[index]
         if target is None:
             target = self.stack.by_uid(uid)
         before = {key: getattr(target, key) for key in props}

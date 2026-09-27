@@ -362,7 +362,16 @@ class TroupeOps:
                     # reason a palette file does not cost the shared-across-cells
                     # property.
                     designed = queue_mod._palette_entries(self.config, palette_name)
-                    if base_png is not None and designed is None:
+                    # ``not designed``, not ``is None`` (service-kinds-01, the
+                    # 2026-09-26 audit): an unnamed palette makes
+                    # ``_palette_entries`` answer ``()`` rather than ``None``
+                    # (its own docstring says so -- "no palette" is told apart
+                    # from a real one by emptiness, not by a sentinel), so the
+                    # ``is None`` check here never fired and a subset
+                    # re-render with no named palette skipped the pin to the
+                    # base sheet's own colours and median-cut its own instead,
+                    # coming back a different shade from the sheet beside it.
+                    if base_png is not None and not designed:
                         # **Pinned from the sheet being re-rendered.** With no
                         # designed palette ``resolve_palette`` median-cuts the atlas
                         # it is given -- and a subset atlas is a handful of cells, so

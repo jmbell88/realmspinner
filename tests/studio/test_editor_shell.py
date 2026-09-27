@@ -237,25 +237,6 @@ def test_the_frame_rate_rides_the_meter_and_is_omitted_when_unknown():
     assert line.index("RAM") < line.index("fps")
 
 
-def test_the_closed_dock_strips_button_reads_the_missing_or_idle_branch():
-    """The 2026-09-23 dock move replaced the bottom pane's collapsed row with
-    a 44 dp strip holding one ✦ button, and the branch it draws from has to
-    stay the same one the row used to read: ``familiar_state`` -- "missing"
-    muted with an Install... tooltip pointing at Settings -> Models, "idle"
-    live and opening the dock. Asserted on the source, the same reason
-    ``test_the_bottom_pane_centres_on_the_face_it_actually_draws_with`` (this
-    test's predecessor) gave: the branch needs a real font atlas and window to
-    prove interactively, which is more than this claim is about.
-    """
-    import inspect
-
-    from realmspinner.studio.panes import familiar_dock
-
-    source = inspect.getsource(familiar_dock.draw)
-    assert "familiar_state(ctx.svc.config)" in source
-    assert "muted" in source and "Install" in source
-
-
 def test_resources_imports_nothing_from_the_ui():
     """``status_bar.items``' rule: the sampling and the formatting are data."""
     import inspect

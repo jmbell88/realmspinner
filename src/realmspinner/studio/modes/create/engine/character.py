@@ -1,12 +1,11 @@
 """What a character recipe means: the plan, the validation, the kwargs.
 
 Split out of ``modes/create/ui/settings_character.py`` (2026-09-18
-restructure, P5) -- the half of that module with no imgui in it. Familiar
-(``assistant/ui.py``, ``assistant/doors.py``), Poser's character-sheet stage
-(``modes/poser/mode.py`` -- Troupe's own vocabulary, folded in whole by P9,
-2026-09-18) and the shell (``state.py``, ``shell/tasks.py``,
-``modes/create/ui/workspace.py``) all read this vocabulary today by reaching
-into a *pane*; they import this
+restructure, P5) -- the half of that module with no imgui in it. Poser's
+character-sheet stage (``modes/poser/mode.py`` -- Troupe's own vocabulary,
+folded in whole by P9, 2026-09-18) and the shell (``state.py``,
+``shell/tasks.py``, ``modes/create/ui/workspace.py``) all read this
+vocabulary today by reaching into a *pane*; they import this
 module directly now. What stays in ``modes/create/ui/settings_character.py``
 is the drawing and the orchestration of a press (``draw_block``, the field
 callbacks, ``preflight_fix``'s buttons, and ``submit``, which toasts).

@@ -77,6 +77,20 @@ MAX_LIGHTS = 100_000
 #: a primitive entry is the same order of JSON cost as a mesh or a node, and a
 #: file declaring this many of them is a hang before it is a scene.
 MAX_PRIMITIVES = 100_000
+#: One field over again: a skin's own ``joints`` array is bound-checked
+#: (every entry must be ``0 <= joint < n_nodes``, clay-io-05/create2-01) but
+#: its *length* never was. The 2026-09-26 audit, finding create-viewer-01
+#: (+clay-io-05): a skin with no ``inverseBindMatrices`` tiled 128 bytes per
+#: listed joint with no charge against ``MAX_TOTAL_BYTES`` at all, so a
+#: 6-9 MB GLB declaring a skin with 3,000,000 joint entries (repeats of a
+#: handful of valid node indices -- nothing here requires them unique) built
+#: a 384-432 MB bind-matrix array uncounted, then ``scene.py``'s
+#: ``refresh_palettes`` built a second, equally large palette for a node that
+#: was about to be drawn at rest anyway. Same value as its siblings above,
+#: for the same reason: a rig this app produces has 20 joints, and a file
+#: naming more than a node's-worth of them is a hang and a blowup before it
+#: is a scene.
+MAX_SKIN_JOINTS = 100_000
 #: Mirrors ``service.validation.MAX_IMAGE_PIXELS`` without importing service
 #: into the viewer (the viewer imports no business-logic layer).
 MAX_TEXTURE_PIXELS = 16_000_000
@@ -930,6 +944,23 @@ class _Reader:
         raw_stride = view.get("byteStride")
         if raw_stride is not None:
             _check_int_index(raw_stride, "a bufferView's byteStride")
+            # The 2026-09-26 audit, finding clay-io-06: ``_check_int_index``
+            # only checks that this is a whole number, never that it is in
+            # range, so a negative value passed straight through to
+            # ``stride == item``/``stride * (count - 1)`` below. A negative
+            # stride made the interleaved gather's fancy index wrap backwards
+            # through the buffer instead of raising -- reproduced: three VEC3
+            # rows read back reordered rather than refused -- and a large
+            # enough magnitude raised a bare ``IndexError`` out of the gather
+            # instead of this loader's own named refusal. glTF itself bounds
+            # ``byteStride`` to [4, 252] (the accessor.schema.json ``minimum``/
+            # ``maximum``); enforced here rather than left to those computed
+            # symptoms.
+            if not 4 <= raw_stride <= 252:
+                raise ValueError(
+                    f"a bufferView's byteStride must be between 4 and 252, "
+                    f"got {raw_stride}"
+                )
         stride = raw_stride or item
         if stride == item:
             self._check_span(start, count * item)
@@ -1435,6 +1466,16 @@ class _Reader:
         if "joints" not in skin:
             raise ValueError("a skin with no \"joints\" array is not supported")
         joints = list(skin["joints"])
+        # The 2026-09-26 audit, finding create-viewer-01 (+clay-io-05): checked
+        # before the per-joint loop below, not after it -- that loop, and the
+        # bind-matrix array built further down, are both O(len(joints)), so a
+        # file naming millions of them must be refused before either runs, the
+        # same ordering ``MAX_PRIMITIVES``'s ``declared_primitives`` pass and
+        # ``MAX_NODES``'s own check both keep.
+        if len(joints) > MAX_SKIN_JOINTS:
+            raise ValueError(
+                f"a skin declares {len(joints)} joints, more than this viewer will load"
+            )
         # Bounds-checked the same way ``node()`` checks ``node.mesh``/
         # ``node.skin`` against the file's own declared counts: the
         # 2026-09-06 audit, finding create2-01, found that a skin's *own*
@@ -1475,6 +1516,13 @@ class _Reader:
                     f"{len(ibm)} inverse bind matrices"
                 )
         else:
+            # The 2026-09-26 audit, finding create-viewer-01 (+clay-io-05): the
+            # ``inverseBindMatrices``-present branch above charges its bytes
+            # through ``self.accessor()`` -> ``_decode_accessor`` -> ``_charge``
+            # like every other decode; this branch built the identical shape of
+            # array -- ``len(joints)`` 4x4 f8 matrices, 128 bytes each -- with
+            # no charge at all, so ``MAX_TOTAL_BYTES`` never saw it.
+            self._charge(len(joints) * 128)
             ibm = np.tile(np.eye(4), (len(joints), 1, 1))
         return Skin(joints=joints, inverse_bind=ibm)
 

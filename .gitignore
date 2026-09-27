@@ -95,15 +95,10 @@ imgui.ini
 # earlier commit, and were never secret.
 /.claude/
 
-# Unsloth writes its torch.compile cache into the current directory when a training
-# script runs from the repo root (dev/training/clay-assistant/train/*.py under Realmspinner's
-# Python); machine-local, regenerable, and a ruff failure the moment it appears.
-/unsloth_compiled_cache/
-
 # Development material -- the plan file, the invariants ledger, dated
-# measurements and their corpora, review screenshots, the Clay-assistant
-# training programme, bench/calibration scripts and the tests that read them --
-# lives under /dev/ and is kept out of the published repository (2026-09-16).
+# measurements and their corpora, review screenshots, bench/calibration
+# scripts and the tests that read them -- lives under /dev/ and is kept out
+# of the published repository (2026-09-16).
 # It is maintainer-local working state, not part of the application or its
 # documentation. Its tests are a local lane (`dev/tests`, listed in testpaths;
 # pytest skips a testpath that does not exist on a clean checkout), and nothing

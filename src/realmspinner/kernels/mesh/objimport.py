@@ -145,17 +145,34 @@ def _parse_mtl(text: str) -> dict[str, dict[str, object]]:
             continue
         if current is None:
             continue
+        # The 2026-09-26 audit's clay-io-07: ``float()`` reads "nan"/"inf"
+        # without raising, so these values used to sail past the
+        # ``except ValueError`` below the same way a ``v`` line's did (see
+        # that fix's own comment) -- and a material factor is a JSON number,
+        # not a buffer entry, so a NaN or an Infinity here reached
+        # ``glbwrite.write_glb``'s JSON chunk directly rather than through an
+        # accessor's min/max. Treated the same as a non-numeric value: this
+        # parser is best-effort by its own docstring, so a non-finite number
+        # is skipped, not raised over -- the rest of the file still imports.
         try:
             if key == "Kd" and len(parts) >= 4:
-                current["Kd"] = tuple(float(v) for v in parts[1:4])
+                kd = tuple(float(v) for v in parts[1:4])
+                if all(math.isfinite(v) for v in kd):
+                    current["Kd"] = kd
             elif key == "d" and len(parts) >= 2:
-                current["d"] = float(parts[1])
+                d = float(parts[1])
+                if math.isfinite(d):
+                    current["d"] = d
             elif key == "Tr" and len(parts) >= 2 and "d" not in current:
                 # ``Tr`` is the complement of ``d``; only honoured when ``d``
                 # itself was not also given, since a file naming both means ``d``.
-                current["d"] = 1.0 - float(parts[1])
+                tr = 1.0 - float(parts[1])
+                if math.isfinite(tr):
+                    current["d"] = tr
             elif key == "Ns" and len(parts) >= 2:
-                current["Ns"] = float(parts[1])
+                ns = float(parts[1])
+                if math.isfinite(ns):
+                    current["Ns"] = ns
         except ValueError:
             continue  # a non-numeric value on one of these lines: skip it
     return materials
@@ -409,6 +426,16 @@ def obj_to_claydoc(
                 xyz = np.array([float(nums[0]), float(nums[1]), float(nums[2])], dtype="f8")
             except ValueError as exc:
                 raise OpError(f"OBJ has a non-numeric 'v' line: {line!r}") from exc
+            # The 2026-09-26 audit's clay-io-07: Python's own ``float()`` reads
+            # "nan"/"inf"/"-inf" without raising, so a hand-edited or corrupted
+            # OBJ carrying one of those in a ``v`` line sailed straight through
+            # the ``except ValueError`` above -- and a non-finite position
+            # reaches the accessor min/max ``glbwrite.write_glb`` computes from
+            # it, which is JSON, not the binary buffer: a NaN or an Infinity
+            # there is not valid JSON at all, only a token Python's own
+            # ``json.dumps`` emits anyway with its default ``allow_nan=True``.
+            if not np.isfinite(xyz).all():
+                raise OpError(f"OBJ has a non-finite 'v' line: {line!r}")
             positions_all.append((matrix @ xyz).tolist())
         elif head == "vt":
             nums = rest.split()
@@ -419,6 +446,8 @@ def obj_to_claydoc(
                 v = float(nums[1]) if len(nums) > 1 else 0.0
             except ValueError as exc:
                 raise OpError(f"OBJ has a non-numeric 'vt' line: {line!r}") from exc
+            if not math.isfinite(u) or not math.isfinite(v):
+                raise OpError(f"OBJ has a non-finite 'vt' line: {line!r}")
             texcoords_all.append((u, 1.0 - v))  # OBJ v-up -> glTF v-down
         elif head == "vn":
             continue  # read for nothing; see the module docstring

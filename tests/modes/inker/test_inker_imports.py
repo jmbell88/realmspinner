@@ -125,8 +125,14 @@ OUTWARD_IMPORTS = {
     # ``from ... import`` line now, which is one outward edge, not four.
     # ``aseout.py`` imports ``atomic`` through its own fully-qualified
     # ``core.safeio.atomic`` line (a separate statement from the rest), so it
-    # keeps its own, more specific entry.
+    # keeps its own, more specific entry -- alongside a second, ordinary
+    # ``core.safeio`` one added for the 2026-09-26 audit's inker-codecs-01:
+    # ``aseprite_bytes`` now counts an animation's distinct decoded cels
+    # against ``pixelguard.MAX_DECODE_PIXELS`` before saving, the write side
+    # of the same budget ``asein.py``'s reader already refuses over, so a
+    # document this build can save is also one it can reopen.
     ("ora.py", "realmspinner.core.safeio"),
+    ("aseout.py", "realmspinner.core.safeio"),
     ("aseout.py", "realmspinner.core.safeio.atomic"),
     ("asein.py", "realmspinner.core.safeio"),
     ("gifin.py", "realmspinner.core.safeio"),

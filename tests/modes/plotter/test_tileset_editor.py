@@ -211,16 +211,21 @@ def test_tileset_editor_tile_class_and_duration_and_wang_name_typing_is_one_undo
 
 
 class _HugeTileset:
-    """A stand-in whose only trait ``_tile_grid`` reads is its length.
+    """A stand-in whose only trait ``_tile_grid`` reads is its tile count.
 
-    ``len()`` looks ``__len__`` up on the *type*, not the instance, so a
-    ``SimpleNamespace`` carrying it as an attribute would not answer to
-    ``len()`` -- hence a real (tiny) class rather than the fixtures this file
-    otherwise builds real ``Tileset`` pixel buffers for.
+    A real (tiny) class rather than a ``SimpleNamespace``, so it can carry
+    ``tile_count`` as the property a real ``Tileset`` has -- a plain attribute
+    would work too, but the property is what ``_tile_grid`` actually reads.
+
+    ``tile_count``, not ``__len__``: this stand-in used to answer to ``len()``,
+    which is exactly what let ``_tile_grid``'s own ``len(tileset)`` bug pass
+    this test while raising ``TypeError`` on every real ``Tileset`` (the
+    2026-09-26 audit, finding plotter-mode-01, "the existing test passes only
+    via a stand-in"). Answering to ``tile_count`` instead is what makes this
+    test exercise the same attribute the fixed code reads.
     """
 
-    def __len__(self) -> int:
-        return 20000
+    tile_count = 20000
 
 
 def test_the_tiles_tab_does_not_draw_a_button_per_tile_on_a_large_tileset(ui, monkeypatch):

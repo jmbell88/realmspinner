@@ -65,9 +65,15 @@ def test_exe_check_finds_the_downloaded_runtime_with_no_override_set(tmp_path):
     on exactly the machine that just finished the download and never set an
     override -- the ordinary shape of a install once the pack lands.
     """
+    # Every file in the runtime's probe list, not the exe alone -- the
+    # 2026-09-26 audit (pipelines-install-02) made ``_exe_check`` ask
+    # ``fetch.present`` (all nine files) rather than ``path.is_file()``
+    # alone, so a fixture that only wrote the exe now correctly reads as a
+    # damaged install rather than a finished one.
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir()
-    (runtime_dir / "trellis-server.exe").write_bytes(b"binary")
+    for name in model_registry.ENGINE_MODELS["trellis_runtime"].probe:
+        (runtime_dir / name).write_bytes(b"binary")
     checks = {
         c.name: c
         for c in run_checks(
@@ -80,8 +86,10 @@ def test_exe_check_finds_the_downloaded_runtime_with_no_override_set(tmp_path):
 
 
 def test_exe_check_passes_when_exe_exists(tmp_path):
+    # Same reason as the fixture above: every probed file, not only the exe.
     exe = tmp_path / "trellis-server.exe"
-    exe.write_bytes(b"binary")
+    for name in model_registry.ENGINE_MODELS["trellis_runtime"].probe:
+        (exe.parent / name).write_bytes(b"binary")
     checks = {c.name: c for c in run_checks(_config(tmp_path, trellis_server_exe=exe))}
     assert checks["trellis-server.exe"].ok is True
 
@@ -272,10 +280,6 @@ def test_run_checks_returns_every_check(tmp_path):
         + len(model_registry.POSE_MODELS)
         + len(model_registry.MUSIC_MODELS)
         + len(model_registry.SEPARATION_MODELS)
-        # Familiar's own three rows (2026-09-13): runtime, runtime (CUDA),
-        # weights -- built from ``FAMILIAR_MODELS`` unlike the engine's two,
-        # which doctor still builds by hand.
-        + len(model_registry.FAMILIAR_MODELS)
     )
     assert len(run_checks(_config(tmp_path))) == expected
 

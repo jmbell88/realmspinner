@@ -829,7 +829,23 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     # from the same memo the overlap/stretch tint reads further down (see
     # :func:`_measurements`'s own docstring, the 2026-09-22 audit's clay-20),
     # rather than a second, unmemoised ``uvtools.islands(mesh)`` call here.
-    ids, overlap, stretch, refusal = _measurements(view_state, mesh)
+    #
+    # The 2026-09-26 audit's clay-panes-01: ``_measurements``'s memo is keyed
+    # on mesh *identity*, but ``apply_translate``/``apply_rotate``/
+    # ``apply_scale`` each call ``doc.set_mesh`` every single frame a
+    # move/rotate/scale drag is live, so the memo missed on every frame of
+    # the drag instead of only on the frames that actually changed the mesh
+    # -- measured at 0.19 s/400 faces up to 4.95 s/10k, on the frame thread,
+    # for every pixel the mouse moved. A drag's own island topology never
+    # changes (only UV positions do), so the pre-drag measurement is reused
+    # verbatim while ``drag_mode`` says a drag is live, and the real memo
+    # (keyed on the settled mesh) takes back over the moment it ends --
+    # ``measured_mesh`` starts ``None`` and this branch never fires before
+    # anything has been measured at least once.
+    if view_state.drag_mode in ("move", "rotate", "scale") and view_state.measured_mesh is not None:
+        ids, overlap, stretch, refusal = view_state.measured_result
+    else:
+        ids, overlap, stretch, refusal = _measurements(view_state, mesh)
     uv_here = _to_uv(view, origin, mouse.x, mouse.y)
 
     # The 2026-09-22 audit's clay-19: this whole dispatch -- live rotate/scale,

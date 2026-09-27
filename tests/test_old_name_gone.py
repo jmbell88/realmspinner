@@ -25,22 +25,6 @@ ROOT = Path(__file__).resolve().parents[1]
 # spelling the old name: a hand list that only fails open is how ``PUBLISHERS``
 # went stale twice.
 _ALLOWED: dict[str, str] = {
-    # The 2026-09-23 audit (familiar-03): this used to exempt the whole
-    # cards/ directory, but router-1.txt is never sha-pinned against a
-    # trained weights pin (contract.py's own docstring: the router "never
-    # gates on a trained weights pin ... prompt-engineered against whatever
-    # instruct model is running, never trained on") -- so unlike the Clay
-    # card below, rewriting it does not hand a fine-tuned model a prompt it
-    # has never seen. Narrowed to the one tracked file that actually needs
-    # the exemption; router-1.txt no longer names the old product. (A second
-    # Clay card, clay-2.txt, is not yet tracked -- it is part of the user's
-    # own uncommitted Q2 work -- so it is not named here; whoever commits it
-    # adds its own entry then, the same way this one was added.)
-    "src/realmspinner/familiar/cards/clay-1.txt": (
-        "frozen fine-tune prompt, identified to the model by sha256 -- the "
-        "shipped Familiar trained on text naming Warlock, and rewriting a card "
-        "hands the model a prompt it has never seen"
-    ),
     "CHANGELOG.md": "entries below 0.0.52 describe releases published under that name",
     "tests/kernels/geom3d/test_glbwrite.py": "records why the pinned glTF bytes moved",
     "tests/modes/inker/test_cel_z.py": "records why the pinned .ora bytes moved",

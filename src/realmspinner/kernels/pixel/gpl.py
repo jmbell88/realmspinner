@@ -364,12 +364,20 @@ def parse_any(text: str) -> list[RGBA]:
     decimal triples or a ``Key: value`` line, and neither is six hex digits on
     a line of its own.
     """
-    # The BOM before the whitespace: ``lstrip()`` strips whitespace and U+FEFF
-    # is not one, so a BOM'd JASC file failed the sniff and fell into the
-    # ``.gpl`` reader, which refuses it as "no colours".
-    if text.lstrip("﻿").lstrip().upper().startswith(JASC_HEADER):
+    # Stripped once, here, rather than left for each reader to notice on its
+    # own: ``parse_jasc`` and ``parse_txt`` already strip it internally (the
+    # 2026-09-16 and 2026-09-11 audits respectively), but ``parse`` and
+    # ``parse_hex`` do not, so a BOM'd file sniffed correctly and was then
+    # handed the *original*, un-stripped text -- a BOM-prefixed ``.hex``
+    # failed its first row and was refused whole, and a BOM-prefixed
+    # headerless ``.gpl`` lost row 1 to the same ``int()`` failure every
+    # skipped-row branch swallows silently (the 2026-09-26 audit,
+    # inker-codecs-07). ``lstrip()`` strips whitespace and U+FEFF is not one,
+    # which is what let it survive this far in the first place.
+    text = text.lstrip("﻿")
+    if text.lstrip().upper().startswith(JASC_HEADER):
         return parse_jasc(text)
-    column = _hex_column(text.lstrip("﻿"))
+    column = _hex_column(text)
     if column == "txt":
         return parse_txt(text)
     if column == "hex":

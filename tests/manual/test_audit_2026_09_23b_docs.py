@@ -222,19 +222,3 @@ def test_inker_animation_manual_apply_whole_run_label_names_its_direction():
     assert "**Apply whole *{direction}* run**" in text
     assert "**Apply whole run**" not in text
 
-
-# --- familiar-04: manual 20's navigable-destinations list -------------------
-
-
-def test_manual_overview_lists_show_trash_among_familiars_navigable_destinations():
-    """The 2026-09-23 audit, finding familiar-04: ``doors._NAV_COMMAND_KEYS``
-    treats "show-trash" (palette label "Show the trash") as a place Familiar
-    can send the user, but chapter 20's list of what "take me there" can
-    reach never mentioned the trash."""
-    doors = (
-        ROOT / "src" / "realmspinner" / "studio" / "assistant" / "doors.py"
-    ).read_text(encoding="utf-8")
-    assert '"show-trash"' in doors
-
-    text = _flat(_chapter("20-overview"))
-    assert "the workspace layout picker or the trash, whichever you asked for" in text

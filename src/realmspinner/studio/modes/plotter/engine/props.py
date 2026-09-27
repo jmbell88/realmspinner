@@ -177,6 +177,69 @@ class Prop:
             # ``bool`` is an ``int`` in Python and is not an object id.
             if not isinstance(self.value, int) or isinstance(self.value, bool):
                 raise ValueError("an object property's value is a Tiled object id, 0 for none")
+        else:
+            # The 2026-09-26 audit (finding plotter-map-04) found the five
+            # plain scalar types -- ``string``/``color``/``file``/``int``/
+            # ``float``/``bool`` -- never checked against the type this
+            # ``Prop`` claims to be. The JSON codec is the door this bites
+            # hardest: unlike the XML reader's own ``_parse_value``, it hands a
+            # scalar's raw JSON value straight to the constructor with no
+            # coercion at all, so a ``.tmj`` (hand-edited, or written by
+            # something that is not Tiled) declaring ``"type": "bool",
+            # "value": "false"`` built a ``Prop`` whose value was the *string*
+            # ``"false"`` -- and ``_value_text``'s XML writer tests it with
+            # plain ``bool(...)``, so a non-empty string is truthy and the
+            # property re-exported as ``true``. Coerced from Tiled's own text
+            # spelling where one exists (``_parse_value``'s rule, so a value
+            # already read through the XML door round-trips unchanged) and
+            # refused otherwise, here, so every door constructs one honestly
+            # typed ``Prop`` rather than each writer discovering the mismatch
+            # on its own -- which is also what stopped a malformed property
+            # from ever reaching the frame-thread ``.tmx`` export as a bare
+            # ``ValueError`` (``fileio._encoded`` only catches the two named
+            # writer refusals, not that).
+            object.__setattr__(self, "value", _coerce_scalar(self.type, self.value))
+
+
+def _coerce_scalar(kind: str, value: Any) -> Any:
+    """One plain scalar property's value, coerced to ``kind`` or refused."""
+    if kind == "bool":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+            return value.strip().lower() == "true"
+        raise ValueError(f"a bool property's value must be true or false, not {value!r}")
+    if kind == "int":
+        if isinstance(value, bool):
+            raise ValueError("an int property's value is a whole number, not a bool")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value))
+            except ValueError:
+                pass
+        raise ValueError(f"an int property's value must be a whole number, not {value!r}")
+    if kind == "float":
+        if isinstance(value, bool):
+            raise ValueError("a float property's value is a number, not a bool")
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                pass
+        raise ValueError(f"a float property's value must be a number, not {value!r}")
+    # ``string``, ``color`` and ``file``: all three are stored as text (the
+    # module docstring), so the same rule serves all three -- and it is the
+    # narrowest rule that fixes the bug, unlike int/float/bool there is no
+    # single honest text spelling to parse a non-string back out of.
+    if isinstance(value, str):
+        return value
+    raise ValueError(f"a {kind} property's value must be text, not {value!r}")
 
 
 # --- the XML codec ------------------------------------------------------------

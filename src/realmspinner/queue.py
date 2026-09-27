@@ -52,7 +52,6 @@ from .config import Config
 from .db import JobStore
 from .kernels.rig import blender_spec, templates
 from .pipelines import pose2d, reference
-from .pipelines.llama import LlamaServer
 from .pipelines.trellis import TrellisServer, TrellisStopFailed
 from .progress import ProgressBus, TrellisProgressParser
 
@@ -1008,45 +1007,6 @@ class Worker(
         self.progress = ProgressBus()
         self._parser = TrellisProgressParser(self._emit_progress)
         self.trellis.on_line = self._parser.feed
-        # Familiar: never resolved eagerly against a fixed path, for the same
-        # reason ``self.trellis`` above resolves ``config.resolve_trellis_exe``
-        # rather than a Path -- a download that lands mid-session must be
-        # found on the very next spawn. ``card_shas`` reads the pinned row's
-        # own (currently empty) tuple; T3 will inject the real contract.
-        self.familiar = LlamaServer(
-            lambda: config.familiar_runtime_dir / "llama-server.exe",
-            lambda: config.familiar_models_dir / models.FAMILIAR_GGUF_FILE,
-            config.familiar_port,
-            key_dir=config.data_dir,
-            log_path=config.data_dir / "familiar.log",
-            idle_timeout=config.familiar_idle_timeout,
-            expected_card_shas=lambda: models.FAMILIAR_MODELS["familiar_gguf"].card_shas,
-            served_name=lambda: models.FAMILIAR_MODELS["familiar_gguf"].served_name,
-            # Vision (2026-09-24): optional, same directory as the text
-            # weights (``fetch.familiar_root`` -- neither row is a
-            # ``runtime=True`` one) -- resolved lazily so a download that
-            # lands mid-session is found on the very next spawn, same reason
-            # the weights path above is.
-            mmproj_path=lambda: config.familiar_models_dir / models.FAMILIAR_MMPROJ_FILE,
-        )
-
-    async def before_gpu_job(self, job: dict[str, Any]) -> None:
-        """Yield the card to a real GPU job before it is admitted.
-
-        Familiar never coexists with reconstruction or training: a queued job
-        that actually wants VRAM kills the child first, unconditionally,
-        rather than trusting ``_check_resources`` to account for it (a
-        resident Familiar is not credited there at all -- see
-        ``vram.familiar_admission``'s docstring). A rig job costs nothing here
-        because ``estimate_job_parts`` prices it at 0 GiB, so this is a no-op
-        for the one queued kind that never touches the GPU.
-        """
-        if vram.estimate_job_parts(job)[0] > 0:
-            await asyncio.to_thread(self.familiar.stop_for_gpu_job)
-
-    async def after_gpu_job(self, job: dict[str, Any]) -> None:
-        """Give the card back once the job (whatever its outcome) is done."""
-        self.familiar.release_lease()
 
     @property
     def alive(self) -> bool:
@@ -1178,14 +1138,6 @@ class Worker(
         # stop() is the record.
         with contextlib.suppress(TrellisStopFailed):
             await asyncio.to_thread(self.trellis.stop)
-        # Familiar was only ever stopped by idle eviction or row deletion --
-        # a normal app exit reached neither, so ``stop()`` never ran and
-        # familiar-<port>.key / familiar-<port>.owner were left on disk. The
-        # winjob kill-on-close job reaps the child itself, but not those
-        # files, so the next ``ensure_started`` walked the orphaned
-        # llama-server reclaim path even though nothing had crashed.
-        with contextlib.suppress(RuntimeError):
-            await asyncio.to_thread(self.familiar.stop)
         # Shutdown used to stop trellis and leave SDXL loaded. Harmless when
         # the process exits immediately after -- but shutdown() is also reached
         # on paths that keep the interpreter alive, and the pipeline's several
@@ -1317,13 +1269,6 @@ class Worker(
             # _check_resources still sees the VRAM it is holding.
             with contextlib.suppress(TrellisStopFailed):
                 await asyncio.to_thread(self.trellis.stop)
-        if (
-            self.familiar.running
-            and time.monotonic() - self.familiar.last_used > self.familiar.idle_timeout
-        ):
-            log.info("evicting idle llama-server (Familiar)")
-            with contextlib.suppress(RuntimeError):
-                await asyncio.to_thread(self.familiar.stop)
         # Inert in both modes since 2026-08-21: every t2i stage releases its
         # checkpoint in its own finally, coexist or exclusive, so ``loaded``
         # is never True by the time an idle tick runs. Kept as the backstop
@@ -1890,7 +1835,6 @@ class Worker(
                 )
             )
             self.progress.begin(job_id, job["kind"], cold=cold)
-            await self.before_gpu_job(job)
             self._check_resources(job)
             admitted = True
             await self._generate(job)
@@ -2042,13 +1986,12 @@ class Worker(
                         await self._notify_job_failed(job_id)
             finally:
                 # Unconditionally, and in a nest of its own: the terminal write
-                # can raise (`database is locked`, a full disk) and these four
+                # can raise (`database is locked`, a full disk) and these three
                 # lines are how the worker lets go of the job. Skipping them
                 # left current_job_id naming a job that was no longer running,
                 # a stale _Cancel event, and a ProgressBus entry that never
                 # ended -- so every later job's trellis output was reported
                 # against the dead one, and prune/delete refused to touch it.
-                await self.after_gpu_job(job)
                 self.current_job_id = None
                 self._cancel = None
                 self._blender = None

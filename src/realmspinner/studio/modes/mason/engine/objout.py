@@ -77,7 +77,17 @@ from .refs import GeometrySource
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .document import MasonDoc
 
-__all__ = ["MAX_OBJ_VERTS", "MTL", "OBJ", "TEXTURE_DIR", "ObjExport", "obj_export"]
+__all__ = [
+    "MAX_OBJ_VERTS",
+    "MTL",
+    "OBJ",
+    "TEXTURE_DIR",
+    "ObjExport",
+    "ObjJobs",
+    "collect_jobs",
+    "format_jobs",
+    "obj_export",
+]
 
 #: The merged mesh's own file and its material library -- one of each, since
 #: nothing about this export ever produces more than one document.
@@ -149,16 +159,40 @@ class ObjExport:
     triangles: int
 
 
-def obj_export(
-    doc: MasonDoc, source: GeometrySource, *, include_hidden: bool = False
-) -> ObjExport:
-    """The document as a merged OBJ, through ``scene.resolve`` -- see the
-    module docstring for why the flattening resolver and not ``scene.walk``.
+@dataclass(frozen=True)
+class ObjJobs:
+    """The resolved, not-yet-formatted half of an OBJ export -- see
+    :func:`collect_jobs`, which is the only thing that builds one.
 
-    Refuses before formatting a single line: :func:`_collect` resolves every
-    reference and counts the vertices that would be written, and only once
-    that count clears :data:`MAX_OBJ_VERTS` does :func:`_format` build any
-    bytes at all.
+    Nothing here touches a :class:`~.refs.GeometrySource` again: every
+    primitive a placed mesh needs has already been read out of ``source`` and
+    is held by reference in ``jobs``, so :func:`format_jobs` (below) is pure
+    and can run anywhere -- a task thread, after a save dialog most of all.
+    """
+
+    jobs: tuple[tuple[sc.Placed, str, tuple[gltf.Primitive, ...]], ...]
+    skipped: tuple[str, ...]
+    vertices: int
+
+
+def collect_jobs(
+    doc: MasonDoc, source: GeometrySource, *, include_hidden: bool = False
+) -> ObjJobs:
+    """Resolve every placed item's geometry against ``source`` and count the
+    vertices that would be written -- the only half of an OBJ export that
+    touches ``source``, and so the only half that may run on the frame thread.
+
+    The 2026-09-26 audit's mason-mode-12: this used to happen inside
+    ``mode.export_obj``'s ``run()``, on the task thread ``_start`` moves that
+    closure to -- racing the frame thread's own ``MasonView.sync``, which
+    reads the very same ``AssetSource`` every frame. Split out here so a
+    caller (``mode.export_obj``) can call this *before* handing anything off,
+    and :func:`format_jobs` -- pure, no ``source`` touch -- afterward, on
+    whichever thread it likes.
+
+    Refuses before a single line is ever formatted: :data:`MAX_OBJ_VERTS` is
+    checked here, against the count this resolves to, before
+    :func:`format_jobs` builds any bytes at all.
     """
     jobs, skipped, total_vertices = _collect(doc, source, include_hidden=include_hidden)
     if total_vertices > MAX_OBJ_VERTS:
@@ -166,7 +200,48 @@ def obj_export(
             f"this scene resolves to {total_vertices:,} OBJ vertices, past the "
             f"{MAX_OBJ_VERTS:,} this writer will format into one file"
         )
-    return _format(jobs, skipped)
+    return ObjJobs(
+        jobs=tuple((item, name, tuple(prims)) for item, name, prims in jobs),
+        skipped=tuple(skipped),
+        vertices=total_vertices,
+    )
+
+
+def format_jobs(collected: ObjJobs, *, stem: str = "scene") -> ObjExport:
+    """The pure half of an OBJ export: :class:`ObjJobs` into OBJ/MTL/texture
+    bytes, touching no :class:`~.refs.GeometrySource`.
+
+    ``stem`` names every sidecar this bundle carries -- the OBJ itself
+    (``f"{stem}.obj"``), its MTL (``f"{stem}.mtl"``) and its texture
+    directory (``f"{stem}_textures"``) -- rather than the fixed "scene" this
+    module used before. The 2026-09-26 audit's mason-mode-13: those fixed
+    names meant a second OBJ export into the *same folder*, under a
+    different chosen name, silently overwrote the first export's MTL and
+    every one of its textures even though the two ``.obj`` files themselves
+    never collided. Threaded through here rather than renamed after the fact
+    in ``fileio.write_files``, because the OBJ text's own ``mtllib`` line and
+    the MTL text's own ``map_Kd`` lines *embed* these names -- a post-hoc
+    rename in the io layer would leave every export (not only a colliding
+    one) pointing at sidecars that do not exist under the names it wrote.
+    """
+    jobs = [(item, name, list(prims)) for item, name, prims in collected.jobs]
+    return _format(jobs, list(collected.skipped), stem=stem)
+
+
+def obj_export(
+    doc: MasonDoc, source: GeometrySource, *, include_hidden: bool = False, stem: str = "scene"
+) -> ObjExport:
+    """The document as a merged OBJ, through ``scene.resolve`` -- see the
+    module docstring for why the flattening resolver and not ``scene.walk``.
+
+    A convenience wrapper over :func:`collect_jobs` and :func:`format_jobs`
+    for a caller already off the frame thread (a test, a batch conversion) --
+    ``mode.export_obj`` calls the two separately instead, precisely so the
+    ``source``-touching half can run before the pure half does. ``stem``
+    defaults to ``"scene"``, this module's historical fixed name, so an
+    existing caller that never named a stem keeps its exact byte output.
+    """
+    return format_jobs(collect_jobs(doc, source, include_hidden=include_hidden), stem=stem)
 
 
 # -- gathering ---------------------------------------------------------------
@@ -233,7 +308,10 @@ def _collect(
 
 
 def _format(
-    jobs: list[tuple[sc.Placed, str, list[gltf.Primitive]]], skipped: list[str]
+    jobs: list[tuple[sc.Placed, str, list[gltf.Primitive]]],
+    skipped: list[str],
+    *,
+    stem: str = "scene",
 ) -> ObjExport:
     """Every job as OBJ text and MTL text, in the document order they arrived in.
 
@@ -242,8 +320,21 @@ def _format(
     read back through a list that records the order things were first put in,
     never through the dict's own iteration -- which is what makes two exports
     of an unchanged document byte-identical.
+
+    ``stem`` names the OBJ, the MTL and the texture directory this bundle
+    carries (mason-mode-13, the 2026-09-26 audit -- see :func:`format_jobs`'s
+    own comment for why it has to happen here, where the ``mtllib``/``map_Kd``
+    lines that *embed* these names are written, rather than as a rename of
+    the finished files afterward.
     """
-    lines = [_HEADER, f"mtllib {MTL}"]
+    # ``stem == "scene"`` (the default) keeps the exact fixed names every
+    # existing caller and test already expects -- ``OBJ``/``MTL``/
+    # ``TEXTURE_DIR`` themselves, not merely values that happen to match them,
+    # since ``TEXTURE_DIR`` is ``"textures"`` and not ``"scene_textures"``.
+    obj_name = OBJ if stem == "scene" else f"{stem}.obj"
+    mtl_name = MTL if stem == "scene" else f"{stem}.mtl"
+    texture_dir = TEXTURE_DIR if stem == "scene" else f"{stem}_textures"
+    lines = [_HEADER, f"mtllib {mtl_name}"]
     mat_names: dict[int, str] = {}
     mat_order: list[gltf.Material] = []
     mat_taken: set[str] = set()
@@ -265,9 +356,9 @@ def _format(
         )
         triangles += tri
     files: dict[str, bytes] = {}
-    mtl_lines = _mtl_lines(mat_order, mat_names, files)
-    files[OBJ] = ("\n".join(lines) + "\n").encode("utf-8")
-    files[MTL] = ("\n".join(mtl_lines) + "\n").encode("utf-8")
+    mtl_lines = _mtl_lines(mat_order, mat_names, files, texture_dir=texture_dir)
+    files[obj_name] = ("\n".join(lines) + "\n").encode("utf-8")
+    files[mtl_name] = ("\n".join(mtl_lines) + "\n").encode("utf-8")
     return ObjExport(files=files, skipped=tuple(skipped), vertices=v_count, triangles=triangles)
 
 
@@ -294,6 +385,18 @@ def _emit_node(
     primitive.
     """
     normal_matrix = _normal_matrix(item.world[:3, :3])
+    # The 2026-09-26 audit's mason-engine-03: a node mirrored on one axis (a
+    # negative scale) has a negative-determinant world basis, and baking such
+    # a transform into world-space positions without also reversing each
+    # triangle's winding writes a mesh that looks right from the front and is
+    # backfacing from every angle a viewer's culling would show it -- inside
+    # out, the same failure ``terrain_mesh``'s own winding paragraph guards
+    # against for the ground. Independent of ``_normal_matrix``'s own
+    # ``None``: a singular (zero-scale) basis has no normal matrix at all, but
+    # a mirrored *and* singular one is not a thing this checks for, and a
+    # merely-mirrored (non-singular) basis still needs its winding flipped
+    # even though its normal matrix is perfectly fine.
+    flip_winding = float(np.linalg.det(item.world[:3, :3])) < 0.0
     if normal_matrix is None:
         skipped.append(
             f"{name!r} has a singular transform (a zero scale on some axis), so its "
@@ -338,8 +441,15 @@ def _emit_node(
 
         indices = np.asarray(prim.indices).reshape(-1, 3)
         for a, b, c in indices:
+            # Swapping two of the three indices reverses the triangle's
+            # winding without touching a single vertex, position, UV or
+            # normal already written above -- the cheapest place to undo a
+            # mirror, since the normal itself was already carried through
+            # ``normal_matrix`` (the inverse-transpose) correctly regardless
+            # of the winding it is attached to.
+            tri = (a, c, b) if flip_winding else (a, b, c)
             face: list[str] = []
-            for vi in (int(a), int(b), int(c)):
+            for vi in (int(tri[0]), int(tri[1]), int(tri[2])):
                 v_i = v_count + vi + 1
                 if has_uv and has_normals:
                     face.append(f"{v_i}/{vt_count + vi + 1}/{vn_count + vi + 1}")
@@ -416,7 +526,11 @@ def _material_name(
 
 
 def _mtl_lines(
-    mat_order: list[gltf.Material], mat_names: dict[int, str], files: dict[str, bytes]
+    mat_order: list[gltf.Material],
+    mat_names: dict[int, str],
+    files: dict[str, bytes],
+    *,
+    texture_dir: str = TEXTURE_DIR,
 ) -> list[str]:
     """The whole ``.mtl`` file, in the order its materials were first met."""
     lines = [_HEADER]
@@ -446,7 +560,7 @@ def _mtl_lines(
             key = id(material.base_color)
             path = texture_paths.get(key)
             if path is None:
-                path = f"{TEXTURE_DIR}/{len(texture_paths)}.png"
+                path = f"{texture_dir}/{len(texture_paths)}.png"
                 texture_paths[key] = path
                 files[path] = _encode_png(material.base_color)
             lines.append(f"map_Kd {path}")

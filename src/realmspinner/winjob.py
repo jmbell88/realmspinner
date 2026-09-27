@@ -395,9 +395,20 @@ def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
 
     ``capture_output``/``text``/``timeout`` behave as they do on
     ``subprocess.run``; on a timeout the child is killed and
-    ``TimeoutExpired`` is raised, matching it.
+    ``TimeoutExpired`` is raised, matching it. So do ``input`` and ``check``
+    (the 2026-09-26 audit, pipelines-children-02): both used to be forwarded
+    straight into ``Popen(argv, **kwargs)``, which has no ``input`` or
+    ``check`` parameter, so every caller that passed either -- Flourish's
+    text-model prompt on stdin, and Reveal in Explorer's ``check=True`` --
+    raised ``TypeError`` before the child was even assigned into the job.
     """
     timeout = kwargs.pop("timeout", None)
+    check = kwargs.pop("check", False)
+    input_ = kwargs.pop("input", None)
+    if input_ is not None:
+        if kwargs.get("stdin") is not None:
+            raise ValueError("stdin and input arguments may not both be used.")
+        kwargs["stdin"] = subprocess.PIPE
     if kwargs.pop("capture_output", False):
         kwargs.setdefault("stdout", subprocess.PIPE)
         kwargs.setdefault("stderr", subprocess.PIPE)
@@ -405,7 +416,7 @@ def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
     with subprocess.Popen(argv, **kwargs) as proc:
         assign(proc.pid)
         try:
-            out, err = proc.communicate(timeout=timeout)
+            out, err = proc.communicate(input_, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             proc.kill()
             # Attach what the child wrote before the kill, as subprocess.run
@@ -413,7 +424,13 @@ def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
             # diagnosing a hang wants the partial output, not nothing.
             exc.output, exc.stderr = proc.communicate()
             raise
-    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+        except BaseException:
+            proc.kill()
+            raise
+        retcode = proc.poll()
+    if check and retcode:
+        raise subprocess.CalledProcessError(retcode, argv, output=out, stderr=err)
+    return subprocess.CompletedProcess(argv, retcode, out, err)
 
 
 # --- identifying (and reclaiming) whatever holds a port ----------------------

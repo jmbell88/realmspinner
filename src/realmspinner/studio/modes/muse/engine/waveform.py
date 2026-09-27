@@ -59,11 +59,20 @@ def peaks(pcm: np.ndarray, columns: int = COLUMNS, *, divisor: float | None = No
     instead of letting the mismatch stand.
     """
     data = np.asarray(pcm)
-    if data.ndim == 2:
-        data = data.mean(axis=1)
-    elif data.ndim != 1:
+    if data.ndim not in (1, 2):
         raise ValueError("pcm is (n,) or (n, channels)")
 
+    # muse-engine-01 (2026-09-26 audit, re-run: stereo 16384.0 vs mono
+    # 0.50001526). The downmix used to run *before* this check -- but
+    # ``ndarray.mean`` on an integer array upcasts to float64, so a stereo
+    # take's dtype was never still ``np.integer`` by the time this asked, and
+    # the whole scale-by-the-dtype's-peak step below was skipped outright. A
+    # stereo int16 take's envelope came back in raw sample units (thousands),
+    # not [-1, 1], and drew as a solid block rather than a waveform. Scaled
+    # into range on the *original* dtype first, then downmixed on the
+    # already-scaled floats: the mean of two already-unit-range channels is
+    # still unit range, which is the property the downmix is allowed to rely
+    # on and the reordered code no longer breaks.
     if np.issubdtype(data.dtype, np.integer):
         info = np.iinfo(data.dtype)
         # Divided by the positive peak, matching ``wavout.to_int16``'s inverse
@@ -74,6 +83,9 @@ def peaks(pcm: np.ndarray, columns: int = COLUMNS, *, divisor: float | None = No
         data = data.astype(np.float32) / scale
     else:
         data = data.astype(np.float32)
+
+    if data.ndim == 2:
+        data = data.mean(axis=1)
 
     columns = max(1, int(columns))
     if data.size == 0:

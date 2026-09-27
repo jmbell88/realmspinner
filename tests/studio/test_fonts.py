@@ -86,75 +86,9 @@ def test_no_inter_face_carries_a_private_use_codepoint_at_all(face: str):
     assert not live, f"{face} has {len(live)} PUA codepoints; run scripts/strip_font_pua.py"
 
 
-def test_sigil_merge_size_matches_inter_cap_height():
-    """2026-09-13: the sigil merged at the base face's own size_pixels came
-    out well under Inter's cap height (screenshot pass) because imgui bakes
-    a merged source against its own ascent+descent span (1699 units for this
-    font), not its upem -- a plain 1:1 merge, the way lucide.ttf is merged,
-    only happens to work for lucide because its ascent+descent equals its
-    upem (1000/0).
-
-    ``fonts.SIGIL_SCALE`` is the fix and ``_sigil_merge_size`` is what
-    ``face()`` actually calls, so pin both: the ratio it applies, and that it
-    lands close to Inter Regular's own cap-height fraction of the em.
-    """
-    from fontTools.ttLib import TTFont
-
-    assert fonts._sigil_merge_size(100.0) == pytest.approx(100.0 * fonts.SIGIL_SCALE)
-
-    inter = TTFont(str(fonts.FONT_DIR / "Inter-Regular.ttf"))
-    cap_frac = inter["OS/2"].sCapHeight / inter["head"].unitsPerEm
-
-    sigil = TTFont(str(fonts.FONT_DIR / fonts.SIGIL_FACE))
-    glyph_name = sigil.getBestCmap()[0x2726]
-    from fontTools.pens.boundsPen import BoundsPen
-
-    pen = BoundsPen(sigil.getGlyphSet())
-    sigil.getGlyphSet()[glyph_name].draw(pen)
-    _, y_min, _, y_max = pen.bounds
-    own_span = sigil["hhea"].ascent - sigil["hhea"].descent
-    ink_frac = (y_max - y_min) / own_span
-
-    merged_frac = ink_frac * fonts.SIGIL_SCALE
-    assert merged_frac == pytest.approx(cap_frac, abs=0.05), (
-        f"sigil merges to {merged_frac:.3f} of the em; Inter's cap height is "
-        f"{cap_frac:.3f} -- adjust SIGIL_SCALE"
-    )
-
-
 def test_every_vendored_face_is_present():
-    for name in (*FACES, "lucide.ttf", fonts.SIGIL_FACE):
+    for name in (*FACES, "lucide.ttf"):
         assert (Path(fonts.FONT_DIR) / name).is_file()
-
-
-def test_familiar_sigil_is_covered_by_the_vendored_faces():
-    """Familiar T0 (ef853790): ``menus.FAMILIAR_LABEL`` and the Familiar dock's
-    strip button are built with the literal ✦ (U+2726 BLACK FOUR POINTED STAR). Inter
-    and Lucide don't carry that codepoint -- it fell through to the atlas's
-    missing-glyph box, which at menu-bar size reads as "?" -- so a one-glyph
-    subset of Noto Sans Symbols 2 (``fonts.SIGIL_FACE``) is merged in
-    alongside Lucide specifically to cover it.
-
-    Every character actually drawn for the sigil must resolve against one of
-    the merged faces' cmaps, and U+2726 itself must be one of them: a
-    regression that dropped the sigil face, or swapped the label back to
-    ``icons.SPARKLES``, would otherwise slip past a check that only compared
-    sets.
-    """
-    from realmspinner.studio import menus
-
-    assert "✦" in menus.FAMILIAR_LABEL, (
-        "FAMILIAR_LABEL must carry the literal ✦ (U+2726), not a stand-in icon"
-    )
-
-    covered: set[int] = set()
-    for face in (*FACES, "lucide.ttf", fonts.SIGIL_FACE):
-        covered |= set(_cmap(face))
-
-    assert 0x2726 in covered, "no vendored face covers U+2726 BLACK FOUR POINTED STAR"
-
-    missing = {ch: f"U+{ord(ch):04X}" for ch in menus.FAMILIAR_LABEL if ord(ch) not in covered}
-    assert not missing, f"codepoints in FAMILIAR_LABEL absent from every vendored face: {missing}"
 
 
 def test_no_icon_constant_is_an_empty_placeholder():
@@ -175,11 +109,11 @@ def test_no_icon_constant_is_an_empty_placeholder():
 
 
 def test_a_glyph_is_centred_on_its_ink_not_its_advance():
-    """The rail's icons and the dock's ✦ sat ~3 px left of their buttons'
-    centre (screenshot, 2026-09-24) because they were centred on
-    ``calc_text_size`` -- the advance box -- while the ink lies elsewhere in
-    it. ``centred_glyph_pos`` must centre the baked glyph's ink box, and fall
-    back to the advance box only when the atlas has no such glyph."""
+    """The rail's icons sat ~3 px left of their buttons' centre (screenshot,
+    2026-09-24) because they were centred on ``calc_text_size`` -- the
+    advance box -- while the ink lies elsewhere in it. ``centred_glyph_pos``
+    must centre the baked glyph's ink box, and fall back to the advance box
+    only when the atlas has no such glyph."""
     from types import SimpleNamespace
 
     ink = SimpleNamespace(x0=2.0, x1=10.0, y0=4.0, y1=12.0)

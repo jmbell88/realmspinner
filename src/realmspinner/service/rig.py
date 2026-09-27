@@ -177,23 +177,33 @@ def adjust_joints(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
     # "Apply joint positions" (submit key ``joints:<id>``, unshared with
     # ``create_rig``'s callers) could still queue a second rig for a mesh
     # that already had one in flight.
-    if rig_in_flight(svc, job_id) is not None:
-        raise Conflict("a rig for this mesh is already running", field="job_id")
-    # Same door as ``create_rig``'s, for the same reason: a re-rig queues a
-    # fresh job that runs Blender exactly like the first one did.
-    if not doctor.blender_check().ok:
-        raise Invalid("Rigging needs Blender, which is not installed.")
-    params = {
-        "source_job": job_id,
-        "template": template.key,
-        "bones": bones,
-        "adjusted": True,
-    }
-    if is_custom:
-        params["skeleton"] = "custom"
-        params["root"] = rig.get("root")
-        params["mirror_pairs"] = rig.get("mirror_pairs")
-    new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
+    #
+    # The 2026-09-26 audit, service-assets-03: poser-02 added the check back
+    # but not the lock around it -- ``create_rig`` holds ``convert_lock(job_id,
+    # "rig")`` across its own identical check-then-insert, and this door and
+    # ``edit_skeleton``'s below did the check and the ``store.create`` as two
+    # separate, unlocked operations. Two joint-move requests for the same mesh
+    # landing on AgentHost's two service workers (the same race agents-03
+    # found for ``create_rig``) could both read "no rig in flight" and both
+    # mint one.
+    with svc.convert_lock(job_id, "rig"):
+        if rig_in_flight(svc, job_id) is not None:
+            raise Conflict("a rig for this mesh is already running", field="job_id")
+        # Same door as ``create_rig``'s, for the same reason: a re-rig queues a
+        # fresh job that runs Blender exactly like the first one did.
+        if not doctor.blender_check().ok:
+            raise Invalid("Rigging needs Blender, which is not installed.")
+        params = {
+            "source_job": job_id,
+            "template": template.key,
+            "bones": bones,
+            "adjusted": True,
+        }
+        if is_custom:
+            params["skeleton"] = "custom"
+            params["root"] = rig.get("root")
+            params["mirror_pairs"] = rig.get("mirror_pairs")
+        new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id}
 
@@ -232,22 +242,26 @@ def edit_skeleton(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
     # ``adjust_joints``'s above, and for the same reason -- this door mints
     # its own rig job and was never on service-03's "every caller is
     # covered" list either.
-    if rig_in_flight(svc, job_id) is not None:
-        raise Conflict("a rig for this mesh is already running", field="job_id")
-    # Same door as ``create_rig``'s and ``adjust_joints``'s, for the same
-    # reason: this queues a fresh job that runs Blender exactly like they do.
-    if not doctor.blender_check().ok:
-        raise Invalid("Rigging needs Blender, which is not installed.")
-    params = {
-        "source_job": job_id,
-        "template": base.key,
-        "bones": result["bones"],
-        "root": result["root"],
-        "mirror_pairs": [list(p) for p in result["mirror_pairs"]],
-        "skeleton": result["skeleton"],
-        "adjusted": True,
-    }
-    new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
+    #
+    # The 2026-09-26 audit, service-assets-03: the same missing lock as
+    # ``adjust_joints``'s above, and for the same reason -- see its comment.
+    with svc.convert_lock(job_id, "rig"):
+        if rig_in_flight(svc, job_id) is not None:
+            raise Conflict("a rig for this mesh is already running", field="job_id")
+        # Same door as ``create_rig``'s and ``adjust_joints``'s, for the same
+        # reason: this queues a fresh job that runs Blender exactly like they do.
+        if not doctor.blender_check().ok:
+            raise Invalid("Rigging needs Blender, which is not installed.")
+        params = {
+            "source_job": job_id,
+            "template": base.key,
+            "bones": result["bones"],
+            "root": result["root"],
+            "mirror_pairs": [list(p) for p in result["mirror_pairs"]],
+            "skeleton": result["skeleton"],
+            "adjusted": True,
+        }
+        new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id, "skeleton": result["skeleton"]}
 

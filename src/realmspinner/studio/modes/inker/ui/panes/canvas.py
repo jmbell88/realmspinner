@@ -157,6 +157,33 @@ def _blit(draw_list: Any, texture: Any, view: Any, origin, x0, y0, x1, y1, **kwa
         draw_list.add_image_quad(ref, a, b, c, d, *uv, colour)
 
 
+#: Whether the Image size or Canvas size modal (``bridge.SCALE_DIALOG``/
+#: ``bridge.CANVAS_DIALOG``) was on screen the frame just drawn.
+#:
+#: The 2026-09-26 audit's shell-chrome-05: ``dialogs.modal_open`` did not know
+#: about either, so Delete/Esc/Ctrl+Z/Ctrl+K reached the document behind them.
+#: It cannot ask imgui directly -- it also runs from a bare ``SimpleNamespace``
+#: ctx in headless tests, with no imgui context at all, and
+#: ``imgui.is_popup_open`` there segfaults rather than raising. Recorded here
+#: instead, the one place both dialogs are guaranteed to have just been drawn
+#: (or not) this frame, on the frame thread, where a real context exists --
+#: and read back by :func:`size_dialogs_open` as a plain flag, the same shape
+#: every other ``dialogs.modal_open`` predicate already uses.
+_size_dialogs_open = False
+
+
+def size_dialogs_open(ctx: Any) -> bool:  # noqa: ARG001 - dialogs.modal_open's uniform predicate shape
+    """Whether the Image size or Canvas size dialog owns the keyboard."""
+    return _size_dialogs_open
+
+
+def _note_size_dialogs() -> None:
+    global _size_dialogs_open
+    _size_dialogs_open = imgui.is_popup_open(inker_bridge.SCALE_DIALOG) or imgui.is_popup_open(
+        inker_bridge.CANVAS_DIALOG
+    )
+
+
 def draw(ctx: Any) -> None:
     state = inker_mode.ensure(ctx)
     # The application owns the menu bar; this child still owns the parameter
@@ -169,6 +196,7 @@ def draw(ctx: Any) -> None:
         # the window that begins it.
         new_popup(ctx)
         inker_bridge.popups(ctx)
+        _note_size_dialogs()
         return
     _tab_bar(ctx, state)
     tab = state.active
@@ -188,6 +216,7 @@ def draw(ctx: Any) -> None:
     # The four dialogs the retired bridge panel kept, hosted here for the same
     # reason the menu is: they are opened by name from a menu row.
     inker_bridge.popups(ctx)
+    _note_size_dialogs()
 
 
 # --- what the canvas's own row became ----------------------------------------

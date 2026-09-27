@@ -565,12 +565,45 @@ def undo(ctx: Any, tab: Any) -> None:
     """
     tab.doc.undo()
     _prune_object_selection(ctx, tab)
+    _prune_stale_brush(ctx, tab)
 
 
 def redo(ctx: Any, tab: Any) -> None:
     """One step forward. :func:`undo`'s twin, and its reasoning."""
     tab.doc.redo()
     _prune_object_selection(ctx, tab)
+    _prune_stale_brush(ctx, tab)
+
+
+def _prune_stale_brush(ctx: Any, tab: Any) -> None:
+    """Drop a brush or terrain naming a tileset this document no longer holds.
+
+    ``state.brush`` is a bare array of gids and ``state.terrain`` a bare
+    ``(tileset index, terrain)`` pair -- unlike an object selection, neither
+    carries a reference back to the tileset it came from, so undoing (or
+    redoing, or jumping) past the ``add_tileset`` that put one in the map left
+    both still naming it. The 2026-09-26 audit (finding plotter-mode-02)
+    reproduced a stamp brush surviving the undo of the tileset it was picked
+    from: the brush ``[[1]]`` painted gid 1 into a cell with nothing in the
+    document accounting for it, and the next ``rmap`` open refused the file.
+    :func:`remove_tileset` already clears both for an explicit removal; this
+    is the same rule for the three doors onto the undo stack.
+    """
+    import numpy as np
+
+    from ....kernels.grid2d import gid as gidlib
+
+    state = ensure(ctx)
+    doc = tab.doc
+    if state.brush is not None:
+        tile_ids = np.unique(gidlib.tile_ids(np.asarray(state.brush)))
+        if any(tile_id and doc.ref_for(int(tile_id)) is None for tile_id in tile_ids.tolist()):
+            state.brush = None
+    if state.terrain is not None:
+        ts_index, terrain_index = state.terrain
+        ref = doc.tilesets[ts_index] if 0 <= ts_index < len(doc.tilesets) else None
+        if ref is None or not (0 <= terrain_index < len(ref.tileset.terrains)):
+            state.terrain = None
 
 
 def _prune_object_selection(ctx: Any, tab: Any) -> None:
@@ -776,6 +809,10 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
     # hop, so it gets the same treatment: an object that survives the jump
     # stays selected.
     _prune_object_selection(ctx, tab)
+    # The 2026-09-26 audit (finding plotter-mode-02): a jump can just as well
+    # land behind an ``add_tileset``, leaving the brush or terrain in hand
+    # naming a tileset this position of the document does not have.
+    _prune_stale_brush(ctx, tab)
     return moved
 
 

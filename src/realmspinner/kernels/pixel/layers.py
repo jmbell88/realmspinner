@@ -383,6 +383,15 @@ class LayerStack:
     def duplicate(self, index: int) -> Layer:
         source = self.layers[index]
         copy = source.copy(name=f"{source.name} copy")
+        # The 2026-09-26 audit, finding inker-document-02: ``Layer.copy``
+        # carries every field, ``background`` included, on purpose (its own
+        # docstring says why -- a history snapshot must come back a
+        # background layer too), but this copy lands one row *above* its
+        # source, never at the bottom, so a duplicate of the background layer
+        # kept the flag at a row ``move``'s own rule would refuse a drag into:
+        # two rows both reading ``background`` and only one of them the
+        # bottom row a flatten and every writer assume it is.
+        copy.background = False
         self.insert(index + 1, copy)
         return copy
 

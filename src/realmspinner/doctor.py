@@ -121,11 +121,21 @@ def run_checks(
     return [*s[:cut], *v, *s[cut:]]
 
 
-def static_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
+def static_checks(config: Config, *, probe_slow: bool = True, force: bool = False) -> list[Check]:
     """The rows that cannot change without the disk (or the venv) changing.
 
     Recomputed only on startup and on ``force`` -- a finished download is the
     one event that invalidates them, and its handler passes force.
+
+    ``force`` used to only make *this function* run again; the bpy, Muse,
+    Create and model-load probes each keep their own module-level cache of
+    the first answer (including a failure) for the life of the process, so a
+    forced recheck rebuilt the list but every one of those four rows handed
+    back the same stale ``Check`` regardless (the 2026-09-26 audit,
+    pipelines-install-01). Installing the Rigging pack, say, never turned
+    Poser back on until the app restarted, contradicting manual 42's claim
+    that a pack install re-enables its mode. ``force`` now reaches every
+    probe that owns one of those caches so it actually clears it.
     """
     return [
         _exe_check(config),
@@ -134,16 +144,15 @@ def static_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
         _gltfpack_check(config),
         _realmspinnerc_check(),
         _cuda_check(probe=probe_slow),
-        *_familiar_checks(config),
         *_t2i_checks(config),
-        text2image_deps_check(probe=probe_slow),
-        *_matting_checks(config, probe_slow=probe_slow),
+        text2image_deps_check(probe=probe_slow, force=force),
+        *_matting_checks(config, probe_slow=probe_slow, force=force),
         *_text_checks(config),
-        *_pose_checks(config, probe_slow=probe_slow),
+        *_pose_checks(config, probe_slow=probe_slow, force=force),
         *_music_checks(config),
-        music_deps_check(probe=probe_slow),
+        music_deps_check(probe=probe_slow, force=force),
         *_separation_checks(config),
-        blender_check(probe=probe_slow),
+        blender_check(probe=probe_slow, force=force),
     ]
 
 
@@ -306,7 +315,7 @@ _BLENDER_PENDING = Check(
 )
 
 
-def blender_check(*, probe: bool = True) -> Check:
+def blender_check(*, probe: bool = True, force: bool = False) -> Check:
     """Can we rig? Probed in a subprocess, for the same reason rigging is.
 
     Non-fatal by design: bpy is an optional extra with cp313-only wheels, and
@@ -317,9 +326,14 @@ def blender_check(*, probe: bool = True) -> Check:
     row (C30 -- the probe costs seconds and used to run inside startup). The
     lock keeps a deferred probe and an eager caller from racing two
     subprocesses; the answer cannot change while this process lives, so the
-    first probe's result is everyone's.
+    first probe's result is everyone's -- unless ``force`` says the venv
+    itself just changed (a pack install), in which case the stale answer is
+    dropped before the cache is read (the 2026-09-26 audit, pipelines-install-01).
     """
     global _blender
+    if force:
+        with _blender_lock:
+            _blender = None
     if _blender is not None:
         return _blender
     if not probe:
@@ -394,7 +408,9 @@ def _trellis_runtime_hint(config: Config) -> str:
     return validation.install_remedy(spec.label, fetch.download_text(config, "engine", spec))
 
 
-def _registry_row(config: Config, kind: str, spec: Any, ok: bool, detail: str) -> Check:
+def _registry_row(
+    config: Config, kind: str, spec: Any, ok: bool, detail: str, *, pending: bool | None = None
+) -> Check:
     """One downloadable registry row.
 
     Never fatal, and ``pending_install`` whenever it is absent: every row this
@@ -415,17 +431,36 @@ def _registry_row(config: Config, kind: str, spec: Any, ok: bool, detail: str) -
     instead, so every registry row gets the same answer for the price of one
     ``stat`` per candidate file rather than nine call sites remembering to
     repeat it (or not).
+
+    ``pending`` lets a caller say ``ok`` went False for a reason other than
+    "the files are not on disk". Left ``None`` (derived from ``ok``) by every
+    caller whose only question *is* presence -- base, lora, adapter, control,
+    metric, music, separation. ``_pose_checks``/``_matting_checks`` are the
+    two that also run a load probe once the files are present, and the
+    2026-09-26 audit (pipelines-install-06) found this defaulting to
+    ``not ok`` regardless: a matting/pose model whose weights are fully
+    present but fails to *load* read as SETUP, identically to one never
+    downloaded, and dropped out of every failure counter
+    ``dev/INVARIANTS.md`` keys on that distinction -- installing the Rigging
+    pack would not have made the row change from what it already claimed to
+    be. A corrupt file caught by ``suspect_files`` below still forces
+    ``pending`` back to True regardless of what the caller passed: that is
+    the "reinstall it" remedy M04 already established for a damaged file,
+    same as an absent one.
     """
+    if pending is None:
+        pending = not ok
     if ok:
         bad = fetch.suspect_files(config, kind, spec)
         if bad:
             ok = False
+            pending = True
             detail = (
                 f"{detail} -- but {len(bad)} file(s) are empty and will not "
                 f"load; remove and reinstall this model. First: {bad[0]}"
             )
     return Check(
-        fetch.check_name(kind, spec.label), ok, detail, fatal=False, pending_install=not ok
+        fetch.check_name(kind, spec.label), ok, detail, fatal=False, pending_install=pending
     )
 
 
@@ -451,6 +486,7 @@ def _exe_check(config: Config) -> Check:
     found" on a machine that has the download and no override set.
     """
     path = config.resolve_trellis_exe()
+    spec = models.ENGINE_MODELS["trellis_runtime"]
     if path.is_file():
         # M04's zero-byte downgrade, folded over the *whole* probe list
         # (the 2026-09-23 (second run) audit, finding pipelines-03) rather
@@ -468,12 +504,31 @@ def _exe_check(config: Config) -> Check:
         # zero-byte file is what a killed download or a killed unpack
         # leaves behind, and the fix is the same "go install it" as an
         # absent one, not a filesystem repair.
-        bad = fetch.suspect_files(config, "engine", models.ENGINE_MODELS["trellis_runtime"])
+        bad = fetch.suspect_files(config, "engine", spec)
         if bad:
             return Check(
                 "trellis-server.exe",
                 False,
                 f"{bad[0]} is 0 bytes and will not run -- remove it and "
+                f"reinstall. {_trellis_runtime_hint(config)}",
+                fatal=False,
+                pending_install=True,
+            )
+        # ``fetch.present`` is the nine-file check the Download button in
+        # Settings -> Models reads (the 2026-09-26 audit, pipelines-install-02):
+        # this row used to declare victory on ``path.is_file()`` alone, so a
+        # runtime with the exe intact but a *missing* (not zero-byte) sibling
+        # CUDA DLL reported OK here while the identical probe list in
+        # Settings -> Models reported it broken, and trellis-server failed to
+        # start with no row that had said why.
+        if not fetch.present(config, "engine", spec):
+            base = fetch.engine_probe_dir(config, spec)
+            missing = [name for name in spec.probe if not (base / name).is_file()]
+            return Check(
+                "trellis-server.exe",
+                False,
+                f"{path} is present but {len(missing)} required file(s) are "
+                f"missing from {base} ({', '.join(missing[:3])}) -- remove and "
                 f"reinstall. {_trellis_runtime_hint(config)}",
                 fatal=False,
                 pending_install=True,
@@ -545,43 +600,6 @@ def _gguf_check(config: Config) -> Check:
     return Check(
         "TRELLIS GGUF weights", ok, detail, fatal=False, pending_install=not ok
     )
-
-
-def _familiar_checks(config: Config) -> list[Check]:
-    """Familiar's rows: never fatal, same as every downloadable weight.
-
-    Unlike ``trellis-server.exe``, Familiar has no vendor-checkout fallback
-    and no env-var override to probe -- ``fetch.present``/``fetch.familiar_dir``
-    is the one place it can ever be, so every row goes through the generic
-    ``_registry_row`` rather than a hand-built check like ``_exe_check``.
-
-    **An absent optional row (``familiar_mmproj``, vision, 2026-09-24) says so
-    in its own detail, rather than reading like the same "you need this"
-    prompt the required rows print.** Still ``_registry_row``'s own
-    ``pending_install=True``/``fatal=False`` underneath -- the CLI's ``SETUP``
-    label (never ``WARN``/``FATAL``) already treats "not downloaded yet" as
-    the ordinary state of a fresh machine for every registry row -- this only
-    changes the *wording* so a reader does not mistake "optional, skip it if
-    you don't want vision" for "required, go get it".
-    """
-    checks: list[Check] = []
-    for spec in models.FAMILIAR_MODELS.values():
-        ok = fetch.present(config, "familiar", spec)
-        base = fetch.familiar_dir(config, spec)
-        if ok:
-            detail = str(base)
-        elif spec.optional:
-            detail = (
-                f"optional -- not installed; Familiar runs text-only without it. "
-                f"To add it:\n  {fetch.download_text(config, 'familiar', spec)}"
-            )
-        else:
-            detail = (
-                f"not found at {base} -- download with:\n"
-                f"  {fetch.download_text(config, 'familiar', spec)}"
-            )
-        checks.append(_registry_row(config, "familiar", spec, ok, detail))
-    return checks
 
 
 def _birefnet_check(config: Config) -> Check:
@@ -1123,7 +1141,7 @@ _MUSIC_DEPS_PENDING = Check(
 )
 
 
-def music_deps_check(*, probe: bool = True) -> Check:
+def music_deps_check(*, probe: bool = True, force: bool = False) -> Check:
     """Is the ``music`` extra actually installed? Probed in a child.
 
     Structurally :func:`blender_check`, and here for a defect it would have
@@ -1136,8 +1154,15 @@ def music_deps_check(*, probe: bool = True) -> Check:
     and the app process deliberately never imports it. That constraint rules
     out an in-process probe -- it does not rule out asking a subprocess, which
     is the process the real job uses anyway.
+
+    ``force`` clears the cached answer first, :func:`blender_check`'s reason:
+    installing the Music pack changes what a fresh import of this venv
+    resolves to (the 2026-09-26 audit, pipelines-install-01).
     """
     global _music_deps
+    if force:
+        with _music_deps_lock:
+            _music_deps = None
     if _music_deps is not None:
         return _music_deps
     if not probe:
@@ -1181,7 +1206,7 @@ _T2I_DEPS_PENDING = Check(
 )
 
 
-def text2image_deps_check(*, probe: bool = True) -> Check:
+def text2image_deps_check(*, probe: bool = True, force: bool = False) -> Check:
     """Is the ``text2image`` pack actually installed? Probed in a child.
 
     :func:`music_deps_check`'s shape, for the one pack that had no row of its
@@ -1203,8 +1228,15 @@ def text2image_deps_check(*, probe: bool = True) -> Check:
     names Settings -> Packs and not ``uv sync``: a packaged install has no
     venv for a user to run that command against, and the pack is downloaded
     from inside the app now.
+
+    ``force`` clears the cache first, :func:`blender_check`'s reason: the
+    pack this row probes for is exactly the thing a pack install just changed
+    (the 2026-09-26 audit, pipelines-install-01).
     """
     global _t2i_deps
+    if force:
+        with _t2i_deps_lock:
+            _t2i_deps = None
     if _t2i_deps is not None:
         return _t2i_deps
     if not probe:
@@ -1270,7 +1302,7 @@ def _separation_checks(config: Config) -> list[Check]:
     return checks
 
 
-def _pose_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
+def _pose_checks(config: Config, *, probe_slow: bool = True, force: bool = False) -> list[Check]:
     """The rig's joint-placement weights, non-fatal -- and only the weights.
 
     Missing, every humanoid rig still happens: ``skeleton.fit_template`` scales
@@ -1289,9 +1321,10 @@ def _pose_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
     checks: list[Check] = []
     for spec in models.POSE_MODELS.values():
         path = config.t2i_model_root / spec.dir_name
-        ok = fetch.present(config, "pose", spec)
+        present = fetch.present(config, "pose", spec)
+        ok = present
         if ok:
-            loaded, note = _load_probe(config, "pose", probe=probe_slow)
+            loaded, note = _load_probe(config, "pose", probe=probe_slow, force=force)
             detail = (
                 f"weights present at {path} -- {note}; rig joints are read off the "
                 "reference image when the detection is confident, and fall back to "
@@ -1304,7 +1337,10 @@ def _pose_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
                 f"bbox-proportional fit; download with:\n"
                 f"  {fetch.download_text(config, 'pose', spec)}"
             )
-        checks.append(_registry_row(config, "pose", spec, ok, detail))
+        # ``pending=not present`` (the 2026-09-26 audit, pipelines-install-06):
+        # a failed load probe leaves ``ok`` False with the weights fully on
+        # disk, which is not "not installed yet".
+        checks.append(_registry_row(config, "pose", spec, ok, detail, pending=not present))
     return checks
 
 
@@ -1331,7 +1367,9 @@ _PROBE_PENDING = (True, "still checking in the background whether the model load
 LOAD_PROBE_TIMEOUT = 300.0
 
 
-def _load_probe(config: Config, which: str, *, probe: bool = True) -> tuple[bool, str]:
+def _load_probe(
+    config: Config, which: str, *, probe: bool = True, force: bool = False
+) -> tuple[bool, str]:
     """Whether this model actually loads, once per process, **in a child**.
 
     ``probe=False`` never blocks -- it returns the cached answer or the pending
@@ -1349,12 +1387,21 @@ def _load_probe(config: Config, which: str, *, probe: bool = True) -> tuple[bool
     holds a checkpoint open for seconds, so killing Realmspinner while it runs would
     otherwise strand a python.exe mid-load. It is also what keeps the
     every-spawn-is-in-the-kill-on-close-job scan satisfied.
+
+    ``force`` drops the cached entry for this ``key`` before reading it,
+    :func:`blender_check`'s reason: a pack install (or a fetch that just put
+    the weights on disk) makes the earlier answer -- including "not found" --
+    wrong, and nothing but a restart used to clear it (the 2026-09-26 audit,
+    pipelines-install-01).
     """
     from .pipelines import pose2d
 
     module = pose2d if which == "pose" else matting
     path = module.model_dir(config)
     key = (which, str(path))
+    if force:
+        with _probe_lock:
+            _probes.pop(key, None)
     hit = _probes.get(key)
     if hit is not None:
         return hit
@@ -1402,7 +1449,7 @@ _MATTING_IMPORTS = ("einops", "kornia", "timm", "transformers")
 _missing_modules = packs.missing_modules
 
 
-def _matting_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
+def _matting_checks(config: Config, *, probe_slow: bool = True, force: bool = False) -> list[Check]:
     """The host-side matting stack, non-fatal: weights, imports, last failure.
 
     Missing, every 2D export still works -- the corner flood fill in
@@ -1437,12 +1484,13 @@ def _matting_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
     checks: list[Check] = []
     for spec in models.MATTING_MODELS.values():
         path = config.t2i_model_root / spec.dir_name
-        ok = fetch.present(config, "matting", spec)
+        present = fetch.present(config, "matting", spec)
+        ok = present
         if ok:
             # No longer "not checked" (N112): the probe attempts a real CPU load
             # once per process, which is the only thing that settles the
             # question a green weights row above a silent fall-back could not.
-            loaded, note = _load_probe(config, "matting", probe=probe_slow)
+            loaded, note = _load_probe(config, "matting", probe=probe_slow, force=force)
             detail = f"weights present at {path} -- {note}"
             ok = ok and loaded
             if spec.remote_code:
@@ -1468,7 +1516,11 @@ def _matting_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
         # different BiRefNets -- one GGUF inside trellis-server, this one on
         # the host for 2D exports -- and a user with rough edges has to be able
         # to tell which download the row is asking for.
-        checks.append(_registry_row(config, "matting", spec, ok, detail))
+        # ``pending=not present`` (the 2026-09-26 audit, pipelines-install-06):
+        # a load-probe failure, a missing import or a recorded last-load error
+        # all leave ``ok`` False with the weights fully on disk, none of which
+        # "install the pack" fixes the way a genuinely absent download does.
+        checks.append(_registry_row(config, "matting", spec, ok, detail, pending=not present))
     return checks
 
 

@@ -47,10 +47,7 @@ def draw(ctx: Any) -> None:
     )
 
     ready = not tab.busy
-    # ``pack_stale_why`` and not merely "is there an atlas": a failed repack
-    # leaves the previous one in place, and exporting it writes a file about
-    # sprites this document no longer holds.
-    packed = tab.layout is not None and tab.atlas is not None and not tab.pack_stale_why
+    packed = _packed(tab)
     # Two gates, and every button below is behind one or both of them. Hoisted
     # so the four of them explain the same state in the same words -- the
     # ``_VIEWPORT_WHY`` pattern.
@@ -109,6 +106,29 @@ def draw(ctx: Any) -> None:
     _recent(ctx)
 
 
+def _packed(tab: Any) -> bool:
+    """Whether the two export buttons should be live: a landed pack that still
+    describes the current document.
+
+    ``pack_stale_why`` and not merely "is there an atlas": a failed repack
+    leaves the previous one in place, and exporting it writes a file about
+    sprites this document no longer holds. **``pack_dirty``/``packing`` as
+    well**, the 2026-09-26 audit's packwright-mode-03: ``export_files``
+    ("Atlas + JSON") now refuses while an edit is unpacked (``fileio.py``),
+    matching ``export_library``'s own long-standing refusal -- but this pane's
+    gate did not match either of them, so the button stayed lit through the
+    exact window both exports now decline, and a press landed on the refusal's
+    toast instead of a control that was already grey about why.
+    """
+    return (
+        tab.layout is not None
+        and tab.atlas is not None
+        and not tab.pack_stale_why
+        and not tab.pack_dirty
+        and not tab.packing
+    )
+
+
 def _packed_why(tab: Any) -> str:
     """Why the export buttons are disabled, once the shared ``busy`` gate has
     already cleared them.
@@ -125,6 +145,13 @@ def _packed_why(tab: Any) -> str:
         return tab.pack_stale_why
     if tab.packing:
         return "Packing..."
+    if tab.layout is not None and tab.pack_dirty:
+        # Guarded on ``tab.layout is not None`` too: a document that has never
+        # packed yet (or was just emptied back to no sources) is also
+        # ``pack_dirty`` by default, and that is "nothing packed yet", not an
+        # edit that re-armed a *previous* landed pack -- the 2026-09-26 audit's
+        # packwright-mode-03 only added the second case.
+        return "Still packing your latest edits -- try again in a moment."
     return "Nothing is packed yet. Add images -- packing runs by itself."
 
 

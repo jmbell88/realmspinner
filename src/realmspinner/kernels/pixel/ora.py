@@ -59,6 +59,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import re
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
@@ -322,6 +323,27 @@ def _read_indexed_png(data: bytes, size: tuple[int, int]):
     return indices, palette
 
 
+#: XML 1.0 (S 2.2) forbids every control character except tab, LF and CR --
+#: not merely as raw bytes but as character references too, so there is no
+#: escaped form ``ElementTree`` could fall back to. The 2026-09-26 audit,
+#: finding inker-codecs-06: a layer/group/track name typed (or pasted, or
+#: read from a foreign file and round-tripped) with one of these went into
+#: ``stack.xml`` verbatim, producing an archive this very reader refuses on
+#: the next open -- a name is not a promise it is well-formed XML.
+_XML_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _xml_safe_name(name: object) -> str:
+    """*name*, with every character XML 1.0 cannot carry stripped.
+
+    Stripped rather than replaced or refused: the door this guards is a
+    save, and a control character in a name is never the point of the name --
+    dropping it silently keeps the rest legible, the way a filename door
+    would drop a null byte rather than fail the whole export over it.
+    """
+    return _XML_ILLEGAL.sub("", str(name))
+
+
 def _group_nester(doc, container):
     """A ``member uid -> element`` function that opens a ``<stack>`` per group.
 
@@ -357,7 +379,7 @@ def _group_nester(doc, container):
             if node is None:  # pragma: no cover - a dangling parent
                 continue
             attrs = {
-                "name": node.name,
+                "name": _xml_safe_name(node.name),
                 "opacity": f"{float(node.opacity):.6f}",
                 "visibility": "visible" if node.visible else "hidden",
                 # ``auto`` is ORA's spelling of pass-through and ``isolate`` of
@@ -431,7 +453,7 @@ def _stack_xml(doc) -> bytes:
             parent_for(layer.uid),
             "layer",
             {
-                "name": layer.name,
+                "name": _xml_safe_name(layer.name),
                 "src": f"data/layer{index}.png",
                 "x": "0",
                 "y": "0",
@@ -610,7 +632,7 @@ def _stack_xml_animated(doc, names: dict[int, str]) -> bytes:
                 parent_for(track.uid),
                 "layer",
                 {
-                    "name": track.name,
+                    "name": _xml_safe_name(track.name),
                     "src": names[id(layer)],
                     "x": "0",
                     "y": "0",
@@ -1188,6 +1210,22 @@ def write_ora(doc, path: Path) -> None:
     path = Path(path)
     anim = getattr(doc, "anim", None)
     names = _cel_names(anim) if anim is not None else {}
+    if anim is not None:
+        # The 2026-09-26 audit, finding inker-codecs-01: ``add_frame`` and the
+        # rest of the editor's frame/layer verbs carry no budget of their own,
+        # but ``_read_animation`` refuses more than ``_layer_budget`` distinct
+        # planes for this canvas -- so a document the editor happily built
+        # (70 frames at 1024x1024, each a distinct cel) saved to a small
+        # archive that this same build, and journal recovery's ``ora_bytes``
+        # path, then refused to reopen. Refused here, by name, before the
+        # zip is even opened for writing, rather than handing back a file
+        # that silently cannot be read again.
+        allowed = _layer_budget(*doc.size)
+        if len(names) > allowed:
+            raise ValueError(
+                f"this animation holds more than the {allowed} distinct cels of "
+                f"{doc.size[0]}x{doc.size[1]} this build can reopen"
+            )
     merged = doc.flatten() if anim is None else _frame_flatten(doc, anim.frames[0])
     thumb = Image.fromarray(merged, "RGBA")
     thumb.thumbnail((THUMBNAIL_MAX, THUMBNAIL_MAX))
@@ -1299,7 +1337,7 @@ def _layer_elements(node, tree=None, parent=None) -> list:
             node_group = GroupNode(
                 name=child.get("name") or f"Group {len(groups) + 1}",
                 visible=child.get("visibility", "visible") != "hidden",
-                opacity=float(child.get("opacity") or 1.0),
+                opacity=_clamp_opacity(child.get("opacity") or 1.0),
                 locked=child.get(CONTENT_LOCK_ATTR) == "1",
                 blend=cp.OPS_ORA.get(child.get("composite-op", ""), "normal"),
                 isolate=child.get("isolation") == "isolate",
@@ -1372,6 +1410,30 @@ def _decode(data: bytes, size: tuple[int, int]) -> np.ndarray:
     if (pixels.shape[1], pixels.shape[0]) != (width, height):
         pixels = _place(pixels, size, (0, 0))
     return pixels
+
+
+def _clamp_opacity(raw: object) -> float:
+    """A layer/group/track opacity read from a file, forced into ``[0, 1]``.
+
+    The 2026-09-26 audit, finding inker-codecs-05: every opacity read here
+    went straight from the XML/JSON string to a ``Layer``/``Track``/
+    ``GroupNode`` field with no check at all, so a crafted or corrupted file
+    naming ``nan``, ``inf``, a negative number or anything past 1.0 landed
+    verbatim -- ``nan`` alone then poisons every blend and export that reads
+    the value back. Finite and in range is the same contract
+    ``Layer.__post_init__`` already enforces for a value set in-app; a value
+    read from disk deserves no less.
+    """
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    if value != value or value in (float("inf"), float("-inf")):
+        # ``value != value`` is the allocation-free nan check: a real ``math``
+        # import would work too, but every other numeric guard in this module
+        # already avoids widening its imports for one comparison.
+        return 1.0
+    return max(0.0, min(1.0, value))
 
 
 def _known_blend(name: object, zf: zipfile.ZipFile) -> str:
@@ -1474,7 +1536,7 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
         tracks = [
             Track(
                 name=entry.get("name") or f"Layer {i + 1}",
-                opacity=float(entry.get("opacity", 1.0)),
+                opacity=_clamp_opacity(entry.get("opacity", 1.0)),
                 visible=bool(entry.get("visible", True)),
                 blend=_known_blend(entry.get("blend", "normal"), zf),
                 alpha_lock=bool(entry.get("alpha_lock", False)),
@@ -1561,9 +1623,9 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
             # Stored sparsely for ``_set_cel_opacity``'s reason: a 1.0 entry
             # would be written straight back out and cost the file its
             # byte-for-byte round trip.
-            alpha = float(entry.get("opacity", 1.0))
+            alpha = _clamp_opacity(entry.get("opacity", 1.0))
             if alpha < 1.0:
-                cel_opacity[(tracks[ti].uid, frames[fi].uid)] = max(0.0, alpha)
+                cel_opacity[(tracks[ti].uid, frames[fi].uid)] = alpha
             # Sparse for the opacity's reason one line up: an empty note stored
             # here would be written straight back out and cost the file its
             # byte-for-byte round trip.
@@ -1727,7 +1789,7 @@ def _read_groups(doc, payload: dict) -> None:
             GroupNode(
                 name=entry.get("name") or f"Group {i + 1}",
                 visible=bool(entry.get("visible", True)),
-                opacity=float(entry.get("opacity", 1.0)),
+                opacity=_clamp_opacity(entry.get("opacity", 1.0)),
                 locked=bool(entry.get("locked", False)),
                 blend=str(entry.get("blend", "normal")),
                 isolate=bool(entry.get("isolate", False)),
@@ -1872,7 +1934,21 @@ def _read_palette(zf) -> list | None:
     except KeyError:
         return None
     try:
-        return gpl.parse(raw.decode("utf-8"))
+        colours = gpl.parse(raw.decode("utf-8"))
+        # The 2026-09-26 audit, finding inker-codecs-08: ``gpl.parse`` only
+        # enforces its own :data:`gpl.MAX_PALETTE_ROWS` ceiling (65536), far
+        # above the indexed document's own :data:`ixp.MAX_COLOURS` (256) --
+        # so a member between the two sizes parsed clean here, inside this
+        # try, and then raised out of ``doc.set_palette``/``_finish_colour``
+        # a dozen lines below, past this function's own return, refusing the
+        # whole archive over one oversized member. Checked here instead, so
+        # it costs the constraint this docstring already promises and not
+        # the file.
+        if len(colours) > ixp.MAX_COLOURS:
+            raise ValueError(
+                f"a palette holds at most {ixp.MAX_COLOURS} colours, not {len(colours)}"
+            )
+        return colours
     except (UnicodeDecodeError, ValueError) as exc:
         log.warning("ignoring %s in %s: %s", PALETTE_MEMBER, getattr(zf, "filename", "?"), exc)
         return None
@@ -2509,7 +2585,7 @@ def read_ora(path: Path, *, budget: int | None = None):
                 Layer(
                     pixels=pixels,
                     name=element.get("name") or f"Layer {len(layers) + 1}",
-                    opacity=float(element.get("opacity") or 1.0),
+                    opacity=_clamp_opacity(element.get("opacity") or 1.0),
                     visible=element.get("visibility", "visible") != "hidden",
                     blend=cp.OPS_ORA.get(element.get("composite-op", ""), "normal"),
                     alpha_lock=element.get(LOCK_ATTR) == "1",

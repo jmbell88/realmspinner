@@ -109,6 +109,19 @@ def draw(ctx: Any) -> None:
         ) as visible:
             if visible:
                 inspector.draw(ctx)
+    # Top level, not nested in any pane above -- ``library.draw``'s own
+    # placement, for its own reason: the popup's ``imgui.open_popup``/
+    # ``begin_popup_modal`` pair has to run outside any popup or child window
+    # the rest of this frame opened. The 2026-09-26 audit's shell-home-
+    # library-01: this composition draws ``library._bulk``'s Export zip / Save
+    # to project / Convert row (in :func:`_grid`) but never these two, so
+    # opening either popup called ``imgui.open_popup`` with no matching
+    # ``begin_popup_modal`` anywhere in this frame's id stack -- it never
+    # appeared, the task waiting on ``popup.decisions.get()`` blocked forever,
+    # and ``library.popup_open`` still latched, greying every button and
+    # locking Ctrl+K and the mode keys behind a dialog nobody could see.
+    library._draw_export_popup(ctx)
+    library._draw_convert_popup(ctx)
 
 
 # --- the rail ---------------------------------------------------------------

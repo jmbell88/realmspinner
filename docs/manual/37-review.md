@@ -173,10 +173,12 @@ baseline) and press **Launch sweep** to queue it.
 **A unit that fails outright cancels the rest of its own server config rather than repeating the
 failure.** If a unit errors during generation, every other unit of the same sweep that is still
 queued *and* shares its engine settings (band width, texture resolution, the two guidance
-strengths, the token budget, decimation, atlas size — the six `trellis_` flags plus resolution
-above) is cancelled too, with a reason naming the unit that failed. A unit that had already started
-is left alone and reaches its own outcome; a queued unit under a *different* engine configuration is
-left alone too — only a sibling that would have hit the same wall is stopped before it does. This
+strengths, the token budget, decimation, atlas size — the seven `trellis_` flags above, and
+nothing else: resolution is not part of the launch, so two units differing only in resolution are
+not siblings for this purpose) is cancelled too, with a reason naming the unit that failed. A unit
+that had already started is left alone and reaches its own outcome; a queued unit under a
+*different* engine configuration is left alone too — only a sibling that would have hit the same
+wall is stopped before it does. This
 does not reach across sweeps: a fan-out over several subjects mints one sweep per subject, and a
 failure in one never touches another's units. If the failure turns out to have been transient
 rather than a real problem with the settings, the cancelled units can be re-queued from the command

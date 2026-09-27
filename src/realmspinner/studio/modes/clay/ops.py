@@ -1513,7 +1513,18 @@ def _separate_selection(ctx: Any, doc: Any, **_: Any) -> bool:
     from ....kernels.mesh import separate as sep
 
     def one(doc: Any, obj: Any) -> None:
-        doc.separate(obj.uid, sep.by_selection(obj.mesh, doc.element_sel_of(obj.uid)))
+        pieces = doc.separate(obj.uid, sep.by_selection(obj.mesh, doc.element_sel_of(obj.uid)))
+        # The 2026-09-26 audit's clay-document-03: ``ClayDoc.separate`` adds
+        # every new piece to ``selection`` unconditionally, but a piece just
+        # split off has nothing selected inside it -- in face mode (the only
+        # mode this op runs in) that broke the module docstring's own
+        # invariant, "selection holds exactly the uids with a non-empty
+        # element_sel". ``set_element_sel`` is the one place that invariant
+        # is already kept by hand; handing it ``None`` for each new piece
+        # drops it from ``selection`` again the same way an ordinary empty
+        # pick would, with no direct reach into the document's own sets.
+        for piece in pieces:
+            doc.set_element_sel(piece.uid, None)
 
     return run_object_op(ctx, doc, one)
 
@@ -2657,6 +2668,19 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
         except OpError:
             locked.append(obj.name)
             continue
+        # The 2026-09-26 audit's clay-ops-tail-01: ``_blender_multi_prepare``
+        # sends Blender ``doc.evaluated(uid)`` -- the base run through the
+        # object's own modifier stack -- so the mesh that comes back already
+        # has every enabled modifier baked into it. ``set_mesh`` only freezes
+        # a ``generator`` claim, not ``modifiers``; leaving the stack in place
+        # meant the next evaluation ran it a *second* time over a base that
+        # already carried its effect once (measured: a 12-vertex box under a
+        # x3 Subdivide came back a 36-vertex retopologized mesh, then
+        # evaluated to 108). Clearing the stack here is exactly what
+        # ``apply_modifiers`` does when a user bakes it by hand -- Blender's
+        # result already *is* the bake.
+        if obj.modifiers:
+            doc.set_modifiers(uid, ())
         applied.append(obj.name)
     doc.history.collapse_since(mark)
     top = doc.history.top
@@ -2708,6 +2732,13 @@ def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
         except OpError:
             locked.append(obj.name)
             continue
+        # The 2026-09-26 audit's clay-ops-tail-01, same cause as
+        # ``_retopo_apply``: the mesh Blender unwrapped was already run
+        # through the object's modifier stack once (``doc.evaluated``), so
+        # leaving the stack in place would run it again on the next
+        # evaluation over a base that already carries its effect.
+        if obj.modifiers:
+            doc.set_modifiers(uid, ())
         applied.append(obj.name)
     doc.history.collapse_since(mark)
     top = doc.history.top
@@ -3974,10 +4005,11 @@ def _register_defaults() -> None:
             enabled=_blender_enabled,
             reason=_blender_reason,
             hint="Sends the selection's evaluated meshes to Blender for a "
-            "quad retopology, replacing each object's base mesh and keeping "
-            "its modifier stack. Spawns Blender -- seconds for a simple "
-            "prop, minutes for something dense -- and is greyed out when "
-            "Blender (the rig extra) is not installed.",
+            "quad retopology, replacing each object's base mesh and clearing "
+            "its modifier stack -- the result already has it baked in. "
+            "Spawns Blender -- seconds for a simple prop, minutes for "
+            "something dense -- and is greyed out when Blender (the rig "
+            "extra) is not installed.",
             params=(
                 Param(
                     "target_faces",

@@ -302,6 +302,35 @@ def meta_path(payload: Path) -> Path:
     return Path(payload).with_name(Path(payload).name + META_SUFFIX)
 
 
+def _free_name(root: Path, provider: Provider, slot: Any) -> str:
+    """``payload_name``, but verified against disk before this slot claims it.
+
+    The 2026-09-26 audit's shell-documents-01: every mode's uid counter is a
+    fresh ``itertools.count(1)`` per process (Clay's ``bd1``, and every other
+    kind that names slots the same way), so a new session's first untitled
+    document computes exactly the same name as the *previous* session's first
+    untitled document -- and if that copy is still sitting here unrecovered,
+    the write below clobbered it, because nothing had ever checked disk.
+    Poser's provider names every pose ``Pose-poser.pose.json`` regardless of
+    uid, which is the same collision with no counter needed at all. Checked
+    against disk rather than against this run's own marks, because the
+    collision is always with a file this process has no memory of writing.
+    """
+    base = payload_name(provider, slot)
+    payload = root / base
+    if not payload.exists() and not meta_path(payload).exists():
+        return base
+    stem = _safe(provider.title_of(slot)) or "untitled"
+    uid = provider.uid_of(slot)
+    n = 2
+    while True:
+        candidate = f"{stem}-{uid}-{n}{provider.ext}"
+        payload = root / candidate
+        if not payload.exists() and not meta_path(payload).exists():
+            return candidate
+        n += 1
+
+
 # --- writing ------------------------------------------------------------------
 
 
@@ -449,8 +478,11 @@ def write(ctx: Any, provider: Provider, slot: Any, stamp: float | None = None) -
     """
     stamp = time.monotonic() if stamp is None else stamp
     mark = mark_of(slot)
-    name = mark.name or payload_name(provider, slot)
     root = directory(ctx)
+    # See ``_free_name``: a name computed without checking disk can reproduce
+    # a previous session's still-unrecovered crash copy exactly (shell-
+    # documents-01) and this call is where that copy would be overwritten.
+    name = mark.name or _free_name(root, provider, slot)
     payload = root / name
     head = provider.head_of(slot)
     try:

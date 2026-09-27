@@ -387,7 +387,15 @@ def derive_popup(ctx: Any) -> None:
         # for this door specifically.
         widgets.field_error(ctx.state, "derive_count")
 
-    if controls.button("Queue it", role=controls.ButtonRole.PRIMARY) and muse_mode.derive(ctx):
+    if controls.button("Queue it", role=controls.ButtonRole.PRIMARY):
+        muse_mode.derive(ctx)
+    # muse-mode-02 (2026-09-26 audit): polled every frame the popup is open,
+    # not only on the click that submitted -- a refusal from ``derive_music_job``
+    # (a door, on the task thread) lands a frame or two after ``derive``
+    # itself returns, and closing on that earlier return left the ring with
+    # no popup left to draw it on. ``derive_settled`` says yes only once the
+    # submit has actually come back with no field of this task's left ringing.
+    if muse_mode.derive_settled(ctx):
         imgui.close_current_popup()
     imgui.same_line()
     if controls.button("Cancel"):

@@ -287,11 +287,22 @@ def _is_resumable(path: Path) -> bool:
     """Whether ``path`` is a staging tree a later fetch could continue into.
 
     Read off the marker the fetch worker writes rather than re-deriving it: the
-    name is imported from that module so the two cannot drift, and the *match*
-    against a spec is deliberately not decided here -- the child does that, and
-    a sweep that guessed would be a second opinion about the same question.
+    name is imported from ``pipelines.download`` so the two cannot drift, and
+    the *match* against a spec is deliberately not decided here -- the child
+    does that, and a sweep that guessed would be a second opinion about the
+    same question.
+
+    From ``pipelines.download``, not ``pipelines.fetch_worker`` (the
+    2026-09-26 audit, pipelines-children-01): ``fetch_worker`` sets
+    ``HF_HUB_OFFLINE=0`` at module scope, correct for the child whose whole
+    job is to go online, catastrophic here -- importing it merely to read
+    this constant flipped the *app* process online-capable for every
+    subprocess spawned for the rest of its life, on nothing more than a
+    staging-directory sweep that runs before every download. ``download`` has
+    no import-time side effect at all; ``fetch_worker.RESUME_NAME`` is now an
+    alias onto the same value, so the two still cannot drift.
     """
-    from ..pipelines.fetch_worker import RESUME_NAME
+    from ..pipelines.download import RESUME_NAME
 
     return path.is_dir() and (path / RESUME_NAME).is_file()
 
@@ -726,16 +737,6 @@ async def _release_if_idle(worker: Any, *, stop_engine: bool = False) -> bool:
     if worker.current_job_id is not None:
         return False
     await worker.unload_text2image()
-    # Familiar holds its own directory the same way trellis-server holds
-    # ``trellis_runtime_dir`` -- a live child with an open handle on its own
-    # exe/DLLs, or the resident weights file, would make either directory's
-    # staged-rename fail with a sharing violation the moment a row under it
-    # is removed. Stopped unconditionally here (not gated on which rows are
-    # being removed, unlike ``stop_engine``): Familiar is cheap to restart --
-    # it comes back on the user's next chat message -- so there is no warm
-    # state worth preserving across an uninstall the way there is for trellis.
-    if worker.familiar.running:
-        await asyncio.to_thread(worker.familiar.stop)
     if stop_engine:
         # Every other caller of ``stop`` goes through ``to_thread`` for the
         # same reason: it blocks for up to ~25 s in the worst case (terminate,

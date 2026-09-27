@@ -741,6 +741,12 @@ def test_a_failed_skeleton_build_offers_retry(app_ctx, imgui_ctx, gl, monkeypatc
             self.poser_viewer = None
             self._poser_hovered = False
 
+        def _on_pose_dirty(self, dirty: bool) -> None:
+            # ``_ensure_poser_viewer`` wires this unconditionally (poser-mode-03,
+            # test_audit_2026_09_26_w1f3_modes_poser.py), so this double needs
+            # it too, the same shape as that audit's ``_FakePoserApp``.
+            pass
+
     app = _App(gl, app_ctx)
     _frame(imgui_ctx, lambda: app._poser_viewport(app_ctx))
 
@@ -771,6 +777,9 @@ def test_the_joint_menu_switches_to_skeleton_items_in_skeleton_mode(app_ctx, img
             self.app_ctx = ctx
             self.poser_viewer = None
             self._poser_hovered = False
+
+        def _on_pose_dirty(self, dirty: bool) -> None:
+            pass
 
     app_ctx.rigging_available = True
     viewer = _PoserViewer()

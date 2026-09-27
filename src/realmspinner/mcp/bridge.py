@@ -36,10 +36,13 @@ never a crash, since the bridge itself is still alive and useful for
 discovery. There are exactly two cases fatal at start-up, both `exit(1)`
 after a reason on stderr: no snapshot and no reachable Realmspinner, in which case
 there is nothing to serve at all; and a reachable Realmspinner whose `hello` names
-an RPC version this bridge does not understand (`_hello` returning `None`)
--- unlike "nothing was listening", that is a real disagreement no snapshot
-can paper over, so `main` refuses to fall back to one (the 2026-09-14 audit,
-agents-08, found this second case undocumented here).
+an RPC version this bridge does not understand (`_hello` raising
+`_VersionMismatch`) -- unlike "nothing was listening" or "nothing answered
+in time" (both of which `_hello`/`_fetch_catalogue` report by returning
+`None`, and both of which fall back to a snapshot like any other
+unreachable Realmspinner), that is a real disagreement no snapshot can paper
+over, so `main` refuses to fall back to one (the 2026-09-14 audit, agents-08,
+found this second case undocumented here).
 """
 
 from __future__ import annotations
@@ -58,6 +61,20 @@ RPC_VERSIONS = [1]
 """What this bridge sends `hello` -- the RPC integers it understands. See
 `rpc.SUPPORTED_RPC_VERSIONS` for Realmspinner's own side of the same negotiation."""
 
+SETUP_TIMEOUT = 10.0
+"""How long `_hello`/`_fetch_catalogue` wait for a reply before giving up --
+at start-up (`main`) and on a lazy reconnect (`_Session._ensure_connected`)
+alike, since both paths share the same two calls. Before this, `conn.
+recv_bytes()` right after `send_bytes()` had no bound at all: a Realmspinner
+that accepted the pipe connection (the token challenge already passed) but
+then hung -- wedged, or answering something else first -- left this call
+blocked forever, indistinguishable from a slow but honest reply. Generous
+next to `CALL_TIMEOUT + 5s`, since a hung `hello`/`catalogue` is "nothing is
+coming" territory the same way an unreachable pipe already is, not "the app
+is briefly busy" -- so a timeout here is treated exactly like `_connect`
+returning `None`: fall back to the snapshot at start-up, or fail the
+reconnect attempt."""
+
 NOT_ACCEPTING_MESSAGE = (
     "Realmspinner is not accepting agent connections. Open the app "
     "and switch on Settings -> Advanced -> Allow AI agents to drive "
@@ -67,6 +84,15 @@ NOT_ACCEPTING_MESSAGE = (
 answered the pipe at start-up. Reused verbatim as the text of an `isError`
 `tools/call` reply once the bridge can stay alive with no Realmspinner reachable
 -- same wording, same remedy, whichever surface reports it."""
+
+
+def _fail_bytes(message: str, **extra: Any) -> bytes:
+    """`protocol.fail(message, **extra)`, serialised the one way every
+    tool-result body in this module already is -- factored out once
+    :meth:`_Session.call_tool_task` needed the same "return a body, not a
+    dict" shape :meth:`_Session.call_tool` already builds inline at each of
+    its own failure sites."""
+    return json.dumps(protocol.fail(message, **extra), separators=(",", ":")).encode("utf-8")
 
 
 def _connect(home) -> Any:
@@ -94,13 +120,39 @@ def _load_snapshot(home: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+class _VersionMismatch(Exception):
+    """Raised by `_hello` for the one setup failure that is truly fatal: a
+    reachable Realmspinner answered `hello` and named an RPC version this
+    bridge does not understand. Kept distinct from `_hello` returning `None`
+    (no reply at all within `SETUP_TIMEOUT`, or a `busy`/other refusal) --
+    those mean "treat this connection as unreachable", which `main` already
+    knows how to fall back from (a snapshot, if one exists); a real version
+    disagreement is not something a snapshot can paper over, so only this
+    case gets to end `main` with no fallback (see `main`'s own comment on
+    the two fatal cases)."""
+
+
 def _hello(conn: Any) -> dict[str, Any] | None:
-    """Send `hello`, return its header, or `None` (already reported) on a
-    version mismatch."""
+    """Send `hello`, bounded by `SETUP_TIMEOUT`, and return its header.
+
+    `None` covers every outcome that means "this connection is not usable,
+    but not because of a real disagreement": no reply within
+    `SETUP_TIMEOUT`, or Realmspinner refusing outright (including `busy` --
+    another bridge already has the one live session `pipe.py`'s "one
+    connection at a time" decision allows). Raises `_VersionMismatch` for
+    the one refusal that is not like the others -- see that exception's own
+    docstring."""
     request = rpc.encode_request(
         "hello", versions=RPC_VERSIONS, bridge_version=protocol.SERVER_VERSION
     )
     conn.send_bytes(request)
+    if not conn.poll(SETUP_TIMEOUT):
+        print(
+            f"Realmspinner did not answer 'hello' within {SETUP_TIMEOUT:.0f}s; "
+            "treating this connection as unreachable.",
+            file=sys.stderr,
+        )
+        return None
     # The 2026-09-16 audit (agents-04): every `recv_bytes()` call on this
     # pipe omitted stdlib's own `maxlength` argument, so `Connection.
     # recv_bytes()` fully buffered whatever the peer sent *before*
@@ -121,15 +173,32 @@ def _hello(conn: Any) -> dict[str, Any] | None:
                 "Update Realmspinner or this bridge so the two match.",
                 file=sys.stderr,
             )
+            raise _VersionMismatch(err)
+        if err.get("code") == "busy":
+            print(
+                "Realmspinner already has another agent client connected -- "
+                "only one is served at a time. Try again once it disconnects.",
+                file=sys.stderr,
+            )
         else:
             print(f"Realmspinner refused the agent connection: {err}", file=sys.stderr)
         return None
     return header
 
 
-def _fetch_catalogue(conn: Any) -> dict[str, Any]:
+def _fetch_catalogue(conn: Any) -> dict[str, Any] | None:
+    """The `catalogue` op's reply header, bounded by `SETUP_TIMEOUT` the
+    same way `_hello` is -- `None` on a timeout, treated identically:
+    "this connection is not usable right now"."""
     request = rpc.encode_request("catalogue")
     conn.send_bytes(request)
+    if not conn.poll(SETUP_TIMEOUT):
+        print(
+            f"Realmspinner did not answer 'catalogue' within {SETUP_TIMEOUT:.0f}s; "
+            "treating this connection as unreachable.",
+            file=sys.stderr,
+        )
+        return None
     header, _body = rpc.split_reply(conn.recv_bytes(maxlength=rpc.MAX_FRAME))
     return header
 
@@ -169,10 +238,16 @@ class _Session:
         self.pending_notifications: list[bytes] = []
 
     @classmethod
-    def connected(cls, home: Any, conn: Any, hello_header: dict[str, Any]) -> _Session:
+    def connected(cls, home: Any, conn: Any, hello_header: dict[str, Any]) -> _Session | None:
         """Built from a `hello` that already succeeded -- the ordinary
-        start-up path, unchanged."""
-        return cls(home, conn, hello_header, _fetch_catalogue(conn))
+        start-up path. `None` if `catalogue` then times out
+        (`SETUP_TIMEOUT`): the caller treats that exactly like `_hello`
+        itself failing -- fall back to a snapshot rather than serve a
+        session with no catalogue."""
+        catalogue = _fetch_catalogue(conn)
+        if catalogue is None:
+            return None
+        return cls(home, conn, hello_header, catalogue)
 
     @classmethod
     def from_snapshot(cls, home: Any, snapshot: dict[str, Any]) -> _Session:
@@ -200,7 +275,18 @@ class _Session:
         conn = _connect(self.home)
         if conn is None:
             return False
-        header = _hello(conn)
+        try:
+            header = _hello(conn)
+        except _VersionMismatch:
+            # Unlike `main`'s own start-up path, a reconnect has nowhere to
+            # fall back to except "not connected right now" -- there is no
+            # snapshot branch mid-session, and a version disagreement that
+            # was fatal at start-up is no less real here. The caller (any
+            # `tools/call`) gets the ordinary "Realmspinner unreachable"
+            # refusal rather than this process taking itself down.
+            with contextlib.suppress(OSError):
+                conn.close()
+            return False
         if header is None:
             with contextlib.suppress(OSError):
                 conn.close()
@@ -282,41 +368,92 @@ class _Session:
         self._maybe_refresh_catalogue(new_hash)
         return body
 
-    def call_tool_task(self, name: str, arguments: dict[str, Any]) -> tuple[str, str]:
+    def call_tool_task(self, name: str, arguments: dict[str, Any]) -> tuple[str, str] | bytes:
         """The `call_tool_task` callback `protocol.bridge_dispatch` invokes
         for a `tools/call` on a connection that declared
         :data:`protocol.TASKS_EXTENSION` -- the task-mode counterpart to
-        :meth:`call_tool`. Sends RPC v1's `call` with `wait: false` and
-        returns straight back with `(operation_id, status)`: this is a
-        short, ordinary RPC (mint-and-queue, never a wait on Realmspinner's frame
-        thread), so it gets the **same** `call_timeout + 5s` backstop as any
-        other quick RPC v1 round trip -- unlike a `status` poll for a task
-        already running, there is nothing here that could legitimately run
-        long, since Realmspinner's own `_call_task` never blocks either.
+        :meth:`call_tool`. Sends RPC v1's `call` with `wait: false`, and gets
+        the **same** `call_timeout + 5s` backstop as any other quick RPC v1
+        round trip: this is mint-and-queue, never a wait on Realmspinner's
+        frame thread, so nothing here could legitimately run long.
 
-        On any of the three ways this can fail to reach Realmspinner for real
-        (nothing listening, a timed-out poll, a lost connection), there is
-        no operation id to hand back -- the caller could not have started
-        anything -- so this reports a synthetic `"cancelled"` task rather
-        than raising: the caller (`protocol._dispatch_one`) still owes the
-        MCP client a `CreateTaskResult`, and `"cancelled"` is the one status
-        in the vocabulary that honestly means "nothing is going to happen
-        here."""
+        **This must never return `("unavailable", "cancelled")`.** That old
+        synthetic pair looked like a real operation id to everything above
+        it -- `protocol._dispatch_one` handed it straight to the MCP client
+        as a genuine `CreateTaskResult`, which then polled `tasks/get` for
+        `"unavailable"` and got a real `not_found` every single time, never
+        an honest "this never happened" up front. There are two genuinely
+        different outcomes now, and both return a tool-result body (`bytes`,
+        exactly :meth:`call_tool`'s own return shape) instead of a task
+        handle, because neither one minted a real operation to poll:
+
+        * **Never submitted** -- `_ensure_connected` failed, or the request
+          itself could not be sent. Nothing on Realmspinner's side could have
+          started, so the refusal says exactly that and calls it safe to
+          retry outright.
+        * **Outcome unknown** -- the request went out but nothing usable came
+          back: the poll ran past `call_timeout + 5s`, `recv_bytes` raised
+          `EOFError`/`OSError`, or the reply arrived but named no
+          `operation_id` at all (a malformed or impossibly old peer). Unlike
+          the first case, Realmspinner may already be running this call, so the
+          refusal carries `recovery: "read_scene"` and :meth:`call_tool`'s
+          own "may or may not have run" wording -- never a plain retry
+          invitation.
+
+        Only when the reply genuinely carries a string `operation_id` does
+        this return the `(operation_id, status)` pair a real MCP Tasks
+        client can actually poll.
+        """
         if not self._ensure_connected():
-            return "unavailable", "cancelled"
+            return _fail_bytes(
+                "This task-mode call never reached Realmspinner, so nothing "
+                f"started. Safe to retry once Realmspinner is reachable. {NOT_ACCEPTING_MESSAGE}"
+            )
+
         request = rpc.encode_request("call", tool=name, args=arguments, wait=False)
         try:
             self.conn.send_bytes(request)
+        except (EOFError, OSError):
+            # The request itself never made it out -- nothing on
+            # Realmspinner's side has any way to have started running it.
+            self._disconnect()
+            return _fail_bytes(
+                "This task-mode call never reached Realmspinner -- the "
+                "connection failed while sending it, so nothing started. "
+                "Safe to retry; the next call will open a new Realmspinner "
+                "agent session."
+            )
+
+        lost_message = (
+            "Realmspinner's answer to this task-mode call was lost. It may or "
+            "may not have started running -- re-read the scene (e.g. "
+            "clay_scene) before retrying rather than assuming either way. "
+            "The next call will open a new Realmspinner agent session, not "
+            "resume this one."
+        )
+        try:
             if not self.conn.poll(self.call_timeout + 5.0):
                 self._disconnect()
-                return "unavailable", "cancelled"
+                return _fail_bytes(lost_message, recovery="read_scene")
             header, _body = rpc.split_reply(self.conn.recv_bytes(maxlength=rpc.MAX_FRAME))
         except (EOFError, OSError):
             self._disconnect()
-            return "unavailable", "cancelled"
+            return _fail_bytes(lost_message, recovery="read_scene")
+
         if "error" in header:
-            return "unavailable", "cancelled"
-        return header.get("operation_id", "unavailable"), header.get("status", "cancelled")
+            # A refusal (bad arguments, `_Saturated`, ...) is answered
+            # *before* Realmspinner mints anything -- see `AgentHost._call_task`
+            # -- so, unlike a lost reply, this genuinely never started.
+            return _fail_bytes(
+                f"Realmspinner refused this task-mode call before it started: "
+                f"{header['error']}. Safe to retry.",
+            )
+        operation_id = header.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id:
+            # A reply arrived, so the request was sent -- but with nothing to
+            # poll, this is the "outcome unknown" case, not "never started".
+            return _fail_bytes(lost_message, recovery="read_scene")
+        return operation_id, header.get("status", "working")
 
     def get_task(self, task_id: str) -> tuple[str, bytes | None] | None:
         """The `get_task` callback for `tasks/get` -- RPC v1's `status` op.
@@ -464,7 +601,17 @@ class _Session:
     def _maybe_refresh_catalogue(self, hash_: str) -> None:
         if not hash_ or hash_ == self.catalogue.get("hash"):
             return
-        self.catalogue = _fetch_catalogue(self.conn)
+        fresh = _fetch_catalogue(self.conn)
+        if fresh is None:
+            # A timed-out catalogue re-fetch mid-session: nothing this
+            # session already has (its stale catalogue) is lost, so there is
+            # no need to fail the call that triggered this -- just stop
+            # trusting this connection and let the next call reconnect,
+            # exactly as a lost connection elsewhere in this class already
+            # does.
+            self._disconnect()
+            return
+        self.catalogue = fresh
         if self.era.era == "legacy":
             self.pending_notifications.append(_notify_tools_changed())
 
@@ -483,17 +630,34 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     home = get_config().home
     conn = _connect(home)
+    session: _Session | None = None
     if conn is not None:
-        header = _hello(conn)
-        if header is None:
-            # A version mismatch: _hello has already printed the specific
-            # reason to stderr, and unlike "nothing was listening" this is a
-            # real disagreement a snapshot cannot paper over.
+        try:
+            header = _hello(conn)
+        except _VersionMismatch:
+            # The one setup failure with nowhere to fall back to: _hello has
+            # already printed the specific reason to stderr, and unlike
+            # "nothing was listening" or "nothing answered in time" this is
+            # a real disagreement a snapshot cannot paper over.
             conn.close()
             return 1
-        protocol.SERVER_VERSION = header.get("studio_version", protocol.SERVER_VERSION)
-        session = _Session.connected(home, conn, header)
-    else:
+        if header is None:
+            # Nothing usable came of this connection (timeout, refusal, or
+            # `busy`) -- _hello has already said why. Treated exactly like
+            # `_connect` returning `None`: fall through to the snapshot.
+            with contextlib.suppress(OSError):
+                conn.close()
+            conn = None
+        else:
+            protocol.SERVER_VERSION = header.get("studio_version", protocol.SERVER_VERSION)
+            session = _Session.connected(home, conn, header)
+            if session is None:
+                # `catalogue` itself timed out (SETUP_TIMEOUT) right after a
+                # good `hello` -- the same "not usable right now" outcome.
+                with contextlib.suppress(OSError):
+                    conn.close()
+                conn = None
+    if conn is None:
         snapshot = _load_snapshot(home)
         if snapshot is None:
             print(NOT_ACCEPTING_MESSAGE, file=sys.stderr)

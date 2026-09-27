@@ -104,6 +104,7 @@ from typing import Any
 
 import numpy as np
 
+from ...core.safeio import pixelguard
 from ..grid2d import gid
 from .animation import DEFAULT_DURATION_MS
 from .asein import (
@@ -1451,6 +1452,31 @@ def aseprite_bytes(doc) -> bytes:
         raise ValueError(
             f"an .aseprite holds at most {_MAX_U16} frames, not {frames}"
         )
+    if anim is not None:
+        # The 2026-09-26 audit, finding inker-codecs-01: ``add_frame`` and the
+        # rest of the editor's frame verbs carry no budget of their own, but
+        # ``_build_cels`` (the reader, asein.py) refuses once its decoded
+        # cels pass ``pixelguard.MAX_DECODE_PIXELS`` for this canvas -- so a
+        # document the editor happily built (70 frames at 1024x1024, each a
+        # distinct cel) saved to a small archive this same build then
+        # refused to reopen. Counted here the same way the reader counts: one
+        # decoded plane per distinct (layer object, track) pair, a link
+        # elsewhere on the same track costing nothing.
+        canvas_pixels = width * height
+        allowed = pixelguard.MAX_DECODE_PIXELS // max(1, canvas_pixels)
+        drawn = 0
+        for track in anim.tracks:
+            seen: set[int] = set()
+            for frame in anim.frames:
+                layer = anim.cels.get((track.uid, frame.uid))
+                if layer is not None and id(layer) not in seen:
+                    seen.add(id(layer))
+                    drawn += 1
+        if drawn > allowed:
+            raise ValueError(
+                f"this animation holds more than the {allowed} distinct cels of "
+                f"{width}x{height} this build can reopen"
+            )
     tilesets = list(getattr(doc, "tilesets", None) or ())
     # Ids are slot *positions*: the reader keys its own table on the id a
     # chunk declares and hands the slots back in that table's insertion order,

@@ -77,41 +77,42 @@ def delete_selected(doc: Any) -> list[str]:
     an element mode is derived from the element selection, so every object with
     anything selected inside it would go.
 
-    The object-mode branch pushes one ``CompoundEdit`` for the whole selection
-    rather than one ``ObjectRemoveEdit`` per ``remove_object`` call, the same
-    shape :meth:`~.document.ClayDoc.join_objects` already uses -- the
-    2026-09-06 audit (finding clay-01) found that selecting three objects and
-    pressing Delete once took three presses of Ctrl+Z to undo, landing on a
-    two-deleted/one-restored state the user never produced. The removals are
-    recorded in *descending* index order for ``join_objects``'s own reason: a
-    ``CompoundEdit`` undoes in reverse, which re-inserts them ascending, which
-    is the only order in which every recorded index is still correct.
+    The object-mode branch folds one ``mark()``/``collapse_since()`` gesture
+    (see below) around one ``remove_object`` call per selected uid, so the
+    whole selection is one undo step -- the 2026-09-06 audit (finding clay-01)
+    found that selecting three objects and pressing Delete once took three
+    presses of Ctrl+Z to undo, landing on a two-deleted/one-restored state the
+    user never produced. The removals are processed in *descending* index
+    order for the same reason :meth:`~.document.ClayDoc.join_objects` records
+    its own doomed list that way: a ``CompoundEdit`` undoes in reverse, which
+    re-inserts them ascending, which is the only order in which every
+    recorded index is still correct. The 2026-09-26 audit (finding
+    clay-mesh-core-01) found this branch had drifted from ``remove_object`` by
+    reimplementing its bookkeeping inline instead of calling it -- see the
+    comment at the call site for what that cost.
 
-    The element-mode branch below folds the same way, but through
-    ``UndoStack.mark``/``collapse_since`` rather than a hand-built
-    ``CompoundEdit``: each object's ``doc.set_mesh`` call already pushes its
-    own step (a ``MeshEdit``, plus a generator-freeze ``ObjectPropsEdit`` when
-    that object had one), and there is no "build the edit but do not push it"
-    form of ``set_mesh`` to collect from instead. The 2026-09-08 audit
-    (second run, finding clay-10) found that with three boxes and every face selected, one
-    Delete pushed three of those steps and one Ctrl+Z restored one box while
-    leaving two empty -- the direct-call twin of clay-01, reachable from
-    ``tests/modes/clay/test_select.py`` and any other caller that reaches this
-    function without going through ``clay_ops.run`` (which already folds
-    everything an op pushes, but only for callers that go through it -- see
-    the 2026-09-07 audit's clay-02 in ``studio/modes/clay/mode.py``). ``mark``/
-    ``collapse_since`` is the primitive built for exactly this composed-op
-    shape (its own docstring in ``core/undo.py`` names "delete these eight
-    rows"), and it already folds nothing into nothing: a single touched
-    object still pushes the one plain step ``set_mesh`` always pushed, so the
-    existing single-object undo tests are unaffected.
+    The element-mode branch below folds the same way, through
+    ``UndoStack.mark``/``collapse_since``: each object's ``doc.set_mesh`` call
+    already pushes its own step (a ``MeshEdit``, plus a generator-freeze
+    ``ObjectPropsEdit`` when that object had one), and there is no "build the
+    edit but do not push it" form of ``set_mesh`` to collect from instead. The
+    2026-09-08 audit (second run, finding clay-10) found that with three boxes
+    and every face selected, one Delete pushed three of those steps and one
+    Ctrl+Z restored one box while leaving two empty -- the direct-call twin of
+    clay-01, reachable from ``tests/modes/clay/test_select.py`` and any other
+    caller that reaches this function without going through ``clay_ops.run``
+    (which already folds everything an op pushes, but only for callers that go
+    through it -- see the 2026-09-07 audit's clay-02 in
+    ``studio/modes/clay/mode.py``). ``mark``/``collapse_since`` is the
+    primitive built for exactly this composed-op shape (its own docstring in
+    ``core/undo.py`` names "delete these eight rows"), and it already folds
+    nothing into nothing: a single touched object still pushes the one plain
+    step ``set_mesh`` (or, in the object-mode branch, ``remove_object``)
+    always pushed, so the existing single-object undo tests are unaffected.
     """
     from . import ops_topo
-    from .edits import ObjectRemoveEdit
 
     if doc.element_mode == "object":
-        from ...core.undo import CompoundEdit
-
         doomed = sorted({int(u) for u in doc.selection}, key=doc.index_of, reverse=True)
         if not doomed:
             return []
@@ -133,25 +134,24 @@ def delete_selected(doc: Any) -> list[str]:
             removable.append(uid)
         if not removable:
             return refusals
-        edits: list[Any] = []
+        # The 2026-09-26 audit, finding clay-mesh-core-01: this branch used to
+        # reimplement remove_object's bookkeeping inline (a hand-built
+        # CompoundEdit around a hand-popped ``doc.objects.pop``) and it never
+        # re-parented the removed object's children the way remove_object
+        # does, nor popped ``_evaluated`` -- deleting a parent left each
+        # child's ``parent`` naming a uid the document no longer carries, and
+        # read_rblk refuses to reopen that file (a saved model or journal
+        # copy). Calling remove_object itself, per uid, inside a
+        # mark()/collapse_since() gesture -- the same primitive the
+        # element-mode branch below already uses to fold its own per-object
+        # set_mesh steps -- gets every one of remove_object's guarantees
+        # (reparenting, the _mesh_stamps and _evaluated pops) for the whole
+        # selection at once, still as one undo step, with no logic to
+        # duplicate or drift out of sync.
+        mark = doc.history.mark()
         for uid in removable:
-            index = doc.index_of(uid)
-            obj = doc.objects.pop(index)
-            doc.selection.discard(uid)
-            doc.element_sel.pop(uid, None)
-            # The 2026-09-11 audit, finding clay-06: this branch reimplements
-            # ClayDoc.remove_object's bookkeeping inline (to build one
-            # CompoundEdit for the whole selection, the clay-01 fix) and used
-            # to stop one line short of it -- a deleted uid's _mesh_stamps
-            # entry, which pins its Mesh's full CSR arrays in memory, was
-            # never popped. Same shape of bug already named and fixed twice
-            # for ClayState.manifold: the rule is every way an object leaves
-            # doc.objects, not only the one call site an earlier audit
-            # happened to reach. Mirrors remove_object's own comment.
-            doc._mesh_stamps.pop(uid, None)
-            edits.append(ObjectRemoveEdit(index, obj))
-        doc.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
-        doc.touch()
+            doc.remove_object(uid)
+        doc.history.collapse_since(mark)
         return refusals
     refusals = []
     mark = doc.history.mark()

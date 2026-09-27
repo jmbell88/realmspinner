@@ -28,39 +28,7 @@ FACES = (
     "Inter-Medium.ttf",
     "Inter-SemiBold.ttf",
     "lucide.ttf",
-    "familiar-sigil.ttf",
 )
-
-#: A one-glyph subset of Noto Sans Symbols 2 (SIL OFL 1.1) carrying only
-#: U+2726 BLACK FOUR POINTED STAR -- the Familiar mark. Neither Inter nor
-#: Lucide carries that codepoint (see menus.FAMILIAR_LABEL's prior history:
-#: T0 stood ``icons.SPARKLES`` in for it because the vendored faces couldn't
-#: draw it at all), so this is merged in the same way lucide is.
-SIGIL_FACE = "familiar-sigil.ttf"
-
-# Noto Sans Symbols 2's U+2726 sits upem 1000 / ascent 1069 / descent -630,
-# an unusually tall span (a symbol font gives its glyphs more room than
-# Latin text does) that imgui's merge bakes each source against -- so a
-# merge at the *same* size_pixels as the base face scales the glyph down by
-# its own ascent+descent (1699 units) rather than by its upem, and the star
-# came out well under Inter's cap height (screenshot pass, 2026-09-13).
-#
-# SIGIL_SCALE corrects that: it inflates the size_pixels the sigil source is
-# merged at so the glyph's ink height lands close to Inter Regular's cap
-# height (``sCapHeight`` 1490 of a 2048 upem, 0.7275 of the em) rather than
-# its own cramped fraction (ink y -42..726, 768 of 1699, 0.4520) --
-# 0.7275 / 0.4520. Baked size, not glyph_offset, is what fixes this: the
-# glyph is too *small*, not merely off the destination baseline, so scaling
-# is the load-bearing correction and the offset stays zero.
-SIGIL_SCALE = 1.61
-SIGIL_OFFSET = (0.0, 0.0)
-
-
-def _sigil_merge_size(base: float) -> float:
-    """The pixel size the sigil source is merged at, given the base face's
-    own size_pixels. A pure function so :data:`SIGIL_SCALE` is checkable
-    without an imgui context (see ``test_fonts.py``)."""
-    return base * SIGIL_SCALE
 
 
 class FontsUnavailable(RuntimeError):
@@ -152,13 +120,6 @@ def load(imgui: Any) -> None:
         merge.merge_mode = True
         merge.glyph_offset = imgui.ImVec2(base * ICON_OFFSET[0], base * ICON_OFFSET[1])
         io.fonts.add_font_from_file_ttf(str(FONT_DIR / "lucide.ttf"), base, merge)
-
-        sigil = imgui.ImFontConfig()
-        sigil.merge_mode = True
-        sigil.glyph_offset = imgui.ImVec2(base * SIGIL_OFFSET[0], base * SIGIL_OFFSET[1])
-        io.fonts.add_font_from_file_ttf(
-            str(FONT_DIR / SIGIL_FACE), _sigil_merge_size(base), sigil
-        )
         return font
 
     # Regular first: the first atlas font is imgui's default, so every string
@@ -187,11 +148,11 @@ def centred_glyph_pos(imgui: Any, glyph: str, cx: float, cy: float) -> tuple[flo
     Centring on ``calc_text_size`` centres the glyph's advance and line box,
     and a Lucide icon's ink is neither: ``ICON_OFFSET`` is one average nudge
     for the whole face, so an individual glyph still sat about 3 px left of
-    its rail button on a 44 dp column (screenshot, 2026-09-24), and the ✦
-    sigil comes from a different face again. The baked glyph's own ``x0..x1``
-    and ``y0..y1`` are the ink box relative to the draw position, so this
-    centres what the eye actually sees. Falls back to the advance box when the
-    glyph is not in the atlas (a headless test's default font).
+    its rail button on a 44 dp column (screenshot, 2026-09-24). The baked
+    glyph's own ``x0..x1`` and ``y0..y1`` are the ink box relative to the draw
+    position, so this centres what the eye actually sees. Falls back to the
+    advance box when the glyph is not in the atlas (a headless test's default
+    font).
     """
     size = imgui.calc_text_size(glyph)
     try:

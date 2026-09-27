@@ -56,11 +56,27 @@ def carry_over(
 
     * **Face count unchanged** -- a radius or a position moved, not a segment
       count -- means the rebuilt mesh has the same faces in the same order
-      every generator in ``primitives.py`` always emits them in, so *both* the
-      old ``smooth`` array and the old ``material`` array are carried over
-      verbatim. This is what makes a hand-picked per-face Shade Smooth *and* a
-      hand-picked per-face palette assignment, made in face mode, survive a
-      numeric tweak exactly rather than approximately.
+      every generator in ``primitives.py`` always emits them in, so the old
+      ``smooth`` array, the old ``material`` array *and* the old ``uv`` array
+      are all carried over verbatim. This is what makes a hand-picked
+      per-face Shade Smooth *and* a hand-picked per-face palette assignment,
+      made in face mode, survive a numeric tweak exactly rather than
+      approximately.
+
+      **``uv`` joined the other two in the 2026-09-26 audit's
+      clay-document-04.** Smart Unwrap and Box Unwrap both call
+      ``set_mesh(..., keep_generator=True)`` -- UVs are not geometry, the
+      same reasoning that keeps the generator claim alive across them -- so
+      an object the user had just unwrapped by hand still answers to its
+      generator, and the very next radius edit rebuilt it through this same
+      "same face order" branch. Carrying ``smooth``/``material`` but not
+      ``uv`` meant that edit silently threw the unwrap away and put back
+      whatever flat layout the generator stamps by default -- the same
+      "quietly building a different mesh" failure this module's own
+      docstring was written to end for the other two attributes. Same
+      guard, same reasoning: the corners are the same corners in the same
+      order, so there is exactly as much reason to trust an old per-corner
+      array here as an old per-face one.
     * **Face count changed** -- a segment slider moved, so the faces are not
       the same faces any more and there is no old flag or slot to carry to a
       face that did not exist a moment ago. ``smooth`` is re-derived with
@@ -96,6 +112,6 @@ def carry_over(
     """
     reorder_risk = changed_keys is not None and len(changed_keys) > 1
     if bm.face_count(rebuilt) == bm.face_count(old) and not reorder_risk:
-        return replace(rebuilt, smooth=old.smooth, material=old.material)
+        return replace(rebuilt, smooth=old.smooth, material=old.material, uv=old.uv)
     smoothed = shading.auto_smooth(rebuilt)
     return replace(smoothed, material=np.full(bm.face_count(rebuilt), material, dtype="i4"))

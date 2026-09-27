@@ -35,6 +35,19 @@ from .. import __version__
 USER_AGENT = f"Realmspinner/{__version__} (+https://github.com/jmbell88/realmspinner)"
 
 
+#: The resume marker, written inside a fetch's staging tree. Defined here,
+#: not in ``fetch_worker`` (the 2026-09-26 audit, pipelines-children-01):
+#: ``service.downloads._is_resumable`` needs only this name, but importing it
+#: from ``fetch_worker`` ran that module's top-level flip of the offline
+#: variable to "online" in the *app* process -- not a spawned child -- so
+#: merely sweeping staging trees before a download left every subsequent
+#: subprocess offline mode switched off for the rest of the app's life. This
+#: module has no side effect on import, ``fetch_worker`` already
+#: imports it (``from . import download``), so ``fetch_worker.RESUME_NAME``
+#: is kept as an alias rather than a second definition that could drift.
+RESUME_NAME = ".realmspinner-resume.json"
+
+
 def request(url: str) -> urllib.request.Request:
     """The URL as a request that identifies itself."""
     return urllib.request.Request(url, headers={"User-Agent": USER_AGENT})

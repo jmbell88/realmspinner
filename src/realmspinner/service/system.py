@@ -58,7 +58,13 @@ def cached_checks(
     # (port, disk, VRAM, job object). ``force`` recomputes everything, because
     # its one caller knows the disk just changed (a finished download).
     if static is None:
-        static = doctor.static_checks(svc.config)
+        # ``force=True`` here, not the bare call the 2026-09-26 audit found
+        # (pipelines-install-01): without it, ``static_checks`` runs again but
+        # the bpy/Muse/Create/model-load probes it calls each keep their own
+        # process-lifetime cache and hand back the same stale ``Check``
+        # regardless, so a forced recheck after a pack install never actually
+        # reprobed any of the four.
+        static = doctor.static_checks(svc.config, force=force)
     checks = doctor.run_checks(svc.config, trellis_running=trellis_running, static=static)
     with _health_lock:
         cache.update(at=now, running=trellis_running, checks=checks, static=static)

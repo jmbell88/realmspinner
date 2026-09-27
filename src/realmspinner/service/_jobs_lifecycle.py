@@ -76,8 +76,23 @@ def prune_jobs(svc: RealmspinnerService, keep: int = 20) -> dict[str, Any]:
             break
         cursor = (page[-1]["created_at"], page[-1]["id"])
         for job in page:
-            seen += 1
-            if seen <= keep or job["status"] == "running":
+            # The 2026-09-26 audit, service-kinds-05: ``store.list`` returns
+            # every job newest-first, trashed or not (db.py's ``list`` has no
+            # ``deleted_at`` filter -- ``trashed()``/``trash=`` are the doors
+            # that do), so counting a trashed row toward ``keep`` spent a
+            # protected "newest N" slot on a row the user had already asked
+            # to throw away. A history with more than ``keep`` trashed rows
+            # newer than a *live* asset pushed that live asset past its own
+            # window and into ``deleted`` -- reclaiming a still-wanted asset
+            # while the window's own count silently included rows this prune
+            # was always going to sweep. Only a live row can hold a slot; a
+            # trashed one is evaluated for deletion below on this same pass,
+            # exactly as it was already, just never counted first.
+            if not job.get("deleted_at"):
+                seen += 1
+                if seen <= keep:
+                    continue
+            if job["status"] == "running":
                 continue
             if job["id"] in retained:
                 # Counted, not silently skipped: a prune that reports "deleted

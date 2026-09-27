@@ -281,13 +281,19 @@ def test_a_sprite_that_fills_its_canvas_is_not_reported_as_trimmed():
 
 
 def test_a_blank_sprite_still_gets_a_frame():
+    """**Its own untrimmed canvas, not the 1x1 empty placeholder.** The
+    2026-09-26 audit's packwright-packer-03: ``trim_rect`` used to check
+    ``box is None`` before ``enabled``, so a fully transparent sprite
+    collapsed to the 1x1 box even with trimming off -- and grid mode always
+    packs with trim off (see ``layout.grid_layout``'s own docstring). Its cell
+    is the same 8x8 every other sprite in this pack gets."""
     result = lay.grid_layout(
         [_sprite("a", 8, 8), _sprite("b", 8, 8, blank=True)],
         PackSettings(power_of_two=False),
     )
     assert len(result.frames) == 2
     blank = result.frame("b")
-    assert blank is not None and blank.empty is True and (blank.w, blank.h) == (1, 1)
+    assert blank is not None and blank.empty is True and (blank.w, blank.h) == (8, 8)
 
 
 # --- maxrects size search -----------------------------------------------------

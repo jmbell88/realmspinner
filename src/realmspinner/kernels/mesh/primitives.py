@@ -1732,7 +1732,21 @@ def column(
     causes, arriving here through two perfectly positive numbers.
     """
     n = _clamp_segments(segments)
-    r = abs(float(radius))
+    # The 2026-09-26 audit, finding clay-document-01: at radius 0 (and, with
+    # no base/capital, only then) both ends of the profile below land on
+    # radius 0, which this generator's own docstring says never happens --
+    # ``_revolve`` reads a zero-radius first/last station as a pole (the
+    # feature ``lathe`` needs) rather than the plain ring ``column``'s uv
+    # builder below assumes, and the two disagreeing about the face count
+    # produced a uv array sized for the no-pole shape against a mesh built
+    # with poles: ``validate`` refused it (a uv row per corner mismatch), and
+    # a saved document or journal copy carrying one could not be reopened.
+    # Floored the same way ``_clamp_profile`` floors a lathe's own *middle*
+    # station (:data:`MIN_PROFILE_RADIUS`'s own docstring): its job is to be
+    # positive, not to be a minimum anybody would model to, so a column asked
+    # for at radius 0 still reads as the thinnest possible shaft rather than
+    # silently becoming a different shape.
+    r = max(abs(float(radius)), MIN_PROFILE_RADIUS)
     h = abs(float(height))
     half = h * 0.5
     b, c = abs(float(base)), abs(float(capital))

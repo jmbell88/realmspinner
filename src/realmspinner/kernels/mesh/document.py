@@ -2155,14 +2155,14 @@ _PLANS: weakref.WeakKeyDictionary[bm.Mesh, list[tuple[int, bm.RenderLayout]]] = 
 )
 # The 2026-09-23 audit's clay-12: unsynchronized on the same false premise
 # ``mesh.py``'s ``_RAW_CACHE`` carried before the 2026-09-12 audit's clay-04
-# gave it a lock -- that every caller runs on the frame thread. A ``Mesh`` is
-# shared, not copied, between the live document and a Familiar scratch
-# preview (``kernels/mesh/scratch.py``'s ``clone``), and the scratch batch
-# runs off the frame thread on ``realmspinner-task``, so a call to
-# :func:`render_plan` for the same mesh from both sides can race this dict's
-# get/set. Mirrors ``adjacency._CACHE_LOCK``: an uncontended acquire around a
-# dict lookup, next to the numpy pass this function already does when it
-# actually builds something.
+# gave it a lock -- that every caller runs on the frame thread. The character
+# pipeline's generators run on the MCP service lane's own ``TaskRunner``
+# (``studio/agent_host.py``'s ``SERVICE_WORKERS`` pool), off the frame thread,
+# and a call to :func:`render_plan` for a mesh shared with the live document
+# can race this dict's get/set from both sides. Mirrors
+# ``adjacency._CACHE_LOCK``: an uncontended acquire around a dict lookup, next
+# to the numpy pass this function already does when it actually builds
+# something.
 _PLANS_LOCK = threading.Lock()
 
 

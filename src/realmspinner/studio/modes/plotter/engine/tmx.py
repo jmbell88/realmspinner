@@ -42,6 +42,7 @@ import io
 import itertools
 import json
 import logging
+import math
 import re
 import xml.etree.ElementTree as ET
 import zlib
@@ -163,6 +164,19 @@ MAX_CHUNKS = 65_536
 # as ``rmap.MAX_OBJECTS``: neither is a fact about *this* format, both are
 # "not one anybody drew by hand".
 MAX_OBJECTS = 100_000
+# The 2026-09-26 audit (finding plotter-map-02) found ``_Budget`` counting
+# layers, chunks and objects but never the *cells* each one decodes to: a
+# zlib stream of zeros inflates roughly 750:1, so a 222 KB ``.tmx`` decoded to
+# 168 MB with the per-layer bound (``expected = w * h * 4`` in
+# ``_decompress``) never noticing, because that bound is correct *per call*
+# and nothing summed the calls. ``MAX_LAYERS`` layers or ``MAX_CHUNKS``
+# chunks, each up to ``MAX_DIMENSION`` cells a side, reaches tens of
+# gigabytes of real, decoded ``uint32`` arrays from a document a text editor
+# opens in an instant. The ceiling is cells rather than bytes to match the
+# unit every caller already computes width and height in; ``rmap``'s sibling
+# budget (finding plotter-map-01, the same audit) uses bytes for the same
+# reason its own callers already have a byte count in hand.
+MAX_DECODED_CELLS = 1 << 28
 
 
 class _Budget:
@@ -180,6 +194,7 @@ class _Budget:
         self.layers = 0
         self.chunks = 0
         self.objects = 0
+        self.cells = 0
 
     def layer(self) -> None:
         self.layers += 1
@@ -200,6 +215,21 @@ class _Budget:
         if self.objects > MAX_OBJECTS:
             raise ValueError(
                 f"this map holds more than the {MAX_OBJECTS} objects this build reads"
+            )
+
+    def cell_block(self, width: int, height: int) -> None:
+        """Charge one layer's or chunk's decode against the document's total.
+
+        Charged *before* the decode, from the width and height the element
+        already declares -- both are known without decoding anything -- so the
+        layer or chunk that crosses the line is refused rather than the one
+        after it.
+        """
+        self.cells += width * height
+        if self.cells > MAX_DECODED_CELLS:
+            raise ValueError(
+                f"this map's layers decode to more than the {MAX_DECODED_CELLS} "
+                "cells this build reads"
             )
 
 # Tiled's hexagonal 120-degree rotation flag. See the note in :mod:`.gid` for
@@ -249,6 +279,28 @@ def _check_orientation(orientation: str) -> str:
             f"Plotter draws {' and '.join(project.PROJECTIONS)} maps",
         )
     return orientation
+
+
+def _render_order(value: Any) -> str:
+    """A ``renderorder`` attribute, falling back rather than carrying garbage in.
+
+    The 2026-09-26 audit (finding plotter-map-05) found both readers assigning
+    ``doc.renderorder`` straight from the file with no check at all -- unlike
+    every other enumerated field this package reads (``projection``,
+    ``stagger_axis``...) -- so a hand-edited or foreign ``renderorder`` opened
+    without complaint and only raised later, out of :func:`.project.draw_order`
+    on the first render. Worse, ``MapDoc.set_map_settings`` re-validates the
+    *unchanged* fields on its own revert-then-reapply sequence, so a document
+    that got in with a bad value could not be repaired from the props panel
+    either: every settings change, including one that tried to fix this very
+    field, raised out of that revert. Falling back here, at the door, is what
+    :func:`.tsx.check_tileset_features`'s whole family of readers already does
+    for the fields this package models but does not draw every value of --
+    the same "an old reader's default is a legal document" rule the module
+    docstring states for ``locked``.
+    """
+    text = str(value or "right-down")
+    return text if text in project.RENDER_ORDERS else "right-down"
 
 
 def _offset_fields(
@@ -598,6 +650,26 @@ def _tiled_colour(value: Any, what: str = "a Tiled colour") -> tuple[int, int, i
     raise ValueError(f"{what} is not #RRGGBB or #AARRGGBB: {text!r}")
 
 
+def _finite(number: float, what: str) -> float:
+    """One float field, refused if it is not finite.
+
+    ``inf``/``-inf``/``NaN`` are not values this editor can place, blend or
+    render: an offset or a parallax factor of ``inf`` sends every pixel of a
+    layer off the canvas, and ``render_map`` discovers one by raising
+    ``OverflowError`` or ``ValueError`` out of a numpy call deep inside a
+    render rather than at the door the file came in through. Both syntaxes can
+    carry one in: Tiled's own text spelling of a float reads ``inf`` back as
+    one via plain ``float()``, and Python's ``json`` module accepts the
+    non-standard ``Infinity``/``-Infinity``/``NaN`` literals by default.
+    Refused here, at the door (the 2026-09-26 audit, finding plotter-map-07),
+    rather than later beside the writers that would otherwise emit one
+    straight back out.
+    """
+    if not math.isfinite(number):
+        raise ValueError(f"{what} must be a finite number, not {number!r}")
+    return number
+
+
 def _tiled_colour_text(colour: Any) -> str:
     red, green, blue, alpha = (int(value) for value in colour)
     if alpha == 255:
@@ -612,15 +684,15 @@ def _xml_layer_common(node: ET.Element) -> dict[str, Any]:
         "id": int(node.get("id", 0) or 0),
         "name": node.get("name", ""),
         "visible": node.get("visible", "1") not in ("0", "false"),
-        "opacity": float(node.get("opacity", 1) or 1),
+        "opacity": _finite(float(node.get("opacity", 1) or 1), "a layer opacity"),
         "locked": node.get("locked", "0") not in ("0", "false"),
         "class_name": node.get("class") or node.get("type") or "",
         "blend_mode": node.get("mode", "normal"),
         "tint": _tiled_colour(node.get("tintcolor"), "a layer tint"),
-        "offset_x": float(node.get("offsetx", 0) or 0),
-        "offset_y": float(node.get("offsety", 0) or 0),
-        "parallax_x": float(node.get("parallaxx", 1) or 1),
-        "parallax_y": float(node.get("parallaxy", 1) or 1),
+        "offset_x": _finite(float(node.get("offsetx", 0) or 0), "a layer offset"),
+        "offset_y": _finite(float(node.get("offsety", 0) or 0), "a layer offset"),
+        "parallax_x": _finite(float(node.get("parallaxx", 1) or 1), "a layer parallax factor"),
+        "parallax_y": _finite(float(node.get("parallaxy", 1) or 1), "a layer parallax factor"),
         "properties": read_properties(node),
     }
 
@@ -632,15 +704,15 @@ def _json_layer_common(entry: dict[str, Any]) -> dict[str, Any]:
         "id": int(entry.get("id", 0) or 0),
         "name": str(entry.get("name", "")),
         "visible": bool(entry.get("visible", True)),
-        "opacity": json_number(entry, "opacity", 1),
+        "opacity": _finite(json_number(entry, "opacity", 1), "a layer opacity"),
         "locked": bool(entry.get("locked", False)),
         "class_name": str(entry.get("class", "")),
         "blend_mode": str(entry.get("mode", "normal")),
         "tint": _tiled_colour(entry.get("tintcolor"), "a layer tint"),
-        "offset_x": json_number(entry, "offsetx", 0),
-        "offset_y": json_number(entry, "offsety", 0),
-        "parallax_x": json_number(entry, "parallaxx", 1),
-        "parallax_y": json_number(entry, "parallaxy", 1),
+        "offset_x": _finite(json_number(entry, "offsetx", 0), "a layer offset"),
+        "offset_y": _finite(json_number(entry, "offsety", 0), "a layer offset"),
+        "parallax_x": _finite(json_number(entry, "parallaxx", 1), "a layer parallax factor"),
+        "parallax_y": _finite(json_number(entry, "parallaxy", 1), "a layer parallax factor"),
         "properties": read_json_properties(entry.get("properties")),
     }
 
@@ -808,10 +880,10 @@ def _read_tmx_object(node: ET.Element) -> MapObject:
         id=int(node.get("id", 0) or 0),
         name=name,
         shape=shape,
-        x=float(node.get("x", 0) or 0),
-        y=float(node.get("y", 0) or 0),
-        rotation=float(node.get("rotation", 0) or 0),
-        opacity=float(node.get("opacity", 1) or 1),
+        x=_finite(float(node.get("x", 0) or 0), "an object's x"),
+        y=_finite(float(node.get("y", 0) or 0), "an object's y"),
+        rotation=_finite(float(node.get("rotation", 0) or 0), "an object's rotation"),
+        opacity=_finite(float(node.get("opacity", 1) or 1), "an object's opacity"),
         obj_class=node.get("type") or node.get("class") or "",
         visible=node.get("visible", "1") not in ("0", "false"),
         properties=read_properties(node),
@@ -920,6 +992,7 @@ def _read_tmx_layers(
                     # "bounded" decompress is bounded at 16 GB.
                     cw = _chunk_side(chunk.get("width", CHUNK) or CHUNK, "width")
                     ch = _chunk_side(chunk.get("height", CHUNK) or CHUNK, "height")
+                    budget.cell_block(cw, ch)
                     block = (
                         _xml_tile_elements(chunk, cw, ch)
                         if not encoding and chunk.find("tile") is not None
@@ -942,6 +1015,7 @@ def _read_tmx_layers(
                     f"tile layer {name!r} is {width}x{height}, but the fixed map is "
                     f"{doc.width}x{doc.height}"
                 )
+            budget.cell_block(width, height)
             if not encoding and payload.find("tile") is not None:
                 cells = _xml_tile_elements(payload, width, height)
             else:
@@ -1043,7 +1117,7 @@ def read_tmx(
         projection=root.get("orientation", "orthogonal"),
         infinite=infinite,
     )
-    doc.renderorder = root.get("renderorder", "right-down")
+    doc.renderorder = _render_order(root.get("renderorder"))
     # The 2026-09-13 audit (finding plotter-03) found this reader assigning
     # straight from the file, unlike ``MapDoc._apply_map_settings`` (the
     # props-panel path) which already runs it through ``colour_text`` -- so a
@@ -1146,10 +1220,10 @@ def _json_object(entry: dict[str, Any]) -> MapObject:
         id=int(entry.get("id", 0) or 0),
         name=str(entry.get("name", "")),
         shape=shape,
-        x=json_number(entry, "x", 0),
-        y=json_number(entry, "y", 0),
-        rotation=json_number(entry, "rotation", 0),
-        opacity=json_number(entry, "opacity", 1),
+        x=_finite(json_number(entry, "x", 0), "an object's x"),
+        y=_finite(json_number(entry, "y", 0), "an object's y"),
+        rotation=_finite(json_number(entry, "rotation", 0), "an object's rotation"),
+        opacity=_finite(json_number(entry, "opacity", 1), "an object's opacity"),
         obj_class=str(entry.get("class") or entry.get("type") or ""),
         visible=bool(entry.get("visible", True)),
         properties=read_json_properties(entry.get("properties")),
@@ -1276,6 +1350,7 @@ def _read_tmj_layer_list(
                     # written beside it and not called.
                     cw = _chunk_side(chunk.get("width", CHUNK) or CHUNK, "width")
                     ch = _chunk_side(chunk.get("height", CHUNK) or CHUNK, "height")
+                    budget.cell_block(cw, ch)
                     raw = chunk.get("data")
                     block = (
                         _decode_payload(
@@ -1303,6 +1378,7 @@ def _read_tmj_layer_list(
                     f"tile layer {name!r} is {width}x{height}, but the fixed map is "
                     f"{doc.width}x{doc.height}"
                 )
+            budget.cell_block(width, height)
             raw = entry.get("data")
             if isinstance(raw, str):
                 cells = _decode_payload(
@@ -1425,7 +1501,7 @@ def read_tmj(
         projection=orientation,
         infinite=bool(payload.get("infinite")),
     )
-    doc.renderorder = str(payload.get("renderorder", "right-down"))
+    doc.renderorder = _render_order(payload.get("renderorder"))
     # Same reader-side gap as ``read_tmx``, plotter-03: see that comment.
     doc.backgroundcolor = colour_text(
         payload.get("backgroundcolor"), "a map background colour"

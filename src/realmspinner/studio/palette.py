@@ -176,10 +176,10 @@ def _selected(ctx: Any) -> Any:
     Tolerant of a ``ctx`` with no ``cache`` at all -- ``commands()`` now
     calls this unconditionally while *building* the Reroll row's ``why``
     (finding shell-09's fix), and an enumerator that only wants the
-    navigation-shaped rows -- ``familiar_doors.destinations``, which never
-    even looks at Reroll's ``why`` -- used to pay nothing for the library
-    cache and should still pay nothing for it. A ``ctx`` missing ``cache``
-    reads the same as one with an empty cache: nothing selected.
+    navigation-shaped rows, which never even looks at Reroll's ``why``,
+    used to pay nothing for the library cache and should still pay nothing
+    for it. A ``ctx`` missing ``cache`` reads the same as one with an empty
+    cache: nothing selected.
     """
     cache = getattr(ctx, "cache", None)
     if cache is None:
@@ -407,20 +407,20 @@ def commands(ctx: Any) -> list[Command]:
         return bool(job and svc_jobs.rerollable(job))
 
     def delete(ctx: Any) -> None:
-        from . import dialogs
-
+        # The 2026-09-26 audit's shell-chrome-01: this used to open a confirm
+        # titled "Delete this asset?" claiming the job is "removed from disk",
+        # when ``library.delete_asset`` only ever trashes it -- the confirm's
+        # own text was wrong, and it contradicted this same gesture's other
+        # door (``shell/events.py``'s Delete key on a library row), whose
+        # comment states the house rule: "delete-to-trash is confirm-free here
+        # because the trash *is* the confirmation." Manual Chapter 36 (The
+        # trash): "Nothing is removed from disk and no question is asked --
+        # the trash *is* the question." No confirm here either, now -- the
+        # same call the keyboard shortcut already makes.
         job = _selected(ctx)
         if job is None:
             return
-        ctx.confirms.ask(
-            dialogs.Confirm(
-                title="Delete this asset?",
-                message="The job and everything derived from it are removed from disk.",
-                confirm_label="Delete",
-                cancel_label="Keep",
-                on_confirm=lambda: library.delete_asset(ctx, job["id"]),
-            )
-        )
+        library.delete_asset(ctx, job["id"])
 
     def new_drawing(ctx: Any) -> None:
         from .modes.inker import mode as inker_mode

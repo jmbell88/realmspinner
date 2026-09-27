@@ -307,6 +307,49 @@ class Server:
 
 
 def connect(home: Path) -> mpconn.Connection:
-    """The bridge's side: read the token the app published and dial in."""
+    """The bridge's side: read the token the app published and dial in,
+    bounded by :data:`HANDSHAKE_TIMEOUT`.
+
+    `mpconn.Client`'s own authentication (`answer_challenge`/`deliver_
+    challenge`, plus, on Windows, its own retry loop against a busy pipe)
+    has no deadline of its own -- unlike the server half, which
+    `Server._handshake` already bounds for exactly this reason (see that
+    method's docstring). A bridge dialling a Realmspinner that accepted the
+    connection but is stuck mid-handshake (or a pipe address that exists
+    but nothing is really listening behind any more) would otherwise block
+    here forever, with nothing above it (`bridge.main`) able to tell "still
+    connecting" from "hung".
+
+    Run on a worker thread and joined with a timeout, the same shape
+    `Server._handshake` already uses for its own half of this exchange --
+    not reimplemented, mirrored. If the worker has not finished by then,
+    there is no connection object to close (`mpconn.Client` has not
+    returned one), so this raises `TimeoutError` rather than trying to
+    abandon a handle the way the server side does; the worker thread itself
+    is left as a daemon, since a `Client()` call this codebase has already
+    given up on has nothing further for the caller to wait on.
+    """
     token = read_token(home)
-    return mpconn.Client(address_for(home), family=_FAMILY, authkey=token)
+    address = address_for(home)
+
+    result: list[mpconn.Connection] = []
+    error: list[BaseException] = []
+
+    def dial() -> None:
+        try:
+            result.append(mpconn.Client(address, family=_FAMILY, authkey=token))
+        except BaseException as exc:  # noqa: BLE001 -- re-raised on the caller's
+            # own thread below; this thread only carries it across.
+            error.append(exc)
+
+    worker = threading.Thread(target=dial, name="realmspinner-mcp-connect", daemon=True)
+    worker.start()
+    worker.join(HANDSHAKE_TIMEOUT)
+    if result:
+        return result[0]
+    if error:
+        raise error[0]
+    raise TimeoutError(
+        f"Realmspinner did not complete the agent connection handshake within "
+        f"{HANDSHAKE_TIMEOUT:.0f}s."
+    )

@@ -241,8 +241,17 @@ def grow(mesh: Mesh, verts: np.ndarray) -> np.ndarray:
     if a.n_edges:
         lo = a.edge_verts[:, 0].astype("i8")
         hi = a.edge_verts[:, 1].astype("i8")
-        inside[lo[inside[hi]]] = True
-        inside[hi[inside[lo]]] = True
+        # The 2026-09-26 audit, finding clay-mesh-core-03: both statements used
+        # to read and write the same ``inside`` array, so the second one saw
+        # the first's own additions and grew a second ring from them -- one
+        # Select More from an interior vertex of a 5x5 grid returned two rings
+        # of neighbours (7 vertices) instead of one (4). Both passes now read
+        # a snapshot taken before either writes, so a vertex can only join
+        # ``inside`` for being adjacent to a vertex that was *already* selected,
+        # never to one this same call just added.
+        base = inside.copy()
+        inside[lo[base[hi]]] = True
+        inside[hi[base[lo]]] = True
     return np.flatnonzero(inside).astype("i4")
 
 

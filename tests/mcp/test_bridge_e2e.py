@@ -704,11 +704,14 @@ def test_a_modern_client_polls_a_task_augmented_call_to_completion(host) -> None
         reply = _readline(proc)
         result = reply["result"]
         assert result["resultType"] == "task"
-        task_id = result["task"]["taskId"]
-        assert result["task"]["status"] in ("working", "completed")
+        # 2026-09-26: CreateTaskResult flattens taskId/status directly onto
+        # the result (the real ext-tasks schema, tests/mcp/fixtures/
+        # ext_tasks_2026-07-28.json) -- there is no nested "task" object.
+        task_id = result["taskId"]
+        assert result["status"] in ("working", "completed")
 
         deadline = time.monotonic() + WAIT
-        status = result["task"]["status"]
+        status = result["status"]
         payload = None
         while status not in ("completed", "failed", "cancelled") and time.monotonic() < deadline:
             _send(

@@ -396,6 +396,18 @@ class DragOps:
         populated and ``self._grab`` is set, which is what keeps a refused
         press from leaving the view thinking a drag is live: see
         ``_drag_lock_error`` for why this cannot wait until the commit.
+
+        The 2026-09-26 audit's clay-view-01: a selected object whose ancestor
+        is *also* selected used to be dragged twice over -- ``_apply`` reads
+        the parent's world matrix fresh every call, so once the ancestor's
+        own turn in :meth:`_drag_gizmo`'s loop had moved it, the descendant's
+        ``before_world`` already carried that move, and applying the same
+        delta to the descendant on top of it added the delta a second time
+        (reproduced: a child's world delta of 10 against the dragged parent's
+        5). Locking is still checked -- and still refuses -- against the
+        *whole* selection (``targets``, unfiltered) below; only what actually
+        gets a per-object delta applied drops a uid with a selected ancestor,
+        because moving that ancestor already carries it along.
         """
         uids = [o.uid for o in doc.objects if o.uid in doc.selection]
         targets = uids if doc.element_mode == "object" else list(doc.element_sel)
@@ -403,6 +415,9 @@ class DragOps:
         if error is not None:
             self._toast(error)
             return False
+        if doc.element_mode == "object":
+            selected = set(uids)
+            uids = [uid for uid in uids if selected.isdisjoint(doc.ancestors(uid))]
         self._drag_uids = uids
         self._drag_start = {
             uid: tuple(np.array(v, copy=True) for v in doc.by_uid(uid).trs())

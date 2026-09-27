@@ -78,7 +78,7 @@ def work_area() -> tuple[int, int, int, int] | None:
 
     ``SPI_GETWORKAREA`` is the desktop area minus the taskbar (and any docked
     toolbars), which ``pygame.display.get_desktop_sizes()`` cannot see -- see
-    ``main._desktop_size``, where Familiar's Build/Send row sat under the
+    ``main._desktop_size``, where a docked panel's bottom row sat under the
     taskbar (2026-09-16) because the whole-display size was the only ceiling
     available. Read before any window exists, so this is necessarily the
     *primary* monitor's work area -- there is no HWND yet to ask which
@@ -144,7 +144,7 @@ def fit_window_to_work_area(hwnd: int) -> bool:
     ``_window_size`` (main.py) clamps the window's *client* size before
     ``set_mode`` ever runs, but the title bar and frame add pixels a client
     size cannot see -- so a window whose client area fits can still have its
-    bottom edge, and Familiar's Build/Send row on it, under the taskbar. By
+    bottom edge, and whatever sits on it, under the taskbar. By
     the time a HWND exists this can be fixed exactly: the monitor the window
     actually landed on (not :func:`work_area`'s primary-monitor guess, taken
     before the window existed) via ``MonitorFromWindow``/``GetMonitorInfoW``,

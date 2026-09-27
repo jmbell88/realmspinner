@@ -20,6 +20,17 @@ the release you are actually running.
 
 ## 0.0.53 — 2026-09-23
 
+- **Familiar, the built-in assistant, is removed.** Its dock, its ✦ menu, its
+  llama-server runtime and weights download, its Doctor rows and its
+  `REALMSPINNER_FAMILIAR_*` settings are all gone, and so is Clay's build ghost
+  preview, which was Familiar's own door onto Clay. Realmspinner now ships no
+  built-in language model at all. External agents driving Clay and the
+  character pipeline over MCP are unchanged — that surface never depended on
+  Familiar and is still off until switched on in Settings. If you had
+  Familiar's weights installed, nothing deletes them for you: remove
+  `~/.realmspinner/engine/llama/` (the runtime) and `~/.realmspinner/models/familiar/`
+  (the weights) by hand, and `~/.realmspinner/models/familiar-q2/` too if you have
+  it from local testing.
 - **Familiar retries its own refused Clay proposals instead of giving up on the
   first one.** A reply the door cannot read, one naming a tool outside Clay's
   trained vocabulary, or one whose calls are refused once actually tried against

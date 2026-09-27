@@ -1227,15 +1227,34 @@ def attach_files(job: dict[str, Any], job_dir: Path, *, cache: dict | None = Non
     if cache is None:
         job["files"] = [n for n in LISTED if ready(job, job_dir, n)]
         return
-    try:
-        stamp: tuple[Any, int | None] = (job.get("status"), job_dir.stat().st_mtime_ns)
-    except OSError:
-        # No directory at all yet -- a text job has none until the worker
-        # writes into it. That is a perfectly good stamp of its own: the answer
-        # is "no files", and the moment a directory appears the stamp changes.
-        # Cached rather than fallen through, because a queued job is exactly
-        # the row that sits on screen being re-listed twice a second.
-        stamp = (job.get("status"), None)
+
+    def _mtime_ns(path: Path) -> int | None:
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            # No directory at all yet -- a text job has none until the worker
+            # writes into it. That is a perfectly good stamp of its own: the
+            # answer is "no files", and the moment a directory appears the
+            # stamp changes. Cached rather than fallen through, because a
+            # queued job is exactly the row that sits on screen being
+            # re-listed twice a second.
+            return None
+
+    dir_mtime = _mtime_ns(job_dir)
+    # service-assets-02 (2026-09-26 audit, re-run: cached call still
+    # ``['track.wav']``). ``_separate``'s own ``out_dir.mkdir`` (``_q_music.py``)
+    # creates ``stems/`` once, which is the one moment that adds an entry to
+    # *job_dir* and moves its mtime -- every stem WAV, and the ``stems.json``
+    # gate that lands last, is written *inside* ``stems/`` instead, which
+    # never touches job_dir's mtime again. A listing cached between that mkdir
+    # and ``stems.json`` landing matched the stamp forever after: the same
+    # ``job_dir`` mtime, the same status, so a finished separation stayed
+    # invisible until something else happened to bust the row. ``stems/``'s
+    # own mtime is folded into the stamp for the same reason ``ready()`` is
+    # the truth this cache is a memo of: whichever directory a write actually
+    # lands in has to be the one whose mtime can invalidate it.
+    stems_mtime = _mtime_ns(job_dir / "stems")
+    stamp: tuple[Any, int | None, int | None] = (job.get("status"), dir_mtime, stems_mtime)
     hit = cache.get(job["id"])
     if hit is not None and hit[0] == stamp:
         job["files"] = list(hit[1])
@@ -1245,6 +1264,10 @@ def attach_files(job: dict[str, Any], job_dir: Path, *, cache: dict | None = Non
     # None races with nothing: a directory appearing changes the stamp from
     # None to a number whatever the clock did, so that one is always storable.
     # A backwards clock step makes the difference negative, which declines to
-    # cache -- slower, never wrong, which is the right way round.
-    if stamp[1] is None or time.time_ns() - stamp[1] > MTIME_RACE_NS:
+    # cache -- slower, never wrong, which is the right way round. Both
+    # directories have to be safely in the past for the same reason: either
+    # one moving inside the race window is the hazard the stamp exists for.
+    now = time.time_ns()
+    safe = all(m is None or now - m > MTIME_RACE_NS for m in (dir_mtime, stems_mtime))
+    if safe:
         cache[job["id"]] = (stamp, names)

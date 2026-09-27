@@ -45,8 +45,7 @@ KNIFE_LINE_COLOR = (1.0, 1.0, 1.0, 0.95)
 # tranche 7 as the owner of that -- it was never built, so a collider drew
 # through the same opaque path as ordinary geometry and occluded or z-fought
 # the source object it previews. A cool cyan rather than the selection reds
-# or the ghost preview's green/red so a collider reads as its own kind of
-# thing rather than as a selection or a Familiar preview.
+# so a collider reads as its own kind of thing rather than as a selection.
 COLLIDER_FILL_COLOR = (0.25, 0.75, 0.95, 0.28)
 COLLIDER_LINE_COLOR = (0.35, 0.85, 1.0, 0.9)
 
@@ -390,15 +389,13 @@ class OverlayOps:
         nothing ever built it -- not here, not in ``_view_cache.CacheOps._build``,
         not in ``document.to_primitives``).
 
-        Built the same shape :meth:`ClayView._ghost_draws` builds the
-        Familiar preview's own translucent overlay -- a small per-uid GL
-        cache of its own, released for a uid that stops being a visible
-        collider -- and reusing *this* module's own fill/wireframe recipe
-        rather than inventing a second one: the eye-biased translucent
-        triangle fill is :meth:`_overlay_specs`'s selected-face fill
-        (``FILL_COLOR``, ``biased=True``) applied to the whole mesh instead
-        of a selection, and the wireframe is the same "dim guide" edge draw
-        that method builds from ``adjacency.edge_verts``.
+        A small per-uid GL cache of its own, released for a uid that stops
+        being a visible collider -- and reusing *this* module's own
+        fill/wireframe recipe rather than inventing a second one: the
+        eye-biased translucent triangle fill is :meth:`_overlay_specs`'s
+        selected-face fill (``FILL_COLOR``, ``biased=True``) applied to the
+        whole mesh instead of a selection, and the wireframe is the same
+        "dim guide" edge draw that method builds from ``adjacency.edge_verts``.
 
         ``doc.evaluated(obj.uid)`` -- not ``obj.mesh`` -- for the same reason
         :meth:`~._view_cache.CacheOps.sync` reads it for ordinary geometry:

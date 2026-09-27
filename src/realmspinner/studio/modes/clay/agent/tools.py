@@ -332,7 +332,18 @@ def _h_add_figure(ctx: Any, session: Session, args: dict) -> dict:
             # than approximate: the compound edit's own ``undo`` puts back
             # the very objects it added, by uid.
             doc.history.collapse_since(mark)
-            doc.undo()
+            # The 2026-09-26 audit, finding clay-agent-tools-03: ``doc.undo()``
+            # takes no ``redoable`` argument and always reverses redoably (a
+            # human's Ctrl+Z), which is wrong for a mutate-then-refuse revert
+            # -- the whole point is that the figure this refusal is undoing
+            # should never have existed, but leaving it on the redo stack let
+            # a later ``clay_redo`` bring the refused figure's objects right
+            # back (19 objects, reproduced) with no ``clay_add_figure`` call
+            # of its own to explain them. ``doc.history.undo(doc,
+            # redoable=False)`` is the same call ``_fold_run``'s own rollback
+            # uses for exactly this "the attempt should never have existed"
+            # case -- see that function's docstring.
+            doc.history.undo(doc, redoable=False)
             return fail(
                 f"{name_prefix!r} would collide with an existing object name.",
                 field="name_prefix",

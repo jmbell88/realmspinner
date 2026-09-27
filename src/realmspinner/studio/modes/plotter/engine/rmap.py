@@ -1046,11 +1046,12 @@ class _ReadBudget:
     would ever notice.
     """
 
-    __slots__ = ("nodes", "objects")
+    __slots__ = ("nodes", "objects", "decoded_bytes")
 
     def __init__(self) -> None:
         self.nodes = 0
         self.objects = 0
+        self.decoded_bytes = 0
 
     def node(self) -> None:
         self.nodes += 1
@@ -1066,6 +1067,27 @@ class _ReadBudget:
             raise ValueError(
                 f"this map holds more than the {MAX_OBJECTS} objects this "
                 "build reads"
+            )
+
+    def decoded(self, nbytes: int) -> None:
+        """Charge one member's decode against the archive's own byte ceiling.
+
+        ``read_rmap``'s directory check sums each *distinct* zip member once,
+        but nothing stopped several tile-layer entries from naming the same
+        small member -- each one is decoded in full and independently, since
+        :func:`_read_layers` carries no picture-style cache for tile arrays.
+        The 2026-09-26 audit (finding plotter-map-01) reproduced a 4.5 KB
+        archive, one member, 40 layer entries naming it, decoding to 168 MB at
+        a 1024-square map -- and to tens of gigabytes at the largest a
+        document here holds. Charged as each layer is read rather than
+        summed afterward, so the entry that crosses the line is the one
+        refused, the same rule ``node``/``object_count`` already follow.
+        """
+        self.decoded_bytes += nbytes
+        if self.decoded_bytes > MAX_DECOMPRESSED_BYTES:
+            raise ValueError(
+                f"this map's layers decode to more than the "
+                f"{MAX_DECOMPRESSED_BYTES} bytes this build reads"
             )
 
 
@@ -1125,6 +1147,10 @@ def _read_layers(
         common["parallax_x"], common["parallax_y"] = _pair(entry, "parallax", (1.0, 1.0))
         if kind == "tile":
             member = str(entry.get("data", ""))
+            # Charged *before* the decode and by the document's own width and
+            # height, which are already known and fixed for every tile layer:
+            # see ``_ReadBudget.decoded``.
+            budget.decoded(doc.width * doc.height * np.dtype(gidlib.DTYPE).itemsize)
             out.append(
                 TileLayer(
                     **common,
@@ -1353,7 +1379,17 @@ def read_rmap(data: bytes) -> MapDoc:
         if doc.infinite:
             origin = _two(manifest, "origin", (0, 0))
             doc.origin_x, doc.origin_y = int(origin[0]), int(origin[1])
-        doc.renderorder = str(manifest.get("renderorder", "right-down"))
+        # Falls back rather than carrying an unknown value in: the 2026-09-26
+        # audit (finding plotter-map-05) found this assigning straight from the
+        # file with no check at all, so a hand-edited manifest's bad
+        # ``renderorder`` opened without complaint and only raised later, out
+        # of ``project.draw_order`` on the first render -- and once in, it
+        # could not be repaired from the props panel either, because
+        # ``MapDoc.set_map_settings`` re-validates this same unchanged field on
+        # its own revert-then-reapply sequence. See ``tmx._render_order``,
+        # which this mirrors for the same reason ``.tmx``'s own reader does.
+        raw_order = str(manifest.get("renderorder", "right-down"))
+        doc.renderorder = raw_order if raw_order in project.RENDER_ORDERS else "right-down"
         # The 2026-09-13 audit (finding plotter-03) found this reader assigning
         # straight from the file, unlike the props-panel path
         # (``MapDoc._apply_map_settings``) which already runs it through

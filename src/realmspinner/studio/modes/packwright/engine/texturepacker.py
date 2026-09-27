@@ -188,4 +188,12 @@ def tp_bytes(
     """The same, serialized. Stable for a given layout, which is what makes a
     re-export of an unchanged document byte-identical."""
     payload = tp_json(layout, image_name=image_name, scale=scale, schema=schema)
-    return (json.dumps(payload, indent=2) + "\n").encode()
+    # ``allow_nan=False``: the 2026-09-26 audit's packwright-packer-02. A
+    # non-finite pivot (``inf``/``nan``) reaching this point -- ``rpack.py``'s
+    # ``_read_point`` now refuses one at the door, but this is the last stop
+    # before the bytes leave the app -- used to write the literal tokens
+    # ``Infinity``/``NaN``, which ``json.dumps`` accepts by default but which
+    # are not valid JSON, so a strict consumer choked on the sidecar. Raising
+    # here instead lands as a framed refusal: see ``export_files``, which
+    # already catches a ``ValueError`` out of this call.
+    return (json.dumps(payload, indent=2, allow_nan=False) + "\n").encode()

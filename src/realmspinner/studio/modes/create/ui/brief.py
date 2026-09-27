@@ -168,9 +168,7 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     problems = _with_pending_candidates_problem(ctx, problems)
     busy = ctx.busy("submit")
 
-    items = _rail_items_for_measurement()
-    rail_full_w = create_rail.stage_rail_width(items, state.create.stage)
-    rail_floor_w = create_rail.stage_rail_width(items, state.create.stage, max_width=0.0)
+    rail_full_w, rail_floor_w = _rail_measurements(state.create.stage)
     rail_w, prompt_w, show_count, reset_compact = _row_widths(
         hide_count, rail_full_w, rail_floor_w
     )
@@ -232,6 +230,34 @@ def _rail_items_for_measurement() -> list[tuple[str, str, str, str | None]]:
         (stage, create_stages.LABELS[stage], create_stages.ICONS[stage], None)
         for stage in create_stages.STAGES
     ]
+
+
+def _rail_measurements(current: str) -> tuple[float, float]:
+    """-> ``(rail_full_w, rail_floor_w)``, what :func:`_row_widths` needs to
+    know before it decides how much of the row the rail keeps.
+
+    The 2026-09-26 audit, finding create-brief-01: ``rail_full_w`` used to
+    come from ``create_rail.stage_rail_width(items, current)`` with no
+    ``done`` at all, so ``_rail_fit``'s "ticks" rung measured every stage as
+    its plain label -- identical to the "labels" rung -- and the number
+    returned was too narrow for what the rail actually draws the moment any
+    stage is really done. ``rail`` (``App._stage_rail``, bound in as
+    :func:`draw`'s own ``rail`` argument) is then handed that undersized
+    width as its ``max_width``, so its own ``_rail_fit`` call -- this time
+    with the *real* done set -- never fit the ticks rung either, and dropped
+    the checks even on a row with genuine room to spare.
+
+    :func:`_rail_items_for_measurement` still has no business reading a job
+    or the filesystem just to size a row, so every stage but ``current`` is
+    measured here as if it were done -- the true done set can never make the
+    ticks rung any wider than that, only narrower, so this never
+    under-measures.
+    """
+    items = _rail_items_for_measurement()
+    worst_case_done = frozenset(key for key, *_rest in items)
+    rail_full_w = create_rail.stage_rail_width(items, current, done=worst_case_done)
+    rail_floor_w = create_rail.stage_rail_width(items, current, max_width=0.0)
+    return rail_full_w, rail_floor_w
 
 
 def _row_widths(

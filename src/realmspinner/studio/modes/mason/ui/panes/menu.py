@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
 from imgui_bundle import imgui
 
 from ..... import controls, icons, widgets
@@ -20,6 +19,7 @@ from ... import mode as mason_mode
 from ...engine import ops as mops
 from ...engine import scene as mscene
 from .outliner import groupish, prefabbable
+from .tools import _apply_deltas
 
 POPUP = "mason-context"
 
@@ -116,15 +116,13 @@ def _drop_to_ground(ctx: Any, tab: Any) -> None:
     # The 2026-09-14 audit's mason-02: this pushed one TransformEdit per node
     # with no mark/collapse_since, so dropping several selected nodes to the
     # ground cost one Ctrl+Z per node -- docs/manual/31-mason.md promises "Each
-    # of these lands as a single undo step", the same fix mason_tools.py's
-    # sidebar row (which shares this arithmetic) makes in its own
-    # ``_apply_deltas``.
-    mark = doc.mark()
-    for uid, delta in deltas.items():
-        node = doc.node(uid)
-        if node is None:
-            continue
-        was = node.trs()
-        translation = np.asarray(node.translation, dtype="f8") + np.asarray(delta, dtype="f8")
-        doc.set_transform(uid, translation=translation, was=was)
-    doc.collapse_since(mark)
+    # of these lands as a single undo step". Fixed then by hand-copying
+    # ``mason_tools._apply_deltas``'s own loop rather than calling it, which is
+    # exactly what let the two drift apart again: the 2026-09-26 audit's
+    # mason-mode-08 found this copy still adding the world delta straight onto
+    # ``node.translation`` -- which is in the node's own *parent* space -- with
+    # no conversion through the parent's inverse basis, after ``tools.py``'s
+    # copy had already grown that conversion (view.py's gizmo-drag fix, one
+    # door over). Called directly now instead of copied, so the two cannot
+    # disagree about this arithmetic again.
+    _apply_deltas(doc, deltas)
