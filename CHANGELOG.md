@@ -18,7 +18,7 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
-## 0.0.53 — 2026-09-23
+## 0.0.54 — 2026-09-28
 
 - **The 2026-09-26 audit's fix pass has closed 319 of its 463 findings.** Almost all are refusals by name where a malformed file or argument used to crash, plus races and silent wrong answers. What a user can notice, by area:
   - *Shell:* a crash copy is no longer overwritten by the next session. The instance lock is taken before home is touched. The full-window Library's Export zip and Convert no longer hang. Mason's export command prints the chord it binds (Ctrl+E). Empty the trash sees trash outside the loaded window. A failing confirm no longer drops the next queued question. An interrupted slider drag no longer switches off undo eviction. A non-finite UI scale no longer drops to 0.5×. A late thumbnail decode no longer replaces a newer one.
@@ -81,6 +81,8 @@ the release you are actually running.
   each sidebar and the remainder from the canvas — so the five widths and the gaps
   between them always sum to exactly the window's width. Neither sidebar drags
   any more.
+
+## 0.0.53 — 2026-09-23
 
 - **Join and Separate no longer make a Clay document impossible to open.** Joining
   objects, or a boolean Union, Difference or Intersection, dropped the absorbed objects
