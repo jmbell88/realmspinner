@@ -830,6 +830,16 @@ def set_mode(state: AppState, key: str) -> bool:
     state.previous_mode = state.mode
     state.mode_observed = key
     state.mode = key
+    # A slider mid-drag in the mode being left stops drawing the moment this
+    # switch lands, and nothing else ever tells ``controls.fold_undo`` its
+    # item is gone -- it only notices when *another* item next activates,
+    # which the new mode may never do (shell-widgets-01, the 2026-09-26
+    # audit: an orphaned gesture holds ``UndoStack._open_gestures`` above
+    # zero forever, switching off eviction for that document). A no-op when
+    # nothing is open.
+    from . import controls
+
+    controls.close_gesture()
     if _MODE_LEAVE is not None:
         _MODE_LEAVE(leaving)
     return True

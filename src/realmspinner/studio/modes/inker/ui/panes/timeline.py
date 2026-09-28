@@ -563,36 +563,59 @@ def _transport(ctx: Any, tab: Any) -> None:
     state = ctx.state.inker
     index = tab.play_index if tab.playing else anim.current
 
+    # The 2026-09-26 audit, finding inker-panes-09: every item below but
+    # ``play`` and ``remove`` disabled on ``not tab.busy`` with no ``reason``
+    # at all -- ``toolbar.Item`` carries one for exactly this, and the
+    # "disabled-no-reason" guard (``toolbar.py``'s own name for it) reads it
+    # off the same probe census a real press would use. ``remove`` had a
+    # reason, but only for its own "one frame left" gate: greyed instead
+    # because the tab is busy, it went on saying "A clip needs at least one
+    # frame" -- true of the document, false of why the button would not run.
+    # ``widgets.DOCUMENT_SAVING_WHY`` is the same reason ``history_block``
+    # already gives ``tab.busy``, reused rather than a second sentence for it.
     items = [
-        toolbar.Item(key, label, tooltip=tip, enabled=not tab.busy, pinned=True)
+        toolbar.Item(
+            key, label, tooltip=tip, enabled=not tab.busy,
+            reason=widgets.DOCUMENT_SAVING_WHY, pinned=True,
+        )
         for key, label, tip in _STEPS
     ]
     label, glyph, tip = widgets.transport_label(tab.playing)
     items.append(
-        toolbar.Item("play", label, glyph, tooltip=tip, enabled=not tab.saving, pinned=True)
+        toolbar.Item(
+            "play", label, glyph, tooltip=tip, enabled=not tab.saving,
+            reason=widgets.DOCUMENT_SAVING_WHY, pinned=True,
+        )
     )
     items += [
-        toolbar.Item(key, label, tooltip=tip, enabled=not tab.busy, pinned=True)
+        toolbar.Item(
+            key, label, tooltip=tip, enabled=not tab.busy,
+            reason=widgets.DOCUMENT_SAVING_WHY, pinned=True,
+        )
         for key, label, tip in _STEPS_AFTER
     ]
     items += [
         toolbar.Item(
             "add", "Frame", icons.PLUS, tooltip="Add an empty frame",
-            enabled=not tab.busy, priority=1,
+            enabled=not tab.busy, reason=widgets.DOCUMENT_SAVING_WHY, priority=1,
         ),
         toolbar.Item(
             "copy", "Copy", icons.COPY, tooltip="Add a copy of this frame",
-            enabled=not tab.busy, priority=1,
+            enabled=not tab.busy, reason=widgets.DOCUMENT_SAVING_WHY, priority=1,
         ),
         toolbar.Item(
             "link", "Link",
             tooltip="Add a frame whose cels are links to this one's",
-            enabled=not tab.busy, priority=1,
+            enabled=not tab.busy, reason=widgets.DOCUMENT_SAVING_WHY, priority=1,
         ),
         toolbar.Item(
             "remove", "Delete frame", icons.TRASH,
             enabled=not tab.busy and len(anim.frames) > 1,
-            reason="A clip needs at least one frame.",
+            reason=(
+                widgets.DOCUMENT_SAVING_WHY
+                if tab.busy
+                else "A clip needs at least one frame."
+            ),
             role=toolbar.ButtonRole.DESTRUCTIVE, pinned=True, priority=1,
         ),
     ]
@@ -1195,7 +1218,18 @@ def _frame_menu(tab: Any, index: int) -> None:
         doc.move_frame(index, index + 1)
     imgui.end_disabled()
     widgets.divider()
-    if controls.menu_item_simple("Delete"):
+    # The 2026-09-26 audit, finding inker-panes-10: this row was enabled on a
+    # one-frame clip, where ``remove_frame`` already refuses (``len(anim
+    # .frames) <= 1``) rather than leaving none -- so the click did nothing,
+    # with no reason and no visible difference from a row that simply had not
+    # been wired up. The transport's own "Delete frame" (``_transport``,
+    # above) already greys for exactly this; this row now matches it.
+    can_delete_frame = len(doc.anim.frames) > 1
+    if controls.menu_item_simple(
+        "Delete",
+        enabled=can_delete_frame,
+        reason="A clip needs at least one frame.",
+    ):
         doc.remove_frame(index)
     widgets.divider()
     # A one-frame span, renamed and stretched from the tag's own menu below.

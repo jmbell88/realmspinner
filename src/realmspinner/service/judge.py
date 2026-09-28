@@ -155,11 +155,15 @@ def train(
 def probe(svc: RealmspinnerService, stage: str) -> Any:
     """The probe on disk for one question, or None.
 
-    Not stage-checked: reading a file that is not there is already None, and a
-    caller asking whether the mesh probe exists deserves that answer rather than
-    an exception.
+    Not membership-checked against ``TRAINABLE_STAGES``: reading a file that
+    is not there is already None, and a caller asking whether the mesh probe
+    exists deserves that answer rather than an ``Invalid``. ``judge.load``
+    does still refuse a probe whose *stored* ``stage`` disagrees with the one
+    asked for here -- the 2026-09-26 audit, finding create-brief-06: a file's
+    name (``probe-<stage>.npz``) is not what makes it that stage's probe, and
+    nothing used to compare the two.
     """
-    return judge_mod.load(judge_mod.probe_path(probe_dir(svc), stage))
+    return judge_mod.load(judge_mod.probe_path(probe_dir(svc), stage), stage=stage)
 
 
 def score_job(svc: RealmspinnerService, job_id: str, stage: str) -> float | None:

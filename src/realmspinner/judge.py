@@ -60,7 +60,9 @@ document under ``dev/measurements/`` before it is baked in.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -209,28 +211,57 @@ def save(probe: Probe, path: Path) -> Path:
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # ``.tmp.npz`` rather than ``.npz.tmp``: ``np.savez`` appends ``.npz`` to any
-    # name that does not already end in it, so the obvious spelling writes
-    # ``probe.npz.tmp.npz`` and the rename then fails on a file that is not there.
-    tmp = path.with_suffix(".tmp.npz")
-    np.savez(
-        tmp,
-        weights=probe.weights,
-        bias=np.array(probe.bias),
-        stage=np.array(probe.stage),
-        labels=np.array(probe.labels),
-        positives=np.array(probe.positives),
-        corpus=np.array(probe.corpus),
-        schema=np.array(probe.schema),
-    )
-    # np.savez appends .npz to a path that lacks it; with_suffix already gave us
-    # one, so the written name is exactly ``tmp``.
-    tmp.replace(path)
+    # A name built from the destination alone (the old ``.tmp.npz`` suffix)
+    # is exactly the M03 shape ``atomic._tmp_name``'s docstring already names
+    # as a bug: two concurrent stagings of one destination -- a retrain
+    # re-fitting one stage's probe while another retrain (or a stale request
+    # from before a schema bump) writes the same file -- collide, and the
+    # earlier writer's own cleanup can unlink the later writer's still-live
+    # temp file out from under it. The 2026-09-26 audit, finding
+    # create-brief-07: a token per call, ``core.safeio.atomic``'s own fix,
+    # ported here rather than imported -- this module's docstring keeps its
+    # dependencies to stdlib, numpy and ``bench.metrics`` on purpose.
+    #
+    # ``.tmp.npz`` rather than ``.npz.tmp``: ``np.savez`` appends ``.npz`` to
+    # any name that does not already end in it, so the obvious spelling
+    # writes ``probe.npz.tmp.npz`` and the rename then fails on a file that
+    # is not there. The token sits before that suffix for the same reason.
+    tmp = path.with_name(f".{path.stem}.{secrets.token_hex(4)}.tmp.npz")
+    try:
+        np.savez(
+            tmp,
+            weights=probe.weights,
+            bias=np.array(probe.bias),
+            stage=np.array(probe.stage),
+            labels=np.array(probe.labels),
+            positives=np.array(probe.positives),
+            corpus=np.array(probe.corpus),
+            schema=np.array(probe.schema),
+        )
+        # np.savez appends .npz to a path that lacks it; the name above
+        # already ends in it, so the written name is exactly ``tmp``.
+        tmp.replace(path)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
     return path
 
 
-def load(path: Path) -> Probe | None:
-    """Read a probe, or None -- missing, unreadable, or from another schema."""
+def load(path: Path, *, stage: str | None = None) -> Probe | None:
+    """Read a probe, or None -- missing, unreadable, from another schema, or
+    (when ``stage`` is given) fitted to a different question.
+
+    ``stage`` is optional rather than required so a caller with no opinion
+    (a probe inventory listing, a test) can still read the file. Every real
+    caller has one: ``probe_path`` names the file after the stage it expects
+    (``probe-<stage>.npz``), but the file's *name* is not what makes it that
+    stage's probe -- the 2026-09-26 audit, finding create-brief-06, found
+    nothing here compared the stored ``stage`` field to the one the caller
+    actually asked for, so a probe left over from a renamed/relabelled file
+    (or copied over by hand) loaded clean and answered whatever question its
+    contents were actually fitted to, silently, under the name of the one it
+    was asked for.
+    """
     path = Path(path)
     if not path.exists():
         return None
@@ -245,10 +276,17 @@ def load(path: Path) -> Probe | None:
                     path.name, schema, SCHEMA_VERSION,
                 )
                 return None
+            loaded_stage = str(data["stage"])
+            if stage is not None and loaded_stage != stage:
+                log.warning(
+                    "%s is a %r probe, not %r -- ignoring it",
+                    path.name, loaded_stage, stage,
+                )
+                return None
             return Probe(
                 weights=np.asarray(data["weights"], dtype=np.float64),
                 bias=float(data["bias"]),
-                stage=str(data["stage"]),
+                stage=loaded_stage,
                 labels=int(data["labels"]),
                 positives=int(data["positives"]),
                 corpus=str(data["corpus"]),

@@ -698,6 +698,34 @@ def transfer(
     except ValueError as exc:
         raise ClipTransferError(str(exc), field="source") from exc
 
+    # The 2026-09-26 audit, finding poser-poses-02: two actions whose names
+    # differ only in punctuation an exporter drops -- Mixamo's own "Run!" and
+    # "Run?" -- slug to the same clip name via _slug_from_action_name. The
+    # guard above only refuses an *explicit* clip_name across several
+    # actions (poser-03, the 2026-09-15 audit); with no explicit name, every
+    # action was still handed to _transfer_action with clip_name=None, so two
+    # auto-named actions could propose the same name and import_into_library's
+    # own collision check would then either raise a misleading "already
+    # exists" for a name this file never repeated, or, with replace=True,
+    # silently drop the first clip when the second overwrote it in the same
+    # merge loop. Disambiguated here, before any action is converted, the
+    # same way _dedupe_pose_name keeps two same-named poses apart within one
+    # clip -- so a name collision *within this file* never reaches that door.
+    if clip_name is None:
+        taken: set[str] = set()
+        action_names: list[str] = []
+        for action in sample["actions"]:
+            proposed = _slug_from_action_name(action.get("name"))
+            candidate = proposed
+            n = 2
+            while candidate in taken:
+                candidate = f"{proposed}_{n}"
+                n += 1
+            taken.add(candidate)
+            action_names.append(candidate)
+    else:
+        action_names = [clip_name] * len(sample["actions"])
+
     try:
         match_result = clipmaps.match(sample["all_bone_names"], template=template)
     except clipmaps.ClipMapError as exc:
@@ -723,7 +751,7 @@ def transfer(
     hips_rest = source_bones[hips_chain[-1]]["head"]
 
     out: list[dict[str, Any]] = []
-    for action in sample["actions"]:
+    for action, action_name in zip(sample["actions"], action_names, strict=True):
         out.append(
             _transfer_action(
                 action,
@@ -737,7 +765,7 @@ def transfer(
                 height=height,
                 hips_chain=hips_chain,
                 hips_rest=hips_rest,
-                clip_name=clip_name,
+                clip_name=action_name,
                 frames=frames,
                 loop=loop,
                 root_motion=root_motion,
@@ -897,6 +925,20 @@ def _transfer_action(
         segments = [kept[i + 1] - kept[i] for i in range(len(kept) - 1)] + [n_frames - kept[-1]]
     else:
         segments = [kept[i + 1] - kept[i] for i in range(len(kept) - 1)]
+    if closed and len(kept) < 2:
+        # The 2026-09-26 audit, finding poser-poses-03: n_frames == 1 is
+        # exactly the case the frames == 1 refusal above tells the caller to
+        # reach with loop="on" ("a single held pose") -- but the poser-01 fix
+        # just above only tops a collapsed RDP result up to two keys when
+        # n_frames > 1, so a *genuinely* one-sampled-frame closed clip still
+        # reduced to kept == [0], one key, which service.clips' MIN_KEYS door
+        # then refused with no way to satisfy it: there is no second sampled
+        # frame to add. Duplicating the one frame as a second, identical key
+        # (two equal segments rather than the subtraction above, which would
+        # give a zero-length one) is precisely "a single held pose" -- a loop
+        # of one static frame -- not an invented second pose.
+        kept = [kept[0], kept[0]]
+        segments = [1, 1]
 
     with_root = root_motion != "none"
     static_bones = {

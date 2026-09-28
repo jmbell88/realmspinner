@@ -284,15 +284,19 @@ def sprite_cost(
     it would be the same defect one layer down.
     """
     kind = str(sheet_type or DEFAULT_SPRITE_SHEET_TYPE)
-    size = int(logical_size)
+    # The 2026-09-26 audit (service-assets-06): ``int()`` used to run before
+    # the ``try`` below, so a non-numeric ``logical_size`` raised a bare
+    # ``ValueError`` instead of landing in the same "not drawable" reply
+    # every other bad combination gets from this door.
     try:
+        size = int(logical_size)
         check_sheet_kind(kind, size)
         geom = spritesynth.sheet_geometry(kind, size)
         wanted = check_candidates(candidates, len(geom.cells))
-    except (Invalid, ValueError) as exc:
+    except (Invalid, ValueError, TypeError) as exc:
         return {
             "kind": kind,
-            "logical_size": size,
+            "logical_size": logical_size,
             "drawable": False,
             "refusal": str(exc),
             "cells": 0,
@@ -393,7 +397,19 @@ def resolve_sheet_kind(
     ``sheet_type`` in it is the stale half.
     """
     if action:
-        count = int(directions) if directions else spritesynth.DIRECTION_COUNTS[-1]
+        if directions:
+            # The 2026-09-26 audit (service-assets-06): a bare ``int()`` here
+            # raised ``ValueError``/``TypeError`` straight past every
+            # ``service.errors`` refusal this door is supposed to give --
+            # e.g. a stray string in a stored draft's ``directions`` field.
+            try:
+                count = int(directions)
+            except (TypeError, ValueError) as exc:
+                raise Invalid(
+                    f"{directions!r} is not a valid direction count", field="directions"
+                ) from exc
+        else:
+            count = spritesynth.DIRECTION_COUNTS[-1]
         return sprite_kind(str(action), count)
     return str(sheet_type or DEFAULT_SPRITE_SHEET_TYPE)
 

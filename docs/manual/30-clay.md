@@ -831,13 +831,15 @@ edited while it was working.
 
 **Retopologise** rebuilds the selected objects as an even quad mesh at roughly the triangle count
 you ask for. It is what turns a sculpted or reconstructed blob into something you can edit, and the
-answer replaces the mesh you had, so the object stops claiming to be a generated shape. Modifiers
-stay on top. Where the quad solver cannot cope — an open or self-intersecting mesh usually — it
-falls back to a plain reduction, and the toast says which you got.
+answer replaces the mesh you had, so the object stops claiming to be a generated shape. Any modifier
+stack is cleared, not stacked on top of the result — Blender's own answer already has its effect
+baked in. Where the quad solver cannot cope — an open or self-intersecting mesh usually — it falls
+back to a plain reduction, and the toast says which you got.
 
 **Smart Unwrap** lays out texture coordinates by cutting the mesh where it bends, which is a better
 starting point than the Box Unwrap above for anything organic. It changes no geometry, so a
-generated shape keeps its size fields.
+generated shape keeps its size fields. Any modifier stack is cleared, not stacked on top of the
+result — Blender's own answer already has its effect baked in.
 
 **Bake Detail** takes the fine detail of the objects you select and paints it onto the simplest one
 as textures. The target is the topmost selected object in the outliner, exactly as merging works;

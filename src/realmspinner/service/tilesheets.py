@@ -621,9 +621,18 @@ def create_tile_sheet(
     layout = "grid"
 
     if mode_key == MODE_MATERIALS:
-        lines = tuple(
-            line for line in (str(item).strip() for item in prompt_items or ()) if line
+        # The 2026-09-26 audit (service-assets-07), the same shape as the
+        # 2026-09-13 audit's create-02 (``generation._as_items``): a plain
+        # ``str`` is itself iterable, so a caller that sends the whole
+        # materials text as one string -- rather than the list the Create
+        # pane's own ``material_lines`` splits it into first -- had it
+        # walked character by character; "grass" became five one-letter
+        # materials. A string is one line per its own newlines, matching
+        # what a multi-line materials box means.
+        raw_items = (
+            prompt_items.splitlines() if isinstance(prompt_items, str) else (prompt_items or ())
         )
+        lines = tuple(line for line in (str(item).strip() for item in raw_items) if line)
         if not lines:
             raise Invalid(
                 "a materials sheet is the list of surfaces you type; describe at "
@@ -921,8 +930,16 @@ def create_tile_sheet(
     # Missing, the worker's own tolerance takes over -- it logs and paints bare
     # -- so the job would finish, look like one flat picture, and write a
     # sidecar naming a LoRA that never loaded.
+    # The 2026-09-26 audit (plotter-tiles-04): style_lock only ever reaches
+    # the worker's IP-Adapter conditioning when there is a second material
+    # to lock onto (``_q_tileset.py``'s own ``style_lock and count > 1``
+    # gate) -- a one-cell sheet has nothing after the first material to
+    # condition on, so requiring the encoder's weights for it refused a
+    # request the worker would never actually load one for.
+    effective_style_lock = bool(style_lock) and len(materials) > 1
     _check_weights(
-        svc, mode=mode_key, with_reference=reference is not None, style_lock=bool(style_lock)
+        svc, mode=mode_key, with_reference=reference is not None,
+        style_lock=effective_style_lock,
     )
     check_vram(svc, "tile_sheet", "tilesheet", params)
 

@@ -109,10 +109,23 @@ def _number(raw: Any, field_name: str, what: str) -> float:
 
 
 def _integer(raw: Any, field_name: str, what: str) -> int:
+    # The 2026-09-26 audit, findings poser-characters-02/03: ``int(raw)`` alone
+    # is too permissive in three ways this module's own "it refuses; it never
+    # clamps" rule does not allow -- ``int(True)`` reads as 1 instead of
+    # refusing a bool outright, ``int(3.9)`` silently truncates a fraction
+    # instead of refusing it, and ``int(float("inf"))`` (or a numeric string
+    # that overflows on the way to a float) raises a raw ``OverflowError`` that
+    # escaped this module's ``CharacterError`` vocabulary and every door built
+    # on it.
+    if isinstance(raw, bool):
+        raise CharacterError(f"{what} must be a whole number", field=field_name)
     try:
-        return int(raw)
-    except (TypeError, ValueError):
+        value = int(raw)
+    except (TypeError, ValueError, OverflowError):
         raise CharacterError(f"{what} must be a whole number", field=field_name) from None
+    if isinstance(raw, float) and value != raw:
+        raise CharacterError(f"{what} must be a whole number", field=field_name)
+    return value
 
 
 def _on_ladder(value: int, ladder: tuple[int, ...], field_name: str, what: str) -> int:
@@ -276,6 +289,20 @@ class Recipe:
             raise CharacterError(f"a name is at most {MAX_NAME} characters", field="name")
 
         pixel_art = bool(raw.get("pixel_art", True))
+        # The 2026-09-26 audit, finding poser-characters-03: ``bool(raw)`` on a
+        # non-bool answers "false" with ``True`` (``bool("false")`` is truthy),
+        # which is exactly the clamp this module's docstring refuses to do.
+        # ``service.troupe._check_options``' three-way ``isinstance`` pattern,
+        # restated here for the one bool this door owns that isn't already
+        # a real control-side bool the way ``pixel_art`` above is documented
+        # to be.
+        raw_dither = raw.get("dither")
+        if raw_dither is None:
+            dither = False
+        elif isinstance(raw_dither, bool):
+            dither = raw_dither
+        else:
+            raise CharacterError("dither must be true or false", field="dither")
 
         raw_fps = raw.get("fps")
         fps: int | None = None
@@ -299,7 +326,7 @@ class Recipe:
             colors=colors,
             outline=outline,
             reduce_mode=reduce_mode,
-            dither=bool(raw.get("dither", False)),
+            dither=dither,
             palette=str(raw.get("palette") or "").strip(),
             seed=seed,
             name=name,
@@ -323,7 +350,32 @@ class Recipe:
         return out
 
     def replace(self, **changes: Any) -> Recipe:
-        return Recipe.from_dict({**self.as_dict(), **changes})
+        """A new recipe with the named fields swapped in.
+
+        A species swap is special for ``appearance`` only. ``from_dict``
+        re-validates everything in ``changes``' merged dict against the *new*
+        family's registry row, and this recipe's own ``appearance`` dict is
+        the *old* species' full channel set (every channel, not only the ones
+        a caller actually touched -- see ``as_dict``) -- so swapping to a
+        different archetype's family always carried at least one channel key
+        the new species does not define, raising a confusing "family has no
+        <key> slider" instead of the swap the caller asked for. The
+        2026-09-26 audit, finding poser-characters-05. ``theme`` is
+        deliberately *not* dropped here:
+        ``test_changing_species_never_silently_carries_a_palette_across``
+        pins the refusal a theme the new species does not offer must keep
+        raising -- unlike an appearance channel, a theme name is a caller
+        choice worth being asked about again, not free-form geometry no
+        species outside the old one could ever share.
+
+        ``appearance`` is dropped only when ``changes`` does not also carry a
+        fresh answer for it, so ``replace(family=..., appearance=...)`` in
+        the same call is untouched.
+        """
+        base = self.as_dict()
+        if changes.get("family") not in (None, self.family):
+            base.pop("appearance", None)
+        return Recipe.from_dict({**base, **changes})
 
     # -- what it expands into -----------------------------------------------
 

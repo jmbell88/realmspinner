@@ -23,8 +23,9 @@ Boolean variables accept `1`, `true` or `on`; anything else is off.
 | `REALMSPINNER_DATA_DIR` | `~/.realmspinner/assets` | Where job directories and the log files live. Created at startup if absent. |
 | `REALMSPINNER_DB` | `~/.realmspinner/assets/jobs.sqlite` | The SQLite job store. Set independently of the data directory, so moving one does not move the other. |
 | `REALMSPINNER_EXPORT_DIR` | unset | A project folder assets can be copied straight into, such as a Godot project's `assets/`. Unset means the feature is off — writing outside the data directory is opt-in, never a default. |
-| `REALMSPINNER_TRELLIS_EXE` | `vendor/trellis/trellis-server.exe` | The reconstruction engine binary. Missing it is a setup row, not a fatal one — the engine is a download. |
+| `REALMSPINNER_TRELLIS_EXE` | unset | An explicit override for the reconstruction engine binary; unset means the downloaded engine under `REALMSPINNER_TRELLIS_RUNTIME` if present, else `vendor/trellis/trellis-server.exe` in a source checkout. Missing it is a setup row, not a fatal one — the engine is a download. |
 | `REALMSPINNER_TRELLIS_MODELS` | `~/.realmspinner/models/trellis2-gguf` | Where the TRELLIS.2 GGUF weights and `birefnet.gguf` are looked for. |
+| `REALMSPINNER_TRELLIS_RUNTIME` | `~/.realmspinner/engine/trellis` | Where the downloaded engine binaries (`trellis-server.exe`, ggml and the CUDA redistributables) are looked for. Under the home directory rather than the install root so an upgrade does not cost the download again. |
 | `REALMSPINNER_TRELLIS_PORT` | `17971` | The local port the engine subprocess listens on. |
 | `REALMSPINNER_TRELLIS_IDLE` | `600` | Seconds of queue inactivity before resident models are evicted to free VRAM. |
 | `REALMSPINNER_TRELLIS_WEBP` | `off` | Ask the engine for WebP textures instead of PNG. Off is correct: WebP output declares `EXT_texture_webp` as *required*, which Godot's glTF importer refuses rather than skips. |

@@ -41,6 +41,7 @@ __all__ = [
     "MAX_OVERLAP_TRIANGLES",
     "MAX_OVERLAP_BUCKET",
     "MAX_OVERLAP_REGISTRATIONS",
+    "MAX_OVERLAP_PAIRS",
     "MAX_UV_ISLANDS",
     "edge_key",
     "edge_keys",
@@ -86,6 +87,24 @@ MAX_OVERLAP_BUCKET = 512
 #: this even at the 50,000-triangle ceiling (measured ~289,000 registrations
 #: there), so this only ever refuses the pathological shape.
 MAX_OVERLAP_REGISTRATIONS = 500_000
+
+#: A ceiling on the *total* number of pairwise ``_tri_tri_overlap_2d`` SAT
+#: tests one :func:`overlap_faces` call may run, summed across every bucket.
+#: The 2026-09-26 audit's clay-mesh-uv-02 found the other three ceilings
+#: above all bound a *different* shape of unbounded cost: MAX_OVERLAP_BUCKET
+#: alone bounds one over-full cell, not the total pair count of *many* cells
+#: each individually under it. Twenty-four uv-stacked clusters of a few
+#: hundred triangles each -- one bucket per cluster, none of them anywhere
+#: near MAX_OVERLAP_BUCKET, and nowhere near MAX_OVERLAP_REGISTRATIONS either
+#: since each triangle registers into only its own cell -- measured 61.6s in
+#: one call with neither of the other two ceilings ever firing. Measured on
+#: this machine, the identical stacked-cluster shape (uniform per-pair cost,
+#: so the total pair count is what matters, not how it is distributed across
+#: buckets): 249,500 pairs in 16.35s, 499,000 pairs in 38.64s -- roughly 70us
+#: a pair, crossing a second somewhere around 14,000-15,000 pairs. Set well
+#: under that crossing, the same margin every sibling ceiling in this package
+#: keeps.
+MAX_OVERLAP_PAIRS = 8_000
 
 #: Past this many uv islands, :func:`pack_islands`, :func:`normalize_density`
 #: and :func:`transform_islands` refuse rather than pay their own per-island
@@ -644,7 +663,11 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
     islands whose triangles each keep the same wide extent along one uv axis
     however many islands there are, so no single bucket ever fills past
     :data:`MAX_OVERLAP_BUCKET` but the aggregate registration cost still
-    grows with island count (see that constant's own docstring).
+    grows with island count (see that constant's own docstring). A fourth,
+    :data:`MAX_OVERLAP_PAIRS`, catches the case none of the first three does:
+    many separate buckets, each on its own comfortably under
+    :data:`MAX_OVERLAP_BUCKET`, whose pairwise SAT-test counts still sum to an
+    unbounded total (see that constant's own docstring).
     """
     uv = _require_uv(mesh, "overlap_faces")
     n_faces = face_count(mesh)
@@ -692,6 +715,28 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
         for cx in range(int(lo_cell[t, 0]), int(hi_cell[t, 0]) + 1):
             for cy in range(int(lo_cell[t, 1]), int(hi_cell[t, 1]) + 1):
                 buckets.setdefault((cx, cy), []).append(t)
+
+    # The 2026-09-26 audit's clay-mesh-uv-02: MAX_OVERLAP_BUCKET bounds one
+    # over-full cell and MAX_OVERLAP_REGISTRATIONS bounds the total triangle-
+    # into-cell registrations, but neither bounds the total number of
+    # pairwise SAT tests the loop below performs -- many separate buckets,
+    # each on its own comfortably under MAX_OVERLAP_BUCKET, still sum to an
+    # unbounded total. Counted here, vectorised, from the bucket sizes the
+    # loop below is about to walk -- the same "count before the walk" shape
+    # ops_topo.collapse counts its own pairs with -- and refused before a
+    # single SAT test runs. This over-counts slightly (the loop below also
+    # skips same-face pairs and dedupes a pair tested from two shared cells),
+    # so it only ever refuses early, never lets more through than the real
+    # loop would do.
+    sizes = np.array([len(v) for v in buckets.values()], dtype=np.int64)
+    total_pairs = int((sizes * (sizes - 1) // 2).sum())
+    if total_pairs > MAX_OVERLAP_PAIRS:
+        raise OpError(
+            f"This uv layout would run {total_pairs:,} pairwise overlap "
+            f"tests, past the {MAX_OVERLAP_PAIRS:,} an overlap check reads -- "
+            f"too many triangles share too few grid cells. Check a smaller "
+            f"selection."
+        )
 
     tested: set[tuple[int, int]] = set()
     for members in buckets.values():

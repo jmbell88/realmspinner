@@ -98,7 +98,13 @@ def render(layer: Any, ctx: Any, below: np.ndarray | None) -> np.ndarray | None:
         px = cx + np.cos(sa) * sr + rx * rise * a_i + (-ry) * side * a_i
         py = cy + np.sin(sa) * sr + ry * rise * a_i + rx * side * a_i
         radius = size0 * (1.0 + expand * u)
-        win = window(ctx, px, py, radius * (1.0 + 0.8 * rag))
+        # inker-flourish-04: both the kernel and the numpy fallback below scale
+        # ``d`` by ``1 + (n-0.5)*1.6*rag``, whose smallest factor is
+        # ``1 - 0.8*rag`` -- the true reach of a raw distance that still shows
+        # after erosion is ``radius / (1 - 0.8*rag)``, not
+        # ``radius * (1 + 0.8*rag)``, which undershoots fast as ``rag``
+        # approaches its own ceiling of 1.
+        win = window(ctx, px, py, radius / max(1.0 - 0.8 * rag, 0.01))
         if win is None:
             continue
 

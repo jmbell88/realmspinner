@@ -98,7 +98,25 @@ def popups(ctx: Any) -> None:
     # and this is the only place that knows which one that was.
     _scale_dialog(ctx, tab, opening=(wanted == "inker-scale"))
     _canvas_dialog(ctx, tab, opening=(wanted == "inker-resize"))
-    _filter_popup(ctx, tab)
+    # The 2026-09-26 audit, finding inker-panes-04: this popup is non-modal
+    # and stays open across a tab switch, but ``_filter_popup`` used to be
+    # handed ``tab`` -- the *front* document this frame, ``state.active`` a
+    # line above -- rather than the one ``_open_filter`` actually began the
+    # session on. Ctrl+Tab to another document while it was up ran the live
+    # preview against a document with no open session (a silent no-op) and,
+    # worse, routed Apply/Cancel there too: the button closed the popup and
+    # cleared ``filter_uid`` without ever calling ``commit_filter``/
+    # ``cancel_filter`` on the real owner, so its preview pixels -- written
+    # into the layer every frame the popup was up -- stayed live with no undo
+    # step and no session left to cancel them, and a save of the owner then
+    # serialised them as if they had been approved. Resolved by uid, the way
+    # ``end_filter_session`` already does.
+    filter_tab = tab
+    if state.filter_uid:
+        owner = state.get(state.filter_uid)
+        if owner is not None:
+            filter_tab = owner
+    _filter_popup(ctx, filter_tab)
     _inpaint_popup(ctx, tab)
     inker_flourish_pane.popup(ctx, tab)
     inker_flourish_pane.snippet_popup(ctx, tab)
@@ -589,6 +607,21 @@ def _open_inpaint(ctx: Any, tab: Any) -> None:
     if tab.doc.mask is None or tab.doc.mask.bounds is None:
         ctx.toast("Select the area to regenerate first.", "warn")
         return
+    if tab.doc.active_tilemap_uid() is not None:
+        # The 2026-09-26 audit, finding inker-panes-03: "Regenerate
+        # selection..." had no gate of its own (``enabled=has_selection``,
+        # same as Cut) and a tilemap layer passes that gate as readily as a
+        # raster one. The job used to be queued and only ``land_inpaint``'s
+        # ``apply_pixels`` -- ``_refuse_tilemap_layer``'s ``ValueError`` --
+        # found out later, after the SDXL round trip. Refused here, before
+        # anything is queued, the way ``_open_filter`` already refuses
+        # ``begin_filter``'s tilemap case for the same op family.
+        ctx.toast(
+            "A tilemap layer's pixels come from its tileset -- convert it to "
+            "a raster layer first.",
+            "warn",
+        )
+        return
     if state.inpaint_pending is not None:
         ctx.toast("A regeneration is already on its way.", "warn")
         return
@@ -796,9 +829,21 @@ def land_inpaint(ctx: Any, pending: dict[str, Any], pixels: Any) -> bool:
         # regeneration having failed rather than having landed nowhere.
         ctx.toast("Regeneration refused: the document is busy.", "warn")
         return False
-    ok = tab.doc.apply_pixels(
-        int(pending["layer_uid"]), tuple(pending["box"]), pixels, pending.get("weight")
-    )
+    try:
+        ok = tab.doc.apply_pixels(
+            int(pending["layer_uid"]), tuple(pending["box"]), pixels, pending.get("weight")
+        )
+    except ValueError as exc:
+        # The 2026-09-26 audit, finding inker-panes-03: ``apply_pixels``
+        # raises past this door when the layer named at submit time has since
+        # become a tilemap layer's cel (``_refuse_tilemap_layer``) -- the
+        # active layer at *submit* is checked by ``_open_inpaint`` now, but a
+        # layer converted to a tilemap layer while the job was in flight would
+        # still reach here bare, unwinding whichever frame this landed on the
+        # way ``_open_filter``'s own bare ``begin_filter`` used to. Caught as
+        # the belt to that refusal's braces, same sentence and same "warn".
+        ctx.toast(f"Not regenerated: {exc}.", "warn")
+        return False
     if ok:
         ctx.toast("Regeneration landed.")
     elif _still_in_the_stack(tab.doc, int(pending["layer_uid"])):

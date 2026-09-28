@@ -25,6 +25,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..selection import render_transform_about
+from ..transform import ROTSPRITE_MAX_PIXELS
 from . import gait
 from . import rig as R
 
@@ -33,6 +34,25 @@ from . import rig as R
 _PIL_SIGN = -1.0
 
 RESAMPLE = "rotsprite"
+
+#: :func:`.transform.rotate`'s ``rotsprite_budget`` for this module's turns.
+#:
+#: The 2026-09-26 audit, finding inker-mode-14: a part turns about its own
+#: *joint*, not its centre, through ``render_transform_about``'s pad-to-pivot
+#: trick -- and that padding roughly doubles whichever side the joint sits
+#: off-centre on, angle-independently (it has to cover the worst case before
+#: the actual rotation is known). A 260x520 thigh with a hip joint near one
+#: end pads past ``ROTSPRITE_MAX_PIXELS`` and silently fell back to
+#: nearest-neighbour for a turn the module's own docstring says never happens
+#: -- "RESAMPLE='rotsprite' throughout". ``ROTSPRITE_MAX_PIXELS`` is sized for
+#: a live free-transform drag re-rendering on every mouse-move
+#: (frame-thread cost, see its own docstring); a walk bake runs once, off the
+#: frame thread (``_q_*`` job machinery), so it may spend more per turn.
+#: Four times the interactive budget comfortably covers an ordinarily
+#: proportioned limb's worst-case pivot padding without reopening the
+#: interactive ceiling itself, which stays a `dev/measurements/`-keyed
+#: constant this module does not touch.
+ROTSPRITE_BUDGET = 4 * ROTSPRITE_MAX_PIXELS
 
 
 def _mask_of(plane: np.ndarray) -> np.ndarray:
@@ -72,6 +92,7 @@ def part_frame(
         (0.0, 0.0),
         RESAMPLE,
         pivot,
+        rotsprite_budget=ROTSPRITE_BUDGET,
     )
     left = int(round(posed_pivot[0] + offset[0]))
     top = int(round(posed_pivot[1] + offset[1]))

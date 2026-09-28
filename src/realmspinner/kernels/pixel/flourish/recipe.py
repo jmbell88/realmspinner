@@ -146,10 +146,27 @@ def _as_float(value: Any, default: float) -> float:
         return default
 
 
+def _as_int(value: Any, default: int) -> int:
+    """``int(value)``, refusing nothing -- a bad field falls back instead.
+
+    The 2026-09-26 audit, finding inker-flourish-06: ``int()`` raises
+    ``OverflowError`` on a non-finite float (``Infinity`` survives JSON's own
+    parse as a Python float) and ``TypeError`` on a value that is not a number
+    at all, neither of which :meth:`Recipe.from_dict`'s own docstring promises
+    -- it names only ``ValueError``, for an unknown layer kind or a payload
+    that is not a recipe. Every raw numeric field there goes through this
+    instead of a bare ``int()``.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 def _clamp_int(value: Any, lo: int, hi: int, default: int) -> int:
     try:
         return int(min(hi, max(lo, int(value))))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -169,14 +186,31 @@ def clamp_layer(layer: Layer) -> Layer:
 
 def clamp(recipe: Recipe) -> Recipe:
     """Every field inside its range; every layer's parameters filled and clamped."""
-    phases = tuple(
+    raw_phases = [
         Phase(
             str(p.name or f"phase{i}"),
             _clamp_int(p.frames, 1, MAX_FRAMES_PER_PHASE, 12),
             bool(p.loop),
         )
         for i, p in enumerate(recipe.phases[:MAX_PHASES])
-    ) or (Phase("main", 12, True),)
+    ]
+    # The 2026-09-26 audit, finding inker-flourish-03: nothing kept two phases
+    # from clamping to the same name (a hand-edited preset, or two empty names
+    # both defaulting to the same fallback), and every phase-keyed lookup
+    # downstream -- ``bake()``'s cel dict, ``_doc_flourish._cel_for`` -- is
+    # keyed by that name. A duplicate silently aliased the first phase's frames
+    # onto the second's, while ``Bake.tags()`` still reported two distinct
+    # spans. Renumbered here, the one place every phase name is decided, so
+    # every reader downstream can go on trusting the name is unique without
+    # having to learn about position.
+    seen: dict[str, int] = {}
+    deduped: list[Phase] = []
+    for phase in raw_phases:
+        count = seen.get(phase.name, 0)
+        seen[phase.name] = count + 1
+        name = phase.name if count == 0 else f"{phase.name} {count + 1}"
+        deduped.append(phase if name == phase.name else replace(phase, name=name))
+    phases = tuple(deduped) or (Phase("main", 12, True),)
     names = {p.name for p in phases}
     layers = tuple(
         replace(clamp_layer(each), phases=tuple(n for n in each.phases if n in names))
@@ -408,12 +442,12 @@ def from_dict(raw: dict[str, Any]) -> Recipe:
     this build does not know or a payload that is not a recipe at all."""
     if not isinstance(raw, dict):
         raise ValueError("a recipe is a JSON object")
-    version = int(raw.get("version") or SCHEMA_VERSION)
+    version = _as_int(raw.get("version") or SCHEMA_VERSION, SCHEMA_VERSION)
     if version > SCHEMA_VERSION:
         raise ValueError(f"recipe version {version} is newer than this build's {SCHEMA_VERSION}")
     size = raw.get("size") or [128, 128]
     phases = tuple(
-        Phase(str(p.get("name", "")), int(p.get("frames", 12)), bool(p.get("loop", False)))
+        Phase(str(p.get("name", "")), _as_int(p.get("frames", 12), 12), bool(p.get("loop", False)))
         for p in (raw.get("phases") or [])
         if isinstance(p, dict)
     )
@@ -442,17 +476,21 @@ def from_dict(raw: dict[str, Any]) -> Recipe:
             )
         )
     palette = raw.get("palette")
+    try:
+        raw_width, raw_height = size[0], size[1]
+    except (TypeError, IndexError, KeyError):
+        raw_width, raw_height = 128, 128
     recipe = Recipe(
         name=str(raw.get("name") or "Effect"),
-        seed=int(raw.get("seed") or 1),
-        width=int(size[0]),
-        height=int(size[1]),
-        supersample=int(raw.get("supersample", 4)),
-        fps=int(raw.get("fps", 18)),
+        seed=_as_int(raw.get("seed") or 1, 1),
+        width=_as_int(raw_width, 128),
+        height=_as_int(raw_height, 128),
+        supersample=_as_int(raw.get("supersample", 4), 4),
+        fps=_as_int(raw.get("fps", 18), 18),
         mode=str(raw.get("mode") or "painterly"),
         palette=tuple(str(c) for c in palette) if isinstance(palette, list) else None,
-        colors=int(raw.get("colors", 16)),
-        directions=int(raw.get("directions", 1)),
+        colors=_as_int(raw.get("colors", 16), 16),
+        directions=_as_int(raw.get("directions", 1), 1),
         phases=phases,
         layers=tuple(layers),
     )

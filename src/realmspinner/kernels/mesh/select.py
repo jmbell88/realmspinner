@@ -30,6 +30,7 @@ import numpy as np
 
 from . import elements as el
 from . import mesh as bm
+from . import topo
 from .adjacency import Adjacency, adjacency
 from .mesh import Mesh
 
@@ -393,9 +394,14 @@ def verts_of(mesh: Mesh, sel: el.ElementSel, mode: str) -> np.ndarray:
     if not len(faces):
         return np.zeros(0, dtype="i8")
     starts = np.asarray(mesh.starts, dtype="i8")
+    faces = faces[(faces >= 0) & (faces < len(starts) - 1)]
+    if not len(faces):
+        return np.zeros(0, dtype="i8")
+    # The 2026-09-26 audit (clay-mesh-core-05): this list comprehension
+    # gathered corners one face at a time (0.41s at 490,000 faces); the same
+    # vectorised CSR gather `elements.affected_verts` now uses replaces it.
     loops = np.asarray(mesh.loops, dtype="i8")
-    out = [loops[starts[f] : starts[f + 1]] for f in faces if 0 <= f < len(starts) - 1]
-    return np.unique(np.concatenate(out)) if out else np.zeros(0, dtype="i8")
+    return np.unique(loops[topo.corner_spans(starts, faces)])
 
 
 def sel_from_verts(mesh: Mesh, verts: np.ndarray, mode: str) -> el.ElementSel:

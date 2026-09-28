@@ -162,19 +162,45 @@ def subdivide_topology(mesh: Mesh, faces: np.ndarray) -> Subdivision:
     )
 
 
-#: What one subdivision may grow a mesh *to*, in faces. Half of
-#: ``glbimport.MAX_TRIANGLES`` because a subdivided mesh is quads and a quad is
-#: two triangles, so this is the import door's own ceiling expressed in the
-#: unit this file counts in. Restated rather than imported: ``glbimport`` pulls
-#: in the whole viewer and the document type, and this module is the pure
-#: geometry half that the topology tests exercise on a bare cube.
+#: What one subdivision may grow a mesh *to*, in faces. This used to be half
+#: of ``glbimport.MAX_TRIANGLES`` (a subdivided mesh is quads and a quad is
+#: two triangles, so that was the import door's own ceiling expressed in the
+#: unit this file counts in) -- restated rather than imported, since
+#: ``glbimport`` pulls in the whole viewer and the document type and this
+#: module is the pure geometry half the topology tests exercise on a bare
+#: cube -- but never measured against this op's own wall clock. The
+#: 2026-09-26 audit's clay-mesh-ops-04 measured 1.03-1.17s *at that
+#: 1,000,000-face ceiling itself*, past the "well under a second" bar every
+#: sibling growth-op ceiling in this package is held to. Measured on this
+#: machine, a flat grid of independent quad faces (the same per-face-
+#: independent shape ``MAX_INSET_CORNERS``'s and ``MAX_EXTRUDE_CORNERS``'s
+#: own tables use), whole-mesh linear subdivide:
 #:
-#: The gap it closes: ``MAX_TRIANGLES`` gates *import* and nothing gated
-#: growth. Every press of Smooth multiplies the face count by four, so six
-#: presses on a mesh that came in at the ceiling is eight billion faces --
-#: allocated on the frame thread, one level at a time, with no way to refuse
-#: partway through because a half-subdivided mesh is not a mesh.
-MAX_SUBDIVIDED_FACES = 1_000_000
+#: | grown (out) | subdivide_topology() (no uv) | (with uv) |
+#: |------------:|------------------------------:|----------:|
+#: |     400,000 |                       452 ms  |    475 ms |
+#: |     500,000 |                       546 ms  |    540 ms |
+#: |     600,000 |                       743 ms  |    838 ms |
+#: |     800,000 |                       808 ms  |  1,058 ms |
+#: |   1,000,000 |                     1,177 ms  |  1,344 ms |
+#:
+#: ...crossing a second somewhere between 600,000 and 800,000 either way.
+#: 500,000 keeps a margin under that, the same "well under a second" bar
+#: every sibling ceiling in this package uses. Unlike ``ops_bevel.
+#: MAX_BEVELED_CORNERS`` -- whose own per-corner UV lerp roughly doubles its
+#: cost, which is why that ceiling is halved for a UV-bearing mesh -- this
+#: op's own uv cost, measured above, is within noise of the uv-less case at
+#: every size: no separate factor to keep in sync with this one, the same
+#: reasoning ``ops_clean.MAX_CLEAN_CORNERS`` gives for skipping a halving of
+#: its own.
+#:
+#: The gap the old value closed still holds at the new one: ``MAX_TRIANGLES``
+#: gates *import* and nothing gated growth. Every press of Smooth multiplies
+#: the face count by four, so a mesh that came in at the ceiling can still
+#: grow unboundedly without this -- allocated on the frame thread, one level
+#: at a time, with no way to refuse partway through because a half-
+#: subdivided mesh is not a mesh.
+MAX_SUBDIVIDED_FACES = 500_000
 
 
 def _refuse_growth(mesh: Mesh, verb: str, faces: np.ndarray | None = None) -> None:

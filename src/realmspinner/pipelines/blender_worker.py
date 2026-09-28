@@ -558,11 +558,20 @@ POSE_SPACES = ("node", "delta")
 def _apply_pose(
     arm_obj: Any, bones: dict[str, Any], space: str = "node"
 ) -> tuple[int, list[str]]:
+    # The 2026-09-26 audit, finding poser-rig-08: ``delta = str(space) ==
+    # "delta"`` treated *any* unrecognised spelling as "node" instead of
+    # refusing it -- a corrupted or hand-edited ``pose_space``/``space``
+    # would silently apply the wrong rotation frame (dev/INVARIANTS.md's own
+    # "not interchangeable" warning) rather than fail loudly. Checked before
+    # the ``mathutils`` import so this refusal needs no Blender to test.
+    if space not in POSE_SPACES:
+        raise ValueError(f"space must be one of {POSE_SPACES}, not {space!r}")
+
     from mathutils import Quaternion
 
     applied = 0
     unknown: list[str] = []
-    delta = str(space) == "delta"
+    delta = space == "delta"
     for name, quat in bones.items():
         pbone = arm_obj.pose.bones.get(name)
         if pbone is None:

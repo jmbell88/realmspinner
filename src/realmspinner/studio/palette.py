@@ -165,9 +165,14 @@ def _viewport(ctx: Any) -> bool:
     return ctx.state.mode in modes.VIEWPORT_MODES
 
 
-# Shared by the three viewport toggles: one sentence, so they cannot drift into
-# three different accounts of the same gate.
-_VIEWPORT_WHY = "Only in the 2D and 3D panes, which are where the viewport is."
+# Shared by the four viewport commands: one sentence, so they cannot drift into
+# four different accounts of the same gate. Named after ``modes.VIEWPORT_MODES``
+# itself rather than "the 2D and 3D panes" (the 2026-09-26 audit, finding
+# shell-chrome-08): Create stopped being a two-pane 2D/3D split well before
+# this sentence was last touched, and ``VIEWPORT_MODES`` has held only
+# ``{"create"}`` since -- a greyed reason naming panes that no longer exist
+# teaches nothing about where to go instead.
+_VIEWPORT_WHY = "Only in Create, which is where the viewport is."
 
 
 def _selected(ctx: Any) -> Any:
@@ -185,6 +190,29 @@ def _selected(ctx: Any) -> Any:
     if cache is None:
         return None
     return cache.get(getattr(ctx.state, "selected", None))
+
+
+def _any_trashed(ctx: Any) -> bool:
+    """Whether there is anything for "Empty the trash..." to empty.
+
+    Prefers the store's own figure (``svc.store.trashed()``, what
+    ``empty_trash`` itself reads) over ``ctx.cache.jobs``, which is only the
+    newest ``jobs_cache.LIST_LIMIT`` (200) rows -- a trash entirely older than
+    that window used to read as empty here while the store still held rows to
+    delete (shell-chrome-06, the 2026-09-26 audit).
+
+    Falls back to the old ``cache.jobs`` scan when ``ctx`` carries no ``svc``
+    at all: ``specs()`` builds every command's ``enabled`` on every call it
+    makes (menus and the palette both), including from callers -- the menu
+    bar's own tests among them -- that hand it a ctx built for a narrower
+    question and never gave it a service door. The same tolerance
+    :func:`_selected` above already has, for the same reason.
+    """
+    store = getattr(getattr(ctx, "svc", None), "store", None)
+    if store is not None:
+        return bool(store.trashed())
+    jobs = getattr(getattr(ctx, "cache", None), "jobs", None) or ()
+    return any(job.get("deleted_at") for job in jobs)
 
 
 # --- the document modes, as one table ----------------------------------------
@@ -274,9 +302,19 @@ def _doc_export_label(ctx: Any) -> str:
     return entry[1] if entry else "Export"
 
 
+#: Modes whose ``handle_key`` binds the file export to plain Ctrl+E rather
+#: than Ctrl+Shift+E, because the file export *is* the mode's library export
+#: (see the comment on ``_doc_export`` above). Mason joined Clay here in the
+#: 2026-09-26 audit, finding shell-chrome-03: ``mason.mode._ctrl_key`` binds
+#: ``export_glb`` to ``"e" and not shift``, but this table still printed
+#: "Ctrl+Shift+E" -- a chord that did nothing -- while the working one went
+#: unmentioned.
+_EXPORT_CTRL_E_MODES = {"clay", "mason"}
+
+
 def _doc_export_hint(ctx: Any) -> str:
     """The chord the mode actually binds the file export to; see ``_doc_export``."""
-    return "Ctrl+E" if ctx.state.mode == "clay" else "Ctrl+Shift+E"
+    return "Ctrl+E" if ctx.state.mode in _EXPORT_CTRL_E_MODES else "Ctrl+Shift+E"
 
 
 def _can_export(ctx: Any) -> bool:
@@ -730,7 +768,7 @@ def commands(ctx: Any) -> list[Command]:
             label="Empty the trash...",
             group="Application",
             run=empty_trash,
-            enabled=lambda ctx: any(job.get("deleted_at") for job in ctx.cache.jobs),
+            enabled=_any_trashed,
             why="The trash is empty.",
         ),
         Command(key="open-log", label="Open the log", group="Application", run=open_log),
@@ -751,6 +789,17 @@ def assets(ctx: Any, query: str) -> list[Any]:
     Empty for an empty query -- a palette that lists the newest eight assets
     before a key is pressed pushes the commands off the screen, and the library
     is right there.
+
+    Searches ``ctx.cache.jobs`` -- the newest ``jobs_cache.LIST_LIMIT`` (200)
+    rows, not the whole store -- so an asset older than that window will not
+    turn up here even though the Library's own search can still find it
+    (shell-chrome-09, the 2026-09-26 audit: the manual's "searches your
+    assets" reads as unqualified, which this window is not). Returned to the
+    orchestrator as a manual wording fix rather than changed here: widening
+    this to a store-wide search is the async ``request_widen``/``SEARCH_KEY``
+    machinery ``jobs_cache.py`` already built for the Library's own search,
+    wired into a palette call that is synchronous today -- a bigger change
+    than a Low-tier wording mismatch calls for.
     """
     if not query.strip():
         return []

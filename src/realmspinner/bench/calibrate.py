@@ -106,6 +106,15 @@ def sweep_job(
         # never reads as a file extension.
         frames = out_dir / f"e{elevation:06.2f}".replace(".", "_")
         frames.mkdir(parents=True, exist_ok=True)
+        # Cleared, not merged into -- ``views.render_views``'s own rule for the
+        # identical hazard, applied here too: a resumed/re-run sweep reusing
+        # this ``out_dir`` found the previous run's PNGs already sitting in
+        # ``frames``, and a render that failed part way through (or a smaller
+        # ``yaws`` than last time) then scored leftovers from the earlier run
+        # as if they belonged to this one, silently (the 2026-09-26 audit,
+        # finding pipelines-install-09).
+        for stale in frames.glob("*.png"):
+            stale.unlink(missing_ok=True)
         angles = sweep_cells(yaws)
         spec = blender_spec.sheet_spec(
             model,

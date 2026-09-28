@@ -1087,10 +1087,19 @@ class Worker(
             # ensure_started reaps or refuses.
             with contextlib.suppress(TrellisStopFailed):
                 await asyncio.to_thread(self.trellis.stop)
-        elif phase in ("rig", "sheet", "views", "project", "remesh", "train", "separate"):
+        elif phase in (
+            "rig", "sheet", "views", "project", "remesh", "lowpoly", "train", "separate",
+        ):
             # Same story as trellis: bpy is inside a C weighting solve (or an
             # EEVEE render) and checks nothing, so killing the subprocess is
             # the only abort.
+            #
+            # ``lowpoly`` is a text/image job's own in-job Blender remesh
+            # (``_q_mesh.py``'s ``lowpoly_triangles`` step) rather than a mesh
+            # job's own phase, and it was missing here (the 2026-09-26 audit,
+            # service-queue-01): ``request_cancel`` set the cancel event but
+            # never killed the child, so a cancel during this phase waited out
+            # the whole Blender remesh before the job actually stopped.
             #
             # ``separate`` joins them for a *different* reason and the same
             # remedy: its child is one-shot, so cancelling costs a ~300 MB load

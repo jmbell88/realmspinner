@@ -302,7 +302,7 @@ def _tool_bar(ctx: Any, state: Any, tab: Any) -> None:
             )
         )
     hit = toolbar.toolbar(
-        "inker-context", items, fields=fields, trailing=symmetry_trailing(ctx, state)
+        "inker-context", items, fields=fields, trailing=symmetry_trailing(ctx, state, tab)
     )
     if hit == "dynamics":
         imgui.open_popup(DYNAMICS_POPUP)
@@ -313,7 +313,7 @@ def _tool_bar(ctx: Any, state: Any, tab: Any) -> None:
     widgets.divider()
 
 
-def symmetry_trailing(ctx: Any, state: Any) -> Any:
+def symmetry_trailing(ctx: Any, state: Any, tab: Any) -> Any:
     """The sitting's settings, at the **end** of every tool bar: ``View`` and a
     named ``Sym`` group holding the four mirrors.
 
@@ -406,7 +406,7 @@ def symmetry_trailing(ctx: Any, state: Any) -> Any:
             tooltip="Symmetry -- the mirrors, radial, and the axis they turn about",
         ):
             imgui.open_popup(SYMMETRY_POPUP)
-        _symmetry_popup(ctx, state)
+        _symmetry_popup(ctx, state, tab)
         if tight:
             return
         imgui.same_line()
@@ -452,7 +452,7 @@ def _view_dirty(state: Any) -> bool:
     )
 
 
-def _symmetry_popup(ctx: Any, state: Any) -> None:
+def _symmetry_popup(ctx: Any, state: Any, tab: Any) -> None:
     """Behind the ``Sym`` word: the mirrors in words, radial, the axis, Reset."""
 
     from ......kernels.pixel import brush
@@ -497,7 +497,7 @@ def _symmetry_popup(ctx: Any, state: Any) -> None:
             if changed:
                 state.radial_count = int(count)
                 inker_mode.persist(ctx)
-        _symmetry_axis(ctx, state)
+        _symmetry_axis(ctx, state, tab)
         widgets.divider()
         # Disabled rather than hidden: a reset that appears only once something
         # is set is a control the user cannot learn is there.
@@ -527,7 +527,7 @@ _MIRROR_WORDS = {
 }
 
 
-def _symmetry_axis(ctx: Any, state: Any) -> None:
+def _symmetry_axis(ctx: Any, state: Any, tab: Any) -> None:
     """Where the mirrors sit. Empty means the canvas centre.
 
     Offered as two numbers rather than a draggable handle because the useful
@@ -538,12 +538,26 @@ def _symmetry_axis(ctx: Any, state: Any) -> None:
     the one place that changed ``symmetry_axis`` without calling ``persist``
     at all, so an axis moved off centre was gone at the next launch even after
     the rest of the symmetry began to be written down.
+
+    **The field shows the real centre, not a placeholder.** The 2026-09-26
+    audit, finding inker-panes-12: this used to show ``(0.0, 0.0)`` for an
+    unset axis regardless of the document's size, so a document wider or
+    taller than a couple of pixels showed "0 0" for a mirror line that was
+    actually sitting at the middle of the canvas. Typing a new X then wrote
+    ``(x, 0.0)`` -- the field's own displayed placeholder, not the true
+    centre -- jumping the Y mirror to the top edge. ``brush.axis_or_default``
+    is the one place "None means the centre" is computed (the guide the
+    canvas draws and the engine that reflects a stroke both already go
+    through it); reusing it here means the two boxes always show what a
+    mirror would actually reflect across, so editing one leaves the other's
+    real value in the box that gets written back.
     """
+    from ......kernels.pixel import brush
+
     axis = state.symmetry_axis
+    shown = brush.axis_or_default(tab.doc.size, axis)
     imgui.set_next_item_width(sp(120))
-    changed, values = controls.input_float2(
-        "Axis##symaxis", list(axis or (0.0, 0.0)), "%.0f"
-    )
+    changed, values = controls.input_float2("Axis##symaxis", list(shown), "%.0f")
     if changed:
         state.symmetry_axis = (float(values[0]), float(values[1]))
     # On the deactivation rather than on every changed frame, which is the

@@ -174,6 +174,18 @@ def rerun_job(
             "delete these stems and split this one again"
         )
 
+    if source["kind"] == "lora_train":
+        # The 2026-09-26 audit (service-kinds-09): ``rerollable`` already
+        # says no to this kind (it "mints a fresh row with no train/
+        # directory of images beside it"), but this door -- the one that
+        # actually matters, since ``rerollable`` only decides whether the
+        # button is offered -- had no refusal of its own. A caller that
+        # reaches here anyway (a stale UI state, a direct service or MCP
+        # call) got a job admitted and queued, which then failed at dispatch
+        # with "this job has no training images" instead of being refused
+        # here with a reason.
+        raise Invalid("a LoRA training run has no seed to reroll")
+
     if mode == "remesh" and source["kind"] == "music":
         # Refused by name, and only in this mode -- the tile sheet's shape
         # exactly. A *reroll* of a take is precisely meaningful: the whole

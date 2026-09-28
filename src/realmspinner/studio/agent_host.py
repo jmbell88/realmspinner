@@ -1284,8 +1284,20 @@ class AgentHost:
         finally:
             with contextlib.suppress(OSError):
                 conn.close()
-            self._active_conn = None
-            self._connected = False
+            # The 2026-09-26 audit (agents-host-01): this used to clear
+            # ``_active_conn``/``_connected`` unconditionally. ``stop()``'s
+            # own join gives up after ``STOP_JOIN_TIMEOUT`` (2s) while this
+            # method can still be blocked in ``conn.recv_bytes()`` well past
+            # that -- so a ``start()`` that follows can accept a brand new
+            # connection, set both fields for it, and then have *this*
+            # stale call's own ``finally`` run afterwards and wipe that live
+            # state anyway, because nothing here checked whose connection it
+            # was clearing. Cleared only when ``conn`` (this call's own,
+            # captured in its own closure) is still the one on record --
+            # never someone else's.
+            if self._active_conn is conn:
+                self._active_conn = None
+                self._connected = False
             self._toast("The agent disconnected.")
 
     def _serve_rpc_frame(
@@ -1584,7 +1596,8 @@ class AgentHost:
                 "connection, or retry this call once one completes.",
                 recovery="retry",
             )
-        if name in agent_character.HANDLERS:
+        is_character_tool = name in agent_character.HANDLERS
+        if is_character_tool:
             # The character tool surface's own doors (subprocesses, sqlite,
             # disk) never touch a Document, GL or imgui, so they run on the
             # service lane instead of the frame thread -- see
@@ -1643,7 +1656,17 @@ class AgentHost:
             # delivered, correctly, but it is not a completed tool call --
             # recording it here misfiled a refusal as tier-two data for a
             # call that never touched the document at all.
-            if state != DROPPED:
+            #
+            # ``not is_character_tool`` is the other half of the gate: the
+            # 2026-09-26 audit (agents-host-02) found a completed
+            # character-surface call recorded here too, into the same file
+            # a Clay-only recorder and reader agree on -- ``transcript.py``'s
+            # ``UID_KEYS`` is derived from ``agent_clay.tools()``'s own
+            # schemas, and tier one's replay resolves every recorded line
+            # through ``agent_clay.call``, which has never heard of a
+            # character tool. A character call's line was one tier one's
+            # replay could not run.
+            if state != DROPPED and not is_character_tool:
                 _record_completed_call(name, arguments, result)
             return result
         # The result never reached the peer -- a timeout refusal is about to
@@ -2055,7 +2078,13 @@ class AgentHost:
                     rpc.fail(f"{type(error).__name__}: {error}"), separators=(",", ":")
                 ).encode("utf-8")
             elif final_state == DONE and result is not None:
-                _record_completed_call(op.tool, op.args or {}, result)
+                # The 2026-09-26 audit (agents-host-02): the same gate
+                # ``_call``'s own recording point now carries -- a
+                # character-surface tool's completed task-mode call is not
+                # Clay-only transcript data either, for the identical
+                # reason (see ``_call``'s own comment on this).
+                if op.tool not in agent_character.HANDLERS:
+                    _record_completed_call(op.tool, op.args or {}, result)
                 body = json.dumps(result, separators=(",", ":")).encode("utf-8")
             else:
                 body = json.dumps(rpc.fail("the call raised with no result.")).encode("utf-8")

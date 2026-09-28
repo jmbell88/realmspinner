@@ -366,9 +366,22 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
     if key.startswith(sirens_play.RENDER_PREFIX):
         if isinstance(result, dict):
-            tab.adopt_render(
-                result["pcm"], result.get("loop"), result.get("marks") or ()
-            )
+            # The 2026-09-26 audit, finding sirens-playback-01:
+            # ``request_render``'s empty-order guard returns early and sets
+            # ``pcm=None``/``render_dirty=False`` before it ever reaches the
+            # in-flight check, so emptying the order while a render was
+            # already running does not cancel that render -- it only decides
+            # the tab is done needing one. When that stale render then lands
+            # here, ``adopt_render`` set ``tab.pcm`` to the removed song's
+            # audio with nothing left to notice ``render_dirty`` is false and
+            # ask for another. Discarded instead, the same "nothing to play"
+            # conclusion ``request_render`` already reached.
+            if tab.doc.order:
+                tab.adopt_render(
+                    result["pcm"], result.get("loop"), result.get("marks") or ()
+                )
+            else:
+                tab.rendering = False
         else:
             tab.rendering = False
         return
@@ -479,6 +492,25 @@ def on_task_failed(ctx: Any, done: Any) -> None:
         # *export* is not in this clause, deliberately -- it does lock the tab
         # (``docmodes.start_save``), so it falls through to the unlock below.
         return
+    if done.key.startswith(sirens_play.RENDER_PREFIX):
+        # The 2026-09-26 audit, finding sirens-playback-04: a render never
+        # sets ``tab.saving``/``tab.doc.busy`` -- only a save does, through
+        # ``docmodes.start_save`` -- so this used to fall through to the
+        # unconditional unlock below and clear both anyway. Harmless on its
+        # own, but the comment just above already names the actual hazard for
+        # its three siblings: a render that fails while a *save* is genuinely
+        # running alongside it unlocked that save early, the same "tab was
+        # never locked for this" mistake sample/audition/preview were already
+        # carved out for.
+        state = ctx.state.sirens
+        if state is None or ":" not in done.key:
+            return
+        tab = state.get(done.key.split(":", 1)[1])
+        if tab is None:
+            return
+        tab.rendering = False
+        tab.render_error = done.message or "That song did not render."
+        return
     state = ctx.state.sirens
     if state is None or ":" not in done.key:
         return
@@ -490,9 +522,6 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     # locked out forever, the same reason ``tab.saving`` itself is cleared
     # here rather than left set.
     tab.doc.busy = False
-    if done.key.startswith(sirens_play.RENDER_PREFIX):
-        tab.rendering = False
-        tab.render_error = done.message or "That song did not render."
 
 
 # --- guard and keys -----------------------------------------------------------

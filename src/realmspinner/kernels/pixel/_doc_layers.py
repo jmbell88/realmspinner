@@ -470,6 +470,14 @@ class LayerOps:
         unknown = set(props) - TRACK_PROPS
         if unknown:
             raise ValueError(f"unknown track property: {sorted(unknown)[0]}")
+        if "blend" in props and props["blend"] not in cp.BLEND_MODES:
+            # The 2026-09-26 audit, finding inker-document-13: ``Layer``'s own
+            # ``__post_init__`` refuses an unknown blend mode, but this writes
+            # with ``setattr`` onto a *live* layer/track, which skips it --
+            # the bad value landed, the undo step was pushed, and only the
+            # next recomposite (``invalidate_all`` -> ``composite_region`` ->
+            # ``composite.blend``) raised, several calls and one push later.
+            raise ValueError(f"unknown blend mode {props['blend']!r}")
         if "continuous" in props and self.anim is None:
             # The one track property a ``Layer`` has no counterpart for: it
             # says what autovivification writes, and a still document has no
@@ -1044,6 +1052,21 @@ class LayerOps:
         if not len(self.stack) or self.stack[0].background:
             return False
         layer = self.stack[0]
+        # The 2026-09-26 audit, finding inker-mode-09: this used to mutate
+        # ``layer.pixels`` (below) before reaching ``_patch_edit_for``, whose
+        # tilemap refusal then raised out of the middle of the write -- pixels
+        # changed on a tilemap bottom layer with no flag, step or dirty mark.
+        # Refuse first, the same door every other single-layer pixel write
+        # already goes through.
+        self._refuse_tilemap_layer(layer.uid, "converting to background")
+        # inker-document-10: an animated bottom row nothing has ever drawn on
+        # is the shared read-only placeholder plane (``animation.blank_plane``);
+        # writing into it in place below raised numpy's "assignment
+        # destination is read-only" instead of converting. Autovivify it into
+        # a real cel first, the same door every other write to a placeholder
+        # goes through.
+        self._ensure_cel_for(layer.uid)
+        layer = self.stack[0]
         before = layer.pixels.copy()
         matte_before = None if self.matte is None else tuple(self.matte)
         if self.matte is not None:
@@ -1427,6 +1450,11 @@ class LayerOps:
         node = self.groups.get(group_uid)
         if node is None:
             return False
+        if "blend" in props and props["blend"] not in cp.BLEND_MODES:
+            # inker-document-13, the group half: same unvalidated ``setattr``
+            # as ``set_layer_props``, and ``GroupNode.blend`` feeds the same
+            # ``composite.blend`` at the next fold.
+            raise ValueError(f"unknown blend mode {props['blend']!r}")
         before = {key: getattr(node, key) for key in props}
         if before == props:
             return False

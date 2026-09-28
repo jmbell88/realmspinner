@@ -201,6 +201,10 @@ def _h_uv(ctx: Any, session: Session, args: dict) -> dict:
     if failure:
         return failure
     action = args.get("action")
-    if action not in UV_ACTIONS:
+    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
+    # ``x not in a_dict`` hashes ``x``, and a list or object ``action``
+    # raised a bare, unhashable ``TypeError`` that only ``call()``'s generic
+    # "failed unexpectedly" backstop caught, instead of this refusal.
+    if not isinstance(action, str) or action not in UV_ACTIONS:
         return fail(f"action must be one of {', '.join(sorted(UV_ACTIONS))}.", field="action")
     return _UV_ACTION_HANDLERS[action](doc, obj, args)

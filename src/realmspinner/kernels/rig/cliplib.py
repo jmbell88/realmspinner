@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import charsheet
-from ..sheet import POSE_SPACES
+from ..sheet import EASINGS, POSE_SPACES
 from .poses import validate_bones
 from .templates import TEMPLATE_DIR, _read_json_capped, catalog, get_template
 
@@ -333,7 +333,17 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
         # already rely on, and ``sheet.interpolate_clip`` refuses one by name
         # ("a clip needs at least two keyframes") the moment it is actually
         # expanded, so nothing reaches the renderer unchecked).
-        closed = bool(clip.get("closed", False))
+        # The 2026-09-26 audit, finding poser-rig-05: ``bool(clip.get("closed",
+        # False))`` reads a hand-edited ``"closed": "false"`` as ``True`` --
+        # any non-empty string is truthy in Python -- so a file meaning to
+        # open a clip silently closed it instead, with no error at either the
+        # parse door or the render that followed. Only a real bool (or the
+        # key's absence, defaulting open) is accepted; anything else refuses
+        # by name instead of guessing which way the author meant it.
+        closed_raw = clip.get("closed", False)
+        if not isinstance(closed_raw, bool):
+            raise ValueError(f'clip {name!r} "closed" must be true or false, not {closed_raw!r}')
+        closed = closed_raw
         raw_segments = clip["segments"]
         if len(keys) >= 2:
             wanted = len(keys) if closed else len(keys) - 1
@@ -356,12 +366,24 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
         else:
             duration_ms = LEGACY_CLIP_DURATION_MS.get(name, 100)
         duration_ms = validate_clip_duration_ms(duration_ms, name)
+        # The 2026-09-26 audit, finding poser-rig-05: this read door accepted
+        # any string for "easing" and only ``service.clips._check_shape`` (the
+        # write door) checked it against the same ``EASINGS`` the renderer
+        # knows -- so a hand-edited or externally produced library with a
+        # typo'd or invented easing name parsed clean and reached
+        # ``sheet.interpolate_clip`` only for whichever movement a layout
+        # happened to name, the identical "sits parsed-but-wrong until
+        # something renders it" shape ``poser-05``'s segment-range fix above
+        # (the 2026-09-23 audit) closed for segments.
+        easing = str(clip.get("easing") or "linear")
+        if easing not in EASINGS:
+            raise ValueError(f"clip {name!r} uses an unknown easing {easing!r}")
         record: dict[str, Any] = {
             "name": name,
             "keys": keys,
             "segments": segments,
             "closed": closed,
-            "easing": str(clip.get("easing") or "linear"),
+            "easing": easing,
             "space": space,
             "duration_ms": duration_ms,
         }
@@ -470,16 +492,30 @@ def clip_library(template_key: str) -> dict[str, Any]:
     """
     global _clips, _user_clips, _user_clip_errors
     get_template(template_key)
-    if _clips is None:
-        _clips = _load_clip_library(CLIP_DIR)
-    if _user_clips is None:
+    # Bound to locals once and read only through them below -- the 2026-09-26
+    # audit, finding poser-rig-06, is :func:`shipped_clip_library`'s own fixed
+    # race (see that function's comment) reached from here instead: a
+    # concurrent ``invalidate_clips()`` (Poser's save door, on another thread)
+    # landing between either ``is None`` check above and the ``.get`` calls
+    # below used to be able to reset the module globals back to ``None`` in
+    # the gap, and the read then raised ``AttributeError: 'NoneType' object
+    # has no attribute 'get'`` instead of simply serving the library this call
+    # had already committed to loading.
+    clips = _clips
+    if clips is None:
+        clips = _load_clip_library(CLIP_DIR)
+        _clips = clips
+    user_clips = _user_clips
+    if user_clips is None:
         directory = user_clip_dir()
-        _user_clip_errors = {}
-        _user_clips = (
-            _load_clip_library(directory, errors=_user_clip_errors)
+        user_clip_errors: dict[str, str] = {}
+        user_clips = (
+            _load_clip_library(directory, errors=user_clip_errors)
             if directory is not None and directory.is_dir()
             else {}
         )
+        _user_clips = user_clips
+        _user_clip_errors = user_clip_errors
     # The user's file wins whole, never field by field -- see ``_user_clips``.
     # An unusable one has already been logged and dropped by the loader, so
     # this falls back to the shipped library rather than to nothing, which is
@@ -487,7 +523,7 @@ def clip_library(template_key: str) -> dict[str, Any]:
     # ``service.clips.library()`` is what tells the two cases apart for the
     # user, through :func:`user_clip_error` -- this function stays the
     # renderer's own "give me something to draw" door and keeps falling back.
-    library = _user_clips.get(template_key) or _clips.get(template_key)
+    library = user_clips.get(template_key) or clips.get(template_key)
     return library or {"poses": {}, "clips": [], "space": "node"}
 
 

@@ -1,15 +1,21 @@
 """Indexed colour: a document palette, and every write snapped onto it.
 
-**This is constrain-on-write, not index storage, and that is a decision rather
-than a shortcut.** ``Layer.__post_init__`` hard-enforces ``(H, W, 4) uint8``,
-and every blend mode, brush coverage accumulation, filter, selection mask and
-native kernel in this package is written against RGBA. A document that stored
-an index plane would be a rewrite of the whole package, and it would buy
-nothing a user can see: what "indexed" is *for* is no stray near-colours, a
-palette-wide recolour that actually reaches every pixel, and an export whose
-colour table is exactly the one you authored. All three fall out of carrying a
-palette and snapping writes onto it. So a later reader does not "fix" this:
-the pixels stay RGBA on purpose.
+**This is constrain-on-write, not index storage, and that was a decision
+rather than a shortcut -- for *this* mode.** ``Layer.__post_init__``
+hard-enforces ``(H, W, 4) uint8``, and every blend mode, brush coverage
+accumulation, filter, selection mask and native kernel in this package is
+written against RGBA; nothing here needed a second plane to get duplicate
+colours right or an export table right, and palette-constrained RGB still
+does not carry one. The 2026-09-26 audit, finding inker-paint-05: true
+indexed mode arrived later and *does* carry a plane (:mod:`.index_plane`,
+``Layer.indices``) precisely for the one thing snap-on-write cannot
+represent -- two palette slots holding the same colour staying distinguishable
+-- so "a document that stored an index plane would be a rewrite of the whole
+package" is no longer true of this package as a whole, only of the mode this
+module implements. The two mechanisms coexist by design (see
+:mod:`.index_plane`'s own module docstring); a later reader does not "fix"
+palette-constrained RGB into carrying a plane too, because pixels staying RGBA
+here is still the point, not a gap.
 
 Nearest is measured in **straight** (non-premultiplied) RGB, for the reason
 ``transform._resample`` has a ``straight=`` path at all -- premultiplying moves

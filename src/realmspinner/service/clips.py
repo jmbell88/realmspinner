@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from .. import poselib
@@ -144,6 +145,29 @@ def library(svc: RealmspinnerService, template: str) -> dict[str, Any]:
     }
 
 
+def _segment_length(value: Any, label: str) -> int:
+    """One clip's segment length off an untrusted payload, refusing what a
+    bare ``int()`` would silently coerce.
+
+    The 2026-09-26 audit, finding poser-poses-01: ``int(n)`` on a non-numeric
+    entry (a string, ``None``, a list) raised a bare ``TypeError`` or
+    ``ValueError`` with no field -- "Something went wrong" in the editor for
+    a refusal every other check in this function names by field -- and on a
+    fractional one (``2.9``) it truncated silently to 2 rather than refusing
+    a value the segment-length door was never asked to round.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise Invalid(
+            f'"{label}" has a non-numeric segment length {value!r}', field="segments"
+        )
+    if isinstance(value, float) and not value.is_integer():
+        raise Invalid(
+            f'"{label}" has a fractional segment length {value!r}; segments are whole frames',
+            field="segments",
+        )
+    return int(value)
+
+
 def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
     """Everything about a library that is wrong *before* the parser sees it.
 
@@ -163,6 +187,13 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
     names: list[str] = []
     validated_poses: list[dict[str, Any]] = []
     for pose in poses:
+        # The 2026-09-26 audit, finding poser-poses-01: a pose entry that is
+        # not an object (a bare string or number in a hand-edited or
+        # agent-written payload) raised a bare ``AttributeError`` out of the
+        # ``.get`` below instead of a field-addressed ``Invalid`` -- the same
+        # "costs a field" gap the segment-length check closes further down.
+        if not isinstance(pose, Mapping):
+            raise Invalid(f"every key pose must be an object, not {pose!r}", field="poses")
         name = str(pose.get("name") or "").strip()
         if not name:
             raise Invalid("every key pose needs a name", field="poses")
@@ -193,6 +224,10 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
     seen: list[str] = []
     validated_clips: list[dict[str, Any]] = []
     for clip in clips:
+        # Same gap as the pose loop above, for the same reason (poser-poses-01):
+        # a non-object clip entry must not reach a bare ``.get``.
+        if not isinstance(clip, Mapping):
+            raise Invalid(f"every clip must be an object, not {clip!r}", field="clips")
         label = str(clip.get("name") or "").strip()
         if not label:
             raise Invalid("every clip needs a name", field="clips")
@@ -215,7 +250,7 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
             raise Invalid(f"{exc}; rename it before saving", field="clips") from exc
         seen.append(label)
         keys = [str(k) for k in (clip.get("keys") or ())]
-        segments = [int(n) for n in (clip.get("segments") or ())]
+        segments = [_segment_length(n, label) for n in (clip.get("segments") or ())]
         if len(keys) < MIN_KEYS:
             raise Invalid(
                 f'"{label}" needs at least {MIN_KEYS} keys; one key is a pose, '

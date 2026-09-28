@@ -364,8 +364,22 @@ class _Session:
             )
             return json.dumps(result, separators=(",", ":")).encode("utf-8")
 
+        # *body* above is the real, already-successful tool result -- the
+        # 2026-09-26 audit (agents-host-03) found this next call sitting
+        # outside any try, so a pipe failure inside the catalogue re-fetch it
+        # can trigger (`_fetch_catalogue`'s own `send_bytes`/`recv_bytes`,
+        # neither guarded there) raised straight out of `call_tool` and
+        # discarded *body* in favour of whatever generic failure the caller
+        # above this method turns an uncaught exception into. A catalogue
+        # refresh dying here has nothing to do with whether the call that
+        # triggered it succeeded -- the same "stop trusting this connection,
+        # let the next call reconnect" response `_maybe_refresh_catalogue`
+        # already gives its own timed-out refresh applies here too.
         new_hash = header.get("hash", "")
-        self._maybe_refresh_catalogue(new_hash)
+        try:
+            self._maybe_refresh_catalogue(new_hash)
+        except (EOFError, OSError):
+            self._disconnect()
         return body
 
     def call_tool_task(self, name: str, arguments: dict[str, Any]) -> tuple[str, str] | bytes:

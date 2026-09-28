@@ -329,6 +329,17 @@ class LayerOps:
         made = copylib.deepcopy(layer)
         made.uid = new_uid()
         made.id = self._mint_layer_id()
+        if isinstance(made, ImageLayer):
+            # ``copy.deepcopy`` on a numpy array calls its own ``.copy()``,
+            # which does not carry the ``writeable=False`` flag over -- the
+            # frozen picture ``ImageLayer.__post_init__`` set at construction
+            # comes back writable on the far side of a duplicate, and an
+            # in-place edit through it would corrupt the original's cached
+            # texture upload with no counter to say the pixels moved (the
+            # 2026-09-26 audit, finding plotter-map-09). Undo and redo replay
+            # this same layer object, so the refreeze has to happen once here
+            # rather than at every edit site that might otherwise see it.
+            made.pixels = frozen_rgba(made.pixels, "an image layer's picture")
         if isinstance(made, ObjectLayer):
             for obj in made.objects:
                 obj.uid = new_uid()

@@ -65,7 +65,11 @@ def _h_collider(ctx: Any, session: Session, args: dict) -> dict:
         return fail("give at least one uid.", field="uids")
 
     kind = args.get("kind")
-    if kind not in colliders.COLLIDER_KINDS:
+    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
+    # ``x not in a_dict`` hashes ``x``, and a list or object ``kind`` raised
+    # a bare, unhashable ``TypeError`` that only ``call()``'s generic
+    # "failed unexpectedly" backstop caught, instead of this refusal.
+    if not isinstance(kind, str) or kind not in colliders.COLLIDER_KINDS:
         return fail(
             f"kind must be one of {', '.join(sorted(colliders.COLLIDER_KINDS))}.",
             field="kind",
@@ -87,8 +91,12 @@ def _h_collider(ctx: Any, session: Session, args: dict) -> dict:
     for key, default in defaults.items():
         raw = params_arg.get(key, default)
         try:
+            # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
+            # ``round(float("inf"))`` raises it (``_coerce_collider_param``'s
+            # own ``int``/``bool`` branches both go through ``round``),
+            # uncaught here before this fix.
             kwargs[key] = _coerce_collider_param(default, raw)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail(f"params.{key} must be a number.", field="params")
 
     fits: list[tuple[int, colliders.Collider]] = []

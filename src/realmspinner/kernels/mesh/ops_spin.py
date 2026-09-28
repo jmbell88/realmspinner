@@ -265,6 +265,21 @@ def spin(
         raise OpError("The spin angle must not be zero.")
     remainder = abs(angle_f) % 360.0
     full_turn = (remainder < 1e-6 or remainder > 360.0 - 1e-6) and abs(angle_f) > 1e-9
+    # The 2026-09-26 audit's clay-mesh-ops-02: a whole turn closes the ring by
+    # reusing ring zero's own vertex indices for the last band (see this
+    # function's own docstring), which needs at least three distinct rings to
+    # close into a solid rather than folding back on itself. `steps=1` has
+    # only ring zero, so the single band's "next" ring wraps onto the *same*
+    # ring it started from and every quad gets repeated corners; `steps=2`
+    # folds its two bands directly back onto each other. Neither was refused
+    # before this fix -- reproduced on a box's single-edge profile.
+    if full_turn and steps < 3:
+        raise OpError(
+            "A full-turn spin needs at least three steps to close into a "
+            f"solid; {steps} step{'s' if steps != 1 else ''} folds the "
+            "profile back onto itself with repeated corners. Add more "
+            "steps, or spin less than a full turn."
+        )
     n_copies = steps if full_turn else steps + 1
     n_bands = n_copies if full_turn else n_copies - 1
     # The 2026-09-23 audit's clay-11: this refusal used to run only after

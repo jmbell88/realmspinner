@@ -368,8 +368,22 @@ def expand(plan: SweepPlan) -> list[UnitPlan]:
             groups.append(group)
     # The base config first, then the rest in the order they were planned.
     # ``sorted`` is stable, so within a group the planned order survives.
-    order = {group: (0 if group == base_group else 1 + groups.index(group)) for group in groups}
-    return sorted(units, key=lambda u: order[u.server_group(plan.base)])
+    #
+    # The 2026-09-26 audit (service-assets-05): this used to key a dict by
+    # ``group`` (a tuple of raw SERVER_AXES values), and a caller-supplied
+    # axis value that is a list or dict -- ``trellis_atlas=[1, 2]`` from a
+    # malformed sweep spec, say -- makes that tuple unhashable, raising a
+    # bare ``TypeError`` before any per-unit validation gets a chance to
+    # refuse it by name. Grouping is stated above as best-effort ordering
+    # that nothing depends on for correctness, so ``groups.index`` (an
+    # equality scan, not a hash lookup) is the right tool: it ranks
+    # unhashable values exactly like hashable ones and lets the real
+    # refusal happen downstream, in each unit's own validation.
+    def _rank(unit: UnitPlan) -> int:
+        group = unit.server_group(plan.base)
+        return 0 if group == base_group else 1 + groups.index(group)
+
+    return sorted(units, key=_rank)
 
 
 def unit_kwargs(plan: SweepPlan, unit: UnitPlan) -> dict[str, Any]:

@@ -55,6 +55,14 @@ def _ctx(
         ),
         cache=SimpleNamespace(jobs=rows, get=by_id.get),
         viewer=None,
+        # "Empty the trash" reads the store's own trash figure, not the
+        # loaded window (shell-chrome-06, the 2026-09-26 audit) -- a fake
+        # keyed off the same ``rows`` this ctx was built from.
+        svc=SimpleNamespace(
+            store=SimpleNamespace(
+                trashed=lambda: [job for job in rows if job.get("deleted_at")]
+            )
+        ),
     )
 
 

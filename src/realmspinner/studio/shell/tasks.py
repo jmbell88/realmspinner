@@ -1359,6 +1359,15 @@ class TasksMixin:
         except Exception:
             log.exception("could not open %s", wanted)
             ctx.toast("Could not open that asset.", "error")
+            # The 2026-09-26 audit, finding create-brief-03: this used to
+            # return here with ``state.preview`` untouched, so a failed load
+            # -- or a selection that moved on before this one landed -- left
+            # the *previous* asset's poses/sheets/bones on screen under the
+            # new (broken or abandoned) selection. ``_reached_pose`` reads
+            # exactly that evidence (``state.preview["poses"]``) to tick the
+            # Pose stage, so the rail kept showing a step as reached for an
+            # asset that never produced one.
+            self._refresh_rig_side_data()
             return
         job = ctx.job()
         # The thumbnail is free here: the model is loaded and framed, and a

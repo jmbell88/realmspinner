@@ -903,6 +903,14 @@ def read_tile_meta_json(entry: dict[str, Any]) -> dict[int, TileMeta]:
     """:func:`read_tile_meta` over Tiled's JSON tileset spelling."""
     out: dict[int, TileMeta] = {}
     for tile in entry.get("tiles") or ():
+        # Its two siblings, ``check_tileset_features_json`` and
+        # ``collection_sources_json``, already skip a non-object ``tiles``
+        # entry rather than reach ``.get`` on it; this one did not, and a
+        # ``"tiles": [5]`` raised a bare ``AttributeError`` here instead of the
+        # ``ValueError`` a malformed tileset gets everywhere else (the
+        # 2026-09-26 audit, finding plotter-map-08).
+        if not isinstance(tile, dict):
+            continue
         local = int(tile.get("id", 0) or 0)
         group = tile.get("objectgroup") or {}
         shapes: list[Any] = []

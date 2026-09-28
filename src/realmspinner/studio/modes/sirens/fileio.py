@@ -299,12 +299,31 @@ def save_as(ctx: Any, tab: SongTab | None = None) -> None:
     stem = Path(tab.title).stem or "song"
 
     def run() -> dict[str, Any] | None:
-        path = dialogs.save_file(
+        picked = dialogs.save_file(
             "Save the song", f"{stem}{sirens_state.RSNG_SUFFIX}", SONG_FILTER
         )
-        if path is None:
+        if picked is None:
             return None
-        path = path.with_suffix(sirens_state.RSNG_SUFFIX)
+        path = picked.with_suffix(sirens_state.RSNG_SUFFIX)
+        # The 2026-09-26 audit, finding sirens-playback-05: the OS dialog's own
+        # overwrite prompt was asked about whatever name the user actually
+        # typed (``song.txt``, say, if the filter did not stop them) -- not
+        # the ``.rsng`` name this line then substitutes, which can already
+        # exist under a completely different file and is about to be
+        # overwritten with no confirmation of its own. Asked again, natively
+        # and blocking, the same way ``dialogs.save_file`` itself already is;
+        # this module's own docstring is why that is safe from a task thread.
+        if path != picked and path.exists():
+            from imgui_bundle import portable_file_dialogs as pfd
+
+            answer = pfd.message(
+                "Replace existing song?",
+                f"{path.name} already exists here and would be replaced by"
+                f" saving as {picked.name}. Replace it?",
+                pfd.choice.yes_no,
+            ).result()
+            if answer != pfd.button.yes:
+                return None
         _write({path: data})
         return {"head": head, "path": str(path), "retitle": True}
 

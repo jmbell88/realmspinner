@@ -34,6 +34,18 @@ def toggle_play(ctx: Any, tab: InkerDoc | None = None) -> None:
         stop_play(tab)
         return
     state = ctx.state.inker
+    if state is not None and state.transforming:
+        # The 2026-09-26 audit, finding inker-mode-07: starting play used to
+        # fall through to ``tab.doc.commit_floating()`` below, which commits
+        # a Free transform's floating buffer directly rather than through
+        # ``mode.end_transform`` -- so ``state.transforming`` (and
+        # ``transform_uid``) stayed set with no floating buffer left to
+        # match it, and the Transformation key context went on claiming
+        # Enter forever, which is the only other door back to this
+        # function. Refusing here leaves Free transform's own Enter/Escape
+        # as the one way to end it, same as every other verb that would
+        # otherwise reach past it.
+        return
     if state is not None and (state.drag_kind or state.gesture_pts):
         # ``step_frame``'s guard, and for its reason: playback advances frames,
         # which rebuilds the layer stack, and an open paint drag holds a

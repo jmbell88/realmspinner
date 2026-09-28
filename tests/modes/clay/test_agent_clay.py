@@ -5180,11 +5180,22 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     behind it -- not a new tool or a new registry, which still has to raise
     this ceiling and say why, the same rule every entry above already
     follows.
+
+    The 2026-09-26 audit's clay-agent-tools-07: ``_object_row_output_schema``'s
+    ``generator`` property widened from a bare ``{"type": "string"}`` to
+    ``anyOf: [null, string]``, because ``_scene_row`` answers ``None`` for a
+    hand-built or frozen object and the narrower schema had been lying about
+    that since it was written -- a correctness fix, not a new capability, but
+    the same shared row embedded three times (``clay_scene``'s own items,
+    ``clay_add_primitive``, ``clay_add_mesh``) that made tranches 2/3's own
+    additions cost triple. Catalogue JSON 66,067 chars + instructions 11,998
+    chars = 78,065 chars total, over the 78,000 ceiling above by 65. Raised to
+    78,100.
     """
     from realmspinner.mcp import rpc
     from realmspinner.studio import agent_host
 
-    CEILING = 78_000
+    CEILING = 78_100
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

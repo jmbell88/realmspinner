@@ -24,9 +24,11 @@ order.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -67,6 +69,30 @@ class Instance:
         return [b["name"] for b in self.joints]
 
 
+def _required(arrays: dict[str, np.ndarray], key: str, fam: Family) -> np.ndarray:
+    """One mandatory structural channel of a species' ``.masks.npz``, refused
+    by name rather than indexed bare.
+
+    The 2026-09-26 audit, finding poser-characters-07: ``_load_base`` and
+    ``instantiate`` indexed this dict with a bare ``arrays[key]`` for every
+    structural channel (``positions_digest``, ``joints``, ``joint_names``,
+    ``joint_parents``, ``prim_offsets``, ``prim_regions``) -- unlike the
+    per-appearance ``disp/``/``jdisp/`` channels a few lines below, which
+    already guard the identical lookup and raise :class:`CharacterError`. A
+    mask file missing one of these (a bad bake, a half-written author script
+    run) raised a raw ``KeyError`` with no ``field``, invisible to the
+    ``except ValueError`` doors ``CharacterError`` exists to be caught by.
+    """
+    value = arrays.get(key)
+    if value is None:
+        raise CharacterError(
+            f"{fam.label}'s mask file has no {key!r} channel; run "
+            "scripts/author_humanoid.py --write",
+            field="family",
+        )
+    return value
+
+
 def _load_base(fam: Family) -> tuple[list[Any], np.ndarray, dict[str, np.ndarray]]:
     """``(primitives, concatenated positions, mask arrays)`` for a species.
 
@@ -90,7 +116,7 @@ def _load_base(fam: Family) -> tuple[list[Any], np.ndarray, dict[str, np.ndarray
     with np.load(fam.masks_npz, allow_pickle=False) as data:
         arrays = {key: data[key] for key in data.files}
     digest = hashlib.blake2b(stacked.tobytes(), digest_size=16).digest()
-    if bytes(arrays["positions_digest"].tobytes()) != digest:
+    if bytes(_required(arrays, "positions_digest", fam).tobytes()) != digest:
         raise CharacterError(
             f"{fam.label}'s mask file was baked against a different {fam.base_glb.name}",
             field="family",
@@ -238,10 +264,27 @@ def _sockets(fam: Family, joints: list[dict[str, Any]]) -> dict[str, dict[str, A
 
 
 def _write(path: Path, data: bytes) -> None:
-    """Stage onto a served name. Never in place -- the repo's rule for these."""
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
+    """Stage onto a served name. Never in place -- the repo's rule for these.
+
+    The temp name carries a random suffix, not only a leading dot. The 2026-09-26
+    audit, finding poser-characters-07: a fixed ``.<name>.tmp`` is shared by
+    every call onto the same *path* -- ``preview_character``'s cache digest
+    already lets two racing requests for the same recipe land on the same
+    ``dest``, and any future concurrent build of the same job directory would
+    do the same for ``source.glb``/``model.glb`` -- so one call's in-flight
+    ``write_bytes`` could be overwritten by the other's before either reached
+    ``os.replace``, and whichever replace ran second would publish a file
+    built from a mix of the two calls' bytes. ``queue._stage_link``'s copy
+    branch already carries a per-call ``secrets.token_hex`` suffix for the
+    identical reason.
+    """
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
 
 
 def instantiate(recipe: Recipe, out_dir: Any) -> Instance:
@@ -269,15 +312,17 @@ def instantiate(recipe: Recipe, out_dir: Any) -> Instance:
     # glTF axes first and adding the already-glTF-axis displacement after --
     # never converting it -- matches the mesh-vertex path (``_displaced``
     # above), which does exactly that.
-    joint_points = _displaced_joints(_to_gltf(arrays["joints"].astype("f8")), arrays, appearance)
+    joint_points = _displaced_joints(
+        _to_gltf(_required(arrays, "joints", fam).astype("f8")), arrays, appearance
+    )
     # One transform for both, derived from the mesh: a skeleton grounded against
     # its own bounding box rather than the body's would sit a few millimetres off
     # in every pose, and the error would look like bad weights.
     positions, scale, offset = _ground_and_scale(positions, fam.height_m)
     joint_points = (joint_points - offset) * scale
 
-    names = [str(n) for n in arrays["joint_names"]]
-    parents = [str(p) or None for p in arrays["joint_parents"]]
+    names = [str(n) for n in _required(arrays, "joint_names", fam)]
+    parents = [str(p) or None for p in _required(arrays, "joint_parents", fam)]
     blender = _to_blender(joint_points)
     joints = [
         {
@@ -290,8 +335,8 @@ def instantiate(recipe: Recipe, out_dir: Any) -> Instance:
     ]
     _check_against_template(fam, joints)
 
-    offsets = arrays["prim_offsets"].astype("i8")
-    regions = arrays["prim_regions"].astype("i8")
+    offsets = _required(arrays, "prim_offsets", fam).astype("i8")
+    regions = _required(arrays, "prim_regions", fam).astype("i8")
     region_names = fam.regions
     materials = {name: theme.materials[name] for name in region_names if name in theme.materials}
 

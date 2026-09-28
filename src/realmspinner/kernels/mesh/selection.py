@@ -207,6 +207,8 @@ def duplicate_selected(doc: Any) -> list[int]:
     ``add_objects`` already selects everything it inserts and is a no-op on
     an empty list, so an empty selection here pushes nothing.
     """
+    from dataclasses import replace
+
     from . import document as bd
     from . import ops
 
@@ -217,9 +219,27 @@ def duplicate_selected(doc: Any) -> list[int]:
     # copies in whatever order the set's hash buckets happened to land in
     # rather than the order the objects actually sit in the outliner --
     # sorting by ``doc.index_of`` restores the document's own order.
+    old_to_new: dict[int, int] = {}
     for uid in sorted(doc.selection, key=doc.index_of):
         copy = ops.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
         taken.append(copy.name)
+        old_to_new[uid] = copy.uid
         copies.append(copy)
+    # The 2026-09-26 audit (clay-mesh-core-06): ``ops.duplicate`` copies
+    # ``parent`` verbatim, so a Ctrl+D on a selected parent *and* child left
+    # the child copy parented to the *original* parent rather than its new
+    # sibling copy -- the two hierarchies tangled together instead of the
+    # keypress producing one independent duplicate of the whole selection.
+    # Both parent and child copy share the parent's own local transform
+    # unchanged (``ops.duplicate`` never touches translation/rotation/scale),
+    # so re-pointing ``parent`` at the new copy -- without recomputing local
+    # TRS the way ``set_parent(keep_world=True)`` would -- keeps the copy
+    # exactly where it already sits. A copy whose parent was not itself part
+    # of this selection is left naming the original, unchanged: it was never
+    # duplicated, so there is no sibling copy to move to.
+    copies = [
+        replace(copy, parent=old_to_new[copy.parent]) if copy.parent in old_to_new else copy
+        for copy in copies
+    ]
     doc.add_objects(copies)
     return [copy.uid for copy in copies]

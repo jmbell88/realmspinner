@@ -100,9 +100,11 @@ fetched it yet is an ordinary fresh machine, not a broken one, so both rows are 
 rows rather than red ones and `realmspinner doctor` exits 0. The weights made the same move on
 2026-09-04, for the same reason.
 
-The only fatal row left is the VRAM budget, and that one fires only when the budget cannot hold a
-lone reconstruction — so on a card large enough it never does. **A correct, freshly installed
-Realmspinner now has no fatal rows at all.** See [Checking the install](#checking-the-install) below.
+The only fatal row left is the VRAM budget, and it fires two ways: when the budget cannot hold a
+lone reconstruction, and when the host has no CUDA device at all — a card large enough avoids the
+first, but nothing avoids the second on a machine with no GPU. **A correct, freshly installed
+Realmspinner on a machine with a capable GPU now has no fatal rows at all.**
+See [Checking the install](#checking-the-install) below.
 
 ## gltfpack
 
@@ -278,8 +280,8 @@ actually do.
 
 ### Optional measuring and helper models
 
-These five never make a picture. They measure one, cut one out, rewrite the prompt that asks for
-one, or place a skeleton — and each is absent-changes-nothing: without it the feature it powers
+These four never make a picture. They measure one, cut one out, or place a skeleton — and each is
+absent-changes-nothing: without it the feature it powers
 falls back to what the app did before it existed, rather than failing.
 
 ```powershell
@@ -316,7 +318,7 @@ uvx hf download ZhengPeng7/BiRefNet --revision e2bf8e4460fc8fa32bba5ea4d94b3233d
   --include "*.json" --include "*.safetensors" --local-dir $HOME/.realmspinner/models/birefnet
 ```
 
-All five run on the **CPU**, deliberately: a measurement must not take VRAM from the models making
+All four run on the **CPU**, deliberately: a measurement must not take VRAM from the models making
 the asset. What each one changes when present:
 
 | Model | Without it | With it |
@@ -368,8 +370,9 @@ uv run realmspinner          # opens the desktop app
 of reading it:
 
 - **`[FATAL]`** — this install is broken and nothing you can do in the app will fix it. One row can
-  say this: a VRAM budget too small for a lone reconstruction, because there is nothing to degrade
-  to. A fatal row is the only thing that makes `realmspinner doctor` exit non-zero. A missing
+  say this: a VRAM budget too small for a lone reconstruction, or no CUDA device at all — either
+  way there is nothing to degrade to and the 3D path will not run. A fatal row is the only thing that makes
+  `realmspinner doctor` exit non-zero. A missing
   `trellis-server.exe` is **not** fatal — the engine is a download now, so its absence is a setup
   row like any other weight.
 - **`[SETUP]`** — you have not downloaded this yet, which is the ordinary state of a fresh

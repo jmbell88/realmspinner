@@ -384,12 +384,26 @@ def on_task_done(ctx: Any, done: Any) -> None:
     ctx.toast("Saved.")
 
 
+#: The keys ``docmodes.start_save`` submits under -- the only tasks that ever
+#: set ``tab.saving`` in the first place, and so the only ones whose *failure*
+#: should clear it. A tileset reload or image import also keys itself
+#: ``"plotter-...:{tab.uid}"`` but never touches ``saving``, and
+#: ``on_task_failed`` used to match on "ends with the uid" alone -- so one of
+#: those failing while a real save was still writing to disk cleared the flag
+#: out from under it, and the tab read as no longer busy while the write was
+#: still in flight (the 2026-09-26 audit, finding plotter-mode-17).
+_SAVE_TASK_HEADS = ("plotter-save", "plotter-saveas", "plotter-export", "plotter-library")
+
+
 def on_task_failed(ctx: Any, done: Any) -> None:
     """A failed save must not leave the document locked."""
     state = ctx.state.plotter
     if state is None or ":" not in done.key:
         return
-    tab = state.get(done.key.split(":", 1)[1])
+    head, _, rest = done.key.partition(":")
+    if head not in _SAVE_TASK_HEADS:
+        return
+    tab = state.get(rest)
     if tab is not None:
         tab.saving = False
 
@@ -414,11 +428,20 @@ def guard(ctx: Any, verb: str, proceed: Any) -> bool:
 #: which is ``plotter_textures.PREFIX``'s own reason for existing. Listed here
 #: rather than found by prefix because the layer and object keys carry *their*
 #: uids, not the tab's.
+#:
+#: ``plotter_goto`` (the "Go to coordinate" draft), ``plotter_tabsel`` (the
+#: tileset tab strip's own memo) and ``plotter_map_prop`` (Map properties'
+#: custom-property draft, moved onto ``tab.uid`` in the same finding this list
+#: is fixed for) were missing outright -- three of a tab's drafts that
+#: outlived the tab (the 2026-09-26 audit, finding plotter-mode-15).
 _TAB_PREVIEW_PREFIXES = (
     "plotter_minimap:",
     "plotter_resize:",
     "plotter_offset:",
     "plotter_tile_px:",
+    "plotter_goto:",
+    "plotter_tabsel:",
+    "plotter_map_prop:",
     "tilemeta:",
     "tsedit:",
 )
@@ -435,8 +458,19 @@ def _forget_preview(ctx: Any, tab: Any) -> None:
     for key in list(preview):
         head, _, rest = key.partition(":")
         if (
-            any(key.startswith(f"{p}{tab.uid}") for p in _TAB_PREVIEW_PREFIXES)
+            # A trailing separator, or an exact match with nothing after the
+            # uid: without it ``tab.uid == "pl1"`` matched ``"pl10"`` too
+            # (``str.startswith`` alone), dropping tab 10's own drafts the
+            # moment tab 1 closed (the 2026-09-26 audit, finding
+            # plotter-mode-15).
+            any(
+                key == f"{p}{tab.uid}" or key.startswith(f"{p}{tab.uid}:")
+                for p in _TAB_PREVIEW_PREFIXES
+            )
             or (head == "plotter_layer_prop" and rest.isdigit() and int(rest) in layer_uids)
+            # The layer rename draft: keyed by the *layer's* uid alone (no
+            # tab uid in it at all), the fourth prefix the list above missed.
+            or (head == "plotter_rename" and rest.isdigit() and int(rest) in layer_uids)
             or (head == "plotter_prop" and rest.isdigit() and int(rest) in object_uids)
         ):
             preview.pop(key, None)
@@ -869,6 +903,19 @@ def handle_key(ctx: Any, event: Any) -> bool:
         return False
     tab = state.active
     name = pygame.key.name(event.key).lower()
+
+    if state.editing_tileset is not None and tab is not None and (
+        0 <= state.editing_tileset < len(tab.doc.tilesets)
+    ):
+        # The tileset sheet is drawn *instead of* the canvas (``tileset_
+        # editor.active`` is the same test), and nothing below this line
+        # knew that: Delete, every Ctrl chord and the digit/tool keys all
+        # went on acting on the map the sheet was covering the moment
+        # nothing inside the sheet itself had keyboard focus (the
+        # 2026-09-26 audit, finding plotter-mode-14). Not consumed, so a
+        # shell-level binding (Esc-to-close-a-dialog and the like) still
+        # sees it.
+        return False
 
     if ctrl:
         if tab is not None and docmodes.blocked_while_writing(tab, name, _MUTATING_CTRL):

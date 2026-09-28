@@ -129,12 +129,17 @@ PACKS: tuple[Pack, ...] = (
         extras=("text2image",),
         modes=("create",),
         # The direct imports, and the four at the end are not decoration:
-        # BiRefNet's modelling code is loaded with ``trust_remote_code`` and
-        # reaches for einops, kornia and timm from inside the checkpoint, where
-        # no resolver can see them -- the defect ``doctor._MATTING_IMPORTS``
-        # was written for. torchvision is there for the same reason one step
-        # removed: transformers builds its fast image processors on it, and
-        # its absence degrades candidate ranking with nothing on screen.
+        # BiRefNet's modelling code reaches for einops, kornia and timm from
+        # inside the checkpoint, where no resolver can see them -- the defect
+        # ``doctor._MATTING_IMPORTS`` was written for. That code used to be the
+        # checkpoint's own, run under ``trust_remote_code``; it is vendored at
+        # ``pipelines/birefnet/`` now (the 2026-09-26 audit, finding
+        # pipelines-install-12 -- this comment still named the removed flag),
+        # so the probe is checking this repo's own dependencies rather than a
+        # downloaded file's, and the packages named have not changed.
+        # torchvision is there for the same reason one step removed:
+        # transformers builds its fast image processors on it, and its
+        # absence degrades candidate ranking with nothing on screen.
         probe=(
             "torch",
             "diffusers",

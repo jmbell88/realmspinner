@@ -210,9 +210,13 @@ class TileSheetOps:
             # charges ``TRELLIS_GIB`` under coexist anyway -- an over-charge in
             # the safe direction, and the same shape ``sprite_synthesis`` has.
             t2i, _handoff = await self._acquire_t2i(spec, base_key, cond)
-            composed = guidance.compose_prompt(subject, params)
-            out_path = scratch / "sheet.png"
+            # The 2026-09-26 audit (service-kinds-08): ``compose_prompt`` is
+            # fallible and used to run between the acquire and the ``try``
+            # below, leaking the pipe on a raise -- the same fix as the
+            # tileset materials/terrain door.
             try:
+                composed = guidance.compose_prompt(subject, params)
+                out_path = scratch / "sheet.png"
                 if self._cancel is not None and self._cancel.event.is_set():
                     # Before the generation, not only after: this is ~20 s of
                     # GPU a cancelled job should not spend, and nothing has been
@@ -252,9 +256,15 @@ class TileSheetOps:
                 job_id, phase="slice", label="Cutting the sheet up",
                 inner=0.0, inner_next=1.0, nominal=2.0, detail="",
             )
-            with Image.open(out_path) as generated:
-                generated.load()
-                full = generated.convert("RGBA")
+            # The 2026-09-26 audit (service-kinds-10): decoded straight on
+            # ``realmspinner-loop`` rather than behind ``asyncio.to_thread``
+            # like every other blocking call here.
+            def _load_full() -> Any:
+                with Image.open(out_path) as generated:
+                    generated.load()
+                    return generated.convert("RGBA")
+
+            full = await asyncio.to_thread(_load_full)
             # On the whole generated frame and before the reduction, which is
             # the only place the number means anything: the lattice belongs to
             # the generation, and ``reduce_sheet`` is about to resample it away.

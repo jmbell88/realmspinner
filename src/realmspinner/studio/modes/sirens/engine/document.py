@@ -50,7 +50,7 @@ write a bassline has already learned to write a laser.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from typing import Any
 
 import numpy as np
@@ -84,6 +84,14 @@ MAX_INSTRUMENTS = 128
 MAX_ONESHOTS = 64
 MAX_SAMPLES = 64
 MAX_TITLE_LEN = 64
+
+#: What one cell can hold -- the module docstring's own ``int16`` -- clipped to
+#: rather than raised on. The 2026-09-26 audit, finding sirens-engine-06: a
+#: value past this range (a hand-typed number, or arithmetic that overshot it)
+#: used to reach numpy's own cast in ``set_cells``/``set_cell`` and raise a
+#: bare ``OverflowError`` there instead, past every ``ValueError`` refusal this
+#: module otherwise gives its callers.
+_CELL_MIN, _CELL_MAX = -32768, 32767
 
 #: Every refusal this module raises is a ``ValueError`` with one of these, so
 #: the mode above can frame them into a toast and let anything else through to
@@ -392,7 +400,14 @@ class SongDoc:
         every tracker does and what a user dragging a selection expects.
         """
         target = self._require(pattern, self.pattern, MISSING_PATTERN)
-        block = np.ascontiguousarray(values, dtype=np.int16)
+        # Clipped to what an int16 cell can hold before the cast, not by it:
+        # casting a Python int past that range straight to ``int16`` is an
+        # ``OverflowError`` out of numpy, not the clip this method's own
+        # docstring promises for a block that runs off the pattern's *edge*.
+        # ``int64`` is the intermediate because it is wide enough for anything
+        # a keystroke or a paste actually produces (see ``_CELL_MIN``).
+        wide = np.asarray(values, dtype=np.int64)
+        block = np.clip(wide, _CELL_MIN, _CELL_MAX).astype(np.int16)
         if block.ndim != 3:
             raise ValueError("a cell block is (rows, channels, columns)")
         row, channel, column = int(row), int(channel), int(column)
@@ -423,9 +438,16 @@ class SongDoc:
         return True
 
     def set_cell(self, pattern: int, row: int, channel: int, column: int, value: int) -> bool:
-        """One cell. :meth:`set_cells` with the block written out."""
+        """One cell. :meth:`set_cells` with the block written out.
+
+        Clipped to ``int16`` at the Python level, before ``np.full`` ever sees
+        it: a value built from an arbitrary-precision Python int too large for
+        even ``int64`` (the intermediate ``set_cells`` clips through) would
+        overflow *that* cast too, and ``min``/``max`` on a bare ``int`` never can.
+        """
+        clipped = max(_CELL_MIN, min(_CELL_MAX, int(value)))
         return self.set_cells(
-            pattern, row, channel, column, np.full((1, 1, 1), int(value), dtype=np.int16)
+            pattern, row, channel, column, np.full((1, 1, 1), clipped, dtype=np.int16)
         )
 
     def clear_cells(self, pattern: int, row: int, channel: int, rows: int, chans: int) -> bool:
@@ -563,9 +585,12 @@ class SongDoc:
         pattern = self._require(uid, self.pattern, MISSING_PATTERN)
         index = self.patterns.index(pattern)
         after = tuple(one for one in self.order if one != uid)
+        loop_before = self.loop_order
+        loop_after = -1 if loop_before >= len(after) else loop_before
         self.history.push(
             E.PatternRemoveEdit(
-                pattern=pattern, index=index, order_before=tuple(self.order), order_after=after
+                pattern=pattern, index=index, order_before=tuple(self.order), order_after=after,
+                loop_before=loop_before, loop_after=loop_after,
             )
         )
         self._detach_pattern(uid)
@@ -681,7 +706,14 @@ class SongDoc:
             raise ValueError(MISSING_PATTERN)
         if after == tuple(self.order):
             return False
-        self.history.push(E.OrderEdit(before=tuple(self.order), after=after))
+        loop_before = self.loop_order
+        loop_after = -1 if loop_before >= len(after) else loop_before
+        self.history.push(
+            E.OrderEdit(
+                before=tuple(self.order), after=after,
+                loop_before=loop_before, loop_after=loop_after,
+            )
+        )
         self._apply_order(after)
         return True
 
@@ -721,6 +753,15 @@ class SongDoc:
 
     def update_instrument(self, uid: int, **values: Any) -> bool:
         instrument = self._require(uid, self.instrument, MISSING_INSTRUMENT)
+        # The 2026-09-26 audit, finding sirens-engine-06: an unknown keyword
+        # here went straight into ``dataclasses.replace``, which raises a bare
+        # ``TypeError`` ("__init__() got an unexpected keyword argument ...")
+        # rather than the ``ValueError`` every other refusal in this module
+        # gives -- ``set_song``'s own ``unknown = set(values) - fields``
+        # guard, applied here too.
+        unknown = set(values) - {one.name for one in fields(instrument)}
+        if unknown:
+            raise ValueError(f"an instrument has no {', '.join(sorted(unknown))}")
         after = replace(instrument, **values)
         if after == instrument:
             return False

@@ -126,21 +126,35 @@ class SpriteOps:
             lora = None
         # The same handoff a text job makes, through the same preamble.
         t2i, _handoff = await self._acquire_t2i(spec, base_key)
-
-        with Image.open(png) as opened:
-            opened.load()
-            atlas = opened.convert("RGBA")
-
-        prompt = guidance.compose_prompt(job["prompt"] or "", params)
-        plan = pixelsheet.bands(meta)
-        styled = Image.new("RGBA", atlas.size, (0, 0, 0, 0))
-        # One lattice measurement per band, because one band is one generation:
-        # ``pixel.lattice`` is measuring what the model drew, and this kind draws
-        # a sheet taller than 1024 in several passes. Recorded in the recipe
-        # below and read by nothing -- see ``pixel.lattice`` for why acting on it
-        # has to wait for a calibration run.
-        grids: list[dict[str, Any]] = []
+        # The 2026-09-26 audit (service-kinds-08): the ``try`` used to start
+        # at the loop below, so a raise from opening ``png``, composing the
+        # prompt or planning the bands -- all fallible, all between the
+        # acquire and here -- left the resident pipe (and the VRAM handoff)
+        # never released. Everything reachable after the acquire now sits
+        # inside the same bracket that frees it.
         try:
+            # The 2026-09-26 audit (service-kinds-10): decode ran straight on
+            # ``realmspinner-loop`` -- the same thread every other job's
+            # progress and cancel check is served from -- instead of behind
+            # ``asyncio.to_thread`` like every other blocking call in this
+            # module.
+            def _load_atlas() -> Any:
+                with Image.open(png) as opened:
+                    opened.load()
+                    return opened.convert("RGBA")
+
+            atlas = await asyncio.to_thread(_load_atlas)
+
+            prompt = guidance.compose_prompt(job["prompt"] or "", params)
+            plan = pixelsheet.bands(meta)
+            styled = Image.new("RGBA", atlas.size, (0, 0, 0, 0))
+            # One lattice measurement per band, because one band is one
+            # generation: ``pixel.lattice`` is measuring what the model
+            # drew, and this kind draws a sheet taller than 1024 in several
+            # passes. Recorded in the recipe below and read by nothing --
+            # see ``pixel.lattice`` for why acting on it has to wait for a
+            # calibration run.
+            grids: list[dict[str, Any]] = []
             for band in plan:
                 if self._cancel is not None and self._cancel.event.is_set():
                     # The 2026-09-20 audit, finding troupe-03: _sprite_synthesis
@@ -533,15 +547,19 @@ class SpriteOps:
             total_passes = len(seeds) * len(passes)
 
             t2i, _handoff = await self._acquire_t2i(spec, base_key)
-
-            ip_scale = float(params.get("ip_scale", models.DEFAULT_IP_SCALE))
-            control_scale = float(
-                params.get("control_scale", models.DEFAULT_CONTROL_SCALE)
-            )
-            control_end = float(params.get("control_end", models.DEFAULT_CONTROL_END))
-
-            assembled: list[tuple[str, Any, dict[str, Any]]] = []
+            # The 2026-09-26 audit (service-kinds-08): the ``try`` used to
+            # start below the three ``float()`` conversions, each of which is
+            # fallible against a stored ``params`` blob -- a raise there left
+            # the pipe (and the VRAM handoff) unreleased, same as the
+            # pixel-sheet restyle above.
             try:
+                ip_scale = float(params.get("ip_scale", models.DEFAULT_IP_SCALE))
+                control_scale = float(
+                    params.get("control_scale", models.DEFAULT_CONTROL_SCALE)
+                )
+                control_end = float(params.get("control_end", models.DEFAULT_CONTROL_END))
+
+                assembled: list[tuple[str, Any, dict[str, Any]]] = []
                 for index, (letter, seed) in enumerate(seeds):
                     if self._cancel is not None and self._cancel.event.is_set():
                         # Before B, not only at the end: the first generation is
@@ -630,9 +648,17 @@ class SpriteOps:
                                 **({} if size is None else {"size": size}),
                             )
                         )
-                        with Image.open(out_path) as generated:
-                            generated.load()
-                            drawn = generated.convert("RGB")
+                        # The 2026-09-26 audit (service-kinds-10): up to
+                        # ``total_passes`` (candidates x bands, sixty-four
+                        # for the eight-direction/eight-candidate menu) of
+                        # these ran on the loop thread rather than behind
+                        # ``asyncio.to_thread``.
+                        def _load_drawn(path: Path = out_path) -> Any:
+                            with Image.open(path) as generated:
+                                generated.load()
+                                return generated.convert("RGB")
+
+                        drawn = await asyncio.to_thread(_load_drawn)
                         if band is None:
                             drawn_bands = [drawn]
                             break
@@ -897,9 +923,16 @@ class SpriteOps:
             functools.partial(
                 blender_run.run_worker,
                 blender_spec.views_spec(model_glb, views_dir, views, size=view_px, depth=depth),
+                # The 2026-09-26 audit (service-kinds-06): ``inner`` is
+                # phase-relative to ``PHASES_RETEXTURE``'s own ``(lo, hi)``
+                # for "views" -- this used to pass ``f * 0.2``, a leftover
+                # whole-bar fraction from before the phase table split
+                # "views" out to its own 0.00-0.15 slice, which
+                # ``progress.update`` then remapped a second time into that
+                # slice and made the bar race ahead of the actual work.
                 on_progress=lambda f, label: self.progress.update(
-                    job_id, phase="views", label=label, inner=f * 0.2,
-                    inner_next=min(f * 0.2 + 0.03, 0.2), nominal=20.0, detail="",
+                    job_id, phase="views", label=label, inner=f,
+                    inner_next=min(f + 0.15, 1.0), nominal=20.0, detail="",
                 ),
                 on_start=self._note_blender,
                 # A render of six frames, which is the sentence sheet_timeout
@@ -946,10 +979,14 @@ class SpriteOps:
                         control_scale=control_scale,
                         control_end=control_spec.default_end,
                     )
+                # The 2026-09-26 audit (service-kinds-06): same leftover
+                # whole-bar arithmetic as "views" above, against
+                # ``PHASES_RETEXTURE``'s "restyle" (0.15-0.20) rather than
+                # the pre-split flat 0.2-0.75 this was written against.
                 self.progress.update(
                     job_id, phase="restyle", label="Restyling views",
-                    inner=0.2 + 0.55 * index / len(views),
-                    inner_next=0.2 + 0.55 * (index + 1) / len(views),
+                    inner=index / len(views),
+                    inner_next=(index + 1) / len(views),
                     nominal=25.0, detail=f"view {index + 1}/{len(views)}",
                 )
                 await asyncio.to_thread(
@@ -980,9 +1017,13 @@ class SpriteOps:
         if self._cancel is not None and self._cancel.event.is_set():
             return
 
+        # The 2026-09-26 audit (service-kinds-06): ``inner`` is phase-relative
+        # to ``PHASES_RETEXTURE``'s "project" (0.78-0.95); this whole-bar
+        # 0.75/0.95 pair predates that split and was doubling up through
+        # ``progress.update``'s own ``lo + span * inner``.
         self.progress.update(
-            job_id, phase="project", label="Baking projections", inner=0.75,
-            inner_next=0.95, nominal=30.0, detail="",
+            job_id, phase="project", label="Baking projections", inner=0.0,
+            inner_next=1.0, nominal=30.0, detail="",
         )
         await asyncio.to_thread(
             functools.partial(
@@ -992,8 +1033,8 @@ class SpriteOps:
                     size=view_px, texture_size=texture_size, depth=depth,
                 ),
                 on_progress=lambda f, label: self.progress.update(
-                    job_id, phase="project", label=label, inner=0.75 + f * 0.2,
-                    inner_next=min(0.75 + f * 0.2 + 0.03, 0.95), nominal=30.0,
+                    job_id, phase="project", label=label, inner=f,
+                    inner_next=min(f + 0.15, 1.0), nominal=30.0,
                     detail="",
                 ),
                 on_start=self._note_blender,
@@ -1001,8 +1042,11 @@ class SpriteOps:
             )
         )
 
+        # Same fix, against "assemble" (0.95-1.00): the pre-fix 0.95/1.0 pair
+        # got remapped into that already-narrow window (99.75%), jumping the
+        # bar to ~100% while the weighted-mean bake had not yet run.
         self.progress.update(
-            job_id, phase="assemble", label="Combining projections", inner=0.95,
+            job_id, phase="assemble", label="Combining projections", inner=0.0,
             inner_next=1.0, nominal=5.0, detail="",
         )
         base_png = views_dir / "base.png"

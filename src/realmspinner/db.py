@@ -1270,7 +1270,15 @@ class JobStore:
         for row in rows:
             units, done = tally.get(row["id"], (0, 0))
             entry = dict(row)
-            entry["spec"] = json.loads(entry["spec"] or "{}")
+            # ``_blob``, not a bare ``json.loads`` (the 2026-09-26 audit,
+            # service-queue-04): one row with a corrupt ``spec`` used to raise
+            # out of the loop and take every *other* sweep in the list down
+            # with it -- Review's own rescan, the exact failure ``_blob``'s
+            # docstring already names for ``observations``/``verdicts``. Every
+            # reader here already tolerates a falsy spec (``sweep.get("spec")
+            # or {}``, ``spec_summary``'s own ``isinstance`` guard), so a row
+            # nobody can read loses only that row's summary, not the list.
+            entry["spec"] = self._blob(entry["spec"], {})
             entry["units"] = units
             entry["done"] = done
             entry["todo"] = units - done
@@ -1285,7 +1293,7 @@ class JobStore:
         if row is None:
             return None
         entry = dict(row)
-        entry["spec"] = json.loads(entry["spec"] or "{}")
+        entry["spec"] = self._blob(entry["spec"], {})
         return entry
 
     def sweep_jobs(self, sweep_id: str) -> list[dict[str, Any]]:

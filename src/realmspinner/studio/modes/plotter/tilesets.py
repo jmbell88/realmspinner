@@ -751,7 +751,21 @@ def ask_replace_tileset(ctx: Any, index: int) -> None:
     if index < 0 or index >= len(tab.doc.tilesets):
         ctx.toast("Add a tileset first.", "error")
         return
-    uid, at = tab.uid, int(index)
+    # By the ``TilesetRef`` object itself, not by index: ``dialogs.open_file``
+    # is a modal picker on the task thread, and the frame thread goes on
+    # running while it is up. A remove, an undo or another reload landing in
+    # the meantime can move, delete or insert a tileset ahead of this one, so
+    # the index captured here can name a *different* tileset by the time the
+    # picker returns -- ``land_tileset_image`` used to trust it outright and
+    # repaint whatever sat there (the 2026-09-26 audit, finding
+    # plotter-mode-18). ``firstgid`` alone is not a safe stand-in either:
+    # ``next_firstgid`` restarts at 1 once ``tilesets`` empties out, so
+    # removing the map's only tileset and adding a fresh one can hand it the
+    # very firstgid this reload was picked for. The ref is held live in this
+    # closure instead, which is what makes identity (``is``) a sound test --
+    # unlike ``id(doc)`` elsewhere in this pane, nothing here lets the object
+    # be freed and its address recycled before the comparison runs.
+    uid, target = tab.uid, tab.doc.tilesets[index]
 
     def run() -> dict[str, Any] | None:
         from ....service.errors import invalid_from
@@ -768,15 +782,24 @@ def ask_replace_tileset(ctx: Any, index: int) -> None:
             raise invalid_from(
                 exc, "That image could not be opened", field="file"
             ) from exc
-        return {"replace": (at, str(path), pixels), "uid": uid}
+        return {"replace": (target, str(path), pixels), "uid": uid}
 
     ctx.submit(f"plotter-tileset-image:{uid}", run)
 
 
 def land_tileset_image(ctx: Any, tab: Any, result: dict[str, Any]) -> None:
     """Adopt a reloaded atlas. Frame thread, ``land_layer_image``'s twin."""
-    index, _source, pixels = result["replace"]
-    repaint_tileset(ctx, tab, int(index), pixels, verb="reloaded")
+    target, _source, pixels = result["replace"]
+    index = next(
+        (i for i, ref in enumerate(tab.doc.tilesets) if ref is target), None
+    )
+    if index is None:
+        # The tileset this reload was picked for is gone -- removed, or an
+        # undo took the map back past its own add -- while the file picker
+        # was still up. Nothing left to repaint.
+        ctx.toast("That tileset is no longer on this map.", "error")
+        return
+    repaint_tileset(ctx, tab, index, pixels, verb="reloaded")
 
 
 def use_inker_tileset(ctx: Any, doc: Any, uid: int) -> None:

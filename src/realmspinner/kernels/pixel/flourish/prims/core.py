@@ -39,8 +39,16 @@ def render(layer: Any, ctx: Any, below: np.ndarray | None) -> np.ndarray | None:
         return None
     cx, cy = ctx.turn(val(layer, "x", ctx), val(layer, "y", ctx))
     amount = val(layer, "noise", ctx)
-    # The erosion can push the edge outward by up to ``amount`` of the radius.
-    win = window(ctx, cx, cy, radius * (1.0 + amount))
+    # The 2026-09-26 audit, finding inker-flourish-04: the erosion below scales
+    # ``d`` (distance/radius) by ``1 + (n-0.5)*2*amount``, so the *smallest*
+    # factor it can apply is ``1 - amount`` -- and a visible pixel is wherever
+    # the eroded ``d`` still reaches 1, i.e. a raw distance of up to
+    # ``radius / (1 - amount)``, not ``radius * (1 + amount)`` as this window
+    # sized it. The two agree to first order for a small ``amount`` and
+    # diverge fast approaching 1 (2x vs 10x at ``amount=0.9``), clipping the
+    # eroded edge to a square at high noise. Floored so ``amount`` at its own
+    # ceiling of 1.0 cannot divide by zero.
+    win = window(ctx, cx, cy, radius / max(1.0 - amount, 0.01))
     if win is None:
         return None
     d = np.sqrt((win.x - cx) ** 2 + (win.y - cy) ** 2) / np.float32(radius)

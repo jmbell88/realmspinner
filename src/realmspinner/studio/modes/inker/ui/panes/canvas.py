@@ -210,7 +210,18 @@ def draw(ctx: Any) -> None:
         # The walk-cycle session's row, on the same rule as the transform's: a
         # state that owns the canvas until it is committed or cancelled puts its
         # two exits where the eye is, above the thing they are about.
-        inker_walk_canvas.row(ctx, state, tab)
+        #
+        # Gated on ``which_bar`` rather than called bare. The 2026-09-26 audit,
+        # finding inker-panes-05: neither Paste nor Transform refuses while a
+        # walk session is open, so starting either left this row drawn a
+        # second bar underneath whichever ``which_bar`` actually gave
+        # precedence to (the float bar or the transform row above) --
+        # breaking the one-bar-above-the-canvas rule the 2026-09-19 audit
+        # (inker-03) already fixed once for the tool bar's own missing walk
+        # branch. ``row`` still no-ops with no session; this stops it drawing
+        # *alongside* a higher-precedence bar when there is one.
+        if inker_context.which_bar(state, tab) == "walk":
+            inker_walk_canvas.row(ctx, state, tab)
         _canvas(ctx, state, tab)
     new_popup(ctx)
     # The four dialogs the retired bridge panel kept, hosted here for the same
@@ -1936,37 +1947,52 @@ def _onion(ctx: Any, state: Any, tab: Any, draw_list, view, origin, size) -> Non
         int(getattr(state, "onion_tint_back", ONION_BACK)),
         int(getattr(state, "onion_tint_forward", ONION_FORWARD)),
     )
-    # Which frames a ghost has already been drawn for. The span wraps, so on a
-    # short clip two different offsets resolve to one frame -- on a two-frame
-    # clip, -1 and +1 are both the other frame -- and drawing it twice stacked
-    # two tints and two fades on one picture, which reads as a third frame that
-    # is not there. Nearest-first ordering means the first ghost drawn for a
-    # frame is the closest one, which is the one worth keeping.
-    drawn: set[int] = {current}
-    for offset in range(max(state.onion_before, state.onion_after), 0, -1):
+    # Which frames a ghost has already been claimed for. The span wraps, so on
+    # a short clip two different offsets resolve to one frame -- on a
+    # two-frame clip, -1 and +1 are both the other frame -- and drawing it
+    # twice stacked two tints and two fades on one picture, which reads as a
+    # third frame that is not there.
+    #
+    # **Two passes, not one.** The 2026-09-26 audit, finding inker-panes-07:
+    # this used to be one furthest-first loop that both drew *and* deduped,
+    # so on a wrapping clip the *furthest* offset claimed the frame first and
+    # the nearer, stronger ghost was then skipped as "already drawn" -- the
+    # opposite of the comment's own stated rule that the closest ghost is the
+    # one worth keeping. Ownership is now resolved nearest-first (pass one),
+    # then drawn furthest-first (pass two) so the visual stacking the
+    # docstring promises -- the nearest neighbour ends up on top -- is kept
+    # without changing which tint and fade a shared frame gets.
+    max_span = max(state.onion_before, state.onion_after)
+    owner: dict[int, tuple[int, int]] = {}
+    for offset in range(1, max_span + 1):
         for delta, colour in ((-offset, tints[0]), (offset, tints[1])):
             limit = state.onion_before if delta < 0 else state.onion_after
+            if offset > limit:
+                continue
             index = _onion_index(current, delta, span)
-            if offset > limit or index is None or index in drawn:
+            if index is None or index == current or index in owner:
                 continue
-            drawn.add(index)
-            texture = inker_textures.frame_texture(
-                ctx, tab, anim.frames[index].uid, track_uid=track_uid
-            )
-            if texture is None:
-                continue
-            fade = state.onion_alpha / (offset ** max(0.0, float(state.onion_falloff)))
-            _blit(
-                draw_list,
-                texture,
-                view,
-                origin,
-                0,
-                0,
-                size[0],
-                size[1],
-                colour=_u32(colour, fade),
-            )
+            owner[index] = (offset, colour)
+    for index, (offset, colour) in sorted(
+        owner.items(), key=lambda item: item[1][0], reverse=True
+    ):
+        texture = inker_textures.frame_texture(
+            ctx, tab, anim.frames[index].uid, track_uid=track_uid
+        )
+        if texture is None:
+            continue
+        fade = state.onion_alpha / (offset ** max(0.0, float(state.onion_falloff)))
+        _blit(
+            draw_list,
+            texture,
+            view,
+            origin,
+            0,
+            0,
+            size[0],
+            size[1],
+            colour=_u32(colour, fade),
+        )
 
 
 #: Above this many differing pixels the mirror preview draws a count and no

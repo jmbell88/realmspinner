@@ -30,9 +30,9 @@ replace a real negative with whatever the next seed happened to draw. Only
 ``cancelled`` and shutdown-interrupted units are refilled, and ``--list`` shows
 which is which before anything is written.
 
-    uv run python scripts/sweep_refill.py --list &lt;sweep_id&gt;
-    uv run python scripts/sweep_refill.py --dry-run &lt;sweep_id&gt;
-    uv run python scripts/sweep_refill.py &lt;sweep_id&gt;
+    uv run python scripts/sweep_refill.py --list <sweep_id>
+    uv run python scripts/sweep_refill.py --dry-run <sweep_id>
+    uv run python scripts/sweep_refill.py <sweep_id>
 """
 
 from __future__ import annotations

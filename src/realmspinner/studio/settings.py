@@ -284,8 +284,14 @@ class Settings:
         """Write now. Called on exit, where a debounce would lose the last edit."""
         if not self._dirty:
             return False
-        payload = json.dumps({"version": VERSION, "data": self.data}, indent=2)
         try:
+            # ``json.dumps`` used to run before this ``try``, so one
+            # non-serialisable value (a stray ``set()``, a NaN under
+            # ``allow_nan=False``...) landing in ``self.data`` raised straight
+            # out of ``flush`` -- and out of ``tick``, which calls it on every
+            # debounced frame, so the app never stopped raising once it had
+            # (shell-widgets-04, the 2026-09-26 audit).
+            payload = json.dumps({"version": VERSION, "data": self.data}, indent=2)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             # ``atomic.staged`` rather than a hand-rolled mkstemp + replace:
             # the temporary is unlinked in its ``finally``, where the old
@@ -295,7 +301,7 @@ class Settings:
             # directory stayed unwritable.
             with atomic.staged(self.path) as tmp:
                 tmp.write_text(payload, encoding="utf-8")
-        except OSError as exc:
+        except (OSError, TypeError, ValueError) as exc:
             log.exception("could not save settings")
             # Latched separately from ``notice``, which ``take_notice``
             # clears: a read-only data directory fails on every debounced tick,
@@ -303,8 +309,12 @@ class Settings:
             # last toast was read -- one toast per second, forever.
             if not self._save_failed:
                 self._save_failed = True
+                # ``strerror`` is ``OSError``'s alone -- a ``TypeError`` from
+                # ``json.dumps`` has no such attribute, and formatting the
+                # notice is not the place to learn that.
+                reason = getattr(exc, "strerror", None) or exc
                 self.notice = (
-                    f"Realmspinner preferences cannot be saved ({exc.strerror or exc}). "
+                    f"Realmspinner preferences cannot be saved ({reason}). "
                     f"Changes will be lost when Realmspinner closes."
                 )
             return False

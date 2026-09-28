@@ -42,6 +42,9 @@ NO_TILESET = "This map has no tileset yet, so there is nothing to write."
 NO_MAP = "Open or create a map first."
 NO_LAYER = "Select a layer first."
 ONE_LAYER = "A map keeps at least one layer."
+#: ``layers._shift_reason``'s own wording, matched rather than paraphrased so
+#: Raise/Lower give the same sentence wherever a user meets them.
+END_OF_GROUP = "This layer is already at the end of its group."
 
 
 def _layer_reason(
@@ -51,12 +54,15 @@ def _layer_reason(
     need_active: bool = False,
     need_many: bool = False,
     many: bool = True,
+    need_shift: bool = False,
+    can_shift: bool = True,
 ) -> str:
     """Why a Layer row is greyed -- the *first* gate that actually fails.
 
     A disabled control explains itself, and passing ``BUSY`` for an
-    ``active``/``many`` gate says the wrong thing: the map is not busy, it has
-    no layer selected, or it has only the one it must keep.
+    ``active``/``many``/``can_shift`` gate says the wrong thing: the map is
+    not busy, it has no layer selected, or the layer cannot move any further
+    within its own parent.
     """
 
     if tab is None:
@@ -67,6 +73,8 @@ def _layer_reason(
         return NO_LAYER
     if need_many and not many:
         return ONE_LAYER
+    if need_shift and not can_shift:
+        return END_OF_GROUP
     return ""
 
 
@@ -198,21 +206,30 @@ def _layer_rows(ctx: Any, state: Any, tab: Any) -> None:
         # single-object verb then did nothing, with no reason given.
         plotter_mode._prune_object_selection(ctx, tab)
     controls.menu_separator()
+    # Sibling-aware, not ``many`` (the root-only count Delete above still
+    # uses): a layer that is the only child of a group had no sibling to
+    # trade places with even on a map with plenty of layers elsewhere, and
+    # ``many`` alone left Raise/Lower lit for a click ``shift_layer`` quietly
+    # did nothing with -- the pane's own bar already asked
+    # ``can_shift_layer`` for exactly this reason (the 2026-09-26 audit,
+    # finding plotter-mode-10).
+    can_raise = ready and active is not None and plotter_mode.can_shift_layer(doc, active, 1)
+    can_lower = ready and active is not None and plotter_mode.can_shift_layer(doc, active, -1)
     if _row(
         "Raise layer",
         "Ctrl+Shift+Up",
-        enabled=ready and many and active is not None,
+        enabled=can_raise,
         reason=_layer_reason(
-            tab, active=active, need_active=True, need_many=True, many=many
+            tab, active=active, need_active=True, need_shift=True, can_shift=can_raise
         ),
     ):
         plotter_mode.shift_layer(doc, active, 1)
     if _row(
         "Lower layer",
         "Ctrl+Shift+Down",
-        enabled=ready and many and active is not None,
+        enabled=can_lower,
         reason=_layer_reason(
-            tab, active=active, need_active=True, need_many=True, many=many
+            tab, active=active, need_active=True, need_shift=True, can_shift=can_lower
         ),
     ):
         plotter_mode.shift_layer(doc, active, -1)

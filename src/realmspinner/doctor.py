@@ -590,13 +590,16 @@ def _gguf_check(config: Config) -> Check:
             f"{config.trellis_models_dir} ({', '.join(missing[:3])}) -- download with:\n"
             f"  {trellis_gguf_hint(config)}"
         )
-    # **Not fatal, unlike the exe beside it, and the difference is the whole
-    # point.** ``trellis-server.exe`` is staged by the installer, so its
-    # absence is a broken install and nothing in the app can fix it. These
-    # weights are a download the user has not made yet -- the ordinary state
-    # of every fresh machine, and Settings -> Models is the button that fixes
-    # it. Reporting it as fatal put a red banner on a healthy first launch and
-    # made ``realmspinner doctor`` exit 1 on a machine with nothing wrong with it.
+    # **Not fatal.** This used to read "unlike the exe beside it", back when
+    # ``trellis-server.exe`` was staged by the installer and its absence meant
+    # a broken install nothing in the app could fix -- but ``_exe_check`` has
+    # been symmetric with this row since 2026-09-10 (its own docstring above),
+    # so there is no asymmetry left to name (the 2026-09-26 audit, finding
+    # pipelines-install-12). These weights are a download the user has not
+    # made yet -- the ordinary state of every fresh machine, and Settings ->
+    # Models is the button that fixes it. Reporting it as fatal put a red
+    # banner on a healthy first launch and made ``realmspinner doctor`` exit 1
+    # on a machine with nothing wrong with it.
     return Check(
         "TRELLIS GGUF weights", ok, detail, fatal=False, pending_install=not ok
     )

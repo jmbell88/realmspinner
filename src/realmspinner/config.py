@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -72,7 +73,20 @@ DEFAULT_TRELLIS_BAND: int | None = None
 
 
 def _env_path(name: str, default: Path) -> Path:
-    return Path(os.environ.get(name, default)).resolve()
+    """A path variable with a default, falling back to it on an empty value.
+
+    ``os.environ.get(name, default)`` alone reads an *explicitly empty* value
+    (``REALMSPINNER_DATA_DIR=""``) as a real override rather than as unset, and
+    ``Path("").resolve()`` is the current working directory -- whatever it
+    happens to be when the app launches (the 2026-09-26 audit,
+    service-gates-05). ``_env_opt_path`` already treats empty/whitespace as
+    unset for the override variables that have no default to fall back to;
+    this is the same rule for the ones that do.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return Path(default).resolve()
+    return Path(raw.strip()).resolve()
 
 
 def _env_opt_path(name: str) -> Path | None:
@@ -142,15 +156,27 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
-    """``float`` from the environment, or the default with a note. Never raises."""
+    """``float`` from the environment, or the default with a note. Never raises.
+
+    Rejects ``nan``, ``inf``/``-inf`` and negative numbers the same way a
+    malformed word is rejected: ``float()`` parses all three without raising,
+    but every field this feeds (a timeout, a hole-fraction ceiling) is a
+    non-negative, finite quantity, and the 2026-09-26 audit (service-gates-07)
+    found a NaN timeout comparing false against everything -- refusing every
+    job outright rather than falling back to the documented default.
+    """
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
         return default
     try:
-        return float(raw.strip())
+        value = float(raw.strip())
     except ValueError:
         _note_invalid(name, raw, "a number")
         return default
+    if not math.isfinite(value) or value < 0:
+        _note_invalid(name, raw, "a non-negative, finite number")
+        return default
+    return value
 
 
 def _env_opt_int(name: str, default: int | None) -> int | None:
@@ -216,7 +242,7 @@ def _env_opt_bool(name: str) -> bool | None:
     return None
 
 
-def _env_opt_float(name: str) -> float | None:
+def _env_opt_float(name: str, *, min_value: float | None = None) -> float | None:
     """An optional float: unset is None, and so is a malformed value.
 
     ``None`` is still the fallback -- these are the VRAM limits, where "unset"
@@ -224,15 +250,29 @@ def _env_opt_float(name: str) -> float | None:
     changed is that a malformed one is no longer *silent*: an explicit safety
     limit with a typo in it used to become "unset" with nothing said anywhere,
     which is the same policy inconsistency RUN-03 names from the other side.
+
+    ``nan``/``inf``/``-inf`` are rejected the same way, whatever ``min_value``
+    is: ``float()`` parses all three without raising, and the 2026-09-26 audit
+    (service-gates-07) found ``REALMSPINNER_VRAM_BUDGET=nan`` surviving parsing
+    and then comparing false against every reading ``vram.py`` took it, which
+    refused every job rather than falling back to "unset". ``min_value`` is
+    additionally enforced where the field has a real floor -- a VRAM budget or
+    total can never be negative -- and left ``None`` for a field with no known
+    one, such as a guidance strength.
     """
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
         return None
     try:
-        return float(raw.strip())
+        value = float(raw.strip())
     except ValueError:
         _note_invalid(name, raw, "a number")
         return None
+    if not math.isfinite(value) or (min_value is not None and value < min_value):
+        expected = "a number" if min_value is None else f"a number >= {min_value:g}"
+        _note_invalid(name, raw, expected)
+        return None
+    return value
 
 
 @dataclass(slots=True)
@@ -273,7 +313,14 @@ class Config:
     export_dir: Path | None = field(
         default_factory=lambda: (
             _env_path("REALMSPINNER_EXPORT_DIR", PROJECT_ROOT)
-            if os.environ.get("REALMSPINNER_EXPORT_DIR")
+            # ``.strip()``, not the raw string: a whitespace-only value is
+            # truthy (``if "   "`` passes) but names no real directory, so the
+            # 2026-09-26 audit (service-gates-05) found
+            # ``REALMSPINNER_EXPORT_DIR="   "`` turning the export feature on
+            # -- off by default and opt-in only, per the field's own docstring
+            # -- with the export route resolving against a directory nobody
+            # asked for.
+            if (os.environ.get("REALMSPINNER_EXPORT_DIR") or "").strip()
             else None
         )
     )
@@ -325,8 +372,13 @@ class Config:
     # costs nothing (the report is already measured) and the anchor half only
     # runs when there is a ref.png and DINOv2 is on disk.
     rank_candidates: bool = field(
-        default_factory=lambda: os.environ.get("REALMSPINNER_RANK", "on").lower()
-        not in ("0", "false", "off", "no")
+        # ``_env_bool`` rather than the private ``not in (...)`` vocabulary this
+        # used to hand-roll: the 2026-09-26 audit (service-gates-06) found
+        # ``REALMSPINNER_RANK=of`` (a typo) reading as *on* -- the ad-hoc
+        # membership test only recognised the false spellings, so anything else,
+        # typo included, fell through to true and never reached
+        # ``INVALID_ENV`` for Doctor to report.
+        default_factory=lambda: _env_bool("REALMSPINNER_RANK", True)
     )
     # How many extra times a text job may redraw its reference when the
     # composition report refuses the one it just drew.
@@ -570,12 +622,12 @@ class Config:
     # What one job may ask the card for, in GiB. None = device total minus
     # vram.HEADROOM_GIB, which is what you want unless the driver misreports.
     vram_budget_gib: float | None = field(
-        default_factory=lambda: _env_opt_float("REALMSPINNER_VRAM_BUDGET")
+        default_factory=lambda: _env_opt_float("REALMSPINNER_VRAM_BUDGET", min_value=0.0)
     )
     # Pretend the card is this large. The escape hatch for a torch-less install
     # -- and what makes the whole admission gate testable without a GPU.
     vram_total_gib: float | None = field(
-        default_factory=lambda: _env_opt_float("REALMSPINNER_VRAM_TOTAL")
+        default_factory=lambda: _env_opt_float("REALMSPINNER_VRAM_TOTAL", min_value=0.0)
     )
     # Whether a rig may read its joint positions off the reference image the
     # mesh was reconstructed from (pipelines/pose2d) instead of scaling the
@@ -590,8 +642,11 @@ class Config:
     # blame on something else, so there has to be one flag that takes the whole
     # feature out of the picture while it is being judged.
     pose_fit: bool = field(
-        default_factory=lambda: os.environ.get("REALMSPINNER_POSE_FIT", "on").lower()
-        not in ("0", "false", "off", "no")
+        # ``_env_bool``, not the private ``not in (...)`` vocabulary -- the
+        # 2026-09-26 audit (service-gates-06): ``REALMSPINNER_POSE_FIT=of`` read
+        # as on, silently, because the ad-hoc test only recognised the false
+        # spellings and never recorded anything to ``INVALID_ENV``.
+        default_factory=lambda: _env_bool("REALMSPINNER_POSE_FIT", True)
     )
     # Skeleton template a rig request falls back to when it doesn't name one.
     # Validated against templates.templates() at request time, not here -- config
@@ -618,8 +673,9 @@ class Config:
     # extra EEVEE frames on the serial queue, and a user who does not review
     # rigs should be able to stop paying for them.
     deform_qa: bool = field(
-        default_factory=lambda: os.environ.get("REALMSPINNER_DEFORM_QA", "on").lower()
-        not in ("0", "false", "off", "no")
+        # ``_env_bool``, for the same reason as ``rank_candidates`` and
+        # ``pose_fit`` above (the 2026-09-26 audit, service-gates-06).
+        default_factory=lambda: _env_bool("REALMSPINNER_DEFORM_QA", True)
     )
     # A sheet is one EEVEE render per cell -- 8 yaws times however many poses.
     # Generous because the cell count is user-chosen, but still bounded: this

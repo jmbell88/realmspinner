@@ -651,32 +651,6 @@ def rerender_charsheet(
     job_dir = svc.job_dir(job_id)
     if not store.is_valid_id(str(sheet_id or "")):
         raise Invalid("that is not a sheet id", field="sheet_id")
-    record = store.read_sheet(job_dir, str(sheet_id))
-    if not record:
-        raise NotFound("that sheet is no longer on disk", field="sheet_id")
-    snapshot = record.get("troupe")
-    if not isinstance(snapshot, Mapping):
-        raise Invalid(
-            "that is not a character sheet, so it has no runs to re-render",
-            field="sheet_id",
-        )
-
-    row = _charsheet_row(svc, job_id, str(sheet_id))
-    if row is None:
-        # Honest, and it names what to do instead. The settings are the whole
-        # point of this door; without them the new cells could not be made to
-        # match the ones they are landing beside.
-        raise Invalid(
-            "the settings that produced that sheet are no longer on record, so it "
-            "cannot be re-rendered a run at a time -- build a new sheet instead",
-            field="sheet_id",
-        )
-
-    try:
-        resolved_layout = charsheet.resolve_layout(snapshot)
-        runs = charsheet.check_subset(subset, resolved_layout)
-    except ValueError as exc:
-        raise invalid_from(exc, "Those runs cannot be re-rendered", field="subset") from exc
 
     sheet_name = (name or "").strip()
     if len(sheet_name) > store.MAX_SHEET_NAME:
@@ -684,34 +658,75 @@ def rerender_charsheet(
             f"sheet name must be at most {store.MAX_SHEET_NAME} characters", field="name"
         )
 
-    params = dict(row.get("params") or {})
-    # Not inherited: they are the *previous* run's answers about its own output
-    # and a fresh row must not wear them. Stripped via ``DERIVED_PARAMS``
-    # itself rather than a hand-copied subset of it -- the 2026-09-07 audit
-    # found this door hand-stripping only three of the four relevant keys
-    # (``validation``, the sheet's structural verdict, was missing), and the
-    # 2026-09-11 audit (finding troupe-02) named the hand list itself as the
-    # hazard: a duplicate of an allowlist is one future ``DERIVED_PARAMS``
-    # addition away from silently reintroducing a stale-verdict row. Stripped
-    # *before* the fields below are set, because ``sheet_id`` is itself one of
-    # ``DERIVED_PARAMS``' entries -- stripping after would delete the fresh id
-    # this door is about to mint.
-    for derived in DERIVED_PARAMS:
-        params.pop(derived, None)
-    params.update(
-        {
-            "source_job": job_id,
-            "sheet_id": store.new_id(),
-            "base_sheet": str(sheet_id),
-            "subset": [{"animation": a, "direction": d} for a, d in runs],
-            "layout": resolved_layout.as_dict(),
-            "name": sheet_name or str(params.get("name") or ""),
-        }
-    )
-
-    # A re-render is a new sheet and draws on the same pool -- ``create_charsheet``'s
-    # arrangement verbatim, under the same job-wide hold.
+    # The 2026-09-26 audit, finding poser-jobs-04: reading the base sheet and
+    # checking it out for a re-render used to happen *before* this hold, so a
+    # concurrent ``delete_sheet`` -- which takes the same "sheets" lock --
+    # could remove the sheet in the gap between that read and the mint below,
+    # leaving a queued ``charsheet`` row naming a ``base_sheet`` already gone
+    # from disk, which failed only minutes later at dispatch. Reading the
+    # record under the same hold ``delete_sheet`` takes means one of the two
+    # always goes first: a delete that wins finds this call's own
+    # ``_rerender_in_flight`` check has nothing to see yet, and a rerender
+    # that wins reads a record ``delete_sheet`` cannot remove until this lock
+    # is released, by which point its own row already reserves it there.
     with svc.convert_lock(job_id, "sheets"):
+        record = store.read_sheet(job_dir, str(sheet_id))
+        if not record:
+            raise NotFound("that sheet is no longer on disk", field="sheet_id")
+        snapshot = record.get("troupe")
+        if not isinstance(snapshot, Mapping):
+            raise Invalid(
+                "that is not a character sheet, so it has no runs to re-render",
+                field="sheet_id",
+            )
+
+        row = _charsheet_row(svc, job_id, str(sheet_id))
+        if row is None:
+            # Honest, and it names what to do instead. The settings are the
+            # whole point of this door; without them the new cells could not
+            # be made to match the ones they are landing beside.
+            raise Invalid(
+                "the settings that produced that sheet are no longer on record, so"
+                " it cannot be re-rendered a run at a time -- build a new sheet"
+                " instead",
+                field="sheet_id",
+            )
+
+        try:
+            resolved_layout = charsheet.resolve_layout(snapshot)
+            runs = charsheet.check_subset(subset, resolved_layout)
+        except ValueError as exc:
+            raise invalid_from(exc, "Those runs cannot be re-rendered", field="subset") from exc
+
+        params = dict(row.get("params") or {})
+        # Not inherited: they are the *previous* run's answers about its own
+        # output and a fresh row must not wear them. Stripped via
+        # ``DERIVED_PARAMS`` itself rather than a hand-copied subset of it --
+        # the 2026-09-07 audit found this door hand-stripping only three of
+        # the four relevant keys (``validation``, the sheet's structural
+        # verdict, was missing), and the 2026-09-11 audit (finding troupe-02)
+        # named the hand list itself as the hazard: a duplicate of an
+        # allowlist is one future ``DERIVED_PARAMS`` addition away from
+        # silently reintroducing a stale-verdict row. Stripped *before* the
+        # fields below are set, because ``sheet_id`` is itself one of
+        # ``DERIVED_PARAMS``' entries -- stripping after would delete the
+        # fresh id this door is about to mint.
+        for derived in DERIVED_PARAMS:
+            params.pop(derived, None)
+        params.update(
+            {
+                "source_job": job_id,
+                "sheet_id": store.new_id(),
+                "base_sheet": str(sheet_id),
+                "subset": [{"animation": a, "direction": d} for a, d in runs],
+                "layout": resolved_layout.as_dict(),
+                "name": sheet_name or str(params.get("name") or ""),
+            }
+        )
+
+        # A re-render is a new sheet and draws on the same pool --
+        # ``create_charsheet``'s arrangement verbatim, under the same
+        # job-wide hold the read above is now also inside of.
         check_sheet_cap(svc, job_id, job_dir)
         new_id = svc.store.create(
             "charsheet", source["prompt"], params, uuid.uuid4().hex[:12]

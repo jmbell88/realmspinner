@@ -279,7 +279,13 @@ def _coerce_binding(value: Any, *, target_key: str = "") -> Binding | None:
             trigger=str(value.get("trigger", "press")),
             priority=int(value.get("priority", 100 if target_key else 0)),
         )
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # The 2026-09-26 audit, finding inker-mode-11: a hand-edited settings
+        # file's ``"priority": Infinity`` parses through ``json.loads`` (which
+        # allows it by default) to ``float("inf")``, and ``int(float("inf"))``
+        # raises ``OverflowError`` rather than either caught exception -- so
+        # one bad override escaped this door, then ``ensure``'s own
+        # ``(TypeError, ValueError)`` catch below it, and Inker never opened.
         return None
 
 
@@ -759,7 +765,17 @@ def many_layers(state: Any, tab: Any) -> bool:
 
 
 def can_merge_down(state: Any, tab: Any) -> bool:
-    """Whether there is a layer under the active one, inside its own group."""
+    """Whether there is a layer under the active one, inside its own group,
+    and merging into it would not write a locked or reference layer.
+
+    The 2026-09-26 audit, finding inker-mode-16: this used to answer only the
+    group question, so a locked or reference layer -- either half of the
+    merge -- stayed enabled and wrote through the lock anyway, and a
+    different-group pair was greyed with the same "there is no layer under
+    this one" reason a truly bottom layer gets, which is false: there *is* a
+    layer under it. ``_merge_down_reason`` below is what tells those two
+    refusals apart from "nothing to merge into" at the menu row.
+    """
 
     if tab is None:
         return False
@@ -767,7 +783,43 @@ def can_merge_down(state: Any, tab: Any) -> bool:
     index = doc.stack.active_index
     if index <= 0:
         return False
-    return doc.group_of.get(_uid_at(doc, index)) == doc.group_of.get(_uid_at(doc, index - 1))
+    if doc.group_of.get(_uid_at(doc, index)) != doc.group_of.get(_uid_at(doc, index - 1)):
+        return False
+    return not doc.write_locked(doc.stack[index]) and not doc.write_locked(doc.stack[index - 1])
+
+
+def _merge_down_reason(state: Any, tab: Any) -> str:
+    doc = tab.doc
+    index = doc.stack.active_index
+    if index <= 0:
+        return "There is no layer under this one to merge into."
+    if doc.group_of.get(_uid_at(doc, index)) != doc.group_of.get(_uid_at(doc, index - 1)):
+        return "The layer under this one is in a different group."
+    if doc.write_locked(doc.stack[index]) or doc.write_locked(doc.stack[index - 1]):
+        return "One of these two layers is locked -- unlock it first."
+    return "There is no layer under this one to merge into."
+
+
+def can_move_layer_up(state: Any, tab: Any) -> bool:
+    """Whether the active layer has a row above it to change places with.
+
+    The 2026-09-26 audit, finding inker-mode-16: gated on ``many_layers``
+    alone (more than one layer *anywhere* in the document), so a layer
+    already at the top stayed enabled -- ``move_layer`` clamps ``to`` and
+    returns False, so the row did nothing and said nothing.
+    """
+
+    return (
+        tab is not None
+        and len(tab.doc.stack) > 1
+        and tab.doc.stack.active_index < len(tab.doc.stack) - 1
+    )
+
+
+def can_move_layer_down(state: Any, tab: Any) -> bool:
+    """``can_move_layer_up``'s twin, for the bottom edge."""
+
+    return tab is not None and len(tab.doc.stack) > 1 and tab.doc.stack.active_index > 0
 
 
 def _uid_at(doc: Any, index: int) -> int | None:
@@ -1788,7 +1840,7 @@ register(
         # would be moving the one its users have learned.
         key="Ctrl+Shift+M",
         enabled=lambda state, tab: ready(state, tab) and can_merge_down(state, tab),
-        reason=_no_doc_first("There is no layer under this one to merge into."),
+        reason=_no_doc_first(_merge_down_reason),
     )
 )
 register(
@@ -1808,8 +1860,14 @@ register(
         lambda ctx, tab, **_: _move_layer(tab, 1),
         menu="Layer",
         key="Ctrl+Shift+Up",
-        enabled=lambda state, tab: ready(state, tab) and many_layers(state, tab),
-        reason=_no_doc_first("There is only one layer."),
+        enabled=lambda state, tab: ready(state, tab) and can_move_layer_up(state, tab),
+        reason=_no_doc_first(
+            lambda state, tab: (
+                "There is only one layer."
+                if not many_layers(state, tab)
+                else "This is already the top layer."
+            )
+        ),
         separator_before=True,
     )
 )
@@ -1820,8 +1878,14 @@ register(
         lambda ctx, tab, **_: _move_layer(tab, -1),
         menu="Layer",
         key="Ctrl+Shift+Down",
-        enabled=lambda state, tab: ready(state, tab) and many_layers(state, tab),
-        reason=_no_doc_first("There is only one layer."),
+        enabled=lambda state, tab: ready(state, tab) and can_move_layer_down(state, tab),
+        reason=_no_doc_first(
+            lambda state, tab: (
+                "There is only one layer."
+                if not many_layers(state, tab)
+                else "This is already the bottom layer."
+            )
+        ),
     )
 )
 register(
@@ -1830,11 +1894,25 @@ register(
         "Show this layer",
         lambda ctx, tab, **_: tab.doc.set_layer_props(tab.doc.stack.active_index, visible=True),
         menu="Layer",
-        enabled=lambda state, tab: tab is not None and not tab.doc.stack.active.visible,
+        # The 2026-09-26 audit, finding inker-mode-12: gated on ``not visible``
+        # alone, so it pushed a history step -- ``set_layer_props`` is
+        # undoable -- during a save or mid-playback, the same door every
+        # other layer-restructuring verb in this file is refused through.
+        enabled=lambda state, tab: ready(state, tab) and not tab.doc.stack.active.visible,
         reason=_no_doc_first("This layer is already visible."),
         separator_before=True,
     )
 )
+
+
+def _to_background_reason(state: Any, tab: Any) -> str:
+    if tab.doc.has_background:
+        return "The bottom layer is already the background."
+    if len(tab.doc.stack) and tab.doc.write_locked(tab.doc.stack[0]):
+        return "The bottom layer is locked -- unlock it first."
+    return BUSY
+
+
 register(
     Op(
         "to_background",
@@ -1842,9 +1920,19 @@ register(
         _doc("to_background"),
         menu="Layer",
         enabled=lambda state, tab: (
-            ready(state, tab) and len(tab.doc.stack) > 0 and not tab.doc.has_background
+            ready(state, tab)
+            and len(tab.doc.stack) > 0
+            and not tab.doc.has_background
+            # The 2026-09-26 audit, finding inker-mode-08: ``to_background``
+            # writes the matte straight into the bottom layer's pixels with
+            # no check at all -- a locked or reference layer took an opaque
+            # fill and a forced alpha of 255 same as any other. ``write_locked``
+            # is the one place "may a tool write this layer" is already
+            # answered, group lock included, so this reads the same answer
+            # rather than repeating the flag check by hand.
+            and not tab.doc.write_locked(tab.doc.stack[0])
         ),
-        reason=_no_doc_first("The bottom layer is already the background."),
+        reason=_no_doc_first(_to_background_reason),
         hint=(
             "Makes the bottom layer opaque, and folds the document's matte "
             "colour into its pixels -- so what was a flatten-time overlay "
@@ -1994,6 +2082,8 @@ register(
         reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
     )
 )
+_FIRST_FRAME = when_ready(animated, NOT_ANIMATED)
+_LAST_FRAME = when_ready(animated, NOT_ANIMATED)
 register(
     Op(
         "first_frame",
@@ -2001,8 +2091,12 @@ register(
         lambda ctx, tab, **_: tab.doc.set_current_frame(0),
         menu="Frame",
         key="Home",
-        enabled=animated,
-        reason=_no_doc_first(NOT_ANIMATED),
+        # The 2026-09-26 audit, finding inker-mode-06: gated on ``animated``
+        # alone, so Home moved the playhead mid-playback, mid-save and
+        # mid-transform. ``when_ready`` is the shared helper every other
+        # restructuring verb in this file already routes through.
+        enabled=_FIRST_FRAME[0],
+        reason=_FIRST_FRAME[1],
     )
 )
 register(
@@ -2012,8 +2106,9 @@ register(
         lambda ctx, tab, **_: tab.doc.set_current_frame(len(tab.doc.anim.frames) - 1),
         menu="Frame",
         key="End",
-        enabled=animated,
-        reason=_no_doc_first(NOT_ANIMATED),
+        # Same fix as first_frame, same finding.
+        enabled=_LAST_FRAME[0],
+        reason=_LAST_FRAME[1],
     )
 )
 register(
@@ -2120,14 +2215,23 @@ register(
         reason=_INVERT[1],
     )
 )
+#: The 2026-09-26 audit, finding inker-mode-20: these six rows -- one already
+#: registered here, five below -- were gated on ``has_doc``/``has_selection``
+#: alone, so all six restructured the selection or the document (a
+#: ``SelectionEdit``, in every case but the two ``PatchEdit``-pushing colour
+#: selects) while a save was still encoding the layer stack, or mid-playback,
+#: or mid-transform -- the same door ``when_ready`` already closes for every
+#: other selection verb in this file (``_SELECT_ALL``, ``_DESELECT``, ...).
+_SELECT_LAYER_ALPHA = when_ready(has_doc, NO_DOC)
+_SELECT_COLOUR_RANGE = when_ready(has_doc, NO_DOC)
 register(
     Op(
         "select_layer_alpha",
         "This layer's pixels",
         _doc("select_layer_alpha"),
         menu="Select",
-        enabled=has_doc,
-        reason=NO_DOC,
+        enabled=_SELECT_LAYER_ALPHA[0],
+        reason=_SELECT_LAYER_ALPHA[1],
         separator_before=True,
     )
 )
@@ -2137,8 +2241,8 @@ register(
         "Colour range",
         lambda ctx, tab, **_: _colour_range(ctx, tab),
         menu="Select",
-        enabled=has_doc,
-        reason=NO_DOC,
+        enabled=_SELECT_COLOUR_RANGE[0],
+        reason=_SELECT_COLOUR_RANGE[1],
         hint=(
             "Every pixel close to the foreground colour, anywhere on the "
             "canvas -- not contiguous, so one press takes a palette entry "
@@ -2229,14 +2333,18 @@ register(
         reason=_has_palette_reason,
     )
 )
+_FEATHER = when_ready(has_selection, NO_SELECTION)
+_GROW = when_ready(has_selection, NO_SELECTION)
+_SHRINK = when_ready(has_selection, NO_SELECTION)
+_BORDER = when_ready(has_selection, NO_SELECTION)
 register(
     Op(
         "feather",
         "Feather...",
         lambda ctx, tab, **params: tab.doc.feather_selection(params["radius"]),
         menu="Select",
-        enabled=has_selection,
-        reason=_no_doc_first(NO_SELECTION),
+        enabled=_FEATHER[0],
+        reason=_FEATHER[1],
         params=(Param("radius", "Radius", 2.0, 0.0, 32.0, 0.5, integer=False),),
         separator_before=True,
     )
@@ -2247,8 +2355,8 @@ register(
         "Grow...",
         lambda ctx, tab, **params: tab.doc.grow_selection(params["steps"]),
         menu="Select",
-        enabled=has_selection,
-        reason=_no_doc_first(NO_SELECTION),
+        enabled=_GROW[0],
+        reason=_GROW[1],
         params=(Param("steps", "Pixels", 2, 1, 32),),
     )
 )
@@ -2258,8 +2366,8 @@ register(
         "Shrink...",
         lambda ctx, tab, **params: tab.doc.shrink_selection(params["steps"]),
         menu="Select",
-        enabled=has_selection,
-        reason=_no_doc_first(NO_SELECTION),
+        enabled=_SHRINK[0],
+        reason=_SHRINK[1],
         params=(Param("steps", "Pixels", 2, 1, 32),),
     )
 )
@@ -2269,8 +2377,8 @@ register(
         "Border...",
         lambda ctx, tab, **params: tab.doc.border_selection(params["steps"]),
         menu="Select",
-        enabled=has_selection,
-        reason=_no_doc_first(NO_SELECTION),
+        enabled=_BORDER[0],
+        reason=_BORDER[1],
         params=(Param("steps", "Pixels", 2, 1, 32),),
         hint=(
             "Replaces the selection with the band that many pixels either "
@@ -2504,6 +2612,18 @@ register(
         menu="Sprite",
         enabled=ready,
         reason=_no_doc_first(BUSY),
+        # The 2026-09-26 audit, finding inker-mode-18: unlike Aseprite's own
+        # *Duplicate Sprite*, this one flattens -- ``duplicate_document``'s own
+        # docstring argues the cost of a real layered copy (every cel, every
+        # group, the palette, the tilesets, the history budget) belongs to
+        # Save As instead. That argument is a reason to warn, not a reason to
+        # say nothing: layers, frames and slices vanishing into the copy was
+        # silent until the user opened it and found a flat picture.
+        hint=(
+            "A flattened copy -- layers, frames and slices do not carry over. "
+            "For a full copy with everything intact, Save As under a new name "
+            "instead."
+        ),
     )
 )
 register(

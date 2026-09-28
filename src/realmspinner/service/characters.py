@@ -82,9 +82,12 @@ ASSET_INTENT = "character"
 #: before the user presses the button. **An estimate, not a measurement** --
 #: there is no dated document behind these two numbers, so nothing may key a
 #: decision on them and they are only ever rendered as "about N minutes".
-#: Rigging is the fixed half (``docs/manual/34-troupe.md``: "rigging is minutes
-#: of CPU"), the cells are the linear half, and both are CPU: a character sheet
-#: spends no GPU at all.
+#: Rigging is the fixed half (``docs/manual/26-poser.md``: "rigging is a real
+#: cost: minutes of CPU" -- chapter 34 is Sirens now, P9 (2026-09-18) folded
+#: Troupe into Poser and the manual renumbered; the 2026-09-26 audit, finding
+#: poser-jobs-07, found this comment still citing the pre-fold chapter), the
+#: cells are the linear half, and both are CPU: a character sheet spends no
+#: GPU at all.
 RIG_MINUTES = 1.5
 SECONDS_PER_CELL = 1.0
 
@@ -878,6 +881,7 @@ def export_frames(
     from PIL import Image
 
     from ..kernels import charsheet
+    from ..kernels import sheet as sheetlib
     from ..kernels.rig import store
     from . import export as svc_export
 
@@ -907,7 +911,20 @@ def export_frames(
     layout_fps = layout.get("fps")
 
     cell_by_index = _sheet_cells_by_index(record)
-    frame_size = int(record.get("frame_size") or 0)
+    # The 2026-09-26 audit, finding poser-jobs-06: read bare, a corrupted or
+    # hand-edited ``frame_size`` (a string, a float) raised a raw
+    # ``TypeError``/``ValueError`` here instead of the "refused, not crashed"
+    # contract every other sidecar field in this door already keeps --
+    # ``run["start"]``/``run["end"]`` a few lines below already learned this
+    # lesson (2026-09-26 audit, finding service-assets-08).
+    try:
+        frame_size = int(record.get("frame_size") or 0)
+    except (TypeError, ValueError) as exc:
+        raise invalid_from(
+            exc,
+            "this sheet's layout is corrupted (frame_size is invalid)",
+            field="sheet_id",
+        ) from exc
     if not frame_size:
         # Every 3D character sheet is square by construction (``charsheet.plan``
         # never sets ``frame_w``/``frame_h``) -- a 0 here means this sidecar is
@@ -941,7 +958,19 @@ def export_frames(
     # "arithmetic before allocation" rule ``sheet_preview_png`` already keeps
     # for its own frame count (2026-09-15 audit, finding troupe-03).
     for run in runs:
-        span = int(run["end"]) - int(run["start"]) + 1
+        # The 2026-09-26 audit (service-assets-08): ``run["end"]``/
+        # ``run["start"]`` were already known to be present (``_sheet_runs``
+        # checks the key set) but not that they are numbers -- a corrupted
+        # ``"end": "many"`` raised a bare ``ValueError``/``TypeError`` from
+        # ``int()`` here rather than the "corrupted" refusal two lines down.
+        try:
+            span = int(run["end"]) - int(run["start"]) + 1
+        except (TypeError, ValueError) as exc:
+            raise invalid_from(
+                exc,
+                "this sheet's layout is corrupted (a run's frame span is invalid)",
+                field="sheet_id",
+            ) from exc
         if not 0 < span <= charsheet.MAX_CELLS:
             raise Invalid(
                 "this sheet's layout is corrupted (a run's frame span is invalid)",
@@ -988,6 +1017,29 @@ def export_frames(
             clip_directions.setdefault(clip, []).append(compass)
             plan.append((clip, compass, int(run["start"]), int(run["end"])))
 
+        # The 2026-09-26 audit, finding poser-jobs-06: this opened straight
+        # into ``.load()`` with no ceiling on the file itself -- everything
+        # above bounds the *sidecar's* claimed cells, not what a hand-edited
+        # or otherwise oversized ``sheet.png`` beside a small, innocent sidecar
+        # actually decodes to. Read from the header first, the same shape
+        # ``sheet_preview_png`` already uses (service-queue-03, the 2026-09-16
+        # audit) and ``files._check_pixels``/``loras.py``'s training-image
+        # door before that: ``Image.open`` alone parses only the header, so
+        # ``.width``/``.height`` are free -- ``.load()`` is the expensive part.
+        try:
+            with Image.open(png_path) as probe:
+                atlas_width, atlas_height = probe.width, probe.height
+        except Exception as exc:
+            raise invalid_from(
+                exc, "that sheet's PNG could not be read", field="sheet_id"
+            ) from exc
+        try:
+            sheetlib.check_atlas_size(atlas_width, atlas_height)
+        except ValueError as exc:
+            raise invalid_from(
+                exc, "that sheet's PNG is corrupted", field="sheet_id"
+            ) from exc
+
         with Image.open(png_path) as opened:
             opened.load()
             atlas = opened.convert("RGBA")
@@ -1023,11 +1075,28 @@ def export_frames(
                     "its movements)",
                     field="sheet_id",
                 )
-            duration_ms = int(movement["duration_ms"])
-            fps = float(layout_fps) if layout_fps is not None else 1000.0 / duration_ms
+            # The 2026-09-26 audit (service-assets-08): only ``"key"`` is
+            # checked by ``_sheet_movements_by_key`` -- everything else on a
+            # movement entry was read bare here, so a hand-edited sidecar
+            # missing ``duration_ms``/``loop``/``frames``, or carrying
+            # ``duration_ms: 0``, raised ``KeyError``/``ZeroDivisionError``
+            # straight past this door's own "refused, not crashed" contract.
+            try:
+                duration_ms = int(movement["duration_ms"])
+                if duration_ms <= 0:
+                    raise ValueError("duration_ms must be positive")
+                fps = float(layout_fps) if layout_fps is not None else 1000.0 / duration_ms
+                loop = bool(movement["loop"])
+                frames = int(movement["frames"])
+            except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+                raise invalid_from(
+                    exc,
+                    f"this sheet's layout is corrupted ({clip!r}'s movement entry)",
+                    field="sheet_id",
+                ) from exc
             clips_meta[clip] = {
-                "loop": bool(movement["loop"]),
-                "frames": int(movement["frames"]),
+                "loop": loop,
+                "frames": frames,
                 "duration_ms": duration_ms,
                 "fps": fps,
                 "directions": directions,

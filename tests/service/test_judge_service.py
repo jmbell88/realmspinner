@@ -259,7 +259,14 @@ def test_scoring_many_jobs_loads_the_probe_once(svc, monkeypatch):
 
     loads: list[int] = []
     real_load = judge.load
-    monkeypatch.setattr(judge, "load", lambda path: (loads.append(1), real_load(path))[1])
+    # create-brief-06 (2026-09-26 audit): ``load`` now takes a keyword-only
+    # ``stage`` so a mismatched probe file is refused rather than trusted;
+    # ``service.judge.probe`` passes it, so the spy must accept it too.
+    monkeypatch.setattr(
+        judge,
+        "load",
+        lambda path, **kwargs: (loads.append(1), real_load(path, **kwargs))[1],
+    )
 
     scores = svc_judge.score_jobs(svc, list(mapping), "blank")
 

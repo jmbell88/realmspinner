@@ -1,10 +1,20 @@
-"""Windows DPI awareness, sampled once at startup.
+"""Windows DPI awareness.
 
 The app draws in physical pixels: with Per-Monitor-V2 awareness the pygame
 window's size *is* the framebuffer size, so ``io.display_framebuffer_scale``
 stays (1, 1) and the imgui backend's projection and scissor math never change.
 Scaling lives entirely in content -- font pixel size and the style values --
 via :data:`tokens.SCALE`.
+
+**Process DPI awareness** (:func:`make_process_dpi_aware`) is set once, before
+the window exists, and frozen after -- that half really is "once at startup".
+**The monitor's own scale** (:func:`window_scale`) is not: it is a live read
+of whichever display currently has the window, and
+``shell.events._resample_display_scale`` calls it again whenever a display
+change fires, to re-bake the style and fonts at the new scale (UX-22). This
+docstring called the whole module "sampled once at startup" until the
+2026-09-26 audit, finding shell-widgets-05, found that description stale for
+the half that changed.
 
 Failure at any step degrades to 1.0: a wrong scale on an exotic setup is a
 small UI, not a crash.

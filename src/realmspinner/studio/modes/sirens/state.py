@@ -369,24 +369,35 @@ class SirensState(docmodes.DocTabs[SongTab]):
     #: between the ones the mouse happened to be over on a frame boundary.
     env_step: int = -1
 
-    def activate(self, uid: str) -> None:
-        if uid != self.active_uid:
-            # **The other song stops (S6, 2026-09-05).** There is one mixer
-            # channel, so tab A went on sounding under tab B: the playhead
-            # correctly declined to draw (the tag names A), but the transport
-            # read the *global* ``playing()`` and so offered B a Stop button
-            # that silenced A. The one import of a device in this module, and
-            # deliberately local: everything else here is answerable with no
-            # sound card, which is what lets the tests ask it.
+    def _switched(self, previous: str) -> None:
+        # **The other song stops (S6, 2026-09-05).** There is one mixer
+        # channel, so tab A went on sounding under tab B: the playhead
+        # correctly declined to draw (the tag names A), but the transport
+        # read the *global* ``playing()`` and so offered B a Stop button
+        # that silenced A. The one import of a device in this module, and
+        # deliberately local: everything else here is answerable with no
+        # sound card, which is what lets the tests ask it.
+        #
+        # This used to live in an ``activate`` override instead, which is
+        # only one of the two doors into this state change -- the 2026-09-26
+        # audit, finding sirens-playback-02: ``DocTabs.add`` (a new song, or
+        # one opened from disk) sets ``active_uid`` and calls ``_switched``
+        # directly, never through ``activate``, so creating or opening a song
+        # while another one sounded left the old tab's audio playing under
+        # the new one with nothing able to stop it. Moved here, the one hook
+        # both ``add`` and ``activate`` call, closes both doors with one body.
+        #
+        # Guarded on ``previous`` rather than firing unconditionally: ``""``
+        # means this is the very first tab ``add`` has ever put in the state,
+        # and there is nothing sounding yet to stop -- the guard every other
+        # tab-scoped reaction in this module already keeps.
+        if previous:
             from . import audio as sirens_audio
 
             sirens_audio.stop()
             self.play_request += 1
             for tab in self.docs:
                 tab.sounding = None
-        super().activate(uid)
-
-    def _switched(self, previous: str) -> None:
         # The caret names a row of the *previous* song's pattern, and a
         # selection anchored in it. Both are meaningless here.
         self._reset_caret(self.active)

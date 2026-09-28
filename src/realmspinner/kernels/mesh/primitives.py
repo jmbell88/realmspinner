@@ -1595,7 +1595,14 @@ def arch(
     wall as thick as the arch is wide has no opening left to be an arch of.
     """
     n = _clamp_segments(segments)
-    r_out = abs(float(width)) * 0.5
+    # The 2026-09-26 audit, finding clay-document-02: at width == 0 (and only
+    # then, since every other caller multiplies by a positive width first)
+    # ``r_out`` itself was zero, and ``across`` below divides the UV band's
+    # X coordinate by ``2.0 * r_out`` -- a ``ZeroDivisionError`` that
+    # survived ``clamp_params`` because that function only mirrors a floor
+    # this one never had, the same "floor the extent, don't leave it at
+    # zero" reasoning ``depth`` already gets one line down.
+    r_out = max(abs(float(width)) * 0.5, 1e-4)
     # The head is a semicircle of the full half-width, so the crown is at
     # ``springline + r_out``: a height below the radius has no leg to stand on
     # and the arch would be a half-annulus hovering with its own head cut off.
@@ -2411,8 +2418,14 @@ def stairs(
     so this generator is named in :data:`CONCAVE_GENERATORS`.
     """
     n = _clamp_stairs_steps(steps)
-    total_h = abs(float(total_height))
-    total_d = abs(float(total_depth))
+    # The 2026-09-26 audit, finding clay-document-02: at ``total_height ==
+    # total_depth == 0`` every station of the profile below lands on
+    # ``(0.0, 0.0)``, so ``_dedup_closed`` collapses the whole zigzag to one
+    # point and ``_mesh`` raises "fewer than 3 corners" -- floored the same
+    # way :func:`arch`'s own ``depth`` already is, rather than leave a stair
+    # of zero rise and zero run with no polygon to extrude at all.
+    total_h = max(abs(float(total_height)), 1e-4)
+    total_d = max(abs(float(total_depth)), 1e-4)
     step_h = total_h / n
     step_d = total_d / n
 
@@ -2477,8 +2490,14 @@ def doorway(
     reflex by construction, so this generator is named in
     :data:`CONCAVE_GENERATORS`.
     """
-    length_ = abs(float(wall_length))
-    height_ = abs(float(wall_height))
+    # The 2026-09-26 audit, finding clay-document-02: at ``wall_length ==
+    # wall_height == 0`` every corner of the outer rectangle and the notch
+    # below lands on ``(0.0, 0.0)``, so ``_dedup_closed`` collapses the whole
+    # profile to one point and ``_mesh`` raises "fewer than 3 corners" --
+    # floored the same way :func:`arch`'s own ``depth`` already is, rather
+    # than leave a wall of zero extent with no polygon to extrude at all.
+    length_ = max(abs(float(wall_length)), 1e-4)
+    height_ = max(abs(float(wall_height)), 1e-4)
     thickness_ = abs(float(wall_thickness))
     ow = min(abs(float(opening_width)), max(length_ - 1e-4, 0.0))
     oh = min(abs(float(opening_height)), max(height_ - 1e-4, 0.0))

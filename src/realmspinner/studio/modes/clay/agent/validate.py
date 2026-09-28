@@ -388,9 +388,14 @@ def _resolve_uid(doc: Any, args: dict, key: str = "uid") -> tuple[Any, dict | No
     if args.get(key) is None:
         return None, fail(f"give a value for {key!r}.", field=key, recovery="fix_arguments")
     try:
+        # The 2026-09-26 audit's clay-agent-tools-09: ``int(float("inf"))``
+        # raises ``OverflowError``, which this tuple did not name -- an
+        # infinite uid used to escape past this refusal into ``call()``'s
+        # generic "failed unexpectedly" backstop instead of the same
+        # "no object with uid" refusal any other unresolvable uid gets.
         uid = int(args[key])
         obj = doc.by_uid(uid)
-    except (KeyError, ValueError, TypeError):
+    except (KeyError, ValueError, TypeError, OverflowError):
         return None, fail(
             f"no object with uid {args.get(key)!r}.", field=key, recovery="read_scene"
         )
@@ -408,10 +413,29 @@ def _resolve_uids(
     emptiness: ``clay_select`` means "clear the selection" by an empty list,
     while ``clay_material`` and ``clay_delete`` refuse one themselves, because
     only they have an opinion about it.
+
+    **De-duplicated, order preserved.** The 2026-09-26 audit's
+    clay-agent-tools-04: ``clay_delete`` with a repeated uid removed the
+    object on its first pass and raised a bare ``KeyError`` on the second,
+    past this handler's own ``collapse_since`` -- leaving the object gone,
+    an unfolded, unlabelled undo step, and a refusal claiming
+    ``changed: false``. The same missing de-duplication is
+    clay-agent-tools-08: ``clay_analyze uids:[u, u]`` reported a self-pair
+    overlap, and ``clay_collider`` with a repeated uid fit and added two
+    colliders for what was really one target. Every caller of this shared
+    function gets the fix at once rather than each re-deriving its own
+    dedup, the same "fixed once, not per handler" reasoning that put the
+    cast-and-refuse dance here in the first place. ``dict.fromkeys`` rather
+    than ``set()`` because the handlers above all read *first-seen order*
+    back out of this list (``clay_delete``'s own deletion order,
+    ``clay_analyze``'s ``pairs_among``).
     """
     try:
-        uids = [int(u) for u in values or []]
-    except (TypeError, ValueError):
+        # The 2026-09-26 audit's clay-agent-tools-09: ``int(float("inf"))``
+        # raises ``OverflowError``, which this tuple did not name -- see
+        # ``_resolve_uid``'s own comment just above for the identical hole.
+        uids = list(dict.fromkeys(int(u) for u in values or []))
+    except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be a list of integers.", field=field, recovery="fix_arguments"
         )

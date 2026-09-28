@@ -123,9 +123,16 @@ class Adjacency:
         span = int(self.edge_verts.max()) + 1
         keys = self.edge_verts[:, 0].astype("i8") * span + self.edge_verts[:, 1]
         want = lo * span + hi
+        # The 2026-09-26 audit (clay-mesh-core-02): a pair naming a vertex past
+        # the mesh (or otherwise past `span`) packs into the *next* lo's key
+        # space -- (0, 10) on an 8-vertex box is 0*8+10 == 1*8+2, the real key
+        # for edge (1, 2) -- and searchsorted then reports that unrelated edge
+        # as a hit. Any pair whose members do not both land inside [0, span)
+        # cannot be a real edge, so it is answered -1 before the lookup runs.
+        in_range = (lo >= 0) & (hi < span)
         pos = np.searchsorted(keys, want)
         pos = np.clip(pos, 0, len(keys) - 1)
-        hit = keys[pos] == want
+        hit = in_range & (keys[pos] == want)
         return np.where(hit, pos, -1).astype("i4")
 
 

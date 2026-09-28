@@ -111,10 +111,13 @@ def _slot_row(ctx: Any, state: Any, tab: Any, slot: int, editable: bool) -> None
     typed = widgets.input_text(
         "##name", stamp.name, max_length=48, hint=f"Stamp {slot}"
     )
+    # Folded like the tile class field (``tileset_editor.py``'s "draw, fold,
+    # act"): the manual promises "storing, renaming and clearing a slot are
+    # each one undo step" (32:577-579), and calling ``rename_stamp`` per
+    # keystroke with no fold pushed one step per character typed instead
+    # (the 2026-09-26 audit, finding plotter-mode-06).
+    controls.fold_undo(tab.doc.history)
     if typed != stamp.name and editable:
-        # Per keystroke, unlike the layer rename: a stamp name is a label rather
-        # than a document-wide identifier, and the slot is already its address,
-        # so the extra undo steps buy nothing the caret leaving would.
         tab.doc.rename_stamp(slot, typed)
     imgui.same_line()
     if controls.button(

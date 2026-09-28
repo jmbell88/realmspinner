@@ -17,6 +17,7 @@ the pane walks dashes along them with its own clock.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -658,6 +659,8 @@ def render_transform(
     scale: tuple[float, float],
     shear: tuple[float, float],
     resample: str,
+    *,
+    rotsprite_budget: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """One scale-then-shear-then-rotate render. Pure, and the only copy of it.
 
@@ -692,8 +695,12 @@ def render_transform(
         source = tf.shear(source, shear, resample=resample)
         mask = tf.shear(mask, shear, resample=resample)
     if abs(angle) > 1e-6:
-        source = tf.rotate(source, angle, expand=True, resample=resample)
-        mask = tf.rotate(mask, angle, expand=True, resample=resample)
+        source = tf.rotate(
+            source, angle, expand=True, resample=resample, rotsprite_budget=rotsprite_budget
+        )
+        mask = tf.rotate(
+            mask, angle, expand=True, resample=resample, rotsprite_budget=rotsprite_budget
+        )
     return source, mask
 
 
@@ -775,6 +782,8 @@ def render_transform_about(
     shear: tuple[float, float],
     resample: str,
     pivot: tuple[float, float],
+    *,
+    rotsprite_budget: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
     """:func:`render_transform` about a chosen point rather than the centre.
 
@@ -797,12 +806,19 @@ def render_transform_about(
     Returns the two planes and where the crop's top-left sits **relative to the
     pivot**, so the caller adds its own canvas-space pivot and is done.
 
-    Two callers, like :func:`render_transform` and for the same reason: the
-    buffer's live render and ``Document._replay_transform_on``.
+    Three callers now, like :func:`render_transform`: the buffer's live
+    render, ``Document._replay_transform_on``, and the walk renderer
+    (``walk/render.py``), which turns every part about its own joint rather
+    than its centre and so pads more than the other two ever do -- see
+    ``rotsprite_budget`` on :func:`.transform.rotate`, threaded through here
+    for the 2026-09-26 audit, finding inker-mode-14. ``None`` keeps every
+    existing caller's behaviour exactly as it was.
     """
     pivot = _clamp_pivot_to_pad_ceiling(source, pivot)
     padded, padded_mask, _pads = _pad_to_pivot(source, mask, pivot)
-    out, out_mask = render_transform(padded, padded_mask, angle, scale, shear, resample)
+    out, out_mask = render_transform(
+        padded, padded_mask, angle, scale, shear, resample, rotsprite_budget=rotsprite_budget
+    )
     height, width = out.shape[:2]
     box = _coverage(out_mask)
     if box is None:
@@ -846,6 +862,45 @@ def render_transform_about(
 #: intermediates that peaked at 15.55 GiB (measured 2026-09-23, a 64 px buffer
 #: scaled into the ceiling). Tests prove the clamp with this patched down.
 MAX_TRANSFORM_SIDE = 16384
+
+
+def _max_scale_for_ceiling(
+    base_w: int, base_h: int, shear: tuple[float, float], angle: float
+) -> tuple[float, float]:
+    """The scale ceiling that keeps :func:`render_transform`'s *whole* pipeline
+    -- scale, then shear, then rotate -- under :data:`MAX_TRANSFORM_SIDE`.
+
+    The 2026-09-26 audit, finding inker-document-07: :meth:`FloatingBuffer.transform`
+    clamped ``scale`` alone, against ``base_size`` alone, which is only the
+    ceiling for a transform with no shear and no rotation. ``transform.shear``
+    grows its output to ``side + |tan(shear)| * the other side`` (kept whole
+    rather than cropped, by its own contract), and ``transform.rotate``'s
+    ``expand=True`` grows it again by ``|cos| + |sin|`` of the angle -- neither
+    factor was in the ceiling, so a shear near :data:`.transform.SHEAR_MAX`
+    plus a 45 degree turn reached several times the scale-only bound (795 px
+    against a ceiling patched to 256 in the regression test), and at the real
+    16384 ceiling a full-size selection reached roughly 50,000 px on a side.
+
+    The bound folds both growth factors in *before* dividing them into the
+    ceiling, so ``scale`` is the only thing left unclamped by the time this
+    returns -- the same shape the caller already had, just no longer blind to
+    the two fields beside it. It is deliberately conservative rather than
+    exact: the cross term below assumes the worse of the two shear axes and
+    the two scale axes apply together, which overshoots what any *particular*
+    non-uniform scale actually produces, but never undershoots what the
+    pipeline can turn out for *some* scale within the bound it returns.
+    """
+    from . import transform as tf
+
+    kx = math.tan(math.radians(max(-tf.SHEAR_MAX, min(shear[0], tf.SHEAR_MAX))))
+    ky = math.tan(math.radians(max(-tf.SHEAR_MAX, min(shear[1], tf.SHEAR_MAX))))
+    shear_growth = 1.0 + max(abs(kx), abs(ky))
+    theta = math.radians(float(angle))
+    rotate_growth = abs(math.cos(theta)) + abs(math.sin(theta))
+    growth = max(1.0, shear_growth * rotate_growth)
+    max_sx = MAX_TRANSFORM_SIDE / max(1, base_w) / growth
+    max_sy = MAX_TRANSFORM_SIDE / max(1, base_h) / growth
+    return max_sx, max_sy
 
 
 @dataclass
@@ -1008,23 +1063,28 @@ class FloatingBuffer:
             self.source_offset = self.offset
         if angle is not None:
             self.angle = float(angle)
-        if scale is not None:
-            # Ceilinged *before* the assignment, not after: writing a scale
-            # the render cannot honour and only then failing would leave
-            # ``self.scale`` pointed at that value, and the buffer would
-            # re-attempt the same failing allocation on every later
-            # re-render -- a flip, a pivot move, the next drag frame -- until
-            # the transform is torn down. See MAX_TRANSFORM_SIDE for the
-            # 2026-09-11 audit this closes.
-            base_w, base_h = self.base_size
-            max_sx = MAX_TRANSFORM_SIDE / max(1, base_w)
-            max_sy = MAX_TRANSFORM_SIDE / max(1, base_h)
-            self.scale = (
-                min(max(0.01, float(scale[0])), max_sx),
-                min(max(0.01, float(scale[1])), max_sy),
-            )
         if shear is not None:
             self.shear = (float(shear[0]), float(shear[1]))
+        # Ceilinged *before* the assignment, not after: writing a scale the
+        # render cannot honour and only then failing would leave ``self.scale``
+        # pointed at that value, and the buffer would re-attempt the same
+        # failing allocation on every later re-render -- a flip, a pivot move,
+        # the next drag frame -- until the transform is torn down. See
+        # MAX_TRANSFORM_SIDE for the 2026-09-11 audit this closes.
+        #
+        # Recomputed on *every* call, against the shear and angle as they
+        # stand now, rather than only when ``scale`` itself is the argument:
+        # the 2026-09-26 audit, finding inker-document-07, is a shear or
+        # rotate set in a *later* call than the scale, which the old
+        # scale-only guard never revisited. ``_max_scale_for_ceiling`` folds
+        # both fields' growth into the ceiling it hands back.
+        base_w, base_h = self.base_size
+        max_sx, max_sy = _max_scale_for_ceiling(base_w, base_h, self.shear, self.angle)
+        want = self.scale if scale is None else (float(scale[0]), float(scale[1]))
+        self.scale = (
+            min(max(0.01, want[0]), max_sx),
+            min(max(0.01, want[1]), max_sy),
+        )
         self.resample = resample
 
         local = self.pivot_local

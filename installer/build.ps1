@@ -313,6 +313,12 @@ try {
     # this build should not have. This asserted exit 1 until 2026-09-04, back
     # when absent weights were fatal; that made "the installer works" and
     # "the machine has no models yet" indistinguishable.
+    # This assumes the build machine has a CUDA device: `doctor._vram_check`
+    # is also fatal with no CUDA device at all, on the same reasoning as the
+    # too-small-budget case (the 2026-09-26 audit, finding
+    # pipelines-install-13 -- the manuals only named the budget case). That
+    # row is orthogonal to what this block checks (missing weights vs. no
+    # card) and is not exercised here.
     if ($DoctorExit -ne 0) {
         throw "staged doctor should be healthy with no weights (exit 0), got $DoctorExit`n$DoctorOutput"
     }

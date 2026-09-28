@@ -43,6 +43,11 @@ OUTWARD_IMPORTS = {
     ("bake.py", "realmspinner.kernels.pixel.layers"),
     ("bake.py", "realmspinner.kernels.pixel.undo"),
     ("render.py", "realmspinner.kernels.pixel.selection"),
+    # The 2026-09-26 audit, finding inker-mode-14: a part turns about its own
+    # joint, and the pad-to-pivot padding that takes can push the plane past
+    # ``ROTSPRITE_MAX_PIXELS`` for an ordinary limb before it ever turns --
+    # this module needs the constant to size its own, non-interactive budget.
+    ("render.py", "realmspinner.kernels.pixel.transform"),
 }
 
 #: Modules that may import Pillow, and only inside a function. None do: the one

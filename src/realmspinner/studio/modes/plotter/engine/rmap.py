@@ -109,6 +109,7 @@ import dataclasses
 import io
 import itertools
 import json
+import math
 import zipfile
 from typing import Any, NoReturn
 
@@ -272,8 +273,11 @@ class RmapUnstorable(ValueError):
     **Version 3 stores everything version 2 refused**, so the tree, the image
     layers and the six per-layer decorations no longer raise this -- but the
     class, and the two handlers that name it
-    (``studio/plotter_io._encoded``, ``studio/plotter_mode.export_library``),
-    stay exactly where they are. The remaining raise is the unknown-layer-kind
+    (``studio/plotter/fileio._encoded``, ``studio/plotter/mode.export_library``
+    -- ``plotter_io``/``plotter_mode`` before the modules were renamed; the
+    2026-09-26 audit, finding plotter-map-10, found this docstring still
+    citing the retired names), stay exactly where they are. The remaining
+    raise is the unknown-layer-kind
     fallthrough below, and the milestones ahead put more behind it: a document
     that gains a layer kind before the
     container learns to hold it lands here first. (Infinite maps were one of
@@ -994,10 +998,33 @@ def _two(entry: dict[str, Any], key: str, default: Any) -> Any:
     return raw
 
 
+def _finite(number: float, what: str) -> float:
+    """One float field, refused if it is not finite.
+
+    ``.tmx``'s own ``_finite`` verbatim, and for the same reason (the
+    2026-09-26 audit, finding plotter-map-07): Python's ``json`` module accepts
+    the non-standard ``Infinity``/``-Infinity``/``NaN`` literals by default, so
+    a hand-edited ``.rmap`` manifest can hand ``float()`` a value that is
+    already non-finite before this reader ever touches it. An offset or
+    parallax factor of ``inf`` sends every pixel of a layer off the canvas, and
+    the object placer discovers one by raising out of a numpy call deep inside
+    a render rather than at the door the file came in through -- the twin gap
+    this module's own docstring already names next to ``.tmx``'s fix (new
+    finding from the 2026-09-26 audit's fix pass: "``rmap.py``'s float parses
+    (``_pair``/``_two``, ``_read_object``) accept non-finite values").
+    """
+    if not math.isfinite(number):
+        raise ValueError(f"{what} must be a finite number, not {number!r}")
+    return number
+
+
 def _pair(entry: dict[str, Any], key: str, default: tuple[float, float]) -> tuple[float, float]:
     """``offset`` and ``parallax``: two floats."""
     raw = _two(entry, key, default)
-    return (float(raw[0]), float(raw[1]))
+    return (
+        _finite(float(raw[0]), f"a layer's {key}"),
+        _finite(float(raw[1]), f"a layer's {key}"),
+    )
 
 
 def _three(entry: dict[str, Any], key: str, default: Any) -> Any:
@@ -1247,10 +1274,10 @@ def _read_object(entry: Any) -> MapObject:
         uid=new_uid(),
         id=int(entry.get("id", 0) or 0),
         name=str(entry.get("name", "")),
-        x=float(entry.get("x", 0.0)),
-        y=float(entry.get("y", 0.0)),
-        rotation=float(entry.get("rotation", 0.0)),
-        opacity=float(entry.get("opacity", 1.0)),
+        x=_finite(float(entry.get("x", 0.0)), "an object's x"),
+        y=_finite(float(entry.get("y", 0.0)), "an object's y"),
+        rotation=_finite(float(entry.get("rotation", 0.0)), "an object's rotation"),
+        opacity=_finite(float(entry.get("opacity", 1.0)), "an object's opacity"),
         shape=_read_shape(entry),
         obj_class=str(entry.get("class", "")),
         visible=bool(entry.get("visible", True)),
@@ -1284,8 +1311,8 @@ def _assign_ids(doc: MapDoc, manifest: dict[str, Any]) -> None:
     is found first. Skipping rather than renumbering, because the stored id is
     the one something outside this file may already name.
     """
-    doc.next_layer_id = max(1, int(manifest.get("next_layer_id", 1)))
-    doc.next_object_id = max(1, int(manifest.get("next_object_id", 1)))
+    doc.next_layer_id = max(1, int(manifest.get("next_layer_id", 1) or 1))
+    doc.next_object_id = max(1, int(manifest.get("next_object_id", 1) or 1))
     layers = doc.all_layers()
     objects = [
         obj for layer in layers if isinstance(layer, ObjectLayer) for obj in layer.objects
@@ -1358,17 +1385,25 @@ def read_rmap(data: bytes) -> MapDoc:
         if not isinstance(manifest, dict):
             raise ValueError("this map's manifest is malformed")
 
-        version = int(manifest.get("version", 0))
+        # ``or default`` guards a key that is *present but null* -- a
+        # malformed-but-parseable manifest (``"width": null``) hands ``.get``
+        # its stored ``None`` rather than the default, and plain ``int(None)``
+        # raised a bare ``TypeError`` out of this reader instead of the
+        # ``ValueError`` every other malformed field gets (the 2026-09-26
+        # audit, finding plotter-map-08, the twin of ``tmx.py``'s own
+        # ``int(x.get(key, default) or default)`` spelling for the same file
+        # shape).
+        version = int(manifest.get("version", 0) or 0)
         if version > VERSION:
             raise ValueError(
                 f"this map was written by a newer version of Realmspinner "
                 f"(format {version}, this build reads {VERSION})"
             )
         doc = MapDoc(
-            width=int(manifest.get("width", 1)),
-            height=int(manifest.get("height", 1)),
-            tile_w=int(manifest.get("tile_w", 1)),
-            tile_h=int(manifest.get("tile_h", 1)),
+            width=int(manifest.get("width", 1) or 1),
+            height=int(manifest.get("height", 1) or 1),
+            tile_w=int(manifest.get("tile_w", 1) or 1),
+            tile_h=int(manifest.get("tile_h", 1) or 1),
             # A version 1 file predates projections and is orthogonal by
             # definition, which is what the default says without a branch.
             projection=str(manifest.get("projection", project.ORTHOGONAL)),
@@ -1385,9 +1420,12 @@ def read_rmap(data: bytes) -> MapDoc:
         # ``renderorder`` opened without complaint and only raised later, out
         # of ``project.draw_order`` on the first render -- and once in, it
         # could not be repaired from the props panel either, because
-        # ``MapDoc.set_map_settings`` re-validates this same unchanged field on
-        # its own revert-then-reapply sequence. See ``tmx._render_order``,
-        # which this mirrors for the same reason ``.tmx``'s own reader does.
+        # ``MapDoc.set_map_settings`` used to re-validate this same unchanged
+        # field on its own revert-then-reapply sequence (fixed by the same
+        # audit's follow-up finding on that method; falling back here still
+        # stands on its own, since a bad value never getting in is better than
+        # a way to get it back out). See ``tmx._render_order``, which this
+        # mirrors for the same reason ``.tmx``'s own reader does.
         raw_order = str(manifest.get("renderorder", "right-down"))
         doc.renderorder = raw_order if raw_order in project.RENDER_ORDERS else "right-down"
         # The 2026-09-13 audit (finding plotter-03) found this reader assigning

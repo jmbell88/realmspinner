@@ -106,7 +106,11 @@ def _target_refusal(doc: Any, obj: Any, kind_def: Any, mod: Any) -> dict | None:
 
 
 def _kind_or_refusal(kind: Any) -> tuple[Any, dict | None]:
-    kind_def = clay_modifiers.MODIFIERS.get(kind)
+    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
+    # ``a_dict.get(x)`` hashes ``x``, and a list or object ``kind`` raised a
+    # bare, unhashable ``TypeError`` that only ``call()``'s generic "failed
+    # unexpectedly" backstop caught, instead of this refusal.
+    kind_def = clay_modifiers.MODIFIERS.get(kind) if isinstance(kind, str) else None
     if kind_def is None:
         return None, fail(
             f"kind must be one of {', '.join(sorted(clay_modifiers.MODIFIERS))}.", field="kind"

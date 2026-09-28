@@ -37,7 +37,11 @@ def _h_catalog(ctx: Any, session: Session, args: dict) -> dict:
     topic. Needs no document -- see this module's own docstring."""
     del ctx, session
     topic = args.get("topic")
-    builder = CATALOG_TOPICS.get(topic)
+    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
+    # ``a_dict.get(x)`` hashes ``x``, and a list or object ``topic`` raised a
+    # bare, unhashable ``TypeError`` that only ``call()``'s generic "failed
+    # unexpectedly" backstop caught, instead of this refusal.
+    builder = CATALOG_TOPICS.get(topic) if isinstance(topic, str) else None
     if builder is None:
         return fail(
             f"topic must be one of {', '.join(sorted(CATALOG_TOPICS))}.", field="topic"

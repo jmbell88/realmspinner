@@ -198,8 +198,10 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
     vert_arr: list[int] | None = None
     if verts_arg is not None:
         try:
+            # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
+            # ``int(float("inf"))`` raises it, uncaught here before this fix.
             vert_arr = [int(v) for v in verts_arg]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("verts must be a list of integers.", field="verts")
         bad = [v for v in vert_arr if not (0 <= v < n_verts)]
         if bad:
@@ -213,8 +215,10 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
     face_arr: list[int] | None = None
     if faces_arg is not None:
         try:
+            # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
+            # ``int(float("inf"))`` raises it, uncaught here before this fix.
             face_arr = [int(f) for f in faces_arg]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("faces must be a list of integers.", field="faces")
         bad = [f for f in face_arr if not (0 <= f < n_faces)]
         if bad:
@@ -227,8 +231,10 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
     edge_arr: list[list[int]] | None = None
     if edges_arg is not None:
         try:
+            # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
+            # ``int(float("inf"))`` raises it, uncaught here before this fix.
             pairs = [[int(a), int(b)] for a, b in edges_arg]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
         if pairs:
             # ``ElementSel`` accepts any vertex pair with no complaint -- it
@@ -313,7 +319,11 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
         return failure
 
     name = args.get("query")
-    query = bsel.QUERIES.get(name)
+    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
+    # ``a_dict.get(x)`` hashes ``x``, and a list or object ``query`` raised a
+    # bare, unhashable ``TypeError`` that only ``call()``'s generic "failed
+    # unexpectedly" backstop caught, instead of this refusal.
+    query = bsel.QUERIES.get(name) if isinstance(name, str) else None
     if query is None:
         return fail(
             f"query must be one of {', '.join(sorted(bsel.QUERIES))}.", field="query"
@@ -691,7 +701,12 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             return fail("views must be a non-empty list.", field="views")
         entries = views_arg
     elif view is not None:
-        if view not in valid_views:
+        # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06
+        # -- ``x not in a_set`` hashes ``x``, and a list or object ``view``
+        # raised a bare, unhashable ``TypeError`` that only ``call()``'s
+        # generic "failed unexpectedly" backstop caught, instead of this
+        # refusal.
+        if not isinstance(view, str) or view not in valid_views:
             return fail(f"view must be one of {', '.join(sorted(valid_views))}.", field="view")
         entries = [view]
     else:
@@ -1191,7 +1206,11 @@ def _h_validate(ctx: Any, session: Session, args: dict) -> dict:
     doc = tab.doc
 
     profile = args.get("profile", readiness.DEFAULT_PROFILE)
-    if profile not in readiness.PROFILES:
+    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
+    # ``x not in a_dict`` hashes ``x``, and a list or object ``profile``
+    # raised a bare, unhashable ``TypeError`` that only ``call()``'s generic
+    # "failed unexpectedly" backstop caught, instead of this refusal.
+    if not isinstance(profile, str) or profile not in readiness.PROFILES:
         return fail(
             f"profile must be one of {', '.join(sorted(readiness.PROFILES))}.",
             field="profile",
@@ -1252,7 +1271,13 @@ def _h_export(ctx: Any, session: Session, args: dict) -> dict:
         return fail("There is nothing visible to export.")
 
     engine_arg = args.get("engine")
-    if engine_arg is not None and engine_arg not in engines.ENGINES:
+    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
+    # ``x not in a_dict`` hashes ``x``, and a list or object ``engine``
+    # raised a bare, unhashable ``TypeError`` that only ``call()``'s generic
+    # "failed unexpectedly" backstop caught, instead of this refusal.
+    if engine_arg is not None and (
+        not isinstance(engine_arg, str) or engine_arg not in engines.ENGINES
+    ):
         return fail(
             f"engine must be one of {', '.join(sorted(engines.ENGINES))}.", field="engine"
         )

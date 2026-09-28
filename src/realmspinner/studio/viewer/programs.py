@@ -340,6 +340,15 @@ out vec4 f_color;
 uniform float u_exposure;
 uniform float u_alpha;
 uniform vec4 u_base_color_factor;
+// The 2026-09-26 audit, finding create-viewer-03: this program carried
+// neither uniform, so ``main`` below fell straight through to the sampled
+// alpha with no OPAQUE force and no MASK cutoff -- unlike the PBR program's
+// identical two lines. An OPAQUE material with a stray alpha channel (a
+// trellis base-colour texture, whose alpha varies) rendered translucent in
+// every flat draw: the direction-strip preview, and any other frame taken
+// with ``flat=True``.
+uniform float u_alpha_cutoff;
+uniform int u_alpha_mask;
 #ifdef HAS_BASE_COLOR_MAP
 uniform sampler2D u_base_color_map;
 #endif
@@ -352,6 +361,8 @@ void main() {
     vec4 sampled = texture(u_base_color_map, v_uv);
     base *= vec4(srgbToLinear(sampled.rgb), sampled.a);
 #endif
+    if (u_alpha_mask == 1 && base.a < u_alpha_cutoff) discard;
+    if (u_alpha_mask == 0) base.a = 1.0;
     // Tone-mapped like everything else: three's MeshBasicMaterial defaults to
     // toneMapped = true, so a flat sheet frame and a lit one agree about what
     // a given albedo looks like.

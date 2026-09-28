@@ -582,14 +582,16 @@ def _row_menu(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
         ]
         if groups and imgui.begin_menu("Move into"):
             if controls.menu_item_simple("Map root"):
-                doc.move_layer(layer.uid, len(doc.layers), parent_uid=None)
+                _move_layer(ctx, doc, layer.uid, len(doc.layers), parent_uid=None)
             for group in groups:
                 # Scoped by uid, not by name: two groups called "Terrain" are
                 # ordinary, and sharing one imgui id makes the second one
                 # unclickable.
                 imgui.push_id(str(group.uid))
                 if controls.menu_item_simple(group.name or "Group"):
-                    doc.move_layer(layer.uid, len(group.children), parent_uid=group.uid)
+                    _move_layer(
+                        ctx, doc, layer.uid, len(group.children), parent_uid=group.uid
+                    )
                 imgui.pop_id()
             imgui.end_menu()
         widgets.divider()
@@ -606,6 +608,25 @@ def _row_menu(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
             _delete_layer(ctx, doc, layer)
         imgui.end_disabled()
         imgui.end_popup()
+
+
+def _move_layer(
+    ctx: Any, doc: Any, uid: int, to_index: int, *, parent_uid: Any
+) -> None:
+    """``doc.move_layer``, refused by name rather than raised into the frame.
+
+    "Move into" already filters out the cycle ``move_layer`` refuses (see the
+    comment above it), but nesting a subtree past ``MAX_GROUP_DEPTH`` groups is
+    not something a menu can filter without walking every candidate group's own
+    depth on every frame it is open -- so, like ``merge_down`` two rows below,
+    it is caught instead. Nothing wraps a pane draw, and reparenting a layer
+    into an already-deep group had nothing here to catch it (the 2026-09-26
+    audit, finding plotter-mode-09).
+    """
+    try:
+        doc.move_layer(uid, to_index, parent_uid=parent_uid)
+    except ValueError as exc:
+        ctx.toast(f"Not moved: {exc}.", "error")
 
 
 def _reorder(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
@@ -654,7 +675,7 @@ def _reorder(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
                 landing = layer_rows.drop_target(doc, source, int(layer.uid))
             if landing is not None:
                 parent, index = landing
-                doc.move_layer(source, index, parent_uid=parent)
+                _move_layer(ctx, doc, source, index, parent_uid=parent)
         imgui.end_drag_drop_target()
 
 
@@ -691,7 +712,7 @@ def draw_properties(ctx: Any) -> None:
         # with nothing selected is asked about. The sentence it replaces was a
         # pane that went blank the moment you clicked off a layer.
         widgets.muted("Map")
-        map_rows(ctx, doc, editable)
+        map_rows(ctx, tab, editable)
         return
     if not editable:
         widgets.muted_wrapped(_BUSY_WHY)
@@ -730,7 +751,7 @@ def draw_properties(ctx: Any) -> None:
 
 
 
-def map_rows(ctx: Any, doc: Any, editable: bool) -> None:
+def map_rows(ctx: Any, tab: Any, editable: bool) -> None:
     """The map's own facts and its custom properties, as name/value rows.
 
     Two surfaces read this: the Properties pane with no layer selected, and
@@ -739,8 +760,16 @@ def map_rows(ctx: Any, doc: Any, editable: bool) -> None:
     property table -- the size, the projection and the tile size are set in the
     Resize dialog, and a second set of fields for them is a second place they
     can be typed differently.
+
+    Keyed by ``tab.uid``, not ``id(doc)``: the two surfaces used to disagree,
+    and an id is only a sound key while the object it names is alive -- close
+    this tab and open another, and the allocator can hand the new ``MapDoc``
+    the same address, which made a stale draft here belong to a map that had
+    already closed (the 2026-09-26 audit, finding plotter-mode-15).
     """
     from imgui_bundle import imgui
+
+    doc = tab.doc
 
     with _table("##plotter-map-table") as opened:
         if not opened:
@@ -765,7 +794,7 @@ def map_rows(ctx: Any, doc: Any, editable: bool) -> None:
     imgui.begin_disabled(not editable)
     property_editor(
         ctx,
-        f"plotter_map_prop:{id(doc)}",
+        f"plotter_map_prop:{tab.uid}",
         doc.properties,
         doc.set_map_properties,
         object_options=object_options(doc),

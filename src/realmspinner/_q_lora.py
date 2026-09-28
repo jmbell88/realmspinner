@@ -89,8 +89,15 @@ class LoraOps:
         if not weights.exists():
             raise RuntimeError("the trainer reported success but wrote no adapter")
 
+        # The 2026-09-26 audit (service-kinds-06): ``inner``/``inner_next``
+        # are phase-relative (``progress.update`` maps them through this
+        # phase's own ``(lo, hi)`` span, ``PHASES_LORA_TRAIN``'s
+        # ``"publish": (0.95, 1.00)``) -- passing the *whole-bar* fraction
+        # 0.95 here got remapped a second time into that already-narrow
+        # window (``0.95 + 0.05 * 0.95`` = 99.75%), so the bar jumped to
+        # ~100% the moment publish began instead of sitting at 95%.
         self.progress.update(
-            job_id, phase="publish", label="Registering the style", inner=0.95,
+            job_id, phase="publish", label="Registering the style", inner=0.0,
             inner_next=1.0, nominal=2.0, detail="",
         )
         manifest = await asyncio.to_thread(

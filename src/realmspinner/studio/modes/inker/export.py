@@ -237,6 +237,14 @@ def export_slices(
         return
     doc = tab.doc
     if not doc.slices:
+        # The 2026-09-26 audit, finding inker-mode-15: both File > Export
+        # slices... and Repeat last export (which calls this with
+        # ``repeat=True``) reach here whether the menu row happened to be
+        # greyed or not -- the verb is engine API -- and used to return with
+        # nothing said at all. Same pattern as ``split_export``'s "no tags to
+        # split by" above: a refusal that says why beats one that does
+        # nothing.
+        ctx.toast("This document has no slices to export.", "warn")
         return
     inker_mode._settle(ctx, tab)
     suggested = tab.path.stem if tab.path else "untitled"

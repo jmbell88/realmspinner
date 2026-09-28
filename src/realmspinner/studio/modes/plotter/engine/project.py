@@ -18,7 +18,10 @@ is no point-in-polygon to get wrong on a shared edge, and a click on a corner
 lands in exactly one cell because ``floor`` breaks the tie the same way
 everywhere. That claim is scoped to :data:`ORTHOGONAL` and :data:`ISOMETRIC`:
 staggered and hexagonal ``cell_at`` is Tiled's reference-point-plus-nearest-
-centre test instead, which is not an affine inverse and is not implemented here.
+centre test instead, which is not an affine inverse. :func:`_offset_cell_at`
+below is exactly that candidate-check test, and it is implemented, not merely
+described -- the 2026-09-26 audit, finding plotter-map-10, found this
+paragraph still saying "and is not implemented here" well after it landed.
 
 The offset lattices arrived into that seam: :class:`Lattice` had carried
 ``stagger_axis``, ``stagger_index`` and ``hex_side`` as reserved fields, so
@@ -36,8 +39,12 @@ ISOMETRIC = "isometric"
 OBLIQUE = "oblique"
 STAGGERED = "staggered"
 HEXAGONAL = "hexagonal"
-#: The affine projections this editor draws. Staggered and hexagonal require a
-#: nearest-centre hit test and remain explicit refusals at the Tiled door.
+#: The projections this editor draws, and so the exact set ``tmx._check_orientation``
+#: accepts at the door -- staggered and hexagonal need a nearest-centre hit test
+#: rather than an affine inverse (:func:`_offset_cell_at`), not a refusal: they
+#: are in this tuple, and a map opened with either orientation is read like any
+#: other (the 2026-09-26 audit, finding plotter-map-10, found this comment
+#: still describing them as refused).
 PROJECTIONS: tuple[str, ...] = (ORTHOGONAL, ISOMETRIC, OBLIQUE, STAGGERED, HEXAGONAL)
 
 #: The two lattices whose rows (or columns) are offset from each other. Grouped

@@ -945,6 +945,26 @@ def _validate_hierarchy(objects: list[Obj]) -> None:
             color[u] = BLACK
 
 
+def _factor(value: Any, n: int, field: str) -> tuple[float, ...]:
+    """A material's ``base_color_factor``/``emissive_factor`` cast to exactly
+    ``n`` floats, refusing anything else by name.
+
+    A new finding from the fixers in the 2026-09-27 pass on the 2026-09-26
+    audit: ``tuple(entry.get(...))`` cast whatever JSON list sat in the slot
+    with no length check, so a 2-tuple or a 5-tuple for a field
+    :class:`gltf.Material` declares as exactly 4 (or 3) floats was accepted
+    silently and disagreed with the dataclass's own annotation for as long as
+    nothing happened to unpack it positionally. This is the same "refuse a
+    malformed field by name" door :func:`_material_from`'s texture-index
+    check and clay-document-07's ``Infinity`` catch already use -- raising
+    here reaches that function's own ``except`` clause below.
+    """
+    out = tuple(float(v) for v in value)
+    if len(out) != n:
+        raise ValueError(f"a material's {field} has {len(out)} components, not {n}")
+    return out
+
+
 def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
     """One material off the scene, refusing a malformed one by name.
 
@@ -976,10 +996,14 @@ def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
         return gltf.Material(
             **slots,
             name=str(entry.get("name", "")),
-            base_color_factor=tuple(entry.get("base_color_factor", (1.0, 1.0, 1.0, 1.0))),
+            base_color_factor=_factor(
+                entry.get("base_color_factor", (1.0, 1.0, 1.0, 1.0)), 4, "base_color_factor"
+            ),
             metallic_factor=float(entry.get("metallic_factor", 1.0)),
             roughness_factor=float(entry.get("roughness_factor", 1.0)),
-            emissive_factor=tuple(entry.get("emissive_factor", (0.0, 0.0, 0.0))),
+            emissive_factor=_factor(
+                entry.get("emissive_factor", (0.0, 0.0, 0.0)), 3, "emissive_factor"
+            ),
             double_sided=bool(entry.get("double_sided", False)),
             alpha_mode=str(entry.get("alpha_mode", "OPAQUE")),
             alpha_cutoff=float(entry.get("alpha_cutoff", 0.5)),

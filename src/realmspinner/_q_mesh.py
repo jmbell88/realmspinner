@@ -277,8 +277,14 @@ class MeshPostOps:
                 return
             if not temp.exists():
                 raise RuntimeError("Blender reported success but wrote no mesh")
+            # The 2026-09-26 audit (service-kinds-06): same fix as
+            # ``_q_lora.py``'s ``publish`` phase -- ``inner`` is
+            # phase-relative to ``PHASES_REMESH``'s ``"publish": (0.95,
+            # 1.00)``, and the whole-bar-looking 0.95 here was getting
+            # remapped a second time (99.75%), jumping the bar to ~100%
+            # before grounding/publishing had even started.
             self.progress.update(
-                job_id, phase="publish", label="Grounding and publishing", inner=0.95,
+                job_id, phase="publish", label="Grounding and publishing", inner=0.0,
                 inner_next=1.0, nominal=5.0, detail="",
             )
             # The exporter wrote a fresh node graph, so the grounding transform

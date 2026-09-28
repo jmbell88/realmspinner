@@ -427,7 +427,12 @@ def _safe_export_name(name: str, *, field: str = "name") -> str:
     stripped = name.strip()
     if not stripped or stripped in (".", ".."):
         raise Invalid(f"{name!r} is not a valid export name", field=field)
-    if any(sep in name for sep in ("/", "\\")) or os.path.splitdrive(name)[0]:
+    # The 2026-09-26 audit (service-assets-04): these checks ran on the
+    # unstripped `name`, so leading whitespace shifted a drive letter past
+    # position 0 -- `os.path.splitdrive(" C:evil")` finds no drive -- while
+    # the function went on to *return* `stripped`, which does have one at
+    # position 0 (`"C:evil"`). Check the value we actually hand back.
+    if any(sep in stripped for sep in ("/", "\\")) or os.path.splitdrive(stripped)[0]:
         raise Invalid(f"{name!r} is not a valid export name", field=field)
     if stripped.split(".", 1)[0].upper() in _RESERVED_WINDOWS_NAMES:
         raise Invalid(f"{name!r} is not a valid export name", field=field)

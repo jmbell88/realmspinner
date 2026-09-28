@@ -303,33 +303,39 @@ class GenerateOps:
             # The one preamble, with this branch's real `cond` -- the only
             # caller that has one. `handoff` is kept for the finally below.
             t2i, handoff = await self._acquire_t2i(spec, base_key, cond)
-            is_tile = job.get("stage") == "tile"
-            # text2image's own PROMPT_TEMPLATE (or TILE_TEMPLATE, off the
-            # tile= flag below) wraps this with the TRELLIS-friendly
-            # single-object scaffolding.
-            composed = guidance.compose_prompt(job["prompt"] or "", params)
-            # The reroll lives *inside* the try below, so however many samples
-            # it draws there is still one load and one unload around all of
-            # them: the VRAM handoff is a property of the stage, not of an
-            # attempt.
-            attempts: list[dict[str, Any]] = []
-            # The measured verdict behind each entry of ``attempts``, index for
-            # index; ``None`` where the measurement itself broke. Kept beside
-            # ``attempts`` rather than inside it because ``attempts`` is
-            # *stored* -- it is the provenance a later reader parses -- and a
-            # Report is not JSON.
-            reports: list[reference.Report | None] = []
-            # Every refused draw, kept on disk for as long as the budget runs,
-            # so the exhausted-budget exit can ship the best attempt rather
-            # than whichever one happened to be drawn last. In ``job_dir``
-            # beside ``image_path``, which makes publishing the winner a single
-            # rename onto the served name; the ``finally`` below removes
-            # whatever is left, so a cancelled or failed job leaves no strays.
-            candidates: dict[int, Path] = {}
-            seed = reference_seed
-            retries = max(0, int(self.config.reference_retries))
-            is_reference = job.get("stage") == "reference"
+            # The 2026-09-26 audit (service-kinds-08): ``compose_prompt`` and
+            # ``int(self.config.reference_retries)`` are both fallible and
+            # used to run between the acquire and the ``try`` below, leaking
+            # the pipe on a raise -- the same fix as every other t2i door in
+            # this pass.
             try:
+                is_tile = job.get("stage") == "tile"
+                # text2image's own PROMPT_TEMPLATE (or TILE_TEMPLATE, off the
+                # tile= flag below) wraps this with the TRELLIS-friendly
+                # single-object scaffolding.
+                composed = guidance.compose_prompt(job["prompt"] or "", params)
+                # The reroll lives *inside* the try below, so however many
+                # samples it draws there is still one load and one unload
+                # around all of them: the VRAM handoff is a property of the
+                # stage, not of an attempt.
+                attempts: list[dict[str, Any]] = []
+                # The measured verdict behind each entry of ``attempts``,
+                # index for index; ``None`` where the measurement itself
+                # broke. Kept beside ``attempts`` rather than inside it
+                # because ``attempts`` is *stored* -- it is the provenance a
+                # later reader parses -- and a Report is not JSON.
+                reports: list[reference.Report | None] = []
+                # Every refused draw, kept on disk for as long as the budget
+                # runs, so the exhausted-budget exit can ship the best
+                # attempt rather than whichever one happened to be drawn
+                # last. In ``job_dir`` beside ``image_path``, which makes
+                # publishing the winner a single rename onto the served
+                # name; the ``finally`` below removes whatever is left, so a
+                # cancelled or failed job leaves no strays.
+                candidates: dict[int, Path] = {}
+                seed = reference_seed
+                retries = max(0, int(self.config.reference_retries))
+                is_reference = job.get("stage") == "reference"
                 while True:
                     await asyncio.to_thread(
                         functools.partial(
@@ -417,7 +423,16 @@ class GenerateOps:
                     # landing between here and the next draw would leave the
                     # job with no input.png at all.
                     candidate = job_dir / f"reference_attempt_{len(attempts)}.png"
-                    candidate.write_bytes(image_path.read_bytes())
+                    # The 2026-09-26 audit (service-kinds-10): this read+write
+                    # of a full reference image ran straight on
+                    # ``realmspinner-loop`` -- up to ``retries`` times a job,
+                    # the same thread every other job's progress and cancel
+                    # check is served from -- instead of behind
+                    # ``asyncio.to_thread`` like every other blocking call in
+                    # this reroll loop.
+                    await asyncio.to_thread(
+                        lambda c=candidate: c.write_bytes(image_path.read_bytes())
+                    )
                     candidates[len(attempts) - 1] = candidate
                     seed = queue_mod._fresh_seed()
                     log.info(

@@ -885,8 +885,29 @@ class SelectionOps:
         if self.floating is not None:
             return True
         if self.mask is None:
+            # The 2026-09-26 audit, finding inker-document-12: ``lift()`` can
+            # still refuse after this -- a content-locked active layer returns
+            # False, and a tilemap layer's own refusal raises -- and either way
+            # the ``select`` two lines up had already pushed its step. Nothing
+            # was lifted, but the whole canvas stayed selected and Ctrl+Z had
+            # one more stop than the document did edits. ``depth`` says
+            # whether ``select`` actually pushed (an empty canvas does not),
+            # so a lift that goes on to succeed costs nothing extra here.
             width, height = self.size
+            depth = len(self.history)
             self.select(SelectionMask.full(width, height))
+            pushed = len(self.history) > depth
+            try:
+                lifted = self.lift()
+            except BaseException:
+                if pushed:
+                    self.history.revoke(self, self.history.top)
+                raise
+            if not lifted:
+                if pushed:
+                    self.history.revoke(self, self.history.top)
+                return False
+            return True
         return self.lift()
 
     def transform_floating(

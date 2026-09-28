@@ -92,7 +92,10 @@ nothing about whether those two are trustworthy.
 
 `Ctrl+Shift+E` exports the atlas, its JSON sidecar, and a `.tsx` if it is a grid pack. Every file for
 one export is staged first and moved into place only once all of them exist, so a failure partway
-through never leaves you with a new PNG beside a stale sidecar.
+through never leaves you with a new PNG beside a stale sidecar. If a `.tsx` already sits beside the
+name you chose and this export is not about to (re)write one — packed as MaxRects after an earlier
+grid export under the same name, say — the whole export is refused rather than leaving that stale
+tileset next to a new PNG it no longer describes; remove it, or export under a different name.
 
 `Ctrl+E` exports to the library instead, which mints an ordinary asset — and keeps the document
 beside it, so **Open in Packwright** on that card later gives you back the real editable atlas rather

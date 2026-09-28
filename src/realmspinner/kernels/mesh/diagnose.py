@@ -110,6 +110,13 @@ def findings(mesh: Mesh) -> list[Finding]:
     agent's `clay_diagnose`/`clay_add_mesh` tools) rather than let a stall
     turn into an unhandled crash.
     """
+    # The 2026-09-26 audit (clay-mesh-model-06): this refusal used to be a
+    # side effect of `ops_clean.survey`/`face_defect_masks` further down in
+    # `rows_for`, so a mesh past the ceiling still paid for `check_manifold`
+    # and the uncapped `boundary_loops` walk first -- 2.45s at 1.6M corners
+    # before the "too large" row it ends up building anyway. The ceiling is
+    # checked here, before either runs.
+    ops_clean._refuse_if_too_large(mesh)
     return rows_for(mesh, check_manifold(mesh))
 
 

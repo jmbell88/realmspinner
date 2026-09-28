@@ -87,15 +87,22 @@ class GpuMaterial:
         mat = self.material
         if "u_base_color_factor" in program:
             program["u_base_color_factor"].value = tuple(mat.base_color_factor)
-        if "u_metallic" in program:
-            program["u_metallic"].value = mat.metallic_factor
-            program["u_roughness"].value = mat.roughness_factor
-            program["u_emissive_factor"].value = tuple(mat.emissive_factor)
+        # Its own guard, split off the metallic block below (the 2026-09-26
+        # audit, finding create-viewer-03): ``UNLIT_FRAG`` carries
+        # ``u_alpha_cutoff``/``u_alpha_mask`` now but no ``u_metallic`` --
+        # unlit is a flat colour, not a PBR term -- so bundling this under
+        # ``if "u_metallic" in program`` skipped it for every flat draw and
+        # rendered an OPAQUE material's stray alpha channel translucent.
+        if "u_alpha_cutoff" in program:
             program["u_alpha_cutoff"].value = mat.alpha_cutoff
             # 0 opaque, 1 masked, 2 blended -- the shader only distinguishes
             # "cut out at the threshold" from "ignore alpha entirely", and
             # BLEND is the one mode where the sampled alpha is kept as-is.
             program["u_alpha_mask"].value = {"MASK": 1, "BLEND": 2}.get(mat.alpha_mode, 0)
+        if "u_metallic" in program:
+            program["u_metallic"].value = mat.metallic_factor
+            program["u_roughness"].value = mat.roughness_factor
+            program["u_emissive_factor"].value = tuple(mat.emissive_factor)
 
     def release(self) -> None:
         # Only what this material created: a texture borrowed from the shared

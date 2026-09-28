@@ -61,6 +61,18 @@ def load(path: Path) -> dict[str, Any] | None:
         _CACHE[path] = (mtime, None)
         return None
 
+    if not isinstance(doc, dict):
+        # ``json.loads`` happily returns a list, a string or a bare number --
+        # every reader below this point calls ``.get`` on what comes back,
+        # unguarded, on the assumption that a *parsed* findings.json is a
+        # dict. A hand-edited or truncated-then-reappended file that parses to
+        # ``[]`` used to reach ``hint``/``best_value`` and raise ``AttributeError``
+        # on the frame thread (the 2026-09-26 audit, finding
+        # pipelines-install-07). Treated the same as a corrupt file: cached by
+        # this mtime so a re-read is not retried every frame.
+        _CACHE[path] = (mtime, None)
+        return None
+
     _CACHE[path] = (mtime, doc)
     return doc
 
@@ -78,8 +90,18 @@ def _params_section(doc: dict[str, Any], prompt_hash: str | None) -> dict[str, A
     return doc.get("params") or {}
 
 
-def _lookup(bucket: dict[str, Any], value: Any) -> dict[str, Any] | None:
-    """``bucket[str(value)]``, with the float32 second pass. See ``hint``."""
+def _lookup(bucket: Any, value: Any) -> dict[str, Any] | None:
+    """``bucket[str(value)]``, with the float32 second pass. See ``hint``.
+
+    ``bucket`` is defensive on purpose: it is ``section.get(param)`` off a
+    document that crossed a disk, and a hand-edited file can hold a list or a
+    string where a value-keyed dict belongs. ``_best_in`` already guarded its
+    own bucket read; this one did not, and raised ``AttributeError`` from
+    ``hint`` on the frame thread (the 2026-09-26 audit, finding
+    pipelines-install-07).
+    """
+    if not isinstance(bucket, dict):
+        return None
     entry = bucket.get(str(value))
     if entry is not None or not isinstance(value, float):
         return entry
@@ -176,7 +198,12 @@ def best_value(
     all the pooled corpus answers unlabelled, because a caller that does not
     know its subject is making no claim about one.
     """
-    if doc is None:
+    # ``load`` guarantees a dict-or-None doc, but this is a public function a
+    # caller can hand anything to directly -- a hand-edited file that parses
+    # to a bare list used to reach ``doc.get("params")`` two lines below and
+    # raise ``AttributeError`` (the 2026-09-26 audit, finding
+    # pipelines-install-07).
+    if not isinstance(doc, dict):
         return None
 
     def offer(
@@ -265,21 +292,43 @@ def hint(
     Passing nothing keeps the old behaviour to the character, label included:
     a caller that does not know its subject is making no claim about one.
     """
-    if doc is None:
+    # Same guard as ``best_value``, and the same reason: ``load`` only ever
+    # hands back a dict or ``None``, but this function does not require its
+    # argument to have come from ``load`` -- a bare list reached
+    # ``doc.get("params")`` two lines below and raised (the 2026-09-26 audit,
+    # finding pipelines-install-07).
+    if not isinstance(doc, dict):
         return None
 
     def rendered(section: dict[str, Any]) -> str | None:
-        entry = _lookup(section.get(param) or {}, value)
+        # ``section`` is ``doc.get("params") or {}`` (or the scoped
+        # equivalent), which is only ever a dict when the key holds one --
+        # a hand-edited file can leave a string or list there instead, and
+        # ``section.get(param)`` below would raise ``AttributeError`` rather
+        # than the ``None`` every other reader in this module returns for a
+        # malformed section (the 2026-09-26 audit, finding
+        # pipelines-install-07).
+        if not isinstance(section, dict):
+            return None
+        entry = _lookup(section.get(param), value)
         if entry is None:
             return None
-        if entry.get("n", 0) >= min_n:
+        n = entry.get("n")
+        # Coerced rather than ``entry.get("n", 0)``: that default only fires
+        # when the key is absent, so a bucket carrying ``"n": null`` (valid
+        # JSON, an explicit write of nothing) handed ``None`` straight into
+        # ``None >= min_n`` and raised ``TypeError`` on the frame thread --
+        # the same audit finding as the section guard above.
+        if not isinstance(n, int) or isinstance(n, bool):
+            n = 0
+        if n >= min_n:
             # "usable" once the file carries grades, "accept" when it does not:
             # the count is the same derived cut either way, but on a v4 file
             # there is a scale behind it and the word should say which question
             # was answered. A v3 file renders the v3 string to the character.
             average = _mean_grade(entry)
             noun = "accept" if average is None else "usable"
-            base = f"{noun} {entry.get('accepts', 0)}/{entry['n']}"
+            base = f"{noun} {entry.get('accepts', 0)}/{n}"
             bound = entry.get("wilson_low")
             if isinstance(bound, (int, float)) and not isinstance(bound, bool):
                 base += f" ({round(bound * 100)}%+)"

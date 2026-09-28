@@ -221,7 +221,8 @@ the rail and the palette — to change what the window is showing.
 A right-aligned group at the far end of the same bar carries the app's status readouts: the
 workspace you are in, the open document and whether it has unsaved changes, the current tool and
 zoom in any workspace that has them (Inker, Plotter and Packwright zoom; Inker and Plotter have
-tools), the queue when anything is running or waiting, and an amber **N issue(s)** when a startup
+tools), the queue when anything is running or waiting, an **Agent connected** chip while an MCP
+client is attached (Settings → Agent), and an amber **N issue(s)** when a startup
 check has failed. That figure is a report rather than a control — for the list behind it, go to
 **Settings → Health**, which is also where you look when nothing is failing and there is no count
 in the group at all. There is no green "all well" state, because a healthy install has nothing to

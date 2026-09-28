@@ -96,10 +96,20 @@ def write_token(home: Path) -> bytes:
     Staged beside the destination and landed with `os.replace` -- this repo's
     rule for every write onto a name another process reads, here because a
     bridge that opens `mcp.token` mid-write must never see a truncated or
-    half-hex-encoded secret. The permission bit is set on the *staging* file
-    before the rename, not after, so the final name is never briefly
-    world-readable; `os.chmod` failing (there is no POSIX-style mode bit to
-    set on Windows) is not fatal, since the authkey challenge inside
+    half-hex-encoded secret.
+
+    **The restrictive mode is baked into the file's creation, not applied
+    after it.** The 2026-09-26 audit (agents-protocol-03) found this used to
+    `tmp.write_text(...)` -- which creates the file at the process's default,
+    umask-derived mode (typically world- or group-readable on a POSIX box) --
+    and only *then* `os.chmod` it to `0o600`, leaving the 32-byte secret
+    sitting on disk at a wider mode for the gap between those two calls.
+    `os.open` with `O_CREAT | O_EXCL` and the mode passed to the *creation*
+    call itself closes that gap: the file never exists at a mode wider than
+    `0o600`, not even for one syscall. The follow-up `os.chmod` stays as
+    belt-and-braces (and is still what actually does the work on a `tmp` that
+    somehow already existed at a wider mode); `os.chmod` failing outright is
+    still not fatal on Windows, since the authkey challenge inside
     `Listener`/`Client` is what actually gates the connection -- file
     permissions are defence in depth, not the mechanism.
     """
@@ -108,7 +118,9 @@ def write_token(home: Path) -> bytes:
     dest = token_path(home)
     tmp = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.tmp")
     try:
-        tmp.write_text(token.hex(), encoding="ascii")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="ascii") as fh:
+            fh.write(token.hex())
         with contextlib.suppress(OSError):
             os.chmod(tmp, 0o600)
         os.replace(tmp, dest)
@@ -169,14 +181,45 @@ class Server:
     def start(self) -> None:
         authkey = write_token(self._home)
         _clear_stale_socket(self._home)
+        try:
+            listener = mpconn.Listener(address_for(self._home), family=_FAMILY)
+        except Exception:
+            # The 2026-09-26 audit (agents-protocol-04): the token above is
+            # already published by the time construction can fail (a busy
+            # address, a permissions problem) -- leaving it in place would
+            # advertise a working secret for a pipe nobody is listening on.
+            # `AgentHost.start`'s own except clause happens to call
+            # `close()` after a failed `start()`, which would clean this up
+            # too, but that is that caller's own discipline, not a contract
+            # this method makes; a future or a test-only caller with no such
+            # cleanup would otherwise leave a stale `mcp.token` sitting there
+            # until the next successful `start()` overwrites it.
+            clear_token(self._home)
+            raise
         self._authkey = authkey
-        self._listener = mpconn.Listener(address_for(self._home), family=_FAMILY)
+        self._listener = listener
 
     def close(self) -> None:
         if self._listener is not None:
             address = self._listener.address
             self._listener.close()
             self._listener = None
+            # Cleared here, *before* the self-dial below, not after it. The
+            # 2026-09-26 audit (agents-protocol-05) found the old code set
+            # this after the dial (down where the unconditional clear at the
+            # bottom of this method used to be the only place it happened),
+            # while the comment beside the dial already claimed it was
+            # "already cleared" by then -- a real race, not just a stale
+            # comment: the listener thread's own `_handshake`, running
+            # concurrently on the self-dialled connection, reads
+            # `self._authkey` and only takes its fast "key is None: closed
+            # underneath us" reject path once this is genuinely `None`.
+            # Cleared after, `_handshake` could still read the live key and
+            # walk the self-dial through the full crypto exchange instead --
+            # which the self-dial's own bare `Client` call never answers --
+            # costing up to `HANDSHAKE_TIMEOUT` before that thread notices,
+            # instead of the immediate reject this ordering guarantees.
+            self._authkey = None
             if sys.platform == "win32":
                 # The mid-handshake peer (module docstring above) is not the
                 # only way `accept()` gets stuck: if *no* peer has ever
@@ -191,10 +234,10 @@ class Server:
                 # from a trigger it does not cover. Dialling in ourselves
                 # completes the pending `ConnectNamedPipe`, so the blocked
                 # `accept()` call returns instead of hanging until the
-                # process exits. `self._authkey` is already cleared below by
-                # the time this connection reaches `_handshake` in the
-                # listener thread, so it is rejected there and never mistaken
-                # for a real bridge.
+                # process exits. `self._authkey` is already cleared above,
+                # before this connection can reach `_handshake` in the
+                # listener thread, so it is rejected there immediately and
+                # never mistaken for a real bridge.
                 with contextlib.suppress(Exception):
                     mpconn.Client(address, family=_FAMILY).close()
         self._authkey = None
@@ -232,17 +275,33 @@ class Server:
         :meth:`_handshake` now owns every failure the exchange can produce,
         so this loop sees one bool and cannot be surprised by a third
         exception type the next CPython invents.
+
+        **`self._listener` is read exactly once per iteration, into a
+        local.** The 2026-09-26 audit (agents-protocol-02) found the old
+        shape -- `while self._listener is not None: conn =
+        self._listener.accept()` -- reading the attribute *twice*: once for
+        the guard, once more to call `.accept()` on it. A `close()` landing
+        on another thread in the gap between those two reads (a real
+        GIL-scheduling gap, not a contrived one -- they are separate
+        bytecode instructions) sets `self._listener = None` after the guard
+        had already passed, so the second read saw `None` and
+        `None.accept()` raised `AttributeError` -- not the `OSError` this
+        loop is written to catch -- ending the accept thread outright.
+        Reading it once into `listener` closes that gap: whatever `close()`
+        does concurrently, this iteration keeps working from the reference
+        it already had.
         """
-        while self._listener is not None:
+        while True:
+            listener = self._listener
+            if listener is None:
+                return None
             try:
-                conn = self._listener.accept()
+                conn = listener.accept()
             except OSError:
                 return None
             if self._handshake(conn):
                 return conn
             # Refused, and already closed -- take the next peer.
-
-        return None
 
     def _handshake(self, conn: mpconn.Connection) -> bool:
         """Prove the peer holds the token, within `HANDSHAKE_TIMEOUT`.

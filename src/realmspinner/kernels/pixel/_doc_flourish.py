@@ -265,8 +265,25 @@ class FlourishOps:
         edits.append(TagsEdit(before_tags, after_tags))
 
         node = gp.GroupNode(name=recipe.name)
-        self._put_group(node, tuple(members), parent)
-        edits.append(gp.GroupAddEdit(node, tuple(members), parent))
+        # The 2026-09-26 audit, finding inker-document-09: this used to land as
+        # one ``GroupAddEdit(node, members, parent)``, whose undo is
+        # ``_drop_group`` -- built for *ungrouping*, where the members already
+        # existed before the group and outlive it, so dissolving *promotes*
+        # them to the group's own parent. Here the members are tracks this
+        # same step just created; inside a folder (``parent`` not ``None``)
+        # that promotion left them reparented to the folder in ``group_of``
+        # one line before the ``TrackAddEdit``s below removed them from the
+        # stack entirely -- ``groups.check`` then found membership naming
+        # tracks that were nowhere in it. At the root (``parent is None``)
+        # ``_drop_group`` happens to ``del`` instead of promote, which is why
+        # this only ever showed up nested. Recording each membership as its
+        # own ``MembershipEdit`` (before=None) makes undo pop it outright,
+        # the same as the root case, whichever ``parent`` the group lands in.
+        self._put_group(node, (), parent)
+        edits.append(gp.GroupAddEdit(node, (), parent))
+        for uid in members:
+            self._set_membership(uid, node.uid)
+            edits.append(gp.MembershipEdit(uid, None, node.uid))
 
         state = FlourishState(recipe=recipe, tracks=tracks, digests=digests, offset=offset)
         self.flourish[node.uid] = state

@@ -183,6 +183,10 @@ pack is a grid it writes a `.tsx` as well — unless an explicit **Columns** cou
 turned back on has put the grid and the image geometry out of agreement (see Settings). That case
 skips only the `.tsx`, with a toast saying why; the PNG and the sidecar JSON still write, because
 both describe exactly what was packed regardless of whether Tiled would agree on the tileset shape.
+A `.tsx` already at that path describing a different tileset than this export — a MaxRects re-pack
+under the same name, say, or an earlier grid export whose columns this one no longer matches —
+refuses the whole export by name rather than leaving it there describing an atlas that no longer
+exists; remove it, or export under a different name.
 
 The sidecar is engine-neutral: pixel rectangles and nothing else. Each frame records where it landed
 in the atlas, whether it was trimmed, where the trimmed rectangle sat inside the original image, and

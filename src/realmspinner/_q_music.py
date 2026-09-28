@@ -589,12 +589,26 @@ class MusicOps:
     async def _separate(self: Worker, job: dict[str, Any]) -> None:
         """Split a finished take into stems, in a child that then exits.
 
-        **The one stage in this file that acquires nothing.** ``_music`` takes
-        the resident pipe, hands off against trellis and gives it all back in a
+        **The one stage in this file that acquires nothing** -- no resident
+        pipe of its own to load, evict or hand back. ``_music`` takes the
+        resident pipe, hands off against trellis and gives it all back in a
         ``finally``; this spawns a ~300 MB child, waits, and the child dies. So
-        there is no ``_acquire``/``_release`` pair to mirror, and adding one
+        there is no ``_acquire``/``_release`` *pair* to mirror, and adding one
         would be ceremony around a process that holds nothing between jobs --
         see ``pipelines/separation_worker``'s docstring for why it is one-shot.
+
+        **It still owes the one-line half of a handoff.** ``vram.estimate_job_parts``
+        prices a ``separate`` job under ``vram_exclusive`` with no trellis term
+        at all, the same assumption ``_acquire_t2i``/``_acquire_music`` make for
+        their own kinds and *keep*, by actually stopping trellis first. This
+        stage priced the assumption without paying for it (the 2026-09-26
+        audit, service-queue-02): with trellis left running,
+        ``queue._check_resources`` still credited its footprint back into
+        headroom as memory the device did not actually have free, on top of a
+        ``need`` that had already been quoted as if trellis were gone. Both
+        wrong in the same direction -- a real device would refuse the job or
+        the trellis job beside it, at the exact host-commit ceiling the
+        2026-08-03 crash this whole admission door exists for.
 
         Its artifacts land in the **source take's** directory, not this job's,
         which is what makes it a follow-up in ``asset_open``'s sense -- the rig
@@ -603,6 +617,13 @@ class MusicOps:
         """
         from .kernels.rig import store
         from .pipelines import blender_run
+
+        if bool(self.config.vram_exclusive):
+            # Idempotent and a no-op when nothing is running (``TrellisClient
+            # .stop``'s own contract), so this costs nothing when trellis was
+            # never touched this session -- it only matters, and only runs
+            # long, on the session ``_check_resources`` was crediting for.
+            await asyncio.to_thread(self.trellis.stop)
 
         params = job["params"]
         source = str(params.get("source_job") or "")

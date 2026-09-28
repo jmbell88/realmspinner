@@ -1262,7 +1262,11 @@ class _Compiler:
             if "generator" not in body:
                 raise _err("add requires generator.", field="steps", path=path)
             generator = body["generator"]
-            if generator not in bp.GENERATORS:
+            # isinstance checked first: the 2026-09-26 audit's
+            # clay-agent-tools-06/-09's program-compiler twin -- ``x not in
+            # a_dict`` hashes ``x``, and a list or object ``generator`` raised
+            # a bare, unhashable ``TypeError`` instead of this ``ProgramError``.
+            if not isinstance(generator, str) or generator not in bp.GENERATORS:
                 raise _err(f"unknown generator {generator!r}.", field="steps", path=path)
             args: dict[str, Any] = {"generator": generator}
             if "params" in body:
@@ -1280,7 +1284,8 @@ class _Compiler:
             if "key" not in body:
                 raise _err("figure requires key.", field="steps", path=path)
             key = body["key"]
-            if key not in presets.ASSEMBLIES:
+            # isinstance checked first: same reasoning as ``generator`` above.
+            if not isinstance(key, str) or key not in presets.ASSEMBLIES:
                 raise _err(f"unknown figure key {key!r}.", field="steps", path=path)
             args = {"key": key}
             if "translation" in body:

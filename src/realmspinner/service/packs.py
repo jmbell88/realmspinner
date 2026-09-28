@@ -46,6 +46,7 @@ from typing import Any
 from .. import packs as packs_mod
 from .. import winjob
 from ..config import PROJECT_ROOT
+from ..core.safeio import atomic as safeio_atomic
 from .core import RealmspinnerService
 from .errors import Invalid, NotFound
 
@@ -134,18 +135,36 @@ def selected_packs(svc: RealmspinnerService) -> list[str]:
         raw = json.loads(_selection_path(svc).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
+    # ``raw`` is untrusted disk content, not just untrusted JSON: the
+    # 2026-09-26 audit (service-gates-09) found a bare JSON *list* -- valid
+    # JSON, so ``json.loads`` above raises nothing -- reaching ``raw.get``
+    # and crashing the restore offer with an uncaught ``AttributeError``.
+    # Anything that isn't the ``{"packs": [...]}`` shape this file writes
+    # reads as "no selection recorded" rather than raising.
+    if not isinstance(raw, dict):
+        return []
     return [str(key) for key in raw.get("packs") or [] if packs_mod.find(str(key))]
 
 
 def _record_selected(svc: RealmspinnerService, keys: Sequence[str]) -> None:
     """Add ``keys`` to the persisted selection. Best-effort: a write failure
-    here must not fail an install that otherwise succeeded."""
+    here must not fail an install that otherwise succeeded.
+
+    Staged and ``os.replace``d rather than ``write_text`` in place (the
+    2026-09-26 audit, service-gates-09): ``write_text`` truncates the file
+    before writing a byte, so a crash or a full disk mid-write used to leave
+    ``selected.json`` empty -- not merely this update lost, but every
+    previously-recorded pack this same file was the only record of, silently
+    read back as "nothing installed" by ``selected_packs``'s own
+    ``except (OSError, ValueError)``. ``safeio.atomic.write_text`` is the same
+    stage-then-rename this project uses for every other served name.
+    """
     path = _selection_path(svc)
     have = set(selected_packs(svc))
     have.update(keys)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"packs": sorted(have)}), encoding="utf-8")
+        safeio_atomic.write_text(path, json.dumps({"packs": sorted(have)}), encoding="utf-8")
     except OSError:
         log.warning("could not record %r as installed packs", sorted(keys))
 

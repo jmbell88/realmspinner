@@ -403,6 +403,23 @@ def _write(files: dict[str, bytes], path: Path) -> None:
     atomic.staged_set(targets)
 
 
+def _with_required_suffix(path: Path, suffix: str) -> Path:
+    """``path``, guaranteed to end in ``suffix`` -- appended, never substituted.
+
+    ``Path.with_suffix`` treats everything after the *last* dot as the
+    extension to replace, so a title with a dot of its own that means nothing
+    to a filesystem -- ``level 1.5``, an exhibit number, not an extension --
+    came back ``level 1.rmap``, the ".5" mistaken for a stale suffix and
+    dropped (the 2026-09-26 audit, finding plotter-mode-16). Appending only,
+    with ``with_name`` rather than ``with_suffix``, never loses a byte of what
+    the user chose; it only adds nothing when the name already ends the way it
+    should.
+    """
+    if path.name.lower().endswith(suffix.lower()):
+        return path
+    return path.with_name(path.name + suffix)
+
+
 def save_to(ctx: Any, tab: PlotterDoc, path: Path, file_format: str) -> None:
     path = Path(path)
     head = tab.doc.history.head
@@ -445,7 +462,7 @@ def save_as(ctx: Any, tab: PlotterDoc | None = None, *, file_format: str | None 
         path = dialogs.save_file("Save the map", f"{stem}{suffix}", filters)
         if path is None:
             return None
-        path = path.with_suffix(suffix)
+        path = _with_required_suffix(path, suffix)
         _write(files, path)
         return {"head": head, "path": str(path), "format": fmt, "retitle": True}
 
@@ -476,7 +493,7 @@ def export_map(ctx: Any, file_format: str, tab: PlotterDoc | None = None) -> Non
         path = dialogs.save_file("Export for Tiled", f"{stem}{suffix}", filters)
         if path is None:
             return None
-        path = path.with_suffix(suffix)
+        path = _with_required_suffix(path, suffix)
         _write(files, path)
         return {"exported": str(path)}
 

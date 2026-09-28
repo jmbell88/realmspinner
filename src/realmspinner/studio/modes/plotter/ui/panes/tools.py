@@ -349,6 +349,13 @@ def _terrain_field(state: Any, tab: Any) -> Any:
             "" if state.terrain is None else f"{state.terrain[0]}:{state.terrain[1]}"
         )
         if current not in keys:
+            # Re-arm the state along with the display, not just the display:
+            # a stale ``state.terrain`` (its set removed, its rank undone out
+            # from under it) used to leave the combo *showing*
+            # ``options[0]`` while painting still resolved the field's old
+            # value and refused "Pick a terrain first." on every stroke (the
+            # 2026-09-26 audit, finding plotter-mode-12).
+            state.terrain = first_terrain(entries)
             current = options[0][0]
         changed, picked = controls.combo(
             f"##{BAR}/terrain",

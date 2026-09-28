@@ -30,9 +30,45 @@ from imgui_bundle import imgui
 from ......kernels import pixel as inker
 from ..... import controls, icons, widgets
 from .....tokens import sp
+from ... import keys as inker_keys
 from ... import mode as inker_mode
 from ... import ops as inker_ops
 from ... import state as inker_state
+
+#: A chord's non-modifier token, as it must spell to ever answer a real key
+#: press. Mirrors ``keys.chord_of``'s own two ways of naming one -- the special
+#: table for keys whose label is not the character on them, and a bare
+#: upper-cased single character otherwise -- rather than inventing a second
+#: notion of "a real key". Duplicated rather than imported as a set because
+#: ``keys.py`` sits at the mode root, outside this pane's owned files; this is
+#: read-only use of its already-public spelling rule, not a second table for
+#: it to drift from.
+_VALID_KEY_TOKENS = frozenset(inker_keys._CHORD_NAMES.values()) | frozenset(
+    chr(c) for c in (*range(ord("A"), ord("Z") + 1), *range(ord("0"), ord("9") + 1))
+)
+
+
+def _recognised_chord(chord: str) -> bool:
+    """Whether *chord*, once canonicalised, could ever answer a key press.
+
+    The 2026-09-26 audit, finding inker-panes-08: the shortcut editor's Apply
+    button passed whatever text was typed straight to ``inker_ops.set_shortcuts``,
+    which constructs a ``Binding`` per chord -- but ``Binding.__post_init__``
+    checks the *raw* string is non-empty before ``canonical_chord`` collapses
+    it, not the canonicalised one. ``"+"`` canonicalises to ``""`` (silently
+    unbinding the command, with nothing on screen saying so), ``"Ctrl+"``
+    canonicalises to ``"Ctrl"`` (a modifier with no key, which can never fire),
+    and ``"Ctrl+Banana"`` canonicalises to itself with no check that "Banana"
+    names a key the keyboard has. All three now stop here, before
+    ``set_shortcuts`` is ever called.
+    """
+    canonical = inker_ops.canonical_chord(chord)
+    if not canonical:
+        return False
+    key_part = canonical.split("+")[-1]
+    if key_part in {"Ctrl", "Alt", "Shift"}:
+        return False
+    return key_part in _VALID_KEY_TOKENS
 
 PARAM_POPUP = "inker-op-params"
 PROPERTIES_POPUP = "inker-layer-properties"
@@ -304,15 +340,26 @@ def _shortcuts_popup(ctx: Any, state: Any) -> None:
             )
             kind, target = state.shortcut_target.split(":", 1)
             if widgets.primary_button("Apply##shortcut-apply"):
-                state.shortcut_overrides = inker_ops.set_shortcuts(
-                    state.shortcut_overrides,
-                    kind,
-                    target,
-                    [part.strip() for part in state.shortcut_draft.split(";")],
-                    context=state.shortcut_context,
-                    trigger=state.shortcut_trigger,
-                )
-                inker_mode.persist(ctx)
+                candidates = [part.strip() for part in state.shortcut_draft.split(";")]
+                bogus = [chord for chord in candidates if chord and not _recognised_chord(chord)]
+                if bogus:
+                    # Refused rather than applied: the 2026-09-26 audit,
+                    # finding inker-panes-08, found "Ctrl+Banana", "+" and
+                    # "Ctrl+" all accepted here and passed straight through to
+                    # ``set_shortcuts``, unbinding the command with no chord
+                    # that could ever answer a key press and no word said
+                    # about it.
+                    state.say(f"Not a chord this keyboard can answer: {bogus[0]!r}.")
+                else:
+                    state.shortcut_overrides = inker_ops.set_shortcuts(
+                        state.shortcut_overrides,
+                        kind,
+                        target,
+                        candidates,
+                        context=state.shortcut_context,
+                        trigger=state.shortcut_trigger,
+                    )
+                    inker_mode.persist(ctx)
             imgui.same_line()
             if controls.button("Default##shortcut-default"):
                 state.shortcut_overrides.pop(state.shortcut_target, None)

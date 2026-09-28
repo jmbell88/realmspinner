@@ -35,6 +35,7 @@ than propagating it."
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -702,6 +703,27 @@ def _resource_prompt_method(
     return _NOT_HANDLED  # type: ignore[return-value]
 
 
+def _json_safe_id(msg_id: Any) -> Any:
+    """*msg_id* coerced onto JSON-RPC's own id grammar -- a string, a number,
+    or null -- never the bare `NaN`/`Infinity`/`-Infinity` tokens.
+
+    The 2026-09-26 audit (agents-protocol-01): `json.loads` accepts those
+    three tokens as a Python-specific extension (so does `json.dumps` when
+    writing them back out, by default), which means a request whose `id` was
+    one of them parsed clean here and then went straight back onto the wire
+    the same way by every one of this module's id-echoing call sites
+    (`_error_bytes`, `_result_bytes`, `splice_tool_result`) -- literally
+    invalid JSON per RFC 8259, which does not define either token, handed to
+    a client that may have no `NaN`-tolerant parser of its own. Stringified
+    once, here, where every request's id is first read, rather than patched
+    at each of the sites downstream that re-embed it. A finite number,
+    string, or `None` passes through unchanged.
+    """
+    if isinstance(msg_id, float) and not math.isfinite(msg_id):
+        return str(msg_id)
+    return msg_id
+
+
 def _dispatch_one(
     item: Any,
     state: BridgeEra,
@@ -723,7 +745,7 @@ def _dispatch_one(
 
     method = item.get("method")
     has_id = "id" in item
-    msg_id = item.get("id")
+    msg_id = _json_safe_id(item.get("id"))
     if not isinstance(method, str) or not method:
         return _error_bytes(msg_id, -32600, "invalid request: 'method' must be a non-empty string")
 

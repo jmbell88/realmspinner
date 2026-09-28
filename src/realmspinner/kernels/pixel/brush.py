@@ -57,6 +57,17 @@ DEFAULT_SPACING = 0.1
 #: be ``replace`` again under a second name.
 MODES = ("paint", "erase", "blur", "smudge", "replace", "copy", "shade")
 
+#: Modes whose dab updates :attr:`StrokeState.coverage` -- the paint-family
+#: modes routed through ``_resolve``/``_place``. ``blur``, ``smudge`` and
+#: ``shade`` read and write the live layer per dab instead (see ``_stamp``'s
+#: own dispatch) and never touch ``coverage``, so it stays all-zero for the
+#: whole stroke. Named here rather than hand-copied a second time: the 2026-
+#: 09-26 audit, finding inker-paint-01/02, reads this from ``_doc_paint.py``
+#: to decide whether ``end_stroke`` has a real per-pixel "did the stamp reach
+#: this" signal to hand ``Document._resolve_indices``, or nothing to add
+#: beyond the rect itself.
+COVERAGE_MODES = tuple(mode for mode in MODES if mode not in ("blur", "smudge", "shade"))
+
 #: How much of a pixel a dab must cover for the shading ink to shift it.
 #:
 #: A threshold rather than a blend, because there is nothing to blend: a shift
@@ -1323,15 +1334,28 @@ class StrokeState:
         They are accumulation tools -- the second pass over the same place is
         supposed to blur more -- which is exactly why they cannot use the
         coverage-recompute path the paint modes use.
+
+        Premultiplied, not straight -- the 2026-09-26 audit, finding
+        inker-paint-03: both the Gaussian blur and the smudge's own lerp mix
+        neighbouring pixels' RGB, and a fully or mostly transparent neighbour's
+        RGB is whatever colour happened to be under it before it was erased,
+        not "nothing". Mixed in straight alpha that colour drags an edge
+        towards it (166,0,0,166 next to a hole, against a straight red at
+        255,0,0,178); premultiplying first weights that neighbour's
+        contribution by its own near-zero alpha, the same fix every filtered
+        resample in this package already makes (``transform._premultiplied``,
+        ``filters._premultiplied``) for the identical reason.
         """
         x0, y0, x1, y1 = rect
-        crop = target[y0:y1, x0:x1].astype(np.float32)
+        raw = target[y0:y1, x0:x1].astype(np.float32)
+        crop = raw.copy()
+        crop[..., :3] *= crop[..., 3:4] / 255.0
         weight = (self._weights(rect, piece) * self.strength)[..., None]
 
         if self.mode == "blur":
             from PIL import Image, ImageFilter
 
-            blurred = Image.fromarray(target[y0:y1, x0:x1], "RGBA").filter(
+            blurred = Image.fromarray(composite.to_uint8_255(crop), "RGBA").filter(
                 ImageFilter.GaussianBlur(max(1.0, self.diameter / 8.0))
             )
             source = np.asarray(blurred, dtype=np.float32)
@@ -1347,6 +1371,14 @@ class StrokeState:
         out = crop + (source - crop) * weight
         if self.alpha_lock:
             out[..., 3] = crop[..., 3]
+        # Divide the premultiplication back out before narrowing -- the
+        # masked-lane guard is ``composite.over``'s own, for the identical
+        # ``np.errstate(all="raise")`` reason.
+        out_alpha = out[..., 3:4] / 255.0
+        lit = out_alpha > 0.0
+        rgb = np.empty_like(out[..., :3])
+        np.divide(out[..., :3], np.where(lit, out_alpha, 1.0), out=rgb)
+        out[..., :3] = np.where(lit, rgb, 0.0)
         target[y0:y1, x0:x1] = composite.to_uint8_255(out)
 
     def _shade(

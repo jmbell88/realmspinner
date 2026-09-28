@@ -263,7 +263,8 @@ still hold the contents you have not looked at.
 
 The Scene file panel's **Take it somewhere** section, and the whole reason the mode exists.
 
-**Export GLB** writes `scene.glb` beside a `scene.json` manifest. The GLB is the scene as glTF: the
+**Export GLB** writes the GLB you name beside a manifest named to match it (`Barrel.glb` beside
+`Barrel.json`). The GLB is the scene as glTF: the
 hierarchy, the instances flattened into real nodes, the lights as `KHR_lights_punctual`, the cameras
 as cameras. The manifest is ours — format `realmspinner-mason-scene`, version 1 — and carries the node
 list, the units, the counts (nodes, meshes, lights, cameras, triangles), the prefab names and
@@ -271,7 +272,8 @@ anything that could not be resolved. An importer that understands glTF needs onl
 wants to know what the scene *meant* reads the manifest beside it. `Ctrl+E` does this from the
 keyboard.
 
-**Export OBJ** writes `scene.obj`, `scene.mtl` and a `textures/` directory. OBJ is geometry and
+**Export OBJ** writes the OBJ you name plus its own MTL and texture directory named to match it
+(`Barrel.obj`, `Barrel.mtl`, `Barrel_textures/`). OBJ is geometry and
 materials and nothing else, so this one loses things by design and says which: groups, lights,
 cameras, unresolved meshes. It refuses past a million vertices rather than formatting a file nothing
 will open. Use it for the importer that will not take glTF.

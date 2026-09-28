@@ -179,8 +179,9 @@ class MapDoc(ProjectionOps, TilesetOps, LayerOps, PaintOps, GeometryOps, ObjectO
         # What it costs is memory on a map painted in two clusters a thousand
         # cells apart, and :data:`MAX_DIMENSION` caps the populated extent for
         # exactly that reason -- the engine's own cap, not the new-map form's
-        # ``plotter_setup.MAX_TILES``, because this package may not reach into
-        # ``studio`` and the argument is the same either way.
+        # ``setup.MAX_TILES`` (``plotter_setup`` before the module was renamed;
+        # the 2026-09-26 audit, finding plotter-map-10), because this package
+        # may not reach into ``studio`` and the argument is the same either way.
         #
         # It also buys the one property Q's flood needs: a flood is bounded to
         # the window, and the window *is* the populated extent, so "bounded to
@@ -307,16 +308,32 @@ class MapDoc(ProjectionOps, TilesetOps, LayerOps, PaintOps, GeometryOps, ObjectO
         }
 
     def set_map_settings(self, **values: Any) -> None:
-        """Change map-level Tiled metadata in one undoable step."""
+        """Change map-level Tiled metadata in one undoable step.
+
+        Applies ``after`` once and stops there -- it does not revert to
+        ``before`` and reapply the normalized result, which is what this used
+        to do to decide whether anything had actually changed. That revert
+        called ``_apply_map_settings(before)``, which re-validates *every*
+        field of ``before``, not just the one the caller is changing: a
+        document already holding a field ``_apply_map_settings`` would refuse
+        today -- an unvalidated ``stagger_axis`` a pre-fallback reader once let
+        through, say -- could apply a fix to that very field (``after`` is
+        valid) and then have the revert step raise on the ``before`` it was
+        only ever going to discard, undoing the fix along with it (the
+        2026-09-26 audit, new finding: "``set_map_settings``'s revert
+        re-validates every field of ``before``"). ``_apply_map_settings`` is a
+        pure function of its argument -- it touches only the nine fields
+        ``map_settings`` reads back -- so applying ``after`` once already
+        leaves the document at the same ``normalized`` state the old
+        apply-revert-reapply dance produced, with nothing left to revert.
+        """
         before = self.map_settings()
         after = {**before, **{key: value for key, value in values.items() if key in before}}
         self._apply_map_settings(after)
         normalized = self.map_settings()
-        self._apply_map_settings(before)
         if normalized == before:
             return
         self.history.push(MapSettingsEdit(before=before, after=normalized))
-        self._apply_map_settings(normalized)
 
     def _apply_map_settings(self, values: dict[str, Any]) -> None:
         class_name = str(values["class_name"])

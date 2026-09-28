@@ -104,8 +104,9 @@ None of these rows is **fatal**. `trellis-server.exe` and the TRELLIS GGUF weigh
 when the installer shipped the engine; both are downloads now, so a machine that has not fetched
 them yet reports them as ordinary setup rows and `realmspinner doctor` still exits 0. Mesh jobs will not
 run until you fetch them, and the row tells you the command — but a fresh install is not a broken
-one. One row can still be fatal, on a small card: **VRAM budget**, when the budget cannot hold even
-a lone reconstruction, because there is nothing to degrade to. On a card with room it is an
+one. One row can still be fatal, and not only on a small card: **VRAM budget**, when the budget cannot
+hold even a lone reconstruction, or when there is no CUDA device at all — both leave nothing to
+degrade to. On a card with room it is an
 ordinary green row.
 
 The model combo marks an unavailable model rather than hiding it. Listing every registered model

@@ -98,31 +98,6 @@ sentence, not a list, and the test below is what catches one of them going
 stale.
 """
 
-REFERENCE_TOOLS = frozenset(
-    {
-        "clay_reference_add",
-        "clay_reference_get",
-        "clay_reference_list",
-        "clay_reference_remove",
-    }
-)
-"""The four reference tools, named once, so nothing else in this fold has to
-relist them by hand.
-
-**Deliberately not folded into ``BATCH_EXCLUDED`` below.** A 2026-09-18 audit
-first tried exactly that -- ``BATCH_EXCLUDED`` had always named only
-``clay_reference_get``, so ``clay_reference_add``/``_list``/``_remove`` were
-batchable, and folding this whole set in closed that hole -- but
-``BATCH_EXCLUDED`` is *published*: ``clay_batch``'s own description sentence
-interpolates ``set(_HANDLERS) - BATCH_EXCLUDED``
-(``studio/modes/clay/agent/dispatch.py``'s ``batch_names``), so widening it
-changed the live tool catalogue's text and, with it, the catalogue hash a
-training dataset had pinned, and silently made three tools unbatchable for
-every external MCP agent -- a public-surface change nobody asked for. This
-set stays separate so a caller with a narrower reason to refuse the same
-four tools can check it without touching what an ordinary MCP client may
-batch."""
-
 BATCH_EXCLUDED = frozenset(
     {
         "clay_batch",  # nesting buys nothing and bounds nothing
@@ -152,8 +127,26 @@ BATCH_EXCLUDED = frozenset(
 )
 """Tools ``clay_batch`` refuses to run -- see ``agent_clay_tools_batch._h_batch``'s
 docstring for the derivation, and the comments above for why each one is
-excluded. See ``REFERENCE_TOOLS``'s own docstring for why the other three
-reference tools stay off this particular list."""
+excluded.
+
+**Only ``clay_reference_get`` is here, not the other three reference tools.**
+A 2026-09-18 audit first tried folding ``clay_reference_add``/``_list``/
+``_remove`` in too, on the reasoning that a session's references are no more
+a document than this set's other entries -- but this set is *published*:
+``clay_batch``'s own description sentence interpolates
+``set(_HANDLERS) - BATCH_EXCLUDED`` (``studio/modes/clay/agent/dispatch.py``'s
+``batch_names``), so widening it changed the live tool catalogue's text and,
+with it, the catalogue hash a training dataset had pinned, and silently made
+three tools unbatchable for every external MCP agent -- a public-surface
+change nobody asked for. Reverted, leaving only the one entry that was
+already here for the reason above it.
+
+(This set used to point at a sibling ``REFERENCE_TOOLS`` frozenset for "why
+the other three stay off this list" -- the 2026-09-26 audit's agents-clay-01:
+that frozenset had no consumer anywhere in this fold after the Familiar
+removal, only this docstring's own cross-reference to it, so it was deleted
+rather than kept for a reader nothing else in ``src/`` or ``tests/`` was
+still following here.)"""
 
 MAX_REFERENCES = 8
 """How many pictures one session may hold at once. A session's references
@@ -454,6 +447,14 @@ def _object_row_output_schema() -> dict:
     no way to branch on. See the module comment above for why nothing here
     is ``required``.
 
+    **``generator`` admits ``null`` too.** The 2026-09-26 audit's
+    clay-agent-tools-07: this schema declared it a plain ``string``, but
+    ``_scene_row`` answers ``obj.generator`` verbatim, which is ``None`` for
+    a hand-built object (``clay_add_mesh``) or one whose topology has since
+    been edited (``document.set_mesh``'s own freeze) -- so ``clay_add_mesh``
+    and ``clay_scene`` both violated their own declared ``outputSchema`` the
+    moment either kind of object was in the reply.
+
     **``bbox``/``size``/``center`` are measured off the object's *evaluated*
     mesh** (``world_box(obj, doc.evaluated(uid))``) -- what a mirror or an
     array modifier actually draws, not the half of it the base mesh alone
@@ -519,7 +520,7 @@ def _object_row_output_schema() -> dict:
             "locked": {"type": "boolean"},
             "tags": {"type": "array", "items": {"type": "string"}},
             "local": local_trs_schema,
-            "generator": {"type": "string"},
+            "generator": {"anyOf": [{"type": "null"}, {"type": "string"}]},
             "params": {"type": "object"},
             "faces": {"type": "integer"},
             "material": {"type": "integer"},

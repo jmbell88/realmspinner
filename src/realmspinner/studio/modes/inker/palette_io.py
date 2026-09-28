@@ -213,7 +213,15 @@ def set_transparent_slot(ctx: Any, tab: Any, index: int) -> bool:
 
 def index_to(ctx: Any, tab: Any, colours: Any) -> bool:
     """Make *tab* indexed against *colours*, or plain RGBA with ``None``."""
-    if tab is None or tab.busy:
+    if tab is None:
+        return False
+    if tab.busy:
+        # The 2026-09-26 audit, finding inker-mode-17: a save or playback
+        # running while the (unbounded, task-thread) colour picker was open
+        # used to drop the whole pick with nothing said at all -- the picker
+        # closed, the document looked untouched, and there was no way to
+        # tell that from a picker that had genuinely done nothing.
+        ctx.toast("Busy -- the picked colours were not applied. Try again.", "warn")
         return False
     state = inker_mode.ensure(ctx)
     if not tab.doc.set_palette(colours):

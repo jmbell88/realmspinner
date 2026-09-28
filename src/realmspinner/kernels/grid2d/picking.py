@@ -297,6 +297,18 @@ def resized(
             top = bottom - minimum
         else:
             bottom = top + minimum
+    # The push above measures from the *pinned* edge, which is never re-clamped
+    # to the tile itself -- a sub-pixel shape pinned within `minimum` of an edge
+    # (a `w` no bigger than 0.3, say) pushes the moving edge past 0 or past the
+    # tile's own extent with nothing to catch it. `clamped_point` above only
+    # bounds the drag input, not this derived edge, so the shape drawn is
+    # already invisible on the tile it supposedly still belongs to (the
+    # 2026-09-26 audit, finding plotter-tiles-02). Clamped by edge, not by
+    # sliding the box, so the pinned side named in the docstring above never
+    # moves because of this step.
+    max_w, max_h = float(max(1, int(tile_w))), float(max(1, int(tile_h)))
+    left, right = _clamp(left, 0.0, max_w), _clamp(right, 0.0, max_w)
+    top, bottom = _clamp(top, 0.0, max_h), _clamp(bottom, 0.0, max_h)
     return dataclasses.replace(shape, x=left, y=top, w=right - left, h=bottom - top)
 
 

@@ -1207,6 +1207,42 @@ class _Reader:
             # every vertex regardless of whether the dead-vertex branch above
             # fired -- the second (or third) uncharged same-size copy.
             self._charge(out.weights.nbytes)
+        # The 2026-09-26 audit, finding create-viewer-02 (+clay-io-03): a
+        # glTF's accessor counts and component types are read on trust from
+        # the file's own JSON. A NORMAL/TEXCOORD_0/JOINTS_0/WEIGHTS_0
+        # accessor naming fewer rows than POSITION, or the wrong component
+        # width (VEC2 where JOINTS_0's VEC4 was declared), loaded clean here
+        # and only broke downstream: a garbled/misaligned vbo and an
+        # ``IndexError`` on the frame thread out of ``scene._face_normals``,
+        # or a bare ``IndexError`` out of Clay's ``glb_to_claydoc``
+        # (``_mesh_for``) -- after ``GpuModel.__init__``/``glb_to_claydoc``
+        # had already allocated real buffers for earlier primitives, which
+        # then leaked too. Refused here, before either consumer ever sees it.
+        vertex_count = len(positions)
+        for _attr_name, _arr, _width in (
+            ("NORMAL", out.normals, 3),
+            ("TEXCOORD_0", out.uvs, 2),
+            ("JOINTS_0", out.joints, 4),
+            ("WEIGHTS_0", out.weights, 4),
+        ):
+            if _arr is None:
+                continue
+            if _arr.ndim != 2 or _arr.shape[1] != _width or len(_arr) != vertex_count:
+                raise ValueError(
+                    f"{_attr_name} must be ({vertex_count}, {_width}) to match "
+                    f"POSITION, got {_arr.shape}"
+                )
+        # JOINTS_0 with no WEIGHTS_0 is not a refusal the spec requires, but
+        # this renderer has nothing to skin with -- the shader sums
+        # ``u_joints[j] * w`` over the four influences, and an absent
+        # ``out.weights`` means there is no ``w`` to sum.
+        if out.joints is not None and out.weights is None:
+            raise ValueError("JOINTS_0 with no WEIGHTS_0 is not a skinnable primitive")
+        if len(indices) and int(indices.max()) >= vertex_count:
+            raise ValueError(
+                f"an index of {int(indices.max())} names a vertex past "
+                f"POSITION's {vertex_count} rows"
+            )
         # The 2026-09-06 audit, finding clay-06: this only checked the upper
         # bound, so ``"material": -1`` resolved through Python's own
         # negative-index wraparound to the *last* palette entry instead of

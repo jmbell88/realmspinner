@@ -9,6 +9,7 @@ job cache and services; it does not introduce another generation state.
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,8 +41,16 @@ class Plan:
 
     @property
     def count_line(self) -> str:
-        noun = "candidate" if self.candidates == 1 else "candidates"
-        return f"{self.candidates} {noun} · {self.generations} image generation"
+        # The 2026-09-26 audit, finding create-workspace-07: ``generations``
+        # was never pluralised, so a press generating four images read "4
+        # image generation" -- the same singular/plural agreement
+        # ``candidates``/``candidate`` just above already gets right.
+        candidate_noun = "candidate" if self.candidates == 1 else "candidates"
+        generation_noun = "generation" if self.generations == 1 else "generations"
+        return (
+            f"{self.candidates} {candidate_noun} · "
+            f"{self.generations} image {generation_noun}"
+        )
 
 
 def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
@@ -480,12 +489,20 @@ def _recent_results(ctx: Any) -> list[dict[str, Any]]:
     fixed-height strip -- so the second row's cards were drawn with their
     actions below the fold, where nothing can press them. Three whole cards
     beat six half-drawn ones, and the library beside them holds the rest.
+
+    The 2026-09-26 audit, finding create-workspace-06: this used to build a
+    list comprehension over every row in ``ctx.cache.jobs`` -- every job the
+    Library has ever cached, not just the three drawn -- every single frame
+    this tray is on screen, then threw away everything past the third. A
+    generator plus ``islice`` stops walking the cache the moment three
+    matches are found, same order, same result.
     """
-    return [
+    matches = (
         job
         for job in ctx.cache.jobs
         if job.get("status") in ("done", "error", "cancelled") and not job.get("candidate_group")
-    ][:_RESULT_COLUMNS]
+    )
+    return list(itertools.islice(matches, _RESULT_COLUMNS))
 
 
 #: One memoized ``{job_id: position}`` map, keyed on ``(cache, cache.

@@ -164,8 +164,15 @@ def _resample(pixels: np.ndarray, run, *, straight: bool = False) -> np.ndarray:
             run(Image.fromarray(pixels, "RGBA")), dtype=np.uint8
         ).copy()
     plane = _premultiplied(pixels)
+    # The 2026-09-26 audit, finding inker-document-15: ``.astype(np.uint8)``
+    # truncates a float towards zero rather than rounding, and a premultiplied
+    # channel's fractional part is never negative -- so every partially
+    # transparent pixel going into the filter was rounded *down*, a systematic
+    # darkening (a level per smooth scale or rotate) that a plain narrowing
+    # elsewhere in this package already has a name for: ``to_uint8_255``.
+    plane = composite.to_uint8_255(plane)
     channels = [
-        np.asarray(run(Image.fromarray(plane[..., i].astype(np.uint8), "L")), dtype=np.uint8)
+        np.asarray(run(Image.fromarray(plane[..., i], "L")), dtype=np.uint8)
         for i in range(4)
     ]
     return _unpremultiplied(np.stack(channels, axis=2).astype(np.float32))
@@ -186,12 +193,34 @@ def scale(
 
 
 def rotate(
-    pixels: np.ndarray, degrees: float, *, expand: bool = False, resample: str = "smooth"
+    pixels: np.ndarray,
+    degrees: float,
+    *,
+    expand: bool = False,
+    resample: str = "smooth",
+    rotsprite_budget: int | None = None,
 ) -> np.ndarray:
+    """``rotsprite_budget`` overrides :data:`ROTSPRITE_MAX_PIXELS` for this call.
+
+    The 2026-09-26 audit, finding inker-mode-14: the walk renderer always asks
+    for ``resample="rotsprite"`` but turns a part about its *joint*, not its
+    own centre, through :func:`.selection.render_transform_about` -- which
+    pads the plane so the joint lands at the padded array's middle before
+    rotating, and that padding roughly doubles whichever side the joint sits
+    off-centre on. ``ROTSPRITE_MAX_PIXELS`` is sized for a live free-transform
+    drag re-rendering on every mouse-move (frame-thread cost); a walk bake
+    runs once, off the frame thread, so a caller in that position may raise
+    the ceiling rather than pay the interactive one -- see
+    :data:`.walk.render.ROTSPRITE_BUDGET`. ``None`` (every other caller)
+    keeps the module constant, unchanged and bit-identical.
+    """
     from PIL import Image
 
     if resample == "rotsprite":
-        if rotsprite_fits((pixels.shape[1], pixels.shape[0])):
+        if rotsprite_fits(
+            (pixels.shape[1], pixels.shape[0]),
+            budget=ROTSPRITE_MAX_PIXELS if rotsprite_budget is None else rotsprite_budget,
+        ):
             return rotsprite(pixels, degrees, expand=expand)
         # Silently, here; the pane says so out loud. See ``ROTSPRITE_MAX_PIXELS``.
         resample = "nearest"
@@ -239,9 +268,14 @@ ROTSPRITE_SCALE = 2**ROTSPRITE_ROUNDS
 ROTSPRITE_MAX_PIXELS = 512 * 512
 
 
-def rotsprite_fits(size: tuple[int, int]) -> bool:
-    """Whether a plane this size may be turned with RotSprite."""
-    return int(size[0]) * int(size[1]) <= ROTSPRITE_MAX_PIXELS
+def rotsprite_fits(size: tuple[int, int], *, budget: int = ROTSPRITE_MAX_PIXELS) -> bool:
+    """Whether a plane this size may be turned with RotSprite.
+
+    ``budget`` defaults to :data:`ROTSPRITE_MAX_PIXELS`; a caller off the
+    frame thread (the walk bake, not a live drag) may pass its own -- see
+    :func:`rotate`'s ``rotsprite_budget``.
+    """
+    return int(size[0]) * int(size[1]) <= budget
 
 
 def _packed(plane: np.ndarray) -> np.ndarray:

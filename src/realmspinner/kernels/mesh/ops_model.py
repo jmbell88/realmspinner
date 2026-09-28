@@ -213,9 +213,12 @@ def bisect(
         f_front_uv: list = []
         f_back_uv: list = []
         new_here: list[int] = []
+        on_plane = True
         for c in range(lo_c, hi_c):
             v = int(mesh.loops[c])
             s = float(d_all[v])
+            if abs(s) > _PLANE_EPS:
+                on_plane = False
             uv_here = None if mesh.uv is None else mesh.uv[c]
             if s >= -_PLANE_EPS:
                 f_front.append(v)
@@ -234,12 +237,20 @@ def bisect(
                 f_back_uv.append(uv_new)
         if len(new_here) >= 2:
             new_edge_pairs.append((new_here[0], new_here[-1]))
+        # The 2026-09-26 audit (clay-mesh-model-07): a face wholly inside the
+        # cut plane (every corner within _PLANE_EPS of it) has every vertex
+        # satisfy both `s >= -eps` and `s <= eps`, so it built an identical
+        # f_front and f_back -- with clear=0 (keep both sides) that face was
+        # emitted twice (16 faces in, 32 out on the reported repro). It never
+        # crossed the plane (no new edge vertices), so with clear=0 it is not
+        # actually being cut in two; keep the front copy only.
+        keep_back = not (on_plane and clear == 0)
         if clear != 2 and len(f_front) >= 3:
             front_loops.extend(f_front)
             front_uv.extend(f_front_uv)
             front_counts.append(len(f_front))
             front_src.append(f)
-        if clear != 1 and len(f_back) >= 3:
+        if clear != 1 and keep_back and len(f_back) >= 3:
             back_loops.extend(f_back)
             back_uv.extend(f_back_uv)
             back_counts.append(len(f_back))

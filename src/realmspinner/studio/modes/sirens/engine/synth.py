@@ -355,7 +355,23 @@ def _sound(voice: Voice, count: int, rate: float, samples: dict[str, np.ndarray]
     bend = voice.pitch_bend
     if voice.vibrato_depth:
         bend += math.sin(2.0 * math.pi * voice.vibrato_phase) * voice.vibrato_depth
+    # The 2026-09-26 audit, finding sirens-engine-01: ``_advance`` clamps only
+    # ``voice.note`` (the sirens-01 fix above), but this line adds two things
+    # that clamp never touches -- an instrument's own arpeggio sequence
+    # (``arp``) and the accumulated ``voice.pitch_bend`` a pitch sequence keeps
+    # adding to every tick with nothing to cap it. A hand-typed sequence value
+    # in the thousands, or one that arrived huge through a malformed
+    # ``.rsng`` (rsng.py's own coercions clamp lengths, never magnitudes), was
+    # enough for ``notes.frequency`` below to raise ``OverflowError`` --
+    # ``math.pow``'s -- or leave the phase accumulator non-finite, aborting
+    # render, playback and export for the rest of the song's life. Clamped
+    # here, on the one value every voice kind's branch below actually plays,
+    # rather than trying to bound every contributor separately.
     pitch = notes.cents(voice.note + arp, bend)
+    if pitch > _NOTE_CLAMP:
+        pitch = _NOTE_CLAMP
+    elif pitch < -_NOTE_CLAMP:
+        pitch = -_NOTE_CLAMP
 
     if voice.kind == "noise":
         mode = instrument.duty.value_at(voice.tick, voice.release_tick, 0)

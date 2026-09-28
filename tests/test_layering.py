@@ -585,7 +585,15 @@ _P5_PILOT_FOUR: frozenset[tuple[str, str]] = frozenset({
     ("realmspinner.studio.agent_host", "realmspinner.studio.modes.clay.agent.dispatch"),
     ("realmspinner.studio.agent_host", "realmspinner.studio.modes.clay.agent.transcript"),
     # Create UI fold
-    ("realmspinner.studio.asset_exits", "realmspinner.studio.modes.create.ui.stages"),
+    #
+    # The 2026-09-26 audit, finding create-brief-05: asset_exits.py's own
+    # docstring promises a mode's own UI submodule is imported lazily inside
+    # each function that needs it, and this edge was the one place that
+    # promise was broken -- ``IMAGE_STAGES`` sat at module scope. Moved into
+    # the two functions that read it (``_plotter_add``, ``_packwright_add``),
+    # which makes this a real use of the documented function-scope escape
+    # hatch rather than a violation, so the entry below it -- panes/inspector,
+    # a different importer, untouched by that fix -- is what is left.
     ("realmspinner.studio.panes.inspector", "realmspinner.studio.modes.create.ui.stages"),
     # Create's recipe engine lifting out of panes/settings_*.py means Settings
     # can import the engine module directly instead of a pane object.

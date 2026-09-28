@@ -2104,6 +2104,11 @@ def _capture_gesture(
     if hovered and imgui.is_mouse_clicked(button):
         state.drag_kind = "capture"
         state.drag_anchor = cell
+        # Remembered so release can put it back: a painting tool may be
+        # honouring a marquee made before this capture ever started, and
+        # ``set_selection(None)`` below used to erase it outright rather
+        # than restore it (the 2026-09-26 audit, finding plotter-mode-11).
+        state.capture_select_before = (state.select, state.select_mask)
         return
     if state.drag_kind != "capture":
         return
@@ -2114,7 +2119,9 @@ def _capture_gesture(
     if not imgui.is_mouse_released(button):
         return
     anchor = state.drag_anchor
-    state.set_selection(None)
+    before_rect, before_mask = state.capture_select_before or (None, None)
+    state.set_selection(before_rect, before_mask)
+    state.capture_select_before = None
     state.clear_drag()
     if anchor is None:
         return
@@ -2526,16 +2533,24 @@ def _constrained(state: Any, doc: Any, result):
 
 
 def _layer_for_paint(ctx: Any, tab: Any):
+    """The active tile layer, or ``None`` with a refusal already raised.
+
+    Called once per cell from :func:`_apply`, so a drag across many cells hits
+    this on every one of them -- ``toast_once``, not ``toast``, or a locked
+    layer raised one refusal per cell entered (twenty on a twenty-cell drag)
+    instead of one per gesture (the 2026-09-26 audit, finding
+    plotter-mode-04).
+    """
     layer = tab.doc.active()
     if not isinstance(layer, TileLayer):
-        ctx.toast("Pick a tile layer to paint on.", "error")
+        ctx.toast_once("Pick a tile layer to paint on.", "error")
         return None
     if _active_locked(tab):
         # Enforced here rather than in the engine, deliberately: ``write_region``
         # must go on working on a locked layer or an undo could not put back
         # what was there before the lock. The lock stops *the user* painting,
         # not the document from being written to.
-        ctx.toast(f"{layer.name} is locked.", "error")
+        ctx.toast_once(f"{layer.name} is locked.", "error")
         return None
     return layer
 

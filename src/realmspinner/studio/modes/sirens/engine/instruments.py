@@ -38,8 +38,16 @@ MAX_VOLUME = 15
 MAX_DUTY = 3
 
 #: What a channel can be. A document's channel says which of these it is and an
-#: instrument says which it is *for*, so a pulse instrument played on the noise
-#: channel is a refusal rather than a surprise.
+#: instrument says which it is *for*, but it is the *channel* that decides the
+#: waveform at render time (``synth._render`` builds each voice from the
+#: channel's own ``kind``) -- an instrument written for another kind still
+#: plays, contributing its envelopes to whatever the channel's own waveform is.
+#: The 2026-09-26 audit, finding sirens-engine-05: this comment used to say a
+#: pulse instrument on the noise channel "is a refusal rather than a
+#: surprise", which ``document.Channel``'s own docstring already corrected
+#: once (the 2026-09-02 review's theme T5) -- nothing here enforces it, and
+#: enforcing it would refuse a working idiom (one pluck envelope usable on
+#: every kind) rather than a mistake.
 KINDS: tuple[str, ...] = ("pulse", "triangle", "noise", "sample")
 
 #: The ceiling on one sequence. Long enough for any envelope anybody writes by

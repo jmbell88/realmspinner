@@ -475,7 +475,13 @@ def list_sheets(job_dir: Path) -> list[dict[str, Any]]:
         record = read_sheet(job_dir, path.stem)
         if record is not None:
             sheets.append(record)
-    sheets.sort(key=lambda s: s.get("created", 0.0))
+    # The 2026-09-26 audit, finding poser-rig-04: a raw ``s.get("created")``
+    # sorts fine until one sidecar's ``created`` is string-typed (a hand
+    # edit, an externally produced file) -- Python's sort then raises
+    # comparing a float against a str and costs the *whole* listing, not
+    # just the one record, the same failure mode ``_created_key`` (below
+    # ``list_poses``) already tolerates.
+    sheets.sort(key=_created_key)
     return sheets
 
 
@@ -591,7 +597,10 @@ def list_sprite_drafts(job_dir: Path) -> list[dict[str, Any]]:
         if not all(path.with_suffix(f".{c}.png").is_file() for c in letters):
             continue
         drafts.append(record)
-    drafts.sort(key=lambda d: d.get("created", 0.0))
+    # Same tolerance as list_sheets above, same reason (poser-rig-04): a
+    # string-typed ``created`` on one sidecar must cost that field, not the
+    # whole listing.
+    drafts.sort(key=_created_key)
     return drafts
 
 

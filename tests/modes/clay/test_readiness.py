@@ -162,10 +162,15 @@ def test_triangle_warn_and_fail_thresholds(monkeypatch):
     )
     monkeypatch.setitem(readiness.PROFILES, "low", low)
 
-    # A box triangulates to 12 triangles -- past both thresholds.
+    # A box triangulates to 12 triangles -- past both thresholds. The
+    # 2026-09-26 audit (clay-mesh-model-03) found this used to report "fail"
+    # here: the module docstring, manual 30:819-820 and INVARIANTS all say
+    # only `objects` and `uvs` can fail, a budget is advice however far past
+    # it a scene runs, so `triangles` past `triangles_fail` stays "warn" --
+    # just the harder of its two messages.
     report = readiness.validate(_doc(_grounded_box()), profile="low")
     tri = _by_key(report)["triangles"]
-    assert tri.status == "fail"
+    assert tri.status == "warn"
     assert tri.fix == "decimate"
     assert tri.limit == 2
 

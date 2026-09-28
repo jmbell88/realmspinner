@@ -368,8 +368,10 @@ class Stamp:
 
     **Stored on the map, not on the tab**, and that is the whole of what wave E
     changed. A stamp is an array of *gids*, and a gid is numbered against one
-    map's firstgids -- which is exactly why ``plotter_mode._paste`` refuses a
-    cross-document tile paste by name. The map is therefore the only honest home
+    map's firstgids -- which is exactly why ``mode._paste`` (``plotter_mode``
+    before the module was renamed; the 2026-09-26 audit, finding
+    plotter-map-10) refuses a cross-document tile paste by name. The map is
+    therefore the only honest home
     for one: on the tab it was lost on every close, and anywhere shared it would
     have named tiles of a different atlas.
 

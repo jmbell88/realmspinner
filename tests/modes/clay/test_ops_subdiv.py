@@ -145,7 +145,8 @@ def test_subdividing_a_small_selection_on_a_huge_mesh_is_not_refused_by_the_whol
     four corners replacing it, plus every other face passing through
     unchanged.
     """
-    n = 260_000  # 4*n loops = 1,040,000 > MAX_SUBDIVIDED_FACES (1,000,000)
+    n = 260_000  # 4*n loops = 1,040,000 > MAX_SUBDIVIDED_FACES (500,000 as of
+    # the 2026-09-26 audit's clay-mesh-ops-04 -- still comfortably past it)
     assert 4 * n > sub.MAX_SUBDIVIDED_FACES
     i = np.arange(n, dtype="f4")
     positions = np.zeros((4 * n, 3), dtype="f4")

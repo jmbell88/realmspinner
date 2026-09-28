@@ -414,40 +414,61 @@ def sweep_staging(svc: RealmspinnerService) -> list[str]:
 
     Never raises, for ``_sweep_staging``'s reason: clutter must not become a
     refusal.
-    """
-    from .. import publish
 
-    root = Path(svc.config.t2i_model_root)
-    jobs = fetch_mod.plan(svc.config, list(fetch_mod.entries()))
-    parents = {job.dest.parent for job in jobs} | {root}
-    spared: set[str] = set()
-    for journal_root in _journal_roots(svc.config):
-        spared.update(publish.staged_dirs(journal_root))
-    removed: list[str] = []
-    for parent in parents:
-        try:
-            entries = list(parent.iterdir())
-        except OSError:
-            continue
-        for path in entries:
-            if not path.name.endswith(_STAGING_SUFFIXES) or str(path) in spared:
-                continue
-            if _is_resumable(path):
-                # Spared here as well as in ``_sweep_staging`` (F1): this runs
-                # when the Models pane opens, which is exactly when a user who
-                # has just watched a download fail comes back to press Install
-                # again. Reclaiming their partial download at that moment would
-                # be the worst possible timing for it.
-                log.info("keeping a resumable partial download: %s", path)
-                continue
-            log.warning("removing staging left by an interrupted fetch: %s", path)
-            with contextlib.suppress(OSError):
-                if path.is_dir():
-                    shutil.rmtree(path, ignore_errors=True)
-                else:
-                    path.unlink()
-                removed.append(path.name)
-    return removed
+    **Takes the same maintenance lease ``download``/``uninstall`` hold** (the
+    2026-09-26 audit, service-gates-01). ``_download``'s phase one renames each
+    finished child's staging tree to a ``held`` sibling *before* phase two ever
+    calls ``publish.begin`` -- so for that whole gap the tree carries no resume
+    marker (the worker unlinks it on success) and is in no journal's
+    ``staged_dirs``. This function used to run with no lease at all, so a sweep
+    from the pane's own ``TaskRunner`` thread landing in exactly that gap
+    matched neither exemption and deleted a download ``_download`` was one line
+    away from publishing. A held lease is not waited for -- that would block
+    the pane behind a multi-hour fetch -- so a maintenance already in flight
+    just skips this sweep; the next download's own ``_sweep_staging``, or the
+    next time the pane opens, gets another chance.
+    """
+    from .. import leases, publish
+
+    try:
+        with leases.MODELS.maintain(timeout=0):
+            root = Path(svc.config.t2i_model_root)
+            jobs = fetch_mod.plan(svc.config, list(fetch_mod.entries()))
+            parents = {job.dest.parent for job in jobs} | {root}
+            spared: set[str] = set()
+            for journal_root in _journal_roots(svc.config):
+                spared.update(publish.staged_dirs(journal_root))
+            removed: list[str] = []
+            for parent in parents:
+                try:
+                    entries = list(parent.iterdir())
+                except OSError:
+                    continue
+                for path in entries:
+                    if not path.name.endswith(_STAGING_SUFFIXES) or str(path) in spared:
+                        continue
+                    if _is_resumable(path):
+                        # Spared here as well as in ``_sweep_staging`` (F1): this
+                        # runs when the Models pane opens, which is exactly when
+                        # a user who has just watched a download fail comes back
+                        # to press Install again. Reclaiming their partial
+                        # download at that moment would be the worst possible
+                        # timing for it.
+                        log.info("keeping a resumable partial download: %s", path)
+                        continue
+                    log.warning("removing staging left by an interrupted fetch: %s", path)
+                    with contextlib.suppress(OSError):
+                        if path.is_dir():
+                            shutil.rmtree(path, ignore_errors=True)
+                        else:
+                            path.unlink()
+                        removed.append(path.name)
+            return removed
+    except TimeoutError:
+        # A maintenance (download, uninstall, repair) is already under way;
+        # its own staging trees are not this sweep's to judge mid-mutation.
+        log.info("skipping staging sweep: a model-store maintenance is in flight")
+        return []
 
 
 def recover(config: Any) -> list[str]:

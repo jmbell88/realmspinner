@@ -199,7 +199,12 @@ def ensure(ctx: Any) -> InkerState:
             state.shortcut_overrides = inker_ops.parse_shortcuts(
                 {"version": 1, "overrides": stored.get("shortcuts", {})}
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # The 2026-09-26 audit, finding inker-mode-11: ``_coerce_binding``
+            # now stops an infinite ``priority`` at the source, but this is
+            # the door that used to crash *building* the mode outright, so it
+            # keeps the same backstop the other two malformed-settings shapes
+            # already have here.
             state.shortcut_overrides = {}
         ctx.state.inker = state
     return state
@@ -1140,9 +1145,17 @@ def _done_tileset_import(ctx: Any, state: Any, done: Any) -> None:
         # playback may have started on this tab while it was up --
         # ``add_tileset`` pushes a history step into a stack an encode is
         # walking.
-        if target is not None and not target.busy:
-            slot = target.doc.add_tileset(result["tileset"])
-            ctx.toast(f"{slot.tileset.name} added.", "success")
+        if target is not None:
+            if target.busy:
+                # The 2026-09-26 audit, finding inker-mode-17: this branch
+                # used to require ``not target.busy`` and fall through to
+                # nothing when it was -- the same silent drop
+                # ``palette_io.index_to`` had, for the same reason: a save or
+                # playback started while the native picker was open.
+                ctx.toast("Busy -- the picked tileset was not added. Try again.", "warn")
+            else:
+                slot = target.doc.add_tileset(result["tileset"])
+                ctx.toast(f"{slot.tileset.name} added.", "success")
 
 
 def _done_convert(ctx: Any, state: Any, done: Any) -> None:
@@ -2174,7 +2187,13 @@ def import_tileset(ctx: Any, tab: InkerDoc | None = None) -> None:
             ) from exc
         return {"tileset": tileset}
 
-    ctx.submit(f"inker-tileset-import:{uid}", run)
+    if not ctx.submit(f"inker-tileset-import:{uid}", run):
+        # The 2026-09-26 audit, finding inker-mode-17: ``submit`` refuses a
+        # key already in flight and this discarded that answer, so a second
+        # press while the first pick was still resolving opened no dialog and
+        # said nothing -- indistinguishable from a picker that silently did
+        # nothing at all.
+        ctx.toast("Already importing a tileset for this drawing.", "warn")
 
 
 # --- crash recovery -----------------------------------------------------------

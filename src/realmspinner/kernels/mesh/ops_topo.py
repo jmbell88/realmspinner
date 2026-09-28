@@ -559,8 +559,19 @@ def _inset_region(
     positions = out.positions.astype("f8").copy()
     target = total[touched] / hits[touched][:, None]
     t = _shrink_fraction(positions[touched], target, thickness)
-    direction = _unit(face_normals(out)[faces].sum(axis=0))
-    positions[touched] += (target - positions[touched]) * t + direction * float(depth)
+    # The 2026-09-26 audit's clay-mesh-ops-01: this used to be one direction,
+    # `_unit(face_normals(out)[faces].sum(axis=0))`, summed over the *whole*
+    # selection -- the same mistake the 2026-09-08 audit's clay-03 already
+    # found and fixed for `extrude_faces`'s own `offset` (see
+    # `_region_offsets`, just above `extrude_faces`). Two opposite-facing
+    # regions in one selection (a box's -Y and +Y caps, which do not share an
+    # edge and so are two separate regions) summed to zero, and a non-zero
+    # `depth` silently moved neither cap. `_region_offsets` groups by
+    # connected region the same way `extrude_faces` already does, so each
+    # disjoint block gets its own depth direction.
+    a = adjacency(out)
+    depth_disp = _region_offsets(out, a, faces, corners, touched, float(depth))
+    positions[touched] += (target - positions[touched]) * t + depth_disp
 
     return topo.rebuild(positions, out.loops, out.starts, out.material, out.smooth, uv=out.uv), sel
 
@@ -795,21 +806,28 @@ def collapse(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     n_verts = len(mesh.positions)
     parent = np.arange(n_verts, dtype="i8")
 
-    groups: list[np.ndarray] = [sel.edges.astype("i8")]
     starts = mesh.starts.astype("i8")
-    for f in sel.faces.astype("i8").tolist():
-        loop = mesh.loops[starts[f] : starts[f + 1]].astype("i8")
-        groups.append(np.stack([loop, np.roll(loop, -1)], axis=1))
-    pairs = np.concatenate(groups)
-    # 2026-09-18 audit, clay-04: refuse before either Python loop below runs,
-    # from a count `pairs` already gives for free -- see MAX_COLLAPSED_PAIRS
-    # for the measurements this ceiling is set under.
-    if len(pairs) > MAX_COLLAPSED_PAIRS:
+    faces = sel.faces.astype("i8")
+    # The 2026-09-26 audit's clay-mesh-ops-03: the 2026-09-18 fix (clay-04)
+    # below still built one `np.stack`/`np.roll` pair *per selected face* --
+    # the per-face Python loop that used to feed `groups` -- before this
+    # refusal ever ran, so a selection past the ceiling paid 0.65s at 90k
+    # faces to discover the call would be refused anyway. Each face's own
+    # pair count is its own corner span, already known from `starts` with no
+    # loop at all, so the total is counted here, vectorised, before a single
+    # face is walked.
+    n_pairs = len(sel.edges) + int((starts[faces + 1] - starts[faces]).sum())
+    if n_pairs > MAX_COLLAPSED_PAIRS:
         raise OpError(
-            f"Collapsing this selection means walking {len(pairs):,} edge/"
+            f"Collapsing this selection means walking {n_pairs:,} edge/"
             f"face pairs, past the {MAX_COLLAPSED_PAIRS:,} Collapse can walk "
             "without stalling. Collapse a smaller selection."
         )
+    groups: list[np.ndarray] = [sel.edges.astype("i8")]
+    for f in faces.tolist():
+        loop = mesh.loops[starts[f] : starts[f + 1]].astype("i8")
+        groups.append(np.stack([loop, np.roll(loop, -1)], axis=1))
+    pairs = np.concatenate(groups)
     for a_v, b_v in pairs.tolist():
         ra, rb = _find(parent, int(a_v)), _find(parent, int(b_v))
         if ra != rb:

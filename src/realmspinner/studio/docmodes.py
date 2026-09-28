@@ -391,9 +391,18 @@ def close_tab(ctx: Any, state: Any, uid: str, release: Any) -> None:
         return
 
     def drop() -> None:
-        from . import journal
+        from . import controls, journal
 
         journal.drop(ctx, tab)
+        # A slider mid-drag on this tab's pane has no way to hear that its
+        # item just stopped drawing -- ``fold_undo`` only closes a stale
+        # gesture when *another* item next activates, which may be a long
+        # time or never (shell-widgets-01, the 2026-09-26 audit: 500 steps
+        # piled up against a cap of 64 because the gesture's
+        # ``UndoStack._open_gestures`` never dropped back to zero, so
+        # eviction never ran for that document again). Closing here is a
+        # no-op for every tab that has nothing open.
+        controls.close_gesture()
         release(tab)
         state.close(uid)
         mode = _mode_for(state)

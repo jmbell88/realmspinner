@@ -655,8 +655,17 @@ def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     known = "custom" if custom_mode else current
     selected = widgets.combo("##target_cell_px", known, values)
     if selected != "custom":
+        if selected != known:
+            ctx.state.clear_field_error("target_cell_px")
         form["target_cell_px"] = selected
         form["_target_cell_custom"] = False
+        # The 2026-09-26 audit, finding create-panes-05: ``validate`` (by way
+        # of ``generation.validate_target_cell``) refuses an out-of-range size
+        # under ``field="target_cell_px"``, but neither control drawn here
+        # ever read ``state.field_errors`` for that name -- a persisted
+        # refusal reached this pane with nothing on screen pointing at the
+        # combo or the number box that held it.
+        widgets.field_error(ctx.state, "target_cell_px")
         return
     form["_target_cell_custom"] = True
     raw = form.get("target_cell_px")
@@ -664,9 +673,18 @@ def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         number = int(raw)
     except (TypeError, ValueError):
         number = generation.TARGET_CELL_PRESETS[-1]
-    changed, number = form_ui.number("target_cell_px_custom", "Custom cell size", number)
+    # The 2026-09-26 audit, finding create-panes-05: this used to answer to
+    # "target_cell_px_custom", a name ``field_errors`` never carries -- the
+    # refusal is always filed under "target_cell_px" (``generation.
+    # validate_target_cell``) whichever control is on screen when it lands.
+    # Named to match, this field rings itself through ``form_ui``'s own
+    # ``errors=`` snapshot the same way every sibling ``form_ui.number``/
+    # ``form_ui.combo`` call on this pane already does -- no separate
+    # ``widgets.field_error`` needed here, unlike the raw combo above.
+    changed, number = form_ui.number("target_cell_px", "Custom cell size", number)
     if changed:
         form["target_cell_px"] = str(number)
+        ctx.state.clear_field_error("target_cell_px")
     widgets.muted_wrapped("Blank preserves the 256px/512px working cell; reduction never upscales.")
 
 def _hint(

@@ -157,6 +157,15 @@ def _tiles_tab(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None:
 
     _tile_grid(ctx, state, ref)
     widgets.divider()
+    # Clamped on open, not just on the grid's own clicks: switching tabs no
+    # longer carries ``editing_tile`` across documents (``_forget_document_
+    # state``), but reopening the *same* map after an undo shrank this
+    # tileset's tile count can still leave it pointing past the end, and
+    # ``set_tile_meta`` below has no bound check of its own -- it would go on
+    # writing ``TileMeta`` for a local id nothing in this tileset is (the
+    # 2026-09-26 audit, finding plotter-mode-05).
+    if not 0 <= int(state.editing_tile) < ref.tileset.tile_count:
+        state.editing_tile = 0
     local = int(state.editing_tile)
     meta = ref.tileset.meta_of(local)
     widgets.muted(f"Tile {local}")

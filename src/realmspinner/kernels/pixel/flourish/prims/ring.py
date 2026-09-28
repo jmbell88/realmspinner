@@ -32,7 +32,13 @@ def render(layer: Any, ctx: Any, below: np.ndarray | None) -> np.ndarray | None:
         return None
     cx, cy = ctx.turn(val(layer, "x", ctx), val(layer, "y", ctx))
     uneven = val(layer, "unevenness", ctx)
-    reach = radius * (1.0 + 0.3 * uneven) + thick
+    # inker-flourish-04: the noise below scales ``d`` by ``1 + (n-0.5)*0.5*uneven``,
+    # whose smallest factor is ``1 - 0.25*uneven`` -- the true reach of a raw
+    # distance that still lands on the ring after erosion is
+    # ``radius / (1 - 0.25*uneven)``, not ``radius * (1 + 0.3*uneven)``. The
+    # 0.3 coefficient happened to cover the 0.25 case at small ``uneven`` but
+    # not as it approaches 1.
+    reach = radius / max(1.0 - 0.25 * uneven, 0.01) + thick
     win = window(ctx, cx, cy, reach)
     if win is None:
         return None

@@ -352,7 +352,18 @@ def estimate_parts(
         if params.get("control"):
             sheet += CONTROLNET_GIB
         sheet_block = params.get("sheet")
-        locked = bool(isinstance(sheet_block, dict) and sheet_block.get("style_lock"))
+        # The 2026-09-26 audit (plotter-tiles-04): style_lock only ever
+        # reaches the worker's IP-Adapter conditioning when there is a
+        # second material to lock onto -- ``_q_tileset.py``'s own
+        # ``style_lock and count > 1`` gate -- so a one-cell sheet with
+        # style_lock set was charged for an encoder the worker was never
+        # going to load, refusing hosts that would have fit the job it
+        # actually ran.
+        locked = (
+            isinstance(sheet_block, dict)
+            and bool(sheet_block.get("style_lock"))
+            and len(sheet_block.get("materials") or ()) > 1
+        )
         if params.get("ip_adapter") or locked:
             sheet += IP_ENCODER_GIB
         return (sheet if exclusive else sheet + TRELLIS_GIB), image

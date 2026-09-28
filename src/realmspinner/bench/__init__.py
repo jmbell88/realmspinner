@@ -13,7 +13,7 @@ is not running a benchmark. What writes that file lives in
 sweep that produces them runs on the live queue: the parameter-sweep half of
 this package (``sweep.py``, ``verdicts.py``, ``report.py``) has moved out to
 ``service/sweeps.py``, ``service/verdicts.py`` and ``service/findings.py``.
-``bench.metrics`` is the second (2026-09-13): ``studio.agent_clay`` lazily
+``bench.metrics`` is the second (2026-09-13): ``modes.clay.agent.tools_ops`` lazily
 imports ``silhouette_iou_masks``/``mask_aspect`` (by way of
 ``compare_silhouette``) to answer ``clay_render``'s ``compare`` header with a
 shape IoU between a stored reference and a live render -- the same arithmetic

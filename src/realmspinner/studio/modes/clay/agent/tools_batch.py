@@ -933,7 +933,11 @@ def _h_reference_add(ctx: Any, session: Session, args: dict) -> dict:
 
     view = args.get("view", "other")
     valid_views = set(Camera.AXIS_VIEWS) | {"three_quarter", "other"}
-    if view not in valid_views:
+    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
+    # ``x not in a_set`` hashes ``x``, and a list or object ``view`` raised a
+    # bare, unhashable ``TypeError`` that only ``call()``'s generic "failed
+    # unexpectedly" backstop caught, instead of this refusal.
+    if not isinstance(view, str) or view not in valid_views:
         return fail(f"view must be one of {', '.join(sorted(valid_views))}.", field="view")
 
     if job_id is not None:

@@ -56,11 +56,18 @@ landed -- is drawn dimmed with a reason rather than left off the list. A
 destination this *kind* of asset can never reach stays off the list entirely:
 a full matrix of dimmed buttons is noise, not information.
 
-Imports stay lazy inside each function, exactly as :mod:`.asset_open` keeps
-them: this module has to be importable by a test with no GL context, and
-``panes.inspector`` importing this module while this module imports
-``panes.inspector`` back (for ``offers_inker``) only works if neither import
-runs at module scope.
+A mode's own UI submodule is imported lazily inside each function that needs
+it, exactly as :mod:`.asset_open` keeps them: this module has to be
+importable by a test with no GL context, and ``panes.inspector`` importing
+this module while this module imports ``panes.inspector`` back (for
+``offers_inker``) only works if neither import runs at module scope. That
+rule does not reach ``icons``/``modes``/``verbs`` below -- plain data with no
+GL and no import of this module in return, and needed at module scope to
+build :data:`_MODE_ICONS` once rather than on every call to :func:`icon_for`.
+The 2026-09-26 audit, finding create-brief-05, found the near-miss image
+stages import breaking that promise at module scope for no such reason (nothing
+here builds a module-level table from it) -- moved back into the two
+functions that read it, ``_plotter_add`` and ``_packwright_add``.
 """
 
 from __future__ import annotations
@@ -68,20 +75,20 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
+from ..service.files import EDITABLE_STAGES as _REFERENCE_STAGES
 from . import icons, modes, verbs
-from .modes.create.ui.stages import IMAGE_STAGES as _NEAR_MISS_IMAGE_STAGES
 
-#: The stages a job carries before it has a mesh -- a picture still being
-#: painted, generated or reconstructed from. The same tuple
-#: ``service.files.EDITABLE_STAGES`` names, restated here because that
-#: constant answers "can Inker open this" (a question about pixels) and this
-#: one answers "is this row shaped like a reference at all" -- the two
-#: currently agree, and if they ever stop, that is a decision for whoever
-#: changes one of them, not a second module quietly drifting off the first.
-#: Deliberately narrower than :data:`_NEAR_MISS_IMAGE_STAGES` above: Inker
-#: opens a reference or a single tile to paint over, never a whole
-#: generated tile sheet.
-_REFERENCE_STAGES = ("reference", "tile")
+# _REFERENCE_STAGES: the stages a job carries before it has a mesh -- a
+# picture still being painted, generated or reconstructed from. Aliased
+# directly from ``service.files.EDITABLE_STAGES`` rather than restated as a
+# second tuple (the 2026-09-26 audit, finding create-brief-04: the hand copy
+# here was unpinned, so the two could silently drift) -- that constant
+# answers "can Inker open this" (a question about pixels) and this module
+# answers "is this row shaped like a reference at all", and the two are the
+# same question for this narrower purpose. Deliberately narrower than
+# :data:`IMAGE_STAGES` (imported where it is used, below): Inker opens a
+# reference or a single tile to paint over, never a whole generated tile
+# sheet.
 
 
 class Exit(NamedTuple):
@@ -426,6 +433,7 @@ def _plotter_reopen(ctx: Any, job: Any) -> Exit | None:
 
 
 def _plotter_add(ctx: Any, job: Any) -> Exit | None:
+    from .modes.create.ui.stages import IMAGE_STAGES as near_miss_image_stages
     from .modes.plotter import mode as plotter_mode
 
     label = verbs.add_to("plotter", "as a tileset")
@@ -440,8 +448,8 @@ def _plotter_add(ctx: Any, job: Any) -> Exit | None:
     # ``_jobs_create.py`` copies it across) -- so every finished mesh was
     # offered a live "Add to Plotter as a tileset" door that acted on the
     # mesh's reference photo. The near-miss branch below already gates on
-    # ``_NEAR_MISS_IMAGE_STAGES``; the ready branch needs the same gate.
-    if job.get("stage") in _NEAR_MISS_IMAGE_STAGES and "input.png" in _files(job):
+    # ``near_miss_image_stages``; the ready branch needs the same gate.
+    if job.get("stage") in near_miss_image_stages and "input.png" in _files(job):
         return Exit("plotter", label, hint, "", "", door)
 
     # The near miss is scoped to a reference-shaped row (A2's own wording:
@@ -457,7 +465,7 @@ def _plotter_add(ctx: Any, job: Any) -> Exit | None:
     # module exists to draw. ``create_stages.IMAGE_STAGES`` is the list
     # that already carries all three "this row is a picture, not a mesh
     # yet" stages.
-    if job.get("stage") not in _NEAR_MISS_IMAGE_STAGES:
+    if job.get("stage") not in near_miss_image_stages:
         return None
     if job.get("status") != "done":
         reason = _status_reason(job)
@@ -483,6 +491,7 @@ def _packwright_reopen(ctx: Any, job: Any) -> Exit | None:
 
 
 def _packwright_add(ctx: Any, job: Any) -> Exit | None:
+    from .modes.create.ui.stages import IMAGE_STAGES as near_miss_image_stages
     from .modes.packwright import mode as packwright_mode
 
     label = verbs.add_to("packwright", "as an atlas source")
@@ -495,13 +504,13 @@ def _packwright_add(ctx: Any, job: Any) -> Exit | None:
     # above -- gate the ready branch on the job being image-shaped too, not
     # on carrying "input.png" alone, since a finished mesh carries that file
     # in its own directory as well.
-    if job.get("stage") in _NEAR_MISS_IMAGE_STAGES and "input.png" in _files(job):
+    if job.get("stage") in near_miss_image_stages and "input.png" in _files(job):
         return Exit("packwright", label, hint, "", "", door)
 
     # The 2026-09-13 audit, finding create-08: same fix as ``_plotter_add``
     # above -- ``create_stages.IMAGE_STAGES`` instead of ``_REFERENCE_STAGES``
     # so a running tile sheet job dims rather than vanishes.
-    if job.get("stage") not in _NEAR_MISS_IMAGE_STAGES:
+    if job.get("stage") not in near_miss_image_stages:
         return None
     if job.get("status") != "done":
         reason = _status_reason(job)

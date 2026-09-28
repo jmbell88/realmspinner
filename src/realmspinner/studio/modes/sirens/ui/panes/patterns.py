@@ -170,6 +170,14 @@ def _headers(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int)
             ),
         ):
             sirens_mode.toggle_mute(ctx, channel.uid, tab)
+        # The 2026-09-26 audit, finding sirens-panes-01: this call used to sit
+        # after the solo button below, so ``begin_popup_context_item`` -- which
+        # binds to *the last item drawn*, whatever ``tag`` it is given -- was
+        # asking the 20 px "S" button whether it had been right-clicked, not
+        # the name. Right-clicking the name (all but the last 26 px of the
+        # column) did nothing; here, immediately after the mute/name button,
+        # the popup is bound to the thing its own docstring already claimed.
+        _channel_popup(ctx, tab, channel, index)
         imgui.same_line()
         if widgets.disabled_button(
             f"{icons.CIRCLE if soloed else 'S'}###sirens-solo-{channel.uid}",
@@ -182,7 +190,6 @@ def _headers(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int)
             ),
         ):
             sirens_mode.toggle_solo(ctx, channel.uid, tab)
-        _channel_popup(ctx, tab, channel, index)
     if hidden_right:
         imgui.same_line()
         widgets.muted(f"{hidden_right}>")

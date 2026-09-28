@@ -2,18 +2,26 @@
 
 One module owns spacing, radii, type sizes, the palette and the DPI scale so
 that a pane never hard-codes a pixel value twice. Everything here is a plain
-constant except :data:`SCALE`, which is sampled once at startup from the
+constant except :data:`SCALE`, which is first sampled at startup from the
 monitor the window opens on (see :mod:`.dpi`) and multiplied in by the
 :func:`sp` helper -- panes ask for *design* pixels and get *physical* pixels.
 """
 
 from __future__ import annotations
 
+import math
+
 # -- DPI ---------------------------------------------------------------------
 
 # Physical-pixels-per-design-pixel. 1.0 on a 96 DPI monitor, 1.5 at 150 %.
-# Set once by main.App.setup_window() before any font or style is built; a mid-session
-# monitor change does not re-sample it (the atlas would need a rebuild).
+# First set by main.App.setup_window() before any font or style is built --
+# and, since UX-22, re-sampled by ``shell.events._resample_display_scale``
+# whenever the window's own display reports a new scale (dragged to another
+# monitor, or Windows' per-display scale changed under it), which rebuilds
+# the style and font atlas at the new value. This comment used to claim a
+# mid-session monitor change was never picked up at all, a promise the
+# 2026-09-26 audit (finding shell-widgets-05) found the fix above had
+# already broken.
 SCALE = 1.0
 
 # What SCALE itself is allowed to be, after the monitor and the user's zoom are
@@ -89,11 +97,21 @@ def nearest_ui_scale(value: float, monitor_scale: float = 1.0) -> float:
     written by the old slider carries 1.13x, and a build that honoured it would
     be drawing at a size the pane can no longer show or explain. Ties go to the
     smaller step, because the failure mode of too large is clipped controls.
+
+    ``float(value)`` does not raise for ``"nan"``/``"inf"`` -- it is the *bound*
+    that is meant to catch a stray value, not the parse -- so a settings file
+    carrying either one passed straight through to ``abs(step - wanted)``,
+    which is ``nan``/``inf`` against every step alike. ``min`` then has no
+    step it can call smaller than another, and falls back to the first one it
+    was handed: 0.5x, silently, on every launch (shell-widgets-03, the
+    2026-09-26 audit).
     """
     steps = ui_scale_steps(monitor_scale)
     try:
         wanted = float(value)
     except (TypeError, ValueError):
+        wanted = 1.0
+    if not math.isfinite(wanted):
         wanted = 1.0
     return min(steps, key=lambda step: (abs(step - wanted), step))
 

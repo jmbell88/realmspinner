@@ -70,7 +70,16 @@ class GeometryOps:
 
         ``_tile_rotate`` refuses non-square tiles and an unaligned canvas, and
         is built before ``commit_floating`` for :meth:`flip`'s reason.
+
+        A multiple of four is the identity turn and is refused no work rather
+        than run through it: the 2026-09-26 audit, finding inker-document-14 --
+        ``_replay`` snapshots and pushes unconditionally, so ``rotate90(0)`` or
+        ``rotate90(4)`` (a "Rotate" menu row driven by a value nothing here
+        clamps) cost a full-document copy and an undo step that reverses
+        nothing back to itself.
         """
+        if quarters % 4 == 0:
+            return
         reorient = self._tile_rotate(quarters)
         self.commit_floating()
 
@@ -85,6 +94,14 @@ class GeometryOps:
         self._replay(run)
 
     def scale(self: Document, size: tuple[int, int], *, resample: str = "smooth") -> None:
+        """Resample every plane to *size*. A same-size call changes nothing.
+
+        inker-document-14, the scale half: skipped before the tilemap refusal
+        too, on the same reasoning as :meth:`resize_canvas` -- a call that
+        would resample nothing needs no refusal and no snapshot either.
+        """
+        if tuple(size) == tuple(self.size):
+            return
         self._refuse_tilemaps("scale")
         self.commit_floating()
 
@@ -186,6 +203,14 @@ class GeometryOps:
         box = self.clip(rect)
         if box is None:
             return False
+        if box == (0, 0, *self.size):
+            # inker-document-14, the crop half: a rect that clips to the whole
+            # canvas keeps every pixel exactly where it is -- ``trim()`` already
+            # special-cases this for itself, but a full-canvas rect reaches
+            # here directly too (crop_to_selection with a select-all, a crop
+            # dialog left at the document's own size) and paid a full snapshot
+            # and an undo step for a picture that came back unchanged.
+            return False
         self.commit_floating()
 
         def run() -> None:
@@ -251,6 +276,13 @@ class GeometryOps:
         if offset is None:
             offset = tf.anchor_offset(self.size, size, anchor)
         where = offset
+        if tuple(size) == tuple(self.size) and tuple(where) == (0, 0):
+            # inker-document-14, the resize half: same size, no shift, is the
+            # identity -- the same "changed nothing" case :meth:`rotate90` and
+            # :meth:`scale` now refuse before touching anything, rather than
+            # letting ``_tile_regrid`` run and ``_replay`` snapshot and push
+            # for a canvas that ends exactly where it started.
+            return
         regrid = self._tile_regrid(size, where)
         self.commit_floating()
 

@@ -550,9 +550,10 @@ class Resolution:
 
 # --- tokenising --------------------------------------------------------------
 
-#: Kept inside a token. ``/`` so "3/4" survives as one token and ``-`` so
-#: "top-down" does; everything else is a separator.
-_KEEP = set("abcdefghijklmnopqrstuvwxyz0123456789/-")
+#: Kept inside a token. ``/`` so "3/4" survives as one token, ``-`` so
+#: "top-down" does, and ``:`` so "2:1" does (see the note on ``_SEPARATORS``
+#: below); everything else is a separator.
+_KEEP = set("abcdefghijklmnopqrstuvwxyz0123456789/-:")
 #: The curly single quotes (U+2018/U+2019) are deliberately *not* here even
 #: though they look like punctuation: they are the apostrophe in a pasted
 #: prompt as often as the straight one is, and splitting on them the way the
@@ -563,7 +564,19 @@ _KEEP = set("abcdefghijklmnopqrstuvwxyz0123456789/-")
 #: ASCII `bird's eye ogre` correctly resolved to family=ogre). ``_normal``
 #: strips all three apostrophe spellings the same way it already stripped the
 #: straight one.
-_SEPARATORS = ",;:!?.()[]{}\"“”<>|*_+=@#$%^&~`\\\n\t\r"
+# ``:`` is deliberately absent here too (the 2026-09-26 audit, finding
+# poser-characters-06): the "isometric" alias is spelled "2:1 dimetric", and
+# ``_alias_key`` builds its table entry by splitting the alias on *whitespace*
+# first, so "2:1" reaches ``_normal`` as one whole raw token and comes back
+# "2:1" (kept, per ``_KEEP`` above). A prompt scanned through ``_tokenise``
+# used to hit ``:`` here first, splitting "2:1" into two separate raw tokens,
+# "2" and "1", *before* either ever reached ``_normal`` -- so the alias table's
+# single two-word key ("2:1", "dimetric") could never match a prompt's own
+# "2:1 dimetric", and "2:1 isometric ogre" reported "2" and "1" as two
+# unrecognised words instead of leaving the ratio's own spelling alone.
+# Dropping ``:`` here so it survives to ``_normal`` the same way it does when
+# the table itself is built is what makes the two sides agree again.
+_SEPARATORS = ",;!?.()[]{}\"“”<>|*_+=@#$%^&~`\\\n\t\r"
 
 
 def _normal(raw: str) -> str:

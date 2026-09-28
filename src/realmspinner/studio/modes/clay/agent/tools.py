@@ -130,14 +130,21 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
     """Place one primitive, with everything validated before the first
     mutation so a refused call places nothing -- see the tool's own
     description in ``agent_clay.tools`` for the full argument list. Order:
-    ``generator`` in the registry; ``params`` keys legal for it; the three
-    TRS vectors well-formed; *then* the tab is resolved (minting one if the
-    session owns none); *then* the object name (non-empty, not already
-    taken) and the material index (in range) -- both of which need the
-    document to answer.
+    ``generator`` in the registry; ``params`` keys legal for it; whether
+    ``params`` actually *builds* (the 2026-09-26 audit's clay-document-02 --
+    see the comment at that check for why this has to run before the tab is
+    even resolved); the three TRS vectors well-formed; *then* the tab is
+    resolved (minting one if the session owns none); *then* the object name
+    (non-empty, not already taken) and the material index (in range) -- both
+    of which need the document to answer.
     """
     generator = args.get("generator")
-    if generator not in bp.GENERATORS:
+    # ``isinstance`` checked first: the 2026-09-26 audit's clay-agent-tools-06
+    # -- ``x not in a_dict`` hashes ``x``, and a list or object argument
+    # raises a bare, unhashable ``TypeError`` that only ``call()``'s generic
+    # "failed unexpectedly" backstop caught, instead of this refusal naming
+    # ``field="generator"`` the way an unknown *string* already does.
+    if not isinstance(generator, str) or generator not in bp.GENERATORS:
         return fail(
             f"generator must be one of {', '.join(sorted(bp.GENERATORS))}.",
             field="generator",
@@ -175,6 +182,28 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
         failure = _params_shape_refusal(params, defaults, "params", repr(generator))
         if failure:
             return failure
+
+    # The 2026-09-26 audit's clay-document-02 (agent-door half; flooring the
+    # extents themselves inside ``arch``/``stairs``/``doorway`` is a
+    # kernels/mesh fix, not this one): every check above is about a value's
+    # *type* and *shape*, none of them about whether the generator can
+    # actually build it -- ``arch(width=0)`` divides by zero deep inside its
+    # own UV-island helper, and ``stairs``/``doorway`` degenerate to a face
+    # with fewer than 3 corners, neither of which ``clamp_params`` floors.
+    # Built here, before the tab is resolved or the default object is
+    # placed, so a generator's own refusal is exactly as clean as a shape
+    # refusal above it: this used to run *after* ``mark()`` had opened the
+    # undo gesture and the default-params object had already been added,
+    # so a raise here left that object standing in the document and the
+    # gesture's own ``_open_gestures`` counter permanently incremented --
+    # nothing downstream ever reached ``collapse_since`` to close it.
+    merged = mesh = None
+    if params:
+        merged = bp.clamp_params(generator, {**defaults, **params})
+        try:
+            mesh = shading.auto_smooth(bp.GENERATORS[generator][1](**merged))
+        except (ValueError, ArithmeticError) as error:
+            return fail(str(error), field="params")
 
     translation = rotation_deg = scale = None
     if args.get("translation") is not None:
@@ -220,8 +249,12 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
     material_index = args.get("material")
     if material_index is not None:
         try:
+            # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
+            # ``int(float("inf"))`` raises it, and this tuple did not name
+            # it, so an infinite ``material`` reached ``call()``'s generic
+            # backstop instead of this refusal.
             material_index = int(material_index)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("material must be a palette index.", field="material")
         if not (0 <= material_index < len(doc.materials)):
             return fail(
@@ -232,8 +265,9 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
     mark = doc.history.mark()
     obj = pane_clay_tools.add_primitive(ctx, doc, generator)
     if params:
-        merged = bp.clamp_params(generator, {**obj.params, **params})
-        mesh = shading.auto_smooth(bp.GENERATORS[generator][1](**merged))
+        # ``merged``/``mesh`` were already built (and any refusal already
+        # returned) above, before this gesture opened -- see this
+        # function's own clay-document-02 comment for why.
         was = {"params": dict(obj.params)}
         doc.set_generator_params(obj.uid, merged, mesh, was=was)
     if translation is not None or rotation_deg is not None or scale is not None:
@@ -265,7 +299,10 @@ def _h_add_figure(ctx: Any, session: Session, args: dict) -> dict:
     does not spin each limb about its own centre.
     """
     key = args.get("key")
-    if key not in presets.ASSEMBLIES:
+    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
+    # see ``_h_add_primitive``'s identical comment on its own ``generator``
+    # check just above in this file.
+    if not isinstance(key, str) or key not in presets.ASSEMBLIES:
         return fail(f"key must be one of {', '.join(sorted(presets.ASSEMBLIES))}.", field="key")
 
     translation = None
@@ -430,8 +467,11 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
         corners: list[int] = []
         for ci, idx in enumerate(loop):
             try:
+                # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
+                # ``int(float("inf"))`` raises it, uncaught here before this
+                # fix, past this refusal into ``call()``'s generic backstop.
                 vi = int(idx)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return fail(
                     f"face {fi} corner {ci} is {idx!r}, not a vertex index.", field="faces"
                 )
@@ -526,8 +566,12 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
     material_index = args.get("material")
     if material_index is not None:
         try:
+            # OverflowError: the 2026-09-26 audit's clay-agent-tools-09, the
+            # same fix as ``_h_add_primitive``'s identical ``material``
+            # conversion above in this file -- ``int(float("inf"))`` raises
+            # it, uncaught here before this fix.
             material_index = int(material_index)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("material must be a palette index.", field="material")
         if not (0 <= material_index < len(doc.materials)):
             return fail(
@@ -787,6 +831,28 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     if failure:
         return failure
 
+    # The 2026-09-26 audit's clay-document-02 (agent-door half; flooring the
+    # extents themselves is a kernels/mesh fix owned elsewhere in this pass):
+    # every check above is about a value's *type* and *shape*, none of them
+    # about whether the generator can actually build it -- ``arch(width=0)``
+    # divides by zero deep inside its own UV-island helper, which
+    # ``clamp_params`` does not floor. This used to be built inside pass 2
+    # below, so a middle uid's generator raising left every *earlier* uid's
+    # rebuild already pushed onto history with the multi-uid gesture never
+    # collapsed, and the refusal itself reached ``call()``'s generic
+    # backstop rather than naming ``field="params"``. Built once per object
+    # here instead, before pass 2 touches anything -- the same
+    # all-or-nothing rule this handler's own docstring already holds every
+    # other check in this function to.
+    built: list[tuple[Any, dict, Any]] = []
+    for obj in objects:
+        merged = bp.clamp_params(obj.generator, {**obj.params, **params})
+        try:
+            new_mesh = bp.GENERATORS[obj.generator][1](**merged)
+        except (ValueError, ArithmeticError) as error:
+            return fail(str(error), field="params", uids=[obj.uid])
+        built.append((obj, merged, new_mesh))
+
     # Pass 2: nothing above can refuse anymore, so every object is rebuilt.
     # Folded into one undo step only when more than one object is
     # addressed. A single object's own ``set_generator_params`` call already
@@ -801,15 +867,14 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     # paints; a single-uid ``clay_set_params`` has no such pair to fold.
     mark = doc.history.mark() if len(objects) > 1 else None
     rows = []
-    for obj in objects:
+    for obj, merged, new_mesh in built:
         # Captured before anything below mutates ``obj.params`` -- the merge
-        # two lines down edits it in place via a fresh dict, but
+        # above edits it in place via a fresh dict, but
         # ``set_generator_params`` itself reassigns ``obj.params`` to the
         # very dict it is handed, so reading "before" off the object once
         # this call has run would compare a value against itself. See that
         # method's own docstring on why ``was`` is mandatory for this caller.
         was = {"params": dict(obj.params)}
-        merged = bp.clamp_params(obj.generator, {**obj.params, **params})
         # ``regen.carry_over`` rather than a bare rebuild-and-``auto_smooth``:
         # this handler used to call ``shading.auto_smooth`` directly on
         # every rebuild, which re-derives shading from scratch and never
@@ -831,7 +896,7 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
         # keystroke and does not need to pass this.
         mesh = regen.carry_over(
             obj.mesh,
-            bp.GENERATORS[obj.generator][1](**merged),
+            new_mesh,
             material=obj.material,
             changed_keys=params,
         )
@@ -967,8 +1032,10 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
     if kind not in ops_boolean.KINDS:
         return fail(f"kind must be one of {', '.join(ops_boolean.KINDS)}.", field="kind")
     try:
+        # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
+        # ``int(float("inf"))`` raises it, uncaught here before this fix.
         wanted = [int(u) for u in args.get("uids") or []]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fail("uids must be a list of integers.", field="uids")
     # ``_union``'s own shape, generalised over the three kinds: the targets
     # are read in the document's own object order, so "first" means the

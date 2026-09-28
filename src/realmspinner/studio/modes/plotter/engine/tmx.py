@@ -289,11 +289,12 @@ def _render_order(value: Any) -> str:
     every other enumerated field this package reads (``projection``,
     ``stagger_axis``...) -- so a hand-edited or foreign ``renderorder`` opened
     without complaint and only raised later, out of :func:`.project.draw_order`
-    on the first render. Worse, ``MapDoc.set_map_settings`` re-validates the
-    *unchanged* fields on its own revert-then-reapply sequence, so a document
-    that got in with a bad value could not be repaired from the props panel
-    either: every settings change, including one that tried to fix this very
-    field, raised out of that revert. Falling back here, at the door, is what
+    on the first render. Worse, ``MapDoc.set_map_settings`` used to re-validate
+    the *unchanged* fields on its own revert-then-reapply sequence, so a
+    document that got in with a bad value could not be repaired from the props
+    panel either: every settings change, including one that tried to fix this
+    very field, raised out of that revert (fixed by the same audit's follow-up
+    finding on that method). Falling back here, at the door, is what
     :func:`.tsx.check_tileset_features`'s whole family of readers already does
     for the fields this package models but does not draw every value of --
     the same "an old reader's default is a legal document" rule the module
@@ -410,7 +411,15 @@ def _gid_array(values: Any, width: int, height: int) -> np.ndarray:
     # "declared plus one" trick, applied to a sequence.
     try:
         flat = np.fromiter(itertools.islice(values, width * height + 1), dtype=np.int64)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
+        # A CSV cell has no width limit of its own -- ``int("999...")`` parses
+        # fine as an arbitrary-precision Python int, and only the cast into
+        # ``int64`` below discovers it does not fit, as ``OverflowError`` rather
+        # than the ``ValueError``/``TypeError`` this door already caught (the
+        # 2026-09-26 audit, finding plotter-map-08's "CSV overflow" case) --
+        # left uncaught, it passed a task-thread exception up as "Something
+        # went wrong" instead of the named refusal ``fileio.py`` gives every
+        # other malformed file.
         raise ValueError("a layer's data holds something that is not a number") from exc
     if flat.size != width * height:
         raise ValueError(f"a layer declares {width}x{height} cells and carries {flat.size}")
@@ -524,7 +533,9 @@ def chunks_from(pieces: list[tuple[int, int, np.ndarray]]) -> tuple[np.ndarray, 
     # x=0 and x=999999999 are a few hundred bytes of file and a 64 GB array.
     # ``_settle_infinite`` checks the same ceiling, but only after every
     # chunked layer has already been built. Raised as ValueError so
-    # ``plotter_io._load`` reports it, rather than dying on the allocation.
+    # ``fileio._load`` reports it, rather than dying on the allocation
+    # (``plotter_io`` before the module was renamed; the 2026-09-26 audit,
+    # finding plotter-map-10).
     if x1 - x0 > MAX_DIMENSION or y1 - y0 > MAX_DIMENSION:
         raise ValueError(
             f"this map's chunks span {x1 - x0}x{y1 - y0} cells, past the"
@@ -1236,6 +1247,12 @@ def _read_tmj_tilesets(
     """``_read_tmx_tilesets`` over the JSON spelling, refusal for refusal."""
     refs: list[TilesetRef] = []
     for entry in payload.get("tilesets", []):
+        # The layer loop a few hundred lines down already refuses a non-object
+        # entry by name; this loop reached straight for ``.get`` and raised a
+        # bare ``AttributeError`` on a ``"tilesets": [5]`` file instead (the
+        # 2026-09-26 audit, finding plotter-map-08).
+        if not isinstance(entry, dict):
+            raise ValueError("a Tiled JSON tileset reference is not an object")
         firstgid = int(entry.get("firstgid", 1) or 1)
         source = entry.get("source")
         if source:
@@ -1389,7 +1406,15 @@ def _read_tmj_layer_list(
                     height,
                 )
             else:
-                cells = _gid_array(list(raw or []), width, height)
+                # ``list(raw or [])`` used to run before ``_gid_array`` ever saw
+                # the value, so a ``"data": 5`` (a scalar where Tiled's own
+                # writer always emits a list) raised a bare ``list(5)``
+                # ``TypeError`` here rather than the ``ValueError`` every other
+                # malformed-data shape gets (the 2026-09-26 audit, finding
+                # plotter-map-08). Handed to ``_gid_array`` unconverted, the
+                # same non-iterable now fails inside its own ``try``, which
+                # already turns exactly this exception into that refusal.
+                cells = _gid_array(raw or [], width, height)
             layers.append(TileLayer(**common, data=cells))
         elif kind == "objectgroup":
             raw_objects = entry.get("objects", [])
@@ -1755,9 +1780,11 @@ def _image_layer_files(doc: MapDoc, files: dict[str, bytes]) -> dict[int, str]:
     through this writer with the reference it arrived with. **Anything else
     is written under ``images/NN-stem.png``**, and the absolute test is
     ``PureWindowsPath``'s, as ``_resolve_source``'s is: under ``PurePosixPath``
-    ``D:/pics/bg.jpg`` read as relative, ``plotter_io._write`` anchored it
-    beside the map, and the export **overwrote the user's original** with PNG
-    bytes while embedding a path the reader refuses.
+    ``D:/pics/bg.jpg`` read as relative, ``fileio._write`` (``plotter_io``
+    before the module was renamed; the 2026-09-26 audit, finding
+    plotter-map-10) anchored it beside the map, and the export **overwrote the
+    user's original** with PNG bytes while embedding a path the reader
+    refuses.
     """
     paths: dict[int, str] = {}
     for index, layer in enumerate(

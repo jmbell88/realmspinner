@@ -129,6 +129,25 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
     return form
 
 
+def _seed_clip_ends(form: dict[str, Any], poses: list[Any]) -> None:
+    """Give ``clip_from``/``clip_to`` a real pose id the first time the clip
+    toggle turns the section on, so the stored value agrees with what the
+    combo already shows.
+
+    The 2026-09-26 audit, finding create-panes-07: both fields default to
+    ``""``, which is not one of the combo's own ids -- imgui's combo has no
+    "nothing selected" state, so it drew row 0 (the first pose) regardless
+    while the stored value stayed empty. ``validate``'s "A clip needs both
+    ends." then refused a form that visibly showed two ends already picked.
+    A no-op once either field holds a real id, so a deliberate choice is
+    never overwritten.
+    """
+    if not form["clip_from"]:
+        form["clip_from"] = poses[0]["id"]
+    if not form["clip_to"]:
+        form["clip_to"] = poses[0]["id"]
+
+
 def _preview(ctx: Any, form: dict[str, Any], job: Any) -> None:
     """The direction strip, rendered one cell per frame.
 
@@ -339,6 +358,7 @@ def _controls(
             # A clip replaces the pose rows rather than adding to them: its
             # rows *are* the animation, and mixing static poses in would give
             # an importer no way to tell which rows loop.
+            _seed_clip_ends(form, poses)
             names = [(p["id"], p.get("name") or p["id"]) for p in poses]
             _changed, form["clip_from"] = form_ui.combo(
                 "clip_from", "From", form["clip_from"], names

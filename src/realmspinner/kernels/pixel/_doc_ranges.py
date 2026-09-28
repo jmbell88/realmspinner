@@ -717,6 +717,25 @@ class RangeOps:
         # are the whole reason it stores indices, and minting per slot here
         # would throw them away at the last step.
         fresh = {index: plane.copy(name=plane.name) for index, plane in enumerate(clip.planes)}
+        for plane in fresh.values():
+            if isinstance(plane, TilemapCel):
+                continue
+            if plane.indices is None and self.color_mode != "indexed":
+                continue
+            # The 2026-09-26 audit, finding inker-document-08: a plane's
+            # ``.indices`` names *slots of the document it was copied from* --
+            # a different palette, or the same palette since recoloured, from
+            # this document's. Landing it unreconciled kept the old slot
+            # numbers pointing at whatever colour those slots hold *here* (a
+            # copied red cel materialised green after ``recolour_slot`` moved
+            # that slot), and a plain-RGBA plane pasted into an indexed
+            # document arrived with no plane at all -- the "silent gap"
+            # ``_resolved_plane`` warns about. Re-resolving against *this*
+            # palette is the same door every other freshly minted layer goes
+            # through (``_do_flatten``, a paste-as-layer, a track merge): it
+            # is a no-op when the palette already agrees, so an ordinary
+            # same-document paste is unaffected.
+            plane.indices = self._resolved_plane(plane.pixels)
         changes: list[tuple[Any, Any, Any, Any]] = []
         for track_index, frame_index, index in landing:
             track = anim.tracks[track_index]

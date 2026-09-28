@@ -106,7 +106,13 @@ def _sequence_from(raw: Any) -> inst.Sequence:
             loop=int(raw.get("loop", -1)),
             release=int(raw.get("release", -1)),
         )
-    except (TypeError, ValueError) as exc:
+    # The 2026-09-26 audit, finding sirens-engine-01: a JSON ``1e999`` parses
+    # as ``float("inf")``, and ``int(inf)`` raises ``OverflowError`` -- past
+    # this except clause, which only ever caught the ``TypeError``/``ValueError``
+    # a bad type or a non-numeric string raises. An infinite or NaN sequence
+    # value crashed the whole load instead of refusing by name like every
+    # other malformed field here.
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(_MALFORMED) from exc
 
 
@@ -263,7 +269,10 @@ def read_rsng(data: bytes) -> D.SongDoc:
             raise ValueError(_MALFORMED)
         try:
             version = int(manifest.get("version", 0))
-        except (TypeError, ValueError) as exc:
+        # sirens-engine-04 (2026-09-26 audit): see ``_int`` below -- a
+        # ``1e999`` version parses to ``inf`` and ``int(inf)`` is an
+        # ``OverflowError``, which this did not list either.
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(_MALFORMED) from exc
         if version > VERSION:
             raise ValueError(
@@ -277,7 +286,15 @@ def read_rsng(data: bytes) -> D.SongDoc:
         patterns = _patterns_from(zf, manifest, len(channels), remap, valid_instruments)
         samples = _samples_from(zf, manifest)
         known = {one.uid for one in patterns}
-        order = [int(one) for one in _list(manifest, "order")][: D.MAX_ORDER]
+        # sirens-engine-04 (2026-09-26 audit): a bare ``int()`` here, unlike
+        # every other coercion in this file, which is either ``_int``/
+        # ``_float`` or its own guarded ``try`` -- a ``null`` or an infinite
+        # order entry raised ``TypeError``/``OverflowError`` straight out of
+        # this function instead of the same malformed-manifest refusal.
+        try:
+            order = [int(one) for one in _list(manifest, "order")][: D.MAX_ORDER]
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(_MALFORMED) from exc
         # An order entry naming a pattern the file does not contain is dropped
         # rather than refused: the rest of the song is intact and readable, and
         # refusing the whole document over one stale number would lose it.
@@ -327,7 +344,28 @@ def _list(manifest: dict, key: str) -> list:
 def _int(manifest: dict, key: str, default: int) -> int:
     try:
         return int(manifest.get(key, default))
-    except (TypeError, ValueError) as exc:
+    # The 2026-09-26 audit, finding sirens-engine-04: a JSON ``1e999`` parses
+    # as ``float("inf")`` and a JSON integer past what a float can hold parses
+    # as a Python ``int`` too large for one -- ``int(inf)`` and ``int(that
+    # int)`` both raise ``OverflowError``, which this caught neither of, so
+    # every field this helper reads (uid, tempo, speed, loop_order, an order
+    # entry, a one-shot's pattern...) could crash the whole load instead of
+    # refusing by name like every other malformed field here.
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(_MALFORMED) from exc
+
+
+def _float(manifest: dict, key: str, default: float) -> float:
+    """``_int``'s twin for the one field this manifest reads as a float.
+
+    ``entry.get("pan", 0.0)`` used to be a bare ``float()`` with nothing
+    catching what it raises: ``{"pan": null}`` is ``float(None)``, a
+    ``TypeError`` past every guard in this file, where every sibling field
+    (read through ``_int``) already refuses by name instead of crashing.
+    """
+    try:
+        return float(manifest.get(key, default))
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(_MALFORMED) from exc
 
 
@@ -361,7 +399,7 @@ def _channels_from(manifest: dict) -> list[D.Channel]:
                 uid=uid,
                 name=str(entry.get("name", "")),
                 kind=kind,
-                pan=float(entry.get("pan", 0.0)),
+                pan=_float(entry, "pan", 0.0),
             )
         )
     # A song with no channels has no voices and no pattern shape, so there is
@@ -395,7 +433,9 @@ def _instruments_from(manifest: dict) -> tuple[list[inst.Instrument], dict[int, 
             raise ValueError(_MALFORMED)
         try:
             stored.append(int(entry.get("uid", index)))
-        except (TypeError, ValueError) as exc:
+        # sirens-engine-04 (2026-09-26 audit): see ``_int`` -- ``OverflowError``
+        # from an infinite or too-large ``uid`` was not caught here either.
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(_MALFORMED) from exc
     # **A duplicate uid is refused, not renumbered (the 2026-09-13 audit,
     # finding sirens-03).** The renumbering below exists for ids that are out

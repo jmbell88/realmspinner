@@ -138,7 +138,16 @@ many *registrations* is cheap (few triangles, each touching one cell), but
 the bucket walk that turns registrations into pairs pays for every pair a
 heavily-occupied cell produces regardless, so two ordinary 5,000-triangle
 meshes at the tool's own ``near=1.0`` ran the whole candidate-generating loop
-to completion (3.5M pairs, 0.59s) before the count was ever looked at."""
+to completion (3.5M pairs, 0.59s) before the count was ever looked at.
+
+Also a *cumulative* ceiling across one whole :func:`analyze` call, not just
+one object pair's own count: the 2026-09-26 audit (clay-mesh-model-05) timed
+the vectorised narrow phase at ~4s per pair at this ceiling, and
+:data:`MAX_ANALYZE_OBJECTS` (64) admits up to 2,016 pairs in one call, so a
+per-pair-only cap left a scene of mutually-overlapping objects able to pay for
+the narrow phase thousands of times over. ``analyze`` threads a shared budget,
+seeded at this value, through every :func:`_pair_analysis` call the same way
+:data:`MAX_OVERLAP_BOOLEANS` already bounds CSG calls across a document."""
 
 MAX_OVERLAP_BOOLEANS = 16
 """The most ``manifold3d`` intersections one :func:`analyze` call may run.
@@ -889,6 +898,7 @@ def _pair_analysis(
     contact_tol: float,
     near: float,
     overlap_budget: list[int],
+    triangle_pair_budget: list[int],
 ) -> tuple[PairAnalysis, bool]:
     uid_a, uid_b = obj_a.uid, obj_b.uid
     if geom_a.lo is None or geom_b.lo is None or len(geom_a.tris) == 0 or len(geom_b.tris) == 0:
@@ -932,7 +942,16 @@ def _pair_analysis(
         )
 
     ia, ib = candidates
-    if len(ia) > MAX_TRIANGLE_PAIRS:
+    # The 2026-09-26 audit (clay-mesh-model-05): MAX_TRIANGLE_PAIRS only ever
+    # bounded one object pair's own candidate count, never the whole call's --
+    # the vectorised narrow phase measures ~4s per pair at the ceiling, and
+    # MAX_ANALYZE_OBJECTS (64) admits up to 2,016 pairs, so one call could run
+    # the narrow phase thousands of times over. triangle_pair_budget is shared
+    # across every pair in this analyze() call, the same pattern
+    # overlap_budget already uses for MAX_OVERLAP_BOOLEANS: once it is spent,
+    # every remaining pair takes the honest "unknown" fallback below instead
+    # of paying for a narrow phase this call can no longer afford.
+    if len(ia) > MAX_TRIANGLE_PAIRS or len(ia) > triangle_pair_budget[0]:
         # 2026-09-14 audit, clay-01: this used to hard-code intersects=False
         # here, so two heavily-overlapping 20,000-face meshes read as "not
         # touching" -- indistinguishable from an honest SAT "no". The SAT
@@ -951,10 +970,19 @@ def _pair_analysis(
             ),
             True,
         )
+    triangle_pair_budget[0] -= len(ia)
 
     if len(ia) == 0:
         # The boxes passed the broad phase, but no triangle pair shares a
         # grid cell -- still worth an approximate answer rather than none.
+        # The 2026-09-26 audit (clay-mesh-model-04): this used to mark the
+        # answer `exact=True` even though `distance` is the same
+        # vertex-sampled fallback the two branches above (grid-registration
+        # overflow, MAX_TRIANGLE_PAIRS overflow) mark `exact=False` -- a 10 m
+        # slab under a hovering cube read as an "exact" 6.58 m when the true
+        # surface-to-surface distance is smaller. `intersects=False` stays
+        # honest here (no candidate pair shares a cell, so the shapes truly
+        # do not touch); only the *distance* is approximate.
         distance = _vertex_sampled_distance(geom_a.world_pos, geom_b.world_pos)
         contact = distance is not None and distance <= contact_tol
         return (
@@ -964,7 +992,7 @@ def _pair_analysis(
                 intersects=False,
                 contact=contact,
                 overlap=None,
-                exact=True,
+                exact=False,
             ),
             False,
         )
@@ -1152,6 +1180,7 @@ def analyze(
     by_uid = {obj.uid: obj for obj in objs}
     truncated = False
     overlap_budget = [MAX_OVERLAP_BOOLEANS]
+    triangle_pair_budget = [MAX_TRIANGLE_PAIRS]
     pair_rows: list[PairAnalysis] = []
     for uid_a, uid_b in uid_pairs:
         obj_a, obj_b = by_uid[uid_a], by_uid[uid_b]
@@ -1165,6 +1194,7 @@ def analyze(
             contact_tol,
             near,
             overlap_budget,
+            triangle_pair_budget,
         )
         truncated = truncated or was_truncated
         pair_rows.append(row)

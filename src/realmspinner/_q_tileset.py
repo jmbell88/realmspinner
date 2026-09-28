@@ -202,6 +202,25 @@ class TileSetOps:
         block = dict(params.get("sheet") or {})
         geom, entries, seeds, subjects = _plan(block, mode)
 
+        # The 2026-09-26 audit (plotter-tiles-03 / service-kinds-07): the
+        # mask record and the terrain-row count used to be validated only at
+        # ``tileatlas.atlas_sidecar`` below, after every material had already
+        # been generated (and, for a mismatched row count, after
+        # ``tilemask.blob_atlas`` had already run and ``input.png`` had
+        # already been published) -- so a stale or malformed terrain block
+        # cost the whole render before it was ever refused. Same "re-derived
+        # before the card is spent" rule the comment above already states.
+        if mode == tileatlas.MODE_TERRAIN:
+            mask = _mask_block(block)
+            terrain_specs = tuple(block.get("terrains") or ())
+            if len(terrain_specs) != geom.rows:
+                raise ValueError(
+                    f"a blob47 atlas of {geom.rows} row(s) declares {geom.rows} "
+                    f"terrain(s); {len(terrain_specs)} were given"
+                )
+        else:
+            mask = None
+
         colors = int(params.get("colors", 64))
         palette_name = str(params.get("palette") or "")
         dither = bool(params.get("dither"))
@@ -301,9 +320,13 @@ class TileSetOps:
             acquire_cond = first_cond if first_cond is not None else later_cond
 
             t2i, _handoff = await self._acquire_t2i(spec, base_key, acquire_cond)
-            composed = [guidance.compose_prompt(subject, params) for subject in subjects]
-            reports: list[dict[str, Any]] = []
+            # The 2026-09-26 audit (service-kinds-08): ``compose_prompt`` is
+            # fallible and used to run between the acquire and the ``try``
+            # below, so a raise there leaked the pipe the same way the
+            # pixel-sheet and sprite-synthesis doors did.
             try:
+                composed = [guidance.compose_prompt(subject, params) for subject in subjects]
+                reports: list[dict[str, Any]] = []
                 for index in range(count):
                     if self._cancel is not None and self._cancel.event.is_set():
                         # Before each pass, not only after the last: every one is
@@ -398,9 +421,16 @@ class TileSetOps:
             tiles = []
             grids: list[dict[str, Any]] = []
             for index, path in enumerate(paths):
-                with Image.open(path) as generated:
-                    generated.load()
-                    full = generated.convert("RGBA")
+                # The 2026-09-26 audit (service-kinds-10): decoded straight
+                # on ``realmspinner-loop`` rather than behind
+                # ``asyncio.to_thread`` like every other blocking call here,
+                # once per material.
+                def _load_full(p: Path = path) -> Any:
+                    with Image.open(p) as generated:
+                        generated.load()
+                        return generated.convert("RGBA")
+
+                full = await asyncio.to_thread(_load_full)
                 # Per material, on the whole frame, before ``reduce_material``
                 # resamples it: each material is its own generation and can
                 # plainly land on its own lattice.
@@ -420,7 +450,9 @@ class TileSetOps:
                 )
 
             if mode == tileatlas.MODE_TERRAIN:
-                mask = _mask_block(block)
+                # ``mask`` was already resolved and validated above, before
+                # the materials were generated -- re-parsing it here would
+                # only be a second read of the same block.
                 atlas = await asyncio.to_thread(
                     functools.partial(
                         tilemask.blob_atlas,
@@ -434,7 +466,6 @@ class TileSetOps:
                     )
                 )
             else:
-                mask = None
                 atlas = await asyncio.to_thread(tileatlas.assemble, tiles, geom)
 
             self.progress.update(

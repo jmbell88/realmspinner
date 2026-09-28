@@ -279,12 +279,42 @@ def _rerender_in_flight(svc: RealmspinnerService, sheet_id: str) -> bool:
     return False
 
 
+def _source_sheet_in_flight(svc: RealmspinnerService, sheet_id: str) -> bool:
+    """Is the ``sheet``/``charsheet`` job that will *publish* ``sheet_id`` in
+    the first place still queued or running.
+
+    The 2026-09-26 audit, finding poser-jobs-05: ``_restyle_in_flight`` and
+    ``_rerender_in_flight`` only recognise a job *derived* from an
+    already-published sheet -- but the render that publishes ``sheet_id`` at
+    all writes its PNG onto the served ``sheet_png_path`` (``tmp.replace(png)``
+    in ``_q_troupe.py``) well before its sidecar, which is the completion
+    marker both ``list_sheets`` and ``read_sheet`` key on. A ``delete_sheet``
+    landing in that window found only the PNG on disk -- ``store.delete_sheet``
+    happily removed it -- while the still-running job, knowing nothing of the
+    delete, went on to publish the sidecar afterwards: a sidecar with no image
+    beside it, forever, since nothing re-publishes the PNG once that job's
+    single write of it has already happened.
+    """
+    for j in svc.store.active_jobs():
+        if j["kind"] not in ("sheet", "charsheet"):
+            continue
+        if (j.get("params") or {}).get("sheet_id") == sheet_id:
+            return True
+    return False
+
+
 def delete_sheet(svc: RealmspinnerService, job_id: str, sheet_id: str) -> dict[str, Any]:
     check_job_id(job_id)
     check_sheet_id(sheet_id)
     # Same per-asset hold ``create_sheet`` takes, so a restyle or re-render
     # cannot be queued in the gap between the checks below and the unlink.
     with svc.convert_lock(job_id, "sheets"):
+        if _source_sheet_in_flight(svc, sheet_id):
+            raise Conflict(
+                "this sheet is still being rendered; wait for it to finish"
+                " before deleting it",
+                field="sheet_id",
+            )
         if _restyle_in_flight(svc, sheet_id):
             raise Conflict(
                 "this sheet's pixel restyle is still running; wait for it to"

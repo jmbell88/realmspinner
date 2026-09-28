@@ -581,4 +581,14 @@ def follow_playhead(ctx: Any) -> bool:
     # different, and a half-typed instrument number carried onto another row
     # would finish itself there.
     state.digit = 0
+    # The 2026-09-26 audit, finding sirens-playback-03: every deliberate way
+    # of moving the caret (``move_caret``, ``set_caret``, ``set_row`` in
+    # ``edit.py``) drops a block selection's anchor unless the caller asked to
+    # extend it -- the playhead moving it is neither, and left a stale anchor
+    # from before playback started pointing at a row (and, worse, a pattern)
+    # the caret is no longer anywhere near. ``block_bounds`` then normalises
+    # that stale anchor against the new caret into a rectangle spanning
+    # whatever the playhead has since moved through, and Ctrl+X/G/Delete act
+    # on it as if the user had selected it on purpose.
+    state.anchor = None
     return True

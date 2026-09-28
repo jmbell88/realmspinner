@@ -175,10 +175,33 @@ def test_a_style_locked_tileset_is_charged_for_the_encoder_it_will_load():
     has no ``ip_adapter`` key for: style lock hands the *first material* to the
     adapter as the reference for every pass after it, and that image does not
     exist until the job is half over."""
-    locked = {"sheet": {"mode": "materials", "tile_w": 32, "style_lock": True}}
+    locked = {
+        "sheet": {
+            "mode": "materials", "tile_w": 32, "style_lock": True,
+            "materials": [{"prompt": "moss"}, {"prompt": "gravel"}],
+        }
+    }
     assert vram.estimate(
         "tile_sheet", "tilesheet", locked, exclusive=True
     ) == pytest.approx(vram.SDXL_GIB + vram.IP_ENCODER_GIB)
+
+
+def test_a_style_locked_one_cell_sheet_is_not_charged_for_an_encoder_never_loaded():
+    """plotter-tiles-04 (the 2026-09-26 audit): ``_q_tileset.py`` only hands
+    the first material to the adapter ``if style_lock and count > 1`` -- a
+    one-material sheet has nothing after the first material to condition, so
+    the worker never builds a ``Conditioning`` for it. Charging the encoder
+    anyway refused a host that would have fit the job the worker actually
+    runs."""
+    locked_one_cell = {
+        "sheet": {
+            "mode": "materials", "tile_w": 32, "style_lock": True,
+            "materials": [{"prompt": "moss"}],
+        }
+    }
+    assert vram.estimate(
+        "tile_sheet", "tilesheet", locked_one_cell, exclusive=True
+    ) == pytest.approx(vram.SDXL_GIB)
 
 
 def test_a_retexture_costs_one_img2img_pass_and_never_trellis():

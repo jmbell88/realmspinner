@@ -8,10 +8,14 @@ pixels, and the map would render last week's tiles forever with nothing in the
 data to say why.
 
 **The slicing is validated here, not at the first draw.** A geometry that does
-not fit the image -- a margin larger than the image, a spacing that leaves a
-partial final column -- is a file or a form the user got wrong, and the useful
-moment to say so is when the tileset is made. Deferring it produces a tileset
-that exists, appears in the list, and draws garbage.
+not fit the image at all -- a margin larger than the image, leaving no whole
+tile -- is a file or a form the user got wrong, and the useful moment to say so
+is when the tileset is made; deferring it produces a tileset that exists,
+appears in the list, and draws garbage. A spacing that leaves a *partial* final
+column or row is not this case: :attr:`Tileset.columns`/:attr:`.rows` floor-
+divide, so that column is dropped rather than refused (the 2026-09-26 audit,
+finding plotter-tiles-01, found this docstring claiming the opposite of what
+``columns``'s own docstring already says a few lines down).
 
 **Both of Tiled's tileset shapes are modelled here, not just the sliced one.**
 An ordinary tileset is one image cut into a grid, and every tile id below is an

@@ -249,6 +249,15 @@ class Document(
     _below: np.ndarray | None = field(init=False, default=None, repr=False)
     _dirty: tuple[int, int, int, int] | None = field(init=False, default=None, repr=False)
     _stroke: StrokeState | None = field(init=False, default=None, repr=False)
+    #: Set by :meth:`~._doc_paint.PaintOps.end_stroke` around its own call to
+    #: ``_commit_patch``, for :meth:`_resolve_indices` alone: which pixels of
+    #: the stroke's dirty *rect* the brush's own coverage actually reached, as
+    #: opposed to a rectangle a soft or round nib's bounding box merely
+    #: includes. ``None`` -- every caller but a brush stroke, and a
+    #: blur/smudge/shade stroke, whose modes never accumulate ``coverage`` --
+    #: means "the whole rect", the funnel's behaviour before this field
+    #: existed. See :meth:`_resolve_indices`'s docstring, inker-paint-01/02.
+    _stroke_touched: np.ndarray | None = field(init=False, default=None, repr=False)
     #: An open filter session: the rect being filtered, the pixels as they were
     #: before it opened, and the **uid** of the layer they came off. A live
     #: preview recomputes from those pixels rather than from the last preview,
@@ -1584,6 +1593,30 @@ class Document(
         than after it, which is the whole reason a soft nib is legal in indexed
         mode: the tool's antialiased edge is written, resolved, and then
         overwritten by what the slots actually say.
+
+        **``self._stroke_touched`` narrows *rect* for a brush stroke.** The
+        2026-09-26 audit, findings inker-paint-01/02: this used to ``resolve``
+        every pixel of *rect* -- a soft or round nib's rectangular *bounding
+        box*, not its footprint -- so a pixel the stamp never actually
+        covered was re-inferred from its own already-correct materialised
+        RGBA exactly as if the tool had just painted it. Two ways that
+        silently rewrote a pixel nothing touched: a duplicate-coloured slot
+        lost its identity and fell to the lowest-numbered twin (``resolve``
+        has no ``prefer`` for a pixel outside the current gesture), and a
+        translucent slot -- alpha under ``OPAQUE_THRESHOLD`` by design, not by
+        accident -- was read back as a hole.
+
+        A same-RGBA comparison cannot stand in for coverage here: ``prefer``
+        exists precisely so that repainting a pixel with the *same visible
+        colour* it already shows still moves it onto the slot the user
+        picked, which a "did the bytes change" test would refuse to touch.
+        Only the brush's own ``coverage`` buffer -- greatest stamp coverage
+        laid at each pixel, maintained for exactly this stroke's rect -- can
+        tell "painted, coincidentally unchanged" from "never reached by the
+        stamp at all". Every other caller (a range fill, a paste, a floating
+        commit, a filter session) already writes exactly the region it
+        means, with no padding beyond it, so ``None`` there resolves the
+        whole rect precisely as this method always did.
         """
         x0, y0, x1, y1 = rect
         before = layer.indices[y0:y1, x0:x1].copy()
@@ -1592,9 +1625,13 @@ class Document(
         slot = self.paint_slot
         if slot is not None and self.palette and 0 <= slot < len(self.palette):
             prefer = (self.palette[slot], slot)
-        after = ixp.resolve(
-            layer.pixels[y0:y1, x0:x1], table, self.transparent_index, prefer=prefer
-        )
+        written = layer.pixels[y0:y1, x0:x1]
+        resolved = ixp.resolve(written, table, self.transparent_index, prefer=prefer)
+        touched = self._stroke_touched
+        if touched is None:
+            after = resolved
+        else:
+            after = np.where(touched, resolved, before).astype(np.uint8)
         layer.indices[y0:y1, x0:x1] = after
         layer.pixels[y0:y1, x0:x1] = ixp.materialize(after, table)
         return before, after

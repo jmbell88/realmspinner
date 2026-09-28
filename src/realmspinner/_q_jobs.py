@@ -549,12 +549,18 @@ class JobOps:
                 # re-texture published. A cancel must not destroy either.
                 # This job's own renders and bakes go with it below.
                 paths = [job_dir / store.RETEXTURE_GLB_TMP]
+                # The 2026-09-26 audit (service-kinds-04): this rmtree used to
+                # sit in the ``remesh`` arm below, which never writes a
+                # ``views/`` directory at all -- ``_retexture``
+                # (_q_sprite.py) is the one that renders ``op_views`` into
+                # *its own* job_dir (``job["id"]``, not ``source``), so a
+                # cancelled re-texture stranded tens of MB of renders forever.
+                with contextlib.suppress(OSError):
+                    shutil.rmtree(self.config.job_dir(job["id"]) / "views")
             elif job["kind"] == "remesh":
                 # The re-texture's rule, one temp: the served model.glb is a
                 # different job's mesh until the rename that a cancel precedes.
                 paths = [job_dir / store.REMESH_GLB_TMP]
-                with contextlib.suppress(OSError):
-                    shutil.rmtree(self.config.job_dir(job["id"]) / "views")
             elif job["kind"] == "sprite_synthesis":
                 # Only *this* job's trio, named by the draft id it minted at
                 # the door. The directory holds every earlier draft of the same

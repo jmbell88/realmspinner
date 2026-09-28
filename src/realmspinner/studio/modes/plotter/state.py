@@ -591,6 +591,13 @@ class PlotterState(docmodes.DocTabs[PlotterDoc]):
     # can combine with *that* rather than with the rectangle being drawn.
     # Gesture state, cleared with the rest of the drag.
     select_before: Any = None
+    # What the selection was before a right-click/right-drag capture began, as
+    # ``(select, select_mask)`` -- ``_capture_gesture`` reuses ``select`` to draw
+    # its own feedback rectangle and used to end every capture by setting the
+    # selection to ``None`` outright, destroying a marquee a painting tool was
+    # honouring underneath it rather than putting back what was there before
+    # the capture started (the 2026-09-26 audit, finding plotter-mode-11).
+    capture_select_before: Any = None
     # The copied block, and the uid of the document it came from.
     #
     # App-level rather than per-tab so the *refusal* can name its source: gids
@@ -697,7 +704,18 @@ class PlotterState(docmodes.DocTabs[PlotterDoc]):
         # Names a layer of the document being left. Carried across, the new
         # map's first layer would open with a text field on it.
         self.renaming_layer = 0
-
+        # The tileset sheet names a tileset *index* and a tile *local id* --
+        # both positions in the previous document's own tilesets, not ids that
+        # mean anything on the one being arrived at. Left set, a stale
+        # ``editing_tile`` let the Tiles tab's form go on writing
+        # ``TileMeta`` for a local id past the new tileset's own tile count
+        # (the 2026-09-26 audit, finding plotter-mode-05).
+        self.editing_tileset = None
+        self.editing_tile = 0
+        self.tileset_shape = None
+        self.clear_tileset_drag()
+        self.tileset_wangset = 0
+        self.tileset_wang_colour = 1
 
     # -- drag ---------------------------------------------------------------
 
@@ -897,6 +915,12 @@ class PlotterState(docmodes.DocTabs[PlotterDoc]):
         # Belongs to the gesture, not the selection: what was selected before a
         # marquee drag started has no meaning once the drag is over.
         self.select_before = None
+        # Likewise the capture gesture's own memory of the selection it is
+        # about to draw its feedback over -- ``_capture_gesture`` clears it
+        # itself on a normal release, but a capture cut short (a tab switch
+        # mid-drag) must not leave it naming cells in whatever map is opened
+        # next.
+        self.capture_select_before = None
         # Not ``last_paint``: that outlives the gesture on purpose, because the
         # whole point of it is to be there on the *next* click.
         self.drag_last_cell = None

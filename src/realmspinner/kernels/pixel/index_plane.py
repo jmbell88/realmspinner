@@ -15,9 +15,14 @@ legacy documents legally contain soft alpha that one-index-per-pixel cannot
 represent. Entering true indexed mode is an explicit, undoable conversion.
 
 **Pure and small on purpose.** No document, no undo, no imgui, no service --
-this package's pin test holds it to importing nothing under ``realmspinner``. Every
-function takes arrays and tables and returns arrays and tables, so the funnel in
-``document._commit_patch`` and the three new edit types in :mod:`.undo` can all
+this package's pin test (``tests/modes/inker/test_inker_imports.py``) holds it
+to importing nothing else under ``realmspinner``, ``native`` named as the one
+exception: the 2026-09-26 audit, finding inker-paint-05 -- this docstring said
+"nothing" outright, and the module has imported ``realmspinner.native`` since
+the native palette kernels landed, which the pin test's own allowlist already
+tracks. Every function takes arrays and tables and returns arrays and tables,
+so the funnel in ``document._commit_patch`` and the three new edit types in
+:mod:`.undo` can all
 lean on one definition of what resolving and materialising mean.
 
 Two rules run through everything here and are worth stating once:

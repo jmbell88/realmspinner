@@ -159,7 +159,7 @@ def silhouette_iou(
     A thin path-reading wrapper over :func:`silhouette_iou_masks` -- the mask
     extraction is the only part that differs per caller (a path here, a live
     render pass for ``clay_render``'s ``compare`` header in
-    ``studio.agent_clay``), and the crop/square/resize/IoU arithmetic is one
+    ``modes.clay.agent.tools_ops``), and the crop/square/resize/IoU arithmetic is one
     definition either way.
     """
     from PIL import Image
@@ -251,8 +251,22 @@ def pixel_similarity(a_path: Path, b_path: Path) -> float | None:
 
 def dino_available(config: Any = None) -> bool:
     """Whether the weights are on disk. Checked before the torch import, the
-    same ordering test_offline.py requires everywhere else."""
-    return _dino_dir(config).exists()
+    same ordering test_offline.py requires everywhere else.
+
+    Checks for a weights file inside the directory, not just the directory's
+    own existence -- ``pickscore_available`` beside it already does, by
+    checking for ``model.safetensors`` directly. A killed download (or a
+    ``mkdir`` that ran before the transfer) leaves the bare ``dinov2-base``
+    folder behind, and ``.exists()`` on it alone reported "available" to
+    ``judge.embed`` and the mesh queue's anchor-similarity step, both of which
+    then paid for a torch import and an ``AutoModel.from_pretrained`` that was
+    always going to fail (the 2026-09-26 audit, finding
+    pipelines-install-08). The fetch spec's own pattern is ``*.safetensors``
+    (``models.METRIC_MODELS["dinov2"].fetch``), so any such file is proof of a
+    real download rather than an empty directory.
+    """
+    path = _dino_dir(config)
+    return path.is_dir() and any(path.glob("*.safetensors"))
 
 
 def _dino_dir(config: Any = None) -> Path:
@@ -607,7 +621,7 @@ def compare_silhouette(reference_png: bytes, render_mask: Any) -> dict[str, Any]
     null reading with a reason.
 
     ``reference_png`` is the stored reference's own bytes; ``render_mask`` is
-    the render's silhouette, already computed the way ``studio.agent_clay``
+    the render's silhouette, already computed the way ``modes.clay.agent.tools_ops``
     gets one -- :func:`render_ids_mask` over a ``ClayView.render_ids`` pass
     at the compare size and view. The reference's own mask comes from
     ``pipelines.reference.subject_mask`` -- alpha when the reference has one,
@@ -621,7 +635,7 @@ def compare_silhouette(reference_png: bytes, render_mask: Any) -> dict[str, Any]
     almost the whole frame (a busy background with no alpha reads as
     "everything is subject", which is not a silhouette to measure) -- comes
     back as ``{"iou": None, "reason": ...}`` rather than an exception
-    ``studio.agent_clay`` would otherwise have to catch on this module's
+    ``modes.clay.agent.tools_ops`` would otherwise have to catch on this module's
     behalf.
     """
     import io

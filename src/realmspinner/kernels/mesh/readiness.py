@@ -558,8 +558,14 @@ def _check_triangles(objects: list[Any], profile: Profile) -> Check:
     counts = {obj.uid: _tri_count(obj.mesh) for obj in objects}
     total = sum(counts.values())
     if total > profile.triangles_fail:
-        status, limit = "fail", profile.triangles_fail
-        message = f"{total:,} triangles; this profile's hard limit is {limit:,}."
+        # The 2026-09-26 audit (clay-mesh-model-03): the module docstring,
+        # manual 30:819-820 and INVARIANTS all say only `objects` and `uvs`
+        # can reach "fail" -- a budget is advice, however far over it a scene
+        # runs, because an engine imports past it -- but this branch used to
+        # answer "fail" once a document ran past `triangles_fail`. It stays a
+        # "warn", just the harder of the two triangle messages.
+        status, limit = "warn", profile.triangles_fail
+        message = f"{total:,} triangles; well past this profile's hard budget of {limit:,}."
     elif total > profile.triangles_warn:
         status, limit = "warn", profile.triangles_warn
         message = f"{total:,} triangles; this profile recommends under {limit:,}."
@@ -1150,7 +1156,12 @@ def validate(doc: Any, profile: str = DEFAULT_PROFILE, *, visible_only: bool = T
     oversized = tuple(
         obj.uid for obj in objects if len(obj.mesh.loops) > ops_clean.MAX_CLEAN_CORNERS
     )
-    if oversized:
+    oversized_set = set(oversized)
+    safe_objects = [obj for obj in objects if obj.uid not in oversized_set]
+    if oversized and not safe_objects:
+        # Every visible object is past the ceiling: nothing below could be
+        # surveyed at all, so the whole-document skip from before still
+        # applies exactly as documented.
         ceiling_msg = (
             f"{len(oversized)} object(s) exceed the {ops_clean.MAX_CLEAN_CORNERS:,} corner "
             "ceiling Clean can process without stalling; skipped rather than stall the frame."
@@ -1168,10 +1179,27 @@ def validate(doc: Any, profile: str = DEFAULT_PROFILE, *, visible_only: bool = T
             measured=None, limit=ops_clean.MAX_CLEAN_CORNERS, fix="", uids=oversized,
         )
     else:
-        surveys = {obj.uid: ops_clean.survey(obj.mesh) for obj in objects}
-        geometry = _check_geometry(objects, surveys)
-        normals = _check_normals(objects, surveys)
-        closed = _check_closed(objects, surveys)
+        # The 2026-09-26 audit (clay-mesh-model-08): this used to test
+        # `oversized` as a single document-wide switch, so *one* object past
+        # the ceiling skipped `geometry`/`normals`/`closed` for every other
+        # visible object too -- not the per-object skip the module docstring
+        # (and the sibling `vertices` check, which already keeps surveying
+        # the rest of the document) both describe. Only the oversized
+        # object(s) are left unsurveyed; the rest are checked as normal, with
+        # a note appended when some were skipped.
+        surveys = {obj.uid: ops_clean.survey(obj.mesh) for obj in safe_objects}
+        geometry = _check_geometry(safe_objects, surveys)
+        normals = _check_normals(safe_objects, surveys)
+        closed = _check_closed(safe_objects, surveys)
+        if oversized:
+            note = (
+                f" ({len(oversized)} object(s) skipped: past the "
+                f"{ops_clean.MAX_CLEAN_CORNERS:,} corner ceiling Clean can process "
+                "without stalling.)"
+            )
+            geometry = replace(geometry, message=geometry.message + note)
+            normals = replace(normals, message=normals.message + note)
+            closed = replace(closed, message=closed.message + note)
 
     checks = [
         _check_objects(objects),

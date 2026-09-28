@@ -53,10 +53,18 @@ from ..manual import render as manual_render
 # whenever a mesh's inspector happened to be open at the same time, and
 # editing either field silently cleared the other's ring
 # (``clear_field_error("prompt")``).
+#
+# The 2026-09-26 audit, finding create-panes-08: "control_scale" needed the
+# same treatment and never got it. It is also ``settings_2d.py``'s bare id
+# for the 2D pane's ControlNet conditioning slider, so a refusal filed
+# against either -- or an edit to either -- rang or cleared the other's ring
+# whenever a mesh's inspector and the Reference stage's settings pane were
+# both open, which is routine.
 _FIELD_PREFIX = {
     "strength": "retexture_strength",
     "texture_size": "retexture_texture_size",
     "prompt": "retexture_prompt",
+    "control_scale": "retexture_control_scale",
 }
 
 
@@ -136,7 +144,9 @@ def draw(ctx: Any, job: Any) -> None:
         )
         if form["depth"]:
             _changed, form["control_scale"] = form_ui.slider(
-                "control_scale",
+                # Not the bare "control_scale" id: create-panes-08, 2026-09-26
+                # audit -- see ``_FIELD_PREFIX`` above.
+                "retexture_control_scale",
                 "Anchor strength",
                 float(form["control_scale"]),
                 models.CONTROL_SCALE_MIN,

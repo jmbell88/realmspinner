@@ -146,6 +146,19 @@ class TroupeOps:
         socket_specs = _socket_specs(character)
 
         records = await asyncio.to_thread(clips.expand_clips, template, troupe_layout)
+        # The 2026-09-26 audit (plotter-tiles-03 / service-kinds-07): a named
+        # palette used to be re-resolved only inside ``_quantise()``, which
+        # ``_render_charsheet``'s Blender subprocess -- the expensive part --
+        # has already finished by the time it runs. A palette deleted after
+        # this job was queued failed it there, after the render was paid
+        # for; checked here, before a single frame is drawn, the same
+        # "re-derived before the card is spent" rule ``_q_tileset.py`` and
+        # ``_q_sprite.py`` already keep for their own params-outlive-the-door
+        # reads.
+        if params.get("pixel_art") is not False:
+            await asyncio.to_thread(
+                queue_mod._palette_entries, self.config, str(params.get("palette") or "")
+            )
         logical = int(params.get("logical_size", 32))
         # The direction the user pressed in the reference stage, added to every
         # cell's camera yaw so the row Troupe labels "front" is actually shot

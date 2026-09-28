@@ -354,14 +354,34 @@ def _retarget(ctx: Any, tab: Any, index: int, uid: int, editable: bool) -> bool:
     return changed
 
 
+def visible_patterns(doc: Any) -> list[Any]:
+    """The song's own patterns -- not each sound effect's private one.
+
+    The 2026-09-26 audit, finding sirens-panes-02: ``document.add_oneshot``
+    mints its effect's pattern into this same ``doc.patterns`` list (its own
+    docstring says why: an effect must not share a pattern the song can edit
+    out from under it), so this pane listed it too, right down to its own
+    Delete button. That button's ``used`` count reads ``doc.order`` only, never
+    ``doc.oneshots``, so deleting a fresh effect's pattern here asked no
+    question at all and left the effect naming a pattern that no longer
+    existed -- export and audition then fail, and reopening the song drops the
+    effect's pattern reference silently. Pulled out pure, ``pattern_room``'s
+    shape, so a test can call it with no imgui frame. A sound effect's pattern
+    is reached from ``sirens_effects`` instead; it is not deleted from here.
+    """
+    owned = {one.pattern for one in doc.oneshots}
+    return [pattern for pattern in doc.patterns if pattern.uid not in owned]
+
+
 def _patterns(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
     from imgui_bundle import imgui
 
     doc = tab.doc
-    if not doc.patterns:
+    patterns = visible_patterns(doc)
+    if not patterns:
         widgets.muted("No patterns yet.")
         return
-    for pattern in list(doc.patterns):
+    for pattern in patterns:
         selected = state.pattern == pattern.uid
         if controls.selectable(
             f"{_name_of(doc, pattern.uid)}  ({pattern.rows} rows)"

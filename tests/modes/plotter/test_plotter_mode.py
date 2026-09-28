@@ -56,6 +56,21 @@ class FakeCtx:
     ) -> None:
         self.toasts.append((message, kind, action, action_arg))
 
+    def toast_once(
+        self,
+        message: str,
+        kind: str = "info",
+        action: str | None = None,
+        action_arg: str | None = None,
+    ) -> bool:
+        # Real ``app_ctx.AppCtx.toast_once`` dedupes against the *live*
+        # toasts; every toast here lives for the rest of the test, so a plain
+        # "already said this" check is the same thing for this fake.
+        if any(t[:2] == (message, kind) for t in self.toasts):
+            return False
+        self.toast(message, kind, action, action_arg)
+        return True
+
 
 class _AppState:
     def __init__(self) -> None:
@@ -3636,7 +3651,12 @@ def test_reloading_a_tileset_image_replaces_the_art_in_place():
         ctx,
         _Done(
             f"plotter-tileset-image:{tab.uid}",
-            {"replace": (0, "atlas.png", fresh), "uid": tab.uid},
+            # By the ``TilesetRef`` object, not index, since the 2026-09-26
+            # audit's plotter-mode-18: the door re-resolves the tileset this
+            # way so a reorder or a remove while the file picker was up
+            # cannot land the art on whatever tileset the stale index now
+            # names.
+            {"replace": (before, "atlas.png", fresh), "uid": tab.uid},
         ),
     )
 
@@ -3656,12 +3676,13 @@ def test_reloading_an_atlas_of_a_different_size_is_refused_by_name():
     ctx = FakeCtx()
     tab = _tab(ctx)
     before = tab.doc.tilesets[0].tileset
+    ref = tab.doc.tilesets[0]
 
     plotter_mode.on_task_done(
         ctx,
         _Done(
             f"plotter-tileset-image:{tab.uid}",
-            {"replace": (0, "small.png", np.zeros((16, 16, 4), dtype=np.uint8))},
+            {"replace": (ref, "small.png", np.zeros((16, 16, 4), dtype=np.uint8))},
         ),
     )
 
@@ -3692,7 +3713,9 @@ def test_the_reload_door_picks_a_file_on_its_own_key(monkeypatch):
 
     assert calls, "the door never opened a picker"
     assert ctx.submitted == [f"plotter-tileset-image:{tab.uid}"]
-    assert ctx.result["replace"][0] == 0
+    # By the ``TilesetRef`` object (plotter-mode-18), not the index it was
+    # asked with.
+    assert ctx.result["replace"][0] is tab.doc.tilesets[0]
     assert ctx.result["uid"] == tab.uid
 
 

@@ -21,6 +21,7 @@ import numpy as np
 
 from ...kernels import sheet as sheetlib
 from ...kernels.geom3d import math3d as m3
+from . import capture
 from .glctx import Viewport
 
 CELL = 64
@@ -171,8 +172,14 @@ class StripRender:
             show_grid=False,
             background=(0.0, 0.0, 0.0, 0.0),
         )
+        # Rendered against a transparent clear (above), so the MSAA resolve's
+        # edge texels are premultiplied by coverage -- ``capture.unpremultiply``
+        # undoes it, the same fix ``png_bytes(opaque=False)`` applies, so this
+        # cell does not carry the dark silhouette fringe the 2026-09-26
+        # audit's create-viewer-04 found here.
         self.image.paste(
-            Image.fromarray(self._viewport.read_rgba(), "RGBA"), (i * self._cell, 0)
+            Image.fromarray(capture.unpremultiply(self._viewport.read_rgba()), "RGBA"),
+            (i * self._cell, 0),
         )
         self.index += 1
         return self.done

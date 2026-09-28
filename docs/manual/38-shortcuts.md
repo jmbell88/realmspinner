@@ -75,8 +75,9 @@ or which mode owns it.
 Everything in the palette is also in the menu bar, and the reverse: both are drawn from the same
 registry, so neither can offer something the other does not.
 
-Typing also searches your assets by name, prompt or job id; picking one selects it and opens it in
-the pane that made it.
+Typing also searches your most recent assets — by name, prompt or job id, up to the newest 200 —
+picking one selects it and opens it in the pane that made it. An older asset than that is still in
+the Library, just not in this quick list.
 
 ## Home and the Library
 

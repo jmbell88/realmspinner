@@ -518,8 +518,10 @@ class GeometryOps:
         48px trees, anchored bottom left -- so nothing is re-sliced, nothing is
         renumbered and nothing is lost. What it *does* mean is that a plain
         image added later is sliced at the new size, because that is the size
-        ``plotter_tilesets`` slices at; tilesets already attached keep the
-        slicing they arrived with, which is exactly Tiled's model.
+        ``tilesets`` slices at (``plotter_tilesets`` before the module was
+        renamed; the 2026-09-26 audit, finding plotter-map-10); tilesets
+        already attached keep the slicing they arrived with, which is exactly
+        Tiled's model.
         """
         tile_w = _dimension(tile_w, "tile width")
         tile_h = _dimension(tile_h, "tile height")

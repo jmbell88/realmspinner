@@ -205,6 +205,17 @@ def library_training_set(
         job = svc.store.get(job_id)
         if job is None or job.get("deleted_at") is not None:
             continue
+        # The 2026-09-26 audit (service-assets-09): ``accepted_references``
+        # and ``usable_meshes`` only ever name jobs a verdict was filed
+        # against at ``stage="reference"``/``"model"``, but ``favourites``
+        # names *any* favourited job with no such filter -- and a favourited
+        # ``tile_sheet`` row (``stage="tilesheet"``) has its own ``input.png``
+        # too, except that one is a 64-cell grid, not the single subject this
+        # door's docstring promises "the" reference file is. Same filter for
+        # every source, so a job whose ``input.png``/``reference.png`` is not
+        # a single-subject picture never reaches the training corpus.
+        if job.get("stage") not in ("reference", "model"):
+            continue
         job_dir = svc.job_dir(job_id)
         path = next(
             (job_dir / name for name in verdicts_mod.IMAGE_NAMES if (job_dir / name).is_file()),

@@ -136,10 +136,29 @@ _UNSAFE_NAME_CHARS = re.compile(r'["\\\r\n]')
 #: ``Node.name``).
 _INVALID_NODE_NAME_CHARS = frozenset('.:@/"%')
 
+#: State names this module's own state machine already writes literally, or
+#: names Godot itself always provides implicitly. The 2026-09-26 audit,
+#: finding poser-jobs-02: a clip literally named ``locomotion`` was not
+#: filtered out of ``non_locomotion`` (only ``idle``/``walk``/``run`` are, via
+#: ``_LOCOMOTION_NAMES``), so it landed in ``states`` a second time and wrote a
+#: second ``states/locomotion/node`` line for the one blend-space state this
+#: module always builds -- one .tscn, two lines claiming the same key. A clip
+#: named ``Start`` or ``End`` collides the other way: those are Godot's own
+#: implicit entry/exit pseudo-states on every ``AnimationNodeStateMachine``
+#: (``_EMIT_START_POSITION``'s docstring), so a clip claiming either name
+#: writes a state indistinguishable from -- and silently overriding -- one
+#: Godot itself already assumes exists.
+_RESERVED_STATE_NAMES = frozenset({"locomotion", "Start", "End"})
+
 
 def _validate_clip_name(name: str) -> None:
     if not name:
         raise ValueError("clip name must not be empty")
+    if name in _RESERVED_STATE_NAMES:
+        raise ValueError(
+            f"clip name {name!r} is reserved by the state machine this scene "
+            "builds; rename the clip"
+        )
     if _UNSAFE_NAME_CHARS.search(name):
         raise ValueError(f"clip name {name!r} contains a char that breaks a StringName literal")
     # The 2026-09-14 audit (troupe-01) found that a clip name containing "/"

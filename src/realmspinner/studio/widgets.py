@@ -2175,7 +2175,7 @@ GRADES_PER_ROW = 6
 GRADES = tuple(range(GRADE_MIN, GRADE_MAX + 1))
 
 
-def grade_buttons(id_prefix: str, enabled: bool) -> int | None:
+def grade_buttons(id_prefix: str, enabled: bool, *, reason: str = "") -> int | None:
     """The -5..+5 mesh grade row. -> the grade clicked, or ``None``.
 
     Eleven buttons, worst on the left, so the control is the scale: a reviewer
@@ -2199,6 +2199,12 @@ def grade_buttons(id_prefix: str, enabled: bool) -> int | None:
     ``review_mode.grade_text`` and is *imported* rather than re-spelled here --
     the unit list, the inspector's toast and this row must agree about how a
     grade is written.
+
+    ``reason``, shown only while ``enabled`` is False: before this the row took
+    only a bare flag, so a caller that greys all eleven buttons together (an
+    ungradeable candidate, a locked review) had nowhere to say why, and the
+    row read as eleven dead buttons rather than one explained one
+    (shell-widgets-02, the 2026-09-26 audit).
     """
     from .modes.review.mode import grade_text
 
@@ -2211,6 +2217,7 @@ def grade_buttons(id_prefix: str, enabled: bool) -> int | None:
             f"{grade_text(grade)}##{id_prefix}-grade{grade}",
             enabled,
             (width, 0),
+            reason=reason,
             tooltip=grade_key_hint(grade),
         ):
             clicked = grade
@@ -2321,7 +2328,9 @@ def grid_width_for(
     return grid_width(grid_columns_for(*groups, maximum=maximum, avail=avail), avail=avail)
 
 
-def tag_toggles(id_prefix: str, pending: list[str], enabled: bool) -> str | None:
+def tag_toggles(
+    id_prefix: str, pending: list[str], enabled: bool, *, reason: str = ""
+) -> str | None:
     """The two tag vocabularies as toggle rows. -> the tag clicked, or ``None``.
 
     Two rows rather than one list, because the polarity is the thing a reader
@@ -2335,6 +2344,10 @@ def tag_toggles(id_prefix: str, pending: list[str], enabled: bool) -> str | None
     ``review_mode.toggle_tag`` (which also drops an unknown tag rather than
     staging a verdict that would be refused), and a second copy of it in a
     drawing function is how the two come to disagree.
+
+    ``reason``, shown only while ``enabled`` is False -- ``grade_buttons``'s
+    twin fix (shell-widgets-02, the 2026-09-26 audit): the row took only a
+    bare flag, so a caller with both rows greyed had no way to say why.
     """
     from ..service import verdicts as verdicts_mod
 
@@ -2390,7 +2403,13 @@ def tag_toggles(id_prefix: str, pending: list[str], enabled: bool) -> str | None
                 fill = imgui.ImVec4(*theme.rgba(theme.ACCENT))
                 imgui.push_style_color(imgui.Col_.button.value, fill)
                 imgui.push_style_color(imgui.Col_.button_hovered.value, fill)
-            if disabled_button(f"{tag}##{id_prefix}-tag-{tag}", enabled, (width, 0), tooltip=hint):
+            if disabled_button(
+                f"{tag}##{id_prefix}-tag-{tag}",
+                enabled,
+                (width, 0),
+                reason=reason,
+                tooltip=hint,
+            ):
                 clicked = tag
             if selected:
                 imgui.pop_style_color(2)

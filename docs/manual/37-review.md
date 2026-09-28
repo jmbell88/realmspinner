@@ -285,7 +285,7 @@ this sweep** button beside each one fills the New sweep form's axis and seed cou
 [Sweep suggestions](#sweep-suggestions) above.
 
 **Ranked configurations** are whole settings vectors ordered by a conservative floor on their
-usable rate, shown as "usable 80% of 20 (61%+) · avg +2.6": the first number is what happened, the
+usable rate, shown as "usable 80% of 20 (58%+) · avg +2.6": the first number is what happened, the
 parenthesised one is the floor the evidence supports — which is what stops a lucky 5-for-5 from
 outranking a solid 19-of-20 — and the average is the mean grade behind it. The average breaks ties
 rather than doing the ranking: over one sample its own spread is zero, which would re-create exactly
@@ -308,7 +308,7 @@ visible where the decisions are made: "usable 6/8 (41%+) · avg +2.6" once a val
 verdicts behind it, and before that "holes 3% · watertight 71% (21 meshes)" from the automatic
 measurements alone —
 every finished mesh contributes those, reviewed or not. When a *different* value has scored better
-than the one currently set, a second muted line names it — "7/8 usable (47%+) · avg +2.9 · this
+than the one currently set, a second muted line names it — "7/8 usable (53%+) · avg +2.9 · this
 subject" — with a **Use ...** button beside it, so the finding is a click rather than a value you
 have to go dial in by hand yourself. It is offered, never applied: nothing changes until you press
 it, and nothing is offered once the control already holds what the evidence favours. See [Measuring

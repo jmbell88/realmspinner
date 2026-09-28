@@ -156,6 +156,16 @@ class ThumbnailCache:
                 self._missing.add(key)
                 self._missing_by_key.setdefault(job_id, set()).add(key)
                 continue
+            # The pool has two workers and submission order is no promise of
+            # finish order: a decode queued for an older mtime can land in a
+            # *later* frame than one queued after it for a newer mtime that
+            # already finished and was inserted. ``_supersede`` retires every
+            # entry under this job id with a *different* mtime, older or not,
+            # so letting the stale decode through would have it retire the
+            # texture that is actually current and install the old one in its
+            # place (shell-widgets-06, the 2026-09-26 audit).
+            if any(k[1] > mtime for k in self._by_key.get(job_id, ())):
+                continue
             size, data = decoded
             try:
                 texture = self.ctx.texture(size, 4, data)

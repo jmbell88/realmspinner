@@ -138,7 +138,23 @@ def validate_joints(
         raise ValueError("joints payload requires a non-empty 'bones' list")
     by_name: dict[str, dict[str, Any]] = {}
     for entry in raw:
+        # The 2026-09-26 audit, finding poser-rig-02: a non-object entry (a
+        # bare bone name string, say) raised ``AttributeError`` out of the
+        # ``.get`` below instead of the ``ValueError`` this function's own
+        # docstring and every other refusal here promise -- and
+        # ``service.rig.adjust_joints`` only catches ``(ValueError, KeyError,
+        # TypeError)``, so the raw ``AttributeError`` reached its caller
+        # unwrapped instead of becoming a field-addressed ``Invalid``.
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"joints payload entries must be objects, not {entry!r}")
         name = str(entry.get("name") or "")
+        # The 2026-09-26 audit, finding poser-rig-03: two entries naming the
+        # same bone used to both land in ``by_name`` with the last silently
+        # winning -- so a payload correcting one joint and, by a client bug,
+        # repeating another bone's name twice would drop one of the two
+        # corrections with no error at all.
+        if name in by_name:
+            raise ValueError(f"joints payload names bone {name!r} more than once")
         points: dict[str, list[float]] = {}
         for end in ("head", "tail"):
             point = entry.get(end)

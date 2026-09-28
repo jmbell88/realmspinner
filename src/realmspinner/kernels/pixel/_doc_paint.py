@@ -1146,7 +1146,21 @@ class PaintOps:
             return False
         layer = self.stack.by_uid(stroke.layer_uid)
         x0, y0, x1, y1 = box
-        self._commit_patch(layer, box, stroke.before[y0:y1, x0:x1])
+        # inker-paint-01/02 (the 2026-09-26 audit): a coverage-mode stroke's
+        # own accumulated coverage is the one signal that tells a pixel the
+        # stamp actually reached, however faintly, from one the dirty rect
+        # merely includes -- a soft or round nib's bounding box routinely
+        # squares off a circular or feathered stamp. ``_resolve_indices``
+        # reads this to leave a pixel outside the stamp's footprint on
+        # whatever slot it already held. ``blur``/``smudge``/``shade`` never
+        # accumulate coverage, so they resolve the whole rect exactly as
+        # every other funnel caller does.
+        if stroke.mode in brush_mod.COVERAGE_MODES:
+            self._stroke_touched = stroke.coverage[y0:y1, x0:x1] > 0.0
+        try:
+            self._commit_patch(layer, box, stroke.before[y0:y1, x0:x1])
+        finally:
+            self._stroke_touched = None
         return True
 
     # -- fill, shapes, gradients -------------------------------------------

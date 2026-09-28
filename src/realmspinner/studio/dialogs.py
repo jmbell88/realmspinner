@@ -302,6 +302,15 @@ class ConfirmQueue:
 
     def __init__(self) -> None:
         self._queue: deque[Confirm] = deque()
+        # Set only around the ``on_confirm`` call in :meth:`draw`, and read by
+        # :meth:`dismiss`. The 2026-09-26 audit, finding shell-chrome-07:
+        # ``draw`` popped the answered question *before* running its
+        # callback, so a raising callback reached ``guard.run``'s
+        # ``on_failure=self.dismiss`` with the queue already advanced --
+        # dismiss popped the *next* question instead of the one that failed,
+        # silently dropping it. This flag tells ``dismiss`` that the pop for
+        # the question in flight already happened.
+        self._answering = False
 
     @property
     def pending(self) -> Confirm | None:
@@ -343,7 +352,16 @@ class ConfirmQueue:
         ``pending`` is the head of the queue and so is deliberately read-only:
         assigning ``None`` to it used to be how a caller said this, and on a
         queue that would silently throw away everything behind it too.
+
+        Called as ``guard.run``'s ``on_failure`` when :meth:`draw` raises. If
+        the raise came from ``on_confirm`` -- :attr:`_answering` says so --
+        the question that failed was already popped in :meth:`draw` before the
+        callback ran, so popping again here would drop the *next* one instead
+        (shell-chrome-07, the 2026-09-26 audit).
         """
+        if self._answering:
+            self._answering = False
+            return
         if self._queue:
             self._queue.popleft()
 
@@ -443,14 +461,22 @@ class ConfirmQueue:
             escape=_escape_pressed(), enter=_enter_pressed(), body_had_focus=body_had_focus
         ):
             cancelled = True
-        if confirmed:
+        if confirmed or cancelled:
             self._answered()
-            if confirm.on_confirm is not None:
-                confirm.on_confirm()
-        elif cancelled:
-            self._answered()
+        # Closed *before* the callback runs, not after (shell-chrome-07, the
+        # 2026-09-26 audit): a raising ``on_confirm`` used to skip straight
+        # past these two calls, leaving imgui's popup stack unbalanced for
+        # the frame -- the mechanism behind "an invisible modal owns the
+        # keyboard" once the surface's breaker then stopped calling ``draw``
+        # at all.
         imgui.end_popup()
         imgui.pop_style_var()
+        if confirmed and confirm.on_confirm is not None:
+            # See :meth:`dismiss`: this question is already popped, so a
+            # raise here must not cost the next one too.
+            self._answering = True
+            confirm.on_confirm()
+            self._answering = False
 
 
 @dataclass
@@ -471,6 +497,9 @@ class PromptQueue:
 
     def __init__(self) -> None:
         self._queue: deque[Prompt] = deque()
+        #: See ``ConfirmQueue._answering`` -- the same shape, the same
+        #: shell-chrome-07 fix, for ``on_accept`` instead of ``on_confirm``.
+        self._answering = False
 
     @property
     def pending(self) -> Prompt | None:
@@ -493,6 +522,10 @@ class PromptQueue:
         self._queue.append(prompt)
 
     def dismiss(self) -> None:
+        """See ``ConfirmQueue.dismiss`` -- same shape, same reason."""
+        if self._answering:
+            self._answering = False
+            return
         if self._queue:
             self._queue.popleft()
 
@@ -627,14 +660,17 @@ class PromptQueue:
             )
             or _escape_pressed()
         )
-        if accepted and prompt.value.strip():
+        accepted_value = prompt.value.strip()
+        if (accepted and accepted_value) or cancelled:
             self._answered()
-            if prompt.on_accept is not None:
-                prompt.on_accept(prompt.value.strip())
-        elif cancelled:
-            self._answered()
+        # See ``ConfirmQueue.draw`` for why this runs after ``end_popup`` and
+        # under ``_answering`` (shell-chrome-07, the 2026-09-26 audit).
         imgui.end_popup()
         imgui.pop_style_var()
+        if accepted and accepted_value and prompt.on_accept is not None:
+            self._answering = True
+            prompt.on_accept(accepted_value)
+            self._answering = False
 
 
 def modal_open(ctx: Any) -> bool:

@@ -164,7 +164,8 @@ MAX_CONCAVE_DISSOLVE_RING = 1_000
 
 def _refuse_concave_ring(mesh: Mesh, vertex_rings: list[np.ndarray]) -> None:
     """Refuse a concave ring past MAX_CONCAVE_DISSOLVE_RING, before the merge
-    commits it to a face earclip's O(n^2) ear search would have to walk.
+    commits it to a face earclip's O(n^2) ear search would have to walk --
+    and refuse the *sum* of many rings that individually stay under it too.
 
     Each ring in *vertex_rings* is a face's worth of *vertex* ids in winding
     order -- the same shape ``mesh.loops`` stores, and what a caller with a
@@ -175,10 +176,25 @@ def _refuse_concave_ring(mesh: Mesh, vertex_rings: list[np.ndarray]) -> None:
     Shared with :func:`~.ops_topo.fill_hole`, whose cap is the identical
     "one n-gon, triangulated by earclip on the frame thread" shape -- a
     hole's boundary has no more guarantee of convexity than a dissolved
-    region's does, so the same concave ring can appear there too.
+    region's does, so the same concave ring can appear there too. Both
+    callers can hand this a *list* of several rings from one call (several
+    disjoint dissolve groups, or several pinched holes filled at once), which
+    is exactly the shape the 2026-09-26 audit's clay-mesh-ops-05 found
+    unbounded: a ring at or under the per-ring ceiling used to skip the
+    concavity check entirely, so many separate concave rings, each
+    individually just under it, passed one after another and paid their
+    summed O(n^2) earclip cost with nothing to refuse it. Earclip's cost is
+    quadratic in a ring's own corner count (see this constant's own
+    measurement), so the fair total is a sum of corner-count *squares*,
+    bounded to what one single ring at the ceiling would have cost --
+    keeping one call's total earclip time under the same bar the per-ring
+    ceiling was already set for, however the corners are distributed across
+    rings.
     """
+    budget = MAX_CONCAVE_DISSOLVE_RING * MAX_CONCAVE_DISSOLVE_RING
     for ring in vertex_rings:
-        if len(ring) <= MAX_CONCAVE_DISSOLVE_RING:
+        n = len(ring)
+        if n < 3:
             continue
         # A throwaway single-face mesh just to ask face_normals/concave_faces
         # the question -- the real merged face does not exist yet, and
@@ -186,7 +202,7 @@ def _refuse_concave_ring(mesh: Mesh, vertex_rings: list[np.ndarray]) -> None:
         virtual = Mesh(
             positions=mesh.positions,
             loops=np.asarray(ring, dtype="i4"),
-            starts=np.array([0, len(ring)], dtype="i4"),
+            starts=np.array([0, n], dtype="i4"),
             material=np.zeros(1, dtype="i4"),
             smooth=np.zeros(1, dtype=bool),
         )
@@ -194,12 +210,22 @@ def _refuse_concave_ring(mesh: Mesh, vertex_rings: list[np.ndarray]) -> None:
         is_concave = earclip.concave_faces(
             virtual.positions, virtual.loops, virtual.starts, normals
         )[0]
-        if is_concave:
+        if not is_concave:
+            continue
+        if n > MAX_CONCAVE_DISSOLVE_RING:
             raise OpError(
-                f"That merge would make a concave face with {len(ring):,} corners, "
+                f"That merge would make a concave face with {n:,} corners, "
                 f"too complex for Clay to triangulate without stalling -- past the "
                 f"{MAX_CONCAVE_DISSOLVE_RING:,} corners a concave merge can have. "
                 "Dissolve a smaller region."
+            )
+        budget -= n * n
+        if budget < 0:
+            raise OpError(
+                "This merge's concave faces would together cost as much to "
+                f"triangulate as one {MAX_CONCAVE_DISSOLVE_RING:,}-corner "
+                "concave face, past what Clay can do without stalling. "
+                "Dissolve fewer regions in one go."
             )
 
 

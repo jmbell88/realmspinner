@@ -40,6 +40,7 @@ from .....tokens import sp
 from ... import export as inker_export
 from ... import mode as inker_mode
 from ... import ops as inker_ops
+from . import canvas as inker_canvas
 from . import menu as inker_menu
 
 #: The least this pane may be squeezed to, in design px: the file header's
@@ -78,12 +79,22 @@ def draw(ctx: Any) -> None:
         widgets.section("Drawing file")
         widgets.document_header(
             tab,
-            new=lambda: inker_mode.new_document(ctx, 1024, 1024),
+            # The 2026-09-26 audit, finding inker-panes-06: this used to call
+            # ``new_document`` straight from the button, past the New dialog
+            # entirely -- a fixed 1024x1024 canvas with no size to pick,
+            # contradicting manual 28's "New opens a dialog, 64x64 by
+            # default". ``inker_canvas.new_popup`` is the door every other New
+            # (File menu, Ctrl+N, the empty-state button) already goes
+            # through; its own docstring says a second pane wanting one
+            # opens and draws its own copy, because a popup belongs to the
+            # window that begins it. This is that second pane.
+            new=lambda: imgui.open_popup("new-canvas"),
             open_=lambda: inker_mode.ask_open(ctx),
             save=lambda: inker_mode.save(ctx, tab),
             save_as=lambda: inker_mode.save_as(ctx, tab),
             saving=tab.busy,
         )
+        inker_canvas.new_popup(ctx)
         imgui.dummy((0, sp(tokens.SP_2)))
         # The Undo/Redo pair and the history popover every other bridge
         # draws. Four bridges' comments said "while Inker drew the same pair

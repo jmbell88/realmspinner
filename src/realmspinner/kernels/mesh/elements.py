@@ -41,6 +41,7 @@ from typing import Literal
 
 import numpy as np
 
+from . import topo
 from .adjacency import adjacency
 from .mesh import Mesh
 
@@ -133,9 +134,13 @@ def affected_verts(mesh: Mesh, sel: ElementSel) -> np.ndarray:
     """
     parts = [sel.verts.astype("i8"), sel.edges.reshape(-1).astype("i8")]
     if len(sel.faces):
-        starts = mesh.starts.astype("i8")
-        for f in sel.faces.tolist():
-            parts.append(mesh.loops[starts[f] : starts[f + 1]].astype("i8"))
+        # The 2026-09-26 audit (clay-mesh-core-05): a Python loop per selected
+        # face measured 0.51s at 490,000 faces (select-all on a heavy mesh
+        # calls this on every drag-gizmo frame); `topo.corner_spans` is the
+        # same vectorised CSR gather `ops_model.bisect` already uses instead
+        # of iterating faces one at a time.
+        corners = topo.corner_spans(mesh.starts, sel.faces)
+        parts.append(mesh.loops[corners].astype("i8"))
     if not any(len(p) for p in parts):
         return np.zeros(0, dtype="i4")
     return np.unique(np.concatenate(parts)).astype("i4")

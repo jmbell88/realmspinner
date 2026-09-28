@@ -168,7 +168,7 @@ class RigOps:
                 # weighting/bone_count of a discarded rig must not end up in
                 # the params of a job recorded as cancelled.
                 return
-            await asyncio.to_thread(store.finalize_rig, source_dir)
+            await asyncio.to_thread(self._finalize_rig_locked, source_id, source_dir)
             # Published onto the served rig.glb/rig.json. From here a cancel
             # cannot take the artifact back -- ``_discard_artifacts`` removes
             # only the temps, because a cancelled *re*-rig must not destroy an
@@ -216,6 +216,38 @@ class RigOps:
             qa = None
         if qa is not None:
             await asyncio.to_thread(self.store.merge_params, job_id, {"deform_qa": qa})
+
+    def _finalize_rig_locked(self: Worker, source_id: str, source_dir: Path) -> None:
+        """Publish the freshly baked rig.glb/rig.json, with every existing
+        pose's bake frozen for the whole delete-then-rename window.
+
+        The 2026-09-26 audit, finding poser-rig-07: ``store.finalize_rig``
+        deletes every stale ``poses/*.glb`` up front and then spends up to 5s
+        retrying the rig.glb/rig.json rename against a lock a Windows
+        antivirus or indexer can hold that long (``store.py``'s own
+        docstring). ``service.rig.posed_model`` bakes a pose from whatever
+        rig.glb is on disk *right now*, guarded by nothing but that one pose
+        id's own ``pose:<id>`` lock. A bake landing in that window reads the
+        *old* rig -- finalize has not renamed the new one in yet -- and writes
+        straight back to ``poses/<id>.glb``, the very file finalize just
+        cleared, so it is never invalidated again and is served under the new
+        rig's authority forever.
+
+        Closed by taking every pose id's own lock -- the same
+        ``self.artifact_lock(job_id, f"pose:{pose_id}")`` spelling
+        ``posed_model`` uses as ``svc.convert_lock(job_id, f"pose:{pose_id}")``
+        (``studio.runtime`` wires ``worker.artifact_lock = svc.convert_lock``,
+        so the two spellings name one lock) -- across the whole delete-then-
+        rename call, rather than touching ``finalize_rig``'s own
+        delete-before-rename order, which its docstring says is deliberate: a
+        crash there must cost a rebake under the *old* rig, never serve a
+        stale one under the new rig.json's authority.
+        """
+        pose_ids = [str(p.get("id")) for p in store.list_poses(source_dir) if p.get("id")]
+        with contextlib.ExitStack() as poses_locked:
+            for pose_id in pose_ids:
+                poses_locked.enter_context(self.artifact_lock(source_id, f"pose:{pose_id}"))
+            store.finalize_rig(source_dir)
 
     async def _deform_qa(
         self: Worker, job_id: str, source_id: str, source_dir: Path, template: str

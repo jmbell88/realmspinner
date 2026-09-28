@@ -364,17 +364,15 @@ def _tile_form(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None:
         f"{len(meta.animation)} animation frame(s), "
         f"{len(meta.collision)} collision shape(s)"
     )
-    if controls.button("Add frame from selection", (-1, 0)):
-        # The palette pick *is* the frame picker -- there is no second control
-        # for choosing a tile, because the one above it already is one.
-        tab.doc.set_tile_meta(
-            index,
-            local,
-            _replaced(
-                meta,
-                animation=(*meta.animation, _frame(local)),
-            ),
-        )
+    # No "Add frame from selection" door here (removed): this form always
+    # shows the *picked* tile's own metadata (``local`` above, from
+    # ``_picked_local``), so the button the sidebar carried could only ever
+    # append ``local`` to its own animation -- there was never a second tile
+    # to pick, whatever the docstring that used to sit here claimed. The
+    # tileset editor's own Animation tab (``tileset_editor.py``'s
+    # ``_animation_tab``) is the real door onto a tile's frame list now,
+    # with a duration per frame and reordering neither copy of this form ever
+    # had (the 2026-09-26 audit, finding plotter-mode-13).
     if meta.animation and controls.button("Remove last frame", (-1, 0)):
         tab.doc.set_tile_meta(
             index, local, _replaced(meta, animation=meta.animation[:-1])
@@ -393,11 +391,6 @@ def _tile_form(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None:
         ),
     )
 
-
-def _frame(local: int) -> Any:
-    from ......kernels.grid2d.tileset import TileFrame
-
-    return TileFrame(local_id=int(local), duration_ms=100)
 
 
 def _replaced(meta: Any, **values: Any) -> Any:

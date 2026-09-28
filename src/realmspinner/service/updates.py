@@ -199,6 +199,14 @@ def _kill_and_reap(proc: subprocess.Popen[str]) -> None:
     winjob.untrack(proc.pid)
 
 
+#: What each ``op`` value names in a refusal, so a failed installer download
+#: is not reported to the user as a failed release-feed check (service-gates-08,
+#: the 2026-09-26 audit). Keyed the same way the two callers already spell
+#: ``op`` for the timeout message a few lines below, which already varied by
+#: ``op`` while this one did not.
+_OP_VERB = {"check": "check for updates", "download": "download the installer"}
+
+
 def _run_worker(
     spec: dict[str, Any], *, on_progress: Progress, timeout: float, op: str
 ) -> dict[str, Any]:
@@ -326,5 +334,11 @@ def _run_worker(
             if tail:
                 detail += f": {tail}"
         log.warning("update worker failed: %s", detail)
-        raise Invalid(f"Could not check for updates: {detail}")
+        # ``op``-keyed rather than the one hard-coded phrase every failure used
+        # to raise, whatever it was actually doing: the 2026-09-26 audit
+        # (service-gates-08) found a failed *installer download* reported to
+        # the user as "Could not check for updates", which names the wrong
+        # button and the wrong worry -- the release feed answered fine; the
+        # ~100 MB installer transfer is what failed.
+        raise Invalid(f"Could not {_OP_VERB.get(op, 'check for updates')}: {detail}")
     return result

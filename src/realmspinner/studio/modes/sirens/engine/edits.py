@@ -123,6 +123,16 @@ class PatternRemoveEdit(Edit):
     index: int
     order_before: tuple[int, ...]
     order_after: tuple[int, ...]
+    # The 2026-09-26 audit, finding sirens-engine-02: ``_apply_order`` resets
+    # ``doc.loop_order`` to -1 whenever the new order is too short to hold it,
+    # as arithmetic left over from the change rather than a choice the user
+    # made -- but nothing here carried the *old* value, so undoing back to the
+    # longer order restored the order list and left the loop point at -1
+    # instead of where it was. Defaulted to -1 for the shape every other
+    # ``Edit`` here already carries -- an old undo stack that predates this
+    # field replays a loop point loss it would have had anyway.
+    loop_before: int = -1
+    loop_after: int = -1
 
     def __post_init__(self) -> None:
         self.cost = int(self.pattern.cells.nbytes)
@@ -130,10 +140,12 @@ class PatternRemoveEdit(Edit):
     def undo(self, doc: Any) -> None:
         doc._attach_pattern(self.pattern, self.index)
         doc._apply_order(self.order_before)
+        doc.loop_order = self.loop_before
 
     def redo(self, doc: Any) -> None:
         doc._detach_pattern(self.pattern.uid)
         doc._apply_order(self.order_after)
+        doc.loop_order = self.loop_after
 
 
 @dataclass
@@ -156,12 +168,21 @@ class PatternRenameEdit(Edit):
 class OrderEdit(Edit):
     before: tuple[int, ...]
     after: tuple[int, ...]
+    # sirens-engine-02 (2026-09-26 audit), the same carry as
+    # ``PatternRemoveEdit`` above and for the same reason: shrinking the order
+    # past the loop point is a side effect ``_apply_order`` applies on its
+    # own, and undoing that shrink must put the loop point back, not leave it
+    # at the -1 the shrink left behind.
+    loop_before: int = -1
+    loop_after: int = -1
 
     def undo(self, doc: Any) -> None:
         doc._apply_order(self.before)
+        doc.loop_order = self.loop_before
 
     def redo(self, doc: Any) -> None:
         doc._apply_order(self.after)
+        doc.loop_order = self.loop_after
 
 
 @dataclass
