@@ -70,6 +70,7 @@ from typing import Any
 # verdict and because every row written before 2026-08-30 was judged against
 # it; a stored report with no ``metric`` field is one of those, and
 # ``inspector.seam_verdict`` still reads it as an edge/grain number.
+# Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
 SEAM_MAX = 3.5
 
 # The verdict, as of 2026-08-30. Above this the wrap seam is the single largest

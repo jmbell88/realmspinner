@@ -158,6 +158,18 @@ _CAPSULE_RINGS = 3
 #: "fall back to every vertex for the PCA", so ``fit_box(oriented=True)``
 #: keeps the module docstring's "refuse nothing" contract past this ceiling
 #: too -- only the hull step skips, not the box.
+#:
+#: P60 (2026-09-28): the op wiring (``ops._collider_op``) now runs these fits
+#: on a ``clay-bg`` task thread, so on the interactive path the window no
+#: longer stalls and this ceiling bounds only the algorithm's growth (2.52 s
+#: at 2,000, 4.44 s at 5,000, 10.24 s at 20,000 -- roughly quadratic). It
+#: still does its second job on one path: an agent's ``clay_collider`` /
+#: ``clay_op`` call runs the fit *inline* (decimate's rule -- an MCP call has
+#: no frame boundary to hand work across), so that call still blocks for up to
+#: the 4.44 s above. Raising the ceiling would put a 10 s+ stall on an inline
+#: agent call, which the MCP client's own timeout budget does not promise to
+#: tolerate, and nothing measured says an ordinary import needs more. So it
+#: stays at 5,000: the numbers above were not re-taken, the ruling is unchanged.
 MAX_HULL_POINTS = 5_000
 
 

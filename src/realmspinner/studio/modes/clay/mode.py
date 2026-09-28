@@ -1094,6 +1094,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 "retopo": clay_ops.retopo_apply,
                 "unwrap": clay_ops.unwrap_apply,
                 "bake": clay_ops.bake_apply,
+                "collider": clay_ops.collider_apply,
             }.get(kind, clay_ops.decimate_apply)
             apply(ctx, tab.doc, result)
         return

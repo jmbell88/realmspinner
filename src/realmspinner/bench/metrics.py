@@ -49,6 +49,7 @@ MASK_COVERAGE_CEILING = 0.98
 # user-facing number goes through hash_similarity, which subtracts it.
 HASH_SIDE = 8
 HASH_BITS = HASH_SIDE * HASH_SIDE
+# Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
 HASH_FLOOR = 0.5
 
 _model_cache: dict[str, Any] = {}

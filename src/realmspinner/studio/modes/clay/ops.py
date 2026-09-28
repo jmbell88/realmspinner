@@ -3657,6 +3657,72 @@ def _collider_kwargs(defaults: dict[str, Any], params: dict[str, Any]) -> dict[s
     return kwargs
 
 
+def _runs_a_hull(kind: str, kwargs: dict[str, Any]) -> bool:
+    """Whether fitting *kind* with *kwargs* runs ``colliders._quickhull_core``
+    -- the pure-Python hull that costs seconds (P60: 4.44 s at 5,000 points).
+    Convex Hull and Compound always do; Box only when ``oriented``. Sphere,
+    Capsule and an axis-aligned Box are numpy reductions that stay inline."""
+    return kind in ("convex", "compound") or (kind == "box" and bool(kwargs.get("oriented")))
+
+
+def _collider_work(
+    kind: str, kwargs: dict[str, Any], prepared: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Off-thread half: fit *kind* to every snapshotted mesh. Pure -- it reads
+    only *prepared*, never the document. An ``OpError`` is carried per item
+    (``"error"``) rather than raised, so one degenerate object does not lose
+    the others' fits and the toast names the kernel's own sentence."""
+    from ....kernels.mesh import colliders as colliders_mod
+    from ....kernels.mesh.elements import OpError
+
+    _label, fit, _defaults = colliders_mod.COLLIDER_KINDS[kind]
+    items: list[dict[str, Any]] = []
+    for item in prepared:
+        try:
+            items.append({**item, "collider": fit(item["mesh"], **kwargs), "error": None})
+        except OpError as error:
+            items.append({**item, "collider": None, "error": str(error)})
+    return {"kind": "collider", "items": items}
+
+
+def _collider_apply(ctx: Any, doc: Any, result: Any) -> bool:
+    """Frame-thread half: add one collider child per fitted object, as one undo
+    step, but only to an object that still exists with the mesh that was read
+    (decimate's stamp guard: a fit computed against geometry the user has since
+    edited is dropped, never pasted over the edit). Returns whether any landed.
+    """
+    if not isinstance(result, dict):
+        return False
+    mark = doc.history.mark()
+    ran = False
+    try:
+        for item in result.get("items", []):
+            if item.get("error"):
+                toast(ctx, item["error"])
+                continue
+            uid = item["uid"]
+            try:
+                doc.by_uid(uid)
+            except KeyError:
+                toast(ctx, f"Skipped {item['name']}: it was deleted while fitting.")
+                continue
+            if doc.mesh_stamp(uid) != item["stamp"]:
+                toast(ctx, f"Skipped {item['name']}: it changed while fitting.")
+                continue
+            doc.add_collider(uid, item["collider"])
+            ran = True
+    finally:
+        doc.history.collapse_since(mark)
+    return ran
+
+
+def collider_apply(ctx: Any, doc: Any, result: Any) -> None:
+    """Public door for :func:`_collider_apply`, called by
+    ``clay_mode.on_task_done`` for a ``clay-bg`` result tagged
+    ``"kind": "collider"`` (see :func:`retopo_apply`)."""
+    _collider_apply(ctx, doc, result)
+
+
 def _collider_op(kind: str) -> Callable[..., bool]:
     """Fit *kind* against every selected object's **evaluated** mesh and add
     one collider child per source through :meth:`~.document.ClayDoc.
@@ -3664,6 +3730,14 @@ def _collider_op(kind: str) -> Callable[..., bool]:
     the per-object pushes, the same way every other multi-object row in this
     file folds its own per-object loop). Leaves the sources selected --
     neither ``doc.evaluated`` nor ``add_collider`` touches ``doc.selection``.
+
+    A hull-backed fit (:func:`_runs_a_hull`) is a background op in decimate's
+    shape (P60): the frame thread snapshots ``(uid, evaluated mesh,
+    doc.mesh_stamp(uid))``, a ``clay-bg:<tab uid>`` task runs
+    :func:`_collider_work` (no child process, so a plain ``TaskRunner`` job),
+    and :func:`_collider_apply` adds the collider only if the stamp still
+    matches. The agent's inline ctx runs the same two halves back to back,
+    decimate's one rule. Sphere, Capsule and axis-aligned Box stay synchronous.
 
     *kind* is looked up in ``COLLIDER_KINDS`` fresh on every call rather than
     closed over as a fit function directly, so a row still calls the right
@@ -3677,6 +3751,33 @@ def _collider_op(kind: str) -> Callable[..., bool]:
 
         _label, fit, defaults = colliders_mod.COLLIDER_KINDS[kind]
         kwargs = _collider_kwargs(defaults, params)
+
+        if _runs_a_hull(kind, kwargs):
+            prepared: list[dict[str, Any]] = []
+            for uid in list(doc.selection):
+                try:
+                    obj = doc.by_uid(uid)
+                except KeyError:
+                    continue
+                prepared.append(
+                    {
+                        "uid": uid,
+                        "name": obj.name,
+                        "stamp": doc.mesh_stamp(uid),
+                        "mesh": doc.evaluated(uid),
+                    }
+                )
+            if not prepared:
+                return False
+            if getattr(ctx, "inline", False):
+                return _collider_apply(ctx, doc, _collider_work(kind, kwargs, prepared))
+            tab = _tab_for(ctx, doc)
+            if tab is None:
+                raise OpError("Fitting a collider needs an open document tab.")
+            if not ctx.submit(f"clay-bg:{tab.uid}", _collider_work, kind, kwargs, prepared):
+                raise OpError("A background op is already running for this document.")
+            tab.bg_busy = "Fitting collider..."
+            return True
 
         ran = False
         for uid in list(doc.selection):

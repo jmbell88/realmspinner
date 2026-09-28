@@ -124,6 +124,7 @@ MAX_ACCESSOR_BYTES = 1 << 28
 #: docs-09) noted it sits in the checkup's example list beside corpus-keyed
 #: constants like SEAM_MAX, which implied an obligation it does not have --
 #: hence this sentence rather than a document.
+# Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
 MAX_TOTAL_BYTES = 768 * (1 << 20)
 
 

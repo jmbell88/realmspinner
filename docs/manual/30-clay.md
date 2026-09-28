@@ -888,6 +888,12 @@ hull per disconnected part). The collider arrives as a child of the object it wa
 moving the object moves it too, and it is not counted against the triangle budget in the game check,
 because it is not part of what gets drawn.
 
+Convex Hull, Compound and Box with **oriented** ticked take a moment on a dense mesh, so they run in
+the background the way Decimate does: the window stays usable and the collider appears when the fit
+finishes. If you edit or delete the object first, the result is dropped and a note says so, rather
+than fitting a shape that is no longer there. A mesh past 5,000 distinct points is refused; simplify
+it first.
+
 A collider is not drawn like the rest of the model. It renders as a translucent fill and wireframe
 over the geometry it was fitted to, never as opaque shaded geometry, so it reads as a proxy rather
 than a second copy of the shape. The outliner marks its row with a dashed square, and once it is

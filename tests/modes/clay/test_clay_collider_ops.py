@@ -35,6 +35,11 @@ class _Toasts:
 
 
 class _Ctx:
+    # ``inline`` is the agent's sandboxed ctx: the hull-backed rows (P60) run
+    # synchronously there, which is what these registry tests drive. The
+    # background half is pinned in ``test_clay_collider_background.py``.
+    inline = True
+
     def __init__(self) -> None:
         self.toasts = _Toasts()
 

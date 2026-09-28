@@ -227,6 +227,7 @@ def seam_seeds(
 #: does there. A copy rather than an import because this package is headless and
 #: pinned against reaching into ``pipelines`` (which imports PIL at module
 #: scope), the same reason ``dither`` keeps its own conversion.
+# Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
 SEAM_MAX = 3.5
 
 #: Below this many pixels on a side there is no interior to compare against.

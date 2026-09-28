@@ -362,6 +362,7 @@ class Config:
     # 5000 is the measured pick (4,996 triangles achieved on the raccoon, good
     # fidelity, ~6 s). 0 turns the remesh off -- a model job then falls back to
     # ``mesh_profile``'s gltfpack tier exactly as it did before this existed.
+    # Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
     lowpoly_triangles: int = field(
         default_factory=lambda: _env_int("REALMSPINNER_LOWPOLY_TRIANGLES", 5000)
     )
@@ -545,6 +546,7 @@ class Config:
     # disconnected plates, 7-31% of the silhouette". Nothing in this sweep
     # measured worse than 1.7%, so whatever produced those numbers was not
     # this exe at these settings. Re-measure before acting on that claim.
+    # Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
     trellis_band: int | None = field(
         default_factory=lambda: _env_opt_int("REALMSPINNER_TRELLIS_BAND", DEFAULT_TRELLIS_BAND)
     )

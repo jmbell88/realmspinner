@@ -1,5 +1,5 @@
 """Wave 3, fixer 6 of the fix pass over the 2026-09-26 audit
-(``dev/audits/AUDIT_MASTER.md``): the ``pipelines-install-*`` findings that
+(the 2026-09-26 audit): the ``pipelines-install-*`` findings that
 land in the bench/install/models corner of the tree -- ``bench/findings.py``,
 ``bench/metrics.py``, ``bench/calibrate.py`` and the deleted-module docstrings
 in ``bench/__init__.py``.

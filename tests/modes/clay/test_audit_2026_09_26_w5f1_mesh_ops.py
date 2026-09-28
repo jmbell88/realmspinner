@@ -1,7 +1,7 @@
 """Regressions for the 2026-09-26 audit's clay-mesh-ops-01..05 and
 clay-mesh-uv-02: five separate frame-thread ceilings/correctness gaps across
 ``ops_topo.py``, ``ops_spin.py``, ``ops_subdiv.py``, ``ops_dissolve.py`` and
-``uvtools.py`` (see AUDIT_MASTER.md's "Remaining findings" section, and the
+``uvtools.py`` (see the 2026-09-26 audit's remaining-findings list, and the
 fix-pass brief for wave 5, fixer 1). One file because the six findings are
 small and share no state; each test names the finding it closes.
 """
