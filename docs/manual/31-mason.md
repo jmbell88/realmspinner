@@ -86,8 +86,8 @@ picking objects out of a scene is what the [outliner](#the-outliner) is for.
 Dragging an axis of the gizmo moves, turns or scales every selected node. This is
 [Clay's transform gizmo](30-clay.md#transforming) unchanged, and so are the keys.
 
-The **Pivot** choice in the Tools panel decides what a rotation or a scale happens *around* when
-more than one thing is selected. The viewport header carries the same field.
+The **Pivot** choice, in the viewport header, decides what a rotation or a scale happens *around*
+when more than one thing is selected.
 
 ### Snapping
 
@@ -216,9 +216,10 @@ One stroke is one undo step, however many dabs it took.
 
 The strip over the render, and a subset of [the 3D viewport's](24-the-3d-viewport.md#the-toolbar) own.
 
-**Pivot** repeats the Tools panel's choice where your hand already is. **Solid**, **Material** and
-**Wire** choose how the scene draws. **Grid** and **Wire** toggle the ground grid and the wireframe
-over the render, and **X-ray** lets you pick something behind a surface.
+**Pivot** is the same choice ["Transforming"](#transforming) describes -- this is its one home, not a
+second copy of a Tools panel field. **Solid**, **Material** and **Wire** choose how the scene draws.
+**Grid** and **Wire** toggle the ground grid and the wireframe over the render, and **X-ray** lets you
+pick something behind a surface.
 
 Under the render is a hint line saying what the current tool does with the mouse, and a corner
 readout of how many items the scene resolves to.

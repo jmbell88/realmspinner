@@ -58,6 +58,13 @@ def parse_bands(raw: str) -> list[int | None]:
         if not part:
             continue
         value = None if part in ("auto", "none", "default") else int(part)
+        # The 2026-09-26 audit, finding create-workspace-08: a non-positive
+        # band (0, or a stray negative left in a saved sweep command) used to
+        # sail through here and only fail once, minutes into a GPU sweep,
+        # inside ``TrellisServer``/the exe itself -- with an error that never
+        # named the actual bad input.
+        if value is not None and value <= 0:
+            raise ValueError(f"band must be a positive integer, got {part!r}")
         if value not in bands:
             bands.append(value)
     if not bands:
@@ -145,7 +152,11 @@ async def sweep(
     resolution: int,
     audit_resolution: int,
 ) -> list[dict[str, Any]]:
-    if not image.exists():
+    # The 2026-09-26 audit, finding create-workspace-08: ``exists()`` also
+    # answers True for a directory, which would then run the whole sweep
+    # (several minutes of GPU time) before ``TrellisServer.generate`` ever
+    # got around to failing on a path that was never an image.
+    if not image.is_file():
         raise SystemExit(f"reference image not found: {image}")
     require_free_port(config)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -186,12 +197,16 @@ def print_table(rows: list[dict[str, Any]], audit_resolution: int) -> None:
     # somebody would read it.
     print(f"band sweep (hole_fraction @ {audit_resolution})")
     print("lower is better for one subject at one seed; it is not a quality score --")
-    # The pointer used to name LEFTOVERS.md, deleted 2026-08-10. This is
-    # user-facing terminal output, so it has to name something a reader can
-    # actually open: the re-baseline is where the AUC above is measured.
+    # The pointer used to name LEFTOVERS.md, deleted 2026-08-10, and after that
+    # a dev/measurements/ document -- gitignored, so a public clone of this
+    # repo (this is a shipped ``realmspinner sweep`` command, not a dev-only
+    # script) never has it either (the 2026-09-26 audit, finding
+    # create-workspace-08). This is user-facing terminal output, so the
+    # reasoning has to be self-contained rather than pointing anywhere.
     print(
-        "a featureless slab measures 0.0000. "
-        "See dev/measurements/2026-08-09-rebaseline.md."
+        "a featureless slab measures 0.0000 despite being a total "
+        "reconstruction failure -- this ranks bands against each other for "
+        "one subject and seed, it is not an absolute quality score."
     )
     print(f"{'band':>6}  {'worst':>8}  {'mean':>8}  {'faces':>9}  {'gen s':>7}")
     for row in rows:

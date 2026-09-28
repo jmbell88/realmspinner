@@ -8,12 +8,10 @@ No GPU, no weights.
 
 ## Starting a map
 
-`Ctrl+N` opens the New Map dialogue, and it asks for two things you cannot change later.
+`Ctrl+N` opens the New Map dialogue, and it asks for two things: **tile size**, how big one cell is
+in pixels, and **projection**, the lattice — orthogonal, isometric, staggered or hexagonal.
 
-**Tile size** is how big one cell is in pixels. **Projection** is the lattice — orthogonal,
-isometric, staggered or hexagonal.
-
-Projection is fixed the moment anything is painted, and that is stricter than Tiled, which lets you
+Only projection is fixed once anything is painted, and that is stricter than Tiled, which lets you
 change orientation afterwards. The reason is that projection here decides the lattice rather than
 just the drawing: cells mean different things in a diamond grid than in a square one, and
 reinterpreting a painted map under a different lattice would silently move every tile.
@@ -38,7 +36,7 @@ Note that this lives in Create, not in Plotter — an in-Plotter "paint with AI"
 was removed in favour of it. If a map is still unpainted it will adopt the sheet's own projection; if
 it is painted and the lattices disagree, you get a question rather than a silently mis-sliced sheet.
 
-Per-tile metadata is edited in the tileset editor, in three tabs:
+Per-tile metadata is edited in the tileset editor, in four tabs:
 
 - **Tiles** — a class name, custom properties, and a random-paint **probability**. Setting
   probability to zero means "never chosen at random", but the tile stays placeable by hand. That is
@@ -47,6 +45,8 @@ Per-tile metadata is edited in the tileset editor, in three tabs:
   never hits-tests these itself; they are metadata for your engine to read.
 - **Animation** — an ordered list of tiles and durations. The canvas plays them; every export writes
   the first frame.
+- **Terrain** — the Wang sets a tileset carries, and where a *Terrain set* generated in Create arrives
+  already filled in; see [Terrain](#terrain) below.
 
 ## Painting
 
@@ -101,12 +101,14 @@ miss, so a gap in your Wang set shows up as a gap rather than as a wrong tile.
 Object layers hold things that are not tiles: spawn points, trigger volumes, collision shapes,
 labels. Shapes available are rectangle, point, ellipse, capsule, polygon, polyline, tile and text.
 
-Object coordinates are **pixels, not tiles** — Tiled's convention. Objects are placed exactly where
-the mouse reports, with no snap-to-grid toggle, which is again Tiled's default.
+Object coordinates are **pixels, not tiles** — Tiled's convention. Where a drag lands depends on the
+unlabelled **Off / Grid / Pixel** pill at the right of the toolbar: Off drops it wherever the mouse
+reports (hold `Ctrl` for one snapped drag), Grid snaps to cell corners and 15° of rotation, and Pixel
+snaps to whole map pixels and the same 15°.
 
-**Rotation is a numeric field in the properties panel, not a drag handle on the canvas.** There is no
-rotate gesture here. Type degrees, clockwise, about the object's own origin. Resizing a rotated
-object does work correctly in the object's own frame.
+**Rotation has a drag handle, too.** A selected object grows a rotation grip on a stalk off its top
+edge; drag it, or type degrees, clockwise, about the object's own origin, into the numeric field in
+the properties panel. Resizing a rotated object does work correctly in the object's own frame.
 
 Both objects and layers carry typed custom properties, which is how anything you invent reaches your
 engine.
@@ -122,8 +124,8 @@ with no GL context, it falls back to an unblended draw and **says so on screen**
 disagreeing with what the export will produce.
 
 `H` highlights the current layer by dimming the others. `Ctrl+G` toggles the grid. Space-drag or
-middle-drag pans; the wheel zooms; `1` returns to 100%. There is a minimap in the corner, one pixel
-per cell.
+middle-drag pans; the wheel zooms; `Ctrl+1` returns to 100%. There is a minimap in the corner, one
+pixel per cell.
 
 ## Infinite maps
 

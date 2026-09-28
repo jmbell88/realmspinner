@@ -276,6 +276,16 @@ def form_from_params(params: dict[str, Any], *, stage: str = "") -> dict[str, An
     return form
 
 
+def _restore_int(value: Any, default: int) -> int:
+    """``int(value or default)``, tolerant of a stored value that will not
+    coerce -- see the 2026-09-26 audit, finding shell-boot-04, at this
+    function's one call site."""
+    try:
+        return int(value or default)
+    except (TypeError, ValueError):
+        return default
+
+
 def _restore_sheet_block(form: dict[str, Any], params: dict[str, Any]) -> None:
     """Put a finished tile set's own request back into the form, in place.
 
@@ -308,12 +318,21 @@ def _restore_sheet_block(form: dict[str, Any], params: dict[str, Any]) -> None:
         # The *lines*, not the cells: the block holds one record per
         # ``(line, variant)`` pair, expanded line-major, so the first draw of
         # each line is the list the user typed.
+        #
+        # The 2026-09-26 audit, finding shell-boot-04: ``int(...)`` here was
+        # bare, unlike the coercion loop just above ``_restore_sheet_block``'s
+        # own call site, which wraps every ``int``/``float`` cast in
+        # ``try/except (TypeError, ValueError)``. A settings file with a
+        # non-numeric ``variant`` or ``variants`` (hand-edited, or written by
+        # a future build with a wider field) raised straight out of restore,
+        # on the frame thread, instead of falling back the same way a bad
+        # numeric field in the flat loop already does.
         form["materials"] = "\n".join(
             str(cell.get("prompt") or "")
             for cell in cells
-            if int(cell.get("variant") or 1) == 1
+            if _restore_int(cell.get("variant"), 1) == 1
         )
-        form["variants"] = str(int(block.get("variants") or 1))
+        form["variants"] = str(_restore_int(block.get("variants"), 1))
     elif mode == MODE_TERRAIN and len(cells) == 2:
         # Two subjects in ``(inner, outer)`` order, which is not a convention:
         # it is which of the two the forty-seven pictures are of.
@@ -714,8 +733,29 @@ def filters_to_store(filters: Filters) -> dict[str, Any]:
     return {k: v for k, v in vars(filters).items() if k not in VOLATILE_FILTERS}
 
 
+def _valid_filter_options() -> dict[str, frozenset[str]]:
+    """The option tables a stored filter value is checked against.
+
+    Lazy, and reaching into a mode's own UI pane by name -- the
+    ``asset_open.py``/``palette.py``/``dialogs.py`` pattern already uses for
+    the same module (``library.py`` pulls in imgui at module scope, and this
+    file must stay importable with no GL context) -- because ``STATUS_OPTIONS``
+    and ``KIND_OPTIONS`` are the library's own combos (``studio/modes/library/
+    ui/panes/library.py``) and a second table here would be the drift the
+    ``kind`` field's own comment already warns about.
+    """
+    from .modes.library.ui.panes import library
+
+    return {
+        "status": frozenset(key for key, _label in library.STATUS_OPTIONS),
+        "kind": frozenset(key for key, _label in library.KIND_OPTIONS),
+        "sort": frozenset(key for key, _label in SORTS),
+    }
+
+
 def filters_from_stored(stored: Any) -> Filters:
-    """The inverse. Unknown, volatile and wrongly-typed keys are dropped.
+    """The inverse. Unknown, volatile, wrongly-typed and out-of-range keys are
+    dropped.
 
     Volatile keys are dropped on the way *in* as well as on the way out, so a
     settings file written by an older build -- which really does carry
@@ -730,15 +770,29 @@ def filters_from_stored(stored: Any) -> Filters:
     reason: settings are untrusted JSON read before any control can clamp them.
     An int where a float belongs is the one widening allowed, because JSON does
     not distinguish ``0`` from ``0.0`` and a stored ``0`` is not corruption.
+
+    **Values are checked against the option table, not only their type**
+    (the 2026-09-26 audit, finding shell-boot-03): ``{"status": "bogus"}`` is a
+    ``str`` exactly like every real status, so the type check alone restored it
+    unchanged -- ``Filters.matches`` then compared every job's real status
+    against a value nothing produces, and the library opened empty with no
+    toast, no greyed control, nothing to say why. ``status``, ``kind`` and
+    ``sort`` are checked against the combo that actually offers them; an
+    unrecognized value is dropped, same as a wrongly-typed one, and the
+    dataclass default takes its place.
     """
     values = stored if isinstance(stored, dict) else {}
     blank = Filters()
+    options = _valid_filter_options()
     keep: dict[str, Any] = {}
     for key, value in values.items():
         if key not in Filters.__annotations__ or key in VOLATILE_FILTERS:
             continue
         default = getattr(blank, key)
         if type(value) is type(default):
+            valid = options.get(key)
+            if valid is not None and value not in valid:
+                continue
             keep[key] = value
         elif isinstance(default, float) and isinstance(value, int) and not isinstance(value, bool):
             keep[key] = float(value)

@@ -6,7 +6,8 @@ and render sheets from them.
 
 **This chapter needs Blender.** That means the `rig` extra, which means Python 3.13 — see
 [Before you begin](01-before-you-begin.md#what-you-need). Without it every control in this chapter is
-hidden rather than greyed out, and `realmspinner doctor` says why.
+greyed out with the reason given (hover it, or try it anyway — the reason is the same), and
+`realmspinner doctor` says why.
 
 ## Rigging a mesh
 
@@ -98,11 +99,10 @@ limb on — rather than only pose it; see [Editing the skeleton](26-poser.md#edi
 Selecting the root joint and ticking **Move root** swaps its gizmo from rotation to translation
 arrows. This is how you author a crouch or a hop — moving the whole figure rather than bending it.
 
-Two things to know. The offset is stored in **character-height units**, not metres, so the same
-crouch applies sensibly to a gnome and a giant. And applying a library pose to an asset **previews
-the rotations only** — the offset shows up in the baked GLB and in rendered sheet rows, but not in
-the live preview. If you test a crouch by looking at the preview alone, you will conclude it did not
-work.
+One thing to know: the offset is stored in **character-height units**, not metres, so the same
+crouch applies sensibly to a gnome and a giant. Applying a library pose to an asset previews the
+offset along with the rotations — the same root translation lands in the baked GLB and in rendered
+sheet rows.
 
 ## Poses and clips are stored differently
 

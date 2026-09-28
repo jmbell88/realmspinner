@@ -1,7 +1,7 @@
 # Generating references
 
-A reference is the picture the mesh will be reconstructed from. Everything in this chapter lives in
-the **2D reference** mode's settings pane, in the left sidebar.
+A reference is the picture the mesh will be reconstructed from. Everything in this chapter lives on
+the Reference stage: the command bar across the top, and the recipe column in the left sidebar below it.
 
 ![The Reference stage: the rail and brief on one row, then the recipe column and the preview](img/22-reference.png)
 
@@ -436,7 +436,7 @@ a seed and a model, which after a hand edit is no longer the whole story of the 
 
 ## Seamless tiles
 
-Setting **Asset type** to *Seamless Material* switches the whole pane to a different kind of output.
+Setting **the type combo** to *Seamless Material* switches the whole pane to a different kind of output.
 A tile is a repeating texture rather than a subject: it is drawn with
 wrapping convolutions, so its left edge continues into its right and its top into its bottom.
 
@@ -547,8 +547,8 @@ maintainer's own corpus.
 One palette is applied across the whole sheet in one pass, never per tile — quantized per tile, the
 same moss comes out two different greens in two tiles. *Which* palette is yours to choose; see
 **The pixel look** below. In the Materials and Terrain set layouts the words that are actually
-generated are the ones you type in the layout section, and the **Description** at the top of the
-form only names the sheet in the library. A **reference image**, if you attach one under
+generated are the ones you type in the layout section, and the prompt field on the bar
+only names the sheet in the library. A **reference image**, if you attach one under
 *References*, shapes the style but is never required.
 
 A tileset cannot be made into a mesh, and offers no cutout exports, for the tile's reasons. To
@@ -558,7 +558,7 @@ the library like any other asset.
 ### Sprite sheets
 
 The *Sprite Sheet* asset type turns your prompt into a character and then into a sheet of it. The
-**Sprite layout** section asks two things.
+**Sprite sheet** section asks two things.
 
 **Action** is what the character is doing: *Turnaround (still views)*, or one of the animated
 actions this installation has a pose guide for. Seven ship — idle, walk, run, attack, cast, hurt and

@@ -122,7 +122,7 @@ same values are the rail. Either way:
   into the query and puts the cursor back in the box, which is the same list the parser itself
   reads, so nothing on that row can offer a prefix the search does not understand.
 - **Status**: any status, done, running, or failed.
-- **Kind**: any kind, references, tiles, meshes, rigs, sheets, sprite sheets, or tile sheets. Note that "reference" and "mesh" are
+- **Kind**: any kind, references, tiles, meshes, rigs, sheets, sprite sheets, tile sheets, or tracks. Note that "reference" and "mesh" are
   about what the job *produced*, not what was submitted — a text job that stopped at a reference and
   one that went on to a mesh are the same kind of job and two different things to look for.
 - A star toggle for favourites only.
@@ -146,7 +146,7 @@ Under the date sort the list is grouped by **today**, **yesterday**, **this week
 The grouping is only shown under that sort: a "today" heading above a list ordered by size would be a
 claim about what separates the rows below it that is not true.
 
-**Density.** The first button on the third row of the *sidebar* switches between comfortable and
+**Density.** The last button on the fourth row of the *sidebar* switches between comfortable and
 compact rows. A compact row is the thumbnail, the name and the status pill — about twice as many
 assets per screen — and everything else is one click away in the right-click menu. The full window
 has no such control: a compact card is a shorter row, and a grid has no rows.

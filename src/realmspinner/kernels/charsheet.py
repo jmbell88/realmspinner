@@ -264,6 +264,27 @@ def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
+def _refused_int(raw: Any, what: str) -> int:
+    """A whole number, refused rather than coerced.
+
+    The 2026-09-26 audit, finding poser-render-05: ``resolve_layout`` used to
+    pass ``version``/``fps``/``frames``/``columns`` through a bare ``int()``,
+    which reads a bool as 0/1, silently truncates a fraction (``2.9`` -> 2
+    with no complaint), and lets a list argument escape as a raw
+    ``TypeError`` instead of a named refusal. Mirrors ``characters/recipe.py``
+    ``_integer``'s three-part shape.
+    """
+    if isinstance(raw, bool):
+        raise ValueError(f"{what} must be a whole number")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(f"{what} must be a whole number") from None
+    if isinstance(raw, float) and value != raw:
+        raise ValueError(f"{what} must be a whole number")
+    return value
+
+
 def _validate_movement_loop(value: Any, name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{name} loop must be true or false")
@@ -502,14 +523,14 @@ def resolve_layout(
         )
         return LayoutSpec(LAYOUT_VERSION, COLUMNS, movements)
     raw_version = payload.get("version")
-    version = LAYOUT_VERSION if raw_version is None else int(raw_version)
+    version = LAYOUT_VERSION if raw_version is None else _refused_int(raw_version, "version")
     if version not in (2, 3):
         raise ValueError(f"Troupe layout version {version} is not supported")
     fps: int | None = None
     if version >= 3:
         raw_fps = payload.get("fps")
         if raw_fps is not None:
-            fps = int(raw_fps)
+            fps = _refused_int(raw_fps, "fps")
             if fps not in FPS_CHOICES:
                 raise ValueError(f"fps must be one of {list(FPS_CHOICES)}")
     raw_movements = payload.get("movements")
@@ -536,10 +557,12 @@ def resolve_layout(
                     round(base_frames * base_ms * fps / 1000.0), 1, MAX_FRAMES
                 )
             else:
-                frames = int(raw_frames)
+                frames = _refused_int(raw_frames, "frames")
         else:
             duration_ms = base_ms
-            frames = base_frames if raw_frames is None else int(raw_frames)
+            frames = (
+                base_frames if raw_frames is None else _refused_int(raw_frames, "frames")
+            )
         minimum = movement_min_frames(name)
         if not minimum <= frames <= sheet.MAX_CLIP_FRAMES:
             raise ValueError(
@@ -589,7 +612,7 @@ def resolve_layout(
     if not movements:
         raise ValueError("a Troupe layout needs at least one movement")
     raw_columns = payload.get("columns")
-    columns = COLUMNS if raw_columns is None else int(raw_columns)
+    columns = COLUMNS if raw_columns is None else _refused_int(raw_columns, "columns")
     if columns != COLUMNS:
         raise ValueError(f"Troupe sheets use exactly {COLUMNS} columns")
     result = LayoutSpec(LAYOUT_VERSION, columns, tuple(movements), fps)

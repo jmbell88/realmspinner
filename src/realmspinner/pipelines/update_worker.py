@@ -67,6 +67,19 @@ RELEASES_URL = "https://api.github.com/repos/jmbell88/realmspinner/releases/late
 # check parked on a stalled socket holds a task-pool worker.
 CHECK_TIMEOUT = 60.0
 
+# The 2026-09-26 audit, finding pipelines-children-05: ``fetch``'s streaming
+# loop already knew ``total`` (the release feed's own declared
+# ``size_bytes``) but only ever used it to shape the progress bar -- nothing
+# stopped the loop itself if the server kept sending past it, so a
+# compromised or misconfigured release host could fill the disk with an
+# installer this process would go on to hash and then discard. Same shape as
+# ``MAX_MANIFEST_BYTES`` above, one loop over from the JSON case it already
+# covers. The margin is generous because a release's declared size is exact
+# today but not a contract this file should over-enforce; an installer with
+# no declared size at all falls back to the fixed hard ceiling.
+_SIZE_CEILING_MARGIN = 2.0
+_HARD_CEILING_BYTES = 2 * 1024**3
+
 
 def _emit(**payload: Any) -> None:
     sys.stdout.write(json.dumps(payload) + "\n")
@@ -191,16 +204,23 @@ def fetch(spec: dict[str, Any]) -> dict[str, Any]:
     staging = target.with_name("." + name + ".part")
     running = hashlib.sha256()
     got = 0
+    ceiling = total * _SIZE_CEILING_MARGIN if total > 0 else _HARD_CEILING_BYTES
     started = time.monotonic()
     _emit(percent=0.0, label="")
+    outgrew = False
     with (
         download.open_url(str(spec["installer_url"]), timeout=60) as response,
         staging.open("wb") as handle,
     ):
         while chunk := response.read(CHUNK):
+            got += len(chunk)
+            if got > ceiling:
+                # Stop before the handle closes below, not inside this branch:
+                # unlinking a file Windows still has open for writing raises.
+                outgrew = True
+                break
             running.update(chunk)
             handle.write(chunk)
-            got += len(chunk)
             span = time.monotonic() - started
             rate = got / span if span > 0 else 0.0
             # Capped below 100 until the digest has been checked: a bar that
@@ -214,6 +234,13 @@ def fetch(spec: dict[str, Any]) -> dict[str, Any]:
                     + _pace(rate, total - got)
                 ),
             )
+    if outgrew:
+        staging.unlink(missing_ok=True)
+        raise ValueError(
+            f"{spec.get('installer_url')} sent more than "
+            f"{ceiling / float(1024**3):.1f} GB, past what the release "
+            "declared; aborting rather than filling the disk"
+        )
     if running.hexdigest() != digest:
         staging.unlink(missing_ok=True)
         raise ValueError(

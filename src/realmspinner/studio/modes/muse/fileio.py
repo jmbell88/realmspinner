@@ -257,6 +257,57 @@ def loop_body(player: Any) -> Any:
     return player.loop_cache
 
 
+def _export_source(ctx: Any, player: Any) -> tuple[Any, int]:
+    """The ``(pcm, rate)`` pair export actually writes from.
+
+    **the 2026-09-26 audit, finding muse-engine-02.** :func:`read_track`
+    resamples a legacy-rate take (anything below ``sirens_audio.RATE``)
+    through ``scipy.signal.resample_poly`` so the mixer always sees one fixed
+    rate -- and both export functions used to write straight from that same
+    resampled ``player.pcm``. That made an exported loop or track for a
+    legacy-rate take scipy's arithmetic rather than the take's own samples,
+    the one exported file in this app whose byte-identity depended on a
+    dependency that can change under a ``uv sync`` -- exactly what
+    ``engine/__init__.py``'s scipy ban exists to keep out of anything
+    written to disk.
+
+    The fix is not a second buffer carried in memory from the original
+    decode (that wants a field on ``state.Player``, outside this module).
+    Instead, this re-reads the take's own file -- already sitting on disk,
+    unchanged, under ``track_path``'s name -- at *its* rate, whenever that
+    differs from ``player.rate``. ``player.rate`` already equals the file's
+    own rate for everything ``REALMSPINNER 5/6`` writes (44.1 kHz), so the
+    common case costs only the cheap ``sf.info`` probe below; a legacy-rate
+    take pays for one extra unresampled read, inside the export task, which
+    already does I/O of its own.
+    """
+    import soundfile as sf
+
+    try:
+        path = ctx.svc.config.job_dir(player.job) / "track.wav"
+        native_rate = int(sf.info(str(path)).samplerate)
+    except Exception:
+        # No file on disk under that job (a test double, chiefly -- some
+        # carry no ``.svc`` at all), or one ``soundfile`` cannot open: fall
+        # back to the buffer already in memory rather than failing an export
+        # over a probe that was never load-bearing before this fix existed.
+        return player.pcm, int(player.rate)
+    if native_rate == int(player.rate):
+        # Nothing to correct for: the file already is the rate the player
+        # holds, so ``player.pcm`` already *is* the take's own samples.
+        return player.pcm, int(player.rate)
+
+    import numpy as np
+
+    data, _ = sf.read(str(path), dtype="float32", always_2d=True)
+    # The same quantiser :func:`read_track` uses, and for the same reason
+    # (see its docstring): ``soundfile`` normalises by the *negative* peak.
+    pcm = np.clip(np.round(data * 32768.0), -32768, 32767).astype(np.int16)
+    if pcm.shape[1] == 1:
+        pcm = pcm[:, 0]
+    return pcm, native_rate
+
+
 def export_loop(ctx: Any, player: Any) -> None:
     """The crossfaded loop body, as its own file.
 
@@ -296,13 +347,29 @@ def export_loop(ctx: Any, player: Any) -> None:
     if loop_cache_key(player) is None:
         ctx.toast("That region is too short to export -- widen it.", "warn")
         return
-    rate = int(player.rate)
 
     def make() -> bytes | None:
-        key = loop_cache_key(player)
+        # the 2026-09-26 audit, finding muse-engine-02: the blend runs over
+        # ``_export_source``'s pair, not ``player.pcm``/``player.rate``
+        # directly -- see that function's docstring. ``loop_cache_key`` and
+        # ``_blend`` only ever read ``.pcm``/``.rate``/``.loop_start``/
+        # ``.loop_end``/``.xfade_ms``, so a plain namespace standing in for
+        # ``player`` is enough to reuse them unchanged, at the take's own
+        # rate instead of the mixer's.
+        from types import SimpleNamespace
+
+        pcm, rate = _export_source(ctx, player)
+        native = SimpleNamespace(
+            pcm=pcm,
+            rate=rate,
+            loop_start=player.loop_start,
+            loop_end=player.loop_end,
+            xfade_ms=player.xfade_ms,
+        )
+        key = loop_cache_key(native)
         if key is None:
             return None
-        body = _blend(player, key)
+        body = _blend(native, key)
         # ``loop=(0, len)``: the whole file *is* the loop, which is the
         # difference between this product and the other one.
         return _wav(body, rate, loop=(0, int(body.shape[0])))
@@ -347,9 +414,22 @@ def export_with_points(ctx: Any, player: Any) -> None:
     if end <= start:
         ctx.toast("That region is too short to export -- widen it.", "warn")
         return
-    pcm = player.pcm
-    loop = (start, end)
-    _save(ctx, lambda: _wav(pcm, rate, loop=loop), "track.wav", "Export the track")
+
+    def make() -> bytes | None:
+        # the 2026-09-26 audit, finding muse-engine-02: written from
+        # ``_export_source``'s pair, not ``player.pcm``/``rate`` directly --
+        # see that function's docstring. The upfront checks above still use
+        # ``player.rate`` (the mixer's rate): they are the same "before the
+        # picker opens" gate muse-01 added, not the write itself, and the
+        # take's own rate cannot change what they are gating.
+        pcm, native_rate = _export_source(ctx, player)
+        native_start = int(player.loop_start * native_rate)
+        native_end = int(player.loop_end * native_rate)
+        if native_end <= native_start:
+            return None
+        return _wav(pcm, native_rate, loop=(native_start, native_end))
+
+    _save(ctx, make, "track.wav", "Export the track")
 
 
 def _has_region(ctx: Any, player: Any) -> bool:

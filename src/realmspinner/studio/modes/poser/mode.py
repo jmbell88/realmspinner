@@ -297,10 +297,14 @@ class PoserState:
 
     # -- the "Rigged assets" picker --------------------------------------------
     #
-    # ``troupe_mode.sendable_meshes``'s two costs, paid the same way here:
-    # ``can_open_in_poser`` reads ``files``, which is ``attach_files``' one
-    # stat per listed name per row and not a column, and ``poser_library``
-    # asks for this list every frame its own header is open. ``riggable_files``
+    # The 2026-09-26 audit, finding poser-engine-01: this used to name
+    # ``troupe_mode.sendable_meshes``, a module gone since Troupe folded into
+    # Poser as a stage at P9 (2026-09-18). It means Troupe's own
+    # ``sendable_meshes`` (see :func:`riggable_assets` below) and its two
+    # costs, paid the same way here: ``can_open_in_poser`` reads ``files``,
+    # which is ``attach_files``' one stat per listed name per row and not a
+    # column, and ``poser_library`` asks for this list every frame its own
+    # header is open. ``riggable_files``
     # is ``attach_files``'s own ``{job: (stamp, names)}`` cache, owned here
     # because the caller is required to own it.
     riggable_cache: list[dict[str, Any]] | None = None
@@ -409,14 +413,24 @@ class PoserState:
     #: another sheet" door -- one construction of the request, not two.
     sheet_form: dict[str, Any] = field(default_factory=dict)
     #: The throttled directory read behind :func:`sheets`, keyed and timed the
-    #: way ``TroupeState.sheets_cache`` was.
+    #: way ``TroupeState.sheets_cache`` was. The 2026-09-26 audit, finding
+    #: poser-mode-08: the timer alone used to decide *whether* to re-read, so
+    #: every poll past ``SHEETS_REFRESH`` re-globbed and re-parsed the whole
+    #: directory regardless of whether it had actually changed. The timer
+    #: still caps how often this frame-thread poll asks at all -- a tight
+    #: redraw loop must not hit the mtime stamp every single frame either --
+    #: but once it asks, :data:`sheets_stamp` (:mod:`...panes.stamps`, the
+    #: ``inspector._manifest`` idiom) decides whether the read actually runs.
     sheets_cache: list[dict[str, Any]] | None = None
     sheets_key: str = ""
     sheets_next: float = 0.0
-    #: The throttled sidecar read behind :func:`active_sheet`.
+    sheets_stamp: int | None = None
+    #: The throttled sidecar read behind :func:`active_sheet`, gated the same
+    #: two ways.
     sheet_cache: dict[str, Any] | None = None
     sheet_cache_key: tuple[str, str] = ("", "")
     sheet_cache_next: float = 0.0
+    sheet_cache_stamp: int | None = None
     #: The pixel-art measurement for the selected sheet, keyed on its id --
     #: ``TroupeState.pixel_report_cache``'s own reason: a ``kind``-filtered
     #: page under the store's one lock has no business running every frame a
@@ -591,6 +605,12 @@ def _reset_for_template(state: PoserState, template: str) -> None:
     state.frames = []
     state.clips_error = ""
     state.clips_unsaved = False
+    # The 2026-09-26 audit, finding poser-mode-06: a switch used to leave the
+    # previous template's import report standing, so re-importing against the
+    # new template could show a stale report drawn from clips the working
+    # copy no longer has at all.
+    state.clip_import_reports = []
+    state.clip_import_skipped = []
 
 
 def set_template(ctx: Any, template: str) -> None:
@@ -2503,15 +2523,36 @@ def sheets(ctx: Any, job_id: str) -> list[dict[str, Any]]:
     ``job_id`` as well as timed so switching the bound asset reads
     immediately; :func:`invalidate_sheets` closes the gap a build would
     otherwise leave.
+
+    The 2026-09-26 audit, finding poser-mode-08: the timer used to be the
+    whole decision, so every poll past ``SHEETS_REFRESH`` re-globbed and
+    re-parsed the directory whether or not it had changed. It still caps how
+    often this frame-thread poll looks at all -- a tight redraw loop must not
+    hit the directory's mtime every single frame either -- but once it looks,
+    the actual re-read only runs if that mtime (:mod:`...panes.stamps`, the
+    ``inspector._manifest`` idiom) has moved.
     """
+    from ....kernels.rig import store as rig_store
+    from ...panes import stamps
+
     state = ensure(ctx)
     if not job_id:
         return []
-    now = time.monotonic()
-    if state.sheets_cache is None or state.sheets_key != job_id or now >= state.sheets_next:
-        state.sheets_cache = _read_sheets(ctx, job_id)
-        state.sheets_key = job_id
+    if state.sheets_cache is not None and state.sheets_key == job_id:
+        now = time.monotonic()
+        if now < state.sheets_next:
+            return state.sheets_cache
         state.sheets_next = now + SHEETS_REFRESH
+        stamp = stamps.stamp_ns(rig_store.sheet_dir(ctx.job_dir(job_id)))
+        if stamp == state.sheets_stamp:
+            return state.sheets_cache
+    else:
+        stamp = stamps.stamp_ns(rig_store.sheet_dir(ctx.job_dir(job_id)))
+        state.sheets_next = time.monotonic() + SHEETS_REFRESH
+    state.sheets_cache = _read_sheets(ctx, job_id)
+    state.sheets_key = job_id
+    if stamps.storable(stamp):
+        state.sheets_stamp = stamp
     return state.sheets_cache
 
 
@@ -2576,9 +2617,11 @@ def select_sheet(ctx: Any, sheet_id: str = "") -> None:
     state = ensure(ctx)
     if not state.job_id:
         return
-    # The throttled directory read is dropped rather than waited out, for the
-    # reason ``on_task_done`` drops it below: the interval exists to stop idle
-    # polling, not to delay news the user has just asked for by name.
+    # The cached directory read is dropped rather than trusted, for the
+    # reason ``on_task_done`` drops it below: a build that just landed can sit
+    # inside the mtime stamp's own race window (see :mod:`...panes.stamps`),
+    # which a stamp comparison alone cannot see -- and this is news the user
+    # has just asked for by name, not idle polling that can wait it out.
     invalidate_sheets(ctx)
     available = sheets(ctx, state.job_id)
     if sheet_id and any(r["id"] == sheet_id for r in available):
@@ -2598,23 +2641,33 @@ def active_sheet(ctx: Any) -> dict[str, Any] | None:
     """The selected sheet's sidecar, or None. Throttled like :func:`sheets`.
 
     Several panes ask for this in their draw, so it was several JSON reads a
-    frame of a file that changes only when a sheet is rebuilt.
+    frame of a file that changes only when a sheet is rebuilt. The 2026-09-26
+    audit, finding poser-mode-08: gated the same two ways :func:`sheets` now
+    is -- the timer caps how often this looks at all, and the sidecar's own
+    mtime decides whether a look actually re-reads it.
     """
     from ....kernels.rig import store as rig_store
+    from ...panes import stamps
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):
         return None
     key = (state.job_id, state.sheet_id)
-    now = time.monotonic()
-    if (
-        state.sheet_cache is None
-        or state.sheet_cache_key != key
-        or now >= state.sheet_cache_next
-    ):
-        state.sheet_cache = rig_store.read_sheet(ctx.job_dir(key[0]), key[1])
-        state.sheet_cache_key = key
+    if state.sheet_cache is not None and state.sheet_cache_key == key:
+        now = time.monotonic()
+        if now < state.sheet_cache_next:
+            return state.sheet_cache
         state.sheet_cache_next = now + SHEETS_REFRESH
+        stamp = stamps.stamp_ns(rig_store.sheet_path(ctx.job_dir(key[0]), key[1]))
+        if stamp == state.sheet_cache_stamp:
+            return state.sheet_cache
+    else:
+        stamp = stamps.stamp_ns(rig_store.sheet_path(ctx.job_dir(key[0]), key[1]))
+        state.sheet_cache_next = time.monotonic() + SHEETS_REFRESH
+    state.sheet_cache = rig_store.read_sheet(ctx.job_dir(key[0]), key[1])
+    state.sheet_cache_key = key
+    if stamps.storable(stamp):
+        state.sheet_cache_stamp = stamp
     return state.sheet_cache
 
 
@@ -4587,6 +4640,13 @@ def adopt_imported_clips(ctx: Any, result: dict[str, Any]) -> None:
     if not isinstance(result, dict) or result.get("template") != state.template:
         return
     entries = result.get("clips") or ()
+    reports: list[dict[str, Any]] = []
+    # The 2026-09-26 audit, finding poser-mode-06: assigned before the
+    # zero-clip guard below, and as the very list the loop appends onto
+    # further down, so a clean-but-empty import (every action skipped)
+    # replaces whatever a previous import left in the pane instead of
+    # leaving that stale report on screen next to "Imported 0 clip(s)".
+    state.clip_import_reports = reports
     if not entries:
         return
     poses = list(state.clips.get("poses") or [])
@@ -4596,7 +4656,6 @@ def adopt_imported_clips(ctx: Any, result: dict[str, Any]) -> None:
     source_name = str(result.get("source_name") or "")
     imported_on = datetime.now(UTC).date().isoformat()
 
-    reports: list[dict[str, Any]] = []
     first_name = ""
     for entry in entries:
         clip = dict(entry.get("clip") or {})
@@ -4631,7 +4690,6 @@ def adopt_imported_clips(ctx: Any, result: dict[str, Any]) -> None:
 
     state.clips["poses"] = poses
     state.clips["clips"] = clip_rows
-    state.clip_import_reports = reports
     if first_name:
         state.clip = first_name
         state.key_index = 0

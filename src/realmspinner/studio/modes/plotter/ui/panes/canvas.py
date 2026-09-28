@@ -1049,7 +1049,7 @@ def _layers(
         layer = entry.layer
         shift = _layer_shift(view, origin, entry)
         if isinstance(layer, ImageLayer):
-            _image_layer(ctx, tab, draw_list, origin, layer, entry, shift)
+            _image_layer(ctx, tab, draw_list, origin, region, layer, entry, shift)
             continue
         if not isinstance(layer, TileLayer) or not refs:
             continue
@@ -1102,14 +1102,24 @@ def _layers(
 
 
 def _image_layer(
-    ctx: Any, tab: Any, draw_list: Any, origin, layer: Any, entry: Any, shift
+    ctx: Any, tab: Any, draw_list: Any, origin, region, layer: Any, entry: Any, shift
 ) -> None:
     """One image layer, as a quad -- or a grid of them when it repeats.
 
-    Bounded by the *map's* extent rather than by the pane, which is what
-    ``render.render_image`` does too: the two renderers have to put the same
-    number of copies in the same places, and a viewport-bounded tiling would put
-    copies on screen that an export does not carry.
+    The *set* of copies is bounded by the map's extent rather than by the
+    pane, which is what ``render.render_image`` does too: the two renderers
+    have to agree on how many copies exist and where, or a repeating layer
+    would export with a different count than the canvas shows.
+
+    Which of those copies actually reach ``draw_list``, though, is bounded by
+    the pane after all. A small picture repeating across a large map used to
+    call ``add_image`` for every copy the *map* could hold, however few of
+    them a zoomed-in pane could ever show -- draw calls that grew with the
+    map's size, not the window's (the 2026-09-26 audit, finding
+    plotter-mode-19). ``render.render_image`` has no viewport to cull
+    against -- an export is a still with no camera -- so this is a canvas-only
+    trim: the copy list ``repeats`` returns is untouched, only the copies
+    outside the visible rectangle are skipped before they reach the draw list.
 
     The texture is keyed on the pixel array's identity, the tileset rule --
     :class:`~..plotter.tilemap.ImageLayer` freezes its picture on construction,
@@ -1132,12 +1142,27 @@ def _image_layer(
     zoom = view.zoom
     width, height = float(layer.width), float(layer.height)
     tint = _layer_tint(imgui, entry)
+    # The pane's own rectangle, in the same (unshifted) image space ``repeats``
+    # already returns its copy positions in -- see the call sites below, which
+    # pass ``px``/``py`` straight to ``to_screen`` with no further shift added.
+    # Two opposite corners are enough (unlike ``_visible_range``'s four): the
+    # view's own orientation is a multiple of a quarter turn, never a skew, so
+    # a screen rectangle still maps to an axis-aligned rectangle here, just
+    # one ``sorted`` may need to un-swap.
+    vx0, vy0 = paintview.to_image(view, origin, origin[0], origin[1])
+    vx1, vy1 = paintview.to_image(view, origin, origin[0] + region[0], origin[1] + region[1])
+    vx0, vx1 = sorted((vx0, vx1))
+    vy0, vy1 = sorted((vy0, vy1))
     for py in plotter_render.repeats(
         int(round(shift[1])), int(height), int(doc.pixel_height), layer.repeat_y
     ):
+        if py + height <= vy0 or py >= vy1:
+            continue
         for px in plotter_render.repeats(
             int(round(shift[0])), int(width), int(doc.pixel_width), layer.repeat_x
         ):
+            if px + width <= vx0 or px >= vx1:
+                continue
             p0 = paintview.to_screen(view, origin, px, py)
             draw_list.add_image(
                 widgets.texture_ref(texture),

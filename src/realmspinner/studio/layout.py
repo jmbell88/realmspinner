@@ -387,7 +387,12 @@ class Layout:
         # settings key for the same reason: an old build reading a new file
         # still finds ``settings_share`` where it left it.
         self.shares: dict[str, float] = {}
-        for key, value in (stored.get("settings_shares") or {}).items():
+        # The 2026-09-26 audit, finding shell-documents-02: the same
+        # ``or {}`` non-guard as ``layouts.Layout.from_json`` -- a stored
+        # ``"settings_shares"`` that is truthy and not a dict (a list, a
+        # string) reached ``.items()`` and raised, crashing every launch that
+        # read it. ``as_dict`` is the actual guard.
+        for key, value in as_dict(stored.get("settings_shares")).items():
             try:
                 self.shares[str(key)] = min(max(float(value), SHARE_MIN), SHARE_MAX)
             except (TypeError, ValueError):

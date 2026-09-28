@@ -24,9 +24,21 @@ from pathlib import Path
 from typing import Any
 
 # Bias generations toward images TRELLIS handles well: one object, clean
-# silhouette. Moved here from text2image.py so prompt.build() (which the
-# generate panes' prompt preview calls) and text2image.generate() share one copy;
-# text2image.py re-exports this name so existing readers are unchanged.
+# silhouette. Moved here from text2image.py so prompt.build() and
+# text2image.generate() share one copy; text2image.py re-exports this name so
+# existing readers are unchanged.
+#
+# The 2026-09-26 audit, finding pipelines-image-02: this comment, build()'s
+# own docstring and load_tokenizers()'s used to say build() serves "the
+# generate panes' prompt preview" -- no pane, service function or MCP tool
+# calls build() or load_tokenizers() anywhere in this tree; a Grep for both
+# names turns up only their own definitions and tests/test_prompt.py. What
+# build() actually is: a pure, torch-free mirror of the template-selection
+# assembly text2image.generate() does by hand (see build()'s own docstring),
+# kept honest against it by tests/test_prompt.py rather than by any runtime
+# caller. Left in place rather than removed -- a prompt-preview control is
+# exactly the kind of thing a future UI pass would want, and this is already
+# the function it would call.
 #
 # Two edits on 2026-08-07, both from the rogue sweep's 17 refusals. Every one
 # was reference.py's multi-object rule and they were one family: concept-art
@@ -161,7 +173,11 @@ def load_tokenizers(model_dir: Path, family: str = "sdxl") -> list[Any]:
 
     Before this took a family, a non-SDXL directory raised OSError on the
     missing ``tokenizer_2`` and service.system swallowed it into tokens=None,
-    so the prompt preview degraded silently rather than being right.
+    so the prompt preview degraded silently rather than being right. That
+    caller is gone now -- the 2026-09-26 audit, finding pipelines-image-02,
+    found no pane, service function or MCP tool calls this function any more
+    -- so this paragraph is kept as the reason ``family`` exists rather than
+    as a description of anything currently live.
     """
     cached = _tokenizer_cache.get(model_dir)
     if cached is not None:
@@ -293,9 +309,11 @@ def build(
     """The final positive prompt.
 
     The composed subject, then the LoRA trigger (if any), then the template --
-    the same assembly text2image.generate() does by hand, exposed here so the
-    prompt preview can show it before a job runs. ``tile`` swaps in the
-    tileable template, whose framing is its own flat top-down clause,
+    the same assembly text2image.generate() does by hand, kept as a pure
+    mirror of it rather than exposed to any pane today (the 2026-09-26 audit,
+    finding pipelines-image-02: no caller shows this before a job runs any
+    more; see the module comment above ``PROMPT_TEMPLATE``). ``tile`` swaps in
+    the tileable template, whose framing is its own flat top-down clause,
     ``sheet`` the character-pose grid one, and ``tilesheet`` the tile grid
     one.
 

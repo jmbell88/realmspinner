@@ -322,7 +322,13 @@ class GenerationRequest:
                 if "custom_triangles" in model
                 else {},
             ),
-            schema_version=int(raw.get("schema_version") or 1),
+            # The 2026-09-26 audit, finding create-workspace-04: this was a
+            # bare ``int()`` cast, so a non-numeric ``schema_version`` (a
+            # hand-edited settings row, a malformed migration payload) raised
+            # a raw ``ValueError`` out of the constructor -- the exact crash
+            # ``_required_int`` exists to turn into a value that survives
+            # construction instead.
+            schema_version=_required_int(raw.get("schema_version") or 1, 1),
         )
 
 
@@ -755,6 +761,19 @@ def validate_request(
         issues.append(
             CompatibilityIssue("references", "Multi-reference mode needs at least two images.")
         )
+    # The 2026-09-26 audit, finding create-workspace-01: ``request_to_legacy``
+    # only writes ``init_image``/``init_strength`` onto the legacy payload
+    # inside its ``if request.references:`` branch, so a request built (or
+    # round-tripped through ``from_dict``) with ``init_image=True`` and no
+    # references cleared every other check and then ran as a plain
+    # text-to-image job while the stored request document still claimed
+    # img2img -- a job whose own record disagreed with what it actually did.
+    if request.init_image and not request.references:
+        issues.append(
+            CompatibilityIssue(
+                "init_image", "Img2img needs at least one reference image."
+            )
+        )
     # The 2026-09-13 audit, finding create-01: ``count`` can now arrive as
     # whatever ``_required_int`` left an unconvertible value at (unchanged,
     # not folded to a default), so this must check the type before the
@@ -1002,7 +1021,13 @@ def request_from_legacy(form: Mapping[str, Any]) -> GenerationRequest:
         ground=str(form.get("ground") or ""),
         path=str(form.get("path") or ""),
         edge=str(form.get("edge") or ""),
-        variants=int(form.get("variants") or 1),
+        # The 2026-09-26 audit, finding create-workspace-04: a bare ``int()``
+        # here, unlike ``from_dict``'s own ``tile`` construction a few lines
+        # up in this module (which already routes ``variants`` through
+        # ``_required_int``), so a non-numeric saved form value raised a raw
+        # ``ValueError`` instead of surviving to be refused by
+        # ``validate_request``'s existing ``tile.variants`` type check.
+        variants=_required_int(form.get("variants") or 1, 1),
         terrain_layout=str(form.get("terrain_layout") or "blob47"),
         style_lock=bool(form.get("style_lock")),
         seam_erase=bool(form.get("seam_erase")),
@@ -1046,13 +1071,20 @@ def request_from_legacy(form: Mapping[str, Any]) -> GenerationRequest:
         # survive must not read here as a structure request.
         structure_control=str(form.get("control") or "") if form.get("ref_path") else "",
         init_image=bool(form.get("init_image")) and bool(form.get("ref_path")),
+        # The 2026-09-26 audit, finding create-workspace-04: ``init_strength``,
+        # ``seed`` and ``count`` below were bare ``float()``/``int()`` casts,
+        # so a non-numeric saved form value (a hand-edited settings file, an
+        # older schema) raised a raw ``ValueError`` out of this adapter
+        # instead of surviving to be refused by ``validate_request``'s
+        # existing type checks on these same three fields -- the same crash
+        # ``from_dict`` was fixed for one door over.
         init_strength=(
-            float(form["init_strength"])
+            _required_float(form["init_strength"], None)
             if form.get("init_image") and form.get("init_strength") not in (None, "")
             else None
         ),
-        seed=int(form.get("seed") or 0),
-        count=int(form.get("count") or 1),
+        seed=_required_int(form.get("seed") or 0, 0),
+        count=_required_int(form.get("count") or 1, 1),
         tile=tile,
         sprite=sprite,
     )
@@ -1371,6 +1403,28 @@ def _forget_manifests(path: Path) -> None:
     _MANIFEST_CACHE.pop(path, None)
 
 
+#: Read size for :func:`_hash_file_sha256`. Arbitrary but generous -- large
+#: enough that a multi-GB adapter is not thousands of tiny reads, small enough
+#: that this never holds more than one chunk in memory at a time.
+_HASH_CHUNK_SIZE = 1 << 20
+
+
+def _hash_file_sha256(path: Path) -> str:
+    """A file's sha256, read in chunks rather than all at once.
+
+    The 2026-09-26 audit, finding create-workspace-03: :func:`import_lora`
+    used to hash with a bare ``path.read_bytes()`` -- loading the entire
+    adapter into memory just to throw the bytes away once the digest was
+    taken, on a file whose whole reason for being that large is that it is a
+    multi-hundred-megabyte-to-multi-gigabyte tensor blob.
+    """
+    hasher = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(_HASH_CHUNK_SIZE), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def load_lora_manifests(config: Any) -> list[LoraManifest]:
     # Total by construction: managed adapters are an optional extra, and
     # ``resolve_recipe`` calls this on every submit. A config that cannot say
@@ -1426,7 +1480,21 @@ def register_imported_loras(config: Any | None) -> None:
         # place under a lock rather than swapping in a new dict object.
         with models.STYLE_LORAS_LOCK:
             existing = models.STYLE_LORAS.get(manifest.key)
-            if existing is not None and existing.filename == manifest.filename:
+            # The 2026-09-26 audit, finding create-workspace-02: this used to
+            # compare only ``filename``, but ``filename`` bakes in the key and
+            # the label, not the trigger word or the tuned weight -- so
+            # re-importing the same source file with a changed trigger or
+            # weight (same key, same label, same filename) skipped the update
+            # here and left the in-memory ``STYLE_LORAS`` entry stale until
+            # the app restarted and ``register_imported_loras`` ran again from
+            # a cold registry.
+            if (
+                existing is not None
+                and existing.filename == manifest.filename
+                and existing.label == manifest.label
+                and existing.trigger == manifest.trigger_text
+                and existing.default_weight == manifest.tuned_weight
+            ):
                 continue
             models.STYLE_LORAS[manifest.key] = models.StyleLora(
                 key=manifest.key,
@@ -1519,7 +1587,7 @@ def import_lora(
         raise ValueError("a LoRA must be a .safetensors file")
     if not source_path.is_file():
         raise FileNotFoundError(source_path)
-    digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    digest = _hash_file_sha256(source_path)
     key = f"imported_{digest[:16]}"
     safe_label = re.sub(r"[^a-zA-Z0-9_.-]+", "_", label).strip("._-") or key
     filename = f"{key}_{safe_label}.safetensors"
@@ -1542,6 +1610,9 @@ def import_lora(
     )
     path = lora_manifest_path(config)
     with _MANIFEST_LOCK:
+        previous = next(
+            (x for x in load_lora_manifests(config) if x.key == key), None
+        )
         manifests = [x for x in load_lora_manifests(config) if x.key != key]
         manifests.append(manifest)
         payload = json.dumps(
@@ -1554,5 +1625,18 @@ def import_lora(
             temp = Path(fh.name)
         temp.replace(path)
         _forget_manifests(path)
+        # The 2026-09-26 audit, finding create-workspace-03: ``filename`` bakes
+        # in the label (``safe_label`` above), so re-importing the same source
+        # file under a new label keeps the same digest-derived ``key`` but
+        # writes to a *new* filename -- the manifest row above now points at
+        # it, but the old blob this key used to point at was never unlinked,
+        # an unreachable full-size duplicate left sitting in the loras folder
+        # forever. Only after the new manifest is durably written: an orphan
+        # file is a much better failure than deleting the old one and then
+        # crashing before the new one's row lands.
+        if previous is not None and previous.filename != manifest.filename:
+            stale = (root / previous.filename).resolve()
+            if stale.parent == root.resolve():
+                stale.unlink(missing_ok=True)
     register_imported_loras(config)
     return manifest

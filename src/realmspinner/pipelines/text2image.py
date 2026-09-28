@@ -261,8 +261,16 @@ class Text2Image:
     @property
     def model_dir(self) -> Path:
         """Where this base model's weights live -- same resolution Text2Image
-        itself uses, exposed so a caller (the prompt-preview endpoint) can
-        load matching tokenizers without reimplementing REALMSPINNER_T2I_ROOT."""
+        itself uses, exposed so a caller could load matching tokenizers
+        without reimplementing REALMSPINNER_T2I_ROOT.
+
+        The 2026-09-26 audit, finding pipelines-image-02: no such caller (a
+        "prompt-preview endpoint") exists in this tree today -- Grepping for
+        ``model_dir`` and ``load_tokenizers`` turns up only their own
+        definitions and tests. Kept for the reason ``prompt.build`` is kept
+        (see its module's own note): this is already the resolution a future
+        preview would need.
+        """
         return self._model_dir
 
     def load(self, on_state: Callable[[str], None] | None = None) -> None:

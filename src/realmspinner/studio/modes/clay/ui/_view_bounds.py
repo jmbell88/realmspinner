@@ -67,7 +67,14 @@ class BoundsOps:
                 obj = doc.by_uid(uid)
             except KeyError:
                 continue
-            pins.extend((obj.mesh, obj.translation, obj.rotation, obj.scale))
+            pins.append(obj.mesh)
+            # Every ancestor's own transform triple too, matching the key
+            # above -- an id in the key is only sound while the array it
+            # names is alive, and nothing else holds an ancestor's arrays
+            # alive on this memo's behalf (the same reason ``view._world``
+            # pins its own ancestor chain).
+            for ancestor in (obj, *(doc.by_uid(u) for u in doc.ancestors(uid))):
+                pins.extend((ancestor.translation, ancestor.rotation, ancestor.scale))
             verts = el.affected_verts(obj.mesh, sel)
             if not len(verts):
                 continue
@@ -82,12 +89,23 @@ class BoundsOps:
 
     @staticmethod
     def _obj_key(doc: Any, uid: int) -> tuple:
-        """The identity triple-plus-mesh that pins one object's geometry."""
+        """The identity triple-plus-mesh that pins one object's geometry --
+        **and every ancestor's own transform triple**, ``view._world``'s own
+        reason exactly (that method's docstring): an object's ``translation``/
+        ``rotation``/``scale`` are local to its parent, so moving a parent
+        leaves a *child's* own three arrays untouched. Before this (the
+        2026-09-26 audit's clay-view-02), :meth:`element_centre`'s memo keyed
+        only on the selected object's own triple, so it kept matching -- and
+        kept serving the child's pre-move centroid -- after a parent moved,
+        with the gizmo and the drag pivot for a selected child both reading
+        it.
+        """
         try:
             obj = doc.by_uid(uid)
         except KeyError:
             return ()
-        return (id(obj.mesh), id(obj.translation), id(obj.rotation), id(obj.scale))
+        chain = [obj, *(doc.by_uid(u) for u in doc.ancestors(uid))]
+        return (id(obj.mesh), *(id(v) for o in chain for v in (o.translation, o.rotation, o.scale)))
 
     def world_bounds(self: ClayView, doc: Any, *, selected_only: bool = False) -> tuple[Any, Any]:
         """The world AABB over visible objects, or ``(None, None)`` if there are none.

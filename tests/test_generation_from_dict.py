@@ -190,6 +190,20 @@ def test_validate_request_refuses_a_count_above_the_doors_own_ceiling():
     assert any(issue.field == "count" for issue in issues)
 
 
+def test_from_dict_does_not_raise_on_a_non_numeric_schema_version():
+    """The 2026-09-26 audit, finding create-workspace-04: ``schema_version``
+    was still cast with a bare ``int()`` after every other top-level scalar in
+    this constructor had already been moved onto ``_required_int``/
+    ``_required_float`` for create-01 (2026-09-13) -- a non-numeric
+    ``schema_version`` (a hand-edited settings row, a malformed migration
+    payload) raised a raw ``ValueError`` out of the constructor instead of
+    surviving construction.
+    """
+    raw = {"generation_type": "3d_model", "prompt": "a knight", "schema_version": "banana"}
+    req = generation.GenerationRequest.from_dict(raw)  # must not raise
+    assert req.schema_version == "banana"  # unconverted, same contract as seed/count
+
+
 def test_cell_dimensions_is_gone_now_that_nothing_ever_called_it():
     """The 2026-09-16 audit, finding create-panes-03.
 

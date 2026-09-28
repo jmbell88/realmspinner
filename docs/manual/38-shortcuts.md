@@ -307,7 +307,7 @@ clears the selection when there was nothing armed.
 | Ctrl+Shift+V | Paste as a new layer |
 | Ctrl+Shift+C | Copy what is visible inside the selection (merged) |
 | Ctrl+Shift+I | Invert the selection |
-| Ctrl+J / Ctrl+Shift+J | Layer from selection — copy it up / cut it up |
+| Ctrl+J / Ctrl+Shift+J | Copy to new layer / Move to new layer |
 | Ctrl+T | Free transform (Enter applies, Esc cancels) |
 | Ctrl+B | Capture the selection as the brush tip |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |

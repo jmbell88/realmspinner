@@ -72,6 +72,14 @@ class FakeApp:
     def _request_storage(self) -> None:
         self.calls.append("_request_storage")
 
+    def _pump_verify(self) -> None:
+        # ``_refresh`` (main.App, real via WiredApp below) calls this
+        # unconditionally now (the 2026-09-26 audit's shell-shell-pkg-03,
+        # a retry for a verify probe ``_request_verify`` couldn't submit) --
+        # a no-op stub keeps this fixture usable without exercising that
+        # retry path, which has its own tests.
+        self.calls.append("_pump_verify")
+
     def _sync_viewer(self) -> None:
         self.calls.append("_sync_viewer")
 

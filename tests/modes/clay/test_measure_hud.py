@@ -115,3 +115,33 @@ def test_volume_sums_every_selected_object():
     doc.select([first.uid, second.uid])
 
     assert clay_hints.measure_line(doc) == "volume  2.0000 m³"
+
+
+def test_measure_line_is_memoised_on_doc_rev_and_not_recomputed_every_frame(monkeypatch):
+    """The 2026-09-26 audit's clay-panes-03 (+clay-view-04): ``hud.hint_line``
+    called this once a frame with no gate at all -- 0.47 s at 262k faces, 24
+    ms at 20k, measured, for a selection sitting completely still. It is now
+    memoised on ``doc.rev``, which every mutation that could change the
+    answer already bumps (``ClayDoc.touch``), selection included."""
+    from realmspinner.kernels.mesh import measure as bm_measure
+
+    doc, obj = _doc_with_box()
+    doc.select([obj.uid])
+    calls = []
+    original = bm_measure.volume
+
+    def counting(mesh, world=None):
+        calls.append(1)
+        return original(mesh, world)
+
+    monkeypatch.setattr(bm_measure, "volume", counting)
+
+    clay_hints.measure_line(doc)
+    clay_hints.measure_line(doc)
+    clay_hints.measure_line(doc)
+    assert len(calls) == 1, "an unchanged selection must be measured once, not every call"
+
+    doc.select([])
+    doc.select([obj.uid])
+    clay_hints.measure_line(doc)
+    assert len(calls) == 2, "a real selection change (it bumps rev) must still be measured"

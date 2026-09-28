@@ -201,8 +201,23 @@ class UvPaneState:
     # (``_measurements``'s own docstring) rather than staying a second,
     # unmemoised ``uvtools.islands(mesh)`` call in ``_canvas`` -- both are
     # exactly as much a pure function of mesh identity as overlap/stretch.
-    measured_result: tuple[np.ndarray, np.ndarray | None, np.ndarray | None, str] = field(
-        default_factory=lambda: (np.empty(0, dtype=np.int64), None, None, "")
+    # The 2026-09-26 audit's clay-panes-02: ``_edges`` called
+    # ``uvtools.seams_from_uv(mesh)`` fresh every frame the pane was open --
+    # 78ms of it at 10k faces, on top of ``_faces``'/``_edges``'/
+    # ``_island_outlines``' own per-face draw loops -- when the derived cuts
+    # are exactly as much a pure function of mesh identity as
+    # ``ids``/``overlap``/``stretch`` already are. Folded into the same memo
+    # rather than kept as a second, unmemoised call.
+    measured_result: tuple[
+        np.ndarray, np.ndarray | None, np.ndarray | None, str, np.ndarray
+    ] = field(
+        default_factory=lambda: (
+            np.empty(0, dtype=np.int64),
+            None,
+            None,
+            "",
+            np.empty((0, 2), dtype=np.int64),
+        )
     )
 
 #: The uv unit square is treated as a texture this many pixels on a side, for
@@ -605,12 +620,12 @@ def _selected_object(doc: Any) -> Any:
 
 def _measurements(
     view_state: UvPaneState, mesh: Any
-) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, str]:
-    """``(ids, overlap, stretch, refusal)`` for *mesh* -- ``uvtools.islands``
-    plus ``overlap_faces``/``stretch``, computed once here rather than by the
-    caller so both a refusal (a mesh past ``uvtools.MAX_OVERLAP_TRIANGLES``)
-    and the ordinary answer share one call site. ``refusal`` is ``""`` on
-    success.
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, str, np.ndarray]:
+    """``(ids, overlap, stretch, refusal, seam_cuts)`` for *mesh* --
+    ``uvtools.islands`` plus ``overlap_faces``/``stretch``/``seams_from_uv``,
+    computed once here rather than by the caller so both a refusal (a mesh
+    past ``uvtools.MAX_OVERLAP_TRIANGLES``) and the ordinary answer share one
+    call site. ``refusal`` is ``""`` on success.
 
     Memoised on *view_state* keyed by ``mesh`` identity (see
     :attr:`UvPaneState.measured_mesh`): the 2026-09-19 audit's clay-12 found
@@ -621,11 +636,17 @@ def _measurements(
     found ``_canvas`` still calling ``uvtools.islands(mesh)`` fresh every
     frame right beside this memo -- island ids are exactly as much a
     function of mesh identity as overlap/stretch are, so they are folded
-    into the same cache rather than kept as a second, unmemoised call.
+    into the same cache rather than kept as a second, unmemoised call. The
+    2026-09-26 audit's clay-panes-02: ``_edges`` was the same story again for
+    ``uvtools.seams_from_uv`` -- 78ms of it at 10k faces, every frame, for a
+    boundary set that only ever changes when the mesh itself does.
     """
     if view_state.measured_mesh is mesh:
         return view_state.measured_result
     ids = uvtools.islands(mesh)
+    seam_cuts = (
+        uvtools.seams_from_uv(mesh) if mesh.uv is not None else np.empty((0, 2), dtype=np.int64)
+    )
     try:
         overlap = uvtools.overlap_faces(mesh)
     except el.OpError as error:
@@ -636,10 +657,10 @@ def _measurements(
         # log line is for whoever is chasing why the tint never lights up on
         # one object.
         log.debug("uv pane: overlap/stretch not shown (%s)", error)
-        result = (ids, None, None, str(error))
+        result = (ids, None, None, str(error), seam_cuts)
     else:
         stretch = uvtools.stretch(mesh)
-        result = (ids, overlap, stretch, "")
+        result = (ids, overlap, stretch, "", seam_cuts)
     view_state.measured_mesh = mesh
     view_state.measured_result = result
     return result
@@ -843,9 +864,9 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     # ``measured_mesh`` starts ``None`` and this branch never fires before
     # anything has been measured at least once.
     if view_state.drag_mode in ("move", "rotate", "scale") and view_state.measured_mesh is not None:
-        ids, overlap, stretch, refusal = view_state.measured_result
+        ids, overlap, stretch, refusal, seam_cuts = view_state.measured_result
     else:
-        ids, overlap, stretch, refusal = _measurements(view_state, mesh)
+        ids, overlap, stretch, refusal, seam_cuts = _measurements(view_state, mesh)
     uv_here = _to_uv(view, origin, mouse.x, mouse.y)
 
     # The 2026-09-22 audit's clay-19: this whole dispatch -- live rotate/scale,
@@ -913,7 +934,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     _backdrop(draw_list, view, origin)
     covered = touched_islands(mesh, ids, doc.element_sel.get(obj.uid))
     _faces(draw_list, view, origin, mesh, ids, overlap, stretch)
-    _edges(draw_list, view, origin, mesh, obj.seams)
+    _edges(draw_list, view, origin, mesh, obj.seams, seam_cuts)
     _island_outlines(draw_list, view, origin, mesh, ids, view_state.selected_islands | covered)
     draw_list.pop_clip_rect()
     if refusal:
@@ -1077,7 +1098,14 @@ def _faces(
         draw_list.add_convex_poly_filled(points, colour)
 
 
-def _edges(draw_list: Any, view: Any, origin: tuple[float, float], mesh: Any, seams: Any) -> None:
+def _edges(
+    draw_list: Any,
+    view: Any,
+    origin: tuple[float, float],
+    mesh: Any,
+    seams: Any,
+    seam_cuts: np.ndarray,
+) -> None:
     """Island boundaries, with the edges the object's own ``seams`` names
     drawn thicker and in a different colour.
 
@@ -1088,6 +1116,12 @@ def _edges(draw_list: Any, view: Any, origin: tuple[float, float], mesh: Any, se
     second, pane-local seam derivation: the spec calls for exactly this
     function, read back against the object's own marked seams to decide
     which of those boundary edges are *also* an authored seam.
+
+    ``seam_cuts`` is :func:`~.uvtools.seams_from_uv`'s own answer, already
+    computed by :func:`_measurements` and memoised on mesh identity there
+    (the 2026-09-26 audit's clay-panes-02) -- this function no longer calls
+    it fresh, so a caller passing a stale mesh's cuts here would be its own
+    bug, not this one's.
     """
     from imgui_bundle import imgui
 
@@ -1096,8 +1130,7 @@ def _edges(draw_list: Any, view: Any, origin: tuple[float, float], mesh: Any, se
     boundary = imgui.get_color_u32(theme.rgba(theme.EDGE, 0.8))
     marked = imgui.get_color_u32(theme.rgba(theme.WARN))
     seam_set = {tuple(sorted((int(a), int(b)))) for a, b in (seams or ())}
-    derived = uvtools.seams_from_uv(mesh)
-    all_cuts = {tuple(sorted((int(a), int(b)))) for a, b in derived}
+    all_cuts = {tuple(sorted((int(a), int(b)))) for a, b in seam_cuts}
     # Every face edge is drawn once, from its own two uv corners -- an edge
     # shared by two faces whose uv agrees draws twice, harmlessly (the same
     # line on top of itself), which is cheaper than deriving a dedup set for

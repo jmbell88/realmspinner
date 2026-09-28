@@ -43,9 +43,10 @@ what a value starts at and what it ends at across the phase. Change the **seed**
 arrangement of the same sparks.
 
 Or type it: put *colder, more sparks, no smoke* in the prompt field under the buttons and press
-Enter. The toast lists what each word did. Realmspinner ships no language model, so this is a
-fixed vocabulary of colours and adjectives, which is enough for most of what you would say to a
-fireball; whatever it maps a word to is clamped exactly like a slider.
+Enter. The toast lists what each word did. If Flourish's small optional text model is installed
+(Settings → Models) it reads the prompt directly; otherwise, or if it times out, this falls back
+to a fixed vocabulary of colours and adjectives, which is enough for most of what you would say to
+a fireball; whatever it maps a word to is clamped exactly like a slider.
 
 ## Paint on a cell, then regenerate
 

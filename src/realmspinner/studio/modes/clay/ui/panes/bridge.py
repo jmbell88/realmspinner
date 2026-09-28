@@ -525,8 +525,18 @@ def _game_check(ctx: Any, tab: Any) -> None:
     tab.readiness_profile = widgets.combo("##clay-readiness-profile", profile, options, sp(170))
 
     imgui.same_line()
-    why = "Saving..." if tab.saving else ""
-    if widgets.disabled_button("Check", not tab.saving, reason=why):
+    # The 2026-09-26 audit's clay-panes-08 (the in-flight half; the other
+    # half -- a failed check leaving stale old text on screen -- needs a new
+    # ClayTab field and a clay_mode.on_task_failed branch, both outside this
+    # file, and is left open): a second press while a check was already
+    # running reached ``TaskRunner.submit``'s own "refused rather than
+    # queued" door (that method's own docstring) with nothing on screen
+    # saying so -- the button just sat there, and a user who did not see the
+    # first press land pressed it again for nothing. ``ctx.busy`` is the same
+    # check ``_texture_slots`` already reads for exactly this reason.
+    busy = ctx.busy(f"clay-readiness:{tab.uid}")
+    why = "Checking..." if busy else ("Saving..." if tab.saving else "")
+    if widgets.disabled_button("Check", not tab.saving and not busy, reason=why):
         clay_mode.check_readiness(ctx, tab, tab.readiness_profile)
 
     report = tab.readiness_report
@@ -541,5 +551,6 @@ def _game_check(ctx: Any, tab: Any) -> None:
         widgets.text_colored(colour, f"{_STATUS_ICON.get(status, '?')} {label}")
         imgui.same_line()
         widgets.muted_wrapped(message)
-        if fix and widgets.disabled_button(f"Fix##{label}", not tab.saving, reason=why):
+        fix_why = "Saving..." if tab.saving else ""
+        if fix and widgets.disabled_button(f"Fix##{label}", not tab.saving, reason=fix_why):
             _run_fix(ctx, tab, fix, uids)

@@ -247,6 +247,46 @@ def test_a_form_carries_its_control_into_the_request_only_with_a_reference():
     assert generation.request_from_legacy(form).structure_control == "canny"
 
 
+def test_request_from_legacy_does_not_raise_on_non_numeric_saved_scalars():
+    """The 2026-09-26 audit, finding create-workspace-04: ``request_from_legacy``
+    cast ``seed``, ``count`` and ``init_strength`` with bare ``int()``/``float()``
+    calls, unlike ``from_dict``'s equivalent fields (already routed through
+    ``_required_int``/``_required_float`` for exactly this reason -- create-01,
+    2026-09-13). A non-numeric saved value in any of them raised a raw
+    ``ValueError`` out of this adapter instead of surviving to be refused by
+    ``validate_request``'s existing type checks on all three fields.
+    """
+    form = {
+        "asset_type": "image",
+        "generation_type": "image",
+        "seed": "banana",
+        "count": "banana",
+        "ref_path": "ref.png",
+        "init_image": True,
+        "init_strength": "banana",
+    }
+    request = generation.request_from_legacy(form)  # must not raise
+    issues = generation.validate_request(request)
+    assert {"seed", "count", "init_strength"} <= {i.field for i in issues}
+
+
+def test_request_from_legacy_does_not_raise_on_a_non_numeric_saved_variants():
+    """The same finding (create-workspace-04), for ``tile.variants``:
+    ``request_from_legacy`` cast it with a bare ``int()`` where ``from_dict``'s
+    ``TileSettings`` construction already used ``_required_int`` (create2-07,
+    2026-09-06)."""
+    form = {
+        "asset_type": "tileset",
+        "generation_type": "tileset",
+        "tile_mode": "collection",
+        "prompt_items": ["grass"],
+        "variants": "banana",
+    }
+    request = generation.request_from_legacy(form)  # must not raise
+    issues = generation.validate_request(request)
+    assert any(i.field == "tile.variants" for i in issues)
+
+
 # --- img2img needs the SDXL family ---------------------------------------------
 
 
@@ -293,6 +333,21 @@ def test_an_sdxl_base_with_init_image_is_accepted():
     resolved = generation.resolve_recipe(request, None)
     assert resolved is not None
     assert generation.validate_request(request, resolved) == []
+
+
+def test_validate_request_refuses_init_image_with_no_reference_images():
+    """The 2026-09-26 audit, finding create-workspace-01: ``request_to_legacy``
+    only writes ``init_image``/``init_strength`` onto the legacy job payload
+    inside its ``if request.references:`` branch, so a request built (or
+    round-tripped through ``from_dict``) with ``init_image=True`` and no
+    reference images used to clear every check here and then run as a plain
+    text-to-image job while the stored request document still claimed
+    img2img. There is no resolved recipe involved in the mistake, so this
+    must be refused even before recipe resolution is attempted.
+    """
+    request = _request(init_image=True, init_strength=0.5)
+    issues = generation.validate_request(request)
+    assert any(i.field == "init_image" for i in issues)
 
 
 def test_capability_controls_reports_img2img_only_for_the_sdxl_family():

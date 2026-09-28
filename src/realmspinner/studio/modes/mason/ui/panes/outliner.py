@@ -59,6 +59,35 @@ def draw(ctx: Any) -> None:
         _body(ctx)
 
 
+def _cached_rows(tab: Any) -> list[tuple[Any, int | None, int, int]]:
+    """``list(doc.walk())``, cached against ``tab`` until the document changes.
+
+    The 2026-09-26 audit's finding mason-mode-14: this used to be rebuilt by a
+    full tree walk on *every* frame this pane drew, whether or not anything in
+    the scene had changed since the frame before -- sixty walks a second to
+    scroll a list nothing was editing. Cached the same way
+    ``MasonView.resolved`` already caches its own walk of the identical tree
+    (``ui/view.py``): keyed on ``doc.rev``, which ``document.py``'s own module
+    docstring names "an outliner row list" as exactly what ``rev`` exists for.
+
+    The document is pinned by identity rather than trusted by ``id()`` alone
+    -- the 2026-09-07 audit's clay-09, restated: a closed tab's document
+    collected and a fresh one minted at the same address would otherwise hand
+    this cache a stale row list with nothing to say why. Stored on ``tab``
+    rather than a module-level dict because the tab, not this stateless pane
+    module, is what actually lives and dies with the document -- the cache
+    goes with it instead of a global dict slowly filling with entries for
+    scenes that have since closed.
+    """
+    doc = tab.doc
+    cached = getattr(tab, "_mason_outliner_rows", None)
+    if cached is not None and cached[0] is doc and cached[1] == doc.rev:
+        return cached[2]
+    rows = list(doc.walk())
+    tab._mason_outliner_rows = (doc, doc.rev, rows)
+    return rows
+
+
 def _body(ctx: Any) -> None:
     state = mason_mode.ensure(ctx)
     tab = mason_mode.active(ctx)
@@ -67,29 +96,47 @@ def _body(ctx: Any) -> None:
     if tab is None:
         return
     doc = tab.doc
-    rows = list(doc.walk())
+    rows = _cached_rows(tab)
     if not rows:
         widgets.empty_state(icons.LIST, "Empty scene", "Place something from Assets to start.")
         return
 
     imgui.begin_disabled(tab.saving)
     needle = widgets.list_filter(ctx, "mason-outliner", len(rows))
-    _visibility_row(doc)
-    shown = 0
-    for node, parent_uid, index, depth in rows:
-        if needle and needle not in (node.name or "").lower():
-            continue
-        shown += 1
-        _row(
-            ctx, state, doc, node, parent_uid, index, depth,
-            filtered=bool(needle), saving=bool(tab.saving),
-        )
+    _visibility_row(doc, rows)
+    filtered = bool(needle)
+    # The 2026-09-26 audit's finding mason-mode-14: every row used to be
+    # submitted to imgui whether or not the pane could actually show it --
+    # ``clay/ui/panes/outliner.py``'s own clay-panes-05 fix (the 2026-09-26
+    # audit's earlier wave) is the precedent this mirrors: filtering still
+    # runs over the whole (now cached) row list, since which rows even exist
+    # to show is a document-wide question a clipper cannot answer -- only the
+    # *drawing* of the matched rows is clipped.
+    visible = [
+        row for row in rows if not needle or needle in (row[0].name or "").lower()
+    ]
+    shown = len(visible)
+    clipper = imgui.ListClipper()
+    clipper.begin(len(visible))
+    while clipper.step():
+        for i in range(clipper.display_start, clipper.display_end):
+            node, parent_uid, index, depth = visible[i]
+            _row(
+                ctx, state, doc, node, parent_uid, index, depth,
+                filtered=filtered, saving=bool(tab.saving),
+            )
+    clipper.end()
     widgets.no_matches(needle, shown)
     imgui.end_disabled()
 
 
-def _visibility_row(doc: Any) -> None:
-    hidden = sum(1 for node in doc.all_nodes() if not node.visible)
+def _visibility_row(doc: Any, rows: list[tuple[Any, int | None, int, int]]) -> None:
+    # Read off the same cached walk ``_body`` already paid for, rather than a
+    # second full ``doc.all_nodes()`` walk of its own -- the 2026-09-26
+    # audit's finding mason-mode-14 is exactly "a full tree walk every frame",
+    # and a hidden-count call sharing the walk this pane already cached is one
+    # fewer place that regresses back to it.
+    hidden = sum(1 for node, _parent_uid, _index, _depth in rows if not node.visible)
     # Both carry a ``reason`` as well as a tooltip, which is what
     # ``disabled_button`` exists to make possible: a greyed control that cannot
     # say why is what ``exercise_mode`` reports as ``disabled-no-reason``, and it

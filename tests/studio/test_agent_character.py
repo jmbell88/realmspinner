@@ -886,7 +886,10 @@ def test_character_rig_mints_and_records_a_rig(
     monkeypatch.setattr(
         svc_rig,
         "create_rig",
-        lambda svc, jid, *, template=None: {
+        # refuse_existing is accepted here too: the 2026-09-26 audit, finding
+        # agents-character-03, has _h_character_rig pass refuse_existing=True
+        # so the "never replaces" check moves inside create_rig's own lock.
+        lambda svc, jid, *, template=None, refuse_existing=False: {
             "id": "abc123abc123",
             "source_job": jid,
             "template": "humanoid",

@@ -1246,3 +1246,30 @@ def test_the_overflow_menu_offers_open_first_for_a_finished_row():
     assert 'controls.menu_item("Open"' in source
     assert source.index('controls.menu_item("Open"') < source.index("Copy job id")
     assert 'run_action(ctx, job, "open")' in source
+
+
+def test_a_trashed_card_draws_no_live_primary_action_bulk_tick_or_star():
+    """2026-09-26 audit, finding shell-home-library-04: only ``_overflow`` was
+    ever narrowed to the trash's own Restore/Delete permanently pair --
+    ``_card_actions`` still drew the live primary-action button (whatever
+    ``primary_action`` answers for the job's kind/stage: Open, Rig, Clay...,
+    none of which the trash still serves), the bulk-select tick
+    (``ctx.state.checked`` is cleared on entry to the trash because it means a
+    different selection there -- see the trash toggle in ``_view_row``) and
+    the favourite star (favouriting a row on its way out is not a real
+    action). This pins that ``_card_actions`` checks ``deleted_at`` and
+    returns before any of the three draw, leaving only the ellipsis that
+    opens the already-narrowed overflow menu."""
+    source = inspect.getsource(library._card_actions)
+    assert "deleted_at" in source
+    guard = source.index("deleted_at")
+    pick_index = source.index('"##pick"')
+    star_index = source.index("icons.STAR")
+    # The guard has to actually exit the function before reaching the tick and
+    # the star, not merely mention the field somewhere in the body.
+    assert "return" in source[guard:pick_index]
+    assert pick_index > guard
+    assert star_index > guard
+    # The ellipsis (the overflow menu's own door) must still be reachable
+    # whether or not the row is trashed.
+    assert source.count("icons.ELLIPSIS") >= 1

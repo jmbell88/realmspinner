@@ -255,7 +255,7 @@ def _check_sprite_sheet(svc: RealmspinnerService, block: Any) -> dict[str, Any]:
     submit had already been paid for.
 
     Delegating to ``sprites``' own constants rather than restating them: the two
-    are in the same layer, so the drift argument that makes ``grounds.py``
+    are in the same layer, so the drift argument that makes ``tilesheets.py``
     restate the plotter's numbers does not apply.
     """
     from ..pipelines import spritesynth

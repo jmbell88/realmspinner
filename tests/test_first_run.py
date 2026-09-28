@@ -154,3 +154,82 @@ def test_a_missing_pack_routes_the_primary_button_to_packs_not_models(svc, monke
     first_run.install_packs(ctx, packs)
     assert ctx.state.mode == "settings"
     assert ctx.state.preview[app_settings.CATEGORY_SLOT] == "packs"
+
+
+# --- the primary button's label and action (2026-09-26 audit) ---------------
+
+
+def test_a_pc_with_nothing_missing_offers_continue_not_a_zero_byte_download():
+    """The 2026-09-26 audit, finding shell-review-settings-07: every row
+    already present and no pack missing used to fall through to "Download
+    models (~0 GB)" -- a button that promised a download and would have
+    started one for nothing."""
+    info = {
+        "packs": [],
+        "rows": [
+            {"label": "TRELLIS.2 GGUF weights", "present": True},
+            {"label": "SDXL 1.0", "present": True},
+        ],
+        "download_gib": 0.0,
+        "total_gib": 23.1,
+    }
+    assert first_run._primary_action(info) == ("Continue", "continue")
+
+
+def test_a_pc_with_a_missing_row_still_offers_the_real_download():
+    """The fix must not swallow the ordinary case: a row still missing keeps
+    the download offer, sized off ``download_gib``."""
+    info = {
+        "packs": [],
+        "rows": [
+            {"label": "TRELLIS.2 GGUF weights", "present": False},
+            {"label": "SDXL 1.0", "present": True},
+        ],
+        "download_gib": 12.3,
+        "total_gib": 23.1,
+    }
+    label, action = first_run._primary_action(info)
+    assert action == "models"
+    assert label == "Download models (~12 GB)"
+
+
+def test_a_missing_pack_still_wins_over_a_fully_present_row_set():
+    """Packs before weights (F4's ordering) still applies even when every
+    weight row happens to already be present."""
+    info = {
+        "packs": [{"key": "text2image", "label": "Image generation", "download_gib": 3.3}],
+        "rows": [{"label": "SDXL 1.0", "present": True}],
+        "download_gib": 0.0,
+        "total_gib": 23.1,
+    }
+    label, action = first_run._primary_action(info)
+    assert action == "packs"
+    assert "Image generation" in label
+
+
+def test_continue_dismisses_the_panel_rather_than_starting_a_download(svc, monkeypatch):
+    """The button press itself: with nothing missing, pressing it must close
+    the panel (``dismiss``), not reach for ``download_models``."""
+    ctx = _ctx(svc)
+    ctx.first_run_info = {
+        "packs": [],
+        "rows": [{"label": "SDXL 1.0", "present": True}],
+        "download_gib": 0.0,
+        "total_gib": 0.0,
+    }
+    calls: list[str] = []
+    monkeypatch.setattr(first_run, "dismiss", lambda _ctx: calls.append("dismiss") or True)
+    monkeypatch.setattr(
+        first_run, "download_models", lambda _ctx: calls.append("download_models")
+    )
+    label, action = first_run._primary_action(ctx.first_run_info)
+    assert label == "Continue"
+    # The dispatch ``draw`` performs on a press, exercised directly since
+    # ``draw`` itself needs an imgui frame.
+    if action == "packs":
+        first_run.install_packs(ctx, tuple(ctx.first_run_info["packs"]))
+    elif action == "models":
+        first_run.download_models(ctx)
+    else:
+        first_run.dismiss(ctx)
+    assert calls == ["dismiss"]

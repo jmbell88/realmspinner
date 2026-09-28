@@ -224,19 +224,45 @@ def _affine(rotation: np.ndarray, translation: np.ndarray) -> np.ndarray:
 # --- box ----------------------------------------------------------------------
 
 
+def _sign_from_extreme(centered: np.ndarray, axis: np.ndarray) -> float:
+    """+1.0 or -1.0: the sign that makes *axis*'s furthest-projecting point
+    project positively.
+
+    The 2026-09-26 audit, finding clay-mesh-uv-03: :func:`_pca_frame` and
+    :func:`fit_capsule` both used to pick a sign by ``(centered @
+    axis).sum() < 0``. ``centered`` is mean-zero *by construction*
+    (``centered = points - points.mean(axis=0)``), so ``sum(centered @
+    axis) == (n * mean(centered)) @ axis == 0`` exactly, for *every* axis,
+    independent of the point set's actual shape -- the sign-flip branch that
+    sum fed could only ever fire on float noise around zero, never on the
+    shape of the data. Two calls on the same points (or the same shape
+    reflected, or simply re-fit after an op that reorders vertices) could
+    therefore land on opposite signs, exactly the instability canonicalising
+    a sign exists to prevent.
+
+    The extreme projection (largest by absolute value) is not zero-mean the
+    way the raw sum is, and is a standard, deterministic sign convention for
+    a PCA axis -- the same one ``sklearn.utils.extmath.svd_flip`` uses.
+    """
+    proj = centered @ axis
+    extreme = proj[int(np.argmax(np.abs(proj)))]
+    return -1.0 if extreme < 0.0 else 1.0
+
+
 def _pca_frame(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """``(axes, mean)`` -- a right-handed orthonormal frame (columns = axes,
     widest spread first) fit to *points* by PCA, and their centroid.
 
-    Sign is canonicalised (each axis flipped, if needed, so the points project
-    onto it with a non-negative sum) so the frame is a function of the *point
-    set*, not of ``eigh``'s arbitrary sign choice -- two calls on the same
-    shape, even reflected numerically, land on the same axes. The third axis
-    is always the cross product of the first two, never ``eigh``'s own third
-    eigenvector, which is what keeps ``det(axes) == 1`` after both signs are
-    canonicalised independently (flipping two of three columns of a
-    right-handed frame one at a time can leave it left-handed; recomputing the
-    third from the cross product cannot).
+    Sign is canonicalised (each axis flipped, if needed, so its furthest-
+    projecting point projects positively -- see :func:`_sign_from_extreme`)
+    so the frame is a function of the *point set*, not of ``eigh``'s
+    arbitrary sign choice -- two calls on the same shape, even reflected
+    numerically, land on the same axes. The third axis is always the cross
+    product of the first two, never ``eigh``'s own third eigenvector, which
+    is what keeps ``det(axes) == 1`` after both signs are canonicalised
+    independently (flipping two of three columns of a right-handed frame one
+    at a time can leave it left-handed; recomputing the third from the cross
+    product cannot).
     """
     mean = points.mean(axis=0)
     centered = points - mean
@@ -245,12 +271,8 @@ def _pca_frame(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         return np.eye(3, dtype="f8"), mean
     eigvals, eigvecs = np.linalg.eigh(cov)
     order = np.argsort(eigvals)[::-1]
-    e0 = eigvecs[:, order[0]]
-    e1 = eigvecs[:, order[1]]
-    if float((centered @ e0).sum()) < 0.0:
-        e0 = -e0
-    if float((centered @ e1).sum()) < 0.0:
-        e1 = -e1
+    e0 = eigvecs[:, order[0]] * _sign_from_extreme(centered, eigvecs[:, order[0]])
+    e1 = eigvecs[:, order[1]] * _sign_from_extreme(centered, eigvecs[:, order[1]])
     e2 = np.cross(e0, e1)
     return np.stack([e0, e1, e2], axis=1), mean
 
@@ -438,11 +460,14 @@ def fit_capsule(
             axis = eigvecs[:, int(np.argmax(eigvals))]
             norm = float(np.linalg.norm(axis))
             axis = axis / norm if norm > 0.0 else np.array([0.0, 1.0, 0.0])
-            # Canonicalise sign the same way ``_pca_frame`` does, so the same
-            # shape fit twice (or fit and re-fit after an equivalent op)
-            # lands on the same axis rather than its negation.
-            if float((centered @ axis).sum()) < 0.0:
-                axis = -axis
+            # Canonicalise sign the same way ``_pca_frame`` does (see
+            # ``_sign_from_extreme``'s own docstring, finding clay-mesh-uv-03
+            # of the 2026-09-26 audit -- this used to sum ``centered @ axis``,
+            # which is zero-mean by construction and so always summed to
+            # ~0, never actually flipping), so the same shape fit twice (or
+            # fit and re-fit after an equivalent op) lands on the same axis
+            # rather than its negation.
+            axis = axis * _sign_from_extreme(centered, axis)
 
     e_x, e_z = _perp_basis(axis)
     rotation = np.stack([e_x, axis, e_z], axis=1)

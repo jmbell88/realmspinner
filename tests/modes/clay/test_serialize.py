@@ -415,6 +415,103 @@ def test_a_transform_that_is_not_numbers_is_refused() -> None:
         ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
 
 
+@pytest.mark.parametrize("key", ["translation", "rotation", "scale"])
+def test_a_nan_in_a_transform_is_refused(key) -> None:
+    """The 2026-09-26 audit, finding clay-document-08: ``np.asarray`` casts a
+    JSON ``NaN``/``Infinity`` (Python's ``json`` module accepts the literal by
+    default) exactly as happily as a real number, unlike a non-numeric
+    string, which ``float()`` a few lines up already refuses -- so a corrupt
+    translation/rotation/scale used to load silently and propagate through
+    every matrix built from it instead of being refused by name.
+    """
+    default = {
+        "translation": [0.0, 0.0, 0.0],
+        "rotation": [0.0, 0.0, 0.0, 1.0],
+        "scale": [1.0, 1.0, 1.0],
+    }[key]
+    bad = list(default)
+    bad[0] = float("nan")
+
+    def mangle(scene: dict) -> None:
+        for entry in scene["objects"]:
+            entry[key] = bad
+
+    with pytest.raises(ValueError, match=key):
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
+
+
+def test_a_rotation_of_the_zero_quaternion_is_refused() -> None:
+    """The 2026-09-26 audit, finding clay-document-08: ``(0, 0, 0, 0)`` is not
+    a unit quaternion and not any rotation at all, but ``m3.quat_to_mat4``
+    happens to return the identity matrix for it (every cross term in the
+    formula is zero), so this used to load silently as "no rotation" instead
+    of being refused as the corrupt value it is.
+    """
+
+    def mangle(scene: dict) -> None:
+        for entry in scene["objects"]:
+            entry["rotation"] = [0.0, 0.0, 0.0, 0.0]
+
+    with pytest.raises(ValueError, match="rotation"):
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
+
+
+def test_a_scale_of_zero_is_refused() -> None:
+    """The 2026-09-26 audit, finding clay-document-08: a scale of (0, 0, 0)
+    collapses the object to a single point and makes its world matrix
+    singular, breaking every inverse a later export or normal transform
+    takes of it -- this used to load without complaint."""
+
+    def mangle(scene: dict) -> None:
+        for entry in scene["objects"]:
+            entry["scale"] = [0.0, 0.0, 0.0]
+
+    with pytest.raises(ValueError, match="scale"):
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
+
+
+@pytest.mark.parametrize("field", ["base_color_factor", "emissive_factor"])
+def test_a_material_factor_with_nan_is_refused(field) -> None:
+    """The 2026-09-26 audit, finding clay-document-08: ``float()`` accepts
+    ``nan``/``inf`` exactly as happily as a real number, so a corrupt array
+    factor used to reach ``gltf.Material`` unchecked."""
+    n = 4 if field == "base_color_factor" else 3
+
+    def mangle(scene: dict) -> None:
+        scene["materials"][0][field] = [float("nan")] * n
+
+    with pytest.raises(ValueError, match="malformed"):
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
+
+
+def test_a_material_scalar_factor_with_nan_is_refused() -> None:
+    """Same finding, the scalar half: ``metallic_factor``/``roughness_factor``/
+    ``alpha_cutoff`` are bare ``float()`` casts too, and a NaN in one of them
+    is a blend weight or threshold that reaches the renderer with nothing to
+    show for it and no name attached to the cause."""
+
+    def mangle(scene: dict) -> None:
+        scene["materials"][0]["metallic_factor"] = float("nan")
+
+    with pytest.raises(ValueError, match="malformed"):
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
+
+
+def test_a_material_base_color_factor_that_is_a_digit_string_is_refused() -> None:
+    """The 2026-09-26 audit, finding clay-document-08: ``_factor`` used to
+    iterate ``value`` rather than requiring it to already be a list, so a
+    JSON *string* of the right length silently passed -- ``"1234"`` (four
+    digit characters) iterates to four floats and never reaches the length
+    check at all, loading a colour that was never a list in the source file.
+    """
+
+    def mangle(scene: dict) -> None:
+        scene["materials"][0]["base_color_factor"] = "1234"
+
+    with pytest.raises(ValueError, match="malformed"):
+        ser.read_rblk(_rewrite(ser.rblk_bytes(_doc()), mangle))
+
+
 @pytest.mark.parametrize("bad", [[1, 2, 3], "ab", 5, [["k", "v"]]])
 def test_a_rblk_objects_non_dict_params_field_is_refused_by_name_not_a_bare_exception(bad) -> None:
     """The 2026-09-11 audit, finding clay-07: an object entry's ``params``

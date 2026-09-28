@@ -45,7 +45,19 @@ def test_engine_presence_requires_the_exact_pipeline(tmp_path) -> None:
 
 
 def test_engine_uninstall_stages_on_the_engine_volume(svc, monkeypatch) -> None:
-    """REALMSPINNER_TRELLIS_MODELS may point at a drive unlike image models."""
+    """REALMSPINNER_TRELLIS_MODELS may point at a drive unlike image models.
+
+    The ``svc`` fixture sets that variable purely for test isolation (so this
+    run's trellis directory lives under its own ``tmp_path``, not a shared
+    home); ``svc.config.trellis_models_dir`` is already resolved to that path
+    by the time this test runs. The 2026-09-26 audit's pipelines-install-03
+    fix refuses removal outright whenever the variable is *still set*, on the
+    theory that a real user's override names a directory Realmspinner did not
+    create -- which is exactly backwards for this fixture's own directory, so
+    the override is cleared here before exercising the volume-staging
+    behaviour this test actually pins.
+    """
+    monkeypatch.delenv("REALMSPINNER_TRELLIS_MODELS", raising=False)
     spec = models.ENGINE_MODELS["trellis_gguf"]
     svc.config.trellis_models_dir.mkdir(parents=True, exist_ok=True)
     for name in spec.probe:

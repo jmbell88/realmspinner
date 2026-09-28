@@ -100,11 +100,17 @@ def _load_rgb(path: Path) -> Any | None:
 
 
 def _wrap_box(a: Any, radius: int) -> Any:
-    """A box blur that wraps, via a summed-area table on a tiled array.
+    """A box blur that wraps, by summing rolled copies of the array.
 
-    Separable and therefore two passes rather than ``(2r+1)**2``; wrapped by
-    rolling rather than by padding, so the result is exactly periodic and a
-    shifted input gives the shifted output to the bit.
+    Separable and therefore two passes rather than ``(2r+1)**2``; each pass
+    sums ``2*radius + 1`` copies of the array shifted (``np.roll``) rather
+    than padded, so the result is exactly periodic and a shifted input gives
+    the shifted output to the bit. The 2026-09-26 audit, finding
+    pipelines-mesh-06: this docstring used to call it "a summed-area table on
+    a tiled array" -- a genuine summed-area table (an integral image, with a
+    four-corner lookup giving each box sum in O(1) regardless of ``radius``)
+    would be a real algorithmic change from the O(radius) shift-and-sum below,
+    not a description of it.
     """
     import numpy as np
 

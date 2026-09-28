@@ -217,7 +217,7 @@ Rename-Item $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors pi
 
 ## Conditioning, matting and measurement models
 
-Seven more registry entries, none of them required to generate anything. They lived only in
+Six more registry entries, none of them required to generate anything. They lived only in
 `models.py` until the download machinery started generating both lists from the same `Fetch`
 records; `realmspinner doctor` reports each one and the Settings pane can fetch it.
 

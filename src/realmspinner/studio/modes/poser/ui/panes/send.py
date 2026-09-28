@@ -53,6 +53,13 @@ TITLE = "Send to Poser"
 #: this is what decides how wide the dialog reads.
 DIALOG_W = 420.0
 
+#: Where :func:`_send` remembers each sent mesh's own last layout, keyed by
+#: job id -- ``OPTIONS_SLOT``'s own shelf (``ctx.state.preview``, not
+#: ``PoserState``: it is neither a selection nor a clock, and clearing the
+#: whole ``preview`` dict on close/reset is exactly what a per-door scratch
+#: cache wants). The 2026-09-26 audit, finding poser-render-03.
+_SENT_LAYOUTS_SLOT = "poser_send_layouts"
+
 
 @dataclass
 class PoserSend:
@@ -415,6 +422,13 @@ def _send(ctx: Any, state: PoserSend, form: dict[str, Any]) -> None:
     No imgui: see ``_actions``.
     """
     form["logical_size"] = int(state.logical_size)
+    # The 2026-09-26 audit, finding poser-render-02: only ``logical_size``
+    # itself used to be written back here, so ``ui/panes/sheet.py``'s combo
+    # -- which trusts an already-present ``logical_size_custom`` rather than
+    # re-deriving it -- kept showing whatever that flag happened to be from
+    # before this send, drawing the custom box with a bare "100" placeholder
+    # instead of the size just chosen here.
+    form["logical_size_custom"] = bool(state.custom_size)
     form["camera"] = state.camera
     form["outline"] = state.outline
     if not state.palette:
@@ -429,13 +443,32 @@ def _send(ctx: Any, state: PoserSend, form: dict[str, Any]) -> None:
     # sending -- a separate id chosen from the Library or the inspector.
     # Rebuilt here whenever the two disagree, so a character open in Poser --
     # and any layout it carries, hand-edited or not -- cannot leak onto an
-    # unrelated mesh sent through this door. ``state.template`` empty means
-    # the skeleton could not be resolved (an unreadable ``rig.json``, read
-    # tolerantly above) -- the form's own layout is kept rather than replaced
-    # with one built for no template at all, and ``create_charsheet``
-    # re-reads the rig and is the real gate.
+    # unrelated mesh sent through this door (``test_troupe_chain.py``'s own
+    # ``test_send_to_troupe_does_not_submit_the_currently_selected_characters_
+    # layout_for_a_different_mesh`` pins exactly this). ``state.template``
+    # empty means the skeleton could not be resolved (an unreadable
+    # ``rig.json``, read tolerantly above) -- the form's own layout is kept
+    # rather than replaced with one built for no template at all, and
+    # ``create_charsheet`` re-reads the rig and is the real gate.
     if state.template and state.job_id != poser_mode.ensure(ctx).job_id:
-        form["layout"] = poser_mode._layout_for_sheet_template(ctx, state.template)
+        # The 2026-09-26 audit, finding poser-render-03: this used to rebuild
+        # unconditionally here, so sending mesh B right after hand-editing the
+        # layout mesh A's *own* send had just produced threw A's edits away --
+        # not the bound character's (the leak above already refuses those),
+        # but this door's own remembered answer for a mesh it had already
+        # asked about. Remembered per sent mesh, the way ``PoserSend`` itself
+        # is rebuilt fresh by :func:`ask` for a mesh this door has never seen,
+        # so an unrelated mesh's *first* send is untouched by this cache and
+        # still gets a plain fresh default -- only a mesh this door has
+        # already built a layout for gets that layout back, and only while it
+        # still fits the template that layout was built for.
+        remembered_by_mesh = ctx.state.preview.setdefault(_SENT_LAYOUTS_SLOT, {})
+        remembered = remembered_by_mesh.get(state.job_id)
+        if isinstance(remembered, dict) and remembered.get("template") == state.template:
+            form["layout"] = remembered
+        else:
+            form["layout"] = poser_mode._layout_for_sheet_template(ctx, state.template)
+        remembered_by_mesh[state.job_id] = form["layout"]
     job_id = state.job_id
     close(ctx)
     poser_mode.render_character_sheet(ctx, {"id": job_id}, form)

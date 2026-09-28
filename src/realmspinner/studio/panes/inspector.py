@@ -1512,6 +1512,13 @@ def is_graded(ctx: Any, job_id: str) -> bool:
     try:
         found = ctx.svc.store.verdicts_for([job_id], source="human", stage="model")
     except Exception:  # noqa: BLE001 - see the docstring; never fail a frame
+        # 2026-09-26 audit, finding shell-home-library-08: the docstring above
+        # already promises this is memoised, but this arm returned ``True``
+        # without ever writing it into ``inspector_graded`` -- so a failing
+        # query never actually degraded once, it just re-ran and re-failed on
+        # every single frame the header was drawn, which is the exact bug the
+        # memo dict exists to prevent.
+        ctx.state.inspector_graded[job_id] = True
         return True
     graded = bool(found)
     ctx.state.inspector_graded[job_id] = graded

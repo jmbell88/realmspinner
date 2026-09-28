@@ -159,3 +159,25 @@ def test_run_fix_toasts_when_the_op_has_nothing_to_do():
 
     assert ctx.toasts, "an empty document has nothing to ground and must toast"
     assert ctx.toasts[0][1] == "warn"
+
+
+def test_game_check_reads_ctx_busy_before_offering_the_check_button():
+    """The 2026-09-26 audit's clay-panes-08 (the in-flight half): a second
+    press while a check was already running reached ``TaskRunner.submit``'s
+    own "refused rather than queued" door with nothing on screen saying so.
+    ``_game_check`` must read ``ctx.busy`` (the same in-flight check
+    ``_texture_slots`` already uses) before drawing the Check button, driven
+    by source inspection the same way ``test_clay_props_undo.py`` checks a
+    positional contract no headless frame can attribute to one field over
+    another.
+
+    The finding's other half -- a failed check leaving stale old text on
+    screen -- needs a new ``ClayTab`` field and a ``clay_mode.on_task_failed``
+    branch, neither of which lives in this file, so it is not this test's
+    claim."""
+    import inspect
+
+    source = inspect.getsource(clay_bridge._game_check)
+    busy_at = source.index("ctx.busy(")
+    button_at = source.index('"Check"')
+    assert busy_at < button_at, "ctx.busy must be read before the Check button is drawn"

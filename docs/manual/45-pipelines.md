@@ -89,7 +89,7 @@ old complete file or the new complete file, never a truncated one. That matters 
 which runs on a job that is already finished and whose `model.glb` the viewer may be reading at that
 moment.
 
-`animated.glb` (one of the two GLBs above) is derived from `rig.glb` rather than `model.glb`, and its
+`animated.glb` (a third GLB, distinct from the two above) is derived from `rig.glb` rather than `model.glb`, and its
 freshness test is not bare existence: the host stamps a hash of the rig's clip library into the file
 itself the moment it is baked, and a later request rebakes it, rather than serving the old one,
 whenever that hash no longer matches — which is what lets a clip edited in Poser, or a clip newly

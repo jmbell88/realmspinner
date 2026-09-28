@@ -208,6 +208,19 @@ MAX_DECOMPRESSED_BYTES = 1 << 30
 #: indexed mode that gives it meaning.
 _MAX_PALETTE_ENTRIES = 1 << 16
 
+#: The ceiling on one slice's own key count. ``_read_slice`` reads ``count``
+#: straight off the chunk and then loops that many times to build the keys
+#: list -- each key costs real file bytes, unlike ``_MAX_PALETTE_ENTRIES``'s
+#: incident, but real bytes are cheap: a 65535-key slice is roughly a
+#: megabyte. The 2026-09-26 audit, finding inker-codecs-09: ``_slices_for``
+#: re-scanned every one of a slice's keys for every frame in the document, an
+#: O(frames x keys) product with neither side bounded, so a slice this size
+#: paired with a frame count near this reader's own u16 ceiling hung Inker on
+#: open. The loop below is now a single sorted pass (O(frames + keys)), and
+#: this ceiling is refused up front regardless, matching every other
+#: declared-count ceiling in this module.
+_MAX_SLICE_KEYS = 1 << 16
+
 
 def _inflate(raw: bytes, expected: int, what: str) -> bytes:
     """Unpack one chunk's payload, refusing anything past what it declares.
@@ -311,9 +324,15 @@ class AseLayer:
     group: bool = False
     background: bool = False
     #: Aseprite's reference layer -- an underlay to trace over. Kept as read
-    #: rather than folded into ``visible``, which is a different fact: the
-    #: layer opens hidden *because* an export omits it, and the flag says what
-    #: kind of layer it is.
+    #: rather than folded into ``visible``, which is a different fact: a
+    #: reference layer's own VISIBLE bit is read verbatim like any other
+    #: layer's (``_read_layer``), so this flag says what *kind* of layer it
+    #: is, not whether it shows. The 2026-09-26 audit, finding
+    #: inker-codecs-11: this comment used to say the layer "opens hidden
+    #: *because* an export omits it" -- true of a flattened export, never of
+    #: the VISIBLE bit, and stale even about the override this reader once
+    #: applied (see ``_read_layer``'s own comment and
+    #: ``test_a_reference_layer_keeps_the_visibility_the_file_states``).
     reference: bool = False
     continuous: bool = False
     child_level: int = 0
@@ -1142,6 +1161,14 @@ def _read_slice(state: _Parse, r: _Reader) -> None:
     flags = r.u32()
     r.u32()
     name = r.string()
+    if count > _MAX_SLICE_KEYS:
+        # The 2026-09-26 audit, finding inker-codecs-09: refused here, before
+        # a single key is read, rather than only relied on downstream to have
+        # cost real bytes -- see ``_MAX_SLICE_KEYS``'s own comment.
+        raise ValueError(
+            f"the slice {name or 'Slice'!r} declares more than the"
+            f" {_MAX_SLICE_KEYS} keys this build will open"
+        )
     entry = AseSlice(name=name or "Slice")
     for _ in range(count):
         frame = r.u32()
@@ -1747,6 +1774,15 @@ def _slices_for(
     key here overrides one frame. So the first key becomes the slice itself and
     every frame whose applicable key is a later one gets an override -- which is
     the same picture, stored the way this model stores it.
+
+    The 2026-09-26 audit, finding inker-codecs-09: this used to re-scan every
+    one of ``keys`` for every frame (``for at, key in keys: if at <= index:
+    applies = key``), an O(frames x keys) product with neither side bounded --
+    a slice's key count near ``_MAX_SLICE_KEYS`` alongside a frame count near
+    this reader's own u16 ceiling hung Inker on open. ``keys`` is sorted by
+    frame and ``index`` only increases, so a single forward pointer reaches
+    the identical answer (the latest key at or before the current frame) in
+    one pass over each list: O(frames + keys) per slice.
     """
     out: list[Slice] = []
     for entry in sprite.slices:
@@ -1758,11 +1794,12 @@ def _slices_for(
                 " it is shown from the first frame here"
             )
         overrides: dict[int, SliceKey] = {}
+        applies = base
+        pos = 0
         for index, frame in enumerate(frames):
-            applies = base
-            for at, key in keys:
-                if at <= index:
-                    applies = key
+            while pos < len(keys) and keys[pos][0] <= index:
+                applies = keys[pos][1]
+                pos += 1
             if applies is not base:
                 overrides[frame.uid] = applies
         out.append(

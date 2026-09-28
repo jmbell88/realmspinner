@@ -151,6 +151,17 @@ def test_the_file_says_what_format_it_is_and_which_geometry_it_describes():
     assert entry["geometry"] == "scene.glb"
 
 
+def test_the_geometry_field_names_the_glb_the_export_was_actually_called():
+    """A leftover of mason-mode-13 (the 2026-09-26 audit): the manifest sidecar
+    was renamed to match the file it describes, but this field stayed the
+    literal ``"scene.glb"`` -- so exporting ``Barrel.glb`` shipped a manifest
+    whose own ``"geometry"`` field lied about its name."""
+    d = doc.MasonDoc()
+    export = gltfout.scene_model(d, _Source())
+    entry = json.loads(manifest.manifest_bytes(d, export, geometry_name="Barrel.glb"))
+    assert entry["geometry"] == "Barrel.glb"
+
+
 # --- the provenance the GLB cannot carry -------------------------------------
 
 

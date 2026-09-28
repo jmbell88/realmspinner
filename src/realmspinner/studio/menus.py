@@ -97,30 +97,20 @@ def _checked(ctx: Any, key: str) -> bool:
 def _command_specs(
     ctx: Any, commands: list[Any], *, evaluate: bool = True
 ) -> list[MenuSpec]:
-    from . import modes
-
     out: list[MenuSpec] = []
     for index, command in enumerate(commands):
         path = ("Workspace",) if command.key.startswith("go:") else _COMMAND_PATHS.get(command.key)
         if path is None:
-            # Mode-specific actions form a contextual menu instead of making
-            # File/Edit into miscellaneous command dumps.
-            if (
-                command.group in ("Actions", "Viewport")
-                and ctx.state.mode not in ("home", "settings", "library")
-                and ctx.state.mode != "inker"
-            ):
-                label = next(
-                    (
-                        name
-                        for key, name, _icon, _purpose in modes.MODES
-                        if key == ctx.state.mode
-                    ),
-                    "Actions",
-                )
-                path = (label,)
-            else:
-                continue
+            # The 2026-09-26 audit, finding shell-chrome-02: this used to fall
+            # through to a contextual per-mode menu root (named after
+            # ``ctx.state.mode``) for any ``Actions``/``Viewport`` command with
+            # no ``_COMMAND_PATHS`` entry. Every such command has had an entry
+            # since the ``generate`` and ``reroll`` fixes above, so that branch
+            # never ran -- no mode has ever actually had its own root -- and
+            # the manual's claim that most modes get one was corrected to
+            # match. A command reaching here now has nowhere to go; skip it
+            # rather than resurrect a menu root nothing draws.
+            continue
         out.append(
             MenuSpec(
                 identity=f"command:{command.key}",

@@ -841,6 +841,24 @@ def test_a_still_document_keeps_a_slice_without_a_timeline_to_key_it_to():
     assert doc.slices[0].keys == {}
 
 
+def test_a_slice_declaring_more_keys_than_the_ceiling_is_refused():
+    """The 2026-09-26 audit, finding inker-codecs-09.
+
+    ``_slices_for`` used to re-scan every one of a slice's keys for every
+    frame in the document (``for at, key in keys: if at <= index: applies =
+    key``), an O(frames x keys) product with neither side bounded -- a
+    crafted file with a slice's key count and the document's frame count both
+    large enough hung Inker on open. ``_read_slice`` now refuses a ``count``
+    past ``_MAX_SLICE_KEYS`` before reading a single key, which is cheap to
+    prove: the refusal fires off the declared count alone, with no backing
+    key bytes in the fixture at all.
+    """
+    body = struct.pack("<III", asein._MAX_SLICE_KEYS + 1, 0, 0) + _string("huge")
+    chunk = _chunk(0x2022, body)
+    with pytest.raises(ValueError, match="more than"):
+        asein.document_from_aseprite(_one_layer_file(extra=[chunk]))
+
+
 def test_a_file_of_nothing_but_folders_opens_empty_rather_than_refusing():
     data = _file(_header(1, 3, 3), [_frame([_layer("Folder", kind=1)])])
     doc, warnings = asein.document_from_aseprite(data)

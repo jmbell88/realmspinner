@@ -11,8 +11,13 @@
 # Pinning the revision narrows that; vendoring closes it, because the code that
 # runs is the code in this checkout and a reviewer can read it.
 #
-# Every modification below carries a ``REALMSPINNER:`` comment. There are four, they
-# are all subtractive or explicit-dispatch, and none of them changes the
+# Every modification below carries a ``REALMSPINNER:`` comment. There are five:
+# four numbered in place (``REALMSPINNER 1/4`` through ``4/4``), plus one small
+# unnumbered one -- the ``BiRefNetConfig`` import rename, marked ``REALMSPINNER:``
+# alone with no fraction, sitting between 3/4's lettered parts because it landed
+# where the import it renamed already was. The 2026-09-26 audit, finding
+# pipelines-image-04, found this header undercounting it. All five are
+# subtractive, explicit-dispatch or a rename, and none of them changes the
 # arithmetic: the mask this produces is bit-identical to the remote-code path's,
 # which ``tests/pipelines/test_birefnet_parity.py`` pins against a golden captured before
 # the switch.

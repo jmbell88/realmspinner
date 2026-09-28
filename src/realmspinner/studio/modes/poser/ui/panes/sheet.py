@@ -869,10 +869,17 @@ def _pixel_report(ctx: Any, state: Any) -> dict[str, Any]:
         if params.get("sheet_id") == state.sheet_id:
             found = dict(params.get("pixel_report") or {})
             break
-    state.pixel_report_cache = found
+    # The 2026-09-26 audit, finding poser-render-04: a sheet old enough to
+    # have aged past this SCAN_LIMIT-row page used to lose its report on the
+    # very next poll even though nothing about *that sheet* changed -- only
+    # newer sheets pushing it further down the (newest-first) list did. Kept
+    # rather than clobbered with the empty scan result whenever this is still
+    # the same sheet and something was already known about it.
+    if found or state.pixel_report_key != state.sheet_id or state.pixel_report_cache is None:
+        state.pixel_report_cache = found
     state.pixel_report_key = state.sheet_id
     state.pixel_report_next = now + poser_mode.SHEETS_REFRESH
-    return found
+    return state.pixel_report_cache
 
 
 def _rerender(ctx: Any, state: Any) -> None:

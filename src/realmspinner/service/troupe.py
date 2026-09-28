@@ -282,7 +282,7 @@ def _check_options(svc: RealmspinnerService, entries: dict[str, Any]) -> dict[st
     in Python, so ``entries.get("pixel_art")`` used to turn HD mode *on* by
     way of a string that spells "off" -- every pane sends a real bool here
     (``send.py``'s and ``sheet.py``'s Style combo both resolve to one through
-    ``poser_mode._style_choice`` -- Troupe's own ``troupe_settings.py`` and
+    ``poser_mode._style_choice`` -- Troupe's own ``modes/troupe/ui/panes/settings.py`` and
     ``troupe_mode._style_choice`` before the 2026-09-18 P9 fold -- never a raw
     value passed through), so this refusal has no control on any pane to name
     and is deliberately left unfielded rather than pointed at an address

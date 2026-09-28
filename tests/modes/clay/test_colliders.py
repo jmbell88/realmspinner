@@ -135,6 +135,47 @@ def test_fit_box_refuses_an_empty_mesh():
         cl.fit_box(empty)
 
 
+def _points_mesh(points: np.ndarray) -> bm.Mesh:
+    """A bare point cloud as a :class:`~.mesh.Mesh`, valid input for a
+    collider fitter (which only ever reads ``.positions``) even though it has
+    no faces at all."""
+    return bm.Mesh(
+        positions=np.asarray(points, dtype="f4"),
+        loops=np.zeros(0, dtype="i4"),
+        starts=np.zeros(1, dtype="i4"),
+        material=np.zeros(0, dtype="i4"),
+        smooth=np.zeros(0, dtype=bool),
+    )
+
+
+def test_pca_frame_sign_is_not_decided_by_a_sum_that_is_always_zero():
+    """The 2026-09-26 audit, finding clay-mesh-uv-03: ``_pca_frame``'s sign
+    canonicalisation used to sum ``centered @ axis`` -- but ``centered`` is
+    mean-zero by construction (``centered = points - points.mean(axis=0)``),
+    so that sum is (up to float noise) exactly zero for *every* axis and
+    *every* point set, and whether the noise landed a hair positive or
+    negative -- not which side of the axis the data's own extremes actually
+    sit on -- decided the flip. This 31-point cloud (30 points clustered near
+    x=-1, one outlier at x=+10) is a concrete case where that noise landed on
+    the "don't flip" side while the real extreme point sits on the negative
+    side of the raw, pre-canonicalisation eigenvector -- so the old rule left
+    the frame with its extreme point projecting *negatively*, violating this
+    function's own "furthest-projecting point projects positively" contract
+    (:func:`colliders._sign_from_extreme`'s docstring).
+    """
+    rng = np.random.default_rng(1)
+    cluster = rng.normal(loc=[-1.0, 0.0, 0.0], scale=0.2, size=(30, 3))
+    outlier = np.array([[10.0, rng.normal(0, 0.05), rng.normal(0, 0.05)]])
+    points = np.vstack([cluster, outlier])
+
+    axes, mean = cl._pca_frame(points)
+    e0 = axes[:, 0]
+    centered = points - mean
+    proj = centered @ e0
+    extreme = proj[int(np.argmax(np.abs(proj)))]
+    assert extreme > 0.0
+
+
 # --- fit_sphere -----------------------------------------------------------
 
 
@@ -199,6 +240,25 @@ def test_capsule_recovers_the_input_radius_and_half_height():
     assert col.params["half_height"] == pytest.approx(0.5, abs=1e-3)
     axis = np.array(col.params["axis"])
     assert abs(abs(axis[1]) - 1.0) < 1e-3  # axis is +-Y for a Y-axis input capsule
+
+
+def test_capsule_axis_sign_is_not_decided_by_a_sum_that_is_always_zero():
+    """The same finding (clay-mesh-uv-03), the capsule's own copy of the
+    identical bug: ``fit_capsule``'s axis sign used to be canonicalised by
+    the same zero-mean sum as ``_pca_frame``, and the same 31-point cloud
+    that demonstrates the gap there demonstrates it here."""
+    rng = np.random.default_rng(1)
+    cluster = rng.normal(loc=[-1.0, 0.0, 0.0], scale=0.2, size=(30, 3))
+    outlier = np.array([[10.0, rng.normal(0, 0.05), rng.normal(0, 0.05)]])
+    points = np.vstack([cluster, outlier])
+
+    col = cl.fit_capsule(_points_mesh(points))
+    axis = np.array(col.params["axis"])
+    mean = points.mean(axis=0)
+    centered = points - mean
+    proj = centered @ axis
+    extreme = proj[int(np.argmax(np.abs(proj)))]
+    assert extreme > 0.0
 
 
 def test_fit_capsule_refuses_an_empty_mesh():

@@ -165,8 +165,34 @@ def read_wav(data: bytes, rate: int) -> np.ndarray:
             if source_rate <= 0:
                 raise ValueError(f"this WAV declares a {source_rate} Hz rate")
             raw = handle.readframes(frames)
-    except wave.Error as exc:
-        raise ValueError(f"this is not a WAV file this build reads: {exc}") from exc
+            # The 2026-09-26 audit, finding sirens-engine-03: a data chunk
+            # shorter than the header's own frame count is not an error to
+            # ``wave`` -- ``Chunk.read`` returns whatever bytes are actually
+            # there rather than raising -- so a cut file sailed past this
+            # point with a ``raw`` too short for ``frames``, then hit
+            # ``reshape``/``frombuffer`` below with numpy's own message
+            # ("cannot reshape array of size ...") instead of one that says
+            # what was actually wrong with the file. Checked here, once,
+            # before any array is built.
+            expected = frames * channels * width
+            if len(raw) != expected:
+                raise ValueError(
+                    f"this WAV's data chunk holds {len(raw)} bytes, short of"
+                    f" the {expected} its header declares for {frames} frames"
+                )
+    except (wave.Error, EOFError, struct.error) as exc:
+        # The 2026-09-26 audit, finding sirens-engine-03: ``wave`` raises a
+        # bare ``EOFError`` (from ``_read_fmt_chunk``, e.g. a ``fmt `` chunk
+        # truncated before its 14 required bytes) or a bare ``struct.error``
+        # for a header cut in other ways -- neither is a ``wave.Error`` and
+        # neither is a ``ValueError``, so both used to sail past this
+        # function's only ``except`` and past the ``except ValueError`` every
+        # caller (sample import, song open, the Open-in-Sirens bridge) wraps
+        # it in, reaching the user as "Something went wrong; see the log for
+        # details" with no field pointing at the file that failed.
+        detail = str(exc)
+        suffix = f": {detail}" if detail else ""
+        raise ValueError(f"this is not a WAV file this build reads{suffix}") from exc
 
     # **Scaled by the positive peak, not by the negative one.** The conventional
     # reading divides a 16-bit sample by 32768, which makes this the inverse of

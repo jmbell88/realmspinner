@@ -115,10 +115,26 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
     # every primitive on every mesh they name) in pure Python first only to
     # reach the identical refusal at real decode cost a few lines later.
     nodes = doc.get("nodes") or []
+    # Finding clay-io-09, the same audit: this function runs *before*
+    # ``glb_to_claydoc``'s own try/except around ``gltf.load`` -- it is the
+    # cheap pre-check that exists specifically to avoid paying for that load,
+    # so nothing here may raise either. ``nodes``/``accessors``/``meshes``
+    # each used to be trusted as a list the moment ``.get(...)`` returned a
+    # truthy value; a GLB whose JSON instead declares one of them as an
+    # *object* (``{"0": {...}}`` rather than ``[{...}]``) reached ``len()`` or
+    # an int index into a dict below as a bare, uncaught ``TypeError``/
+    # ``KeyError`` instead of the "malformed or unparsable GLB reads as
+    # (0, 0)" fallback this function's own docstring promises.
+    if not isinstance(nodes, list):
+        nodes = []
     if len(nodes) > gltf.MAX_NODES:
         return 0, MAX_OBJECTS + 1
     accessors = doc.get("accessors") or []
+    if not isinstance(accessors, list):
+        accessors = []
     meshes = doc.get("meshes") or []
+    if not isinstance(meshes, list):
+        meshes = []
 
     def _count(index: Any) -> int:
         if not isinstance(index, int) or not 0 <= index < len(accessors):
@@ -132,7 +148,13 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
             return 0
         try:
             return max(0, int(accessors[index].get("count", 0)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # clay-io-09: ``count`` is a declared JSON number, and Python's
+            # ``json`` module accepts a bare ``Infinity``/``-Infinity``
+            # literal by default -- ``int(float("inf"))`` raises
+            # ``OverflowError`` rather than either type this already caught,
+            # the same gap clay-document-07 found and closed in the reader
+            # for this exact "int() of a JSON number" shape elsewhere.
             return 0
 
     tris = 0
@@ -145,7 +167,16 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
         # in range while still not being an object.
         if not isinstance(meshes[mesh_index], dict):
             continue
-        for prim in meshes[mesh_index].get("primitives") or []:
+        # clay-io-09: ``primitives`` is declared as an array by the glTF
+        # schema, but nothing stopped a non-list truthy value (a number, a
+        # string) from reaching ``for prim in ...`` as an uncaught
+        # ``TypeError`` -- a dict here already fails ``isinstance(prim,
+        # dict)`` harmlessly per iteration, but a scalar is not iterable at
+        # all.
+        primitives = meshes[mesh_index].get("primitives")
+        if not isinstance(primitives, list):
+            continue
+        for prim in primitives:
             if not isinstance(prim, dict):
                 continue
             attrs = prim.get("attributes") or {}

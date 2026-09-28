@@ -254,8 +254,10 @@ def _normalize_seams(pairs: Iterable[Sequence[int]]) -> tuple[tuple[int, int], .
     one thing it cannot fix, a vertex index the mesh does not actually have,
     is :meth:`ClayDoc.set_seams`'s refusal to make, never this one's: this
     runs from :class:`Obj`'s own ``__post_init__``, with no mesh size known
-    to be trustworthy yet at every call site (a scratch clone, a file mid-read
-    before the archive's own bounds have been checked).
+    to be trustworthy yet at every call site (a file mid-read before the
+    archive's own bounds have been checked -- the 2026-09-26 audit's
+    clay-document-09: this used to also name Familiar's scratch-clone
+    mechanism, removed with Familiar the same day).
     """
     out: set[tuple[int, int]] = set()
     for pair in pairs:
@@ -1917,11 +1919,21 @@ class ClayDoc:
         unreferenced palette entry behind instead of restoring the object's
         original slot -- "one press, one Ctrl+Z" applies here exactly as it
         does to :meth:`join_objects`' merge-and-removals.
+
+        The 2026-09-26 audit's clay-document-06: ``set_props`` used to run
+        outside a ``try`` here, so a bad ``uid`` (an object deleted out from
+        under a stale panel reference) raised past ``collapse_since`` and left
+        the gesture open forever -- ``UndoStack._open_gestures`` never
+        dropped back to zero, so eviction stayed deferred for the rest of the
+        session. The ``finally`` closes the gesture on every path, including
+        this one, whether or not there was a run to fold.
         """
         mark = self.history.mark()
-        index = self.add_material(material)
-        self.set_props(uid, material=index)
-        self.history.collapse_since(mark)
+        try:
+            index = self.add_material(material)
+            self.set_props(uid, material=index)
+        finally:
+            self.history.collapse_since(mark)
         return index
 
     def remove_material_and_reassign(self, uid: int, index: int) -> bool:
@@ -1947,12 +1959,19 @@ class ClayDoc:
         renumbering had lost; :meth:`remove_material` now hands the
         renumbering the uids it is about to make irreversible, so its own
         undo can put them back by name instead).
+
+        The 2026-09-26 audit's clay-document-06: the ``set_props`` call ran
+        outside a ``try`` here too, so the same bad-``uid`` failure that
+        :meth:`add_material_and_assign` could hit left this gesture open as
+        well. Wrapped in ``finally`` for the same reason.
         """
         mark = self.history.mark()
-        removed = self.remove_material(index)
-        if removed:
-            self.set_props(uid, material=min(index, len(self.materials) - 1))
-        self.history.collapse_since(mark)
+        try:
+            removed = self.remove_material(index)
+            if removed:
+                self.set_props(uid, material=min(index, len(self.materials) - 1))
+        finally:
+            self.history.collapse_since(mark)
         return removed
 
     def set_shading(self, uid: int, faces: Any, smooth: bool) -> bool:

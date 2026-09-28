@@ -259,6 +259,58 @@ class MasonDoc:
         """
         return sc.resolved_count(self, list(nodes))
 
+    def _depth_of(self, uid: int | None) -> int:
+        """Where ``uid`` sits, in :func:`nodes.walk`'s own convention (0 for a
+        root node) -- or ``-1`` for ``None``, the virtual parent the root list
+        itself sits under, so ``_depth_of(parent_uid) + 1`` is always "what a
+        new child of ``parent_uid`` would be", root attachment included.
+        """
+        if uid is None:
+            return -1
+        depth = 0
+        current = int(uid)
+        while True:
+            parent = self.parent_uid_of(current)
+            if parent is None:
+                return depth
+            depth += 1
+            current = parent
+
+    def _check_max_depth(self, node: Node, parent_uid: int | None) -> None:
+        """Refuse attaching ``node`` (and its subtree) wherever the result
+        would nest past :data:`nd.MAX_DEPTH`.
+
+        The 2026-09-26 audit, finding mason-engine-05: nothing on the write
+        side ever enforced this ceiling at all -- :meth:`add_node`,
+        :meth:`add_nodes` and :meth:`move_node` would happily attach or
+        reparent a subtree arbitrarily deep, so a scene nested past
+        :data:`nd.MAX_DEPTH` saved clean (``serialize.scene_json`` writes
+        ``children`` recursively with no depth ceiling of its own) and then
+        refused to ever reopen -- ``serialize._read_node`` raises exactly this
+        ceiling on the way back in, the one place it was ever checked.
+        Checked against the *combined* depth -- the attach point's own depth
+        plus the subtree's own internal depth -- **before** anything is
+        attached, the same "count first, refuse, build nothing" rule
+        :meth:`_check_max_placed` already follows for the node-count ceiling.
+
+        ``nd.walk`` itself only ever answers with a depth up to
+        :data:`nd.MAX_DEPTH` (rule 3 of ``nodes.py``'s module docstring stops
+        *descending* rather than raising), so a subtree that is already
+        absurdly deep on its own reports a bounded answer here rather than an
+        unbounded one -- this check is what turns that quiet truncation into a
+        named refusal at the door instead of a scene that silently loses its
+        deepest branches on the next reopen.
+        """
+        base = self._depth_of(parent_uid) + 1
+        deepest = max((depth for _n, _p, _i, depth in nd.walk([node])), default=0)
+        total = base + deepest
+        if total > nd.MAX_DEPTH:
+            raise ValueError(
+                f"attaching this here would nest a node {total} deep, past the "
+                f"{nd.MAX_DEPTH} MAX_DEPTH ceiling; refusing rather than saving "
+                "a scene this build could not reopen"
+            )
+
     def _check_max_placed(self, adding: int, *, base: int | None = None) -> None:
         """Refuse growing past :data:`sc.MAX_PLACED` **before** anything is
         attached. The 2026-09-14 audit's mason-01 found this gap in what is
@@ -359,9 +411,13 @@ class MasonDoc:
         itself -- see :meth:`_check_max_placed`. :meth:`_check_resolved_placed`
         is the companion check for what a placed prefab instance among
         ``node``'s own subtree expands to -- see its own docstring.
+        :meth:`_check_max_depth` is the companion check for how deep the
+        subtree would nest once attached here (the 2026-09-26 audit's
+        mason-engine-05).
         """
         self._check_max_placed(len(list(nd.walk([node]))))
         self._check_resolved_placed([node])
+        self._check_max_depth(node, parent_uid)
         siblings = self.children_of(parent_uid)
         at = len(siblings) if index is None else max(0, min(int(index), len(siblings)))
         self.history.push(ed.NodeAddEdit(parent_uid, at, node))
@@ -402,11 +458,37 @@ class MasonDoc:
         # far more nodes than the ceiling check saw. Summed the same way
         # :meth:`add_node` already counts a single subtree, over every node
         # being added.
-        self._check_max_placed(sum(len(list(nd.walk([node]))) for node in added))
+        #
+        # Walked **once** per node and kept, rather than recomputed by a
+        # second ``nd.walk`` below for the depth check: the 2026-09-18 audit's
+        # mason-04 (``test_document.py``'s own
+        # ``test_duplicate_selected_and_array_cost_is_independent_of_existing_document_size``)
+        # measured a per-added-node cost budget with no room in it for a
+        # second full walk of the same subtree.
+        walks = [list(nd.walk([node])) for node in added]
+        self._check_max_placed(sum(len(w) for w in walks))
         # The 2026-09-23 audit's docs-01: the tree-side check above undercounts
         # a prefab instance among ``added`` the same way ``add_node``'s own
         # did -- see :meth:`_check_resolved_placed`'s docstring.
         self._check_resolved_placed(added)
+        # The 2026-09-26 audit's mason-engine-05: every node in ``added``
+        # lands under the same ``parent_uid``, so one shared depth check ahead
+        # of the loop (the worst of them, over the ``walks`` already taken
+        # above) refuses before anything is attached -- the same "count
+        # first" rule the two calls above already follow. See
+        # :meth:`_check_max_depth`'s own docstring for the shared reasoning;
+        # this is that same check inlined against ``walks`` rather than a
+        # second call to it, for the reason given just above.
+        if added:
+            base = self._depth_of(parent_uid) + 1
+            deepest = max(depth for w in walks for _n, _p, _i, depth in w)
+            total = base + deepest
+            if total > nd.MAX_DEPTH:
+                raise ValueError(
+                    f"attaching these node(s) would nest a node {total} deep, "
+                    f"past the {nd.MAX_DEPTH} MAX_DEPTH ceiling; refusing "
+                    "rather than saving a scene this build could not reopen"
+                )
         made: list[Edit] = []
         for node in added:
             siblings = self.children_of(parent_uid)
@@ -463,6 +545,14 @@ class MasonDoc:
                 raise ValueError("a node cannot be moved inside itself")
             if nd.contains(node, after_parent):
                 raise ValueError("a node cannot be moved inside its own descendant")
+        if after_parent != before_parent:
+            # The 2026-09-26 audit's mason-engine-05: a reparent onto a deeply
+            # nested target had no depth ceiling of its own -- only a reorder
+            # among the same siblings leaves depth unchanged, so this is
+            # skipped for that case (the common one, every outliner reorder)
+            # and paid only when the parent is actually changing. See
+            # :meth:`_check_max_depth`'s own docstring.
+            self._check_max_depth(node, after_parent)
         siblings = self.children_of(after_parent)
         # The node is still in the tree while this clamps, so its own slot
         # counts as an available position only when it is not about to leave

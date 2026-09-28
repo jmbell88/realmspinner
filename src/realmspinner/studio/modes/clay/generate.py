@@ -38,6 +38,7 @@ that just failed) must never flip ``tab.saving``.
 
 from __future__ import annotations
 
+import itertools
 import time
 from typing import Any
 
@@ -45,12 +46,35 @@ from ... import dialogs
 from . import mode as clay_mode
 
 #: The three task keys this module ever submits under, each suffixed
-#: ``:<tab uid>``. Checked by name, as a set, from both of ``clay_mode``'s
-#: task-landing functions -- see this module's own docstring.
+#: ``:<tab uid>:<req>`` -- see :func:`_new_req` for the third segment, added
+#: by the 2026-09-26 audit's clay-mode-03. Checked by name, as a set, from
+#: both of ``clay_mode``'s task-landing functions -- see this module's own
+#: docstring.
 GEN_REF_KEY = "clay-gen-ref"
 GEN_KEY = "clay-gen"
 GEN_LAND_KEY = "clay-gen-land"
 TASK_KEYS = frozenset({GEN_REF_KEY, GEN_KEY, GEN_LAND_KEY})
+
+#: A fresh id for each Generate flow, distinct from the tab it runs on.
+_REQ_SEQ = itertools.count(1)
+
+
+def _new_req() -> str:
+    """The 2026-09-26 audit, finding clay-mode-03: every stale-task guard in
+    this module used to compare only the tab uid carried in a task's own key
+    (``_queued``, ``on_task_failed``, ``_landed``). That tells two different
+    tabs apart, but cancelling a request and starting a new one *on the same
+    tab* reuses that same uid, so a reference or mesh job still queued from
+    the cancelled request could still land its result into the request that
+    replaced it -- there was nothing left in the key to tell the two apart.
+    This token rides alongside the tab uid in every task key this module
+    submits under (``submit_text``/``submit_image`` mint one per request;
+    ``reroll_reference``/``accept_reference``/the landing decode all reuse the
+    same pending's own token, since they are stages of one request, not a new
+    one), and every landing site checks both.
+    """
+    return str(next(_REQ_SEQ))
+
 
 #: How often :func:`poll` asks the store about a pending job -- Inker's own
 #: ``INPAINT_POLL_S``/``TEXTURE_POLL_S``, cheap enough to run every frame's
@@ -192,6 +216,7 @@ def submit_text(ctx: Any, tab: Any, prompt: str, *, budget: str = DEFAULT_BUDGET
 
     pending: dict[str, Any] = {
         "tab_uid": tab.uid,
+        "req": _new_req(),
         "kind": "text",
         "stage": "reference",
         "budget": budget,
@@ -201,7 +226,7 @@ def submit_text(ctx: Any, tab: Any, prompt: str, *, budget: str = DEFAULT_BUDGET
         "next_poll": 0.0,
         "force_offer": False,
     }
-    key = f"{GEN_REF_KEY}:{tab.uid}"
+    key = f"{GEN_REF_KEY}:{tab.uid}:{pending['req']}"
 
     def run() -> Any:
         from ....service import jobs as svc_jobs
@@ -231,7 +256,7 @@ def reroll_reference(ctx: Any, tab: Any) -> bool:
     ):
         return False
     source_id = pending["reference_job_id"]
-    key = f"{GEN_REF_KEY}:{tab.uid}"
+    key = f"{GEN_REF_KEY}:{tab.uid}:{pending['req']}"
 
     def run() -> Any:
         from ....service import jobs as svc_jobs
@@ -285,7 +310,7 @@ def accept_reference(ctx: Any, tab: Any, *, force: bool = False) -> bool:
         kwargs["force"] = force
         return svc_jobs.promote_to_model(ctx.svc, reference_id, **kwargs)
 
-    key = f"{GEN_KEY}:{tab.uid}"
+    key = f"{GEN_KEY}:{tab.uid}:{pending['req']}"
     if not ctx.submit(key, run):
         return False
     pending["stage"] = "mesh"
@@ -317,6 +342,7 @@ def submit_image(ctx: Any, tab: Any, *, budget: str = DEFAULT_BUDGET) -> None:
 
     pending: dict[str, Any] = {
         "tab_uid": tab.uid,
+        "req": _new_req(),
         "kind": "image",
         "stage": "mesh",
         "budget": budget,
@@ -326,7 +352,7 @@ def submit_image(ctx: Any, tab: Any, *, budget: str = DEFAULT_BUDGET) -> None:
         "next_poll": 0.0,
         "force_offer": False,
     }
-    key = f"{GEN_KEY}:{tab.uid}"
+    key = f"{GEN_KEY}:{tab.uid}:{pending['req']}"
 
     def run() -> Any:
         from ....service import jobs as svc_jobs
@@ -373,6 +399,7 @@ def cancel(ctx: Any, tab: Any) -> None:
 
 def poll(ctx: Any) -> None:
     """Once a frame: is whatever is pending ready to move to its next stage."""
+    _sync_active_camera(ctx)
     state = ctx.state.clay
     if state is None:
         return
@@ -387,6 +414,33 @@ def poll(ctx: Any) -> None:
         _poll_mesh(ctx, state, pending, now)
     elif stage == "landing":
         _retry_deferred(ctx, state, pending, now)
+
+
+def _sync_active_camera(ctx: Any) -> None:
+    """Keep the active tab's stored camera live, not just at save/switch.
+
+    The 2026-09-26 audit, finding clay-mode-04: ``clay_mode.camera_of`` used
+    to run only at two moments -- an explicit save/export, and ``ui/
+    viewport.py``'s own tab-switch handoff (``remember_camera``/
+    ``apply_camera``) -- so ``tab.view``, what ``_journal_encode`` autosaves,
+    could be several minutes of free orbiting stale by the time a crash
+    actually happened. This runs from :func:`poll`, which ``viewport.py``
+    already calls unconditionally on every frame Clay is drawn (this
+    function's own docstring) -- and, importantly, *before* that same frame's
+    tab-bar click can move ``active_uid``, so it always reads the tab the live
+    camera actually still belongs to, never the one a switch is about to hand
+    it to. (Syncing from ``clay_mode.ensure`` instead, tried first, raced
+    exactly that handoff: ``ensure`` also runs *after* a same-frame switch but
+    *before* ``apply_camera`` repositions the live camera for the new tab, so
+    it wrote the outgoing tab's orientation onto the incoming tab's own stored
+    view -- which ``apply_camera`` then trusted and put back on screen.)
+    """
+    state = ctx.state.clay
+    if state is None:
+        return
+    tab = state.get(state.active_uid)
+    if tab is not None:
+        clay_mode.camera_of(ctx, tab)
 
 
 def _poll_job(
@@ -441,7 +495,7 @@ def _poll_mesh(ctx: Any, state: Any, pending: dict[str, Any], now: float) -> Non
     _set_busy(state, pending)
     tab_uid = pending["tab_uid"]
     group_name = (pending.get("prompt") or "").strip() or "Generated"
-    key = f"{GEN_LAND_KEY}:{tab_uid}"
+    key = f"{GEN_LAND_KEY}:{tab_uid}:{pending.get('req')}"
 
     def run() -> Any:
         return _decode_landing(ctx.svc, job_id, tab_uid, group_name)
@@ -466,6 +520,7 @@ def _retry_deferred(ctx: Any, state: Any, pending: dict[str, Any], now: float) -
         deferred["incoming_bytes"],
         deferred["group_name"],
         confirmed=deferred.get("confirmed", False),
+        req=deferred.get("req"),
     )
 
 
@@ -537,6 +592,7 @@ def land(
     group_name: str,
     *,
     confirmed: bool = False,
+    req: str | None = None,
 ) -> None:
     """Merge *incoming* into the tab named by *tab_uid*, on the frame thread.
 
@@ -553,6 +609,16 @@ def land(
     dialog was shown, so a tab closed while the question was on screen is
     still refused by name rather than silently mutated.
 
+    ``req`` is the request token the caller already knows about -- either
+    read straight off a task's own key (:func:`_landed`), or carried forward
+    from a still-live ``pending`` (the busy-defer below, or "Add anyway?"'s
+    own callback). When given, it is checked against ``generate_pending``
+    again *here*, on the frame thread, because either wait -- a confirm
+    sitting on screen, or a busy-defer retried by :func:`poll` -- can outlast
+    a Cancel-and-regenerate on the very same tab (clay-mode-03, the
+    2026-09-26 audit): the tab uid alone would still match the request that
+    replaced this one.
+
     Never changes ``ClayState.active_uid``: this can land on a tab the user
     is not even looking at, and moving it out from under them is the
     INVARIANTS rule ``settle_drag`` exists to enforce for a live transform --
@@ -566,8 +632,17 @@ def land(
         ctx.toast("The document the generation was for is closed.", "warn")
         _clear(state, tab_uid)
         return
+    pending = state.generate_pending
+    if req is not None and (
+        pending is None or pending.get("tab_uid") != tab_uid or pending.get("req") != req
+    ):
+        # clay-mode-03: this call names a request that is no longer the live
+        # one for this tab -- cancelled, and (on the same tab) already
+        # replaced by a newer Generate press -- so there is nothing left here
+        # to land it into, and nothing to clear: clearing would drop the
+        # *newer* request's own pending state instead.
+        return
     if _tab_busy(ctx, tab):
-        pending = state.generate_pending
         if pending is not None and pending.get("tab_uid") == tab_uid:
             pending["stage"] = "landing"
             pending["deferred"] = {
@@ -576,6 +651,7 @@ def land(
                 "incoming_bytes": incoming_bytes,
                 "group_name": group_name,
                 "confirmed": confirmed,
+                "req": req,
             }
             pending["next_poll"] = 0.0
             _set_busy(state, pending)
@@ -588,10 +664,23 @@ def land(
         return
 
     if triangles > clay_mode.SLOW_TRIANGLES and not confirmed:
-        # The job is done and there is nothing left to poll -- only the
-        # question is left, so the pending request is cleared here and the
-        # confirm's own callback carries what it needs to finish the job.
-        _clear(state, tab_uid)
+        # clay-mode-02 (the 2026-09-26 audit): this used to clear
+        # ``generate_pending`` here, before the question was even asked, so
+        # by the time "Add anyway" answered it there was nothing left for a
+        # concurrent mid-save/mid-drag defer to attach to (the busy branch
+        # above silently no-ops when ``pending`` is ``None``, so the mesh was
+        # simply dropped) and nothing to stop a *second* Generate press from
+        # starting on the same tab while the first one's question was still
+        # on screen -- whose eventual answer then had nothing telling it
+        # apart from the request that replaced it. The request now stays
+        # alive (still shown as "Adding it to the document...") until this
+        # confirm actually resolves; the popup's own Cancel button
+        # (``cancel()``) is still what discards it if the user declines, the
+        # same as it already does for the busy-defer path above.
+        if pending is not None and pending.get("tab_uid") == tab_uid:
+            pending["stage"] = "landing"
+            _set_busy(state, pending)
+        answer_req = req if req is not None else (pending.get("req") if pending else None)
         ctx.confirms.ask(
             dialogs.Confirm(
                 title="Add this to the document?",
@@ -604,7 +693,7 @@ def land(
                 cancel_label="Cancel",
                 on_confirm=lambda: land(
                     ctx, tab_uid, incoming, triangles, incoming_bytes, group_name,
-                    confirmed=True,
+                    confirmed=True, req=answer_req,
                 ),
             )
         )
@@ -654,8 +743,13 @@ def _queued(ctx: Any, state: Any, done: Any, *, job_key: str, noun: str) -> None
     # after the cancel. Compare against the key's own tab uid, not the
     # pending tab's: a stale queue task naming a cancelled tab must never
     # overwrite a newer tab's pending job id.
-    _, _, key_tab_uid = done.key.partition(":")
-    if key_tab_uid != pending.get("tab_uid"):
+    #
+    # clay-mode-03 (the 2026-09-26 audit): the tab uid alone is not enough --
+    # cancelling and regenerating on the *same* tab reuses it, so the request
+    # token riding beside it in the key (see :func:`_new_req`) is checked too.
+    _, _, rest = done.key.partition(":")
+    key_tab_uid, _, key_req = rest.partition(":")
+    if key_tab_uid != pending.get("tab_uid") or key_req != pending.get("req"):
         return
     result = done.result
     if result is None:
@@ -681,8 +775,15 @@ def _landed(ctx: Any, state: Any, done: Any) -> None:
         if pending is not None:
             _clear(state, pending["tab_uid"])
         return
+    _, _, rest = done.key.partition(":")
+    key_tab_uid, _, key_req = rest.partition(":")
     pending = state.generate_pending
-    if pending is None or pending.get("tab_uid") != result.get("tab_uid"):
+    if (
+        pending is None
+        or pending.get("tab_uid") != result.get("tab_uid")
+        or pending.get("tab_uid") != key_tab_uid
+        or pending.get("req") != key_req
+    ):
         # clay-04 (the 2026-09-23 audit): the decode task this landing comes
         # from was already submitted by the time Cancel was pressed --
         # ``cancel()`` only clears ``generate_pending``, it does not (and
@@ -692,6 +793,11 @@ def _landed(ctx: Any, state: Any, done: Any) -> None:
         # merged in once the decode came back -- exactly what ``cancel()``'s
         # own docstring promises does not happen. No pending request naming
         # this tab means there is nothing left to land for.
+        #
+        # clay-mode-03 (the 2026-09-26 audit): nor does one naming a *request*
+        # that no longer exists -- a cancelled-and-regenerated request on the
+        # same tab passes the tab-uid check above with the request that
+        # replaced it, so the key's own token (``key_req``) is checked too.
         return
     land(
         ctx,
@@ -700,6 +806,7 @@ def _landed(ctx: Any, state: Any, done: Any) -> None:
         int(result.get("triangles", 0)),
         int(result.get("incoming_bytes", 0)),
         result.get("group_name") or "Generated",
+        req=key_req,
     )
 
 
@@ -753,7 +860,8 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     state = ctx.state.clay
     if state is None:
         return
-    name, _, key_tab_uid = done.key.partition(":")
+    name, _, rest = done.key.partition(":")
+    key_tab_uid, _, key_req = rest.partition(":")
     pending = state.generate_pending
     if pending is None:
         return
@@ -763,7 +871,10 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     # newer tab, and without this a late failure from the old tab cleared
     # (or, worse, bounced back to the preview stage) the newer tab's live
     # pending request.
-    if key_tab_uid != pending.get("tab_uid"):
+    #
+    # clay-mode-03 (the 2026-09-26 audit): also checked against the request
+    # token, not only the tab uid -- see ``_queued``'s own comment.
+    if key_tab_uid != pending.get("tab_uid") or key_req != pending.get("req"):
         return
     tab_uid = pending.get("tab_uid", "")
     if (

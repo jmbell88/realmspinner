@@ -199,13 +199,12 @@ one is open:
 ## The menu bar
 
 One menu bar across the top of the window, drawn in every mode. Its roots are **File**, **Edit**,
-**View**, **Workspace**, **Window** and **Help**, and between Edit and View sits whatever the
-current workspace contributes. For most of them that is a single menu under the mode's own name —
-*Clay*, *Plotter*, *Mason* — holding the actions that belong to that mode alone. Inker, which has
-far more of them, contributes several: **Sprite**, **Layer**, **Frame** and **Select**, and it adds
-rows to File, Edit and View as well. Either way a mode's actions get their own place rather than
-being filed into File or Edit, which would turn the two menus everybody already understands into a
-list of everything.
+**View**, **Workspace**, **Window** and **Help** for every mode — no mode gets a menu root of its
+own name. Clay's, Plotter's, Mason's and every other mode's actions are folded into File, Edit and
+View alongside the commands every mode already carries, rather than filed under the mode's own
+name. Inker is the one exception: between Edit and View it contributes six mode-specific roots —
+**Sprite**, **Layer**, **Frame**, **Select**, **Sheet** and **Flourish** — and it also adds rows to
+File, Edit and View.
 
 **Nothing in the menu is a second implementation of anything.** Every row is an adapter over the
 same command registry the palette searches and the same operation registry the keys dispatch

@@ -415,3 +415,103 @@ def test_a_door_that_asks_first_says_so():
     source = inspect.getsource(asset_exits._render_sheet)
     assert "verbs.send_to('poser')}..." in source
     assert verbs.send_to("poser") == "Send to Poser"
+
+
+# --- the 2026-09-26 audit, findings poser-render-02 and poser-render-03 -----
+
+
+def test_send_writes_logical_size_custom_so_the_build_form_shows_the_real_size(ctx, svc):
+    """``_send`` used to write ``form["logical_size"]`` alone, so
+    ``ui/panes/sheet.py``'s own combo -- which trusts an already-present
+    ``logical_size_custom`` rather than re-deriving it -- kept showing
+    whatever that flag happened to be from before this send, drawing the
+    custom size box with a stale placeholder instead of the size just chosen
+    here."""
+    job = _mesh(svc, rigged=True)
+    poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
+    state.custom_size = True
+    state.logical_size = 40
+
+    poser_send._send(ctx, state, poser_mode.sheet_form(ctx))
+
+    assert poser_mode.sheet_form(ctx).get("logical_size_custom") is True
+
+
+def test_send_writes_a_false_logical_size_custom_for_a_ladder_size_too(ctx, svc):
+    job = _mesh(svc, rigged=True)
+    poser_send.ask(ctx, job)
+    state = ctx.state.poser_send
+    state.custom_size = False
+    state.logical_size = 64
+
+    poser_send._send(ctx, state, poser_mode.sheet_form(ctx))
+
+    assert poser_mode.sheet_form(ctx).get("logical_size_custom") is False
+
+
+def test_a_meshs_own_layout_edit_survives_an_unrelated_meshs_send_in_between(ctx, svc):
+    """Before this, ``form["layout"]`` was rebuilt on every different-mesh
+    send, keyed on the job id of the mesh *bound to Poser* alone -- so sending
+    mesh B (unrelated to A, and to whatever is bound in Poser, if anything)
+    right after hand-editing mesh A's own just-sent layout threw A's edits
+    away, even though B's send had no business touching A's remembered
+    answer at all. Sending A a second time must get the edit back."""
+    mesh_a = _mesh(svc, rigged=True)  # rig.json names "humanoid"
+    poser_send.ask(ctx, mesh_a)
+    form = poser_mode.sheet_form(ctx)
+    poser_send._send(ctx, ctx.state.poser_send, form)
+    assert form["layout"]["template"] == "humanoid"
+    form["layout"]["columns"] = 99  # the hand edit made after A's own send
+
+    mesh_b = _mesh(svc, rigged=True)  # unrelated, also "humanoid"
+    poser_send.ask(ctx, mesh_b)
+    poser_send._send(ctx, ctx.state.poser_send, form)
+    assert form["layout"]["columns"] == 8, "B's own first send is a plain fresh default"
+
+    poser_send.ask(ctx, mesh_a)
+    poser_send._send(ctx, ctx.state.poser_send, form)
+    assert form["layout"]["columns"] == 99, "A's own remembered edit must survive B's send"
+
+
+def test_an_unrelated_meshs_first_send_never_carries_the_bound_characters_edited_layout(ctx, svc):
+    """The protection this cache sits beside, unweakened:
+    ``test_troupe_chain.py``'s own
+    ``test_send_to_troupe_does_not_submit_the_currently_selected_characters_
+    layout_for_a_different_mesh`` pins the service-level shape of this; here,
+    a mesh this door has never sent before must get a plain fresh default even
+    when the standing ``form["layout"]`` (hand-edited for whatever character
+    is bound to Poser's own session, not for this door at all) happens to
+    already carry a matching template."""
+    bound = _mesh(svc, rigged=True)  # "humanoid"
+    state = poser_mode.ensure(ctx)
+    state.job_id = bound["id"]
+    state.template = "humanoid"
+    form = poser_mode.sheet_form(ctx)
+    form["layout"]["columns"] = 99  # the bound character's own hand edit
+
+    other = _mesh(svc, rigged=True)  # unrelated, also "humanoid", never sent before
+    poser_send.ask(ctx, other)
+    poser_send._send(ctx, ctx.state.poser_send, form)
+
+    assert form["layout"]["columns"] == 8, "an unrelated mesh's first send must not inherit this"
+
+
+def test_sending_a_mesh_with_a_different_template_still_rebuilds_the_layout(ctx, svc):
+    """A template that no longer matches the standing layout still has to be
+    rebuilt, edits or not -- the shape genuinely does not fit."""
+    mesh_a = _mesh(svc, rigged=True)  # "humanoid"
+    poser_send.ask(ctx, mesh_a)
+    form = poser_mode.sheet_form(ctx)
+    poser_send._send(ctx, ctx.state.poser_send, form)
+    assert form["layout"]["template"] == "humanoid"
+    form["layout"]["columns"] = 99
+
+    mesh_c = _mesh(svc, rigged=False)
+    poser_send.ask(ctx, mesh_c)
+    state_c = ctx.state.poser_send
+    state_c.template = "quadruped"
+    poser_send._send(ctx, state_c, form)
+
+    assert form["layout"]["template"] == "quadruped"
+    assert form["layout"]["columns"] == 8, "a real template change rebuilds the default layout"

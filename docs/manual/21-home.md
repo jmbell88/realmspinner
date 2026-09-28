@@ -51,10 +51,11 @@ A card at the top names this build and gives you the first three lines of its re
 the next release brings it back — and **All release notes…** at the foot of the screen opens the full
 history at any time, this build's entry open and the older ones collapsed under it.
 
-It is read from a `CHANGELOG.md` shipped inside the app, hand-written rather than generated: every
-commit in this repository is titled `Realmspinner vN.N.N` and carries no detail, so a generated list
-would be a column of version numbers. If the file is missing or unreadable there is simply no card,
-and nothing else on the screen is affected.
+It is read from a `CHANGELOG.md` shipped inside the app, hand-written rather than generated: most
+commits in this repository do name what changed and why, but a changelog derived from them would
+still be commit-shaped — one entry per change, in developer language, with no editorial judgment
+about what a player actually needs to know. If the file is missing or unreadable there is simply no
+card, and nothing else on the screen is affected.
 
 The version this build is running is printed beside the title, which is the only place in the UI it
 appears.

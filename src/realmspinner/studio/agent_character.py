@@ -574,8 +574,14 @@ def tools() -> list[rpc.Tool]:
                 "rig, or character_sheet_create's rig or sheet -- or the "
                 "sheet job a rig this connection started has since queued "
                 "(a sheet render that only begins once that rig finishes). "
-                "Anything else is refused, even a job this same character "
-                "the connection did not itself start."
+                # The 2026-09-26 audit, finding agents-character-01: this
+                # sentence shipped garbled from the surface's own first
+                # commit (14431faa) -- missing "on" and "that" left it
+                # unparsable. Corrected to say what instructions() already
+                # says in prose: a job on the same character is not enough;
+                # this connection must have started it.
+                "Anything else is refused, even a job on this same "
+                "character that the connection did not itself start."
             ),
             schema={
                 "type": "object",
@@ -885,7 +891,17 @@ def _h_character_clips(svc: Any, session: Session, args: Args) -> dict:
     from ..kernels.rig import cliplib
     from ..service import clips as svc_clips
 
+    e = _enums()
     template = args["template"]
+    # The 2026-09-26 audit, finding agents-character-02: the schema declares
+    # template's enum (sheet_templates) but this handler never checked it
+    # against that same registry, unlike every sibling handler that takes an
+    # enum argument (see the module docstring's "Validated here, not left to
+    # the door") -- an out-of-vocabulary template reached svc_clips.library
+    # unrefused and whatever it did with it. Mirrors
+    # _h_character_sheet_create's identical check on the same enum.
+    if template not in e.sheet_templates:
+        return fail(f"{template!r} is not a skeleton with clips.", field="template")
     library = svc_clips.library(svc, template)
     shipped_names = set(cliplib.shipped_clip_names(template))
     timing = clips_mod.clip_timing(template)
@@ -1040,6 +1056,15 @@ def _h_character_rig(svc: Any, session: Session, args: Args) -> dict:
     check_job_id(job_id)
     svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
+    # The 2026-09-26 audit, finding agents-character-03: this read alone used
+    # to be the whole of the "never replaces" guard, with nothing holding the
+    # gap between it and the create_rig call below -- two concurrent
+    # character_rig calls could both see "no rig" here before either had
+    # reached create_rig's own lock. Kept as a fast path (it avoids a wasted
+    # rig_in_flight lookup and a lock acquisition for the ordinary,
+    # non-racing case), but refuse_existing=True below is what actually makes
+    # this safe now: it re-checks the same thing inside create_rig's own
+    # convert_lock hold, atomically with the job-row insert.
     if store.read_rig(job_dir) is not None:
         return fail("an agent adds rigs; it never replaces one", field="job_id")
 
@@ -1048,7 +1073,7 @@ def _h_character_rig(svc: Any, session: Session, args: Args) -> dict:
             "a rig is already running for this mesh", field="job_id", recovery="wait"
         )
 
-    result = svc_rig.create_rig(svc, job_id, template=template)
+    result = svc_rig.create_rig(svc, job_id, template=template, refuse_existing=True)
     rig_id = result["id"]
     session.minted[rig_id] = "rig"
     if session.toast:
@@ -1088,6 +1113,21 @@ def _h_character_sheet_create(svc: Any, session: Session, args: Args) -> dict:
     template = args.get("template")
     if template is not None and template not in e.sheet_templates:
         return fail(f"{template!r} is not a skeleton with clips.", field="template")
+    # The 2026-09-26 audit, finding agents-character-04: svc_troupe.
+    # send_to_troupe silently drops `template` once job_dir/rig.glb already
+    # exists -- it delegates straight to create_charsheet, which never mints
+    # a rig and so never reads it -- so a caller who asked for one template
+    # got a different, silent skeleton (whatever the mesh was already rigged
+    # with). Honoring the request would mean re-rigging the mesh under the
+    # requested template, which this surface must never do (the module
+    # docstring's scope rule: an agent never re-rigs); refused by name
+    # instead of silently ignored.
+    if template is not None and (svc.job_dir(job_id) / "rig.glb").exists():
+        return fail(
+            "this mesh is already rigged; template only applies when this "
+            "call mints a new rig alongside the sheet",
+            field="template",
+        )
 
     default_directions = args.get("directions")
     if default_directions is not None and default_directions not in e.directions:

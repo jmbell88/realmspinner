@@ -19,6 +19,45 @@ def test_a_clean_box_is_ready(tmp_path):
     assert report["triangles"] == 12
     assert report["components"] == 1
     assert report["boundary_edges"] == 0
+    # A plain trimesh.creation.box carries no material at all.
+    assert report["material_count"] == 0
+
+
+def test_material_count_reflects_the_gltf_materials_array(tmp_path):
+    """The 2026-09-26 audit, finding pipelines-mesh-04: Manual 23 has always
+    claimed the mesh report records a material count; ``build()`` never did.
+    Two geometries citing the same material count once; two geometries with
+    their own distinct materials count twice."""
+    from trimesh.visual.material import PBRMaterial
+
+    box_a = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    box_b = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    box_b.apply_translation((2.0, 0.0, 0.0))
+    shared = PBRMaterial(baseColorFactor=[255, 0, 0, 255])
+    box_a.visual = trimesh.visual.TextureVisuals(material=shared)
+    box_b.visual = trimesh.visual.TextureVisuals(material=shared)
+    scene = trimesh.Scene()
+    scene.add_geometry(box_a, node_name="a", geom_name="a")
+    scene.add_geometry(box_b, node_name="b", geom_name="b")
+    shared_path = tmp_path / "shared.glb"
+    scene.export(shared_path)
+    assert meshreport.build(shared_path)["material_count"] == 1
+
+    box_c = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    box_d = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    box_d.apply_translation((2.0, 0.0, 0.0))
+    box_c.visual = trimesh.visual.TextureVisuals(
+        material=PBRMaterial(baseColorFactor=[255, 0, 0, 255])
+    )
+    box_d.visual = trimesh.visual.TextureVisuals(
+        material=PBRMaterial(baseColorFactor=[0, 255, 0, 255])
+    )
+    distinct_scene = trimesh.Scene()
+    distinct_scene.add_geometry(box_c, node_name="c", geom_name="c")
+    distinct_scene.add_geometry(box_d, node_name="d", geom_name="d")
+    distinct_path = tmp_path / "distinct.glb"
+    distinct_scene.export(distinct_path)
+    assert meshreport.build(distinct_path)["material_count"] == 2
 
 
 def test_an_open_surface_is_not_watertight_and_is_flagged(tmp_path):
@@ -104,6 +143,58 @@ def test_watertight_reason_does_not_claim_welding_when_weld_was_skipped(tmp_path
     reason = next(r for r in report["reasons"] if "watertight" in r)
     assert "after welding" not in reason
     assert "unwelded" in reason
+
+
+def _unwelded_book_fan():
+    """Three triangles sharing one spine edge -- a "book" -- each with its own
+    private, unwelded copy of the two spine vertices.
+
+    Unwelded, no two triangles reference the same vertex index at all, so
+    every one of their nine edges is used by exactly one face: three
+    disconnected components, all boundary, zero non-manifold. Only once the
+    spine's coincident positions are welded together does the shared edge
+    read as what it geometrically is -- one edge used by three faces, the
+    textbook non-manifold case.
+    """
+    import numpy as np
+    import trimesh
+
+    a = (0.0, 0.0, 0.0)
+    b = (1.0, 0.0, 0.0)
+    apexes = [(0.5, 1.0, 0.0), (0.5, -1.0, 0.5), (0.5, 0.0, 1.0)]
+    vertices = []
+    faces = []
+    for i, apex in enumerate(apexes):
+        base = 3 * i
+        vertices.extend([a, b, apex])
+        faces.append([base, base + 1, base + 2])
+    return trimesh.Trimesh(
+        vertices=np.asarray(vertices, dtype=np.float64),
+        faces=np.asarray(faces, dtype=np.int64),
+        process=False,
+    )
+
+
+def test_a_non_manifold_edge_revealed_only_by_welding_is_reported(tmp_path):
+    """The 2026-09-26 audit, finding pipelines-mesh-03: ``_topology``'s third
+    return value (non-manifold edge count) on the *welded* copy used to be
+    discarded with ``_``, so an edge that is only non-manifold once coincident
+    seam vertices are merged was computed and then thrown away -- never
+    reported, in the reasons list or anywhere in the returned dict."""
+    path = _write(tmp_path, _unwelded_book_fan())
+    report = meshreport.build(path)
+
+    # Unwelded (raw): three disconnected boundary triangles, no non-manifold
+    # edge at all -- this number's meaning is unchanged by the fix.
+    assert report["nonmanifold_edges"] == 0
+    assert report["components"] == 3
+
+    # Welded: the spine merges into one edge shared by all three faces.
+    assert report["welded_nonmanifold_edges"] == 1
+    assert any("non-manifold" in r for r in report["reasons"]), report["reasons"]
+    reason = next(r for r in report["reasons"] if "non-manifold" in r)
+    assert "1" in reason
+    assert "after welding" in reason
 
 
 def test_size_and_grounding_are_measured(tmp_path):

@@ -168,6 +168,75 @@ def test_import_registers_the_adapter_and_remove_forgets_it(svc, tmp_path):
     assert not (Path(svc.config.t2i_model_root) / "loras" / entry.filename).exists()
 
 
+def test_reimporting_with_a_changed_trigger_and_weight_updates_the_live_registry(
+    svc, tmp_path
+):
+    """The 2026-09-26 audit, finding create-workspace-02: ``register_imported_loras``
+    skipped a manifest whose ``filename`` already matched the in-memory
+    ``STYLE_LORAS`` entry -- but ``filename`` bakes in the key and the label,
+    never the trigger word or the tuned weight, so re-importing the same file
+    under the *same label* with a changed trigger or weight left the live
+    registry stale until the app restarted and re-registered from a cold
+    ``STYLE_LORAS``.
+    """
+    adapter = _adapter(tmp_path)
+    first = svc_loras.import_lora(
+        svc, adapter, label="Cosmos", trigger_text="cosmos style", tuned_weight=0.6
+    )
+    key = first["key"]
+    assert models.STYLE_LORAS[key].trigger == "cosmos style"
+    assert models.STYLE_LORAS[key].default_weight == 0.6
+
+    second = svc_loras.import_lora(
+        svc, adapter, label="Cosmos", trigger_text="cosmos deluxe", tuned_weight=0.9
+    )
+    assert second["key"] == key  # same content -> same digest-derived key
+    assert models.STYLE_LORAS[key].trigger == "cosmos deluxe", (
+        "register_imported_loras left the stale trigger in the live registry"
+    )
+    assert models.STYLE_LORAS[key].default_weight == 0.9, (
+        "register_imported_loras left the stale weight in the live registry"
+    )
+
+
+def test_hash_file_sha256_streams_and_matches_a_direct_digest(tmp_path):
+    """The 2026-09-26 audit, finding create-workspace-03: ``import_lora`` used
+    to hash an adapter with a bare ``path.read_bytes()``, loading the entire
+    (potentially multi-gigabyte) tensor file into memory just to throw the
+    bytes away once the digest was taken. ``_hash_file_sha256`` must agree
+    with the direct digest while reading in bounded chunks -- this content is
+    larger than one chunk, so a mistake that only hashed the first chunk would
+    also be caught here.
+    """
+    import hashlib
+
+    content = b"\x07" * (generation._HASH_CHUNK_SIZE + 4096)
+    path = tmp_path / "big.safetensors"
+    path.write_bytes(content)
+    assert generation._hash_file_sha256(path) == hashlib.sha256(content).hexdigest()
+
+
+def test_relabeling_a_reimport_does_not_orphan_the_old_file(svc, tmp_path):
+    """The 2026-09-26 audit, finding create-workspace-03: ``filename`` bakes
+    the label into the name (``{key}_{safe_label}.safetensors``), so a
+    relabeled re-import of the same source file -- same digest, same
+    digest-derived ``key`` -- wrote a *new* file under the new label's name
+    and left the old one on disk: an unreachable full-size duplicate, since
+    the manifest row for that key now points only at the new file.
+    """
+    adapter = _adapter(tmp_path)
+    first = svc_loras.import_lora(svc, adapter, label="Cosmos")
+    root = Path(svc.config.t2i_model_root) / "loras"
+    old_file = root / first["filename"]
+    assert old_file.exists()
+
+    second = svc_loras.import_lora(svc, adapter, label="Cosmos Deluxe")
+    assert second["key"] == first["key"]
+    assert second["filename"] != first["filename"]
+    assert not old_file.exists(), "the relabeled old file must not be left orphaned"
+    assert (root / second["filename"]).exists()
+
+
 def test_a_built_in_style_cannot_be_removed(svc):
     with pytest.raises(Invalid):
         svc_loras.remove_lora(svc, "render3d")

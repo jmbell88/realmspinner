@@ -123,9 +123,21 @@ def build(
     if welded is None:
         welded_watertight = watertight
         welded_components, welded_boundary_edges = components, boundary_edges
+        welded_nonmanifold_edges = nonmanifold_edges
     else:
         welded_watertight = bool(welded.is_watertight)
-        welded_components, welded_boundary_edges, _ = _topology(trimesh, np, welded)
+        # The 2026-09-26 audit, finding pipelines-mesh-03: the third value
+        # here used to be thrown away with ``_``, so a non-manifold edge that
+        # only exists because welding merged duplicate vertices -- three or
+        # more faces meeting at what was, unwelded, several distinct seam
+        # vertices at the same position -- was computed and then discarded.
+        # Kept as its own field below rather than overwriting
+        # ``nonmanifold_edges``, matching every other pair here: the raw
+        # number keeps meaning "how badly is the file split", the welded one
+        # is what an engine's importer will actually see.
+        welded_components, welded_boundary_edges, welded_nonmanifold_edges = (
+            _topology(trimesh, np, welded)
+        )
 
     extents = [float(v) for v in mesh.extents]
     achieved = float(max(extents)) if extents else 0.0
@@ -139,6 +151,13 @@ def build(
         and len(mesh.vertex_normals) == len(vertices)
     )
     has_uvs, textures = _materials(mesh)
+    # The 2026-09-26 audit, finding pipelines-mesh-04: Manual 23 has always
+    # claimed the mesh report includes a material count; ``build()`` never
+    # recorded one. Counted on ``loaded`` (the scene, before ``to_mesh()``
+    # merges every geometry's material into the one combined ``mesh`` this
+    # function otherwise measures on) -- that merge is exactly what would
+    # make a count taken afterward always read 1.
+    material_count = _material_count(trimesh, loaded, mesh)
 
     triangles = int(len(faces))
     if not welded_watertight:
@@ -149,8 +168,14 @@ def build(
             f"not watertight: {welded_boundary_edges} boundary edge(s) in "
             f"{welded_components} component(s), {qualifier}"
         )
-    if nonmanifold_edges:
-        reasons.append(f"{nonmanifold_edges} non-manifold edge(s)")
+    if welded_nonmanifold_edges:
+        # Welded, not raw -- the same preference the watertight reason above
+        # already makes, and for the same audit finding: an edge that reads
+        # manifold only because two seam vertices happen to sit at the same
+        # position, unwelded, is not an edge an engine's importer will treat
+        # as fine.
+        qualifier = "" if weld_skipped else " after welding vertices by position"
+        reasons.append(f"{welded_nonmanifold_edges} non-manifold edge(s){qualifier}")
     if degenerate:
         reasons.append(f"{degenerate} degenerate triangle(s)")
     if triangles > budget:
@@ -189,8 +214,10 @@ def build(
         "welded_watertight": welded_watertight,
         "welded_boundary_edges": welded_boundary_edges,
         "welded_components": welded_components,
+        "welded_nonmanifold_edges": welded_nonmanifold_edges,
         "has_uvs": has_uvs,
         "has_normals": has_normals,
+        "material_count": material_count,
         "textures": textures,
         "extents_m": extents,
         "achieved_size_m": achieved,
@@ -280,6 +307,35 @@ def _materials(mesh: Any) -> tuple[bool, dict[str, bool]]:
         "metallic_roughness": getattr(material, "metallicRoughnessTexture", None) is not None,
         "normal": getattr(material, "normalTexture", None) is not None,
     }
+
+
+def _material_count(trimesh: Any, loaded: Any, mesh: Any) -> int:
+    """How many distinct materials the file actually declares.
+
+    Counted on ``loaded`` -- the scene ``build()`` read before ``to_mesh()``
+    concatenated every geometry into the one combined ``mesh`` the rest of
+    this module measures -- because that merge is exactly what would make a
+    count taken afterward always read 1 or 0. Deduplicated by object identity
+    rather than by name: trimesh's glTF loader hands two geometries that cite
+    the same materials-array entry the same Python object, so counting by
+    identity reproduces the glTF file's own material count, not the number of
+    geometries that happen to use one.
+
+    A GLB always loads as a ``Scene`` in practice (confirmed empirically --
+    even a single-mesh export comes back as a one-geometry scene), so the
+    ``mesh`` branch below is the defensive case: some other caller of this
+    module handing ``build()`` a loader result that was never a ``Scene`` to
+    begin with.
+    """
+    if isinstance(loaded, trimesh.Scene):
+        seen: set[int] = set()
+        for geom in loaded.geometry.values():
+            material = getattr(getattr(geom, "visual", None), "material", None)
+            if material is not None:
+                seen.add(id(material))
+        return len(seen)
+    material = getattr(getattr(mesh, "visual", None), "material", None)
+    return 1 if material is not None else 0
 
 
 def _size(path: Path) -> int:

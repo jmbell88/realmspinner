@@ -14,6 +14,7 @@ pure function of the array it reads, never the array it is handed to mutate.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -71,10 +72,21 @@ def validate_terrain_size(size_x: float, size_z: float) -> None:
     is the caller defending the setter, not the setter defending itself --
     and its own comment claimed the setter already raised here, which it did
     not.
+
+    **Also refuses a non-finite extent.** The 2026-09-26 audit's
+    mason-engine-07: ``size_x > 0`` is true of ``float("inf")`` -- Python does
+    not special-case it -- so an ``Infinity`` (JSON accepts the literal, same
+    as :func:`serialize._vector`'s own finiteness paragraph explains for a
+    transform) sailed through this check and reached ``_build_mesh``, where
+    dividing ``size_x``/``n`` by it and multiplying it back out into every
+    vertex position produces a NaN-filled ground mesh far from this refusal.
     """
-    if not (size_x > 0 and size_z > 0):
+    if not (
+        math.isfinite(size_x) and math.isfinite(size_z) and size_x > 0 and size_z > 0
+    ):
         raise ValueError(
-            f"a terrain's size_x and size_z must both be positive, got {size_x!r}, {size_z!r}"
+            f"a terrain's size_x and size_z must both be positive and finite, "
+            f"got {size_x!r}, {size_z!r}"
         )
 
 

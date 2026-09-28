@@ -160,8 +160,9 @@ families of entry, each drawn only when this machine can actually run it:
   it, this family does not appear.
 - **Simplify: Draft/Standard/Detailed** are the gltfpack tiers (20k/50k/100k) — a plain triangle
   reduction of the reconstruction's own surface, no rebake. They need `gltfpack`
-  (a one-time manual drop into `vendor/gltfpack/`, or a downloaded engine copy — see
-  [Installation](40-installation.md#gltfpack)); without it, this family does not appear either.
+  (a one-time manual drop into `vendor/gltfpack/`, or `REALMSPINNER_GLTFPACK` pointed at a copy you
+  keep elsewhere — see [Installation](40-installation.md#gltfpack)); without it, this family does
+  not appear either.
   **Without Blender, Standard is the fallback** — the mesh still gets a second pass, just not the
   in-Blender remesh.
 - **Raw** ships the reconstruction as the engine wrote it, ~300k faces. Always offered.
@@ -263,7 +264,8 @@ Five tiers exist in the code: Raw (as reconstructed — the engine has already s
 300k faces at resolution 1024, 150k at 512, unless `REALMSPINNER_TRELLIS_DECIM=0` is set), Draft (20k),
 Standard (50k), Detailed (100k) and
 Custom. `gltfpack` — the binary every decimating tier runs through — is a one-time manual drop into
-`vendor/gltfpack/` like the reconstruction engine, or a downloaded engine copy, not something the
+`vendor/gltfpack/`, or `REALMSPINNER_GLTFPACK` pointed at a copy you keep elsewhere — unlike the
+reconstruction engine, it is never a Settings → Models download, and not something the
 checkout brings with it; see [Installation](40-installation.md#gltfpack). When it is there this panel
 offers the whole list, and Custom gains a triangle-count field with its own valid range. When it is
 not, `realmspinner doctor` says so and every tier ships the engine's own output instead of failing.

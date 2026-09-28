@@ -315,6 +315,13 @@ class ReviewState:
     # forgot is exactly how something they wanted comes to be deleted, which is
     # the rule ``library.ask_prune`` already follows for its keep-count.
     drop_retained: bool = False
+    # The 2026-09-26 audit, finding shell-review-settings-06: bumped every
+    # time a cleanup/delete/remove lands and asks for its own rescan, so
+    # ``on_task_done``'s ``SCAN_KEY`` branch can tell a scan launched *before*
+    # that cleanup apart from one launched after it -- the same
+    # ``_window_generation`` shape ``jobs_cache.py`` already uses for a
+    # stale-async-result race.
+    scan_generation: int = 0
 
 
 def ensure(ctx: Any) -> ReviewState:
@@ -421,13 +428,26 @@ def _collect(svc: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _collect_at(svc: Any, generation: int) -> tuple[int, list[dict[str, Any]]]:
+    """``_collect``, tagged with the ``scan_generation`` it was launched under.
+
+    The 2026-09-26 audit, finding shell-review-settings-06: without the tag,
+    ``on_task_done`` could not tell a scan launched *before* a cleanup that
+    landed while it was still running apart from one launched after it, and
+    applied whichever arrived last -- usually the stale one, since it started
+    first and a cleanup's own rescan request (``scan`` below, called from
+    ``on_task_done``) is refused outright while this one is still in flight.
+    """
+    return generation, _collect(svc)
+
+
 def scan(ctx: Any) -> None:
     """Re-read the sweeps and their units, off the frame thread."""
     state = ensure(ctx)
     if state.scanning:
         return
     state.scanning = True
-    if not ctx.submit(SCAN_KEY, _collect, ctx.svc):
+    if not ctx.submit(SCAN_KEY, _collect_at, ctx.svc, state.scan_generation):
         # The runner refuses a key already in flight. Leaving the flag set here
         # is what makes the mode permanently inert after a double click.
         state.scanning = False
@@ -714,6 +734,14 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # The counts are now wrong and the viewer may be showing a mesh that no
         # longer exists -- both are fixed by the rescan.
         #
+        # shell-review-settings-06 (the 2026-09-26 audit): bumped *before*
+        # ``scan`` below, whether or not that call actually submits -- a scan
+        # already in flight (started before this cleanup landed) is about to
+        # apply data this cleanup has just made stale, and its own
+        # ``on_task_done`` branch below re-asks for a scan when the
+        # generation it was launched under no longer matches.
+        state.scan_generation += 1
+        #
         # The selection is dropped only when **no pass is running**. A manual
         # delete removes the sweep you were looking at, so forgetting it is
         # right; a pass's cleanup fires for a sweep the pass has already walked
@@ -783,9 +811,22 @@ def on_task_done(ctx: Any, done: Any) -> None:
     if done.key != SCAN_KEY:
         return
     state.scanning = False
-    if not isinstance(done.result, list):
+    if not isinstance(done.result, tuple) or len(done.result) != 2:
         return
-    state.sweeps = done.result
+    generation, sweeps = done.result
+    if generation != state.scan_generation:
+        # shell-review-settings-06 (the 2026-09-26 audit): a cleanup landed
+        # while this scan was still running, bumped ``scan_generation`` and
+        # tried its own rescan -- refused above because ``scanning`` was
+        # still true. This batch was collected against data the cleanup has
+        # since changed, so applying it would silently undo what the cleanup
+        # just did; asking again, now that ``scanning`` is false, is what
+        # actually re-reads it instead.
+        scan(ctx)
+        return
+    if not isinstance(sweeps, list):
+        return
+    state.sweeps = sweeps
     # Whatever was open stays open if the rescan still finds it; otherwise the
     # first bucket, which is what an empty session wants and a deleted one
     # needs.
@@ -997,6 +1038,10 @@ def record(ctx: Any, grade: int, tags: Any = ()) -> None:
     if unit is None or state.scanning:
         return
     tags = list(tags)
+    # The 2026-09-26 audit, finding shell-review-settings-05: captured before
+    # the overwrite below, so a *re*-grade of a unit this pass already filed
+    # can be told apart from filing it the first time.
+    previous_verdict = unit["verdict"]
     try:
         result = verdicts_mod.record_verdict(
             ctx.svc, unit["job_id"], grade=grade, reasons=tags, source=SOURCE
@@ -1029,14 +1074,33 @@ def record(ctx: Any, grade: int, tags: Any = ()) -> None:
         filed += " - " + ", ".join(tags)
     ctx.toast(f"Filed {filed} for {label(state, unit)}. Left arrow to re-grade it.")
     if state.judging is not None:
-        state.judging.filed += 1
         # shell-03 (the 2026-09-20 audit): tallied here, against what this
         # pass itself just wrote, rather than re-derived later from the
         # sweep's units -- which would count verdicts this pass never filed.
-        if unit["verdict"] == "accept":
-            state.judging.accepted += 1
-        elif unit["verdict"] == "reject":
-            state.judging.rejected += 1
+        #
+        # shell-review-settings-05 (the 2026-09-26 audit): a *second* grade of
+        # the same unit inside one pass -- Left arrow, then grade again, which
+        # the toast above names as the way to fix a slip -- used to run this
+        # block a second time too, so "Filed" and one of accepted/rejected
+        # both counted the same unit twice ("21 of 20"). ``previous_verdict``
+        # tells a first filing from a re-grade: only the first counts toward
+        # ``filed``, and a re-grade that changed its mind moves the unit
+        # between the accepted/rejected buckets instead of inflating either.
+        if previous_verdict is None:
+            state.judging.filed += 1
+            if unit["verdict"] == "accept":
+                state.judging.accepted += 1
+            elif unit["verdict"] == "reject":
+                state.judging.rejected += 1
+        elif previous_verdict != unit["verdict"]:
+            if previous_verdict == "accept":
+                state.judging.accepted -= 1
+            elif previous_verdict == "reject":
+                state.judging.rejected -= 1
+            if unit["verdict"] == "accept":
+                state.judging.accepted += 1
+            elif unit["verdict"] == "reject":
+                state.judging.rejected += 1
     advance(state, unverdicted_only=True)
     # After the advance, so a pass that has just emptied its last bucket ends
     # with the cursor already parked rather than being moved by a report.
@@ -1290,9 +1354,17 @@ def open_labels(ctx: Any, stage: str) -> None:
     task returns reads as broken.
     """
     state = ensure(ctx)
+    previous = state.labels
     state.labels = LabelPass(stage=stage, loading=True)
     if not ctx.submit(LABELS_KEY, _label_rows, ctx.svc, stage):
-        state.labels.loading = False
+        # The 2026-09-26 audit, finding shell-review-settings-04: a refused
+        # submit used to leave the fresh, empty ``LabelPass`` in place --
+        # ``rows=[]`` and ``loading=False`` -- so the pane read "nothing left
+        # to label" forever, with no task in flight that could ever refill
+        # it. Rolling back to whatever was showing before the press (a
+        # running pass, or nothing) means a refused press changes nothing,
+        # the same way every other refused submit in this module is a no-op.
+        state.labels = previous
 
 
 def close_labels(ctx: Any) -> None:
@@ -1326,6 +1398,13 @@ def record_label(ctx: Any, verdict: str) -> bool:
     row = current_label(state)
     if row is None or state.labels is None:
         return False
+    # The 2026-09-26 audit, finding shell-review-settings-05: rows keep their
+    # place once answered (the class docstring above), so nothing stops a
+    # reviewer from stepping back onto an already-labelled row and pressing
+    # A/R again -- and the counts below used to add a second positive or
+    # negative for it every time, the same "21 of 20" overcount ``record``
+    # had.
+    previous_verdict = row["verdict"]
     try:
         verdicts_mod.record_verdict(
             ctx.svc, row["job_id"], verdict=verdict, source=SOURCE,
@@ -1338,10 +1417,19 @@ def record_label(ctx: Any, verdict: str) -> bool:
     row["verdict"] = verdict
     # The snapshot, kept current by arithmetic rather than by a re-read: this runs
     # on the frame thread and ``status`` is a whole-table scan.
-    key = "positives" if verdict == "accept" else "negatives"
     status = state.labels.status
-    status[key] = int(status.get(key, 0)) + 1
-    status["labels"] = int(status.get("labels", 0)) + 1
+    if previous_verdict is None:
+        key = "positives" if verdict == "accept" else "negatives"
+        status[key] = int(status.get(key, 0)) + 1
+        status["labels"] = int(status.get("labels", 0)) + 1
+    elif previous_verdict != verdict:
+        # A re-label that changed its mind moves the row between the
+        # positives/negatives buckets; ``labels`` (the total answered) does
+        # not grow, because this row was already counted in it.
+        old_key = "positives" if previous_verdict == "accept" else "negatives"
+        new_key = "positives" if verdict == "accept" else "negatives"
+        status[old_key] = int(status.get(old_key, 0)) - 1
+        status[new_key] = int(status.get(new_key, 0)) + 1
     advance_labels(state.labels)
     # A flag, never a submit. ``TaskRunner.submit`` refuses a key already in
     # flight and nothing re-arms it, so a burst of labels trained once on the set
@@ -1672,6 +1760,16 @@ def launch(ctx: Any) -> bool:
     try:
         units = sweeps_mod.validate_sweep(ctx.svc, plan)
     except ServiceError as exc:
+        # The 2026-09-26 audit, finding shell-review-settings-03: this used to
+        # toast only, so a refusal naming ``field="prompt"`` (or "seeds",
+        # "axes", ...) never reached a control -- the "New sweep" form had no
+        # ``forms.Form`` to attach it to. ``note_field_error`` is the same
+        # door ``settings_2d``/``sheet_panel`` already use for a service
+        # refusal that names a field; ``_review_form`` now reads it back
+        # through ``forms.Form("review-sweep", errors=...)``. The toast stays
+        # too -- it is the only copy of the message for a field this form
+        # does not draw a control for (``stage``).
+        ctx.state.note_field_error(getattr(exc, "field", ""), exc.message)
         ctx.toast(exc.message, "error")
         return False
     state.form.submitting = True

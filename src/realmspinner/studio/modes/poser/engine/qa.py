@@ -9,8 +9,10 @@ reads them, and the panel that draws them offers a place to look, not a
 verdict. They are computed in the app when a sheet is selected, off the frame
 thread, and never written anywhere.
 
-Inputs are the atlas as ``(H, W, 4)`` uint8 and the layout dict
-``troupe_mode.preview_layout`` already returns -- ``movements`` with ``key``,
+Inputs are the atlas as ``(H, W, 4)`` uint8 and the layout dict this package's
+own ``mode.preview_layout`` already returns (the 2026-09-26 audit, finding
+poser-engine-01: Troupe folded into Poser as a stage at P9, 2026-09-18, and
+``troupe_mode`` has not existed since) -- ``movements`` with ``key``,
 ``frames``, ``loop`` and ``directions``, and ``runs`` with ``movement``,
 ``direction``, ``start`` and ``end`` -- so a pre-v2 sheet scores through the
 same door as a configured one.

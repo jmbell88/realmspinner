@@ -256,13 +256,23 @@ def _prefabs_json(export: SceneExport) -> dict[str, Any]:
     return out
 
 
-def scene_manifest(doc: MasonDoc, export: SceneExport) -> dict[str, Any]:
+def scene_manifest(
+    doc: MasonDoc, export: SceneExport, *, geometry_name: str = GEOMETRY
+) -> dict[str, Any]:
     """The manifest for an export, as a plain dict.
 
     Takes the :class:`~.gltfout.SceneExport` rather than re-walking the
     document, which is the whole reason ``scene_model`` hands one back: the
     names, the worlds and the prefab membership in here are *the same values*
     the GLB was written from.
+
+    ``geometry_name`` is the GLB's *actual* served filename. mason-mode-13
+    (the 2026-09-26 audit) renamed the manifest sidecar itself to match the
+    file it describes, but left this field hardcoded to the literal
+    ``"scene.glb"`` -- a leftover of a different finding this same audit
+    surfaced: an export named ``Barrel.glb`` shipped a manifest whose own
+    ``"geometry"`` field still said ``scene.glb``. The default keeps this
+    function's old behaviour for a caller that never renames its GLB.
     """
     names = {record.path: record.name for record in export.nodes}
     nodes = [
@@ -273,7 +283,7 @@ def scene_manifest(doc: MasonDoc, export: SceneExport) -> dict[str, Any]:
         "format_version": VERSION,
         "generator": "Realmspinner",
         "units": dict(CONVENTIONS),
-        "geometry": GEOMETRY,
+        "geometry": geometry_name,
         "nodes": nodes,
         "stats": {
             "nodes": len(nodes),
@@ -297,7 +307,9 @@ def scene_manifest(doc: MasonDoc, export: SceneExport) -> dict[str, Any]:
     return manifest
 
 
-def manifest_bytes(doc: MasonDoc, export: SceneExport) -> bytes:
+def manifest_bytes(
+    doc: MasonDoc, export: SceneExport, *, geometry_name: str = GEOMETRY
+) -> bytes:
     """The manifest's bytes: sorted keys, indented, UTF-8.
 
     Sorted and indented because this half of the bundle exists to be *read* --
@@ -305,4 +317,5 @@ def manifest_bytes(doc: MasonDoc, export: SceneExport) -> bytes:
     changed between two exports of one scene. There is no size argument for
     minifying it: the geometry is in the file next to it.
     """
-    return json.dumps(scene_manifest(doc, export), sort_keys=True, indent=2).encode("utf-8")
+    manifest = scene_manifest(doc, export, geometry_name=geometry_name)
+    return json.dumps(manifest, sort_keys=True, indent=2).encode("utf-8")

@@ -178,14 +178,40 @@ def test_the_edge_count_is_memoised_on_the_mesh_itself():
     assert clay_hints._unique_edges(mesh) == first
 
 
-def test_the_memo_is_bounded_so_a_readout_is_not_a_second_undo_stack():
-    """The key pins the mesh, so an unbounded cache would keep every mesh a
-    session ever measured alive."""
+def test_the_memo_does_not_thrash_once_more_than_sixty_four_meshes_are_live():
+    """The 2026-09-26 audit's clay-view-03: the memo used to be a plain
+    ``dict`` capped at 64 entries and dropped *wholesale* past that -- so a
+    scene of more than 64 objects with Stats on cleared the entire cache
+    partway through every single frame's loop over its own objects, and every
+    mesh missed on every single frame (386 ms/call measured at 70 objects).
+    Kept alive in ``meshes`` here exactly as a real scene's own objects would
+    keep their meshes alive, so nothing is evicted to make room for a later
+    entry the way the old wholesale clear did."""
     clay_hints._EDGE_CACHE.clear()
-    for _ in range(clay_hints._EDGE_CACHE_MAX + 5):
-        clay_hints._unique_edges(bp.box())
+    meshes = [bp.box() for _ in range(70)]
+    for mesh in meshes:
+        clay_hints._unique_edges(mesh)
 
-    assert len(clay_hints._EDGE_CACHE) <= clay_hints._EDGE_CACHE_MAX
+    for mesh in meshes:
+        assert mesh in clay_hints._EDGE_CACHE, "an earlier mesh must not be evicted by a later one"
+
+
+def test_the_memo_evicts_on_its_own_once_a_mesh_is_no_longer_referenced():
+    """A readout must not become a second undo stack (the old cache's own
+    reason for capping itself, which is what made it thrash -- see the test
+    above). A ``WeakKeyDictionary`` needs no cap: an entry disappears once
+    nothing else holds the mesh it counted, which is exactly when a document
+    edit has already replaced it and the readout has no more use for it."""
+    import gc
+
+    clay_hints._EDGE_CACHE.clear()
+    for _ in range(200):
+        clay_hints._unique_edges(bp.box())
+    gc.collect()
+
+    assert len(clay_hints._EDGE_CACHE) < 200, (
+        "an unreferenced mesh's entry must not be pinned forever"
+    )
 
 
 def test_a_mesh_with_no_faces_counts_no_edges_rather_than_raising():

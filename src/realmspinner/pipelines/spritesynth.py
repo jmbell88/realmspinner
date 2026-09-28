@@ -693,9 +693,11 @@ def sheet_geometry(kind: str, logical: int = DEFAULT_LOGICAL_PX) -> SheetGeometr
 
 #: What each action *is*, as words. Under :data:`SPRITE_DRAFT_VERSION` rather
 #: than ``PROMPT_VERSION`` for ``tilesheet._VIEW_CLAUSE``'s reason and the same
-#: split: ``prompt.SHEET_TEMPLATE`` serves the prompt preview as well as this
-#: path and is unchanged by anything here, while these clauses are this module's
-#: own and only this path can reach them.
+#: split: ``prompt.SHEET_TEMPLATE`` is shared with ``prompt.build`` (see that
+#: module's own note -- the 2026-09-26 audit, finding pipelines-image-02:
+#: neither has a live prompt-preview caller today) and is unchanged by
+#: anything here, while these clauses are this module's own and only this
+#: path can reach them.
 _ACTION_CLAUSE: dict[str, str] = {
     "idle": "standing at rest, weight settled on both feet, a slight breathing sway",
     "walk": "walking at an even pace, one full stride cycle, arms swinging "

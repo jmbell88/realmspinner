@@ -309,6 +309,29 @@ def test_a_mesh_past_65535_vertices_writes_unsigned_int_indices() -> None:
     assert np.array_equal(gltf.load(data).meshes[0][0].indices, [0, 1, n - 1])
 
 
+def test_max_index_65535_writes_unsigned_int_not_the_reserved_ushort_sentinel() -> None:
+    """The 2026-09-26 audit, finding clay-io-08: this writer used to narrow to
+    unsigned short at ``max index > 65535``, which lets a max index of
+    *exactly* 65535 (0xFFFF) through as unsigned short -- but 0xFFFF is the
+    value the glTF/GL primitive-restart convention reserves, and a strict
+    reader or a GPU that treats it as a restart sentinel rather than an
+    ordinary vertex index reads this mesh's last vertex wrong. The boundary
+    must be ``>=``, not ``>``.
+    """
+    n = 65536  # positions indexed 0..65535, so the max index is exactly 65535
+    prim = gltf.Primitive(
+        positions=np.zeros((n, 3), dtype="f4"),
+        indices=np.array([0, 1, n - 1], dtype="u4"),
+    )
+    model = gltf.Model([gltf.Node(name="n", mesh=0)], [0], [[prim]], [])
+    data = glbwrite.write_glb(model)
+
+    doc, _ = read_glb(data)
+    accessor = doc["accessors"][doc["meshes"][0]["primitives"][0]["indices"]]
+    assert accessor["componentType"] == 5125  # UINT, not 5123 USHORT
+    assert np.array_equal(gltf.load(data).meshes[0][0].indices, [0, 1, n - 1])
+
+
 def test_an_empty_model_writes_no_buffer_at_all() -> None:
     """``byteLength`` has a minimum of one in the spec, so an empty buffer is
     not a degenerate file but an invalid one -- and a glTF with no buffer is

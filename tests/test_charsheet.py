@@ -315,6 +315,50 @@ def test_resolve_layout_refuses_an_oversized_directions_list_before_building_it(
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("version", True),
+        ("columns", True),
+        ("frames", True),
+    ],
+)
+def test_resolve_layout_refuses_a_bool_where_a_whole_number_belongs(field, value):
+    """The 2026-09-26 audit, finding poser-render-05: bare ``int()`` reads
+    ``True`` as 1 instead of refusing a bool outright."""
+    payload = {
+        "version": 2,
+        "columns": 8,
+        "movements": [{"key": "idle", "frames": 3, "directions": 1}],
+    }
+    if field == "frames":
+        payload["movements"][0]["frames"] = value
+    else:
+        payload[field] = value
+    with pytest.raises(ValueError, match="must be a whole number"):
+        cs.resolve_layout(payload)
+
+
+def test_resolve_layout_refuses_a_non_integral_frames_value():
+    """``2.9`` used to truncate to 2 in silence rather than refuse."""
+    with pytest.raises(ValueError, match="must be a whole number"):
+        cs.resolve_layout(
+            {"version": 2, "movements": [{"key": "idle", "frames": 2.9, "directions": 1}]}
+        )
+
+
+def test_resolve_layout_refuses_a_list_valued_columns_by_name_not_typeerror():
+    """``[3]`` used to escape ``int()`` as a raw, unnamed ``TypeError``."""
+    with pytest.raises(ValueError, match="must be a whole number"):
+        cs.resolve_layout(
+            {
+                "version": 2,
+                "columns": [8],
+                "movements": [{"key": "idle", "frames": 1}],
+            }
+        )
+
+
 def test_a_resolved_v2_snapshot_round_trips_without_changing_cell_identity():
     first = cs.resolve_layout(
         {

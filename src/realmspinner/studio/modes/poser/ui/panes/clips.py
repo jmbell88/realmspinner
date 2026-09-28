@@ -126,6 +126,31 @@ def _new_key_reason(
     return ""
 
 
+def _no_outgoing_segment_reason(
+    key_index: int, key_count: int, closed: bool, segment_count: int
+) -> str:
+    """Why "Frames after this key" is disabled for the selected key, or "".
+
+    The 2026-09-26 audit, finding poser-mode-07: ``segments`` holds one entry
+    per gap between keys -- one fewer than the key count on an *open* clip --
+    so an open clip's last key has no outgoing segment at all. Before this, the
+    caller's own ``index = min(key_index, segment_count - 1)`` silently
+    clamped to the *previous* segment, and the field went on editing that one
+    under the last key's own label with no sign anything had been redirected.
+    A closed (looping) clip is unaffected: its last key loops back to the
+    first, so ``segment_count == key_count`` and it keeps a real outgoing
+    segment. A pure function, the ``_import_clip_reason`` shape, so the
+    boundary is assertable without a GL context.
+    """
+    if not key_count:
+        return ""
+    if key_index < key_count - 1 or closed:
+        return ""
+    if key_index < segment_count:
+        return ""
+    return "The last key of an open clip has nothing after it to time."
+
+
 def _import_clip_reason(
     rigging_available: bool, has_library: bool, busy: bool, skeleton_editing: bool = False
 ) -> str:
@@ -481,10 +506,22 @@ def _timing(ctx: Any, state: Any) -> None:
         # pass); id kept stable, "Frames after this key" -> "##Frames after
         # this key".
         widgets.field_label("Frames after this key")
-        changed, value = controls.input_int(
-            "##Frames after this key", int(segments[index])
+        # The 2026-09-26 audit, finding poser-mode-07: see
+        # ``_no_outgoing_segment_reason`` for why the last key of an open clip
+        # needs this field disabled rather than silently edited.
+        reason = _no_outgoing_segment_reason(
+            state.key_index,
+            len(record.get("keys") or ()),
+            bool(record.get("closed")),
+            len(segments),
         )
-        if changed:
+        changed, value = controls.input_int(
+            "##Frames after this key",
+            int(segments[index]),
+            enabled=not reason,
+            reason=reason,
+        )
+        if changed and not reason:
             poser_mode.set_segment(ctx, index, value)
 
     changed, closed = controls.checkbox(

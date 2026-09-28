@@ -125,7 +125,7 @@ def optimize_job(
         # commit(), called only after optimize.run has actually succeeded;
         # discard_last() below undoes exactly this stage() call on failure,
         # with no eviction to undo because none has happened yet.
-        entries = modelhistory.stage(
+        entries, staged = modelhistory.stage(
             job_dir,
             modelhistory.entries_of(job["params"]),
             job["params"],
@@ -146,7 +146,7 @@ def optimize_job(
             # dest on success), so the version just staged describes a
             # replacement that never happened -- back it out rather than let
             # the history claim a retarget that failed.
-            entries = modelhistory.discard_last(job_dir, entries)
+            entries = modelhistory.discard_last(job_dir, entries, staged)
             svc.store.merge_params(job_id, {"model_history": entries})
             raise Failed(str(exc)) from exc
         # optimize.run succeeded: model.glb now is the retargeted mesh, so the
@@ -324,7 +324,7 @@ def revert_model(
         # actually succeeded; discard_last() undoes exactly this stage() call
         # on failure, with no eviction to undo because none has happened yet
         # -- the same shape optimize_job already uses, for the same reason.
-        entries = modelhistory.stage(
+        entries, staged = modelhistory.stage(
             job_dir,
             entries,
             params,
@@ -346,7 +346,7 @@ def revert_model(
             # happened. Back it out, and merge the un-evicted entries back
             # onto the row so a retry never meets a "no longer available"
             # entry for a version this failure never touched.
-            entries = modelhistory.discard_last(job_dir, entries)
+            entries = modelhistory.discard_last(job_dir, entries, staged)
             svc.store.merge_params(job_id, {"model_history": entries})
             raise Failed(f"could not restore version {version}: {exc}") from exc
         # The write succeeded: model.glb now is the restored mesh, so the

@@ -951,6 +951,7 @@ def _array_linear(
     so every copy shares the source's -- an array of sixty fence posts is one
     GPU upload, not sixty.
     """
+    from ....kernels.geom3d import math3d as m3
     from ....kernels.mesh import document as bd
     from ....kernels.mesh import ops as clay_ops_geom
 
@@ -966,7 +967,23 @@ def _array_linear(
         for uid in originals:
             copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
             taken.append(copy.name)
-            made.append(clay_ops_geom.translated(copy, offset))
+            # the 2026-09-26 audit, finding clay-ops-tail-03: this docstring
+            # promises a *world*-space step, but ``translated`` steps
+            # whatever ``translation`` it is handed -- correct only because a
+            # root's local frame *is* its world frame. Under a scaled/rotated
+            # parent that silently stepped the copy's *local* TRS instead: a
+            # child of a 2x-scaled, 90-degree-rotated parent landed at
+            # (0, 0, -2) for a requested (1, 0, 0) world step. Step a
+            # stand-in holding the source's *world* TRS instead -- the same
+            # world-then-``local_from_world`` conversion ``_mirror_copy``/
+            # ``_place_between`` already run their own world results through
+            # -- then convert back to local before assigning.
+            world_t, world_r, world_s = m3.decompose(doc.world_matrix(uid))
+            stand_in = replace(copy, translation=world_t, rotation=world_r, scale=world_s)
+            stepped = clay_ops_geom.translated(stand_in, offset)
+            new_world = m3.compose(stepped.translation, stepped.rotation, stepped.scale)
+            t, r, s = doc.local_from_world(uid, new_world)
+            made.append(replace(copy, translation=t, rotation=r, scale=s))
     doc.add_objects(made)
     # Originals and copies both, not just the newest generation: arraying an
     # array is a normal thing to want, and it only compounds if the group
@@ -1031,6 +1048,7 @@ def _array_radial(
     shape rather than a frozen one: a rotation about the origin is a
     transform change, and the mesh is never touched.
     """
+    from ....kernels.geom3d import math3d as m3
     from ....kernels.mesh import document as bd
     from ....kernels.mesh import ops as clay_ops_geom
 
@@ -1048,7 +1066,18 @@ def _array_radial(
         for uid in originals:
             copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
             taken.append(copy.name)
-            made.append(clay_ops_geom.rotated_about_origin(copy, a, degrees))
+            # the 2026-09-26 audit, finding clay-ops-tail-03: same fix as
+            # _array_linear above -- rotated_about_origin spins whatever
+            # translation/rotation it is given about *its own* origin, which
+            # is only the world origin for a root object. Spin a stand-in
+            # holding the source's world TRS instead, then convert the spun
+            # world placement back to local.
+            world_t, world_r, world_s = m3.decompose(doc.world_matrix(uid))
+            stand_in = replace(copy, translation=world_t, rotation=world_r, scale=world_s)
+            spun = clay_ops_geom.rotated_about_origin(stand_in, a, degrees)
+            new_world = m3.compose(spun.translation, spun.rotation, spun.scale)
+            t, r, s = doc.local_from_world(uid, new_world)
+            made.append(replace(copy, translation=t, rotation=r, scale=s))
     doc.add_objects(made)
     doc.select(originals + [obj.uid for obj in made])
     return bool(made)
@@ -1416,6 +1445,13 @@ def _ungroup(ctx: Any, doc: Any, **_: Any) -> None:
     def one(doc: Any, obj: Any) -> None:
         if _is_group(doc, obj):
             doc.remove_object(obj.uid)
+            # the 2026-09-26 audit, finding clay-ops-tail-06: remove_object
+            # takes the empty out of doc.objects the same way _delete's own
+            # removals do, so its entry in the properties panel's per-object
+            # mesh-check cache needs the same pop _delete already gives its
+            # own removals (the 2026-09-08 audit's clay-08) -- left alone, the
+            # cache keeps pinning the empty's ``Mesh`` by an orphaned uid.
+            _forget_manifold(ctx, [obj.uid])
 
     run_object_op(ctx, doc, one)
 
@@ -1481,6 +1517,13 @@ def _separate_loose(ctx: Any, doc: Any, **_: Any) -> bool:
 
     def one(doc: Any, obj: Any) -> None:
         doc.separate(obj.uid, sep.by_loose_parts(obj.mesh))
+        # the 2026-09-26 audit, finding clay-ops-tail-06: separate always
+        # removes the source (ClayDoc.separate's own docstring), so its entry
+        # in the properties panel's per-object mesh-check cache is left
+        # keyed on an orphaned uid, pinning its Mesh alive -- the same leak
+        # shape _delete already closes for its own removals (the 2026-09-08
+        # audit's clay-08).
+        _forget_manifold(ctx, [obj.uid])
 
     return run_object_op(ctx, doc, one)
 
@@ -1493,6 +1536,9 @@ def _separate_material(ctx: Any, doc: Any, **_: Any) -> bool:
 
     def one(doc: Any, obj: Any) -> None:
         doc.separate(obj.uid, sep.by_material(obj.mesh))
+        # See _separate_loose's own comment (the 2026-09-26 audit's
+        # finding clay-ops-tail-06).
+        _forget_manifold(ctx, [obj.uid])
 
     return run_object_op(ctx, doc, one)
 
@@ -1525,6 +1571,9 @@ def _separate_selection(ctx: Any, doc: Any, **_: Any) -> bool:
         # pick would, with no direct reach into the document's own sets.
         for piece in pieces:
             doc.set_element_sel(piece.uid, None)
+        # See _separate_loose's own comment (the 2026-09-26 audit's
+        # finding clay-ops-tail-06).
+        _forget_manifold(ctx, [obj.uid])
 
     return run_object_op(ctx, doc, one)
 
@@ -2145,38 +2194,54 @@ def _decimate_apply(ctx: Any, doc: Any, result: Any) -> None:
     # written to while locked. ``_decimate_report`` gives this list its own
     # sentence.
     locked: list[str] = []
-    for item in items:
-        uid = item["uid"]
-        try:
-            obj = doc.by_uid(uid)
-        except KeyError:
-            skipped.append(item["name"])
-            continue
-        # The stamp taken in ``_decimate_prepare`` still has to match: an edit
-        # made to this object while gltfpack ran means the result was computed
-        # against geometry that no longer exists, and applying it would
-        # silently discard whatever the user did in the meantime.
-        if doc.mesh_stamp(uid) != item["stamp"]:
-            skipped.append(obj.name)
-            continue
-        mesh = _decimate_mesh_from_glb(item["glb_out"], item["material"])
-        # A locked object still reaches this point -- ``has_objects`` doesn't
-        # check ``locked`` -- and ``set_mesh`` refuses it. Without this catch
-        # the raise escapes the open ``history.mark()`` below: ``collapse_since``
-        # never runs, ``UndoStack._open_gestures`` is stuck open, and every
-        # later gesture in the document stops evicting (the 2026-09-22 audit,
-        # finding clay-03, the same leak shape as the 2026-09-19 audit's
-        # clay-16). Skip this item by name and keep folding the rest of the
-        # batch, matching ``run_mesh_op``'s own per-item refusal handling.
-        try:
-            doc.set_mesh(uid, mesh)
-        except OpError:
-            locked.append(obj.name)
-            continue
-        total_before += item["before"]
-        total_after += _tri_count(mesh)
-        applied.append(obj.name)
-    doc.history.collapse_since(mark)
+    # the 2026-09-26 audit, finding clay-ops-tail-02: the whole loop used to
+    # sit *outside* a try/finally, with ``_decimate_mesh_from_glb`` (the mesh
+    # conversion, below) as the one step in it with no guard at all -- not
+    # even the per-item ``continue`` the KeyError/stamp/lock checks each get.
+    # A conversion error (glbimport/join raising on a malformed decimate
+    # result, or ``_decimate_mesh_from_glb``'s own ``OpError`` for a
+    # prim-less GLB) escaped straight past ``doc.history.collapse_since(mark)``
+    # below: ``UndoStack._open_gestures`` stuck at 1 forever, disabling undo
+    # eviction for the rest of the session -- the same leak shape the comment
+    # just below this already fixed once for ``set_mesh`` alone (the
+    # 2026-09-22 audit's clay-03). A conversion error is still a real failure
+    # and still propagates -- it is not a per-item refusal like a lock, so it
+    # is not caught here -- but it now closes the gesture on its way out
+    # instead of leaving it open.
+    try:
+        for item in items:
+            uid = item["uid"]
+            try:
+                obj = doc.by_uid(uid)
+            except KeyError:
+                skipped.append(item["name"])
+                continue
+            # The stamp taken in ``_decimate_prepare`` still has to match: an edit
+            # made to this object while gltfpack ran means the result was computed
+            # against geometry that no longer exists, and applying it would
+            # silently discard whatever the user did in the meantime.
+            if doc.mesh_stamp(uid) != item["stamp"]:
+                skipped.append(obj.name)
+                continue
+            mesh = _decimate_mesh_from_glb(item["glb_out"], item["material"])
+            # A locked object still reaches this point -- ``has_objects`` doesn't
+            # check ``locked`` -- and ``set_mesh`` refuses it. Without this catch
+            # the raise escapes the open ``history.mark()`` below: ``collapse_since``
+            # never runs, ``UndoStack._open_gestures`` is stuck open, and every
+            # later gesture in the document stops evicting (the 2026-09-22 audit,
+            # finding clay-03, the same leak shape as the 2026-09-19 audit's
+            # clay-16). Skip this item by name and keep folding the rest of the
+            # batch, matching ``run_mesh_op``'s own per-item refusal handling.
+            try:
+                doc.set_mesh(uid, mesh)
+            except OpError:
+                locked.append(obj.name)
+                continue
+            total_before += item["before"]
+            total_after += _tri_count(mesh)
+            applied.append(obj.name)
+    finally:
+        doc.history.collapse_since(mark)
     top = doc.history.top
     if top is not None and doc.history.head != head:
         top.label = "Decimate"
@@ -2817,7 +2882,17 @@ def _bake_apply(ctx: Any, doc: Any, result: Any) -> None:
     index = int(obj.material)
     mark = doc.history.mark()
     head = doc.history.head
-    doc.set_material(index, replace(doc.materials[index], **fields))
+    # the 2026-09-26 audit, finding clay-ops-tail-04: ``set_material`` rewrites
+    # a palette *slot*, not the low object alone -- every other object naming
+    # the same slot (the high-poly source most often, since bake-detail leaves
+    # it in place) reads the rewrite too, so baking one object used to
+    # silently retexture everyone else sharing its material. Allocate the low
+    # object a fresh slot instead, the same one-step append-and-assign the
+    # properties panel's own Add button uses (``add_material_and_assign``,
+    # the 2026-09-08 audit's clay-02) -- nested inside this function's own
+    # mark/collapse exactly as ``_decimate_apply``'s own nesting is (its own
+    # docstring says why that is safe).
+    doc.add_material_and_assign(uid, replace(doc.materials[index], **fields))
     doc.history.collapse_since(mark)
     top = doc.history.top
     if top is not None and doc.history.head != head:
@@ -3270,11 +3345,21 @@ def _shade(smooth: bool) -> Callable[..., None]:
             run_object_op(ctx, doc, lambda doc, obj: doc.set_shading(obj.uid, None, smooth))
             return
         from ....kernels.mesh import elements as el
+        from ....kernels.mesh.elements import OpError
 
-        del ctx
         for uid in list(doc.element_sel):
             faces = el.convert(doc.by_uid(uid).mesh, doc.element_sel_of(uid), "face")
-            doc.set_shading(uid, faces.faces, smooth)
+            # the 2026-09-26 audit, finding clay-ops-tail-05: this loop had no
+            # per-object guard at all, unlike every other multi-object loop in
+            # this module (``run_object_op``/``run_mesh_op``'s own "a refusal
+            # on one object does not abandon the others" promise) -- a single
+            # locked object's ``set_shading`` raised ``OpError`` and aborted
+            # shading for every object still queued behind it.
+            try:
+                doc.set_shading(uid, faces.faces, smooth)
+            except OpError as error:
+                toast(ctx, str(error))
+                continue
 
     return run
 

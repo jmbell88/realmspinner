@@ -56,7 +56,11 @@ def template_presets(key: str) -> dict[str, Any]:
 
 
 def create_rig(
-    svc: RealmspinnerService, job_id: str, *, template: str | None = None
+    svc: RealmspinnerService,
+    job_id: str,
+    *,
+    template: str | None = None,
+    refuse_existing: bool = False,
 ) -> dict[str, Any]:
     """Queue a rig for a finished job's mesh.
 
@@ -64,6 +68,15 @@ def create_rig(
     mesh is minutes of CPU, and going through the queue buys cancellation,
     progress and history for free -- and guarantees it never overlaps a trellis
     or SDXL run.
+
+    ``refuse_existing`` is opt-in and defaults to False because this door has
+    two different callers with two different rules: Library's "Rig this mesh
+    again" and Poser's re-rig (``modes/poser/mode.py:rerig``) both call this
+    same door *to replace* an existing rig on purpose, while the MCP agent
+    surface's ``character_rig`` must never replace one. See
+    ``agent_character._h_character_rig``'s own call for why the check moved
+    here instead of staying a read the caller does before calling in (finding
+    agents-character-03, the 2026-09-26 audit, below).
     """
     source = svc.require_job(job_id)
     if source["kind"] == "rig":
@@ -88,6 +101,19 @@ def create_rig(
     # ``convert_lock``; copied here, keyed on this door's own name rather than
     # "sheets" since a plain rig is not a sheet reservation.
     with svc.convert_lock(job_id, "rig"):
+        # The 2026-09-26 audit, finding agents-character-03: character_rig's
+        # own "never replaces an existing rig" check used to be a
+        # store.read_rig read entirely outside this lock, in
+        # agent_character.py -- the exact TOCTOU shape the 2026-09-20 audit
+        # (agents-03, just below) already fixed for rig_in_flight. Two
+        # concurrent character_rig calls on a mesh with no rig yet could both
+        # read "no rig" before either had reached this lock at all. Checked
+        # here instead, under the same hold as rig_in_flight's own check, so
+        # a caller that opts in (refuse_existing) gets one atomic
+        # check-and-insert rather than two separate reads with a gap between
+        # them.
+        if refuse_existing and store.read_rig(svc.job_dir(job_id)) is not None:
+            raise Conflict("an agent adds rigs; it never replaces one", field="job_id")
         if rig_in_flight(svc, job_id) is not None:
             # send_to_troupe's own sentence, verbatim (troupe.py:981) -- one
             # wording for "there is already a rig job for this mesh" wherever it

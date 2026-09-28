@@ -627,6 +627,37 @@ def test_uv_pane_island_ids_are_memoised_on_the_mesh_and_not_recomputed_every_fr
     assert len(calls) == 2, "a genuinely different mesh still gets its islands computed"
 
 
+def test_uv_pane_seam_derivation_is_memoised_on_the_mesh_and_not_recomputed_every_frame(
+    monkeypatch,
+) -> None:
+    """The 2026-09-26 audit's clay-panes-02: ``_edges`` used to call
+    ``uvtools.seams_from_uv(mesh)`` fresh every single frame the pane was
+    open -- measured at 78 ms at 10k faces, alongside the per-face draw
+    loops in ``_faces``/``_edges``/``_island_outlines`` -- when the derived
+    cut set is exactly as much a pure function of mesh identity as the
+    ``ids``/``overlap``/``stretch`` triple :func:`clay_uv._measurements`
+    already memoises. It now folds seam derivation into that same cache."""
+    mesh = _two_island_mesh()
+    calls = []
+    original = uvtools.seams_from_uv
+
+    def counting(m, **kw):
+        calls.append(1)
+        return original(m, **kw)
+
+    monkeypatch.setattr(clay_uv.uvtools, "seams_from_uv", counting)
+    view_state = clay_uv.UvPaneState()
+
+    clay_uv._measurements(view_state, mesh)
+    clay_uv._measurements(view_state, mesh)
+    clay_uv._measurements(view_state, mesh)
+    assert len(calls) == 1, "the same mesh object's seams must be derived once, not every call"
+
+    other = _two_island_mesh()
+    clay_uv._measurements(view_state, other)
+    assert len(calls) == 2, "a genuinely different mesh still gets its seams derived"
+
+
 def test_uv_pane_editing_controls_are_disabled_while_the_tab_is_saving(
     ui, monkeypatch
 ) -> None:

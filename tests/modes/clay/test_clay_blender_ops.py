@@ -306,13 +306,22 @@ def test_smart_unwrap_inline_keeps_the_generator(monkeypatch: pytest.MonkeyPatch
 # --- bake-detail: inline round trip, material replaced by identity -----------
 
 
-def test_bake_detail_inline_replaces_the_low_objects_material_by_identity_in_one_step(
+def test_bake_detail_inline_gives_the_low_object_a_new_material_slot_in_one_step(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The 2026-09-26 audit's finding clay-ops-tail-04: this used to replace
+    the low object's slot *in place at its own index* (0 here) -- correctly
+    "never mutated in place" (a fresh ``Material`` by identity) but wrong
+    about *which* slot, since ``_two_object_doc``'s cone (the high side,
+    untouched by the bake) starts on that same default slot 0 and read the
+    rewrite too. The low object now gets a freshly appended slot of its own,
+    and slot 0 -- shared with the untouched high object -- is left alone.
+    """
     clay_blender_mod = _patch_available(monkeypatch, True)
     monkeypatch.setattr(clay_blender_mod, "bake_bytes", _fake_bake_bytes)
 
-    doc, low_uid, _high_uid = _two_object_doc()
+    doc, low_uid, high_uid = _two_object_doc()
+    assert doc.by_uid(low_uid).material == doc.by_uid(high_uid).material == 0
     low_mesh_before = doc.by_uid(low_uid).mesh
     material_before = doc.materials[0]
     depth = len(doc.history)
@@ -335,15 +344,20 @@ def test_bake_detail_inline_replaces_the_low_objects_material_by_identity_in_one
     # Geometry is untouched -- only the palette entry changes.
     assert doc.by_uid(low_uid).mesh is low_mesh_before
 
-    material_after = doc.materials[0]
-    assert material_after is not material_before, "replaced by identity, never mutated in place"
+    new_index = doc.by_uid(low_uid).material
+    assert new_index != 0, "the low object must move to a fresh slot, not overwrite the shared one"
+    assert doc.by_uid(high_uid).material == 0, "the untouched high source keeps its own slot"
+    assert doc.materials[0] is material_before, "the shared slot itself must be untouched"
+
+    material_after = doc.materials[new_index]
     assert material_after.base_color is not None
     assert material_after.normal is not None
     assert material_after.metallic_roughness is None, "roughness was not requested"
     assert material_after.metallic_factor == pytest.approx(0.125)
 
     assert doc.undo() is True
-    assert doc.materials[0] is material_before
+    assert doc.by_uid(low_uid).material == 0
+    assert len(doc.materials) == 1, "the appended slot is gone too -- one press, one Ctrl+Z"
 
 
 # --- interactive: submit now, apply later, one object skipped ---------------

@@ -411,6 +411,13 @@ def test_every_document_mutating_panel_is_gated_on_the_saving_flag():
     )
     for func in targets:
         tree = ast.parse(inspect.getsource(func).lstrip())
+        # Two shapes count as gated: a bare ``imgui.begin_disabled(tab.saving
+        # or tab.busy)`` wrap (the original one), and a call to
+        # ``timeline._busy_gate`` (the 2026-09-26 audit's inker-panes-09: a
+        # bare wrap dims a row but carries no reason of its own, so
+        # ``_busy_gate`` folds ``tab.busy`` into each row's own
+        # ``enabled``/``reason`` pair instead -- still a gate, just per-row
+        # rather than per-menu).
         gates = [
             call
             for call in ast.walk(tree)
@@ -423,7 +430,18 @@ def test_every_document_mutating_panel_is_gated_on_the_saving_flag():
                 for node in ast.walk(arg)
             )
         ]
-        assert gates, f"{func.__qualname__} mutates the document with no save gate"
+        busy_gate_calls = [
+            call
+            for call in ast.walk(tree)
+            if isinstance(call, ast.Call)
+            and (
+                (isinstance(call.func, ast.Name) and call.func.id == "_busy_gate")
+                or (isinstance(call.func, ast.Attribute) and call.func.attr == "_busy_gate")
+            )
+        ]
+        assert (
+            gates or busy_gate_calls
+        ), f"{func.__qualname__} mutates the document with no save gate"
 
 
 def test_the_two_reorder_gestures_refuse_outright_rather_than_grey_out():

@@ -313,6 +313,65 @@ def test_the_sheet_directory_is_not_re_read_every_frame(ctx, svc, monkeypatch):
     assert len(reads) == settled, "and then stops"
 
 
+def _settled_stamps(monkeypatch, *paths):
+    """Freeze ``stamps.time.time_ns()`` safely past every path's mtime --
+    ``test_sheet_options_cache.py``'s own ``_settled`` idiom, so a test about
+    the *timer* does not also, by accident, exercise the mtime guard's race
+    window (``panes.stamps``'s own module doc) and go flaky on how fast the
+    machine running it happens to be.
+    """
+    from realmspinner.service.files import MTIME_RACE_NS
+    from realmspinner.studio.panes import stamps
+
+    newest = max(p.stat().st_mtime_ns for p in paths)
+    monkeypatch.setattr(stamps.time, "time_ns", lambda: newest + MTIME_RACE_NS * 2)
+
+
+def test_sheets_and_active_sheet_are_not_reread_once_settled_even_past_the_old_interval(
+    ctx, svc, monkeypatch
+):
+    """The 2026-09-26 audit, finding poser-mode-08: before this, the interval
+    alone decided whether to re-read at all, so a poll landing past
+    ``SHEETS_REFRESH`` re-globbed and re-parsed the whole directory (and
+    re-read the sidecar) even though nothing on disk had changed since the
+    last one -- the finding's own "every 0.5s ... unconditionally". Now the
+    interval only caps how often this looks; the directory's and the
+    sidecar's own mtime decide whether a look actually re-reads anything.
+    """
+    from realmspinner.kernels.rig import store as rig_store
+
+    job_id, listed = _character(svc, sheets=1)
+    _settled_stamps(
+        monkeypatch,
+        rig_store.sheet_dir(svc.job_dir(job_id)),
+        rig_store.sheet_path(svc.job_dir(job_id), listed[0]),
+    )
+    _bind(ctx, job_id)
+    poser_mode.select_sheet(ctx)
+    assert poser_mode.active_sheet(ctx) is not None  # settles both caches
+
+    globs: list[int] = []
+    reads: list[int] = []
+    real_list, real_read = rig_store.list_sheets, rig_store.read_sheet
+    monkeypatch.setattr(
+        rig_store, "list_sheets", lambda d: (globs.append(1), real_list(d))[1]
+    )
+    monkeypatch.setattr(
+        rig_store, "read_sheet", lambda d, i: (reads.append(1), real_read(d, i))[1]
+    )
+
+    # Jump the frame-thread clock well past the old interval -- nothing on
+    # disk moved in the meantime.
+    later = poser_mode.time.monotonic() + poser_mode.SHEETS_REFRESH + 1.0
+    monkeypatch.setattr(poser_mode.time, "monotonic", lambda: later)
+
+    poser_mode.sheets(ctx, job_id)
+    poser_mode.active_sheet(ctx)
+
+    assert globs == [], "the directory has not changed since it was last globbed"
+    assert reads == [], "the sidecar has not changed since it was last read"
+
+
 def test_selecting_a_character_takes_its_newest_sheet(ctx, svc):
     job_id, sheets = _character(svc, sheets=3)
     _bind(ctx, job_id)

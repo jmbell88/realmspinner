@@ -619,6 +619,30 @@ def _vector(entry: dict[str, Any], key: str, default: tuple[float, ...]) -> Any:
             f"an object in this clay document has a {key} of "
             f"{value.size} numbers, not {len(default)}"
         )
+    # The 2026-09-26 audit, finding clay-document-08: a NaN or an Infinity in
+    # a translation/rotation/scale used to reach ``ClayDoc`` unchecked --
+    # ``np.asarray`` casts either exactly as happily as a real number, unlike
+    # a non-numeric string, which ``float()`` a few lines up already refuses
+    # -- and then propagated silently through every matrix built from it
+    # (``m3.compose``, every bake, every export) until it either rendered
+    # nothing or hit ``glbwrite``'s own non-finite-bounds refusal far
+    # downstream, naming a vertex bound instead of the object and field that
+    # actually caused it.
+    if not np.isfinite(value).all():
+        raise ValueError(
+            f"an object in this clay document has a {key} that is not a finite number"
+        )
+    # Same finding: a rotation of (0, 0, 0, 0) is not a unit quaternion and
+    # not any rotation at all -- ``m3.quat_to_mat4`` happens to return the
+    # identity for it (every cross term is zero), so this silently loaded as
+    # "no rotation" rather than being refused as the corrupt value it is; and
+    # a scale of (0, 0, 0) collapses the object to a single point and makes
+    # its world matrix singular, breaking every inverse a later export or
+    # normal transform takes of it. Translation has no such degenerate value
+    # -- (0, 0, 0) is just the origin -- so only these two keys are checked.
+    if key in ("rotation", "scale") and not np.any(value):
+        noun = "the zero quaternion, not a rotation at all" if key == "rotation" else "zero"
+        raise ValueError(f"an object in this clay document has a {key} that is {noun}")
     return value
 
 
@@ -958,10 +982,39 @@ def _factor(value: Any, n: int, field: str) -> tuple[float, ...]:
     malformed field by name" door :func:`_material_from`'s texture-index
     check and clay-document-07's ``Infinity`` catch already use -- raising
     here reaches that function's own ``except`` clause below.
+
+    Finding clay-document-08, the same audit: two more shapes got through
+    this door. ``float`` accepts ``nan``/``inf`` exactly as happily as a real
+    number, so a corrupt factor propagated into ``gltf.Material`` unchecked --
+    checked below the same way :func:`_vector` now checks a TRS field.  And
+    *iterating* ``value`` rather than requiring it to already be a sequence
+    meant a JSON *string* of the right length silently passed: a
+    ``base_color_factor`` of ``"1234"`` (four digit characters) iterates to
+    four floats and never reaches the length check at all, loading colours
+    that were never a list in the source file.
     """
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"a material's {field} is not a list of numbers")
     out = tuple(float(v) for v in value)
     if len(out) != n:
         raise ValueError(f"a material's {field} has {len(out)} components, not {n}")
+    if not all(np.isfinite(v) for v in out):
+        raise ValueError(f"a material's {field} has a NaN or an Infinity in it")
+    return out
+
+
+def _finite_float(value: Any, field: str) -> float:
+    """A material's lone numeric field (``metallic_factor``, ``roughness_factor``,
+    ``alpha_cutoff``), refusing a NaN or an Infinity the same way :func:`_factor`
+    now refuses one in an array field -- finding clay-document-08, the
+    2026-09-26 audit: ``float()`` casts either exactly as happily as a real
+    number, and a non-finite blend weight or alpha threshold reached the
+    renderer with nothing to show for it and no mention of which file or
+    field was the source.
+    """
+    out = float(value)
+    if not np.isfinite(out):
+        raise ValueError(f"a material's {field} is not a finite number")
     return out
 
 
@@ -999,14 +1052,16 @@ def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
             base_color_factor=_factor(
                 entry.get("base_color_factor", (1.0, 1.0, 1.0, 1.0)), 4, "base_color_factor"
             ),
-            metallic_factor=float(entry.get("metallic_factor", 1.0)),
-            roughness_factor=float(entry.get("roughness_factor", 1.0)),
+            metallic_factor=_finite_float(entry.get("metallic_factor", 1.0), "metallic_factor"),
+            roughness_factor=_finite_float(
+                entry.get("roughness_factor", 1.0), "roughness_factor"
+            ),
             emissive_factor=_factor(
                 entry.get("emissive_factor", (0.0, 0.0, 0.0)), 3, "emissive_factor"
             ),
             double_sided=bool(entry.get("double_sided", False)),
             alpha_mode=str(entry.get("alpha_mode", "OPAQUE")),
-            alpha_cutoff=float(entry.get("alpha_cutoff", 0.5)),
+            alpha_cutoff=_finite_float(entry.get("alpha_cutoff", 0.5), "alpha_cutoff"),
         )
     except (TypeError, ValueError, AttributeError, OverflowError) as exc:
         # clay-document-07, the 2026-09-26 audit: a texture index of

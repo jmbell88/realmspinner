@@ -394,3 +394,53 @@ def test_declared_budget_does_not_crash_on_a_non_dict_accessor_or_mesh_entry() -
         data = glbio.rebuild_glb(header, mutated, rest)
         with pytest.raises(OpError):
             glbimport.glb_to_claydoc(data)
+
+
+def test_declared_budget_does_not_crash_on_a_meshes_object_or_non_list_primitives() -> None:
+    """The 2026-09-26 audit, finding clay-io-09: ``_declared_budget`` runs
+    *before* ``glb_to_claydoc``'s own try/except around ``gltf.load`` -- it is
+    the cheap pre-check that exists specifically to avoid paying for that
+    load, so nothing in it may raise either. ``meshes``/``nodes``/
+    ``accessors`` were each trusted to be a list the moment ``.get(...)``
+    returned something truthy, so a GLB whose JSON declared one of them as an
+    *object* (``{"0": {...}}`` rather than ``[{...}]``) reached an int index
+    into a dict as a bare ``KeyError`` -- and a mesh's own ``primitives``
+    holding a non-list, non-dict truthy value (a bare number) reached
+    ``for prim in ...`` as a bare ``TypeError`` -- instead of this module's
+    named ``OpError`` refusal.
+    """
+    header, doc, rest = glbio.split_glb(_glb(_one_box()))
+
+    meshes_is_an_object = dict(doc)
+    meshes_is_an_object["nodes"] = [{"mesh": 0}]
+    meshes_is_an_object["meshes"] = {"0": {"primitives": []}}
+
+    primitives_is_a_number = dict(doc)
+    primitives_is_a_number["nodes"] = [{"mesh": 0}]
+    primitives_is_a_number["meshes"] = [{"primitives": 5}]
+
+    for mutated in (meshes_is_an_object, primitives_is_a_number):
+        data = glbio.rebuild_glb(header, mutated, rest)
+        with pytest.raises(OpError):
+            glbimport.glb_to_claydoc(data)
+
+
+def test_declared_budget_does_not_crash_on_an_infinite_accessor_count() -> None:
+    """The 2026-09-26 audit, finding clay-io-09: an accessor's ``count`` is a
+    declared JSON number, and Python's own ``json`` module accepts a bare
+    ``Infinity`` literal by default -- ``int(float("inf"))`` raises
+    ``OverflowError`` rather than either ``TypeError``/``ValueError`` this
+    helper already caught, the same gap clay-document-07 found and closed for
+    this exact "int() of a JSON number" shape in the document reader.
+    """
+    header, doc, rest = glbio.split_glb(_glb(_one_box()))
+    mutated = dict(doc)
+    mutated["nodes"] = [{"mesh": 0}]
+    mutated["meshes"] = [{"primitives": [{"attributes": {"POSITION": 1}}]}]
+    mutated["accessors"] = [
+        {"componentType": 5126, "count": 3, "type": "VEC3"},
+        {"componentType": 5126, "count": float("inf"), "type": "VEC3"},
+    ]
+    data = glbio.rebuild_glb(header, mutated, rest)
+    with pytest.raises(OpError):
+        glbimport.glb_to_claydoc(data)

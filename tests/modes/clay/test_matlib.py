@@ -230,6 +230,48 @@ def test_an_interrupted_save_or_delete_leaves_no_orphaned_texture_side_cars(
     )
 
 
+def test_load_of_a_manifest_that_is_not_a_json_object_is_none_not_a_raise(tmp_path) -> None:
+    """The 2026-09-26 audit, finding clay-mode-05: ``load_material`` claims --
+    its own docstring, and the module's overarching one -- that a corrupt
+    entry degrades rather than raising. Valid JSON that is not an *object* (a
+    bare list here; a hand-edited manifest can be anything) parsed without
+    error, and every ``payload.get(...)`` afterwards then raised
+    ``AttributeError`` on the list -- which the ``except (TypeError,
+    ValueError)`` guarding the fields built from it never caught, so this
+    used to escape ``load_material`` entirely rather than degrading."""
+    folder = matlib.library_dir(tmp_path)
+    folder.mkdir(parents=True)
+    (folder / "listy.json").write_text("[1, 2, 3]", encoding="utf-8")
+
+    assert matlib.load_material(tmp_path, "listy") is None
+
+
+def test_load_skips_a_texture_filename_that_is_not_a_bare_name(tmp_path) -> None:
+    """clay-mode-05's other half: a texture filename comes straight out of
+    this same hand-editable manifest, and joining it into a path unchecked let
+    a directory component or a drive-qualified/absolute path point outside
+    this entry's own folder entirely, reading whatever file it named instead
+    of refusing to -- the same guard ``modes/clay/mode.py``'s ``_sibling_mtl``
+    already applies to an imported OBJ's ``mtllib`` line. The scalar fields
+    still load; only the offending slot degrades, the same tolerance a
+    missing or corrupt texture side car already gets."""
+    import json as _json
+
+    folder = matlib.library_dir(tmp_path)
+    folder.mkdir(parents=True)
+    outside = tmp_path / "outside.png"
+    matlib._write_png(outside, _texture())
+    assert outside.is_file(), "the file a hand-edited manifest points at really is readable"
+
+    manifest = {"name": "Sneaky", "textures": {"base_color": str(outside)}}
+    (folder / "sneaky.json").write_text(_json.dumps(manifest), encoding="utf-8")
+
+    loaded = matlib.load_material(tmp_path, "sneaky")
+    assert loaded is not None
+    assert loaded.name == "Sneaky"
+    assert loaded.base_color is None, "a filename outside this entry's own folder must be refused"
+
+
 def test_library_dir_is_under_the_given_home_not_the_real_one(tmp_path) -> None:
     folder = matlib.library_dir(tmp_path)
     assert str(folder).startswith(str(tmp_path))

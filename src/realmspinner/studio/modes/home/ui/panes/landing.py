@@ -117,6 +117,16 @@ def _asset_rows(ctx: Any) -> list[Row]:
             continue
         if job.get("status") != "done":
             continue
+        # 2026-09-26 audit, finding shell-home-library-02: a sweep's units and
+        # an undecided mesh candidate are both hidden from the library proper
+        # by ``Filters.matches`` (state.py), on the same reasoning each time --
+        # dozens of near-identical rows whose whole purpose is to be compared
+        # against each other, not offered as finished work. Home's Resume list
+        # read the cache directly rather than through that filter, so a single
+        # 20-unit sweep could fill every one of its twelve slots and bury a
+        # workshop's actual assets. Same exclusion, applied here too.
+        if job.get("sweep_id") or job.get("candidate_group"):
+            continue
         name = str(job.get("name") or job.get("prompt") or job.get("id") or "asset")
         # The same reference/tile/model split the library filter uses: a job
         # that stops at an image belongs to the stage that made it -- asked
@@ -1317,7 +1327,23 @@ def start_poser(ctx: Any) -> None:
     this tile promises is not a scroll away. Creating something on entry
     would be the "entering Plotter *was* the act of creating a map" mistake
     the function above it exists to have stopped making.
+
+    **Checked at the door first (2026-09-26 audit, finding
+    shell-home-library-03).** This used to call ``set_mode`` with no gate at
+    all, unlike ``_create_door`` above it -- so on a base install missing the
+    Poser pack, ``poser_mode.ensure`` inside the target mode silently returned
+    ``False`` and the tile did nothing that told the user why, or where to go.
+    Same fix as Create's: ask ``model_gate.mode_gate`` first and route to
+    Settings when it is shut, the way the rail and the palette already do for
+    every other gated mode.
     """
+    from .....panes import model_gate
+
+    where, _keys = model_gate.mode_gate(ctx, "poser")
+    if where:
+        model_gate.request_for_mode(ctx, "poser")
+        return
+
     from ....poser import mode as poser_mode
     from ....poser.ui.panes.sheet import NEW_CHARACTER_SECTION
 

@@ -386,9 +386,13 @@ def _trailing(ctx: Any, state: Any) -> Any:
 
     The block collapses to ``View`` plus the (?), and the snap pills are what it
     gives up. That is the ordering ``toolbar.Trailing`` states -- a label is
-    cheaper to lose than a control -- with one addition this bar can make and
-    Inker's could not: a control that exists in *two* places is cheaper still,
-    and every snap mode is also a row in the Map menu's Snap group.
+    cheaper to lose than a control -- with the loss it costs Inker's own bar
+    could not: this row is the *only* door to snap mode. Unlike the view aids
+    (``VIEW_TOGGLES``, above), which the ``View`` popover here and the ``View``
+    menu in ``plotter_menu`` both draw from one table, snap has no menu row at
+    all -- correcting the claim this docstring used to make (the 2026-09-26
+    audit, finding plotter-mode-20). Collapsing this bar past the pane's width
+    still loses the control, with nowhere else to reach it from.
     """
 
     from imgui_bundle import imgui

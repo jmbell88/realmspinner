@@ -81,3 +81,108 @@ def test_front_helper_with_a_front_set():
     assert poser_send._front_helper(90.0) == (
         "This mesh's front is set to 90 degrees; sheets are rendered from it."
     )
+
+
+# --- _pixel_report (ui/panes/sheet.py) ---------------------------------------
+#
+# The 2026-09-26 audit, finding poser-render-04: this scans up to
+# ``poser_mode.SCAN_LIMIT`` newest ``charsheet`` rows for the selected sheet's
+# id. A sheet old enough to have aged off that newest-first page used to lose
+# its already-known report on the very next poll, even though nothing about
+# *that sheet* changed -- only newer sheets pushing it down the list did.
+
+
+class _FakeStore:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def list(self, limit=100, kind=None):
+        return self._rows[:limit]
+
+
+def _pixel_state(sheet_id):
+    from realmspinner.studio.modes.poser import mode as poser_mode
+
+    state = poser_mode.PoserState()
+    state.sheet_id = sheet_id
+    return state
+
+
+def test_pixel_report_finds_a_sheet_present_in_the_scan_window():
+    from types import SimpleNamespace
+
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
+
+    ctx = SimpleNamespace(
+        svc=SimpleNamespace(
+            store=_FakeStore(
+                [{"params": {"sheet_id": "abc", "pixel_report": {"colors": 16}}}]
+            )
+        )
+    )
+    state = _pixel_state("abc")
+
+    assert poser_sheet._pixel_report(ctx, state) == {"colors": 16}
+
+
+def test_pixel_report_keeps_a_known_report_once_the_sheet_ages_past_the_scan_window():
+    """Before this, a rescan that missed the sheet (because it is no longer
+    among the newest ``SCAN_LIMIT`` rows) overwrote the cache with ``{}``,
+    dropping a report that was already known and had not actually changed."""
+    from types import SimpleNamespace
+
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
+
+    ctx = SimpleNamespace(
+        svc=SimpleNamespace(
+            store=_FakeStore(
+                [{"params": {"sheet_id": "abc", "pixel_report": {"colors": 16}}}]
+            )
+        )
+    )
+    state = _pixel_state("abc")
+    assert poser_sheet._pixel_report(ctx, state) == {"colors": 16}
+
+    # Newer sheets pushed "abc" off the page -- the store no longer returns it
+    # at all -- but nothing about "abc" itself changed.
+    ctx.svc.store = _FakeStore([])
+    state.pixel_report_next = 0.0  # force the throttle to poll again
+
+    assert poser_sheet._pixel_report(ctx, state) == {"colors": 16}
+
+
+def test_pixel_report_reports_nothing_for_a_sheet_never_seen_at_all():
+    """The empty case is still empty -- only an *already-known* report
+    survives a miss, not every miss."""
+    from types import SimpleNamespace
+
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
+
+    ctx = SimpleNamespace(svc=SimpleNamespace(store=_FakeStore([])))
+    state = _pixel_state("never-built")
+
+    assert poser_sheet._pixel_report(ctx, state) == {}
+
+
+def test_pixel_report_drops_the_old_sheets_report_when_switching_selection():
+    """Switching to a different sheet that itself has no report yet must not
+    keep showing the previous sheet's numbers."""
+    from types import SimpleNamespace
+
+    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
+
+    ctx = SimpleNamespace(
+        svc=SimpleNamespace(
+            store=_FakeStore(
+                [{"params": {"sheet_id": "abc", "pixel_report": {"colors": 16}}}]
+            )
+        )
+    )
+    state = _pixel_state("abc")
+    assert poser_sheet._pixel_report(ctx, state) == {"colors": 16}
+
+    ctx.svc.store = _FakeStore([])
+    state.sheet_id = "def"
+    state.pixel_report_next = 0.0
+
+    assert poser_sheet._pixel_report(ctx, state) == {}

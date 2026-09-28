@@ -75,7 +75,8 @@ is still what a headless run or an unattended batch sees.
 ### Seeing which of these are actually set
 
 `realmspinner doctor` prints an **Effective configuration** block after its checks, and **Settings →
-Health**, which the menu bar's issue count points at, carries the same list. Both mark the rows that came from the
+Advanced** carries the same list. (Settings → Health, which the menu bar's issue count points at, lists
+doctor's pass/fail checks instead — a different table.) Both mark the rows that came from the
 environment rather than from a default, which is the only part that diagnoses anything: an install
 whose behaviour disagrees with this table almost always disagrees because something in its
 environment says so.
@@ -88,7 +89,7 @@ anything during the one-time move described under [Data locations](#data-locatio
 above, each row marked `from_env` the same way. `realmspinner doctor`'s **realmspinnerc** row reports the
 native pair directly.
 
-The three timeouts are ceilings on hangs, not performance targets. Automatic weights on a
+The four timeouts are ceilings on hangs, not performance targets. Automatic weights on a
 300,000-face mesh are genuinely minutes of CPU, and a hung Blender holds the single-worker queue
 against every job behind it — which is what the ceiling exists to prevent.
 

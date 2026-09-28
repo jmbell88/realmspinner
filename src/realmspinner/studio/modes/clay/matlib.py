@@ -226,7 +226,11 @@ def list_materials(home: Path | str) -> list[MaterialEntry]:
 
 def load_material(home: Path | str, entry_id: str) -> gltf.Material | None:
     """The full material an entry describes, textures decoded. -> ``None``
-    for an id the shelf does not have, or whose own JSON cannot be read.
+    for an id the shelf does not have, whose own JSON cannot be read, or
+    whose JSON does not describe an object -- **never raises**, the module
+    docstring's "a corrupt entry degrades, is never raised into a frame that
+    is only trying to draw a list of buttons" promise, restated here because
+    this is the function that promise is about.
 
     A texture side car that is missing or fails :mod:`pixelguard`'s ceiling
     degrades that **one slot** to ``None`` rather than refusing the whole
@@ -243,6 +247,16 @@ def load_material(home: Path | str, entry_id: str) -> gltf.Material | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         log.warning("clay material library: could not read %s", path, exc_info=True)
+        return None
+    if not isinstance(payload, dict):
+        # 2026-09-26 audit, finding clay-mode-05: valid JSON that is not an
+        # *object* (a bare list, string, number -- a hand-edited file can be
+        # anything) parses without error above, and every ``payload.get``
+        # below then raised ``AttributeError``, which the ``except
+        # (TypeError, ValueError)`` guarding them never caught -- breaking
+        # this function's own "never raises" promise on exactly the kind of
+        # malformed input that promise exists for.
+        log.warning("clay material library: %s is not a JSON object", path)
         return None
 
     try:
@@ -268,6 +282,20 @@ def load_material(home: Path | str, entry_id: str) -> gltf.Material | None:
     if isinstance(textures, dict):
         for slot, filename in textures.items():
             if slot not in TEXTURE_SLOTS or not isinstance(filename, str):
+                continue
+            if not filename or Path(filename).name != filename:
+                # clay-mode-05's other half: a texture filename comes
+                # straight out of this same hand-editable manifest, and
+                # joining it unchecked let a directory component or a
+                # drive-qualified/absolute path point outside this entry's
+                # own folder entirely -- the same guard ``modes/clay/mode.py``
+                # ``_sibling_mtl`` already applies to an imported OBJ's
+                # ``mtllib`` line. Degrades this one slot, like any other bad
+                # texture reference, rather than raising.
+                log.warning(
+                    "clay material library: skipped %s's %s texture -- not a bare filename (%r)",
+                    entry_id, slot, filename,
+                )
                 continue
             tex_path = library_dir(home) / filename
             try:

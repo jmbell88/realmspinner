@@ -127,12 +127,27 @@ def _template_keys(template: str) -> set[str]:
     parser ``.format`` itself uses, so ``{{literal}}`` braces and a stray ``{``
     are read exactly as ``.format`` would read them instead of a second,
     slightly different opinion about the syntax.
+
+    A key stays plain: no conversion (``{title!r}``) and no format spec
+    (``{title:>5000000}``). The 2026-09-26 audit, finding inker-sheets-04:
+    :data:`FILENAME_KEYS` is a fixed, permitted vocabulary of substitutions,
+    not an invitation to the rest of ``str.format``'s own mini-language, and a
+    spec is arbitrary width/alignment -- ``{title:>5000000}`` pads the title
+    out to a five-million-character filename with nothing past this point
+    checking the *length* of what comes back, only which keys were asked for.
     """
-    return {
-        field
-        for _literal, field, _spec, _conv in string.Formatter().parse(template)
-        if field
-    }
+    keys: set[str] = set()
+    for _literal, field, spec, conv in string.Formatter().parse(template):
+        if not field:
+            continue
+        if spec or conv:
+            shown = "{" + field + (f"!{conv}" if conv else "") + (f":{spec}" if spec else "") + "}"
+            raise ValueError(
+                f"filename key {shown} may not carry a format spec or"
+                f" conversion; use {{{field}}} plain"
+            )
+        keys.add(field)
+    return keys
 
 
 def filename_for(
@@ -1393,9 +1408,31 @@ def timing(
         raise ValueError("this document is not animated")
     f0, f1 = _clamped_span(len(anim.frames), span)
     whole = (f0, f1) == (0, len(anim.frames) - 1)
+    if whole:
+        # The 2026-09-26 audit, finding inker-sheets-01: a whole-timeline
+        # export used to write ``list(anim.tags)`` verbatim on the theory that
+        # nothing needs remapping when every frame is included -- true of the
+        # *positions*, but not of a tag's own ``end`` surviving a frame delete
+        # that happened after the tag was made. ``tag_span`` is the one
+        # spelling this module already has for "clamped onto the frames that
+        # exist" (``rebase_tags``/``remap_tags`` apply the identical clamp on
+        # their own paths), so a partial export and a whole one now agree.
+        tags_out = []
+        for tag in anim.tags:
+            start, end = tag_span(anim, tag)
+            # A tag already inside range is returned as the same object, not a
+            # rebuilt copy: the whole-timeline branch otherwise does no work at
+            # all (the "byte-identical" contract downstream tests pin), so only
+            # a tag a frame delete actually left out of range pays for a copy.
+            if (start, end) == (tag.start, tag.end):
+                tags_out.append(tag)
+            else:
+                tags_out.append(replace(tag, start=start, end=end))
+    else:
+        tags_out = rebase_tags(anim.tags, f0, f1)
     return (
         [frame.duration_ms for frame in anim.frames[f0 : f1 + 1]],
-        list(anim.tags) if whole else rebase_tags(anim.tags, f0, f1),
+        tags_out,
         anim.layout if whole else None,
     )
 

@@ -466,7 +466,8 @@ def list_sheets(job_dir: Path) -> list[dict[str, Any]]:
     for path in sorted(directory.glob("*.json")):
         # .is_file(), not .exists(): the 2026-09-07/2026-09-08 audits fixed the
         # identical presence check at every other site in this area (sheet.pack,
-        # pixelize.reduce_frames, troupe_mode.scores/atlas_texture) because
+        # pixelize.reduce_frames, poser_mode.scores/atlas_texture -- Troupe's
+        # own copies, before P9 (2026-09-18) folded that mode into Poser) because
         # .exists() is also True for a directory, which a completed sheet's PNG
         # name never is but a hand-dropped one could be -- and this reader was
         # the one site the 2026-09-11 audit (troupe-06) found still unfixed.

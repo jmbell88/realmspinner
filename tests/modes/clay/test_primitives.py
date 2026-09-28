@@ -153,6 +153,18 @@ exists beside it.
 """
 
 
+def test_the_module_docstrings_generator_count_matches_the_registry() -> None:
+    """The 2026-09-26 audit's clay-document-09: ``primitives.py``'s own
+    module docstring claimed fifteen generator shapes existed, stale since
+    Clay tranche 5 (the game blockout set: ``wedge``, ``ramp``,
+    ``rounded_box``, ``stairs``, ``wall``, ``doorway``) added six more
+    without the docstring's count -- or the "adding a sixteenth primitive"
+    sentence right beside it -- ever being updated."""
+    assert len(bp.GENERATORS) == 21
+    assert "twenty-one shapes" in bp.__doc__
+    assert "fifteen shapes" not in (bp.__doc__ or "")
+
+
 # --- parametrised over the registry -----------------------------------------
 
 

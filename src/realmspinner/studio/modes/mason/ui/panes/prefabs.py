@@ -70,7 +70,7 @@ def _body(ctx: Any) -> None:
         return
 
     imgui.begin_disabled(tab.saving)
-    counts = _instance_counts(doc)
+    counts = _cached_instance_counts(tab)
     for name in sorted(doc.prefabs):
         _row(ctx, state, doc, name, counts.get(name, 0))
     imgui.dummy((0, sp(8)))
@@ -91,6 +91,32 @@ def _instance_counts(doc: Any) -> dict[str, int]:
     for node in doc.all_nodes():
         if isinstance(node, nd.PrefabNode):
             counts[node.template] = counts.get(node.template, 0) + 1
+    return counts
+
+
+def _cached_instance_counts(tab: Any) -> dict[str, int]:
+    """:func:`_instance_counts`, cached against ``tab`` until the document
+    changes.
+
+    The 2026-09-26 audit's finding mason-mode-14: this pane used to call
+    :func:`_instance_counts` -- a full ``all_nodes()`` walk -- fresh on every
+    single frame it drew, whether or not the scene had changed since the
+    frame before, the same "rebuilt every frame" gap
+    ``ui/panes/outliner.py``'s own ``_cached_rows`` closes. Kept as a separate
+    wrapper rather than folded into :func:`_instance_counts` itself so that
+    function stays a plain, tab-free query over a document -- what
+    ``test_mason_panes.py``'s own
+    ``test_the_prefabs_pane_counts_the_instances_in_the_scene_tree`` calls
+    directly -- while only the pane's own per-frame call pays for (and
+    benefits from) the cache. Keyed on ``doc.rev`` with the document pinned by
+    identity, the identical stale-``id()`` reason ``_cached_rows`` states.
+    """
+    doc = tab.doc
+    cached = getattr(tab, "_mason_prefab_counts", None)
+    if cached is not None and cached[0] is doc and cached[1] == doc.rev:
+        return cached[2]
+    counts = _instance_counts(doc)
+    tab._mason_prefab_counts = (doc, doc.rev, counts)
     return counts
 
 

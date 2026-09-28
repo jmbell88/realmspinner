@@ -1149,9 +1149,9 @@ move at all. That is the difference between this and the Move tool, which moves 
 and Alt still start the add and subtract drags they always did, even when the drag starts inside
 the selection.
 
-**Layer from selection** promotes the selection onto a layer of its own, lined up with what it came
-from. `Ctrl+J` copies it and leaves the original where it was; `Ctrl+Shift+J` moves it, cutting it
-out of the layer it was on. Either way it is one undo step, a feathered selection makes a feathered
+**Copy to new layer** and **Move to new layer** promote the selection onto a layer of its own, lined
+up with what it came from. `Ctrl+J` copies it and leaves the original where it was; `Ctrl+Shift+J`
+moves it, cutting it out of the layer it was on. Either way it is one undo step, a feathered selection makes a feathered
 layer rather than a hard-edged crop of one, and the new layer joins whatever folder the one it came
 from is in.
 
@@ -1295,7 +1295,9 @@ and write. That is the format that keeps your layers, their blend modes and thei
   read those formats but cannot write them, so `Ctrl+S` offers you an `.ora` beside the original
   rather than either putting PNG bytes into a file named `.jpg` — unreadable by its own extension —
   or re-encoding your original to JPEG and losing pixels on a keystroke that means "keep what I
-  have". The original file is never touched. `.png` and `.ora` save in place.
+  have". The original file is never touched. `.ora` always saves in place; so does a plain `.png` —
+  unless you have since added a layer or a frame it cannot hold, in which case `Ctrl+S` asks where to
+  put the layered copy instead of flattening back over it.
 - The same rule covers **`.aseprite`**: once Save As has written one, the *next* `Ctrl+S` still asks
   where to put it rather than overwriting it in place, because writing that format is lossy — a
   handful of things Aseprite models have no home here (see below) — and a silent lossy save is worse

@@ -955,6 +955,26 @@ class DragOps:
         doc.touch()
         return True
 
+    def _drag_exclusions(self: ClayView, doc: Any) -> set[int]:
+        """Every uid an object-mode drag is moving -- ``self._drag_start``'s
+        own keys, *and every descendant of one*.
+
+        The 2026-09-26 audit's clay-view-05: a child rides its parent's drag
+        (a child's world placement composes the parent's live transform,
+        ``document.py``'s own module docstring) even though only the parent's
+        own uid ever lands in ``self._drag_start`` -- so the three snap
+        doors below, checking that dict alone, let a dragged parent (or a
+        sibling drag) snap onto a child's own geometry while that child was
+        visibly moving with it, the identical self-snap failure excluding
+        ``self._drag_start`` already exists to prevent for the directly
+        dragged object itself.
+        """
+        excluded: set[int] = set()
+        for uid in self._drag_start:
+            excluded.add(uid)
+            excluded.update(doc.descendants(uid))
+        return excluded
+
     def _snap_vertex(self: ClayView, doc: Any, local: tuple[float, float]) -> np.ndarray | None:
         """The world position of the vertex under the cursor, or ``None``.
 
@@ -963,14 +983,16 @@ class DragOps:
         happens to be near the thing I am moving" -- and only the first is a
         gesture the user can aim.
 
-        The vertices being dragged are excluded per object. A drag that could
-        snap onto its own moving geometry would track the cursor exactly and
-        report a snap, which is the worst failure available: it looks like the
-        feature working.
+        The vertices being dragged are excluded per object -- the whole
+        subtree of an object-mode drag, not only the dragged uids themselves
+        (:meth:`_drag_exclusions`). A drag that could snap onto its own moving
+        geometry would track the cursor exactly and report a snap, which is
+        the worst failure available: it looks like the feature working.
         """
         from .....kernels.mesh import pick as bp
 
         object_mode = doc.element_mode == "object"
+        excluded = self._drag_exclusions(doc) if object_mode else frozenset()
         best: tuple[float, np.ndarray] | None = None
         for obj in doc.objects:
             # clay-06 (2026-09-23 audit): a collider is not drawn on screen
@@ -982,7 +1004,9 @@ class DragOps:
             # its vertices -- reprojected at the live transform -- would track
             # the cursor exactly and report a snap: the same self-snap the
             # ``allowed`` mask below exists to prevent on the element path.
-            if object_mode and obj.uid in self._drag_start:
+            # ``excluded`` is the dragged uids *and their descendants*
+            # (clay-view-05): a child rides its parent's drag too.
+            if object_mode and obj.uid in excluded:
                 continue
             drag = self._element_drags.get(obj.uid)
             allowed = None
@@ -1027,13 +1051,16 @@ class DragOps:
         from ....viewer import picking
 
         object_mode = doc.element_mode == "object"
+        excluded = self._drag_exclusions(doc) if object_mode else frozenset()
         origin, direction = self._ray(local)
         best: tuple[float, np.ndarray] | None = None
         for obj in doc.objects:
             # clay-06 (2026-09-23 audit): same door as ``_snap_vertex`` above.
             if not obj.visible or obj.role == "collider":
                 continue
-            if object_mode and obj.uid in self._drag_start:
+            # clay-view-05 (2026-09-26 audit): the dragged uids *and their
+            # descendants* -- see ``_snap_vertex``'s own comment.
+            if object_mode and obj.uid in excluded:
                 continue
             edge_verts = adjacency(obj.mesh).edge_verts
             if not len(edge_verts):
@@ -1079,12 +1106,15 @@ class DragOps:
         """
         origin, direction = self._ray(local)
         object_mode = doc.element_mode == "object"
+        excluded = self._drag_exclusions(doc) if object_mode else frozenset()
         best: Any = None
         for obj in doc.objects:
             # clay-06 (2026-09-23 audit): same door as ``_snap_vertex`` above.
             if not obj.visible or obj.role == "collider":
                 continue
-            if object_mode and obj.uid in self._drag_start:
+            # clay-view-05 (2026-09-26 audit): the dragged uids *and their
+            # descendants* -- see ``_snap_vertex``'s own comment.
+            if object_mode and obj.uid in excluded:
                 continue
             if not object_mode and obj.uid in self._element_drags:
                 continue

@@ -78,6 +78,13 @@ def _fake_app(svc, cache, *, accept_submits: bool = True):
         def _check_worker(self) -> None:
             pass
 
+        def _pump_verify(self) -> None:
+            # A no-op stand-in for ``TasksMixin._pump_verify`` (shell-shell-
+            # pkg-03, the 2026-09-26 audit): ``_refresh`` now calls it every
+            # frame, and these tests are about the findings/storage recompute
+            # around it, not about the verify re-probe.
+            pass
+
         def _reload_viewer_after_rework(self, job: dict[str, Any]) -> None:
             # 2026-09-05 audit, finding create-02: ``announce`` now calls this
             # unconditionally on every done-transition, alongside
@@ -865,3 +872,79 @@ def test_every_input_free_animation_is_named_in_the_idle_check():
         "sirens_audio.playing()",   # Sirens' playhead, off the mixer clock
     ):
         assert surface in body, f"{surface} animates with no input and is not named"
+
+
+class _FakeCamera:
+    def __init__(self, *, settled: bool) -> None:
+        self._settled = settled
+        self.auto_rotate = False
+
+    def settled(self) -> bool:
+        return self._settled
+
+
+class _FakeMasonView:
+    def __init__(self, *, settled: bool) -> None:
+        self.camera = _FakeCamera(settled=settled)
+
+
+def _frame_probe(monkeypatch, *, mason_settled: bool):
+    """A ``FrameMixin`` instance with just enough on it to reach the Mason
+    clause in ``_frame_active`` -- everything ahead of it in the list (input,
+    the caret, widget easing, toasts, a running job, task spinners, the other
+    two viewers) held quiet so only the Mason camera can be answering."""
+    import types
+
+    import pygame
+
+    from realmspinner.studio.shell import frame as frame_mod
+    from realmspinner.studio.state import AppState
+
+    monkeypatch.setattr(pygame.event, "peek", lambda: False)
+
+    class _Cache:
+        active = None
+
+    class _Tasks:
+        busy_keys = ()
+
+    state = AppState()
+    state.mode = "mason"
+    obj = frame_mod.FrameMixin.__new__(frame_mod.FrameMixin)
+    obj.app_ctx = types.SimpleNamespace(state=state, cache=_Cache(), tasks=_Tasks())
+    obj.runtime = types.SimpleNamespace(current_job_id=None)
+    obj.viewer = None
+    obj.clay_view = None
+    obj.poser_viewer = None
+    obj.mason_view = _FakeMasonView(settled=mason_settled)
+    return obj
+
+
+def test_an_unsettled_mason_camera_keeps_the_frame_at_full_cadence(monkeypatch):
+    """The 2026-09-26 audit, finding shell-shell-pkg-02: ``_frame_active`` had
+    a clause for Clay's and Poser's cameras but none for Mason's own
+    (``ui/view.py``'s ``MasonView``, the same ``viewer.camera`` class) -- so a
+    glide or orbit in flight there ran throttled at ``IDLE_FPS`` (~12 fps)
+    instead of the full cadence every other mode's camera already gets.
+    """
+    from imgui_bundle import imgui
+
+    imgui_ctx = imgui.create_context()
+    try:
+        probe = _frame_probe(monkeypatch, mason_settled=False)
+        assert probe._frame_active() is True
+    finally:
+        imgui.destroy_context(imgui_ctx)
+
+
+def test_a_settled_mason_camera_does_not_force_the_full_cadence(monkeypatch):
+    """The pin the fix above must not weaken: a Mason camera that has already
+    come to rest must not, by itself, hold the app at full frame rate."""
+    from imgui_bundle import imgui
+
+    imgui_ctx = imgui.create_context()
+    try:
+        probe = _frame_probe(monkeypatch, mason_settled=True)
+        assert probe._frame_active() is False
+    finally:
+        imgui.destroy_context(imgui_ctx)

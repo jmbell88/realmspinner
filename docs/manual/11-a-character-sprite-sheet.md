@@ -83,7 +83,9 @@ before the pack — so its oranges go through the same colour cut as the charact
 
 The preview plays the sheet. `Space` starts and stops; `Left` and `Right` step one frame and pause.
 `Up` and `Down` turn the character to the next direction and hold the frame you were on, `PageUp`
-and `PageDown` move between animations, and `Home` and `End` jump to the ends of the run. That is
+and `PageDown` move between animations, and `Home` and `End` jump to the ends of the run. `C` toggles
+the checkerboard behind the sprite, so transparent pixels read as transparent rather than the
+panel's own colour, and `P` toggles the pivot marker the engine will place this sprite from. That is
 the entire keyboard.
 
 The preview is a clock rather than a frame counter, so it plays at real durations and loops rather

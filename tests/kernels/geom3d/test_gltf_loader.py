@@ -1975,3 +1975,112 @@ def test_a_glb_whose_primitive_entry_is_not_an_object_is_refused_by_name_not_a_b
     }
     with pytest.raises(ValueError, match='"primitives" array must be a JSON object'):
         gltf.load(_glb(doc, b""))
+
+
+# --- five more malformed shapes: the 2026-09-26 audit, finding clay-io-10 ----
+
+
+def test_a_list_valued_component_type_is_refused_not_an_unhashable_type_error():
+    """``in`` on a dict hashes its argument, and a list-valued
+    "componentType" (legal JSON, illegal glTF) is unhashable --
+    ``[5126] not in _COMPONENT`` used to raise a bare, unnamed ``TypeError``
+    instead of the named refusal every other unsupported value here gets."""
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": [5126], "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+    )
+    with pytest.raises(ValueError, match="componentType"):
+        gltf.load(data)
+
+
+def test_a_list_valued_accessor_type_is_refused_not_an_unhashable_type_error():
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": ["VEC3"]}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+    )
+    with pytest.raises(ValueError, match="unsupported accessor type"):
+        gltf.load(data)
+
+
+def test_a_texture_reference_missing_index_entirely_is_refused_by_name_not_a_bare_keyerror():
+    """"index" is required by the glTF schema on a texture reference, but a
+    hand-edited or truncated file can omit it anyway, and ``ref["index"]``
+    used to raise a bare, unnamed ``KeyError`` for exactly that."""
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+        materials=[{"pbrMetallicRoughness": {"baseColorTexture": {"texCoord": 0}}}],
+        meshes=[{"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}],
+    )
+    with pytest.raises(ValueError, match='missing "index"'):
+        gltf.load(data)
+
+
+def test_a_non_list_children_is_refused_not_an_unnamed_type_error():
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"name": "n", "children": 5}],
+    }
+    with pytest.raises(ValueError, match='"children" must be a JSON array'):
+        gltf.load(_glb(doc, b""))
+
+
+def test_a_non_list_skin_joints_is_refused_not_an_unnamed_type_error():
+    doc = {
+        "asset": {"version": "2.0"},
+        "nodes": [{"skin": 0}],
+        "skins": [{"joints": 5}],
+    }
+    with pytest.raises(ValueError, match='"joints" must be a JSON array'):
+        gltf.load(_glb(doc, b""))
+
+
+def test_a_non_list_extensions_required_is_refused_not_an_unnamed_type_error():
+    """A dict value here happens to iterate to hashable string keys, so it
+    reaches the pre-fix ``set(...)`` without crashing -- a non-iterable
+    scalar (a bare number) is the shape that actually raised an unnamed
+    ``TypeError``, and is what this pins."""
+    doc = {
+        "asset": {"version": "2.0"},
+        "nodes": [],
+        "extensionsRequired": 5,
+    }
+    with pytest.raises(ValueError, match='"extensionsRequired" must be a JSON array'):
+        gltf.load(_glb(doc, b""))
+
+
+# --- a repeated child index must not blow up update_world's own stack -------
+# The 2026-09-26 audit, finding clay-io-11.
+
+
+def test_a_node_listing_the_same_child_a_million_times_does_not_blow_up_the_stack():
+    """A node's own "children" array is legal JSON with no dedup requirement,
+    and nothing used to stop one from naming the *same* child index a
+    million times over -- every repetition pushed its own tuple onto
+    ``Model.update_world``'s stack, none of them dropped until each was
+    individually popped and found already processed. Reproduced at a size
+    that would need well over 100 MB of stack entries if this were still
+    unbounded (a real regression would show up as this test being slow or
+    running out of memory, not as an exception), and checked for correctness
+    too: the child's world transform must still come out right.
+    """
+    n = 2_000_000
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [
+            {"name": "root", "children": [1] * n},
+            {"name": "child", "translation": [1.0, 2.0, 3.0]},
+        ],
+    }
+    model = gltf.load(_glb(doc, b""))
+    assert model.nodes[1].world[:3, 3] == pytest.approx([1.0, 2.0, 3.0])

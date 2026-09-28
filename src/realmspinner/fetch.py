@@ -25,6 +25,7 @@ once as prose:
 
 from __future__ import annotations
 
+import os
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -682,11 +683,20 @@ def removal_plan(config: Config, chosen: list[Entry]) -> Removal:
     Two whole-plan refusals, all-or-nothing in ``disk_refusal``'s style, because
     a partial delete is the outcome with no good description:
 
-    * a chosen base whose directory is the ``REALMSPINNER_T2I_DIR`` override. That
-      is a directory the user pointed us at, not one we fetched.
+    * a chosen base whose directory is the ``REALMSPINNER_T2I_DIR`` override, or
+      an engine row whose directory is the ``REALMSPINNER_TRELLIS_MODELS`` or
+      ``REALMSPINNER_TRELLIS_RUNTIME`` override. Each is a directory the user
+      pointed us at, not one we fetched.
     * anything that does not resolve inside ``t2i_model_root``. Containment is
       checked rather than assumed: ``dir_name`` comes from the registry today,
       and this is the one function in the tree that deletes recursively.
+
+      The 2026-09-26 audit, finding pipelines-install-03: the two trellis
+      directories are also two of the *roots* that containment is checked
+      against (below), so on their own an overridden ``trellis_models_dir`` or
+      ``trellis_runtime_dir`` never reads as "outside" -- anything claimed
+      under it is definitionally inside it. Only the explicit env-var check
+      above catches the case ``REALMSPINNER_T2I_DIR`` was already catching.
     """
     chosen_keys = {entry.row_key for entry in chosen}
     others: set[Path] = set()
@@ -708,6 +718,28 @@ def removal_plan(config: Config, chosen: list[Entry]) -> Removal:
         if pinned:
             blocked.append(
                 "REALMSPINNER_T2I_DIR points at that model's directory. Realmspinner did "
+                "not download it and will not delete it; unset the variable "
+                "first if you really want it gone."
+            )
+    # The 2026-09-26 audit, finding pipelines-install-03: unlike
+    # REALMSPINNER_T2I_DIR above, these two had no equivalent guard, and the
+    # "outside the model root" check below cannot supply one -- it treats
+    # ``trellis_models_dir``/``trellis_runtime_dir`` as roots in their own
+    # right, so a path resolving *inside* an overridden one never reads as
+    # outside it. Checked directly against the environment, the same variable
+    # ``Config`` itself reads, rather than against the field: unlike
+    # ``t2i_turbo_dir`` there is no ``None`` sentinel for "not overridden",
+    # since both fields always default to a real path under the home dir.
+    for env_var, override_dir in (
+        ("REALMSPINNER_TRELLIS_MODELS", config.trellis_models_dir),
+        ("REALMSPINNER_TRELLIS_RUNTIME", config.trellis_runtime_dir),
+    ):
+        if not os.environ.get(env_var):
+            continue
+        pinned = [p for p in wanted if p == override_dir]
+        if pinned:
+            blocked.append(
+                f"{env_var} points at that model's directory. Realmspinner did "
                 "not download it and will not delete it; unset the variable "
                 "first if you really want it gone."
             )

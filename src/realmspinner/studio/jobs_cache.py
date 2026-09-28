@@ -115,6 +115,17 @@ class JobsCache:
         # re-run every frame draw() calls it on -- only when a widenable field
         # changes or ``tick`` has replaced ``jobs`` and thrown the merge away.
         self._search_key: tuple[Any, ...] | None = None
+        # shell-documents-05 (2026-09-26 audit): :meth:`adopt`'s own docstring
+        # already claimed a read started before :meth:`reset_window` could
+        # not land, but nothing enforced it -- there was no token here at
+        # all, so a widened-window read already in flight when the window
+        # reset landed anyway and put ``old`` (and ``limit``'s worth of rows)
+        # right back, undoing the reset it raced. Bumped only by
+        # ``reset_window`` -- the one call the docstring's claim is about --
+        # and stamped onto a reading by :meth:`read` at the moment it starts,
+        # so :meth:`adopt` can tell a reading apart from a reset that has
+        # since moved on and discard it instead of publishing it.
+        self._window_generation = 0
 
     def invalidate(self) -> None:
         """Refresh on the next tick. Called after anything the UI did that
@@ -164,6 +175,9 @@ class JobsCache:
         if self.limit == LIST_LIMIT:
             return
         self.limit = LIST_LIMIT
+        # shell-documents-05: moves any in-flight read from before this call
+        # out of date, so :meth:`adopt` can refuse to publish it.
+        self._window_generation += 1
         self.invalidate()
 
     def _due(self) -> bool:
@@ -189,9 +203,17 @@ class JobsCache:
         page. That is what stops "Load older" from turning into a re-read (and
         a re-stat) of the whole growing window on every tick (O119/A2).
 
-        -> ``{"jobs": [...], "old": [...], "files": files_snapshot}`` or
-        ``{"error": str}`` for :meth:`adopt` to publish.
+        -> ``{"jobs": [...], "old": [...], "files": files_snapshot,
+        "window_generation": int}`` or ``{"error": str}`` for :meth:`adopt`
+        to publish.
         """
+        # shell-documents-05: stamped at the moment this read starts, so a
+        # ``reset_window`` that lands on the frame thread while this read is
+        # still in flight on a task thread is visible to :meth:`adopt` when
+        # the read finally comes back -- reading ``self._window_generation``
+        # here is safe for the same reason reading ``self.limit`` already was
+        # (this method's own docstring): it is never mutated by ``read``.
+        window_generation = self._window_generation
         try:
             top_size = min(self.limit, LIST_LIMIT)
             top = svc_jobs.list_jobs(self.svc, top_size, files_cache=files_snapshot)
@@ -216,7 +238,12 @@ class JobsCache:
         except Exception as exc:  # a locked DB, a vanished file
             log.exception("could not read the job list")
             return {"error": str(exc)}
-        return {"jobs": top, "old": old, "files": files_snapshot}
+        return {
+            "jobs": top,
+            "old": old,
+            "files": files_snapshot,
+            "window_generation": window_generation,
+        }
 
     def adopt(
         self,
@@ -237,6 +264,13 @@ class JobsCache:
         error = reading.get("error")
         if error:
             self.error = str(error)
+            return False
+        if reading.get("window_generation") != self._window_generation:
+            # shell-documents-05 (2026-09-26 audit): this reading was started
+            # before the last ``reset_window`` and is out of date -- publish
+            # it and a widened ``old`` the reset just asked to drop would
+            # land right back, exactly the race this docstring already
+            # claimed could not happen.
             return False
         top = reading.get("jobs")
         if top is None:

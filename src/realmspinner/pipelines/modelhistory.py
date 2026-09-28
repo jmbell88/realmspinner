@@ -143,7 +143,7 @@ def stage(
     geometry: bool,
     detail: str,
     now: float,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], bool]:
     """Snapshot the ``model.glb`` on disk right now, before it is replaced.
 
     Stages a copy into ``versions/<n>.model.glb`` and its params sidecar into
@@ -164,14 +164,20 @@ def stage(
     caller holding a shallow ``dict(params)`` copy elsewhere must not see this
     call's append through a reference it never asked to share.
 
-    If there is no ``model.glb`` to keep, ``entries`` comes back unchanged --
-    a version cannot describe a file that was never on disk (a job whose mesh
-    failed to build at all, or a first-ever optimize on a row nothing has
-    reworked yet).
+    Returns ``(entries, staged)``. If there is no ``model.glb`` to keep,
+    ``entries`` comes back unchanged and ``staged`` is ``False`` -- a version
+    cannot describe a file that was never on disk (a job whose mesh failed to
+    build at all, or a first-ever optimize on a row nothing has reworked
+    yet). The 2026-09-26 audit, finding pipelines-mesh-02: before ``staged``
+    existed, a caller could not tell that case apart from "a version was
+    pushed" by looking at the returned list alone, so ``discard_last`` after a
+    later failure popped whatever *was* last in the list -- the previous,
+    real committed version -- and deleted its files, because nothing had told
+    it this ``stage`` call had pushed nothing to undo.
     """
     model_glb = job_dir / "model.glb"
     if not model_glb.exists():
-        return list(entries)
+        return list(entries), False
     versions_dir = job_dir / VERSIONS_DIR
     versions_dir.mkdir(parents=True, exist_ok=True)
     n = (entries[-1]["n"] + 1) if entries else 1
@@ -199,7 +205,7 @@ def stage(
         "geometry": bool(geometry),
         "bytes": dest.stat().st_size,
     }
-    return [*entries, entry]
+    return [*entries, entry], True
 
 
 def commit(job_dir: Path, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -253,12 +259,15 @@ def keep(
     a genuinely unguarded write may still want the one-call form; a fixture
     or a hand test is the most likely remaining user.
     """
-    return commit(job_dir, stage(
+    entries, _staged = stage(
         job_dir, entries, params, kind=kind, geometry=geometry, detail=detail, now=now
-    ))
+    )
+    return commit(job_dir, entries)
 
 
-def discard_last(job_dir: Path, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def discard_last(
+    job_dir: Path, entries: list[dict[str, Any]], staged: bool
+) -> list[dict[str, Any]]:
     """Undo the most recent :func:`stage` (or :func:`keep`) -- for a caller
     whose own write then failed, so the version it just pushed must not claim
     to describe a replacement that never happened.
@@ -271,14 +280,24 @@ def discard_last(job_dir: Path, entries: list[dict[str, Any]]) -> list[dict[str,
     this after a failure only ever un-pushed the entry just added and never
     restored what eviction had already deleted.
 
+    ``staged`` is the second half of :func:`stage`'s return value, threaded
+    straight through -- the 2026-09-26 audit, finding pipelines-mesh-02: a
+    ``stage`` call with no ``model.glb`` on disk yet is a legitimate no-op
+    that returns ``entries`` unchanged, and without this flag this function
+    could not tell that apart from "a version was pushed" by looking at the
+    list alone. It popped whatever *was* last -- the previous, real committed
+    version -- and deleted its files, on a failure that followed a no-op
+    stage. When ``staged`` is ``False`` there is nothing here to undo, so
+    ``entries`` comes back exactly as given.
+
     ``optimize_job``'s use: it stages a version *before* calling
     ``optimize.run`` (the old ``model.glb`` has to be snapshotted while it is
     still the file on disk), and a raised ``OptimizeError`` means the row's
     ``model.glb`` is untouched -- so the version just staged describes nothing
     that changed and has to come back off the index, files and all.
     """
-    if not entries:
-        return entries
+    if not staged or not entries:
+        return list(entries)
     out = list(entries)
     dropped = out.pop()
     _delete_version_files(job_dir, dropped["n"])

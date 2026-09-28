@@ -558,7 +558,7 @@ def create_tile_sheet(
 
     # ``None`` means "the form said nothing", and what the absent value means is
     # the pipeline's own default -- an empty *string* is a user explicitly
-    # asking for no negative prompt, and is honoured. ``grounds.py``'s rule.
+    # asking for no negative prompt, and is honoured. This file's own rule.
     negative = (
         tilesheet.SHEET_NEGATIVE_PROMPT
         if negative_prompt is None

@@ -85,6 +85,37 @@ def test_the_inspector_draws_controls_for_an_effect_layer(ui):
     assert any("radius" in label or "count" in label for label in labels)
 
 
+def test_the_fps_and_phase_frame_sliders_reach_what_the_recipe_format_allows(ui, monkeypatch):
+    """The 2026-09-26 audit, finding inker-flourish-05.
+
+    The FPS and per-phase frame-count sliders used to top out at 60 while
+    ``flourish.recipe.clamp`` allows fps up to 120 and a phase up to
+    ``MAX_FRAMES_PER_PHASE`` (240) -- so touching either slider on a recipe
+    already set past 60 (by an earlier build, or a hand-edited sidecar)
+    silently dropped it back down to whatever the slider's own ceiling was,
+    on the very next frame it was drawn.
+    """
+    ctx, tab = _scene()
+    seen_ranges: dict[str, tuple[int, int]] = {}
+    real_slider = pane.controls.slider_int
+
+    def _spy(label, value, lo, hi, *a, **k):
+        seen_ranges[label] = (lo, hi)
+        return real_slider(label, value, lo, hi, *a, **k)
+
+    monkeypatch.setattr(pane.controls, "slider_int", _spy)
+    _frame(ui, lambda: pane.draw_inspector(ctx, tab))
+
+    fps_range = next(v for k, v in seen_ranges.items() if k.startswith("##fps"))
+    assert fps_range == (1, 120)
+
+    phase_ranges = [v for k, v in seen_ranges.items() if "fl-phase-" in k]
+    assert phase_ranges, "expected at least one phase slider to have drawn"
+    assert all(
+        hi == pane.flourish_recipe.MAX_FRAMES_PER_PHASE for _lo, hi in phase_ranges
+    )
+
+
 def test_the_inspector_draws_nothing_on_an_ordinary_animation(ui):
     ctx, tab = _scene(with_effect=False)
     seen = _frame(ui, lambda: pane.draw_inspector(ctx, tab))

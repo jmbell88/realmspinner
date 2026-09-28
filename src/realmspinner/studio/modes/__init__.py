@@ -170,8 +170,11 @@ RAIL_GROUPS: tuple[tuple[str, ...], ...] = (
 #: a caption-height off the item it names.
 #:
 #: The grouping above is a *claim* ("these three are one pipeline;
-#: these nine are workspaces") and until these existed the only thing asserting
-#: it was a gap, which at a glance reads as an accident of spacing.
+#: these eight are workspaces") and until these existed the only thing
+#: asserting it was a gap, which at a glance reads as an accident of spacing.
+#: (The 2026-09-26 audit, finding shell-chrome-11: this quoted the middle
+#: group's count as nine, from before Troupe folded into Poser as a stage,
+#: P9 2026-09-18, left it at eight.)
 RAIL_GROUP_LABELS: tuple[str, ...] = ("Pipeline", "Workspaces", "")
 
 # The modes that own a viewport or a form, and so have work in them. Home, the
@@ -242,9 +245,13 @@ KEYS = tuple(key for key, _label, _icon, _purpose in MODES)
 #: One line saying what each mode is *for*, keyed by mode -- derived from
 #: ``MODES``' own fourth field, not hand-copied, so the two cannot drift.
 #:
-#: The rail is the primary navigation and nine of its fourteen labels --
-#: Inker, Clay, Mason, Poser, Troupe, Plotter, Packwright, Muse, Sirens -- are
-#: invented names. A new user hovering one used to get a word and an icon,
+#: The rail is the primary navigation and eight of its thirteen labels --
+#: Inker, Clay, Mason, Poser, Plotter, Packwright, Muse, Sirens -- are
+#: invented names. (The 2026-09-26 audit, finding shell-chrome-11: this named
+#: Troupe among the nine and fourteen labels, from before it folded into
+#: Poser as a stage, P9 2026-09-18; MODES holds thirteen now and eight of
+#: them are invented names.) A new user hovering one used to get a word and
+#: an icon,
 #: because ``rail._item`` suppresses its accessible-name tooltip once the
 #: label is legible (correctly: a tooltip repeating a word already on screen
 #: is noise) and no call site had anything more to say. ``purpose`` is the

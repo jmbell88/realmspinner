@@ -51,6 +51,33 @@ def test_ply_imports_as_one_connected_closed_object() -> None:
     assert report.clean, report
 
 
+_POINTS_ONLY_PLY = b"""ply
+format ascii 1.0
+element vertex 4
+property float x
+property float y
+property float z
+end_header
+0 0 0
+1 0 0
+0 1 0
+0 0 1
+"""
+
+
+def test_a_ply_with_vertices_and_no_faces_is_refused_by_name_not_a_bare_attributeerror() -> None:
+    """The 2026-09-26 audit, finding clay-io-12: a PLY with vertices but no
+    ``element face`` at all loads through ``trimesh`` as a
+    :class:`trimesh.points.PointCloud`, not a :class:`trimesh.Trimesh` -- and
+    a ``PointCloud`` carries no ``.faces`` attribute whatsoever, so
+    ``_geometry_mesh``'s own ``len(geom.faces) == 0`` check used to raise a
+    bare, unnamed ``AttributeError`` instead of reaching this door's existing
+    "this file has no geometry in it" refusal.
+    """
+    with pytest.raises(OpError, match="no geometry"):
+        meshimport.mesh_file_to_claydoc(_POINTS_ONLY_PLY, ".ply", "Points")
+
+
 # --- scale / up, agreeing with objimport's convention ----------------------------
 
 

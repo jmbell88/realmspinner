@@ -484,10 +484,8 @@ class TasksMixin:
             # modules still do not resolve here is one that genuinely needs a
             # restart -- and that is a sentence, not a silence.
             from ...service import packs as svc_packs
-            from ...service import system as svc_system
 
-            ctx.submit(VERIFY_KEY, svc_system.current_checks, self.svc, force=True)
-            ctx.tasks.set_progress(VERIFY_KEY, 0.0, "Verifying installation...")
+            self._request_verify()
             # Comma-joined for Restore packs (M02, ``app_settings._restore_packs``),
             # which installs several packs under one task key so the pane's
             # one-install-at-a-time rule still holds; a single key here is the
@@ -515,8 +513,7 @@ class TasksMixin:
             # and every model answer in the ctx is derived from that list. A
             # removal is the same wholesale change with the sign flipped, so it
             # takes the same body rather than a second one that could drift.
-            from ...service import system as svc_system
-
+            #
             # The 2026-09-26 audit's shell-review-settings-01: a download or a
             # removal changes what is on disk under the model store, but
             # ``app_settings._model_storage`` only ever measured it once per
@@ -535,8 +532,7 @@ class TasksMixin:
             # finished" (UX-09). The model answers below are refreshed when the
             # probe lands, so the pane catches up a moment later instead of the
             # whole app stopping for it.
-            ctx.submit(VERIFY_KEY, svc_system.current_checks, self.svc, force=True)
-            ctx.tasks.set_progress(VERIFY_KEY, 0.0, "Verifying installation...")
+            self._request_verify()
             # The untick happens when the probe lands (see ``VERIFY_KEY``
             # above), because the rows it reads are derived from the checks it
             # is still computing. Unticking against the *old* answers would
@@ -994,6 +990,42 @@ class TasksMixin:
             self._fatal_reported = True
             ctx.state.note_error("The GPU worker is not running. Restart Realmspinner.")
             ctx.toast("The GPU worker is not running.", "error")
+
+    def _request_verify(self) -> None:
+        """Ask for the wholesale re-probe a finished pack/download/removal
+        needs, off the frame thread.
+
+        The 2026-09-26 audit, finding shell-shell-pkg-03: the two landing
+        branches that call this each threw ``ctx.submit``'s return away, so a
+        second install completing while an earlier landing's own probe was
+        still in flight (``submit`` refuses a key already in flight) was
+        never actually re-probed -- the pane kept answering off checks taken
+        before that second install. Marked dirty on a refusal instead, the
+        ``review_mode.pump_findings`` shape: :meth:`_pump_verify` (called
+        every frame from ``frame.py``'s ``_refresh``) retries it once the
+        in-flight probe lands.
+        """
+        from ...service import system as svc_system
+        from ..main import VERIFY_KEY
+
+        ctx = self.app_ctx
+        if ctx.submit(VERIFY_KEY, svc_system.current_checks, self.svc, force=True):
+            ctx.tasks.set_progress(VERIFY_KEY, 0.0, "Verifying installation...")
+            ctx.state.preview.pop("verify_dirty", None)
+        else:
+            ctx.state.preview["verify_dirty"] = True
+
+    def _pump_verify(self) -> None:
+        """Retry the re-probe :meth:`_request_verify` could not submit.
+
+        Called every frame (harmless when nothing is dirty, and cheap to
+        retry-and-still-refuse while the earlier probe is still running --
+        the same shape ``review_mode.pump_findings``/``pump_judge`` already
+        use for this exact "a submit was refused and nothing re-arms it"
+        problem).
+        """
+        if self.app_ctx.state.preview.get("verify_dirty"):
+            self._request_verify()
 
     def _request_update_check(self) -> None:
         """Ask whether there is a newer Realmspinner, if the user asked us to ask.

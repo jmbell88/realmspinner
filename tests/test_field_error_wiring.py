@@ -50,6 +50,7 @@ FIELD_FORMS = (
     ("modes/poser/ui/panes/sheet.py", "poser-sheet-build"),
     ("panes/retarget_panel.py", "retarget-settings"),
     ("panes/texture_panel.py", "retexture-settings"),
+    ("modes/review/ui/workspace.py", "review-sweep"),
 )
 
 

@@ -112,6 +112,7 @@ class MasonViewport:
         texture = view.draw(tab.doc, source, rect, 1.0 / TARGET_FPS)
         imgui.image(widgets.texture_ref(texture), (rect[2], rect[3]), (0, 1), (1, 0))
         self._mason_hovered = imgui.is_item_hovered()
+        self._mason_accept_dropped_mesh(ctx, mason_mode, view, tab, source, rect)
         if not tab.doc.roots:
             imgui.set_cursor_screen_pos((rect[0], rect[1]))
             overlay.centred_empty(
@@ -131,6 +132,40 @@ class MasonViewport:
         mason_menu.draw(ctx, view)
         imgui.set_cursor_screen_pos((rect[0], rect[1] + rect[3]))
         mason_hud.hint_line(ctx)
+
+    def _mason_accept_dropped_mesh(
+        self, ctx: Any, mason_mode: Any, view: Any, tab: Any, source: Any,
+        rect: tuple[float, float, float, float],
+    ) -> None:
+        """Accept a library mesh dropped onto the viewport image just drawn.
+
+        The 2026-09-26 audit's finding mason-mode-06: ``library.draggable_mesh``
+        already lifts a finished mesh row as a ``library.DRAG_MESH`` payload,
+        built for exactly this drop target (its own docstring says so: "The
+        accepting half -- the drop target inside Mason's viewport pane -- is
+        not this file's to build"), but nothing in the app ever built it, so a
+        card that lifted had nowhere to land. Must run right after the
+        ``imgui.image`` call above -- a drag-drop target attaches to the most
+        recently submitted item, the same rule every other drop target in this
+        app (``create/ui/panes/settings_3d.py``'s own reference source slot)
+        follows.
+        """
+        from imgui_bundle import imgui
+
+        from ...library.ui.panes import library
+
+        if not imgui.begin_drag_drop_target():
+            return
+        payload = imgui.accept_drag_drop_payload_py_id(library.DRAG_MESH)
+        if payload is not None:
+            job = library.dragged_job(ctx)
+            if job is not None:
+                mouse = imgui.get_mouse_pos()
+                local = (mouse.x - rect[0], mouse.y - rect[1])
+                point = view.drop_point(tab.doc, source, local)
+                mason_mode.place_dropped_mesh(ctx, job, point)
+            ctx.state.dragging_job = None
+        imgui.end_drag_drop_target()
 
     def _mason_tabs(self, ctx: Any, mason_mode: Any) -> None:
         from .... import docmodes

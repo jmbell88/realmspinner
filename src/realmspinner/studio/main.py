@@ -147,11 +147,14 @@ _FUNCTION_KEYS = frozenset(f"f{n}" for n in range(1, 13))
 # that the first frame after a wake-up condition is never far away, slow
 # enough that an idle session stops burning a core and the GPU.
 IDLE_FPS = 12
-# The modes that fill the host window with one pane. Inker, Clay, Review,
-# Plotter and Packwright are not here: each fills it with a three-column
-# *workspace* instead, which is ``modes.WORKSPACE_MODES``. Those three
-# categories partition ``modes.KEYS`` exactly, and the partition is the guard
-# on ``shell.frame.FrameMixin._build_ui``'s dispatch.
+# The modes that fill the host window with one pane. Inker, Clay, Mason,
+# Poser, Review, Plotter, Packwright, Muse and Sirens are not here: each fills
+# it with a three-column *workspace* instead, which is ``modes.WORKSPACE_MODES``
+# -- nine of them now (the 2026-09-26 audit, finding shell-boot-05: this
+# comment still named the five from before Mason, Poser, Muse and Sirens
+# joined the set). Those three categories partition ``modes.KEYS`` exactly,
+# and the partition is the guard on ``shell.frame.FrameMixin._build_ui``'s
+# dispatch.
 #
 # The Manual left this tuple when it stopped being a mode (the UI redesign,
 # wave 3): it is drawn from ``_overlays`` now, so it has no dispatch branch

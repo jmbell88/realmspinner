@@ -155,17 +155,24 @@ def test_a_stale_queued_task_from_a_cancelled_tab_does_not_overwrite_a_newer_tab
     # tab1's own reference job is queued but never landed -- exactly "the
     # decode task this landing comes from was already submitted by the time
     # Cancel was pressed" (``_landed``'s own docstring), one stage earlier.
+    #
+    # The key is read back from ``ctx._results`` rather than rebuilt by hand
+    # (``f"{clay_generate.GEN_REF_KEY}:{tab1.uid}"``, this test's own shape
+    # before the 2026-09-26 audit's clay-mode-03): that fix added a third,
+    # per-request segment to every key this module submits under, and this
+    # test's own two-tab case does not need to know that shape to prove its
+    # claim.
+    before = set(ctx._results)
     assert clay_generate.submit_text(ctx, tab1, "a wooden barrel")
-    stale_key = f"{clay_generate.GEN_REF_KEY}:{tab1.uid}"
-    assert stale_key in ctx._results
+    stale_key = (set(ctx._results) - before).pop()
 
     clay_generate.cancel(ctx, tab1)
     assert ctx.state.clay.generate_pending is None
 
     tab2 = _tab(ctx)
+    before = set(ctx._results)
     assert clay_generate.submit_text(ctx, tab2, "a clay pot")
-    live_key = f"{clay_generate.GEN_REF_KEY}:{tab2.uid}"
-    assert live_key in ctx._results
+    live_key = (set(ctx._results) - before).pop()
 
     # The stale task from the cancelled tab lands *after* tab2's own pending
     # request already exists -- before this fix, ``_queued`` wrote whatever

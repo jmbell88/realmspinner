@@ -368,6 +368,15 @@ class FrameMixin:
         poser = self.poser_viewer
         if poser is not None and state.mode == "poser" and not poser.camera.settled():
             return True
+        # The 2026-09-26 audit, finding shell-shell-pkg-02: Mason's own
+        # camera (``ui/view.py``'s ``MasonView``, the same ``viewer.camera``
+        # class Clay's and Poser's use above) had no clause here, so an
+        # in-flight glide or orbit in Mason ran throttled at ``IDLE_FPS``
+        # (~12 fps) instead of the full cadence every other mode's camera
+        # already gets.
+        mason = self.mason_view
+        if mason is not None and state.mode == "mason" and not mason.camera.settled():
+            return True
         # Poser's character-sheet section plays its sheet with no input at
         # all -- Troupe's own reasoning, folded in whole (P9, 2026-09-18) --
         # and ``sheet_advance`` only runs inside the preview's draw, so a
@@ -589,6 +598,12 @@ class FrameMixin:
         # And once more: scoring is a DINOv2 pass per unit, so it is a task, and
         # the request following a retrain is the one with nothing after it.
         review_mode.pump_scores(ctx)
+        # The 2026-09-26 audit, finding shell-shell-pkg-03: a pack/download/
+        # removal landing that could not submit its own re-probe (one from an
+        # earlier landing was still in flight) used to drop the request on
+        # the floor; this is the same "a refused submit is retried on some
+        # later frame" shape as the three ``pump_*`` calls above.
+        self._pump_verify()
         self._check_worker()
         # Every mode, not only Inker: a crash while the user is looking at the
         # library still loses the painting. ``submit`` refuses a key already in

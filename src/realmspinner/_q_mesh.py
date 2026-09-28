@@ -143,7 +143,7 @@ class MeshPostOps:
         with self.artifact_lock(source_id, modelhistory.MODEL_LOCK):
             row = self.store.get(source_id) or {}
             params = row.get("params") or {}
-            entries = modelhistory.stage(
+            entries, staged = modelhistory.stage(
                 source_dir,
                 modelhistory.entries_of(params),
                 params,
@@ -155,7 +155,7 @@ class MeshPostOps:
             try:
                 os.replace(temp, source_dir / "model.glb")
             except OSError:
-                entries = modelhistory.discard_last(source_dir, entries)
+                entries = modelhistory.discard_last(source_dir, entries, staged)
                 raise
             entries = modelhistory.commit(source_dir, entries)
             self.store.merge_params(source_id, {"model_history": entries})

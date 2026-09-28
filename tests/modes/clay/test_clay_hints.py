@@ -264,3 +264,29 @@ def test_the_hint_line_names_no_multi_character_binding_nothing_implements():
                     kind,
                     sorted(multi - known_named_dragging),
                 )
+
+
+def test_measure_lines_own_import_matches_what_the_module_docstring_now_claims():
+    """The 2026-09-26 audit's clay-view-06: this module's own docstring used
+    to say "Nothing here imports outward" outright, but ``measure_line``
+    reaches into ``kernels.mesh.measure`` for its arithmetic -- a real
+    outward edge, just a local one rather than a module-scope import. No
+    import-pin test covers this module the way ``tests/_pure_packages.py``
+    covers the kernel packages and each mode's ``engine/`` (this module was
+    never one of those), so the fix is to make the docstring's claim true
+    rather than to add a pin nothing else here follows.
+
+    Fails against the unfixed docstring: it claimed no outward imports at
+    all, with nothing narrowing that to module scope, while this very
+    import exists a few dozen lines below it.
+    """
+    import inspect
+
+    source = inspect.getsource(clay_hints._compute_measure_line)
+    assert "from ..kernels.mesh import measure" in source, (
+        "measure_line's own arithmetic must still reach kernels.mesh.measure"
+    )
+    assert "module scope" in (clay_hints.__doc__ or ""), (
+        "the module docstring must narrow its outward-import claim to module scope, "
+        "since a function-local import is a real outward edge this docstring used to deny"
+    )

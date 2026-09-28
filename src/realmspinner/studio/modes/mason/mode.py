@@ -426,6 +426,30 @@ def place_job(ctx: Any, job: Any) -> int | None:
     return place_ref(ctx, ref, name=name or "Asset")
 
 
+def place_dropped_mesh(ctx: Any, job: Any, point: Any) -> int | None:
+    """A library mesh dragged onto the viewport -> a placed node at ``point``.
+
+    The 2026-09-26 audit's finding mason-mode-06: Library rows offer
+    themselves as a ``library.DRAG_MESH`` drag-and-drop payload
+    (``library.draggable_mesh``), built for Mason's viewport, but nothing in
+    the app ever accepted that drop -- a card that lifted and a mode that
+    never caught it. Built the same shape :func:`place_armed` already uses for
+    an armed placement -- :func:`place_job` for the node, then ``_move_to`` to
+    put it where the gesture pointed, both under one undo mark so a dropped
+    mesh costs one Ctrl+Z, not two -- because a drag-and-drop is exactly the
+    same "make it, then put it somewhere" gesture an armed click already is.
+    """
+    tab = active(ctx)
+    if tab is None or tab.saving:
+        return None
+    mark = tab.doc.mark()
+    uid = place_job(ctx, job)
+    if uid is not None:
+        _move_to(tab.doc, uid, point)
+        tab.doc.collapse_since(mark)
+    return uid
+
+
 def add_asset_to_scene(ctx: Any, job: Any) -> int | None:
     """A library mesh -> a node in the open scene, from anywhere in the app.
 
@@ -1109,7 +1133,9 @@ def export_glb(ctx: Any, tab: MasonTab | None = None) -> None:
         # ``objout.format_jobs``) is safe with no other change needed.
         files = {
             "scene.glb": glbwrite.write_glb(export.model),
-            f"{path.stem}.json": manifest.manifest_bytes(doc, export),
+            f"{path.stem}.json": manifest.manifest_bytes(
+                doc, export, geometry_name=path.name
+            ),
         }
         mason_io.write_files(files, path, primary="scene.glb")
         return {"exported": True, "path": str(path)}

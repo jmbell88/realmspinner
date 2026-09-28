@@ -84,15 +84,22 @@ def test_preserve_transparency_holds_on_the_first_stroke_of_a_fresh_frame():
     assert int(free.stack.active.pixels[..., 3].max()) > 0
 
 
-def test_the_lock_is_about_alpha_and_the_cel_still_becomes_real():
-    """Stated so the test above is not read as "the stroke did nothing".
+def test_the_lock_is_about_alpha_and_a_stroke_confined_to_it_is_a_true_no_op():
+    """Superseded by the 2026-09-26 audit, finding inker-paint-04.
 
-    "Preserve transparency" is exactly *the alpha does not change*, which is the
-    definition rather than an approximation of one: the brush still writes
-    colour, and colour under zero alpha is invisible. So the stroke is a real
-    change to the pixels, it pushes a step, and the cel it autovivified stays --
-    which is what makes this different from the no-op case that takes its cel
-    back out.
+    This used to assert the opposite: that a locked stroke over nothing still
+    wrote colour into the transparent pixels' RGB, pushed a history step and
+    kept the autovivified cel real, on the theory that "preserve transparency"
+    only promises the alpha. That RGB write was never visible -- colour under
+    zero alpha is invisible, as the old docstring here said -- but it was not
+    inert either: it left a real byte difference for ``_commit_patch``'s
+    ``np.array_equal(before, after)`` to find, so a gesture that changed
+    nothing the user could see still dirtied the document and left a step to
+    undo. Alpha Lock now means the whole pixel is inert where there is
+    nothing to tint, so a stroke confined to already-transparent pixels is the
+    same no-op ``test_a_lock_refusal_discards_the_autovivified_cel`` already
+    gets from a locked *layer* refusal -- the placeholder cel it autovivified
+    to try the stroke is discarded rather than kept blank-but-real.
     """
     doc = _animated()
     doc.set_layer_props(alpha_lock=True)
@@ -100,10 +107,11 @@ def test_the_lock_is_about_alpha_and_the_cel_still_becomes_real():
     doc.begin_stroke((2.0, 2.0), RED, size=4)
     doc.stroke_to((5.0, 5.0))
     doc.end_stroke()
-    assert doc.history.head != before
+    assert doc.history.head == before
     assert doc.anim is not None
-    assert not doc.anim.is_placeholder(doc.stack.active)
+    assert doc.anim.is_placeholder(doc.stack.active)
     assert int(doc.stack.active.pixels[..., 3].max()) == 0
+    assert int(doc.stack.active.pixels[..., :3].max()) == 0
 
 
 def test_write_colour_on_a_fresh_unlocked_cel_still_paints():

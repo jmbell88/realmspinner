@@ -1265,6 +1265,18 @@ class StrokeState:
             # Restored from the live crop rather than from ``before``, which is
             # the same value: the lock is applied on every dab, so this stroke
             # has never moved the channel.
+            #
+            # the 2026-09-26 audit, finding inker-paint-04: restoring only the
+            # alpha channel left the dab's colour sitting in a fully
+            # transparent pixel's RGB, invisible until the pixel was ever
+            # unlocked or un-erased -- and it made ``Document._commit_patch``
+            # push an undo step over a stroke that changed nothing anyone
+            # could see, since it compares the whole RGBA rather than what
+            # showed. A pixel with something already on it still tints under
+            # the lock, which is the feature; one with nothing on it stays
+            # exactly as it was, RGB included.
+            transparent = crop[..., 3:4] <= 0.0
+            out[..., :3] = np.where(transparent, crop[..., :3], out[..., :3])
             out[..., 3] = crop[..., 3]
         target[y0:y1, x0:x1] = composite.to_uint8_255(out)
 
@@ -1323,6 +1335,18 @@ class StrokeState:
             # Which makes the eraser a no-op on a locked layer, and that is the
             # correct reading rather than a gap: erasing *is* changing alpha,
             # and every other editor with this lock behaves the same way.
+            #
+            # the 2026-09-26 audit, finding inker-paint-04: restoring only the
+            # alpha channel left ``replace``/``copy``/paint's RGB write sitting
+            # in a pixel that was fully transparent *before this stroke*,
+            # invisible until unlocked -- and it made ``_commit_patch`` push an
+            # undo step for a stroke that changed nothing visible, since it
+            # compares the whole RGBA. Guarded on ``before`` rather than the
+            # live crop, matching what this method already recomputes from: a
+            # pixel that had something on it when the stroke began still tints
+            # under the lock, one that had nothing stays exactly as it was.
+            transparent = before[..., 3:4] <= 0.0
+            out[..., :3] = np.where(transparent, before[..., :3], out[..., :3])
             out[..., 3] = before[..., 3]
         target[y0:y1, x0:x1] = composite.to_uint8_255(out)
 

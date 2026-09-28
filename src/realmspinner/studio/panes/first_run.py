@@ -214,6 +214,36 @@ def _verdict(label: str, result: dict[str, Any]) -> None:
     widgets.text_colored(colour, f"{label}: {result.get('detail')}")
 
 
+def _primary_action(info: dict[str, Any]) -> tuple[str, str]:
+    """The popup's one primary button: its label, and which of the three
+    installs a press means -- ``"packs"``, ``"models"`` or ``"continue"``.
+
+    Pulled out of ``draw`` so it is a pure function of the snapshot, callable
+    without an imgui frame -- the same shape ``snapshot`` itself already is.
+
+    The 2026-09-26 audit, finding shell-review-settings-07: there was no
+    ``"continue"`` case. A PC with every ``GENERATION_ROWS`` entry already on
+    disk and no pack missing still fell into the last ``else`` and read
+    "Download models (~0 GB)" -- a button that promised a download and would
+    have started ``fetch.plan`` on an empty job list for nothing.
+    """
+    packs = tuple(info.get("packs") or ())
+    # Packs before weights, matching the list drawn above: see
+    # ``install_packs``. The figure is the packs' own -- the smaller number,
+    # deliberately, because it is also the download that has to happen first.
+    if packs:
+        pack_gib = sum(float(row.get("download_gib") or 0.0) for row in packs)
+        names = ", ".join(str(row.get("label") or row.get("key")) for row in packs)
+        noun = "pack" if len(packs) == 1 else "packs"
+        return f"Install the {names} {noun} (~{pack_gib:.1f} GB)", "packs"
+    if any(not row.get("present") for row in info.get("rows") or ()):
+        download_gib = float(info.get("download_gib", info.get("total_gib")) or 0.0)
+        return f"Download models (~{download_gib:.0f} GB)", "models"
+    # Nothing left to fetch means this screen has nothing left to offer
+    # beyond closing itself.
+    return "Continue", "continue"
+
+
 def draw(ctx: Any) -> None:
     if not is_open(ctx):
         return
@@ -272,21 +302,14 @@ def draw(ctx: Any) -> None:
     if refusal:
         widgets.text_colored(theme.ERR, str(refusal))
 
-    download_gib = float(info.get("download_gib", info.get("total_gib")) or 0.0)
-    # Packs before weights, in the button as well as in the list above: see
-    # ``install_packs``. The figure is the packs' own -- the smaller number,
-    # deliberately, because it is also the download that has to happen first.
-    if packs:
-        pack_gib = sum(float(row.get("download_gib") or 0.0) for row in packs)
-        names = ", ".join(str(row.get("label") or row.get("key")) for row in packs)
-        noun = "pack" if len(packs) == 1 else "packs"
-        label = f"Install the {names} {noun} (~{pack_gib:.1f} GB)"
-        if widgets.primary_button(label, (-1, sp(36))):
+    label, action = _primary_action(info)
+    if widgets.primary_button(label, (-1, sp(36))):
+        if action == "packs":
             install_packs(ctx, packs)
-    else:
-        label = f"Download models (~{download_gib:.0f} GB)"
-        if widgets.primary_button(label, (-1, sp(36))):
+        elif action == "models":
             download_models(ctx)
+        else:
+            dismiss(ctx)
     # Not a deferral of something owed: it dismisses the panel for good and
     # leaves a fully usable app. Home keeps a quiet row offering the same
     # download, so declining here loses nothing.

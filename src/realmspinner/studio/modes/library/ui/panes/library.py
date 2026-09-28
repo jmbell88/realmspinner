@@ -1029,6 +1029,21 @@ def _card_context(ctx: Any, job: Any) -> None:
 
 
 def _card_actions(ctx: Any, job: Any) -> None:
+    # 2026-09-26 audit, finding shell-home-library-04: only ``_overflow`` was
+    # ever narrowed to the trash's own Restore/Delete permanently pair. This
+    # row drew the *live* primary action (whatever ``primary_action`` answers
+    # for the job's kind/stage -- Open, Rig, Clay, ... -- none of which the
+    # trash still serves), the bulk-select tick (``ctx.state.checked`` is
+    # cleared on entry to the trash precisely because it means something
+    # different there -- see the trash toggle above -- so ticking a trashed
+    # row here fed a set nothing in this view reads back) and the favourite
+    # star (favouriting a thing on its way out is not a real action). Only
+    # the overflow menu -- reached through the same ellipsis button, kept
+    # below -- is left live for a trashed row.
+    if job.get("deleted_at"):
+        if widgets.small_icon_button(icons.ELLIPSIS, "More actions"):
+            imgui.open_popup("more")
+        return
     action = primary_action(job, rigging_available=ctx.rigging_available)
     if action is not None and controls.small_button(ACTIONS[action]):
         run_action(ctx, job, action)
@@ -1607,12 +1622,22 @@ def delete_assets(ctx: Any, job_ids: list[str]) -> None:
     if len(kept) == 1:
         delete_asset(ctx, kept[0])
         return
+    # 2026-09-26 audit, finding shell-home-library-06: ``submit`` returns False
+    # when a delete for that exact job id is already in flight (a double bulk
+    # delete, or two overlapping selections both naming it) -- the toast used
+    # to report the full requested count regardless, so "Moved 8 to trash."
+    # could overstate what actually happened, and the undo payload named jobs
+    # that were never newly trashed by this call.
+    moved: list[str] = []
     for job_id in kept:
         ctx.state.checked.discard(job_id)
         if ctx.state.selected == job_id:
             ctx.state.select(None)
-        ctx.submit(f"delete:{job_id}", svc_jobs.trash_job, ctx.svc, job_id)
-    ctx.toast(f"Moved {len(kept)} to trash.", "info", "undo", " ".join(kept))
+        if ctx.submit(f"delete:{job_id}", svc_jobs.trash_job, ctx.svc, job_id):
+            moved.append(job_id)
+    if not moved:
+        return
+    ctx.toast(f"Moved {len(moved)} to trash.", "info", "undo", " ".join(moved))
 
 
 def delete_asset(ctx: Any, job_id: str) -> None:

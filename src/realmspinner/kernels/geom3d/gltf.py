@@ -331,6 +331,20 @@ class Model:
         # deliberately structural-only) and would spin or raise here -- on the
         # frame thread. A malformed graph costs the malformed part of itself.
         seen: set[int] = set()
+        # The 2026-09-26 audit, finding clay-io-11: a node's own "children"
+        # array is legal JSON with no dedup requirement, and nothing here
+        # stopped one from naming the *same* child index a million times over
+        # -- every repetition pushed its own ``(index, world)`` tuple onto
+        # ``stack`` below, none of them dropped until each was individually
+        # popped and found already in ``seen``. A 6 MB GLB ballooned to over
+        # 160 MB of stack entries for a value this traversal would only ever
+        # process once regardless. ``queued`` tracks every index already
+        # pushed -- root or child -- so a repeated reference, whether from
+        # one node's own list or from two different parents naming the same
+        # child, is pushed at most once; this changes nothing about which
+        # node ends up "seen" first, only how many times a redundant
+        # reference to it is allowed to sit on the stack at once.
+        queued: set[int] = set(self.roots)
         stack = [(r, m3.identity()) for r in reversed(self.roots)]
         while stack:
             index, parent = stack.pop()
@@ -340,6 +354,9 @@ class Model:
             node = self.nodes[index]
             node.world = parent @ node.local()
             for child in reversed(node.children):
+                if child in queued:
+                    continue
+                queued.add(child)
                 stack.append((child, node.world))
 
     def mesh_instances(self) -> list[tuple[Node, list[Primitive]]]:
@@ -468,7 +485,16 @@ def load(path: Path | bytes) -> Model:
     # arrive first -- gltfpack -c writes it -- and a quantized position stream
     # decoded as though it were plain floats is geometry that looks like
     # nothing, with nothing in the data to say why.
-    required = set(gltf.get("extensionsRequired") or []) - SUPPORTED_EXTENSIONS
+    # The 2026-09-26 audit, finding clay-io-10: a non-list "extensionsRequired"
+    # (an object, a number) reached ``set(...)`` below as an unnamed
+    # TypeError -- either because the value was not iterable at all, or
+    # because a dict's own keys are not what this field means -- instead of
+    # the named refusal ``_check_list_field`` already gives every other
+    # top-level array field in this loader.
+    ext_required = _check_list_field(
+        gltf.get("extensionsRequired") or [], 'this GLB\'s "extensionsRequired"'
+    )
+    required = set(ext_required) - SUPPORTED_EXTENSIONS
     if required:
         raise ValueError(
             "this GLB requires glTF extensions this viewer does not implement: "
@@ -868,12 +894,19 @@ class _Reader:
         component_type = acc.get("componentType")
         if component_type is None:
             raise ValueError("an accessor in this GLB is missing componentType")
-        if component_type not in _COMPONENT:
+        # The 2026-09-26 audit, finding clay-io-10: ``in`` on a dict hashes
+        # its argument, and a list-valued "componentType"/"type" (legal JSON,
+        # illegal glTF) is unhashable -- ``[5126] not in _COMPONENT`` raised a
+        # bare, unnamed ``TypeError`` instead of the named refusal every
+        # other unsupported value here already gets. Checked for hashability
+        # via a plain ``isinstance`` first, since every real componentType is
+        # an int and every real type is a string.
+        if not isinstance(component_type, int) or component_type not in _COMPONENT:
             raise ValueError(f"unsupported accessor componentType {component_type!r}")
         accessor_type = acc.get("type")
         if accessor_type is None:
             raise ValueError("an accessor in this GLB is missing type")
-        if accessor_type not in _NCOMP:
+        if not isinstance(accessor_type, str) or accessor_type not in _NCOMP:
             raise ValueError(f"unsupported accessor type {accessor_type!r}")
         dtype = _COMPONENT[component_type]
         ncomp = _NCOMP[accessor_type]
@@ -1404,7 +1437,16 @@ class _Reader:
         # boundary in this file raises. Refused here, before either array is
         # touched, in the same message shape ``node()``/``skin()`` use.
         textures = self.gltf.get("textures", [])
-        index = ref["index"]
+        # The 2026-09-26 audit, finding clay-io-10: ``"index"`` is required by
+        # the glTF schema on a texture reference, but a hand-edited or
+        # truncated file can omit it anyway, and ``ref["index"]`` raised a
+        # bare, unnamed ``KeyError`` for exactly that -- unlike every other
+        # required-but-missing key this loader reads (an accessor's own
+        # ``componentType``/``type``/``count``, a skin's ``joints``), which
+        # already refuse by name via ``.get()`` plus a check.
+        index = ref.get("index")
+        if index is None:
+            raise ValueError("a material's texture reference is missing \"index\"")
         # The 2026-09-09 audit, finding clay-04: checked for range just below
         # since clay-09, but never for type -- a string/float/list "index"
         # reached the ``<=`` comparison as a bare TypeError.
@@ -1501,7 +1543,12 @@ class _Reader:
         # loader's own named refusal every sibling boundary raises.
         if "joints" not in skin:
             raise ValueError("a skin with no \"joints\" array is not supported")
-        joints = list(skin["joints"])
+        # The 2026-09-26 audit, finding clay-io-10: ``skin["joints"]`` is
+        # present per the check just above, but nothing checked it was
+        # actually a *list* before handing it to ``list(...)`` -- a non-
+        # iterable value (a bare number, say) raised an unnamed TypeError
+        # from that call instead of this loader's own named refusal.
+        joints = list(_check_list_field(skin["joints"], "a skin's \"joints\""))
         # The 2026-09-26 audit, finding create-viewer-01 (+clay-io-05): checked
         # before the per-joint loop below, not after it -- that loop, and the
         # bind-matrix array built further down, are both O(len(joints)), so a
@@ -1645,7 +1692,13 @@ class _Reader:
                     f"node {name!r} references skin "
                     f"{skin}, but this GLB declares {n_skins} skin(s)"
                 )
-        children = list(node.get("children", []))
+        # The 2026-09-26 audit, finding clay-io-10: a non-list "children" (a
+        # bare number, say) reached ``list(...)`` below as an unnamed
+        # TypeError instead of this loader's own named refusal -- the same
+        # gap ``skin["joints"]`` just got closed for, above.
+        children = list(
+            _check_list_field(node.get("children", []), f"node {name!r}'s \"children\"")
+        )
         # The 2026-09-11 audit, finding create-01 (merged): a node's own
         # "children" array was stored here with no validation at all, so a
         # non-integer entry survived load() and reached Model.update_world's

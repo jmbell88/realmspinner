@@ -799,6 +799,36 @@ def test_the_gizmo_sits_at_the_selected_elements_centroid(view) -> None:
     assert centre[1] == pytest.approx(-0.5)
 
 
+def test_element_centre_follows_a_selected_childs_parent_after_it_moves(view) -> None:
+    """The 2026-09-26 audit's clay-view-02: ``element_centre``'s memo keyed
+    only on the *selected* object's own transform triple, never an
+    ancestor's -- so moving a parent left a selected child's own
+    ``translation``/``rotation``/``scale`` arrays untouched (they are local
+    to the parent, ``document.py``'s own module docstring) and the memo kept
+    matching, serving the pre-move centroid for the gizmo and the drag
+    pivot. Fails against the unfixed ``_obj_key``: the key it built never
+    named the parent's arrays at all, so a parent move was invisible to it.
+    """
+    from realmspinner.kernels.mesh import elements as el
+
+    doc = bd.ClayDoc()
+    parent = doc.add_object(bd.Obj(uid=bd.new_uid(), name="parent", mesh=bp.box()))
+    child = doc.add_object(bd.Obj(uid=bd.new_uid(), name="child", mesh=bp.box()))
+    doc.set_parent(child.uid, parent.uid)
+    _face_mode(doc)
+    doc.set_element_sel(child.uid, el.ElementSel(faces=[0]))
+
+    before = view.element_centre(doc)
+    assert before is not None
+
+    doc.set_transform(parent.uid, translation=m3.vec3(5.0, 0.0, 0.0))
+    after = view.element_centre(doc)
+
+    assert after is not None
+    assert not np.allclose(before, after), "the centroid must move with its parent"
+    assert np.allclose(after, before + np.array([5.0, 0.0, 0.0]))
+
+
 def test_the_select_tool_shows_no_gizmo_in_an_element_mode(view) -> None:
     from realmspinner.kernels.mesh import elements as el
 
@@ -1089,6 +1119,43 @@ def test_an_object_move_never_snaps_onto_its_own_geometry(view) -> None:
     index = int(np.argmin(screen.depth))
     at = (float(screen.xy[index][0]), float(screen.xy[index][1]))
     assert view._snap_vertex(doc, at) is None, "the only object is the one moving"
+
+
+def test_an_object_move_never_snaps_onto_its_own_childs_geometry(view) -> None:
+    """The 2026-09-26 audit's clay-view-05: a child rides its parent's drag
+    (its world placement composes the live parent transform,
+    ``document.py``'s own module docstring) even though only the parent's
+    own uid ever lands in ``self._drag_start`` -- so the child's own
+    reprojected vertices were moving with the drag exactly as the parent's
+    own would, and nothing excluded them. The same self-snap failure
+    ``test_an_object_move_never_snaps_onto_its_own_geometry`` above checks
+    for the directly dragged object itself."""
+    doc = bd.ClayDoc()
+    parent = doc.add_object(bd.Obj(uid=bd.new_uid(), name="parent", mesh=bp.box()))
+    child = doc.add_object(
+        bd.Obj(
+            uid=bd.new_uid(),
+            name="child",
+            mesh=bp.box(),
+            translation=m3.vec3(3.0, 0.0, 0.0),
+        )
+    )
+    doc.set_parent(child.uid, parent.uid)
+    # Framed with both objects on screen (nothing selected yet), then the
+    # selection is narrowed to the parent alone -- exactly what ``_begin_
+    # gizmo_drag`` reads to decide what ``_drag_start`` holds.
+    view.frame_selection(doc)
+    doc.select([parent.uid])
+    view.app_ctx.state.clay.tool = "move"
+    view.app_ctx.state.clay.snap_vertex = True
+    view.draw(doc, RECT, 0.0)
+    view._begin_gizmo_drag(doc)
+    assert set(view._drag_start) == {parent.uid}, "only the parent is the one being dragged"
+
+    screen = view.screen_of(doc, child.uid)
+    index = int(np.argmin(screen.depth))
+    at = (float(screen.xy[index][0]), float(screen.xy[index][1]))
+    assert view._snap_vertex(doc, at) is None, "the child rides the parent's drag too"
 
 
 def test_only_the_owning_button_releases_a_grab(view) -> None:

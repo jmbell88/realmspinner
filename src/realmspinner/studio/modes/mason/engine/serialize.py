@@ -748,8 +748,23 @@ def _read_textures(zf: zipfile.ZipFile, scene: dict[str, Any]) -> list[Any]:
             raise ValueError(
                 f"this mason scene names a texture the file does not carry ({name})"
             ) from exc
-        with pixelguard.opened(io.BytesIO(raw), f"a texture in this mason scene ({name})") as im:
-            image = im.convert("RGBA")
+        try:
+            with pixelguard.opened(
+                io.BytesIO(raw), f"a texture in this mason scene ({name})"
+            ) as im:
+                image = im.convert("RGBA")
+        except OSError as exc:
+            # The 2026-09-26 audit's fix pass, mirroring clay-document-07's
+            # identical gap in ``kernels/mesh/serialize.py``: bytes that are
+            # not a real, decodable image -- a truncated write, a hand-edited
+            # zip member, a member renamed onto the wrong bytes -- reach
+            # ``Image.open`` (inside ``pixelguard.opened``) as Pillow's own
+            # ``UnidentifiedImageError`` (an ``OSError`` subclass, so caught
+            # here along with a truncated-file decode error), uncaught by
+            # anything in this module and reaching the user unnamed.
+            raise ValueError(
+                f"this mason scene names a texture that is not a usable image ({name})"
+            ) from exc
         out.append((image.width, image.height, image.tobytes()))
     return out
 

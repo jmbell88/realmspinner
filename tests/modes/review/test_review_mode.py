@@ -2654,7 +2654,13 @@ def test_a_pass_parked_on_an_empty_bucket_moves_itself_on(ctx, svc):
     state.sweep_id, state.units, state.index = "empty", [], 0
     assert review_mode.current(state) is None
 
-    review_mode.on_task_done(ctx, _Done(review_mode.SCAN_KEY, state.sweeps))
+    # Paired with the current generation (shell-review-settings-06, the
+    # 2026-09-26 audit): ``on_task_done`` now discards a ``SCAN_KEY`` result
+    # whose generation does not match ``state.scan_generation``, so a bare
+    # list is no longer what a delivered scan looks like.
+    review_mode.on_task_done(
+        ctx, _Done(review_mode.SCAN_KEY, (state.scan_generation, state.sweeps))
+    )
 
     assert state.judging is not None, "there is still work; the pass must not end"
     assert state.sweep_id in (newer, older)
@@ -2671,7 +2677,9 @@ def test_a_scan_that_leaves_nothing_to_judge_ends_the_pass(ctx, svc):
         sweep["units"], sweep["todo"] = [], 0
     state.units, state.index = [], 0
 
-    review_mode.on_task_done(ctx, _Done(review_mode.SCAN_KEY, state.sweeps))
+    review_mode.on_task_done(
+        ctx, _Done(review_mode.SCAN_KEY, (state.scan_generation, state.sweeps))
+    )
 
     assert state.judging is None
     assert state.judging_report is not None
@@ -2688,7 +2696,9 @@ def test_the_pump_does_not_re_clean_a_sweep_that_is_already_gone(ctx, svc):
     state.sweep_id, state.units, state.index = newer, [], 0
     ctx.submitted.clear()
 
-    review_mode.on_task_done(ctx, _Done(review_mode.SCAN_KEY, state.sweeps))
+    review_mode.on_task_done(
+        ctx, _Done(review_mode.SCAN_KEY, (state.scan_generation, state.sweeps))
+    )
 
     assert review_mode.CLEANUP_KEY not in ctx.submitted
 
@@ -2718,7 +2728,15 @@ def test_a_whole_pass_survives_the_cleanups_it_triggers(ctx, svc):
             ctx.submitted.clear()
             for key in pending:
                 if key == review_mode.SCAN_KEY:
-                    review_mode.on_task_done(ctx, _Done(key, _collect_now(ctx)))
+                    # Paired with the generation current right now (matching
+                    # ``_collect_now``'s own "read now" spirit) rather than
+                    # whatever generation the original submit captured --
+                    # shell-review-settings-06 (the 2026-09-26 audit) ties
+                    # staleness to that number, and this helper's whole job is
+                    # to hand back data delivery, not submission, time.
+                    review_mode.on_task_done(
+                        ctx, _Done(key, (state.scan_generation, _collect_now(ctx)))
+                    )
                 elif key == review_mode.CLEANUP_KEY:
                     review_mode.on_task_done(
                         ctx,

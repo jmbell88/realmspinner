@@ -56,6 +56,19 @@ from . import download
 
 CHUNK = 1 << 20
 
+# The 2026-09-26 audit, finding pipelines-children-05: ``collect``'s per-wheel
+# streaming loop already knew ``size`` (the manifest's own declared
+# ``size_bytes``, pinned from the same lock the pack was built from) but only
+# ever used it to shape the progress bar -- nothing stopped the loop if a
+# mirror kept sending past it, so a compromised or misconfigured pack host
+# could fill the disk with a wheel this process would go on to hash and then
+# discard. The margin is generous because the manifest's declared size is
+# exact today but not a contract this file should over-enforce; a wheel with
+# no declared size at all falls back to the fixed hard ceiling, well above the
+# largest wheel this pack ever names (torch, a few hundred MB).
+_SIZE_CEILING_MARGIN = 2.0
+_HARD_CEILING_BYTES = 4 * 1024**3
+
 # Wall-clock ceiling for the install phase alone. pip unpacking 3 GB of torch
 # onto a slow disk is genuinely minutes; a pip parked forever is not.
 INSTALL_TIMEOUT = 60 * 60.0
@@ -197,16 +210,24 @@ def collect(spec: dict[str, Any]) -> list[str]:
         staging = target.with_name(target.name + ".part")
         running = hashlib.sha256()
         got = 0
+        ceiling = size * _SIZE_CEILING_MARGIN if size > 0 else _HARD_CEILING_BYTES
         with (
             # Not a bare urlopen: the default agent is banned on the host
             # uv.lock records for torch. See pipelines/download.py.
             download.open_url(str(wheel["url"]), timeout=60) as response,
             staging.open("wb") as handle,
         ):
+            outgrew = False
             while chunk := response.read(CHUNK):
+                got += len(chunk)
+                if got > ceiling:
+                    # Stop before the handle closes below, not inside this
+                    # branch: unlinking a file Windows still has open for
+                    # writing raises.
+                    outgrew = True
+                    break
                 running.update(chunk)
                 handle.write(chunk)
-                got += len(chunk)
                 span = time.monotonic() - started
                 rate = (done + got) / span if span > 0 else 0.0
                 # Capped below the install phase's own share: a bar that
@@ -222,6 +243,13 @@ def collect(spec: dict[str, Any]) -> list[str]:
                     ),
                     phase=PHASE_DOWNLOAD,
                 )
+        if outgrew:
+            staging.unlink(missing_ok=True)
+            raise ValueError(
+                f"{name} sent more than {ceiling / float(1024**3):.1f} GB, "
+                "past what the manifest declared; aborting rather than "
+                "filling the disk"
+            )
         if running.hexdigest() != digest:
             staging.unlink(missing_ok=True)
             raise ValueError(

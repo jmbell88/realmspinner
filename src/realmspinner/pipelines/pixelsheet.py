@@ -379,7 +379,7 @@ def pixel_sidecar(
                 for one in block
             ]
         cells.append(entry)
-    return {
+    out = {
         "version": PIXEL_SHEET_VERSION,
         # The render's own version, carried rather than assumed: this file is a
         # derivative of that grid and says which one it was made from.
@@ -404,3 +404,28 @@ def pixel_sidecar(
         "restyle": dict(recipe),
         "cells": cells,
     }
+    # The 2026-09-26 audit, finding inker-sheets-02: this used to be a fixed
+    # key list built from ``meta`` field by field, so a source sheet carrying
+    # any of ``sheet.sidecar``'s four additive, only-written-when-present keys
+    # lost them on the way to a pixel sidecar -- "restyled" is a re-export of
+    # an existing sheet, not a new one, and the honest default for a
+    # derivative file is to say everything the original did. ``animation``
+    # and ``slices_conflict`` are keyed by cell index/tag span, which the
+    # reduction does not change (only each cell's own pixel size shrinks), so
+    # both carry over verbatim; ``front_yaw`` is a camera angle, not a pixel
+    # rectangle, so the same is true of it.
+    if meta.get("animation") is not None:
+        out["animation"] = dict(meta["animation"])
+    if meta.get("slices_conflict"):
+        out["slices_conflict"] = dict(meta["slices_conflict"])
+    if meta.get("front_yaw"):
+        out["front_yaw"] = float(meta["front_yaw"])
+    # ``frame_w``/``frame_h`` are the fourth -- present only on a non-square
+    # plan, where ``sheet.sidecar`` also emits ``frame_size: 0``. Not handled
+    # here: ``check_restylable`` (this module) refuses any ``meta`` whose
+    # ``frame_size`` is not a positive divisor of nothing else, i.e. exactly
+    # the non-square case, before this function is ever reached -- so a
+    # ``meta`` carrying ``frame_w``/``frame_h`` cannot reach this line, and
+    # scaling them by a ``factor`` derived from a zero ``frame_size`` would be
+    # a division by zero rather than a fix.
+    return out

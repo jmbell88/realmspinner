@@ -304,8 +304,17 @@ def walk(
     # runtime must see it take effect on the very next walk, the same way
     # ``resolve``'s own default always has.
     ceiling = MAX_PLACED if max_items is None else max_items
-    counted = _bounded(visit, ceiling)
-    counted_enter = _bounded(enter, ceiling) if enter is not None else None
+    # The 2026-09-26 audit's mason-engine-06: ``visit`` and ``enter`` each used
+    # to get their own ``_bounded`` wrapper, and each built its own private
+    # ``count`` closure -- so a scene of nested prefab instances (which fires
+    # both callbacks) could place up to roughly *twice* ``ceiling`` items into
+    # a GLB export before either counter, counting only its own half of the
+    # calls, ever climbed past it. One shared counter, threaded through both
+    # wrappers, so the ceiling this function promises is the ceiling a caller
+    # actually gets regardless of how the calls split between the two.
+    count = [0]
+    counted = _bounded(visit, ceiling, count)
+    counted_enter = _bounded(enter, ceiling, count) if enter is not None else None
     _walk_segment(
         doc.roots if roots is None else roots,
         doc,
@@ -322,17 +331,26 @@ def walk(
     )
 
 
-def _bounded(visit: VisitFn, max_items: int) -> VisitFn:
+def _bounded(visit: VisitFn, max_items: int, count: list[int]) -> VisitFn:
     """Wrap ``visit`` so the call past ``max_items`` refuses instead of
     running -- the single point ``walk`` enforces :data:`MAX_PLACED` from, so
     ``resolve``, ``resolved_for`` and every structural exporter share one
-    ceiling rather than each needing its own copy of the count."""
-    count = 0
+    ceiling rather than each needing its own copy of the count.
+
+    ``count`` is a one-element list **shared** with whatever other wrapper
+    ``walk`` builds alongside this one (``enter``, when given) rather than a
+    private ``nonlocal`` counter -- the 2026-09-26 audit's mason-engine-06:
+    two independent counters, one per callback, let a scene resolving through
+    both ``visit`` and ``enter`` (every expanded prefab instance fires both)
+    place up to roughly *twice* ``max_items`` before either one -- each seeing
+    only its own half of the calls -- actually tripped. One counter means the
+    ceiling this function promises is the ceiling every caller of ``walk``
+    actually gets, however the calls split between the two callbacks.
+    """
 
     def counting_visit(*args: Any, **kwargs: Any) -> None:
-        nonlocal count
-        count += 1
-        if count > max_items:
+        count[0] += 1
+        if count[0] > max_items:
             raise ValueError(
                 f"this scene resolves to more than {max_items} placed items "
                 "(MAX_PLACED); refusing rather than silently drawing or "

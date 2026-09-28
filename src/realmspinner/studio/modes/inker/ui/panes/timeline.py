@@ -232,7 +232,9 @@ def _ask_note(ctx: Any, title: str, note: Any, apply: Any) -> None:
     )
 
 
-def _note_items(ctx: Any, key: str, title: str, note: Any, apply: Any) -> None:
+def _note_items(
+    ctx: Any, key: str, title: str, note: Any, apply: Any, *, enabled: bool = True, reason: str = ""
+) -> None:
     """The Properties block: the text entry, then the swatch row.
 
     One helper for all three menus -- the row's, the cel's and the tag's --
@@ -244,9 +246,15 @@ def _note_items(ctx: Any, key: str, title: str, note: Any, apply: Any) -> None:
     that element, which is the same shape those doors take: a note is set as
     one value, so "change the colour, keep the text" is expressed here, once,
     rather than as a keyword-and-sentinel signature on three methods.
+
+    ``enabled``/``reason`` -- the 2026-09-26 audit, finding inker-panes-09:
+    every caller drew this block inside its own ``begin_disabled(tab.busy)``,
+    which greys the swatches but gives the Properties row and each swatch
+    button nothing to say on hover, since that lives on the control's own
+    ``enabled``/``reason`` pair rather than on the surrounding native disable.
     """
     widgets.divider()
-    if controls.selectable(f"Properties...##{key}", False)[0]:
+    if controls.selectable(f"Properties...##{key}", False, enabled=enabled, reason=reason)[0]:
         _ask_note(ctx, title, note, apply)
     size = sp(CELL) * 0.7
     for name, colour in NOTE_COLOURS:
@@ -255,14 +263,18 @@ def _note_items(ctx: Any, key: str, title: str, note: Any, apply: Any) -> None:
             imgui.Col_.button.value,
             (red / 255.0, green / 255.0, blue / 255.0, alpha / 255.0),
         )
-        if controls.button(f"##notecolour-{key}-{name}", (size, size)):
+        if controls.button(
+            f"##notecolour-{key}-{name}", (size, size), enabled=enabled, reason=reason
+        ):
             apply(replace(note, colour=colour))
         imgui.pop_style_color()
         imgui.same_line()
     # The way back out, and it has to be a control of its own: every swatch
     # above *sets* a colour, so without this the only edit a coloured element
     # could not make is the one that undoes the first press.
-    if controls.button(f"{icons.X}##notecolour-{key}-none", (size, size)):
+    if controls.button(
+        f"{icons.X}##notecolour-{key}-none", (size, size), enabled=enabled, reason=reason
+    ):
         apply(replace(note, colour=None))
 
 
@@ -1191,32 +1203,51 @@ def _toggle_all(ctx: Any, tab: Any) -> None:
     imgui.end_disabled()
 
 
+def _busy_gate(tab: Any, ok: bool = True, reason: str = "") -> tuple[bool, str]:
+    """(enabled, reason) for one menu row, ``tab.busy`` folded in.
+
+    The 2026-09-26 audit, finding inker-panes-09: every menu here wrapped its
+    whole body in a bare ``imgui.begin_disabled(tab.busy)``, which dims the
+    rows but carries no reason of its own -- the hover tooltip and the probe
+    census (``test_every_control_has_a_kind_and_every_greyed_one_a_reason``'s
+    kind of check) both read a row's *own* ``enabled``/``reason`` pair, which
+    the outer wrap never touches. A row inside it that passed ``enabled=True``
+    for its own unrelated reason therefore looked, to both, like a live
+    control with nothing wrong -- greyed by the native disable and silent
+    about why in the exact same breath. Busy always wins the reason: a
+    document mid-save or mid-playback is not "one frame left" or "nowhere to
+    move to", it is busy, and every row says so consistently rather than each
+    only knowing its own gate.
+    """
+    if tab.busy:
+        return False, widgets.DOCUMENT_SAVING_WHY
+    return ok, reason
+
+
 def _frame_menu(tab: Any, index: int) -> None:
     doc = tab.doc
     if not imgui.begin_popup_context_item(f"framemenu{index}"):
         return
     widgets.popup_chrome(_imgui=imgui)
-    imgui.begin_disabled(tab.busy)
-    if controls.menu_item_simple("Insert before"):
+    enabled, why = _busy_gate(tab)
+    if controls.menu_item_simple("Insert before", enabled=enabled, reason=why):
         doc.add_frame(index)
-    if controls.menu_item_simple("Duplicate (copied)"):
+    if controls.menu_item_simple("Duplicate (copied)", enabled=enabled, reason=why):
         doc.set_current_frame(index)
         doc.add_frame(index + 1, copy=True)
-    if controls.menu_item_simple("Duplicate (linked)"):
+    if controls.menu_item_simple("Duplicate (linked)", enabled=enabled, reason=why):
         doc.set_current_frame(index)
         doc.add_frame(index + 1, link=True)
     widgets.divider()
     # Disabled at the ends rather than clicked-and-ignored: an enabled item that
     # does nothing reads as a bug in the move, not as "there is nowhere to go".
     last = len(doc.anim.frames) - 1
-    imgui.begin_disabled(index <= 0)
-    if controls.menu_item_simple("Move left"):
+    left, left_why = _busy_gate(tab, index > 0, "This is already the first frame.")
+    if controls.menu_item_simple("Move left", enabled=left, reason=left_why):
         doc.move_frame(index, index - 1)
-    imgui.end_disabled()
-    imgui.begin_disabled(index >= last)
-    if controls.menu_item_simple("Move right"):
+    right, right_why = _busy_gate(tab, index < last, "This is already the last frame.")
+    if controls.menu_item_simple("Move right", enabled=right, reason=right_why):
         doc.move_frame(index, index + 1)
-    imgui.end_disabled()
     widgets.divider()
     # The 2026-09-26 audit, finding inker-panes-10: this row was enabled on a
     # one-frame clip, where ``remove_frame`` already refuses (``len(anim
@@ -1224,21 +1255,18 @@ def _frame_menu(tab: Any, index: int) -> None:
     # with no reason and no visible difference from a row that simply had not
     # been wired up. The transport's own "Delete frame" (``_transport``,
     # above) already greys for exactly this; this row now matches it.
-    can_delete_frame = len(doc.anim.frames) > 1
-    if controls.menu_item_simple(
-        "Delete",
-        enabled=can_delete_frame,
-        reason="A clip needs at least one frame.",
-    ):
+    delete_ok, delete_why = _busy_gate(
+        tab, len(doc.anim.frames) > 1, "A clip needs at least one frame."
+    )
+    if controls.menu_item_simple("Delete", enabled=delete_ok, reason=delete_why):
         doc.remove_frame(index)
     widgets.divider()
     # A one-frame span, renamed and stretched from the tag's own menu below.
     # The alternative -- a modal asking for a name and a range up front -- is
     # three answers for something the user is about to look at and adjust
     # anyway, and there is no frame-range selection for it to read.
-    if controls.menu_item_simple("New tag here"):
+    if controls.menu_item_simple("New tag here", enabled=enabled, reason=why):
         doc.add_tag(f"tag {len(doc.anim.tags) + 1}", index)
-    imgui.end_disabled()
     imgui.end_popup()
 
 
@@ -1530,8 +1558,13 @@ def _group_menu(ctx: Any, tab: Any, doc: Any, group_uid: int) -> None:
     if node is None:  # pragma: no cover - dissolved between draw and click
         imgui.end_popup()
         return
+    # The 2026-09-26 audit, finding inker-panes-09: this menu's own verbs
+    # (``selectable``, below) now carry ``tab.busy``'s reason directly rather
+    # than leaning on this wrap alone -- see ``_busy_gate``. The wrap stays
+    # for the opacity slider and the blend combo, which have no such contract.
+    enabled, why = _busy_gate(tab)
     imgui.begin_disabled(tab.busy)
-    if controls.selectable("Rename", False)[0]:
+    if controls.selectable("Rename", False, enabled=enabled, reason=why)[0]:
         _ask_group_rename(ctx, doc, group_uid)
     widgets.field_label("Opacity")
     changed, opacity = controls.slider_float(
@@ -1564,12 +1597,12 @@ def _group_menu(ctx: Any, tab: Any, doc: Any, group_uid: int) -> None:
     # and cannot be unticked, which is the honest picture of a mode implying
     # it. Clicking sets the flag the mode was already forcing, so the tick
     # stays and nothing about the drawing changes.
-    if controls.selectable("Isolate", bool(gp.isolated(node)))[0]:
+    if controls.selectable("Isolate", bool(gp.isolated(node)), enabled=enabled, reason=why)[0]:
         doc.set_group_props(group_uid, isolate=not node.isolate)
-    if controls.selectable("Locked", bool(node.locked))[0]:
+    if controls.selectable("Locked", bool(node.locked), enabled=enabled, reason=why)[0]:
         doc.set_group_props(group_uid, locked=not node.locked)
     widgets.divider()
-    if controls.selectable("Ungroup", False)[0]:
+    if controls.selectable("Ungroup", False, enabled=enabled, reason=why)[0]:
         # The fold goes with the group: keeping it would fold the uid shut
         # again the moment a redo brought the group back.
         doc.ungroup(group_uid)
@@ -1791,33 +1824,40 @@ def _row_menu(ctx: Any, tab: Any, doc: Any, index: int) -> None:
     span = "" if len(rows) < 2 else f" {len(rows)} layers"
     # ``_frame_menu``'s shape: the menu opens so the user can see what is on
     # it, and every verb on it is disabled while the document is busy.
+    #
+    # The 2026-09-26 audit, finding inker-panes-09: each verb below now
+    # carries ``tab.busy``'s reason on itself (``_busy_gate``) rather than
+    # relying on this wrap alone -- a row's own ``enabled``/``reason`` is what
+    # the hover tooltip and the probe census read, and the wrap never touched
+    # either.
+    enabled, why = _busy_gate(tab)
     imgui.begin_disabled(tab.busy)
-    if controls.selectable("Rename", False)[0]:
+    if controls.selectable("Rename", False, enabled=enabled, reason=why)[0]:
         _ask_rename(ctx, doc, index)
     # "Layer properties", not "Properties": this opens the blend/opacity/lock
     # dialog, and the row's *own* Properties -- its user data and its timeline
     # colour -- is the block at the bottom of this menu. Two items called
     # Properties in one menu is a menu that answers neither question.
-    if controls.selectable("Layer properties...", False)[0]:
+    if controls.selectable("Layer properties...", False, enabled=enabled, reason=why)[0]:
         doc.set_active_layer(index)
         ctx.state.inker.pending_dialog = "inker-layer-properties"
     widgets.divider()
-    if controls.selectable("Move up", False)[0]:
+    if controls.selectable("Move up", False, enabled=enabled, reason=why)[0]:
         doc.move_layer(index, index + 1)
-    if controls.selectable("Move down", False)[0]:
+    if controls.selectable("Move down", False, enabled=enabled, reason=why)[0]:
         doc.move_layer(index, index - 1)
     widgets.divider()
-    if controls.selectable(f"Duplicate{span or ' layer'}", False)[0]:
+    if controls.selectable(f"Duplicate{span or ' layer'}", False, enabled=enabled, reason=why)[0]:
         doc.duplicate_layers(rows)
-    if controls.selectable(f"Merge down{span}", False)[0]:
+    if controls.selectable(f"Merge down{span}", False, enabled=enabled, reason=why)[0]:
         merge_range_or_say(ctx, doc, min(rows), max(rows))
-    if controls.selectable(f"Delete{span or ' layer'}", False)[0]:
+    if controls.selectable(f"Delete{span or ' layer'}", False, enabled=enabled, reason=why)[0]:
         doc.remove_layers(rows)
     widgets.divider()
-    if controls.selectable(f"Group{span}", False)[0]:
+    if controls.selectable(f"Group{span}", False, enabled=enabled, reason=why)[0]:
         doc.group_layers(rows)
     if doc.group_of.get(_member_uid(doc, index)) is not None and controls.selectable(
-        "Take out of group", False
+        "Take out of group", False, enabled=enabled, reason=why
     )[0]:
         doc.move_into_group(index, None)
     if doc.anim is not None and index < len(doc.anim.tracks):
@@ -1831,6 +1871,8 @@ def _row_menu(ctx: Any, tab: Any, doc: Any, index: int) -> None:
             "Layer user data",
             doc.anim.tracks[index].note,
             lambda note: doc.set_track_note(note, index),
+            enabled=enabled,
+            reason=why,
         )
     imgui.end_disabled()
     imgui.end_popup()
@@ -1989,14 +2031,17 @@ def _cell_menu(
     if not imgui.begin_popup_context_item("celmenu"):
         return
     widgets.popup_chrome(_imgui=imgui)
+    # The 2026-09-26 audit, finding inker-panes-09: these rows carry
+    # ``tab.busy``'s reason on themselves (``_busy_gate``) now, rather than
+    # only on the outer ``begin_disabled`` wrap a hover tooltip cannot read.
+    enabled, why = _busy_gate(tab)
     imgui.begin_disabled(tab.busy)
-    imgui.begin_disabled(fi <= 0)
-    if controls.menu_item_simple("Link to previous frame"):
+    link_ok, link_why = _busy_gate(tab, fi > 0, "This is the first frame.")
+    if controls.menu_item_simple("Link to previous frame", enabled=link_ok, reason=link_why):
         doc.link_cel(fi - 1, track_index=ti, frame_index=fi)
-    imgui.end_disabled()
-    if linked and controls.menu_item_simple("Unlink"):
+    if linked and controls.menu_item_simple("Unlink", enabled=enabled, reason=why):
         doc.unlink_cel(track_index=ti, frame_index=fi)
-    if has_cel and controls.menu_item_simple("Clear"):
+    if has_cel and controls.menu_item_simple("Clear", enabled=enabled, reason=why):
         doc.clear_cel(track_index=ti, frame_index=fi)
     if has_cel:
         # Per-cel opacity, on the *cel* menu and not the row menu, because that
@@ -2053,6 +2098,8 @@ def _cell_menu(
             "Cel user data",
             doc.anim.cel_note(doc.anim.tracks[ti].uid, doc.anim.frames[fi].uid),
             lambda note: doc.set_cel_note(note, ti, fi),
+            enabled=enabled,
+            reason=why,
         )
     _range_menu(ctx, tab)
     imgui.end_disabled()
@@ -2123,28 +2170,38 @@ def _range_menu(ctx: Any, tab: Any) -> None:
     # nothing about why, and ``menu_item_simple`` has taken the pair since it
     # was written. This menu's own rule two screens down -- "disabled, never
     # hidden" -- is only half a rule without the sentence.
+    #
+    # The 2026-09-26 audit, finding inker-panes-09: that "the pair has always
+    # been here" claim stopped one gate short of ``tab.busy``. Every row below
+    # passed its own ``has_range``/``blocked`` reason straight through and
+    # left the caller's ``begin_disabled(tab.busy)`` wrap to grey it while
+    # busy -- which dims the row but, since the row's *own* ``enabled`` still
+    # said ``True``, shows no tooltip and reads as clean to the probe census.
+    # ``_busy_gate`` folds ``tab.busy`` into every one of them, busy first.
     has_range = rect is not None
     no_range = "Select a block of cels on the timeline first."
     here = (doc.stack.active_index, doc.stack.active_index, doc.anim.current, doc.anim.current)
     t0, t1, f0, f1 = rect or here
-    if controls.menu_item_simple("Copy cels", enabled=has_range, reason=no_range):
+    ok, why = _busy_gate(tab, has_range, no_range)
+    if controls.menu_item_simple("Copy cels", enabled=ok, reason=why):
         state.cel_clip = doc.copy_cels(t0, t1, f0, f1)
     # Paste is the one item whose gate is the *clipboard* rather than the
     # selection: it lands at the range's corner, and with no range at all the
     # playhead and active track are the corner.
-    if controls.menu_item_simple(
-        "Paste cels",
-        enabled=state.cel_clip is not None,
-        reason="Copy some cels first; there is nothing on the cel clipboard.",
-    ):
+    paste_ok, paste_why = _busy_gate(
+        tab,
+        state.cel_clip is not None,
+        "Copy some cels first; there is nothing on the cel clipboard.",
+    )
+    if controls.menu_item_simple("Paste cels", enabled=paste_ok, reason=paste_why):
         doc.paste_cels(state.cel_clip, t0, f0)
 
     widgets.divider()
-    if controls.menu_item_simple("Clear cels", enabled=has_range, reason=no_range):
+    if controls.menu_item_simple("Clear cels", enabled=ok, reason=why):
         doc.clear_range(t0, t1, f0, f1)
-    if controls.menu_item_simple("Link cels", enabled=has_range, reason=no_range):
+    if controls.menu_item_simple("Link cels", enabled=ok, reason=why):
         doc.link_range(t0, t1, f0, f1)
-    if controls.menu_item_simple("Unlink cels", enabled=has_range, reason=no_range):
+    if controls.menu_item_simple("Unlink cels", enabled=ok, reason=why):
         doc.unlink_range(t0, t1, f0, f1)
 
     widgets.divider()
@@ -2157,38 +2214,33 @@ def _range_menu(ctx: Any, tab: Any) -> None:
         blocked = "" if has_range else no_range
         if not blocked and needs_square and not square:
             blocked = "This drawing is not square, so it cannot be turned."
-        if controls.menu_item_simple(label, enabled=not blocked, reason=blocked):
+        verb_ok, verb_why = _busy_gate(tab, not blocked, blocked)
+        if controls.menu_item_simple(label, enabled=verb_ok, reason=verb_why):
             _run_range_verb(ctx, doc, run, (t0, t1, f0, f1))
-    if controls.menu_item_simple(
-        "Fill with foreground", enabled=has_range, reason=no_range
-    ):
+    if controls.menu_item_simple("Fill with foreground", enabled=ok, reason=why):
         doc.fill_range(state.fg, t0, t1, f0, f1)
 
     widgets.divider()
-    if controls.menu_item_simple("Duplicate frames", enabled=has_range, reason=no_range):
+    if controls.menu_item_simple("Duplicate frames", enabled=ok, reason=why):
         doc.duplicate_range(f0, f1)
-    if controls.menu_item_simple(
-        "Duplicate frames (linked)", enabled=has_range, reason=no_range
-    ):
+    if controls.menu_item_simple("Duplicate frames (linked)", enabled=ok, reason=why):
         doc.duplicate_range(f0, f1, link=True)
-    if controls.menu_item_simple("Reverse frames", enabled=has_range, reason=no_range):
+    if controls.menu_item_simple("Reverse frames", enabled=ok, reason=why):
         doc.reverse_range(f0, f1)
-    if controls.menu_item_simple("Delete frames", enabled=has_range, reason=no_range):
+    if controls.menu_item_simple("Delete frames", enabled=ok, reason=why):
         doc.remove_range(f0, f1)
 
     widgets.divider()
     widgets.field_label("Duration, in ms")
     imgui.set_next_item_width(sp(90))
     changed, value = controls.input_int(
-        "##ms##rangems", state.range_ms, 10, 50, enabled=has_range, reason=no_range
+        "##ms##rangems", state.range_ms, 10, 50, enabled=ok, reason=why
     )
     if changed:
         state.range_ms = max(animation.MIN_DURATION_MS, int(value))
-    if controls.menu_item_simple(
-        "Set frame durations", enabled=has_range, reason=no_range
-    ):
+    if controls.menu_item_simple("Set frame durations", enabled=ok, reason=why):
         doc.set_range_duration(f0, f1, state.range_ms)
-    _range_export_items(ctx, tab, f0, f1, enabled=has_range, reason=no_range)
+    _range_export_items(ctx, tab, f0, f1, enabled=ok, reason=why)
 
 
 def _range_export_items(
@@ -2347,24 +2399,33 @@ def _tag_menu(ctx: Any, tab: Any, index: int, tag: Any) -> None:
     if not imgui.begin_popup_context_item("tagmenu"):
         return
     widgets.popup_chrome(_imgui=imgui)
+    # The 2026-09-26 audit, finding inker-panes-09: each row below now carries
+    # ``tab.busy``'s reason on itself (``_busy_gate``) rather than only on
+    # this wrap, which a hover tooltip and the probe census cannot read.
+    enabled, why = _busy_gate(tab)
     imgui.begin_disabled(tab.busy)
-    if controls.menu_item_simple("Rename"):
+    if controls.menu_item_simple("Rename", enabled=enabled, reason=why):
         begin_tag_rename(state, index, tag)
     # Both ends from the playhead, which is the frame the user just clicked to
     # get here: a tag is a span of the timeline and the timeline is what they
     # are looking at, so there is nothing to type.
-    if controls.menu_item_simple(f"Start at frame {doc.anim.current + 1}"):
+    if controls.menu_item_simple(
+        f"Start at frame {doc.anim.current + 1}", enabled=enabled, reason=why
+    ):
         doc.set_tag(index, start=doc.anim.current)
-    if controls.menu_item_simple(f"End at frame {doc.anim.current + 1}"):
+    if controls.menu_item_simple(
+        f"End at frame {doc.anim.current + 1}", enabled=enabled, reason=why
+    ):
         doc.set_tag(index, end=doc.anim.current)
     repeat = int(getattr(tag, "repeat", 0) or 0)
     # Disabled rather than hidden: a count is the more specific answer to "how
     # many times", so while one is set the flag has nothing left to decide --
     # and an enabled tick that changed nothing would read as a bug in the flag.
-    imgui.begin_disabled(repeat > 0)
-    if controls.menu_item_simple("Loop", "", tag.loop):
+    loop_ok, loop_why = _busy_gate(
+        tab, repeat <= 0, "A repeat count is set; clear it to use Loop instead."
+    )
+    if controls.menu_item_simple("Loop", "", tag.loop, enabled=loop_ok, reason=loop_why):
         doc.set_tag(index, loop=not tag.loop)
-    imgui.end_disabled()
     # Straight onto ``set_tag``, which snapshots the whole tag list into a
     # ``TagsEdit`` -- so a repeat count is undoable for free and needs no edit
     # type of its own. 0 hands the question back to the Loop flag above.
@@ -2386,18 +2447,20 @@ def _tag_menu(ctx: Any, tab: Any, index: int, tag: Any) -> None:
     # one go" without a hover. Straight off ``animation.DIRECTIONS`` -- a
     # hand-written list here would be a second table of the same three names.
     for key in animation.DIRECTIONS:
-        if controls.menu_item_simple(key.capitalize(), "", tag.direction == key):
+        if controls.menu_item_simple(
+            key.capitalize(), "", tag.direction == key, enabled=enabled, reason=why
+        ):
             doc.set_tag(index, direction=key)
     widgets.divider()
     # The tag's own span, and its own looping: a tag is the one part of the
     # timeline that already says both which frames it covers and how many times
     # they play, so exporting one needs nothing typed.
-    if controls.menu_item_simple("Export tag → sheet..."):
+    if controls.menu_item_simple("Export tag → sheet...", enabled=enabled, reason=why):
         inker_mode.export_tag(ctx, tab, "sheet", index)
-    if controls.menu_item_simple("Export tag → GIF..."):
+    if controls.menu_item_simple("Export tag → GIF...", enabled=enabled, reason=why):
         inker_mode.export_tag(ctx, tab, "gif", index)
     widgets.divider()
-    if controls.menu_item_simple("Delete tag"):
+    if controls.menu_item_simple("Delete tag", enabled=enabled, reason=why):
         doc.remove_tag(index)
         state.tag_editing = -1
     # Straight onto ``set_tag`` like the repeat and the direction above, so a
@@ -2408,6 +2471,8 @@ def _tag_menu(ctx: Any, tab: Any, index: int, tag: Any) -> None:
         "Tag user data",
         getattr(tag, "note", None) or animation.Note(),
         lambda note: doc.set_tag(index, note=note),
+        enabled=enabled,
+        reason=why,
     )
     imgui.end_disabled()
     imgui.end_popup()

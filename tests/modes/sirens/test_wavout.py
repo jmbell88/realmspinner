@@ -191,6 +191,41 @@ def test_read_wav_refuses_a_low_rate_header_that_would_decode_past_the_size_budg
         wavout.read_wav(raw, 4410)
 
 
+def test_a_truncated_fmt_chunk_is_refused_as_a_valueerror_not_an_eoferror():
+    """the 2026-09-26 audit, finding sirens-engine-03: ``wave``'s
+    ``_read_fmt_chunk`` raises a bare ``EOFError`` for a ``fmt `` chunk cut
+    before its required 14 bytes -- not a ``wave.Error`` and not a
+    ``ValueError`` -- so it used to sail past this function's only
+    ``except wave.Error`` and past every caller's ``except ValueError``,
+    reaching the user as an unhandled crash instead of a refusal naming the
+    file."""
+    fmt = b"\x01\x00\x01\x00"  # 4 bytes: the parser wants 14 before it stops
+    body = b"fmt " + struct.pack("<I", len(fmt)) + fmt
+    raw = b"\x00\x00\x00\x00"
+    body += b"data" + struct.pack("<I", len(raw)) + raw
+    wav = b"RIFF" + struct.pack("<I", len(body) + 4) + b"WAVE" + body
+    with pytest.raises(ValueError, match="not a WAV"):
+        wavout.read_wav(wav, 44100)
+
+
+def test_a_data_chunk_shorter_than_its_declared_frame_count_is_refused():
+    """the 2026-09-26 audit, finding sirens-engine-03: ``Chunk.read`` returns
+    whatever bytes are actually in a short file rather than raising, so a
+    ``data`` chunk cut below what the header's frame count promises used to
+    reach ``frombuffer``/``reshape`` with a too-short buffer and fail with a
+    raw numpy message ("cannot reshape array of size ...") instead of one
+    naming the file as the problem."""
+    fmt = struct.pack("<HHIIHH", 1, 1, 8000, 16000, 2, 16)
+    body = b"fmt " + struct.pack("<I", len(fmt)) + fmt
+    # Header claims 100 frames of 2 bytes each (200 bytes); only 4 are there.
+    declared = struct.pack("<I", 200)
+    short_raw = b"\x00\x00\x00\x00"
+    body += b"data" + declared + short_raw
+    wav = b"RIFF" + struct.pack("<I", len(body) + 4) + b"WAVE" + body
+    with pytest.raises(ValueError, match="short of"):
+        wavout.read_wav(wav, 8000)
+
+
 def test_writing_to_a_path_produces_the_same_bytes(tmp_path):
     pcm = np.zeros((16, 2), dtype=np.float32)
     target = tmp_path / "a.wav"

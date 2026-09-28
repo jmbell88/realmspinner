@@ -416,7 +416,12 @@ def draw_inspector(ctx: Any, tab: Any) -> None:
     imgui.begin_group()
     widgets.field_label("FPS")
     imgui.set_next_item_width(sp(120))
-    fps_changed, fps = controls.slider_int("##fps##fl", int(recipe.fps), 1, 60)
+    # The 2026-09-26 audit, finding inker-flourish-05: this topped out at 60
+    # while ``flourish.recipe.clamp`` allows up to 120 (``_clamp_int(recipe.fps,
+    # 1, 120, 18)``) -- so touching the slider on a recipe already set past 60
+    # (by an earlier build, or by hand-editing the sidecar) silently dropped it
+    # back down to whatever the slider's own max was.
+    fps_changed, fps = controls.slider_int("##fps##fl", int(recipe.fps), 1, 120)
     imgui.end_group()
     if fps_changed:
         recipe = replace(recipe, fps=int(fps))
@@ -483,8 +488,14 @@ def _phases(recipe: Any) -> tuple[Any, bool]:
         imgui.begin_group()
         widgets.field_label(phase.name)
         imgui.set_next_item_width(sp(110))
+        # The 2026-09-26 audit, finding inker-flourish-05: this topped out at
+        # 60 while ``flourish.recipe.MAX_FRAMES_PER_PHASE`` is 240 (and
+        # ``clamp`` enforces it), the same mismatch as the FPS slider above.
         f_changed, frames = controls.slider_int(
-            f"##{phase.name}##fl-phase-{i}", int(phase.frames), 1, 60
+            f"##{phase.name}##fl-phase-{i}",
+            int(phase.frames),
+            1,
+            flourish_recipe.MAX_FRAMES_PER_PHASE,
         )
         imgui.end_group()
         imgui.same_line()

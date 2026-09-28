@@ -1,6 +1,6 @@
 """Process startup and shutdown: the FastAPI lifespan, without FastAPI.
 
-Three threads, and the split between them is the whole design:
+Three threads always run, and the split between them is the whole design:
 
 ===================  ==========================================  ===============
 Thread               Runs                                        May block
@@ -15,6 +15,18 @@ RLock -- so the frame loop reads jobs directly and only the genuinely slow work
 goes to the pool. The worker stays on its own loop because that is where it was
 written to live: ``wake`` is loop-affine, cancellation is a coroutine, and
 moving either would mean rewriting queue.py rather than porting the shell.
+
+**A fourth thread and a second pool exist only once the MCP bridge is
+switched on** (the 2026-09-26 audit, finding shell-boot-05: this table and its
+"three threads" claim had gone stale the moment the bridge shipped, and
+nothing here said so). ``realmspinner-agent-host`` (``studio/agent_host.py``)
+is the listener thread; once running it also owns its own ``TaskRunner`` pool
+(``SERVICE_WORKERS = 2``) that runs character-pipeline tool calls -- never the
+frame thread, never the listener itself -- because a service door can block
+(a Blender probe, an ``animated.glb`` bake) and ``stop()`` must shut that pool
+down on its own, without ever touching ``winjob.terminate_tracked()``. Off by
+default (Settings), so a session with the bridge untouched really does run
+exactly the three threads above.
 """
 
 from __future__ import annotations

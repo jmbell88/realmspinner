@@ -635,7 +635,7 @@ class ReviewPanes:
         from imgui_bundle import imgui
 
         from .....service import sweeps as sweeps_mod
-        from .... import controls, widgets
+        from .... import controls, forms, widgets
 
         # The label table for every guidance field, which is where a param's
         # human name already lives. Resolved here rather than in ``review_mode``
@@ -649,44 +649,60 @@ class ReviewPanes:
         if not widgets.header("New sweep", default_open=False):
             return
         form = state.form
-        widgets.field_label("prompt")
-        form.prompt = widgets.multiline("##sweep-prompt", form.prompt, 60, 1000)
-        widgets.field_label("name")
-        form.label = widgets.input_text("##sweep-label", form.label, max_length=120)
-        widgets.field_label("seeds")
-        form.seeds = widgets.input_text("##sweep-seeds", form.seeds, max_length=120)
+        # The 2026-09-26 audit, finding shell-review-settings-03: ``launch``
+        # already read a ``validate_sweep`` refusal's ``field`` and called
+        # ``note_field_error``, but this form drew every control by hand, with
+        # nowhere for ``ctx.state.field_errors`` to land -- a toast was the
+        # whole of what a rejected sweep ever showed. ``forms.Form`` is the
+        # door ``sheet_panel``/``settings_2d`` already use for the same shape;
+        # ``on_edit`` clears a field's ring the moment it is retyped.
+        with forms.Form(
+            "review-sweep",
+            errors=ctx.state.field_errors,
+            on_edit=ctx.state.clear_field_error,
+        ) as form_ui:
+            with form_ui.field("prompt", "prompt"):
+                form.prompt = widgets.multiline("##sweep-prompt", form.prompt, 60, 1000)
+            widgets.field_label("name")
+            form.label = widgets.input_text("##sweep-label", form.label, max_length=120)
+            with form_ui.field("seeds", "seeds"):
+                form.seeds = widgets.input_text("##sweep-seeds", form.seeds, max_length=120)
 
-        if controls.button("Start from current 2D/3D settings"):
-            form.base = review_mode.capture_base(ctx)
-            form.base_note = f"{len(form.base)} setting(s) captured"
-            ctx.toast("Captured the current settings as this sweep's baseline.")
-        widgets.muted(
-            form.base_note
-            # Names the button, because "the defaults" is a fact about a sweep
-            # that is unreproducible rather than merely unconfigured -- and the
-            # remedy is one control away and was not being pointed at.
-            or "No baseline captured; units use the defaults. Press "
-            '"Start from current 2D/3D settings" above to use your own.'
-        )
+            if controls.button("Start from current 2D/3D settings"):
+                form.base = review_mode.capture_base(ctx)
+                form.base_note = f"{len(form.base)} setting(s) captured"
+                ctx.toast("Captured the current settings as this sweep's baseline.")
+            widgets.muted(
+                form.base_note
+                # Names the button, because "the defaults" is a fact about a sweep
+                # that is unreproducible rather than merely unconfigured -- and the
+                # remedy is one control away and was not being pointed at.
+                or "No baseline captured; units use the defaults. Press "
+                '"Start from current 2D/3D settings" above to use your own.'
+            )
 
-        # "what to vary", not "vary": the old label was a verb with no object,
-        # over a combo of thirty raw param names.
-        widgets.field_label("what to vary")
-        rows = {row["param"]: row for row in review_mode.axis_options(ctx)}
-        options = [("", "-")] + [
-            (p, create_recipe.field_label(p)) for p in sweeps_mod.axis_params()
-        ]
-        for i, row in enumerate(form.axes):
-            imgui.push_id(f"axis-{i}")
-            row["param"] = widgets.combo("##param", row.get("param", ""), options, width=-1)
-            self._review_axis_values(row, rows.get(row.get("param") or ""))
-            imgui.pop_id()
-        if controls.button("Add axis"):
-            form.axes.append({"param": "", "values": ""})
-        if len(form.axes) > 1:
-            imgui.same_line()
-            if controls.button("Remove axis", role=controls.ButtonRole.GHOST):
-                form.axes.pop()
+            # "what to vary", not "vary": the old label was a verb with no
+            # object, over a combo of thirty raw param names. ``axes`` is a
+            # composite of several rows, not one control, so a refusal against
+            # it prints above the block the way Poser's "layout" note does
+            # rather than ringing an arbitrary row.
+            widgets.field_label("what to vary")
+            form_ui.note("axes")
+            rows = {row["param"]: row for row in review_mode.axis_options(ctx)}
+            options = [("", "-")] + [
+                (p, create_recipe.field_label(p)) for p in sweeps_mod.axis_params()
+            ]
+            for i, row in enumerate(form.axes):
+                imgui.push_id(f"axis-{i}")
+                row["param"] = widgets.combo("##param", row.get("param", ""), options, width=-1)
+                self._review_axis_values(row, rows.get(row.get("param") or ""))
+                imgui.pop_id()
+            if controls.button("Add axis"):
+                form.axes.append({"param": "", "values": ""})
+            if len(form.axes) > 1:
+                imgui.same_line()
+                if controls.button("Remove axis", role=controls.ButtonRole.GHOST):
+                    form.axes.pop()
 
         planned = review_mode.preview_units(state)
         if planned < 0:

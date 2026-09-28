@@ -118,16 +118,26 @@ class Layout:
         if not isinstance(raw, dict):
             return cls(name=name)
         try:
+            # The 2026-09-26 audit, finding shell-documents-02: a stored
+            # ``"v": Infinity`` parses to ``float("inf")``, and
+            # ``int(float("inf"))`` raises ``OverflowError`` -- a value
+            # ``TypeError``/``ValueError`` alone did not catch, so a
+            # malformed layout blob crashed every launch that read it.
             version = int(raw.get("v", VERSION))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             version = VERSION
         if version > VERSION:
             # Kept verbatim rather than coerced: an older build rewriting a
             # newer layout is the one way this feature can destroy something.
             return cls(name=name, v=version, opaque=raw)
+        # The 2026-09-26 audit, finding shell-documents-02: ``or {}`` is not a
+        # type guard (``as_dict``'s own docstring already says so) -- a stored
+        # ``"workspaces": [...]`` is truthy all the way to ``.items()``'s
+        # ``AttributeError``, which crashed App construction on any launch
+        # that read it. ``as_dict`` falls back to ``{}`` instead.
         spaces = {
             str(key): Arrangement.from_json(value)
-            for key, value in (raw.get("workspaces") or {}).items()
+            for key, value in as_dict(raw.get("workspaces")).items()
         }
         # Versions one and two are both readable.  A v1 object stays sparse in
         # memory and is upgraded only when an explicit edit calls ``save``;

@@ -566,11 +566,20 @@ def edit_asset_in_clay(ctx: Any, job: Any) -> None:
     def run() -> dict[str, Any]:
         from ....service import files as svc_files
 
+        # 2026-09-26 audit, finding clay-mode-06: ``.exists()`` is true of a
+        # directory too, so a sidecar name that happened to be a directory (or
+        # a ``model.glb`` that was one) used to pass this gate and then fail
+        # inside ``_load``/``_parse_glb`` with whatever raw OS error reading a
+        # directory as a file raises, instead of falling back the way a
+        # genuinely missing sidecar already does. ``.is_file()`` makes both
+        # checks agree with what they actually need -- a file to open -- and
+        # a sidecar that is not one now falls through to ``model.glb`` exactly
+        # like a sidecar that never existed.
         sidecar = svc_files.clay_source_path(ctx.svc, job_id)
-        if sidecar.exists():
+        if sidecar.is_file():
             return _load(sidecar)
         mesh = ctx.svc.config.job_dir(job_id) / "model.glb"
-        if not mesh.exists():
+        if not mesh.is_file():
             raise FileNotFoundError(f"{job_id} has no mesh to edit")
         return _parse_glb(_within_mesh_ceiling(mesh), name)
 
@@ -1146,6 +1155,16 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     generate task happens to fail while that save is in flight on the same
     tab -- a refused or interrupted generate must never be what makes a save
     that is still running look finished.
+
+    A failed ``clay-readiness`` task is refused the same protection, for the
+    same reason again: the 2026-09-26 audit's clay-mode-01 found this falling
+    straight into the generic tail below, which unconditionally clears both
+    ``saving`` and ``bg_busy`` on the tab -- flags :func:`check_readiness`
+    never sets in the first place. A refused readiness check (too many
+    visible objects, :data:`~kernels.mesh.readiness.MAX_VALIDATE_OBJECTS`)
+    must not be what makes a save genuinely still in flight on the same tab
+    look finished; the failure's own toast is already shown by the shell
+    before this runs, so there is nothing else to do here.
     """
     state = ctx.state.clay
     if state is None or ":" not in done.key:
@@ -1155,6 +1174,8 @@ def on_task_failed(ctx: Any, done: Any) -> None:
 
     if name in clay_generate.TASK_KEYS:
         clay_generate.on_task_failed(ctx, done)
+        return
+    if name == "clay-readiness":
         return
     tab = state.get(done.key.split(":", 1)[1])
     if tab is not None:
@@ -1295,6 +1316,19 @@ def check_readiness(ctx: Any, tab: ClayTab, profile: str) -> None:
     inside ``run()``, on the task thread, it reaches the user as an ordinary
     task-failure toast (``tasks.CARRIES_ITS_OWN_MESSAGE`` already lists
     ``OpError``) rather than needing its own handling here.
+
+    **A private copy, not the live document.** The 2026-09-26 audit's
+    clay-mesh-model-09: ``readiness.validate`` reaches ``doc.evaluated`` for
+    every visible object, which -- on a cache miss or a stale entry --
+    *writes* ``doc._evaluated`` (``modifiers.py``'s own cache) as a side
+    effect. That write used to land on ``tab.doc`` itself, from this pool
+    thread, while the frame thread can be editing that same document at the
+    same moment -- a genuine data race, not merely a stale read. ``run()``
+    deep-copies the document *inside the task*, not here: the copy is itself
+    an O(document) cost, and paying it on the frame thread would undo the
+    reason this call is backgrounded at all. The copy's own ``_evaluated`` is
+    a fresh, private dict no other thread can see, so every cache write
+    ``validate`` makes from here on is invisible to ``tab.doc``.
     """
     tab.readiness_profile = profile
     doc = tab.doc
@@ -1308,9 +1342,12 @@ def check_readiness(ctx: Any, tab: ClayTab, profile: str) -> None:
     head = doc.history.head
 
     def run() -> Any:
+        import copy
+
         from ....kernels.mesh import readiness
 
-        return readiness.validate(doc, profile)
+        snapshot = copy.deepcopy(doc)
+        return readiness.validate(snapshot, profile)
 
     ctx.submit(f"clay-readiness:{tab.uid}", run, tag=head)
 

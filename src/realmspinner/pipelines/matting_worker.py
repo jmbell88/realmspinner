@@ -74,8 +74,11 @@ def handle(req: dict[str, Any]) -> dict[str, Any]:
 
     try:
         # matting._load, not a second from_pretrained: it owns the fp16->fp32
-        # CPU cast, the trust_remote_code flag and the per-(path, device) cache
-        # that makes this child worth keeping alive between requests.
+        # CPU cast and the per-(path, device) cache that makes this child
+        # worth keeping alive between requests. The 2026-09-26 audit, finding
+        # pipelines-image-03: this used to also name a trust_remote_code flag,
+        # which vendoring the model into pipelines/birefnet/ (MDL-03) removed
+        # -- see matting._load's own docstring.
         model = matting._load(model_dir, device)
     except Exception as exc:  # noqa: BLE001 -- the whole point is to report it
         # The type as well as the message: "No module named 'einops'" and a

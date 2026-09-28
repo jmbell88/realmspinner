@@ -21,6 +21,7 @@ tool panel states.
 from __future__ import annotations
 
 import logging
+import weakref
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -306,6 +307,15 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     widgets.field_label("local transform" if parented else "transform")
     was = tuple(v.copy() for v in obj.trs())
     changed = False
+    # The 2026-09-26 audit's clay-panes-07: these three fields stayed live and
+    # editable on a locked object, so every keystroke reached
+    # ``set_transform``'s own refusal (``OpError``) and popped a fresh toast
+    # below -- typing "1.25" into Position on a locked object produced four
+    # toasts, one per character. Greyed out here instead, the same
+    # ``imgui.begin_disabled`` chrome already uses for "a save is in flight"
+    # one level up, so a locked object's numbers are still visible -- and
+    # still correct -- without inviting an edit the object is about to refuse.
+    imgui.begin_disabled(obj.locked)
     if parented:
         edited, translation = controls.input_vec(
             "local position##bt", list(obj.translation), ("X", "Y", "Z")
@@ -349,6 +359,7 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None) -> None:
         "way to set one by eye."
     )
     changed |= edited
+    imgui.end_disabled()
     _dimensions(doc, obj)
     if changed:
         # ``was`` is the values the fields started from. imgui writes the new
@@ -461,6 +472,11 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     params.update({k: v for k, v in obj.params.items() if k in defaults})
     edited = dict(params)
     changed = False
+    # The 2026-09-26 audit's clay-panes-07: same gap as ``_transform`` above --
+    # these fields stayed live and editable on a locked object, so every
+    # keystroke reached ``set_generator_params``'s own refusal (``OpError``)
+    # and popped a fresh toast below, one per character typed.
+    imgui.begin_disabled(obj.locked)
     for key, default in defaults.items():
         # A name line per param (2026-09-08 consistency pass): the block
         # label above names the generator, not its individual fields, and
@@ -479,6 +495,7 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None) -> None:
         if changed_here:
             edited[key] = was
             changed = True
+    imgui.end_disabled()
     if not changed:
         return
     # Match what the generator will actually build *before* building it: the
@@ -998,6 +1015,39 @@ def _palette_remove_reason(material_count: int, users: int) -> str:
     return ""
 
 
+#: *doc* -> ``(rev, {index: users})``, weak so a closed tab's own document
+#: takes its entry with it -- ``outliner._HIERARCHY_CACHE``'s own shape.
+_MATERIAL_USERS_CACHE: weakref.WeakKeyDictionary[Any, tuple[int, dict[int, int]]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _material_users(doc: Any, index: int) -> int:
+    """``doc.material_users(index)``, memoised on ``doc.rev``.
+
+    The 2026-09-26 audit's clay-panes-06: ``_palette_row`` called
+    ``doc.material_users`` every single frame the properties panel was open
+    with an object selected, and that method's own docstring says it sums a
+    face count over every object *and* every object an undo step is still
+    holding out of the document -- expensive, and unmemoised, for a number
+    that is on screen every frame regardless of whether anything changed.
+    ``rev`` already covers both halves: every edit that could add, remove or
+    reassign a face's material bumps it (``ClayDoc.touch``), and so does
+    every undo/redo that moves an object into or out of the stack's own
+    holding (each ``Edit.undo``/``redo`` in ``edits.py`` calls ``touch()``
+    too), so there is nothing ``material_users`` can see change without
+    ``rev`` moving first.
+    """
+    cached = _MATERIAL_USERS_CACHE.get(doc)
+    if cached is not None and cached[0] == doc.rev and index in cached[1]:
+        return cached[1][index]
+    users = doc.material_users(index)
+    by_index = dict(cached[1]) if cached is not None and cached[0] == doc.rev else {}
+    by_index[index] = users
+    _MATERIAL_USERS_CACHE[doc] = (doc.rev, by_index)
+    return users
+
+
 def _palette_row(doc: Any, obj: Any) -> None:
     """Add, rename and remove palette entries.
 
@@ -1011,7 +1061,7 @@ def _palette_row(doc: Any, obj: Any) -> None:
     discovers three edits later with no idea what did it.
     """
     index = min(max(int(obj.material), 0), len(doc.materials) - 1)
-    users = doc.material_users(index)
+    users = _material_users(doc, index)
     if controls.small_button(f"{icons.PLUS} Add##matadd"):
         # One step, not two -- the 2026-09-08 audit's clay-02: pushed as
         # ``add_material()`` then ``set_props(...)`` separately, one Ctrl+Z

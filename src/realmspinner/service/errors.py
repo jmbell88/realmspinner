@@ -4,7 +4,7 @@ One class per distinguishable outcome, not one per status code: the desktop UI
 shows ``exc.message`` in a toast and mostly cares only that it failed.
 ``status`` is a fossil of the HTTP API these classes were first written for --
 the routes and the ``_to_http`` mapping that read this attribute are gone
-(``service/__init__.py`` names the two loopback clients that are the app's
+(``service/__init__.py`` names the one loopback client that is the app's
 whole outbound network today), and nothing left in the tree reads ``status``.
 It stays on each class because the numbers still communicate the same rank
 order to a reader (a 404-shaped refusal versus a 409-shaped one), and because

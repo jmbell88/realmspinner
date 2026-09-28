@@ -131,7 +131,17 @@ def _grades(ctx: Any, group: Any) -> dict[str, int | None]:
         # Never fail a frame over a grade nobody asked for explicitly --
         # ``panes.inspector.is_graded`` takes the same stance for the same
         # reason. The picker itself still works with no grades in hand.
-        return {}
+        #
+        # 2026-09-26 audit, finding shell-home-library-08: this used to
+        # ``return {}`` without ever storing it in ``_GRADES_CACHE``, so a
+        # failing query was retried -- and re-failed -- on every frame this
+        # panel drew instead of degrading once like the memoized success path
+        # a few lines below. Cached the same way, under the same key, so it
+        # only tries again once the generation (or the group) actually moves.
+        grades = {}
+        if generation is not None:
+            _GRADES_CACHE = (key, grades)
+        return grades
     grades = {job_id: verdict.get("grade") for (job_id, _source), verdict in recorded.items()}
     if generation is not None:
         _GRADES_CACHE = (key, grades)

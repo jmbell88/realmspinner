@@ -27,9 +27,11 @@ from typing import Any
 # Tool names this module's prompts mention. Not derived from `agent_clay.
 # tools()` at import time (that would need a live registry state this leaf
 # does not want to require just to build prose) -- named here once, checked
-# against the real catalogue by `tests/test_agent_prompts.py` instead, the
-# same "derived-not-duplicated, and a test proves it" shape `agent_clay`
-# itself uses for its own generator/op catalogues.
+# against the real catalogue by `tests/mcp/test_rpc_studio.py` instead (the
+# 2026-09-26 audit, finding agents-clay-03: this comment cited
+# `tests/test_agent_prompts.py`, which has never existed), the same
+# "derived-not-duplicated, and a test proves it" shape `agent_clay` itself
+# uses for its own generator/op catalogues.
 _SCENE = "clay_scene"
 _ADD_PRIMITIVE = "clay_add_primitive"
 _ADD_FIGURE = "clay_add_figure"
@@ -262,8 +264,24 @@ def render(
     prompt = _PROMPTS.get(name)
     if prompt is None:
         return None
-    missing = [a["name"] for a in prompt.arguments if a["required"] and a["name"] not in arguments]
+    # The 2026-09-26 audit, finding agents-clay-04: MCP prompt arguments are
+    # always strings -- there is no other type in the protocol -- but this
+    # only ever checked whether a declared name was *present* in `arguments`,
+    # never whether its value actually was one. `{"description": None}` used
+    # to count as present and sail straight into a render function's own
+    # f-string, landing the literal text "None" (and, for a numeric
+    # `movements`, its own stray digits) into the served prompt text. A
+    # present value of the wrong type is now dropped -- treated exactly like
+    # a caller who never sent it -- so a required one still shows up in
+    # `missing` below and an optional one falls back to its own render
+    # function's `.get(...)` default instead of being stringified.
+    present = {
+        a["name"]: arguments[a["name"]]
+        for a in prompt.arguments
+        if a["name"] in arguments and isinstance(arguments[a["name"]], str)
+    }
+    missing = [a["name"] for a in prompt.arguments if a["required"] and a["name"] not in present]
     if missing:
         return missing
-    text = prompt.render(arguments)
+    text = prompt.render(present)
     return prompt.description, [{"role": "user", "content": {"type": "text", "text": text}}]

@@ -113,7 +113,7 @@ unit bounding box, expressed in
 Blender's axes: `+X` is the subject's left, `-Y` is forward, `+Z` is up. The `x` and `y` components
 span `-0.5` to `0.5` about the box centre, and `z` spans `0` at the floor to `1` at the top.
 
-`rigging.fit_template` scales those landmarks onto the measured bounding box of the mesh being
+`kernels.rig.skeleton.fit_template` scales those landmarks onto the measured bounding box of the mesh being
 rigged. The fit is bbox-proportional and deliberately approximate — a joint lands where the
 proportions say it should, not where anatomy says it should. That is why the fitted positions are
 written into `rig.json`: a later adjustment pass can correct a joint without re-solving the rig, and
@@ -141,7 +141,7 @@ before this existed.
 
 Mirroring is not inferred from the geometry. `mirror_pairs` is an explicit array of two-element
 `[left, right]` name pairs, and it is the only thing that makes the pose editor's Mirror control do
-anything: `rigging.mirror_pose` copies each posed bone onto its named partner reflected, and a bone
+anything: `kernels.rig.poses.mirror_pose` copies each posed bone onto its named partner reflected, and a bone
 that appears in no pair is left exactly as it is, on the assumption that it sits on the mirror plane.
 The list is carried into `rig.json`, which is where the viewer reads it from, and the Mirror button
 is hidden entirely when it is empty — so a template that omits the field loads and rigs perfectly
@@ -187,8 +187,8 @@ A table declares:
   resolved chain's orientation off its *last* bone and its facing direction from its *first* bone's
   head to its *last* bone's tail.
 
-Validated on load exactly the way a skeleton template is (`clipmaps.parse_clip_map`, `rigging.
-_load_templates`'s rule): every `bones` key must be a bone of the named template, every chain a
+Validated on load exactly the way a skeleton template is (`clipmaps.parse_clip_map`, `kernels.rig.
+templates._load_templates`'s rule): every `bones` key must be a bone of the named template, every chain a
 non-empty list of non-empty names, no source bone claimed by two chains, every `required` bone
 mapped, `root` mapped, and `strip` a pattern that compiles. A malformed table costs itself, never
 the feature — `clipmaps.load_clip_maps` logs and skips it, the same tolerance `_load_templates` and

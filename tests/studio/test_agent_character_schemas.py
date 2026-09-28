@@ -128,7 +128,9 @@ def _stub_doors(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setattr(
         svc_rig,
         "create_rig",
-        lambda svc, jid, *, template=None: {
+        # refuse_existing accepted too: the 2026-09-26 audit, finding
+        # agents-character-03, has _h_character_rig pass refuse_existing=True.
+        lambda svc, jid, *, template=None, refuse_existing=False: {
             "id": "cccccccccccc",
             "source_job": jid,
             "template": template or "humanoid",

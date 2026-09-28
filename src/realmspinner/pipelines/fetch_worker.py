@@ -65,6 +65,19 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 # a directory walk costs.
 SAMPLE_SECONDS = 0.5
 
+# The 2026-09-26 audit, finding pipelines-children-05: ``_fetch_url`` used to
+# read to EOF with nothing to compare the running total against, so a server
+# that sent far more than it should -- lying, or a MITM without TLS
+# validation, though this is an offline app and the realistic case is a
+# misconfigured mirror -- could fill the disk before the digest check ever
+# ran. ``size_gib`` is already documented as approximate (fetch.py's
+# ``Removal``/``plan`` docstrings), so the ceiling is a generous multiple of
+# it rather than an exact bound; a spec with no declared size at all falls
+# back to the fixed hard ceiling, comfortably above the largest single-URL
+# asset this registry names today (the trellis runtime zip, well under 1 GiB).
+_SIZE_CEILING_MARGIN = 3.0
+_HARD_CEILING_BYTES = 8 * 1024**3
+
 
 def _emit(**payload: Any) -> None:
     sys.stdout.write(json.dumps(payload) + "\n")
@@ -225,10 +238,20 @@ def _fetch_url(staging: Path, spec: dict[str, Any]) -> None:
 
     out = staging / name
     running = hashlib.sha256()
+    got = 0
+    declared = float(spec.get("size_gib") or 0.0) * float(1024**3)
+    ceiling = declared * _SIZE_CEILING_MARGIN if declared > 0 else _HARD_CEILING_BYTES
     # Not a bare urlopen: the default agent is banned outright on at least one
     # host this project downloads from. See pipelines/download.py.
     with download.open_url(str(spec["url"]), timeout=60) as response, out.open("wb") as handle:
         while chunk := response.read(1 << 20):
+            got += len(chunk)
+            if got > ceiling:
+                raise ValueError(
+                    f"{spec.get('url')} sent more than "
+                    f"{ceiling / float(1024**3):.1f} GB, past what this fetch "
+                    "declared; aborting rather than filling the disk"
+                )
             running.update(chunk)
             handle.write(chunk)
     if running.hexdigest() != digest:

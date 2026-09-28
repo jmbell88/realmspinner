@@ -7,12 +7,26 @@ mode mention the loop shortcut" and "does the +X ball sit on the right when the
 camera is at the front" are questions a headless test can ask, and they are
 exactly the questions a screenshot cannot be made to fail on.
 
-Nothing here imports outward. ``studio/modes/clay/ui/hud.py`` draws it.
+Nothing here imports outward *at module scope*. ``studio/modes/clay/ui/
+hud.py`` draws it. The one exception is :func:`measure_line`'s own local
+import of ``kernels.mesh.measure`` for its arithmetic (the 2026-09-26 audit's
+clay-view-06: this docstring used to claim "nothing here imports outward"
+outright, which a local import inside a function is still a real outward
+edge from -- every other duck-typed ``getattr`` read in this module exists
+*because* of that same constraint, so the claim being wrong was worth fixing
+rather than restating). No import-pin test covers this module the way
+``tests/_pure_packages.py`` covers the kernel packages and each mode's
+``engine/`` (CLAUDE.md's own list) -- ``studio/viewport_hints.py`` was never
+one of those, so this paragraph is the whole of what holds the line, and it
+is a claim about *outward* imports specifically, not a promise this module
+never imports anything at all (:mod:`numpy` is a dependency, not an outward
+edge in the sense this file's pins mean).
 """
 
 from __future__ import annotations
 
 import math
+import weakref
 from dataclasses import dataclass
 from typing import Any
 
@@ -303,10 +317,11 @@ def stats(doc: Any) -> str:
 
     **Counts the evaluated mesh when the document can produce one.** A
     ``ClayDoc`` carries ``.evaluated(uid)`` (:mod:`~.kernels.mesh.modifiers`);
-    this module imports nothing outward (its own docstring), so that is
-    duck-typed with ``hasattr`` rather than named, and a document with no such
-    method -- everything else this overlay might one day be asked to describe
-    -- is still counted on its own ``obj.mesh``, exactly as before.
+    this module imports nothing outward *at module scope* (its own
+    docstring), so that is duck-typed with ``hasattr`` rather than named, and
+    a document with no such method -- everything else this overlay might one
+    day be asked to describe -- is still counted on its own ``obj.mesh``,
+    exactly as before.
     """
 
     objects = [obj for obj in doc.objects if getattr(obj, "visible", True)]
@@ -359,7 +374,7 @@ def stats(doc: Any) -> str:
     return "  ".join(parts)
 
 
-#: Unique-edge counts, keyed on the mesh object and pinning it.
+#: Unique-edge counts, keyed on the mesh object and pinning it -- weakly.
 #:
 #: Keyed on the ``Mesh`` itself rather than on an id or a revision, which is
 #: ``ClayState.manifold``'s rule and its reason: a ``Mesh`` is immutable and
@@ -367,12 +382,16 @@ def stats(doc: Any) -> str:
 #: exactly ``mesh is measured``. An ``id()`` would be recycled by the allocator
 #: onto a different mesh and silently report the last edit's edges.
 #:
-#: Bounded, because the pin keeps every measured mesh alive: this is a readout
-#: and must not become a second undo stack. The whole cache is dropped rather
-#: than evicted one by one -- a readout that recomputes once is a readout that
-#: was free, and an LRU here would be machinery for nothing.
-_EDGE_CACHE: dict[Any, int] = {}
-_EDGE_CACHE_MAX = 64
+#: A ``WeakKeyDictionary`` rather than the bounded, wholesale-cleared ``dict``
+#: this used to be (the 2026-09-26 audit's clay-view-03): capped at 64 entries
+#: and dropped *entirely* the moment a 65th mesh arrived, so a scene of more
+#: than 64 objects with Stats on cleared the whole cache partway through every
+#: single frame's loop over its own objects -- every mesh missed, every
+#: frame, 386 ms/call measured at 70 objects, which is worse than never
+#: caching at all. Keying per mesh and letting the object's own lifetime
+#: govern eviction (a replaced mesh is unreachable and its entry disappears
+#: with it) needs no cap and cannot thrash on object count.
+_EDGE_CACHE: weakref.WeakKeyDictionary[Any, int] = weakref.WeakKeyDictionary()
 
 
 def _unique_edges(mesh: Any) -> int:
@@ -399,8 +418,6 @@ def _unique_edges(mesh: Any) -> int:
     pairs = np.stack([loops, loops[nxt]], axis=1)
     pairs = np.sort(pairs, axis=1)
     count = int(len(np.unique(pairs, axis=0)))
-    if len(_EDGE_CACHE) >= _EDGE_CACHE_MAX:
-        _EDGE_CACHE.clear()
     _EDGE_CACHE[mesh] = count
     return count
 
@@ -427,8 +444,8 @@ def _selected_vertex_points(doc: Any) -> list[np.ndarray]:
 
     ``doc.world_matrix`` is duck-typed with ``getattr`` for the reason
     :func:`stats`'s own ``evaluated`` lookup is: this module imports nothing
-    outward, so a document with no such method measures in local space
-    rather than raising.
+    outward at module scope, so a document with no such method measures in
+    local space rather than raising.
     """
     world_of = getattr(doc, "world_matrix", None)
     points: list[np.ndarray] = []
@@ -448,6 +465,12 @@ def _selected_vertex_points(doc: Any) -> list[np.ndarray]:
     return points
 
 
+#: *doc* -> ``(rev, line)``, weak so a closed tab's own document takes its
+#: entry with it -- ``outliner._HIERARCHY_CACHE``'s own shape, restated for a
+#: string rather than a pair of maps.
+_MEASURE_CACHE: weakref.WeakKeyDictionary[Any, tuple[int, str]] = weakref.WeakKeyDictionary()
+
+
 def measure_line(doc: Any) -> str:
     """A live readout for the four selection shapes :mod:`~.kernels.mesh.
     measure` answers: two selected vertices, three, a face selection, or a
@@ -463,6 +486,41 @@ def measure_line(doc: Any) -> str:
     base (``document.py``'s own module docstring), and measuring the
     evaluated mesh at those same indices would be reading the wrong array
     the moment an object carries a modifier.
+
+    Memoised on ``doc.rev`` (the 2026-09-26 audit's clay-panes-03/clay-
+    view-04): ``hud.hint_line`` called this once a frame with no gate at all,
+    including every frame a selection sat still doing nothing -- 0.47 s at
+    262k faces, 24 ms at 20k, measured, entirely for a volume nothing had
+    asked to see recomputed. ``rev`` already covers a changed *selection* and
+    not only a changed mesh: ``ClayDoc.select``/``set_element_sel``/
+    ``set_element_mode``/``clear_element_sel`` each call ``touch()`` (their
+    own docstrings), so there is one key, not two. A live gizmo drag is not a
+    counter-case: ``hint_line`` reads ``view.gizmo_drag`` first and calls
+    ``drag_readout`` instead of this function for as long as a drag is live,
+    and a drag mutates ``obj.translation``/``rotation``/``scale`` in place
+    without ``touch()`` until release for exactly that reason (``ClayDoc.
+    set_transform``'s own docstring) -- so this function is never asked to
+    read a moving mesh through a stale ``rev``. ``getattr`` rather than a
+    named attribute, matching every other duck-typed read in this module: a
+    caller with no ``.rev`` at all (this module's own module-scope imports
+    stay inward, so nothing here may assume the real ``ClayDoc``) simply
+    measures fresh every time, which is exactly today's behaviour for it.
+    """
+    rev = getattr(doc, "rev", None)
+    if rev is None:
+        return _compute_measure_line(doc)
+    cached = _MEASURE_CACHE.get(doc)
+    if cached is not None and cached[0] == rev:
+        return cached[1]
+    line = _compute_measure_line(doc)
+    _MEASURE_CACHE[doc] = (rev, line)
+    return line
+
+
+def _compute_measure_line(doc: Any) -> str:
+    """:func:`measure_line`'s actual arithmetic, unmemoised. Split out so the
+    cache wrapper never has to duplicate one of this function's several
+    early returns.
     """
     from ..kernels.mesh import measure as bm_measure
 

@@ -181,8 +181,18 @@ class _Writer:
         that some readers -- and some engines' importers -- still assume short
         indices for small meshes. The declared component type is derived from
         the same expression the cast is, so the two cannot drift.
+
+        The 2026-09-26 audit, finding clay-io-08: this used to narrow at
+        ``> _U16_MAX`` (65535), which lets a max index of *exactly* 65535
+        through as unsigned short -- but 0xFFFF is the value the glTF/GL
+        primitive-restart convention reserves, and a strict reader or a GPU
+        that treats it as a restart sentinel rather than an ordinary vertex
+        index reads this mesh's last vertex wrong. Widening at ``>=`` instead
+        means a max index of 65535 gets the four-byte encoding, the same one
+        every larger mesh already gets, so the reserved value never appears
+        in a short index buffer this writer produces.
         """
-        wide = len(indices) and int(indices.max()) > _U16_MAX
+        wide = len(indices) and int(indices.max()) >= _U16_MAX
         dtype, component = ("<u4", _UINT) if wide else ("<u2", _USHORT)
         return self.accessor(
             np.asarray(indices, dtype=dtype).reshape(-1), "SCALAR", component

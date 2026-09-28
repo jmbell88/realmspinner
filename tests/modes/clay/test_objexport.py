@@ -62,10 +62,12 @@ def test_round_trip_preserves_face_counts_ngons_material_assignment_and_uv() -> 
         ), "every face's corner count (n-gon or not) survives the round trip"
 
         # Per-face corner positions, independent of how each side happened to
-        # number its own vertices internally. ``atol`` a shade looser than the
-        # per-corner uv check below: "%.6g" gives six *significant* digits, and
-        # a position near magnitude 1-3 (this fixture's own scale) can lose a
-        # hair more than 1e-6 absolute to that rounding.
+        # number its own vertices internally. The 2026-09-26 audit's
+        # clay-io-13 widened this writer's number format from "%.6g" (six
+        # *significant* digits, losing a hair more than 1e-6 absolute near
+        # this fixture's own magnitude-1-3 scale) to "%.9g", so the looser
+        # ``atol`` this comment used to need is no longer -- kept anyway,
+        # since an f4 position's own precision is the real floor here.
         for face in range(bm.face_count(om)):
             o_lo, o_hi = int(om.starts[face]), int(om.starts[face + 1])
             r_lo, r_hi = int(rm.starts[face]), int(rm.starts[face + 1])
@@ -123,6 +125,36 @@ def test_hidden_objects_are_left_out_unless_asked_for() -> None:
 
     obj_text_all, _ = objexport.claydoc_to_obj(doc, visible_only=False)
     assert "o Cyl" in obj_text_all
+
+
+def test_a_kilometre_scale_position_keeps_sub_millimetre_precision() -> None:
+    """The 2026-09-26 audit, finding clay-io-13: ``%.6g`` keeps only six
+    *significant* digits, so a coordinate around 1000 (a real-world scale in
+    metres -- a kilometre-scale outdoor level) rounds to the nearest
+    millimetre or coarser. ``%.9g`` keeps a float32 position's own ~7.2
+    significant decimal digits with a full digit of headroom, so the written
+    text must resolve this vertex's own sub-millimetre offset.
+    """
+    doc = bd.ClayDoc()
+    positions = np.array(bp.box().positions)
+    # A vertex at x=1234.5678901, translated by nothing further -- picked so
+    # a six-significant-digit rounding (%.6g -> "1234.57") and a nine-digit
+    # one (%.9g -> "1234.56789") disagree by well over a millimetre.
+    # ``Mesh.__post_init__`` copies and freezes every array it is given, so
+    # the value is set on this array *before* it is handed to ``replace``.
+    positions[0, 0] = np.float32(1234.5678901)
+    box = replace(bp.box(), positions=positions)
+    doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Far", mesh=box))
+
+    obj_text, _ = objexport.claydoc_to_obj(doc)
+    written = float(next(
+        line.split()[1] for line in obj_text.splitlines()
+        if line.startswith("v ") and line.split()[1].startswith("1234.")
+    ))
+    assert abs(written - float(box.positions[0, 0])) < 1e-4, (
+        "the six-significant-digit writer this replaced rounds to the "
+        f"nearest millimetre or coarser; got {written!r}"
+    )
 
 
 def test_a_material_with_a_texture_gets_a_comment_not_a_silent_drop() -> None:

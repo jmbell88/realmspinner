@@ -108,8 +108,8 @@ def test_rail_groups_comment_states_the_real_pipeline_and_workspace_counts():
         f"modes.py's RAIL_GROUP_LABELS comment should say 'these three are "
         f"one pipeline' to match RAIL_GROUPS[0]'s {pipeline_count} entries"
     )
-    assert "these nine are workspaces" in comment, (
-        f"modes.py's RAIL_GROUP_LABELS comment should say 'these nine are "
+    assert "these eight are workspaces" in comment, (
+        f"modes.py's RAIL_GROUP_LABELS comment should say 'these eight are "
         f"workspaces' to match RAIL_GROUPS[1]'s {workspace_count} entries"
     )
 

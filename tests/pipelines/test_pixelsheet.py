@@ -360,6 +360,48 @@ def test_reduced_trim_covers_every_cell_a_non_grid_aligned_source_rect_touches()
     assert doc["cells"][0]["trim"] == {"x": 0, "y": 0, "w": 2, "h": 1}
 
 
+def test_the_sidecar_carries_the_render_grids_additive_keys_through():
+    """The 2026-09-26 audit, finding inker-sheets-02.
+
+    ``pixel_sidecar`` used to build its output from a fixed key list, so a
+    source sheet carrying any of ``sheet.sidecar``'s additive,
+    only-written-when-present keys (``animation``, ``slices_conflict``,
+    ``front_yaw``) lost them on the way to a pixel sidecar -- "restyled"
+    means re-exporting an *existing* sheet, and a derivative file dropping
+    data the original had is the wrong default. None of the three carry pixel
+    geometry, so none need scaling by the reduction factor: they carry
+    straight through.
+    """
+    meta = _meta(columns=2)
+    meta["animation"] = {
+        "frames": [{"cell_index": 0, "duration_ms": 80}],
+        "tags": [{"name": "idle", "start": 0, "end": 0, "loop": True}],
+    }
+    meta["slices_conflict"] = {"0": [1, 2]}
+    meta["front_yaw"] = 15.0
+
+    doc = pixelsheet.pixel_sidecar(
+        meta, image="a.png", logical_size=32, palette=[], recipe={}, created=0.0
+    )
+
+    assert doc["animation"] == meta["animation"]
+    assert doc["slices_conflict"] == meta["slices_conflict"]
+    assert doc["front_yaw"] == 15.0
+
+
+def test_the_sidecar_omits_the_additive_keys_when_the_source_had_none():
+    """The companion to the carry-through test: a plain render sidecar with
+    none of the additive keys must not gain empty ones -- that would be a
+    format change every existing pixel sidecar would have to be re-checked
+    against, the same rule ``sheet.sidecar`` itself states for these keys."""
+    doc = pixelsheet.pixel_sidecar(
+        _meta(), image="a.png", logical_size=32, palette=[], recipe={}, created=0.0
+    )
+    assert "animation" not in doc
+    assert "slices_conflict" not in doc
+    assert "front_yaw" not in doc
+
+
 def test_the_sidecar_carries_the_render_grids_own_version():
     doc = pixelsheet.pixel_sidecar(
         _meta(), image="a.png", logical_size=32, palette=[], recipe={}, created=0.0

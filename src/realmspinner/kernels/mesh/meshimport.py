@@ -74,8 +74,21 @@ def _smooth_from_vertex_normals(
 
 
 def _geometry_mesh(geom: object, material: int = 0) -> bm.Mesh | None:
-    """One trimesh geometry -> one Clay :class:`~.mesh.Mesh`, or ``None`` if empty."""
-    if len(geom.vertices) == 0 or len(geom.faces) == 0:
+    """One trimesh geometry -> one Clay :class:`~.mesh.Mesh`, or ``None`` if empty.
+
+    The 2026-09-26 audit, finding clay-io-12: a PLY with vertices but no
+    ``element face`` at all loads through ``trimesh`` as a
+    :class:`trimesh.points.PointCloud`, not a :class:`trimesh.Trimesh` --
+    and a ``PointCloud`` carries no ``.faces`` attribute whatsoever, so
+    ``geom.faces`` raised a bare, unnamed ``AttributeError`` instead of
+    reaching this function's own "empty geometry" answer. ``getattr`` with a
+    default treats a faceless point cloud exactly like a geometry with zero
+    faces -- ``None`` here, which :func:`mesh_file_to_claydoc`'s caller
+    already turns into its named "this file has no geometry in it" refusal
+    once every geometry in the file has come back empty the same way.
+    """
+    faces = getattr(geom, "faces", None)
+    if len(geom.vertices) == 0 or faces is None or len(faces) == 0:
         return None
     positions = np.asarray(geom.vertices, dtype="f4").reshape(-1, 3)
     tris = np.asarray(geom.faces, dtype="i4").reshape(-1, 3)

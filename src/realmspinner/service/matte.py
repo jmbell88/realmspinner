@@ -225,7 +225,7 @@ def prepare(svc: RealmspinnerService, job_id: str) -> Prepared:
     **The whole body runs under** ``svc.convert_lock(job_id, CUTOUT)``, the
     same lock ``poses.py``/``rig.py`` take around their own staged writes in
     this segment. ``ensure_prepared`` has three independent doors --
-    ``matte_preview.py``'s modal, ``inker_open.py``'s Inker hand-off, and
+    ``matte_preview.py``'s modal, ``modes/inker/opening.py``'s Inker hand-off, and
     ``_jobs_resubmit.py``'s promote/rerun -- and nothing stopped two of them
     from racing this function for the same job_id: the staging temp was a
     *fixed* name (``dest.with_name(f".{dest.name}.tmp")``, unlike

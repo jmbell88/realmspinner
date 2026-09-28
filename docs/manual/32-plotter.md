@@ -89,9 +89,11 @@ instead** to do what it would have done without the detector. It is always a que
 answer applied for you — dark art can rule itself off convincingly, and the second button is there
 for exactly that. Nothing is added to the map until you pick one.
 
-Tilesets are *added*, never removed. Every tile in the map is numbered from the tileset it belongs
-to, so dropping one from the middle would either renumber everything above it — invalidating every
-cell already painted — or leave a hole. Undo takes back a tileset you have only just added.
+The Tileset menu's **Remove this tileset** takes one out of the active map. It is refused, by name,
+while any cell still holds a gid from it: every tile in the map is numbered from the tileset it
+belongs to, so dropping one still in use would either renumber everything above it — invalidating
+every cell already painted — or leave a hole. Erase the tileset's own cells first, or pick a set
+nothing on the map is using, and the row goes through; it is undoable like anything else here.
 
 ### What one tile carries
 
@@ -493,10 +495,10 @@ the set or take it back out, and Shift-dragging a band adds what it sweeps to wh
 selected. Selecting works on a locked layer, exactly as clicking one object always has.
 
 Drag any member of a set and the whole set moves with it, by one offset, so the objects keep their
-spacing. With **Snap objects to** on it is that offset that snaps rather than each object's own
-corner — snapping every member separately would pull the arrangement apart, and could land two
-objects on one cell. The whole group drag is **one undo step**: one Ctrl+Z puts every object back
-where it was, and Delete over the set is one step as well.
+spacing. With the Off/Grid/Pixel snap pills set to anything but Off, it is that offset that snaps
+rather than each object's own corner — snapping every member separately would pull the arrangement
+apart, and could land two objects on one cell. The whole group drag is **one undo step**: one
+Ctrl+Z puts every object back where it was, and Delete over the set is one step as well.
 
 The **Properties** pane says how many objects are selected and offers the two verbs that mean
 something to a set — drag to move, and delete. To edit a name, a class or a custom property, click

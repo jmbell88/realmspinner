@@ -43,6 +43,20 @@ def test_non_numeric_band_is_an_error():
         sweep.parse_bands("wide")
 
 
+def test_a_non_positive_band_is_an_error():
+    """The 2026-09-26 audit, finding create-workspace-08: a non-positive band
+    (0, or a stray negative left in a saved sweep command) used to sail
+    through here and only fail once, minutes into a GPU sweep, inside the
+    trellis-server exe itself -- with an error that never named the actual bad
+    input."""
+    with pytest.raises(ValueError):
+        sweep.parse_bands("0")
+    with pytest.raises(ValueError):
+        sweep.parse_bands("-2")
+    with pytest.raises(ValueError):
+        sweep.parse_bands("auto,4,0")
+
+
 def test_default_ladder_includes_the_baseline():
     assert sweep.parse_bands(sweep.DEFAULT_BANDS)[0] is None
 
@@ -183,3 +197,37 @@ def test_missing_reference_image_aborts_before_any_gpu_work(tmp_path):
                 audit_resolution=256,
             )
         )
+
+
+def test_a_directory_reference_image_is_refused_like_a_missing_one(tmp_path):
+    """The 2026-09-26 audit, finding create-workspace-08: ``image.exists()``
+    is also true for a directory, which would run the whole sweep (several
+    minutes of GPU time) before ``TrellisServer.generate`` ever got around to
+    failing on a path that was never an image."""
+    config = Config(data_dir=tmp_path, db_path=tmp_path / "jobs.sqlite")
+    a_directory = tmp_path / "not_an_image.png"
+    a_directory.mkdir()
+    with pytest.raises(SystemExit, match="not found"):
+        asyncio.run(
+            sweep.sweep(
+                config,
+                a_directory,
+                [None],
+                tmp_path / "out",
+                seed=1,
+                resolution=512,
+                audit_resolution=256,
+            )
+        )
+
+
+def test_print_table_does_not_cite_a_gitignored_dev_document(capsys):
+    """The 2026-09-26 audit, finding create-workspace-08: ``realmspinner
+    sweep`` is a shipped command, not dev-only tooling, but its own output
+    used to point the reader at ``dev/measurements/2026-08-09-rebaseline.md``
+    -- a path gitignored under ``dev/`` that a public clone of this repo never
+    has."""
+    rows = [{"band": "auto", "worst": 0.0, "mean": 0.0, "faces": 1, "seconds": 1.0}]
+    sweep.print_table(rows, 1024)
+    out = capsys.readouterr().out
+    assert "dev/" not in out

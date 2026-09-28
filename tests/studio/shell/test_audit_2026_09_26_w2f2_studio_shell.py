@@ -78,6 +78,14 @@ class _App:
     def _request_storage(self, job_id: Any = None) -> None:
         self.app_ctx.submit("storage" if job_id is None else f"storage:{job_id}")
 
+    def _request_verify(self) -> None:
+        # A bare stand-in for ``TasksMixin._request_verify`` (shell-shell-
+        # pkg-03, the 2026-09-26 audit): the ``pack:``/``download:``/
+        # ``remove:`` branches this fixture exercises call it now, and
+        # ``_Ctx.submit`` above always accepts, so there is nothing here for
+        # this file's own findings to test against.
+        self.app_ctx.submit("verify-install")
+
 
 @pytest.fixture(autouse=True)
 def _clean_flags():

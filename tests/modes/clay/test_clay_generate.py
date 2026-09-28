@@ -379,10 +379,102 @@ def test_a_generated_mesh_past_slow_triangles_asks_first(tmp_path, monkeypatch):
     assert ctx.confirms.pending is not None
     assert "999,999" in ctx.confirms.pending.message
     assert len(tab.doc.objects) == 1, "not landed yet"
-    assert ctx.state.clay.generate_pending is None, "only the confirm is left to answer"
+    # clay-mode-02 (the 2026-09-26 audit): this used to be ``None`` -- the
+    # request was cleared *before* the question was even asked -- which is
+    # exactly what let a mid-save/mid-drag defer silently drop the mesh, or a
+    # second Generate press start underneath the still-open confirm. See
+    # ``test_answering_add_anyway_while_the_tab_is_now_saving_defers_instead_
+    # of_dropping_the_mesh`` and ``test_a_confirm_still_pending_refuses_a_
+    # second_generate_press_on_the_same_tab`` below for the failure modes
+    # this alone does not cover.
+    pending = ctx.state.clay.generate_pending
+    assert pending is not None, "the request must stay alive until the confirm resolves"
+    assert pending["stage"] == "landing"
 
     ctx.confirms.pending.on_confirm()
     assert len(tab.doc.objects) == 2, "confirming lands it"
+    assert ctx.state.clay.generate_pending is None, "cleared once it actually lands"
+
+
+def test_answering_add_anyway_while_the_tab_is_now_saving_defers_instead_of_dropping_the_mesh(
+    tmp_path, monkeypatch
+):
+    """clay-mode-02 (the 2026-09-26 audit): ``land()`` used to clear
+    ``generate_pending`` before ever asking "Add this to the document?", so a
+    save that started while the question was still on screen found nothing in
+    ``generate_pending`` for the busy branch to defer against -- its own guard
+    (``pending is not None and pending.get("tab_uid") == tab_uid``) silently
+    no-opped, and the generated mesh was dropped with no toast, no error, and
+    no trace in the document."""
+    incoming = _small_incoming_doc()
+
+    def fake_decode(svc, job_id, tab_uid, group_name):
+        return {
+            "tab_uid": tab_uid,
+            "doc": incoming,
+            "triangles": 999_999,
+            "incoming_bytes": 10,
+            "group_name": group_name,
+        }
+
+    monkeypatch.setattr(clay_generate, "_decode_landing", fake_decode)
+    ctx = _Ctx(tmp_path)
+    tab = _tab(ctx)
+    _through_mesh_queued(ctx, tab, monkeypatch, lambda svc, job_id, **kw: {"id": "mesh1"})
+    ctx.svc.store.jobs["mesh1"] = {"status": "done"}
+    clay_generate.poll(ctx)
+    ctx.land_all()
+    confirm = ctx.confirms.pending
+    assert confirm is not None
+
+    # A save starts while the question is still on screen.
+    tab.saving = True
+    confirm.on_confirm()
+
+    assert len(tab.doc.objects) == 1, "must not merge into a document a save is still encoding"
+    pending = ctx.state.clay.generate_pending
+    assert pending is not None, "the mesh must not be dropped -- it has to wait for the save"
+    assert pending.get("deferred") is not None
+
+    tab.saving = False
+    clay_generate.poll(ctx)
+
+    assert len(tab.doc.objects) == 2, "landed once the save that was in the way finished"
+    assert ctx.state.clay.generate_pending is None
+
+
+def test_a_confirm_still_pending_refuses_a_second_generate_press_on_the_same_tab(
+    tmp_path, monkeypatch
+):
+    """clay-mode-02's other half: before this fix, clearing
+    ``generate_pending`` before asking "Add this to the document?" also let a
+    *second* Generate press start on the same tab while the first one's
+    question was still on screen -- and once answered, the stale confirm's
+    ``land()`` call had nothing telling it apart from the request that
+    replaced it, so it merged the old mesh and then cleared the newer
+    request's own pending state out from under it."""
+    incoming = _small_incoming_doc()
+
+    def fake_decode(svc, job_id, tab_uid, group_name):
+        return {
+            "tab_uid": tab_uid,
+            "doc": incoming,
+            "triangles": 999_999,
+            "incoming_bytes": 10,
+            "group_name": group_name,
+        }
+
+    monkeypatch.setattr(clay_generate, "_decode_landing", fake_decode)
+    ctx = _Ctx(tmp_path)
+    tab = _tab(ctx)
+    _through_mesh_queued(ctx, tab, monkeypatch, lambda svc, job_id, **kw: {"id": "mesh1"})
+    ctx.svc.store.jobs["mesh1"] = {"status": "done"}
+    clay_generate.poll(ctx)
+    ctx.land_all()
+    assert ctx.confirms.pending is not None
+
+    assert clay_generate.submit_text(ctx, tab, "a second barrel") is False
+    assert any("already under way" in m for m, _ in ctx.toasts)
 
 
 def test_confirming_after_the_tab_closed_refuses(tmp_path, monkeypatch):
@@ -470,3 +562,102 @@ def test_the_generate_poll_reads_model_glb_only_on_a_task_thread(tmp_path, monke
 
     assert threads == [WORKER], "still only the one read"
     assert len(tab.doc.objects) == 2
+
+
+# --- clay-mode-03: a stale task must not act on the request that replaced it -
+
+
+def test_a_stale_reference_task_from_a_cancelled_request_does_not_overwrite_a_newer_request(
+    tmp_path, monkeypatch
+):
+    """The 2026-09-26 audit, finding clay-mode-03: ``_queued``'s stale-task
+    guard compared only the tab uid carried in a task's own key. That is
+    enough to tell two *different* tabs apart (the 2026-09-23b audit's own
+    regression, ``test_audit_2026_09_23b_generate_agent.py``'s ``test_a_
+    stale_queued_task_from_a_cancelled_tab_does_not_overwrite_a_newer_tabs_
+    pending_job_id``), but cancelling and regenerating on the *same* tab
+    reuses that uid -- so a reference job still queued from the cancelled
+    request could still land its job id into the request that replaced it, on
+    the very tab whose stale task this is supposed to be told apart from.
+    """
+    from realmspinner.service import jobs as svc_jobs
+
+    ids = iter(["stale-ref", "live-ref"])
+    monkeypatch.setattr(svc_jobs, "create_job", lambda svc, **kw: {"id": next(ids)})
+    ctx = _Ctx(tmp_path)
+    tab = _tab(ctx)
+
+    assert clay_generate.submit_text(ctx, tab, "a wooden barrel") is True
+    stale_key = ctx.submitted[-1]
+    # The task above is queued but never landed -- "still queued when Cancel
+    # was pressed" (``_landed``'s own docstring), one stage earlier. The real
+    # task runner's own key-dedupe would otherwise refuse a second submit
+    # under the same key before this fix (both requests reused the bare
+    # ``clay-gen-ref:<tab uid>``, with nothing to tell them apart) -- freeing
+    # the slot by hand here is what a real pool does once the stale task's
+    # own run actually finishes, whether or not its result has been drained
+    # onto the frame thread yet.
+    ctx._busy.discard(stale_key)
+    clay_generate.cancel(ctx, tab)
+    assert ctx.state.clay.generate_pending is None
+
+    assert clay_generate.submit_text(ctx, tab, "a clay pot") is True
+    live_key = ctx.submitted[-1]
+    assert live_key != stale_key, "each request must get a task key of its own"
+
+    def _land_one(key: str) -> None:
+        for i, done in enumerate(ctx._queue):
+            if done.key == key:
+                ctx._queue.pop(i)
+                ctx._busy.discard(key)
+                clay_mode.on_task_done(ctx, done)
+                return
+        raise AssertionError(f"no queued task for {key}")
+
+    # The *live* task lands first, exactly as it would ordinarily.
+    _land_one(live_key)
+    pending = ctx.state.clay.generate_pending
+    assert pending is not None and pending["reference_job_id"] == "live-ref"
+
+    # The *stale* task -- from the cancelled request, still in flight -- lands
+    # after it. Before this fix it named the same tab uid and overwrote the
+    # live request's job id with the stale one.
+    _land_one(stale_key)
+    pending = ctx.state.clay.generate_pending
+    assert pending is not None and pending["reference_job_id"] == "live-ref", (
+        "a stale task from a cancelled request must not overwrite the request that replaced it"
+    )
+
+
+# --- clay-mode-04: the active tab's camera stays live between switches ------
+
+
+def test_poll_syncs_the_active_tabs_stored_camera_every_frame(tmp_path):
+    """The 2026-09-26 audit, finding clay-mode-04: ``tab.view`` -- what
+    ``_journal_encode`` autosaves -- used to sync from the live viewport only
+    at an explicit save/export or at ``ui/viewport.py``'s own tab-switch
+    handoff, so a crash while the user was still freely orbiting the camera
+    recovered wherever the tab last switched in, not where the camera
+    actually was. ``poll`` is what ``viewport.py`` already calls
+    unconditionally on every frame Clay is drawn (this module's own
+    docstring), so it is where the fix keeps the active tab's stored camera
+    live instead.
+    """
+    from types import SimpleNamespace
+
+    ctx = _Ctx(tmp_path)
+    tab = _tab(ctx)
+    ctx.state.clay.activate(tab.uid)
+    camera = SimpleNamespace(theta=0.1, phi=0.2, distance=3.0, target=(0.0, 0.0, 0.0))
+    ctx.clay_view = SimpleNamespace(camera=camera)
+
+    camera.theta = 1.23
+    camera.phi = 0.45
+    camera.distance = 9.0
+    camera.target = (1.0, 2.0, 3.0)
+    clay_generate.poll(ctx)
+
+    assert tab.view.yaw == pytest.approx(1.23)
+    assert tab.view.pitch == pytest.approx(0.45)
+    assert tab.view.distance == pytest.approx(9.0)
+    assert tab.view.target == (1.0, 2.0, 3.0)

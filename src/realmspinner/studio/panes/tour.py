@@ -177,9 +177,23 @@ def _count(arg: str | None) -> int | None:
 #: Memoises :func:`_notes` on the song's edit generation, keyed by document
 #: identity so switching tabs does not read a stale count. A single entry --
 #: the tour only ever has one active step -- cleared whenever the key
-#: changes rather than grown, so a document that is closed and its id reused
-#: cannot serve a stale hit either.
-_notes_cache: tuple[int, int, int] | None = None
+#: changes rather than grown.
+#:
+#: The identity half of the key is ``tab.uid``, not ``id(doc)`` -- the
+#: 2026-09-26 audit, finding tour-1-02: ``id()`` is a memory address, and
+#: CPython freely reuses one once the object it named has been
+#: garbage-collected. The old ``(id(doc), history.head)`` key trusted that a
+#: live document's address was never reused, but the moment it was -- a tab
+#: closed, its ``SongDoc`` collected, and a *different*, later document
+#: allocated at the same address with the same ``history.head`` (plausible: a
+#: fresh document starts its undo stack at the same small head values every
+#: time) -- ``satisfied()`` would serve the previous song's cached note count
+#: for the new one. ``SongTab.uid`` is minted from a module-level counter
+#: (``sirens/state.py``'s ``_uids``) that only ever climbs for the life of the
+#: process, so it is exactly the "explicit per-document uid the codebase
+#: already has" this needed: unlike an address, one is never handed out
+#: twice, so a later tab can never inherit an earlier one's cache row.
+_notes_cache: tuple[Any, int, int] | None = None
 
 
 def _notes(ctx: Any) -> int:
@@ -193,13 +207,14 @@ def _notes(ctx: Any) -> int:
     ``sfx_at_least``'s rule, and its reason: a traceback in the frame loop is
     worse than a tour that will not advance.
 
-    Memoised on ``(id(doc), doc.history.head)`` -- the 2026-09-23 audit
+    Memoised on ``(identity, doc.history.head)`` -- the 2026-09-23 audit
     (tour-02) found this ran an unmemoised numpy pass over every pattern in
     the whole song, every single frame, for as long as a Sirens tour step
     showing "notes_at_least" stayed on screen. ``history.head`` moves on
     every push, undo and redo, so it is the song's edit generation for free;
     a frame that changes nothing about the song now costs a dict lookup
-    instead of a full re-scan.
+    instead of a full re-scan. See :data:`_notes_cache` for what ``identity``
+    is and why it is not ``id(doc)``.
     """
     global _notes_cache
     sirens = getattr(ctx.state, "sirens", None)
@@ -214,8 +229,17 @@ def _notes(ctx: Any) -> int:
     # through to an uncached scan there, rather than caching on a made-up
     # key, keeps this an optimisation and not a second place that has to
     # agree with what "the same song" means.
+    #
+    # ``tab.uid`` over ``id(doc)`` for the identity half: a real ``SongTab``
+    # always carries one and it is never reused (see :data:`_notes_cache`).
+    # Only a hand-built test double lacks it, and ``id(doc)`` is still
+    # correct *there* -- the object is alive for the whole test, so its
+    # address cannot repeat mid-test the way a real closed-and-collected
+    # document's could in the running app.
+    uid = getattr(tab, "uid", None)
+    identity = uid if uid else id(doc)
     if head is not None:
-        key = (id(doc), int(head))
+        key = (identity, int(head))
         if _notes_cache is not None and _notes_cache[:2] == key:
             return _notes_cache[2]
     else:

@@ -33,6 +33,17 @@ class EditState:
     open: bool = False
     #: The slot being dragged, or "".
     dragging: str = ""
+    #: The column ``dragging`` was picked up from, or "". The 2026-09-26
+    #: audit, finding shell-documents-03: ``_commit`` used to accept a drop
+    #: into any column under the mouse, including one the slot did not come
+    #: from, and persist it there -- but ``reconcile`` filters a stored id
+    #: against *that* column's own built-in set, so the moved id was dropped
+    #: from the column it landed in and reinserted at its original built-in
+    #: position in the column it left, on the very next load. The drop looked
+    #: accepted and silently undid itself, while still overwriting the source
+    #: column's saved order. Recorded here so ``_commit`` can refuse a
+    #: cross-column drop instead of accepting one ``reconcile`` will undo.
+    dragging_column: str = ""
     #: Where it would land: ``(column_id, index)``, or None.
     target: tuple[str, int] | None = None
     #: The active layout's hidden slots for the open workspace, mirrored from
@@ -81,6 +92,7 @@ def toggle(state: Any) -> None:
     edit = ensure(state)
     edit.open = not edit.open
     edit.dragging = ""
+    edit.dragging_column = ""
     edit.target = None
 
 
@@ -126,6 +138,7 @@ def draw(app: Any, ctx: Any, viewport: Any) -> None:
     draw_list = imgui.get_foreground_draw_list()
     mouse = imgui.get_mouse_pos()
     hovered = ""
+    hovered_column = ""
     toggled = False
     for column in columns.values():
         for slot in column.live(ctx):
@@ -194,8 +207,12 @@ def draw(app: Any, ctx: Any, viewport: Any) -> None:
                     toggled = True
             if inside and slot.movable and not badge_hit:
                 hovered = slot.id
+                hovered_column = column.id
     if imgui.is_mouse_clicked(0) and hovered:
         edit.dragging = hovered
+        # shell-documents-03: recorded so ``_commit`` can tell a reorder
+        # within this column from a drop onto another one.
+        edit.dragging_column = hovered_column
     if edit.dragging and not imgui.is_mouse_down(0):
         _commit(app, ctx, columns, edit, mouse)
         edit.dragging = ""
@@ -271,6 +288,20 @@ def _commit(app: Any, ctx: Any, columns: Any, edit: EditState, mouse: Any) -> No
         width = live[0][1][2]
         if not (x <= mouse.x < x + width):
             continue
+        if edit.dragging_column and column.id != edit.dragging_column:
+            # The 2026-09-26 audit, finding shell-documents-03: a drop onto a
+            # column the slot did not come from used to be accepted and
+            # persisted here, but ``layouts.Library.order`` reconciles a
+            # stored id against *that* column's own built-in set
+            # (``skeletons.ordered`` -> ``reconcile``), which drops an id
+            # that column never natively owned -- so the pane vanished from
+            # where it landed and reappeared at its built-in position in the
+            # column it left, on the very next load, while the source
+            # column's saved order had already been overwritten to remove
+            # it. Refusing the drop outright is the safer, less invasive
+            # fix: the pane stays exactly where it started and nothing is
+            # rewritten.
+            return
         index = drop_index(live, mouse.y)
         order = moved([slot for slot, _rect in live], edit.dragging, index)
         arrangement = {

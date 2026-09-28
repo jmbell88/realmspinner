@@ -84,10 +84,13 @@ class _Cache:
 
 
 class _Done:
-    def __init__(self, key: str, result: Any = None, *, tag: Any = None) -> None:
+    def __init__(
+        self, key: str, result: Any = None, *, tag: Any = None, message: str = ""
+    ) -> None:
         self.key = key
         self.result = result
         self.tag = tag
+        self.message = message
 
 
 def _tab(ctx: FakeCtx, *, dirty: bool = False) -> clay_state.ClayTab:
@@ -238,6 +241,53 @@ def test_check_readiness_head_is_captured_before_the_task_runs(svc) -> None:
 
     assert tab.readiness_head == head_before
     assert tab.readiness_head != tab.doc.history.head
+
+
+def test_a_failed_readiness_check_does_not_touch_saving_or_bg_busy(svc) -> None:
+    """The 2026-09-26 audit, finding clay-mode-01: a failed ``clay-readiness``
+    task used to fall into ``on_task_failed``'s generic tail, which
+    unconditionally clears both ``saving`` and ``bg_busy`` on the tab -- flags
+    ``check_readiness`` never sets in the first place (it owns neither). A
+    refused readiness check (``readiness.MAX_VALIDATE_OBJECTS``) must not be
+    what makes a save genuinely still in flight on the same tab look
+    finished. (The branch also records ``readiness_error`` -- clay-panes-08,
+    the same audit -- which is not this finding's own concern; this only
+    pins that ``saving``/``bg_busy`` stay untouched either way.)"""
+    ctx = FakeCtx(svc)
+    tab = _tab(ctx)
+    tab.saving = True
+    tab.bg_busy = "Saving..."
+
+    clay_mode.on_task_failed(ctx, _Done(f"clay-readiness:{tab.uid}", message="too many objects"))
+
+    assert tab.saving is True, "a refused readiness check must not unlock a tab mid-save"
+    assert tab.bg_busy == "Saving...", "nor clear a background-busy hint it never set"
+
+
+def test_check_readiness_validates_a_snapshot_not_the_live_documents_cache(svc) -> None:
+    """clay-mesh-model-09 (the 2026-09-26 audit): ``readiness.validate``
+    reaches ``doc.evaluated`` for every visible object, which -- on a cache
+    miss -- writes ``doc._evaluated`` (``modifiers.py``'s own cache) as a side
+    effect. This task's closure runs on a pool thread while the frame thread
+    can be editing the very same document, so before this fix a readiness
+    check wrote into the *live* document's cache from off the frame thread --
+    a genuine data race, not merely a stale read. A mirror modifier is what
+    makes the write observable: a bare box's fast path (no enabled modifiers)
+    never touches the cache at all, live document or not."""
+    from realmspinner.kernels.mesh import modifiers as mod
+
+    ctx = FakeCtx(svc)
+    tab = _tab(ctx)
+    uid = tab.doc.objects[0].uid
+    tab.doc.set_modifiers(uid, (mod.make("mirror", {}, id=1),))
+    assert tab.doc._evaluated == {}, "not yet evaluated"
+
+    clay_mode.check_readiness(ctx, tab, "godot-desktop")
+
+    assert tab.doc._evaluated == {}, (
+        "a readiness check running on a pool thread must not write the live "
+        "document's own evaluation cache -- it has to validate a private copy"
+    )
 
 
 # --- keys --------------------------------------------------------------------
@@ -914,6 +964,42 @@ def test_editing_an_asset_with_no_mesh_raises_rather_than_opening_nothing(
     ctx = FakeCtx(_ImportSvc(tmp_path))
     with pytest.raises(FileNotFoundError):
         clay_mode.edit_asset_in_clay(ctx, {"id": "0123456789ef", "name": "Empty"})
+
+
+def test_editing_an_asset_with_a_directory_named_like_the_sidecar_falls_back_to_the_mesh(
+    tmp_path: Path,
+) -> None:
+    """The 2026-09-26 audit, finding clay-mode-06: ``edit_asset_in_clay``
+    gated the sidecar on ``.exists()``, which a directory satisfies as
+    readily as a file -- so a ``build.rblk`` that happened to be a directory
+    was handed straight to ``_load``, which tried to read it as a file and
+    raised whatever the OS calls that, instead of falling back to
+    ``model.glb`` the way a sidecar that simply does not exist already does.
+    """
+    job_dir = tmp_path / "0123456789fa"
+    job_dir.mkdir(parents=True)
+    (job_dir / "model.glb").write_bytes(_glb_bytes())
+    (job_dir / "build.rblk").mkdir()  # a directory, not the sidecar it names
+
+    ctx = FakeCtx(_ImportSvc(tmp_path))
+    clay_mode.edit_asset_in_clay(ctx, {"id": "0123456789fa", "name": "Job Three"})
+
+    assert ctx.result["title"] == "Job Three", "fell back to the served mesh"
+
+
+def test_editing_an_asset_with_a_directory_named_like_the_mesh_is_refused_by_name(
+    tmp_path: Path,
+) -> None:
+    """clay-mode-06's other half: the same ``.exists()`` gate on ``model.glb``
+    let a directory pass too, so the named ``FileNotFoundError`` refusal below
+    it never fired -- the read failed with an unrelated OS error instead."""
+    job_dir = tmp_path / "0123456789fb"
+    job_dir.mkdir(parents=True)
+    (job_dir / "model.glb").mkdir()
+
+    ctx = FakeCtx(_ImportSvc(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        clay_mode.edit_asset_in_clay(ctx, {"id": "0123456789fb", "name": "Job Four"})
 
 
 # --- adoption switches modes through set_mode (H14) --------------------------

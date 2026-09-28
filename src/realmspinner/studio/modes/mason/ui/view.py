@@ -861,7 +861,7 @@ class MasonView(FrameOps):
             terrain_world=terrain_world,
         )
 
-    def _drop_point(self, doc: Any, source: Any, local: tuple[float, float]) -> np.ndarray:
+    def drop_point(self, doc: Any, source: Any, local: tuple[float, float]) -> np.ndarray:
         """Where a click in the viewport means, in world metres.
 
         What the ray hits, if it hits anything -- so a prop drops onto the
@@ -875,6 +875,13 @@ class MasonView(FrameOps):
         ``ops.snap_translation`` rather than arithmetic here -- the same rule the
         Tools pane follows for align and array: this file decides *whether*, the
         engine decides *where*.
+
+        **Public** rather than ``_drop_point`` -- the 2026-09-26 audit's
+        finding mason-mode-06: a library row's drag-and-drop payload
+        (``library.DRAG_MESH``) had nowhere in the app that accepted it.
+        ``ui/viewport.py``'s new drop-target code, outside this class, needs
+        exactly this same "where does this point mean, in world metres"
+        answer a viewport click already gets through :meth:`_press`.
         """
         hit = self.pick(doc, source, local)
         if hit is not None:
@@ -1113,7 +1120,7 @@ class MasonView(FrameOps):
             # which undo step -- is ``mason_mode``'s, and this module does not
             # import the controller (``clay_view`` does not either). The pane
             # drains this the way it already drains ``menu_request``.
-            self.place_request = self._drop_point(doc, source, local)
+            self.place_request = self.drop_point(doc, source, local)
             return True
 
         origin, direction = self._ray(local)

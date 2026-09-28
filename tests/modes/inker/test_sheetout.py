@@ -1523,6 +1523,22 @@ def test_a_template_with_a_stray_brace_is_refused_not_crashed():
         sheetout.filename_for("{title", title="walk")
 
 
+def test_a_format_spec_on_a_filename_key_is_refused_not_applied():
+    """The 2026-09-26 audit, finding inker-sheets-04.
+
+    ``FILENAME_KEYS`` is a fixed, permitted vocabulary of substitutions, not an
+    invitation to the rest of ``str.format``'s own mini-language: a spec is
+    arbitrary width and alignment, so ``{title:>5000000}`` used to pad the
+    title out to a five-million-character filename before either
+    ``reserved_check`` or ``containment_check`` (neither of which bounds
+    length) ever saw it. A conversion (``{title!r}``) is refused the same way.
+    """
+    with pytest.raises(ValueError, match="format spec"):
+        sheetout.filename_for("{title:>5000000}", title="walk")
+    with pytest.raises(ValueError, match="conversion"):
+        sheetout.filename_for("{title!r}", title="walk")
+
+
 def test_sanitize_stem_is_the_rule_filename_for_applies_to_tag_and_layer():
     assert sheetout.sanitize_stem("A/B*C? swing") == "A-B-C-swing"
     assert sheetout.sanitize_stem("///") == ""
@@ -1602,3 +1618,35 @@ def test_the_flatten_matte_never_reaches_a_sheet_cell():
     assert np.array_equal(off_one, on_one)
     # And they are genuinely transparent, not merely equal to each other.
     assert int(on_planes[0][0, 0, 3]) == 0
+
+
+def test_timing_clamps_a_whole_export_tag_that_outran_a_frame_delete():
+    """The 2026-09-26 audit, finding inker-sheets-01.
+
+    ``Document.remove_frame`` never touches ``anim.tags`` on any of this
+    format's frame-list-shrinking paths, so a tag that once spanned the whole
+    timeline can end up naming a frame index past the new last one.
+    ``timing``'s partial-span branch already ran ``rebase_tags`` to clamp
+    exactly this staleness; the whole-timeline branch used to write
+    ``list(anim.tags)`` straight through instead, on the theory that nothing
+    needs remapping when every frame survives -- true of the *positions*, not
+    of an ``end`` that outlived the frame it named.
+    """
+    doc = Document.blank(4, 4)
+    doc.ensure_animation()
+    doc.add_frame()
+    doc.add_frame()
+    doc.add_frame()
+    assert len(doc.anim.frames) == 4
+    assert doc.add_tag("walk", start=0, end=3)
+
+    assert doc.remove_frame(3)
+    assert doc.remove_frame(2)
+    assert len(doc.anim.frames) == 2
+    # Nothing clamped it on the way down -- the sidecar bug this guards.
+    assert doc.anim.tags[0].end == 3
+
+    _durations, tags, _layout = sheetout.timing(doc)
+
+    assert tags[0].start == 0
+    assert tags[0].end == 1

@@ -45,6 +45,31 @@ BRIDGE_FLOOR = 190.0
 #: string rather than two copies drifting apart.
 _BUSY_WHY = "This song is being written; the button comes back when it lands."
 
+#: *Closeness*'s label, range and hint, for :func:`_closeness`.
+#:
+#: The 2026-09-26 audit, finding sirens-panes-03: this used to be a
+#: function-scoped ``from ....muse.ui.panes.results import DERIVE_FIELDS``,
+#: reaching into Muse's results pane for its ``"ref_audio_strength"`` row at
+#: draw time. Being function-scoped kept it outside ``tests/test_layering.py``'s
+#: AST walk (which only sees module-scope imports), but it was never the
+#: escape hatch that scope buys -- that hatch is for *calling a sibling mode's
+#: door by name* (``muse_mode.ensure``/``compose_from_sirens``, both still
+#: used below), not for importing a hard-coded shape onto a sibling's internal
+#: data table and indexing it by string key. Vendored here rather than moved
+#: to a shared module: Muse's ``DERIVE_FIELDS`` carries four other rows
+#: (``retake_variance``, ``extend_left``/``extend_right``,
+#: ``repaint_start``/``repaint_end``) that belong to its own "Make more" menu
+#: and have no Sirens counterpart, so the table as a whole is not shared,
+#: generic data -- only this one row is. If Muse's own bound on this knob ever
+#: moves, this is the second place that has to move with it.
+_CLOSENESS: tuple[str, float, float | None, str] = (
+    "Closeness",
+    0.0,
+    0.9,
+    "How near the reference to stay. Past about 0.95 the model takes no"
+    " sampling steps at all, which the door refuses.",
+)
+
 
 def export_reason(ready: bool, busy: bool) -> str:
     """"Export audio..."'s disabled reason, in priority order. -> "" when the
@@ -211,9 +236,8 @@ def _closeness(ctx: Any) -> None:
     different job, which is a documentation bug whether or not this ships.
     """
     from ....muse import mode as muse_mode
-    from ....muse.ui.panes.results import DERIVE_FIELDS
 
-    label, low, high, hint = DERIVE_FIELDS["ref_audio_strength"]
+    label, low, high, hint = _CLOSENESS
     state = muse_mode.ensure(ctx)
     _, state.compose_strength = widgets.labeled_slider_float(
         label, float(state.compose_strength), low, high, help_text=hint

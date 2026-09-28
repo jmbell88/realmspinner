@@ -18,7 +18,9 @@ that, given the object's world matrix (``doc.world_matrix``); it is also what
 not re-derive the math.
 
 **Deterministic, by construction rather than by promise.** Every number is
-formatted the same way every time (``%.6g``), objects and materials are
+formatted the same way every time (``%.9g`` -- the 2026-09-26 audit's
+clay-io-13 widened this from ``%.6g``, which lost precision below about a
+millimetre at a real-world, kilometre-scale level), objects and materials are
 written in the document's own list order, and a face's corners are written in
 the mesh's own order -- nothing here sorts by a dict's iteration order or a
 set's. Two calls over an unchanged document produce byte-identical text.
@@ -95,7 +97,16 @@ def collider_export_names(doc: ClayDoc, engine: str) -> dict[int, str]:
 
 
 def _num(x: float) -> str:
-    return f"{float(x):.6g}"
+    # The 2026-09-26 audit, finding clay-io-13: ``%.6g`` keeps only six
+    # significant digits, so a coordinate around 1000 (a real-world scale in
+    # metres, a kilometre-scale outdoor level) loses precision below about a
+    # millimetre, and a coordinate around 1e5 loses precision below about a
+    # centimetre -- a corner that round-trips a comfortably visible amount
+    # away from where it started. ``%.9g`` keeps a float32's own ~7.2
+    # significant decimal digits with a full digit of headroom, so a
+    # round trip through this writer loses nothing an ``f4`` position did not
+    # already lack.
+    return f"{float(x):.9g}"
 
 
 def _slot_name(index: int) -> str:

@@ -149,7 +149,13 @@ def sync_mark(tab: Any) -> None:
     One cel copy when the playhead or the active track moves, and an integer
     compare otherwise. Only on a sheet document -- an ordinary animation pays
     nothing for a feature it cannot use.
+
+    Bumps ``sheet_tick`` unconditionally, sheet document or not: it is
+    :func:`mark_weight`'s cache-busting clock (the 2026-09-26 audit, finding
+    inker-mode-19), and ``draw_strip`` calls this once at the top of every
+    frame it draws, before the row it gates asks its questions.
     """
+    tab.sheet_tick = getattr(tab, "sheet_tick", 0) + 1
     if not is_sheet(tab):
         tab.sheet_mark = None
         return
@@ -164,14 +170,38 @@ def sync_mark(tab: Any) -> None:
 
 def mark_weight(tab: Any) -> np.ndarray | None:
     """The pixels changed since the mark, narrowed by the selection if there
-    is one. None when there is no mark or nothing changed."""
+    is one. None when there is no mark or nothing changed.
+
+    The full-cel diff is cached per ``sheet_tick`` -- the 2026-09-26 audit,
+    finding inker-mode-19: ``can_propagate`` and ``propagate_reason`` each
+    called straight through to ``mirror.changed_weight``, so a single
+    disabled-row check (a control's ``enabled``, then its greyed ``reason`` --
+    what ``ui/panes/sheet.py``'s ``_press`` does on every draw) diffed the
+    whole cel twice, on every frame the row was drawn disabled -- the common
+    case, since most sheet cells carry no mark. ``sync_mark`` bumps the tick
+    once at the top of that same draw, so the two calls that make up one
+    check share a tick and reuse one diff; a frame where a dab actually
+    landed still gets a fresh one, because ``sync_mark`` runs again before it.
+    Keyed on ``id(mark)`` rather than the ``(track, frame)`` pair the mark
+    carries: a re-mark onto the *same* cell (``propagate``'s own re-mark after
+    a successful send) replaces the tuple without moving the tick, and the
+    stale cache would otherwise answer for a mark that no longer exists.
+    Selection narrowing stays uncached below -- a mask can change without
+    moving the tick, since selecting is not itself a sheet edit.
+    """
     mark = getattr(tab, "sheet_mark", None)
     found = _cel_pixels(tab)
     if mark is None or found is None or (mark[0], mark[1]) != (found[0], found[1]):
         return None
     if mark[2].shape != found[2].shape:
         return None
-    weight = mirror.changed_weight(mark[2], found[2])
+    key = (getattr(tab, "sheet_tick", 0), id(mark))
+    cached = getattr(tab, "sheet_diff_cache", None)
+    if cached is not None and cached[0] == key:
+        weight = cached[1]
+    else:
+        weight = mirror.changed_weight(mark[2], found[2])
+        tab.sheet_diff_cache = (key, weight)
     if weight is None:
         return None
     doc = _doc(tab)
